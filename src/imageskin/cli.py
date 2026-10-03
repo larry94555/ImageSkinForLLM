@@ -10,6 +10,7 @@ from imageskin import __version__
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, load_settings
 from imageskin.logging_setup import setup_logging
+from imageskin.voice import VoiceError, voice_for_sample, write_speech
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,31 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_TIMEOUT_S,
         help="seconds allowed to convert each recording",
     )
+    say = commands.add_parser(
+        "say", help="speak text in the voice cloned from a voice sample (uses ElevenLabs)"
+    )
+    say.add_argument("text", help="what to say")
+    say.add_argument("--voice", type=Path, required=True, help="voice sample WAV")
+    say.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("speech.wav"),
+        help="WAV file to write; word timings go next to it as .json",
+    )
     return parser
+
+
+def say(text: str, voice: Path, output: Path) -> float:
+    from imageskin.elevenlabs import ElevenLabsEngine
+
+    engine = ElevenLabsEngine.from_env()
+    voice_id = voice_for_sample(engine, voice)
+    speech = engine.speak(voice_id, text)
+    try:
+        return write_speech(speech, output, output.with_suffix(".json"))
+    except OSError as e:
+        raise VoiceError(f"could not write {output}: {e}") from e
 
 
 def serve(host: str, port: int) -> None:
@@ -67,6 +92,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             logger.error("Could not make voice sample", extra={"error": str(e)})
             return 1
         print(f"Wrote {args.output} ({seconds:.1f} seconds from {len(args.recordings)} recordings)")
+        return 0
+    if args.command == "say":
+        try:
+            seconds = say(args.text, args.voice, args.output)
+        except VoiceError as e:
+            logger.error("Could not speak text", extra={"error": str(e)})
+            return 1
+        timings = args.output.with_suffix(".json")
+        print(f"Wrote {args.output} ({seconds:.1f} seconds) and word timings to {timings}")
         return 0
     parser.print_help()
     return 0

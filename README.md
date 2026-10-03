@@ -69,3 +69,32 @@ Play the result to check it:
 - Windows PowerShell: `Invoke-Item voice-sample.wav`
 - macOS: `afplay voice-sample.wav`
 - Linux: `aplay voice-sample.wav`
+
+## Speaking in the cloned voice
+
+`imageskin say` clones the voice from a voice sample with [ElevenLabs](https://elevenlabs.io) and speaks the text in it. It writes the audio as WAV and, next to it, a JSON file with when each word starts and ends (in seconds). You need an ElevenLabs API key on a plan that includes instant voice cloning, and the person's consent to clone their voice.
+
+The first run uploads the sample and creates a voice in your ElevenLabs account; its id is saved in `<sample>.elevenlabs.json` (for example `voice-sample.wav.elevenlabs.json`) and reused until the sample changes.
+
+macOS or Linux:
+
+```
+export ELEVENLABS_API_KEY=your-key
+imageskin say --voice voice-sample.wav -o hello.wav "Hello there, how are you today?"
+```
+
+Windows Command Prompt:
+
+```
+set ELEVENLABS_API_KEY=your-key
+imageskin say --voice voice-sample.wav -o hello.wav "Hello there, how are you today?"
+```
+
+Windows PowerShell:
+
+```
+$env:ELEVENLABS_API_KEY = "your-key"
+imageskin say --voice voice-sample.wav -o hello.wav "Hello there, how are you today?"
+```
+
+This writes `hello.wav` and `hello.json`. Play `hello.wav` the same way as the voice sample above.

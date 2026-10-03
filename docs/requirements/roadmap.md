@@ -10,7 +10,7 @@ This is the plan as of today. The first video engine is not chosen yet, and that
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo plus voice recordings in, a video of the person saying the sample script out. | R1 to R4 | 4 | 12.1% | 2 of 4 |
+| 1 | **Sample video from the command line.** One photo plus voice recordings in, a video of the person saying the sample script out. | R1 to R4 | 4 | 12.1% | 3 of 4 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 30.3% | 0 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 15.2% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 12.1% | 0 |
@@ -18,7 +18,7 @@ This is the plan as of today. The first video engine is not chosen yet, and that
 | 6 | **Americanized voice.** The person's voice with an American accent, chosen in setup. | R25 to R26 | 2 | 6.1% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 15.2% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 6.1% | 0 |
-| | **Total** | | **33** | **100%** | **2 of 33** |
+| | **Total** | | **33** | **100%** | **3 of 33** |
 
 Sizes: 10 Simple, 23 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -36,7 +36,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 
 | Before | Decision |
 |---|---|
-| R3 | The first voice (TTS) engine. It must clone from a short sample and return word timings (needed for highlighting in R18). |
+| R3 | The first voice (TTS) engine. It must clone from a short sample and return word timings (needed for highlighting in R18). **Picked in R3: ElevenLabs** (hosted instant voice clone, character timings from its with-timestamps endpoint; nothing heavy to install on Windows). The main alternative is a local open-source model such as Chatterbox or XTTS-v2, which needs PyTorch, ideally a GPU, and a separate step for word timings. |
 | R4 | The first video engine, local or hosted, and which tool. This is the biggest open decision in feature_evaluation.md. |
 | R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. |
 | R21 | The latency target. 2 seconds is only proposed; the real number comes from what R4's engine can do. |
@@ -67,10 +67,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the guide's recordings turned into a single voice sample that plays correctly.
 - **Built:** `imageskin voice-sample ... -o voice-sample.wav` converts each file to 24 kHz mono 16-bit WAV (`--timeout`, default 60 seconds per file) and joins them in order. ffmpeg must be on PATH; CI installs it.
 
-### R3. Voice engine and cloned speech (Medium) · item 11 (timings)
+### R3. Voice engine and cloned speech (Medium) · item 11 (timings) · Done in [PR #6](https://github.com/larry94555/ImageSkinForLLM/pull/6)
 - Voice engine interface (`clone(sample) -> voice`, `speak(voice, text) -> audio + word timings`) and the first real adapter.
 - Command: `imageskin say --voice sample.wav "Hello there"` writes a WAV and a word-timings JSON file.
 - **Can show:** any sentence spoken in the person's cloned voice.
+- **Built:** `VoiceEngine` protocol in `voice.py` and an ElevenLabs adapter (`ELEVENLABS_API_KEY`, 24 kHz PCM, character timings grouped into words). `imageskin say` writes `speech.wav` and `speech.json`; the cloned voice id is kept in `<sample>.elevenlabs.json` and reused until the sample changes, so repeated runs don't create new voices.
 
 ### R4. Video engine and the sample video (Medium) · item 6
 - Video engine interface (`prepare(photo) -> face`, `render(face, audio) -> video`) and the first real adapter.
