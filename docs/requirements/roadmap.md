@@ -8,19 +8,19 @@ This is the plan as of today. The first video engine is not chosen yet, and that
 
 ## Milestones
 
-| # | Milestone (what can be demonstrated) | PRs | Count | % of PRs |
-|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo plus voice recordings in, a video of the person saying the sample script out. | R1 to R4 | 4 | 12.1% |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 30.3% |
-| 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 15.2% |
-| 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 12.1% |
-| 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 3.0% |
-| 6 | **Americanized voice.** The person's voice with an American accent, chosen in setup. | R25 to R26 | 2 | 6.1% |
-| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 15.2% |
-| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 6.1% |
-| | **Total** | | **33** | **100%** |
+| # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
+|---|---|---|---|---|---|
+| 1 | **Sample video from the command line.** One photo plus voice recordings in, a video of the person saying the sample script out. | R1 to R4 | 4 | 12.1% | 1 of 4 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 30.3% | 0 |
+| 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 15.2% | 0 |
+| 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 12.1% | 0 |
+| 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 3.0% | 0 |
+| 6 | **Americanized voice.** The person's voice with an American accent, chosen in setup. | R25 to R26 | 2 | 6.1% | 0 |
+| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 15.2% | 0 |
+| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 6.1% | 0 |
+| | **Total** | | **33** | **100%** | **1 of 33** |
 
-Sizes: 10 Simple, 23 Medium, no Large or Very large. Percentages are rounded to one decimal.
+Sizes: 10 Simple, 23 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -55,10 +55,11 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 1: Sample video from the command line
 
-### R1. Project skeleton (Simple)
+### R1. Project skeleton (Simple) · Done in [PR #3](https://github.com/larry94555/ImageSkinForLLM/pull/3)
 - Python package with FastAPI app, a `/health` endpoint, and an `imageskin` command-line entry point.
 - Structured logging setup, config file loading, lint, format, type check and unit tests wired into CI.
 - **Can show:** `imageskin --version` runs, `/health` returns OK, CI is green.
+- **Built:** package `imageskin` under `src/`, `imageskin serve` and `--config` (see `config.example.toml`), JSON-lines logs on stderr, ruff, mypy (strict) and pytest with coverage in GitHub Actions. It reviewed as Medium (about 460 lines, half of them tests), larger than the Simple estimate.
 
 ### R2. Audio conversion and the voice sample (Simple) · items 1, 3 (partial)
 - Converts M4A and MP3 to WAV with ffmpeg, with a timeout, and joins several recordings into one voice sample.
