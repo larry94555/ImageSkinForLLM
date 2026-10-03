@@ -1,0 +1,4 @@
+# Copy to config.toml and pass with: imageskin --config config.toml serve
+host = "127.0.0.1"
+port = 8000
+log_level = "INFO"
