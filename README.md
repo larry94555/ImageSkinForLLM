@@ -4,22 +4,46 @@ A video "skin" over an LLM chatbot: from one photo and a voice sample, the perso
 
 ## Development
 
-Requires Python 3.11 or later.
+Requires Python 3.11 or later. Create a virtual environment and install the project once:
+
+macOS or Linux:
 
 ```
-python -m venv .venv && . .venv/bin/activate
+python3 -m venv .venv
+. .venv/bin/activate
 pip install -e ".[dev]"
+```
 
-ruff check . && ruff format --check .   # lint and format
-mypy                                    # type check
-pytest                                  # unit tests with coverage
+Windows Command Prompt:
+
+```
+py -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+```
+
+Windows PowerShell (if activation is blocked, first run `Set-ExecutionPolicy -Scope Process RemoteSigned`):
+
+```
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+```
+
+In a new terminal, run only the activation line again. Then, on any system:
+
+```
+ruff check .           # lint
+ruff format --check .  # format
+mypy                   # type check
+pytest                 # unit tests with coverage
 ```
 
 ## Running
 
 ```
 imageskin --version
-imageskin serve                          # http://127.0.0.1:8000/health
+imageskin serve                          # open http://127.0.0.1:8000/health, Ctrl+C to stop
 imageskin --config config.toml serve     # settings from a file; see config.example.toml
 ```
 
