@@ -1,16 +1,14 @@
 # ImageSkinForLLM inputs: the voice sample
 
-**Short answer:** yes. One clean recording of the person reading a prepared script (about 2 to 3 minutes, plus a minute of free talking) is enough to clone their voice with today's tools. That file is not played back in the video. It is a *reference* the voice model learns from. For each LLM reply, the voice model generates brand-new audio of that reply in the person's voice, and that new audio drives the lip sync.
+**Short answer:** yes. About 4 minutes of clean recordings of the person, reading a prepared script and then talking freely, is enough to clone their voice with today's tools. The recording guide splits this into 3 short recordings, and the app combines them into one voice sample. The voice sample is not played back in the video. It is a *reference* the voice model learns from. For each LLM reply, the voice model generates brand-new audio of that reply in the person's voice, and that new audio drives the lip sync.
 
-Based on the tool landscape as of mid-2026, from my own knowledge. Vendor limits change often, so check them again before we commit to one.
-
-**Not yet verified.** Tool facts here (inputs, streaming, timestamps, GPU needs, consent, latency) are unverified. Before choosing an engine, check each fact that affects the choice against the vendor or project documentation, and record the link and a "verified on YYYY-MM-DD" date next to it.
+**Not yet verified.** Tool facts here (inputs, streaming, timestamps, GPU needs, consent, latency) describe the tools as of mid-2026 and have not been checked against their documentation. Vendors change these often. Before choosing an engine, check each fact that affects the choice against the vendor or project documentation, and record the link and a "verified on YYYY-MM-DD" date next to it.
 
 ## How the pieces fit
 
-1. **Once, up front:** person records the voice sample. We upload it to (or load it into) a voice-cloning text-to-speech (TTS) engine, which produces a "voice."
+1. **Once, up front:** the person makes the recordings, and the app combines them into the voice sample. We upload it to (or load it into) a voice-cloning text-to-speech (TTS) engine, which produces a "voice."
 2. **Every chatbot turn:** LLM reply text goes to TTS with that voice, which returns an audio clip of the reply.
-3. That audio clip, plus the photo (or base video), goes to the talking-head tool, which returns the video with lips matched to the audio.
+3. That audio clip, plus the photo (or base video), goes to the video engine, which returns the video with lips matched to the audio.
 4. The text shown on screen is the same text that went to TTS, so text, voice and lips all line up. Many TTS engines also return word timestamps, which we can use to highlight words as they're spoken.
 
 ## How much audio do the tools need?
@@ -23,19 +21,19 @@ Based on the tool landscape as of mid-2026, from my own knowledge. Vendor limits
 
 **More audio is not always better for instant clones.** Most instant engines use only the first 10 to 60 seconds of what you give them, so the *best* minute matters more than the total. Extra minutes pay off only if we later move to a fine-tuned or professional clone.
 
-**Recommendation:** record about 3 to 4 minutes once. Use the best 1 to 2 minutes for an instant clone now, and keep the full file so we can upgrade to a fine-tuned voice later without asking the person to record again.
+**Recommendation:** record about 4 minutes once (the 3 recordings in the guide). Use the best 1 to 2 minutes for an instant clone now, and keep all the recordings so we can upgrade to a fine-tuned voice later without asking the person to record again.
 
 ## Read script vs. free talking
 
-A read script is a good idea: it guarantees the sample covers all the sounds of the language, and it is easy for the person. The one catch is that people sound like they are *reading* when they read, and the clone copies that. A chatbot should sound conversational. So the script below has two parts: a read section, then a few questions to answer off the cuff. Both go into the same recording.
+A read script is a good idea: it guarantees the sample covers all the sounds of the language, and it is easy for the person. The one catch is that people sound like they are *reading* when they read, and the clone copies that. A chatbot should sound conversational. So the script below has two parts: a read section, then a few questions to answer off the cuff.
 
-## Is a single file enough?
+## One file or several?
 
-Yes. One file is all any of these tools need. Practical notes:
+The tools need one voice sample, but the person does not have to record it in one take. The recording guide asks for 3 separate recordings, one per section, so a mistake means redoing one short section, not the whole script. The app checks each file and combines the valid ones into one voice sample. Practical notes:
 
-- Record **one continuous take** if possible, so the mic, room and distance stay the same. If it takes several attempts, that's fine, but keep the setup identical and stitch them into one file.
+- Keep the mic, room and distance the same for all recordings.
 - Trim long silences, coughs and restarts before uploading.
-- If the person also records the optional talking video clip (see [input-images.md](input-images.md)), have them **read this same script on camera**. The clip's audio becomes the voice sample, and one session covers both inputs. Use an external mic even then; a phone or laptop camera mic from a metre away is the most common cause of a bad clone.
+- If the person also records the optional talking video clip (see [input-images.md](input-images.md)), have them **read this same script on camera**. The clip's audio becomes the voice sample, and one session covers both inputs. Use an external mic even then; a phone or laptop camera mic from a meter away is the most common cause of a bad clone.
 
 ## Recording format and quality
 
@@ -49,9 +47,9 @@ Yes. One file is all any of these tools need. Practical notes:
 
 ## The recording script
 
-Reading time is about 2.5 to 3 minutes at a relaxed pace, then about 1 minute of free talking. Lines are short so the person can pause naturally between them.
+Reading time is about 3 minutes at a relaxed pace, then about 1 minute of free talking. Lines are short so the person can pause naturally between them. In the recording guide, lines 1 to 10 are Recording 1, lines 11 to 19 are Recording 2, and the free talking is Recording 3. The script keeps the guide's spelling.
 
-### Part 1: read aloud
+### Part 1: read aloud (Recordings 1 and 2)
 
 > Hi, thanks for stopping by. It's good to see you.
 >
@@ -91,7 +89,7 @@ Reading time is about 2.5 to 3 minutes at a relaxed pace, then about 1 minute of
 >
 > Thanks for listening. Take care of yourself, and let's talk again soon.
 
-### Part 2: talk freely (about 1 minute total, no script)
+### Part 2: talk freely (Recording 3, about 1 minute, no script)
 
 Answer two or three of these in your own words, as if chatting with a friend:
 
@@ -102,7 +100,7 @@ Answer two or three of these in your own words, as if chatting with a friend:
 
 ## Removing an accent while keeping the voice
 
-**Short answer:** yes, mostly. A voice is roughly two layers: *timbre* (the sound of the throat and mouth, which is what makes it recognisably "them") and *accent and prosody* (how vowels are shaped, rhythm, intonation). Tools can now keep the first and replace the second. The result sounds like the person's voice speaking with an American accent. Expect it to sound very much like them, but a little less "them" than a direct clone, because some of how a person sounds really is their rhythm and intonation.
+**Short answer:** yes, mostly. A voice is roughly two layers: *timbre* (the sound of the throat and mouth, which is what makes it recognizably "them") and *accent and prosody* (how vowels are shaped, rhythm, intonation). Tools can now keep the first and replace the second. The result sounds like the person's voice speaking with an American accent. Expect it to sound very much like them, but a little less "them" than a direct clone, because some of how a person sounds really is their rhythm and intonation.
 
 **Why a plain clone won't do it:** instant cloners copy the accent along with the timbre, since both are in the sample. Cloning a Russian-accented English sample gives Russian-accented English output. Cloning from a Russian-language sample and asking for English usually still carries the accent.
 
@@ -112,18 +110,18 @@ Answer two or three of these in your own words, as if chatting with a friend:
 |---|---|---|---|
 | **American TTS + voice conversion** | Generate the reply with a native American TTS voice, then run that audio through a voice-conversion model that swaps in the person's timbre. Open source: OpenVoice (built specifically to separate timbre from accent and style), Seed-VC, RVC. Hosted: speech-to-speech "voice changer" features such as ElevenLabs Voice Changer. | Timbre: high. Rhythm and intonation come from the American base voice. | Most controllable and works today. Adds one step (and some delay) per reply. Pick a base voice close to the person in age, gender and pitch; it matters a lot. |
 | **Accent-controllable TTS** | Some newer TTS models and voice-design tools take an accent or language setting separate from the reference voice. | Varies by tool; often weaker than voice conversion. | Worth testing as a single-step option, but support for overriding the accent of a *cloned* voice is inconsistent. Check current docs. |
-| **Real-time accent conversion** | Products such as Sanas and Krisp accent conversion change a live speaker's accent while keeping their voice. | High. | Built for call centres converting a live microphone, and focused on specific accents (often South Asian and Filipino English). Check whether Russian-accented English is supported. Not a natural fit for a TTS pipeline. |
+| **Real-time accent conversion** | Products such as Sanas and Krisp accent conversion change a live speaker's accent while keeping their voice. | High. | Built for call centers converting a live microphone, and focused on specific accents (often South Asian and Filipino English). Check whether Russian-accented English is supported. Not a natural fit for a TTS pipeline. |
 | **Fine-tuned voice** | Train a voice model on the person's audio plus lots of American speech so it learns their timbre with American pronunciation. | Highest, in principle. | Research-grade effort, needs a GPU and tuning. A later option only. |
 
 ### Effect on the recording plan
 
 - **The recording stays the same:** one clean session, same format and tips as above. For the voice-conversion route, the sample only needs to capture timbre, so the accent in it doesn't matter.
-- **Add one optional minute in Russian** (or the person's native language). People often speak most relaxed and natural in their first language, which gives a clean timbre reference, and voice-conversion models don't care which language the sample is in.
+- **Add one optional minute in the person's first language** (the guide's optional Recording 4, "Voice 4"). People often speak most relaxed and natural in their first language, which gives a clean timbre reference, and voice-conversion models don't care which language the sample is in.
 - **Plan an A/B listening test:** generate the same few replies with (A) a direct clone, which keeps the accent, and (B) American TTS plus voice conversion. Let the person choose; some people prefer to keep a light accent because it sounds more like them.
-- **Lip sync is unaffected.** The talking-head step follows whatever final audio it gets.
+- **Lip sync is unaffected.** The video engine follows whatever final audio it gets.
 
 ## Open questions for the next step
 
 - **Hosted or self-hosted TTS?** Hosted (ElevenLabs, Cartesia) is the fastest and simplest to stream, which matters for chat latency. Open source (XTTS-v2, F5-TTS, CosyVoice 2) keeps the voice data local and costs nothing per word, but needs a GPU.
-- **Accent:** if we need accent removal, voice conversion adds a step per reply. That favours tools that can do it in one pass, or a fast self-hosted converter.
-- This choice ties into the talking-head decision in [input-images.md](input-images.md), since both steps add delay to every reply.
+- **Accent:** if we need accent removal, voice conversion adds a step per reply. That favors tools that can do it in one pass, or a fast self-hosted converter.
+- This choice ties into the video engine choice in [input-images.md](input-images.md), since both steps add delay to every reply.

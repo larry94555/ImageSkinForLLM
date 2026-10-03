@@ -2,9 +2,7 @@
 
 **Short answer:** one good photo is enough. Several photos add little with today's tools. A short video clip of the person is the input that really raises quality.
 
-Based on the tool landscape as of mid-2026, from my own knowledge. Vendor features change often, so check them again before we commit to one.
-
-**Not yet verified.** Tool facts here (inputs, streaming, timestamps, GPU needs, consent, latency) are unverified. Before choosing an engine, check each fact that affects the choice against the vendor or project documentation, and record the link and a "verified on YYYY-MM-DD" date next to it.
+**Not yet verified.** Tool facts here (inputs, streaming, timestamps, GPU needs, consent, latency) describe the tools as of mid-2026 and have not been checked against their documentation. Vendors change these often. Before choosing an engine, check each fact that affects the choice against the vendor or project documentation, and record the link and a "verified on YYYY-MM-DD" date next to it.
 
 ## 1. Single image (what most tools are built for)
 
@@ -55,7 +53,7 @@ This is the real step up in quality:
 
 ## The bigger constraint is speed, not image count
 
-For a chatbot, the LLM replies, then voice synthesis runs, then the video is generated. The high-quality single-image models (Hallo, EchoMimic and similar) take minutes per sentence on a good GPU. Real-time options are hosted streaming avatars (D-ID, HeyGen, Tavus, Simli) or MuseTalk-style lip-sync on a pre-rendered base clip. That choice is the next planning step, and it partly decides the input: streaming lip-sync favors a short base video.
+For a chatbot, the LLM replies, then voice synthesis runs, then the video is generated. The high-quality single-photo models (Hallo, EchoMimic and similar) take minutes per sentence on a good GPU. Real-time options are hosted streaming avatars (D-ID, HeyGen, Tavus, Simli) or MuseTalk-style lip-sync on a pre-rendered base clip. Choosing the first video engine is the next planning step, and it partly decides the input: streaming lip-sync favors a short base video.
 
 ## Recommendation
 

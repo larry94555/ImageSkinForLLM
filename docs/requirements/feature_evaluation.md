@@ -8,7 +8,7 @@
 |---|---|
 | Settings said "three options" but listed nine | 8 |
 | WAV-only uploads; .m4a from the guide rejected | 1 |
-| No expected file count | 1 (5 photos, 3 or 4 recordings) |
+| No expected file count | 1 (5 photos requested, 3 or 4 recordings) |
 | Sample script about 3 seconds, not 30 | 6 (~75-word script) |
 | No progress shown during slow renders | 5, 6 |
 | "Reject voice" forced a re-upload for accent | 7 (Change accent) |
@@ -34,7 +34,7 @@
 | 8, 23 | "Delete my data" isn't reachable from Settings. | Add it to the Settings list. |
 | 15, 19 | Saved setup survives a return visit, but it's unclear whether chat history does. | Save history with the setup, cleared by "Clear conversation" or "Delete my data." |
 | 12 | Sentence-by-sentence clips can show a visible jump where one clip ends and the next starts. | Return to the idle pose between clips (17) and crossfade the joins. |
-| 11 | Word highlighting needs word timings from the voice engine. | Make word timings a requirement when choosing the voice engine. |
+| 11 | Word highlighting needs word timings from the voice (TTS) engine. | Make word timings a requirement when choosing the TTS engine. |
 | Deployment | Supporting both local and hosted video engines up front doubles the work. | Build one first, behind the pluggable interface, and add the other later. |
 
 ## Risks still open
