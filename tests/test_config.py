@@ -33,6 +33,8 @@ def test_example_config_loads() -> None:
         ("host = 1", "host"),
         ('port = "80"', "port"),
         ("port = 70000", "port"),
+        ("port = true", "port"),
+        ("port = false", "port"),
         ('log_level = "LOUD"', "log_level"),
     ],
 )

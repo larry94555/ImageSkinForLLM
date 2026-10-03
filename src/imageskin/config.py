@@ -41,7 +41,8 @@ def load_settings(path: Path | None) -> Settings:
     settings = Settings(**data)
     if not isinstance(settings.host, str):
         raise ConfigError(f"host in {path} must be a string")
-    if not isinstance(settings.port, int) or not 1 <= settings.port <= 65535:
+    # type() rather than isinstance(): bool is a subclass of int, so `port = true` must fail here.
+    if type(settings.port) is not int or not 1 <= settings.port <= 65535:
         raise ConfigError(f"port in {path} must be a number from 1 to 65535")
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
