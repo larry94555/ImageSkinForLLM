@@ -1,4 +1,4 @@
-# JamilyaBot inputs: how many images?
+# ImageSkinForLLM inputs: how many images?
 
 **Short answer:** one good photo is enough. Several photos add little with today's tools. A short video clip of the person is the input that really raises quality.
 

@@ -1,6 +1,6 @@
 ---
 name: "pr-rules"
-description: "Use for every change in JamilyaBot: branch, size, tests, proof, logging and PR description rules that must be met before a change counts as done."
+description: "Use for every change in ImageSkinForLLM: branch, size, tests, proof, logging and PR description rules that must be met before a change counts as done."
 ---
 
 # PR rules

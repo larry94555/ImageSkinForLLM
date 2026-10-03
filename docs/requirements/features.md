@@ -1,4 +1,4 @@
-# JamilyaBot: Features
+# ImageSkinForLLM: Features
 
 A web app that puts a talking video of a real person on top of an LLM. The user types or speaks a prompt; the reply is shown as text and spoken by a video of the person, in their cloned voice, lip-synced to the text.
 

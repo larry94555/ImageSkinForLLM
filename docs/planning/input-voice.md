@@ -1,4 +1,4 @@
-# JamilyaBot inputs: the voice sample
+# ImageSkinForLLM inputs: the voice sample
 
 **Short answer:** yes. One clean recording of the person reading a prepared script (about 2 to 3 minutes, plus a minute of free talking) is enough to clone their voice with today's tools. That file is not played back in the video. It is a *reference* the voice model learns from. For each LLM reply, the voice model generates brand-new audio of that reply in the person's voice, and that new audio drives the lip sync.
 

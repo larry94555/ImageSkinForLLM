@@ -1,4 +1,4 @@
-# JamilyaBot: Evaluation of features.md (second review)
+# ImageSkinForLLM: Evaluation of features.md (second review)
 
 **Verdict:** features.md is now complete enough to start building. Every issue and gap from the first review is addressed. What remains are a few small inconsistencies, some vague thresholds, and confirming the *(default)* choices. Numbers refer to features.md.
 
