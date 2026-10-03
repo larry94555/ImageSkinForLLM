@@ -4,6 +4,8 @@
 
 Based on the tool landscape as of mid-2026, from my own knowledge. Vendor limits change often, so check them again before we commit to one.
 
+**Not yet verified.** Tool facts here (inputs, streaming, timestamps, GPU needs, consent, latency) are unverified. Before choosing an engine, check each fact that affects the choice against the vendor or project documentation, and record the link and a "verified on YYYY-MM-DD" date next to it.
+
 ## How the pieces fit
 
 1. **Once, up front:** person records the voice sample. We upload it to (or load it into) a voice-cloning text-to-speech (TTS) engine, which produces a "voice."

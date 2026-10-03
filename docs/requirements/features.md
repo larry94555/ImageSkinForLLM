@@ -8,11 +8,11 @@ Items 1 to 16 match the original feature list. Items 17 onward were added after 
 
 - Runs locally for testing or on a hosted site.
 - Hosted: single user for now *(default)*. Served over HTTPS (browsers only allow the microphone on HTTPS or localhost).
-- Video generation is a pluggable engine: local GPU model or hosted avatar service *(default: support both; pick per deployment)*.
+- Video generation is a pluggable engine: local GPU model or hosted avatar service. **Open decision:** choose the first engine before building; add the other later behind the same interface.
 
 ## Setup flow
 
-1. **Upload.** Upload sound files (WAV, M4A, MP3; converted to WAV internally) and images (JPG, PNG, HEIC). Expected set, per the recording guide: 5 photos and 3 voice recordings, plus an optional 4th. Play any uploaded sound file and view any uploaded image.
+1. **Upload.** Upload sound files (WAV, M4A, MP3; converted to WAV internally) and images (JPG, PNG, HEIC). At least 1 valid photo is required. The recording guide asks for 5 photos so the app can pick the best, and 3 voice recordings plus an optional 4th. Play any uploaded sound file and view any uploaded image.
 2. **Validate images.** Check each image and report problems in short, plain language a nontechnical person can act on, so they can retake the photo. Checks, each with a fixed message:
    - exactly one face found
    - face at least ~512 px tall
@@ -54,7 +54,7 @@ Items 1 to 16 match the original feature list. Items 17 onward were added after 
 9. **Prompt input.** Unlocked after the sample is accepted: a text box plus a microphone button. Speech is transcribed to text (e.g. whisper.cpp or browser speech recognition), push-to-talk *(default)*. The transcribed prompt is shown as sent.
 10. **LLM.** The prompt goes to the LLM (a local llama.cpp model for testing). A system prompt asks for short, conversational replies.
 11. **Response.** The reply is shown as text and spoken by the video, with each word highlighted as it is spoken. Markdown, code, URLs and emoji are shown as text but not voiced.
-12. **Latency.** The video starts speaking within 2 seconds of the LLM's first words *(default target)*. To meet it, LLM text is streamed, split into sentences, and each sentence is voiced and animated while later ones are still generating.
+12. **Latency.** The target number is set once the first video engine is chosen. With a streaming-capable engine, the proposed target is that the video starts speaking within 2 seconds of the LLM's first words. To get there, LLM text is streamed, split into sentences, and each sentence is voiced and animated while later ones are still generating.
 
 ## Exit and return
 

@@ -1,6 +1,6 @@
 # ImageSkinForLLM: Evaluation of features.md (second review)
 
-**Verdict:** features.md is now complete enough to start building. Every issue and gap from the first review is addressed. What remains are a few small inconsistencies, some vague thresholds, and confirming the *(default)* choices. Numbers refer to features.md.
+**Verdict:** features.md is complete enough to start building once the first video engine is chosen (see Risks). That choice also sets the latency target. Every issue and gap from the first review is addressed. What remains are a few small inconsistencies, some vague thresholds, and confirming the *(default)* choices. Numbers refer to features.md.
 
 ## Fixed since the first review
 
@@ -14,11 +14,12 @@
 | "Reject voice" forced a re-upload for accent | 7 (Change accent) |
 | Settings changes didn't require a new sample | 8 |
 | "Restart the LLM" unclear | 14 (Start again, history kept) |
-| No latency target | 12 (2 seconds) |
+| No latency target | 12 (set after the engine choice; 2 seconds proposed) |
 | No speech to text | 9 |
 | No streaming plan | 12 |
 | No idle video, stop, saved setup, error handling, volume | 17 to 21 |
 | Validation checks undefined | 2, 3 |
+| Unclear whether fewer than 5 photos is allowed | 1 (at least 1 required, 5 requested) |
 | Replies not safe to voice; text/speech sync unclear | 10, 11 |
 | History could overflow the context window | 15 |
 | Hosted gaps: consent, privacy, HTTPS, compute, API keys | Deployment, 16, 22, 23 |
@@ -29,7 +30,6 @@
 | # | Issue | Suggested fix |
 |---|---|---|
 | 3 | "Long enough" has no number. | At least 30 seconds of usable speech in total; 1 to 2 minutes recommended. |
-| 1 | Unclear whether fewer than 5 photos is allowed. Only one good photo is needed. | Require at least 1 valid photo; recommend 5. |
 | 5, 8 | Pre-rendered "Goodbye" and "Welcome back" go stale when images, voice or accent change. | Re-render them whenever a new sample is accepted. |
 | 8, 23 | "Delete my data" isn't reachable from Settings. | Add it to the Settings list. |
 | 15, 19 | Saved setup survives a return visit, but it's unclear whether chat history does. | Save history with the setup, cleared by "Clear conversation" or "Delete my data." |
@@ -45,8 +45,13 @@
 
 ## Defaults to confirm with Larry
 
-1. Single user on the hosted site.
-2. Support both local and hosted video engines (this review suggests building one first).
-3. Push-to-talk for the microphone.
-4. 2-second latency target.
+Decide before building:
+
+1. Which video engine comes first, local or hosted, and which tool.
+2. The latency target, which depends on that engine.
+
+Can stay provisional:
+
+3. Single user on the hosted site.
+4. Push-to-talk for the microphone.
 5. History kept after "Start again."

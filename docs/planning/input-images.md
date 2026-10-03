@@ -4,6 +4,8 @@
 
 Based on the tool landscape as of mid-2026, from my own knowledge. Vendor features change often, so check them again before we commit to one.
 
+**Not yet verified.** Tool facts here (inputs, streaming, timestamps, GPU needs, consent, latency) are unverified. Before choosing an engine, check each fact that affects the choice against the vendor or project documentation, and record the link and a "verified on YYYY-MM-DD" date next to it.
+
 ## 1. Single image (what most tools are built for)
 
 Current "audio-driven portrait animation" models take **one photo + an audio track** and generate a video of that face speaking the audio, including lip sync, head motion and blinks.
@@ -30,7 +32,7 @@ Most audio-driven tools **take only one reference image**, so extra photos mostl
 - **Fine-tuning** a personal model (LoRA-style, typically 10 to 20 images) for some diffusion pipelines. That's more identity consistency, at the cost of a training step.
 - Making a few **pose or expression variants** to switch between. That's a polish item.
 
-Net: not worth planning around at first.
+Net: optional. Extra photos are worth collecting only so the app can pick the best one.
 
 ## 3. Short video clip (about 30 seconds to 2 minutes of the person talking)
 
@@ -57,6 +59,6 @@ For a chatbot, the LLM replies, then voice synthesis runs, then the video is gen
 
 ## Recommendation
 
-1. **Plan on one good photo** as the required input. Every major tool supports it, so it's enough to build and demo the whole pipeline.
+1. **Require at least one good photo.** A single photo is enough for several major talking-avatar tools and for the first prototype. Some tools (a Tavus replica, a HeyGen digital twin) need video instead.
 2. **Treat a short video clip (about 1 minute of the person talking) as the optional upgrade.** It improves realism and real-time performance, and it can double as the voice sample.
-3. **Skip collecting multiple photos** for now. Grab 3 to 5 only so you can pick the best one.
+3. **Extra photos are optional.** The recording guide asks for 5 so the app can pick the best one.
