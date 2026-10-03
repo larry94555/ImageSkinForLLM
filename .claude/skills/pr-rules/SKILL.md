@@ -74,7 +74,26 @@ No code changes: "No code changes."
 1. How to start the app.
 2. Steps to exercise the change.
 3. What you should see in the UI or in the logs to confirm the code ran.
+Give every command for each platform, as described below.
 ```
+
+### Manual test steps for every platform
+The user validates on a Windows 11 laptop, so manual test steps must work there, not only on macOS and Linux.
+- Give a separate block of commands for each of:
+  - **macOS / Linux** (bash or zsh). Mac and Linux share one block when the commands are identical; split them when they differ.
+  - **Windows 11, Command Prompt** (`cmd.exe`).
+  - **Windows 11, PowerShell**.
+- Command Prompt and PowerShell may share one block only when every command is identical in both.
+- Watch for the usual differences:
+  - Virtual env activation: `source .venv/bin/activate` vs `.venv\Scripts\activate.bat` (Command Prompt) vs `.venv\Scripts\Activate.ps1` (PowerShell).
+  - Python launcher: `python3` vs `py` or `python`.
+  - Chaining commands: `&&` works in bash and Command Prompt, but not in Windows PowerShell 5.1 (the Windows 11 default). Use `;` or one command per line in PowerShell.
+  - Environment variables: `export NAME=value` vs `set NAME=value` vs `$env:NAME = "value"`.
+  - Paths: `/` vs `\`, and quote paths that may contain spaces.
+  - HTTP checks: `curl` in PowerShell 5.1 is an alias for `Invoke-WebRequest`. Use `curl.exe`, `Invoke-RestMethod`, or opening the URL in a browser.
+  - Copying, deleting and listing files: `cp`/`rm`/`ls` vs `copy`/`del`/`dir`.
+- Expected output and log lines stay the same on every platform. Note any that differ.
+- The same rule applies to setup steps in the README and other user-facing guides.
 
 ## 8. Checklist before reporting done
 - [ ] On a non-main branch, pushed, PR open
@@ -84,4 +103,5 @@ No code changes: "No code changes."
 - [ ] Code changes: logging added at meaningful operations and boundaries
 - [ ] Code changes: proof included (test summary as text or CI link; screenshots for UI)
 - [ ] Code changes: manual test steps include what to look for in the UI or logs
+- [ ] Code changes: manual test steps cover macOS/Linux, Windows 11 Command Prompt and Windows 11 PowerShell
 - [ ] PR link given to the user
