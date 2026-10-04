@@ -49,5 +49,5 @@ module = ["kokoro"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "experiments"]
 addopts = "--cov=imageskin --cov-report=term-missing"

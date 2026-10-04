@@ -1,0 +1,12 @@
+# LivePortrait CPU test only; not needed by the app. Python 3.11 or 3.12.
+# On Windows and macOS, PyPI's torch is CPU-only. On a Linux server, install the smaller
+# CPU build first: pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.4
+numpy
+opencv-python-headless>=4.9,<5
+mediapipe>=0.10.14
+onnxruntime>=1.17
+scipy
+pyyaml
+rich
+huggingface_hub
