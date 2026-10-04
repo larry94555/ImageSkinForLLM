@@ -72,7 +72,7 @@ Play the result to check it:
 
 ## Speaking in the cloned voice
 
-`imageskin say` clones the voice from a voice sample with [ElevenLabs](https://elevenlabs.io) and speaks the text in it. It writes the audio as WAV and, next to it, a JSON file with when each word starts and ends (in seconds). You need an ElevenLabs API key on a plan that includes instant voice cloning, and the person's consent to clone their voice.
+`imageskin say` clones the voice from a voice sample with [ElevenLabs](https://elevenlabs.io) and speaks the text in it. It writes the audio as WAV and, next to it, a JSON file with when each word starts and ends (in seconds). You need an ElevenLabs API key on a plan that includes instant voice cloning, and the person's consent to clone their voice. [docs/guides/ElevenLabs-Setup-Guide.pdf](docs/guides/ElevenLabs-Setup-Guide.pdf) walks through signing up, creating the key and setting it, on Windows, macOS and Linux.
 
 The first run uploads the sample and creates a voice in your ElevenLabs account; its id is saved in `<sample>.elevenlabs.json` (for example `voice-sample.wav.elevenlabs.json`) and reused until the sample changes.
 
