@@ -9,8 +9,9 @@ from pathlib import Path
 from imageskin import __version__
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, load_settings
+from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
-from imageskin.voice import VoiceError, voice_for_sample, write_speech
+from imageskin.voice import VoiceError, write_speech
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_TIMEOUT_S,
         help="seconds allowed to convert each recording",
     )
-    say = commands.add_parser(
-        "say", help="speak text in the voice cloned from a voice sample (uses ElevenLabs)"
-    )
+    say = commands.add_parser("say", help="speak text with a Kokoro voice, on the CPU")
     say.add_argument("text", help="what to say")
-    say.add_argument("--voice", type=Path, required=True, help="voice sample WAV")
+    say.add_argument(
+        "--voice",
+        default=DEFAULT_VOICE,
+        help=f"Kokoro voice name, such as af_heart or am_michael (default {DEFAULT_VOICE})",
+    )
     say.add_argument(
         "-o",
         "--output",
@@ -49,12 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def say(text: str, voice: Path, output: Path) -> float:
-    from imageskin.elevenlabs import ElevenLabsEngine
-
-    engine = ElevenLabsEngine.from_env()
-    voice_id = voice_for_sample(engine, voice)
-    speech = engine.speak(voice_id, text)
+def say(text: str, voice: str, output: Path) -> float:
+    speech = KokoroEngine().speak(voice, text)
     try:
         return write_speech(speech, output, output.with_suffix(".json"))
     except OSError as e:

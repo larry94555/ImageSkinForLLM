@@ -36,7 +36,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 
 | Before | Decision |
 |---|---|
-| R3 | The first voice (TTS) engine. It must clone from a short sample and return word timings (needed for highlighting in R18). **Picked in R3: ElevenLabs** (hosted instant voice clone, character timings from its with-timestamps endpoint; nothing heavy to install on Windows). The main alternative is a local open-source model such as Chatterbox or XTTS-v2, which needs PyTorch, ideally a GPU, and a separate step for word timings. |
+| R3 | The first voice (TTS) engine. It must clone from a short sample and return word timings (needed for highlighting in R18). **Picked in R3: Kokoro-82M** (free, Apache 2.0, runs on CPU on Windows and on a Linux server, reports word timings). It uses ready-made voices, so the person's own voice moves to a later voice-conversion step; see R3. Rejected: ElevenLabs (per-use cost), XTTS-v2 and F5-TTS (non-commercial model licenses), MeloTTS plus OpenVoice v2 (install pins packages too old for Python 3.11), Chatterbox (reported slower than real time on CPU). |
 | R4 | The first video engine, local or hosted, and which tool. This is the biggest open decision in feature_evaluation.md. |
 | R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. |
 | R21 | The latency target. 2 seconds is only proposed; the real number comes from what R4's engine can do. |
@@ -67,11 +67,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the guide's recordings turned into a single voice sample that plays correctly.
 - **Built:** `imageskin voice-sample ... -o voice-sample.wav` converts each file to 24 kHz mono 16-bit WAV (`--timeout`, default 60 seconds per file) and joins them in order. ffmpeg must be on PATH; CI installs it.
 
-### R3. Voice engine and cloned speech (Medium) · item 11 (timings) · Done in [PR #6](https://github.com/larry94555/ImageSkinForLLM/pull/6)
+### R3. Voice engine and speech (Medium) · item 11 (timings) · Done in [PR #6](https://github.com/larry94555/ImageSkinForLLM/pull/6)
 - Voice engine interface (`clone(sample) -> voice`, `speak(voice, text) -> audio + word timings`) and the first real adapter.
 - Command: `imageskin say --voice sample.wav "Hello there"` writes a WAV and a word-timings JSON file.
 - **Can show:** any sentence spoken in the person's cloned voice.
-- **Built:** `VoiceEngine` protocol in `voice.py` and an ElevenLabs adapter (`ELEVENLABS_API_KEY`, 24 kHz PCM, character timings grouped into words). `imageskin say` writes `speech.wav` and `speech.json`; the cloned voice id is kept in `<sample>.elevenlabs.json` and reused until the sample changes, so repeated runs don't create new voices.
+- **Built:** `VoiceEngine` protocol in `voice.py` and a Kokoro adapter (`pip install -e ".[voice]"`, CPU only, 24 kHz, word timings from the model). `imageskin say [--voice af_heart] "text"` writes `speech.wav` and `speech.json`. Changed from the plan: Kokoro cannot clone, so this PR speaks with a ready-made voice and has no `clone()` yet. Larry chose this on 2026-10-04 (no per-use cost, CPU only, a generic voice is fine for now). Cloning the person's voice is still to be planned as a CPU voice-conversion step, alongside R25 and R26.
 
 ### R4. Video engine and the sample video (Medium) · item 6
 - Video engine interface (`prepare(photo) -> face`, `render(face, audio) -> video`) and the first real adapter.

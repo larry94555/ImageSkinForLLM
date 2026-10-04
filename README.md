@@ -70,31 +70,23 @@ Play the result to check it:
 - macOS: `afplay voice-sample.wav`
 - Linux: `aplay voice-sample.wav`
 
-## Speaking in the cloned voice
+## Speaking text (Kokoro, on the CPU)
 
-`imageskin say` clones the voice from a voice sample with [ElevenLabs](https://elevenlabs.io) and speaks the text in it. It writes the audio as WAV and, next to it, a JSON file with when each word starts and ends (in seconds). You need an ElevenLabs API key on a plan that includes instant voice cloning, and the person's consent to clone their voice. [docs/guides/ElevenLabs-Setup-Guide.pdf](docs/guides/ElevenLabs-Setup-Guide.pdf) walks through signing up, creating the key and setting it, on Windows, macOS and Linux.
+`imageskin say` speaks text with [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a free open-source voice model (Apache 2.0) that runs on the CPU, with no account and no per-use cost. It writes the audio as WAV and, next to it, a JSON file with when each word starts and ends (in seconds). Kokoro uses ready-made voices; it does not clone the person's voice yet. With Kokoro, use Python 3.11 or 3.12. Setup, voices and troubleshooting: [docs/guides/Local-Voice-Setup-Guide.pdf](docs/guides/Local-Voice-Setup-Guide.pdf).
 
-The first run uploads the sample and creates a voice in your ElevenLabs account; its id is saved in `<sample>.elevenlabs.json` (for example `voice-sample.wav.elevenlabs.json`) and reused until the sample changes.
-
-macOS or Linux:
+Install it once into the virtual environment (this adds PyTorch, about 1 GB on disk). The first `say` also downloads the model, about 330 MB.
 
 ```
-export ELEVENLABS_API_KEY=your-key
-imageskin say --voice voice-sample.wav -o hello.wav "Hello there, how are you today?"
+pip install -e ".[voice]"
 ```
 
-Windows Command Prompt:
+On a Linux server with no GPU, install the smaller CPU-only PyTorch first: `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
+
+Then, on any system:
 
 ```
-set ELEVENLABS_API_KEY=your-key
-imageskin say --voice voice-sample.wav -o hello.wav "Hello there, how are you today?"
+imageskin say -o hello.wav "Hello there, how are you today?"
+imageskin say --voice am_michael -o hello.wav "Hello there, how are you today?"
 ```
 
-Windows PowerShell:
-
-```
-$env:ELEVENLABS_API_KEY = "your-key"
-imageskin say --voice voice-sample.wav -o hello.wav "Hello there, how are you today?"
-```
-
-This writes `hello.wav` and `hello.json`. Play `hello.wav` the same way as the voice sample above.
+This writes `hello.wav` and `hello.json`. Play `hello.wav` the same way as the voice sample above. American voices include `af_heart` (the default), `af_bella`, `af_nicole`, `am_michael` and `am_fenrir`.
