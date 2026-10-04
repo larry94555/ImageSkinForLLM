@@ -108,7 +108,7 @@ def test_missing_kokoro_explains_how_to_install(monkeypatch: pytest.MonkeyPatch)
 
     def no_kokoro(name: str, *args: Any, **kwargs: Any) -> Any:
         if name == "kokoro":
-            raise ImportError(name)
+            raise ImportError(name, name="kokoro")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_kokoro)
@@ -116,3 +116,16 @@ def test_missing_kokoro_explains_how_to_install(monkeypatch: pytest.MonkeyPatch)
         _load_pipeline()
     with pytest.raises(VoiceError, match="not installed"):
         KokoroEngine().speak("af_heart", "Hi")
+
+
+def test_broken_dependency_reports_the_real_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_import = builtins.__import__
+
+    def broken_torch(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "kokoro":
+            raise ImportError("DLL load failed while importing _C", name="torch._C")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", broken_torch)
+    with pytest.raises(VoiceError, match="installed but could not be loaded: DLL load failed"):
+        _load_pipeline()

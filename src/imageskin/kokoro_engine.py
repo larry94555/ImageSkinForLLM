@@ -63,7 +63,11 @@ def _load_pipeline() -> Callable[..., Iterable[Any]]:
     try:
         from kokoro import KPipeline
     except ImportError as e:
-        raise VoiceError(INSTALL_HINT) from e
+        if e.name == "kokoro":
+            raise VoiceError(INSTALL_HINT) from e
+        # Kokoro is installed but one of its dependencies (often PyTorch) failed to load.
+        logger.exception("Could not import Kokoro")
+        raise VoiceError(f"Kokoro is installed but could not be loaded: {e}") from e
     pipeline: Callable[..., Iterable[Any]] = KPipeline(
         lang_code=LANG_CODE, repo_id=REPO_ID, device="cpu"
     )

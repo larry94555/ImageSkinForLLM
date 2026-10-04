@@ -80,7 +80,7 @@ Install it once into the virtual environment (this adds PyTorch, about 1 GB on d
 pip install -e ".[voice]"
 ```
 
-On a Linux server with no GPU, install the smaller CPU-only PyTorch first: `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
+If `say` reports `DLL load failed` on Windows, install the Microsoft Visual C++ Redistributable that PyTorch needs (`winget install Microsoft.VCRedist.2015+.x64`) and open a new terminal. On a Linux server with no GPU, install the smaller CPU-only PyTorch first: `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
 
 Then, on any system:
 
