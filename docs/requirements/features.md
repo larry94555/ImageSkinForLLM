@@ -8,7 +8,7 @@ Items 1 to 16 match the original feature list. Items 17 onward were added after 
 
 - Runs locally for testing or on a hosted site.
 - Hosted: single user for now *(default)*. Served over HTTPS (browsers only allow the microphone on HTTPS or localhost).
-- Video generation is a pluggable engine: local GPU model or hosted avatar service. **Open decision:** choose the first engine before building; add the other later behind the same interface.
+- Video generation is a pluggable engine: local GPU model or hosted avatar service. **Decided in R4 (2026-10-04):** the first engine is local and CPU-only, a mouth animation of the photo drawn with OpenCV, because Larry requires no per-use cost, CPU only and a license that allows hosted use. Other engines can be added later behind the same interface.
 
 ## Setup flow
 

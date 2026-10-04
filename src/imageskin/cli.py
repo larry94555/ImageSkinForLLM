@@ -11,6 +11,8 @@ from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
+from imageskin.sample import SampleResult, make_sample
+from imageskin.video import INSTALL_HINT, VideoEngine, VideoError
 from imageskin.voice import VoiceError, write_speech
 
 logger = logging.getLogger(__name__)
@@ -49,7 +51,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("speech.wav"),
         help="WAV file to write; word timings go next to it as .json",
     )
+    sample = commands.add_parser(
+        "sample", help="render the sample video: the person in the photo speaks a test script"
+    )
+    sample.add_argument("--photo", type=Path, required=True, help="front-facing JPEG or PNG")
+    sample.add_argument(
+        "--voice",
+        default=DEFAULT_VOICE,
+        help=f"Kokoro voice name (default {DEFAULT_VOICE})",
+    )
+    sample.add_argument(
+        "-o", "--output", type=Path, default=Path("sample.mp4"), help="MP4 file to write"
+    )
     return parser
+
+
+def load_video_engine() -> VideoEngine:
+    try:
+        from imageskin.mouth_warp import MouthWarpEngine
+    except ImportError as e:
+        if e.name in ("cv2", "numpy"):
+            raise VideoError(INSTALL_HINT) from e
+        raise
+    return MouthWarpEngine()
+
+
+def sample(photo: Path, voice: str, output: Path) -> SampleResult:
+    return make_sample(photo, output, KokoroEngine(), load_video_engine(), voice)
 
 
 def say(text: str, voice: str, output: Path) -> float:
@@ -101,6 +129,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Full paths, so it is clear where the files went (relative to the current folder).
         wav = args.output.resolve()
         print(f"Wrote {wav} ({seconds:.1f} seconds) and word timings to {wav.with_suffix('.json')}")
+        return 0
+    if args.command == "sample":
+        try:
+            result = sample(args.photo, args.voice, args.output)
+        except (VoiceError, VideoError) as e:
+            logger.error("Could not make sample video", extra={"error": str(e)})
+            return 1
+        mp4 = args.output.resolve()
+        print(
+            f"Wrote {mp4} ({result.seconds:.1f} seconds). Took {result.prepare_ms / 1000:.1f} s "
+            f"to prepare the photo, {result.speak_ms / 1000:.1f} s to speak and "
+            f"{result.render_ms / 1000:.1f} s to render."
+        )
         return 0
     parser.print_help()
     return 0
