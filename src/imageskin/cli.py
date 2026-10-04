@@ -9,7 +9,9 @@ from pathlib import Path
 from imageskin import __version__
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, load_settings
+from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
+from imageskin.voice import VoiceError, write_speech
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_TIMEOUT_S,
         help="seconds allowed to convert each recording",
     )
+    say = commands.add_parser("say", help="speak text with a Kokoro voice, on the CPU")
+    say.add_argument("text", help="what to say")
+    say.add_argument(
+        "--voice",
+        default=DEFAULT_VOICE,
+        help=f"Kokoro voice name, such as af_heart or am_michael (default {DEFAULT_VOICE})",
+    )
+    say.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("speech.wav"),
+        help="WAV file to write; word timings go next to it as .json",
+    )
     return parser
+
+
+def say(text: str, voice: str, output: Path) -> float:
+    speech = KokoroEngine().speak(voice, text)
+    try:
+        return write_speech(speech, output, output.with_suffix(".json"))
+    except OSError as e:
+        raise VoiceError(f"could not write {output}: {e}") from e
 
 
 def serve(host: str, port: int) -> None:
@@ -67,6 +91,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             logger.error("Could not make voice sample", extra={"error": str(e)})
             return 1
         print(f"Wrote {args.output} ({seconds:.1f} seconds from {len(args.recordings)} recordings)")
+        return 0
+    if args.command == "say":
+        try:
+            seconds = say(args.text, args.voice, args.output)
+        except VoiceError as e:
+            logger.error("Could not speak text", extra={"error": str(e)})
+            return 1
+        # Full paths, so it is clear where the files went (relative to the current folder).
+        wav = args.output.resolve()
+        print(f"Wrote {wav} ({seconds:.1f} seconds) and word timings to {wav.with_suffix('.json')}")
         return 0
     parser.print_help()
     return 0

@@ -10,15 +10,15 @@ This is the plan as of today. The first video engine is not chosen yet, and that
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo plus voice recordings in, a video of the person saying the sample script out. | R1 to R4 | 4 | 12.1% | 2 of 4 |
+| 1 | **Sample video from the command line.** One photo in, a video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4 | 4 | 12.1% | 3 of 4 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 30.3% | 0 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 15.2% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 12.1% | 0 |
 | 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 3.0% | 0 |
-| 6 | **Americanized voice.** The person's voice with an American accent, chosen in setup. | R25 to R26 | 2 | 6.1% | 0 |
+| 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 6.1% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 15.2% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 6.1% | 0 |
-| | **Total** | | **33** | **100%** | **2 of 33** |
+| | **Total** | | **33** | **100%** | **3 of 33** |
 
 Sizes: 10 Simple, 23 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -36,10 +36,11 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 
 | Before | Decision |
 |---|---|
-| R3 | The first voice (TTS) engine. It must clone from a short sample and return word timings (needed for highlighting in R18). |
+| R3 | The first voice (TTS) engine. It must return word timings (needed for highlighting in R18), be free per use and run on CPU (Larry, 2026-10-04). **Picked in R3: Kokoro-82M** (Apache 2.0, runs on CPU on Windows and on a Linux server, reports word timings). It uses ready-made voices and cannot clone, so the person's own voice moves to R25. Rejected: ElevenLabs (per-use cost), XTTS-v2 and F5-TTS (non-commercial model licenses), MeloTTS plus OpenVoice v2 (install pins packages too old for Python 3.11), Chatterbox (reported slower than real time on CPU). |
 | R4 | The first video engine, local or hosted, and which tool. This is the biggest open decision in feature_evaluation.md. |
 | R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. |
 | R21 | The latency target. 2 seconds is only proposed; the real number comes from what R4's engine can do. |
+| R25 | The CPU voice-conversion tool that turns Kokoro's output into the person's voice (for example OpenVoice's tone-color converter or Seed-VC). It must be free per use, run on CPU and allow hosted use. Keeping the person's original accent (item 4) would need a different, cloning TTS and is left open. |
 | R32 | How the hosted site restricts access to its one user. features.md says single-user and HTTPS but names no mechanism. The simplest option is one password checked at the HTTPS proxy, with no accounts. |
 
 ## After the engine decision
@@ -67,15 +68,16 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the guide's recordings turned into a single voice sample that plays correctly.
 - **Built:** `imageskin voice-sample ... -o voice-sample.wav` converts each file to 24 kHz mono 16-bit WAV (`--timeout`, default 60 seconds per file) and joins them in order. ffmpeg must be on PATH; CI installs it.
 
-### R3. Voice engine and cloned speech (Medium) · item 11 (timings)
-- Voice engine interface (`clone(sample) -> voice`, `speak(voice, text) -> audio + word timings`) and the first real adapter.
-- Command: `imageskin say --voice sample.wav "Hello there"` writes a WAV and a word-timings JSON file.
-- **Can show:** any sentence spoken in the person's cloned voice.
+### R3. Voice engine and speech (Medium) · item 11 (timings) · Done in [PR #6](https://github.com/larry94555/ImageSkinForLLM/pull/6)
+- Voice engine interface (`speak(voice, text) -> audio + word timings`) and the first real adapter, Kokoro-82M on the CPU, with ready-made voices.
+- Command: `imageskin say [--voice af_heart] "Hello there"` writes a WAV and a word-timings JSON file.
+- **Can show:** any sentence spoken in a ready-made voice on the CPU, with each word's start and end time.
+- **Built:** `VoiceEngine` protocol in `voice.py` and a Kokoro adapter installed with `pip install -e ".[voice]"`. Changed from the first plan, which was `clone(sample)` and speech in the person's cloned voice: Larry chose a free, CPU-only engine and a ready-made voice for now (2026-10-04), so cloning moved to R25 and the R2 voice sample is first used there.
 
 ### R4. Video engine and the sample video (Medium) · item 6
 - Video engine interface (`prepare(photo) -> face`, `render(face, audio) -> video`) and the first real adapter.
-- Command: `imageskin sample --photo me.jpg --voice sample.wav` renders the item 6 script to an MP4, logging how long each step takes.
-- **Can show:** the ~30-second sample video of the person speaking the test script in their own voice. This is the first end-to-end test of the whole idea, and the timings it logs set the latency target.
+- Command: `imageskin sample --photo me.jpg` renders the item 6 script, spoken by R3's Kokoro voice, to an MP4, logging how long each step takes.
+- **Can show:** the ~30-second sample video of the person speaking the test script (in a ready-made voice until R25). This is the first end-to-end test of the whole idea, and the timings it logs set the latency target.
 
 ## Milestone 2: Setup in the browser
 
@@ -104,7 +106,7 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ### R10. Sound checks (Medium) · item 3 (part 1)
 - Checks: long enough (threshold decided before this PR), not clipped, low background noise, each with a plain-language message.
-- Combines the valid files into the voice sample used by R3.
+- Combines the valid files into the voice sample used by R25.
 - **Can show:** a short, clipped or noisy recording is flagged; valid recordings are combined into one voice sample.
 
 ### R11. One-speaker check (Medium) · item 3 (part 2)
@@ -112,7 +114,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** a recording with two people talking is flagged; a single-speaker recording passes.
 
 ### R12. Prepare job with progress (Medium) · item 5
-- A background job runs prepare (clone the voice, prepare the face) and reports progress; the browser shows a progress bar.
+- A background job runs prepare (prepare the voice, prepare the face) and reports progress; the browser shows a progress bar.
 - **Can show:** clicking Prepare shows progress moving through each step, with step timings in the logs.
 
 ### R13. Sample video in the browser (Medium) · items 5, 6
@@ -175,12 +177,12 @@ The PRs below are written for either kind of video engine, but these are the one
 - Microphone button, push-to-talk, transcribed with browser speech recognition (whisper.cpp can be added later as a separate PR if needed); the transcribed prompt is shown as sent.
 - **Can show:** hold the button, ask a question out loud, and the person answers on video.
 
-## Milestone 6: Americanized voice
+## Milestone 6: The person's voice
 
-### R25. Voice conversion (Medium) · item 4
-- Voice-conversion adapter: an American base TTS voice converted to the person's timbre (for example OpenVoice or Seed-VC).
-- Command: `imageskin sample --americanize` renders the sample with it.
-- **Can show:** the same sample video in the original accent and Americanized, side by side.
+### R25. The person's voice by voice conversion (Medium) · items 3, 4
+- Voice-conversion adapter on the CPU: R3's American Kokoro voice is converted to the person's timbre, learned from the R2 voice sample (tool decided before this PR, for example OpenVoice's tone-color converter or Seed-VC). Word timings from R3 still apply because conversion keeps the timing.
+- Commands: `imageskin say --voice-sample voice-sample.wav "Hello there"` and `imageskin sample --photo me.jpg --voice-sample voice-sample.wav`.
+- **Can show:** the same sentence in the ready-made voice and in the person's voice, side by side, with the time conversion adds per sentence in the logs.
 
 ### R26. Accent choice in setup and review (Simple) · items 4, 7 (Change accent)
 - Accent question in setup, and Change accent on the review screen, which reruns the sample.

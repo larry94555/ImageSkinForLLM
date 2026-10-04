@@ -53,3 +53,39 @@ def test_voice_sample_error_logs_and_exits_1(
     entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert entry["level"] == "ERROR"
     assert "file not found" in entry["error"]
+
+
+def test_say_writes_speech_and_timings(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from imageskin.voice import Speech, WordTiming
+
+    out = tmp_path / "hello.wav"
+    speech = Speech(pcm=b"\x00\x00" * 12000, sample_rate=24000, words=[WordTiming("Hello", 0, 0.5)])
+    with patch("imageskin.cli.KokoroEngine.speak", return_value=speech) as speak:
+        assert main(["say", "--voice", "am_michael", "-o", str(out), "Hello"]) == 0
+    speak.assert_called_once_with("am_michael", "Hello")
+    assert out.is_file()
+    assert json.loads((tmp_path / "hello.json").read_text())["words"][0]["word"] == "Hello"
+    assert f"Wrote {out.resolve()} (0.5 seconds)" in capsys.readouterr().out
+
+
+def test_say_error_is_logged(capsys: pytest.CaptureFixture[str]) -> None:
+    from imageskin.voice import VoiceError
+
+    with patch(
+        "imageskin.cli.KokoroEngine.speak", side_effect=VoiceError("Kokoro is not installed")
+    ):
+        assert main(["say", "Hi"]) == 1
+    entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert entry["error"] == "Kokoro is not installed"
+
+
+def test_say_unwritable_output_logs_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from imageskin.voice import Speech
+
+    speech = Speech(pcm=b"", sample_rate=24000, words=[])
+    with patch("imageskin.cli.KokoroEngine.speak", return_value=speech):
+        out = tmp_path / "missing-dir" / "x.wav"
+        assert main(["say", "-o", str(out), "Hi"]) == 1
+    assert "could not write" in capsys.readouterr().err
