@@ -98,8 +98,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         except VoiceError as e:
             logger.error("Could not speak text", extra={"error": str(e)})
             return 1
-        timings = args.output.with_suffix(".json")
-        print(f"Wrote {args.output} ({seconds:.1f} seconds) and word timings to {timings}")
+        # Full paths, so it is clear where the files went (relative to the current folder).
+        wav = args.output.resolve()
+        print(f"Wrote {wav} ({seconds:.1f} seconds) and word timings to {wav.with_suffix('.json')}")
         return 0
     parser.print_help()
     return 0

@@ -65,7 +65,7 @@ def test_say_writes_speech_and_timings(tmp_path: Path, capsys: pytest.CaptureFix
     speak.assert_called_once_with("am_michael", "Hello")
     assert out.is_file()
     assert json.loads((tmp_path / "hello.json").read_text())["words"][0]["word"] == "Hello"
-    assert "0.5 seconds" in capsys.readouterr().out
+    assert f"Wrote {out.resolve()} (0.5 seconds)" in capsys.readouterr().out
 
 
 def test_say_error_is_logged(capsys: pytest.CaptureFixture[str]) -> None:
