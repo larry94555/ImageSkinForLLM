@@ -2,7 +2,9 @@
 
 `prepare` finds the face with OpenCV's built-in face detector (no model download) and the line
 where the lips meet. `render` opens the mouth in each frame as loud as the speech is at that
-moment: the lower lip and chin are stretched down and the gap is filled with a dark mouth opening.
+moment: the lower lip and chin are stretched down a little and the gap is filled with a soft,
+dark-red mouth opening, with a hint of upper teeth on the louder sounds. These are the "softer"
+settings Larry picked from the side-by-side test in GitHub PR #9.
 Frames are piped to ffmpeg, which adds the audio and writes an H.264 MP4.
 
 It runs much faster than real time on a laptop CPU. The rest of the face stays still; head motion
@@ -25,7 +27,8 @@ from imageskin.video import FPS, Face, VideoError, mouth_openness, read_pcm16
 logger = logging.getLogger(__name__)
 
 MAX_SIDE = 720  # longest side of the video, in pixels
-MAX_DROP = 0.35  # how far the lower lip drops at full volume, as a share of lips-to-chin
+MAX_DROP = 0.15  # how far the lower lip drops at full volume, as a share of lips-to-chin
+TEETH_FROM = 0.53  # openness above which the upper teeth start to show
 DEFAULT_TIMEOUT_S = 300.0
 
 CASCADE = "haarcascade_frontalface_default.xml"  # bundled with opencv-python 4.x
@@ -82,6 +85,24 @@ def find_lip_line(image: Image, face: Box) -> int:
     return top + round(float((weight * np.arange(len(weight))).sum() / weight.sum()))
 
 
+def refine_lip_line(image: Image, mouth_x: int, mouth_y: int, mouth_w: int, jaw_h: int) -> int:
+    """Move the lip line onto the darkest row near it: the seam between closed lips.
+
+    The redness centre can land a few pixels off on pale lips. Only a short way up is searched,
+    since the shadow under the nose is dark too.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    reach = max(3, jaw_h // 3)
+    top = max(0, mouth_y - reach // 2)
+    half = max(2, mouth_w // 4)
+    band = gray[top : mouth_y + reach + 1, max(0, mouth_x - half) : mouth_x + half]
+    if band.shape[0] < 3 or band.shape[1] == 0:
+        return mouth_y
+    rows = np.convolve(band.mean(axis=1), np.ones(3) / 3, mode="same")
+    rows[0] = rows[-1] = np.inf  # the ends average in rows outside the band
+    return top + int(np.argmin(rows))
+
+
 def frame_weights(face: Face) -> tuple[Box, NDArray[np.float32]]:
     """The region that moves and, per pixel, how much of the full drop it gets (0 to 1)."""
     half_w = face.mouth_w // 2 + face.mouth_w // 4
@@ -112,14 +133,30 @@ def draw_frame(
         roi, grid_x, grid_y - drop * weights, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
     )
     frame[y : y + h, x : x + w] = moved
-    # Fill the gap between the lips with a soft-edged dark opening.
-    mask = np.zeros(frame.shape[:2], dtype=np.float32)
-    center = (face.mouth_x, face.mouth_y + int(drop / 2))
-    axes = (max(1, int(0.42 * face.mouth_w)), max(1, int(drop / 2)))
-    cv2.ellipse(mask, center, axes, 0, 0, 360, 1.0, -1)
-    alpha = cv2.GaussianBlur(mask, (0, 0), max(1.0, drop / 6))[..., None]
-    dark = np.array([30, 25, 45], dtype=np.float32)  # BGR, a dark red-brown
-    return (frame * (1 - alpha) + dark * alpha).astype(np.uint8)
+    # Fill the gap between the lips with a soft-edged, partly see-through opening. Only a patch
+    # around the mouth is blurred and blended, which keeps each frame fast.
+    half_w = max(1, int(0.36 * face.mouth_w))
+    sigma = max(1.0, drop / 4)
+    pad = int(3 * sigma) + 2
+    px0, px1 = max(0, face.mouth_x - half_w - pad), min(face.width, face.mouth_x + half_w + pad)
+    py0, py1 = max(0, face.mouth_y - pad), min(face.height, face.mouth_y + int(drop) + pad)
+    patch = frame[py0:py1, px0:px1].astype(np.float32)
+    cx, cy = face.mouth_x - px0, face.mouth_y - py0
+    mask = np.zeros(patch.shape[:2], dtype=np.float32)
+    cv2.ellipse(mask, (cx, cy + int(drop / 2)), (half_w, max(1, int(drop / 2))), 0, 0, 360, 1.0, -1)
+    alpha = 0.8 * cv2.GaussianBlur(mask, (0, 0), sigma)[..., None]
+    inside = np.array([45, 40, 70], dtype=np.float32)  # BGR, a dark warm red
+    patch = patch * (1 - alpha) + inside * alpha
+    if o > TEETH_FROM:
+        # A faint band of upper teeth just under the upper lip.
+        teeth = np.zeros(patch.shape[:2], dtype=np.float32)
+        th = max(1, int(drop * 0.18))
+        cv2.ellipse(teeth, (cx, cy + th), (int(half_w * 0.7), th), 0, 0, 180, 1.0, -1)
+        strength = 0.26 * (o - TEETH_FROM) / (1 - TEETH_FROM)
+        t_alpha = strength * cv2.GaussianBlur(teeth, (0, 0), 1.0)[..., None]
+        patch = patch * (1 - t_alpha) + np.array([200, 205, 215], dtype=np.float32) * t_alpha
+    frame[py0:py1, px0:px1] = patch.astype(np.uint8)
+    return frame
 
 
 def find_ffmpeg() -> str:
@@ -158,15 +195,17 @@ class MouthWarpEngine:
             )
         box = faces[0]
         x, y, w, h = box
-        mouth_y = find_lip_line(image, box)
         chin_y = min(image.shape[0] - 1, y + int(1.02 * h))
+        mouth_x, mouth_w = x + w // 2, max(4, int(0.42 * w))
+        red_y = find_lip_line(image, box)
+        mouth_y = refine_lip_line(image, mouth_x, red_y, mouth_w, max(4, chin_y - red_y))
         face = Face(
             photo=photo,
             width=image.shape[1],
             height=image.shape[0],
-            mouth_x=x + w // 2,
+            mouth_x=mouth_x,
             mouth_y=mouth_y,
-            mouth_w=max(4, int(0.42 * w)),
+            mouth_w=mouth_w,
             jaw_h=max(4, chin_y - mouth_y),
         )
         logger.info(
