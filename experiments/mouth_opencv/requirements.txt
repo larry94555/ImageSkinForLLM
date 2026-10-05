@@ -1,0 +1,5 @@
+# OpenCV mouth comparison only; not needed by the app. Python 3.11 or 3.12.
+# Also install the app's video extra: pip install -e ".[video]"
+kokoro-onnx>=0.4,<0.7
+onnx>=1.16
+onnxruntime>=1.17
