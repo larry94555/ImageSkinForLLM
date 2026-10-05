@@ -19,7 +19,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 import wave
 from dataclasses import replace
 from pathlib import Path
@@ -29,6 +28,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 sys.path.insert(0, str(Path(__file__).parent))
+from model_download import DownloadError, download  # noqa: E402
 from visemes import frame_shapes, segments  # noqa: E402
 
 from imageskin.mouth_warp import (  # noqa: E402
@@ -43,6 +43,19 @@ from imageskin.video import FPS, Face, mouth_openness  # noqa: E402
 log = logging.getLogger("compare")
 RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 MODEL_DIR = Path(__file__).parent / "models"
+# Release files: (name, bytes, sha256).
+MODEL_FILES = [
+    (
+        "kokoro-v1.0.onnx",
+        325532387,
+        "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+    ),
+    (
+        "voices-v1.0.bin",
+        28214398,
+        "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+    ),
+]
 SAMPLE_RATE = 24000
 SAMPLES_PER_DURATION_UNIT = 600  # Kokoro predicts phoneme lengths in units of 25 ms
 SOFT_DROP = 0.2  # share of lips-to-chin the lower lip drops at full opening (PR #7 uses 0.35)
@@ -51,12 +64,8 @@ Image = NDArray[np.uint8]
 
 def ensure_models() -> tuple[Path, Path]:
     """Download Kokoro's ONNX model and voices once, and add a phoneme-duration output."""
-    MODEL_DIR.mkdir(exist_ok=True)
-    for name in ("kokoro-v1.0.onnx", "voices-v1.0.bin"):
-        path = MODEL_DIR / name
-        if not path.exists():
-            log.info("Downloading %s (once)", name)
-            urllib.request.urlretrieve(RELEASE + name, path)
+    for name, size, sha in MODEL_FILES:
+        download(RELEASE + name, MODEL_DIR / name, size, sha)
     patched = MODEL_DIR / "kokoro-durations.onnx"
     if not patched.exists():
         import onnx
@@ -257,7 +266,11 @@ def main() -> None:
     parser.add_argument("-o", "--output", type=Path, default=Path("mouth_compare.mp4"))
     parser.add_argument("--panel", type=int, default=480, help="size of each panel in pixels")
     args = parser.parse_args()
-    render(args.photo, args.text, args.voice, args.output, args.panel)
+    try:
+        render(args.photo, args.text, args.voice, args.output, args.panel)
+    except DownloadError as exc:
+        log.error("Model download stopped: %s", exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
