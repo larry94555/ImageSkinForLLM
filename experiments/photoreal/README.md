@@ -15,27 +15,36 @@ pre-rendered plan:
 |---|---|---|
 | LivePortrait code (KwaiVGI/LivePortrait) | MIT | warp + decode |
 | MediaPipe Face Landmarker | Apache 2.0 | finding the face (replaces InsightFace) |
-| LivePortrait weights (huggingface.co/KwaiVGI/LivePortrait) | to be confirmed on Hugging Face | models |
+| LivePortrait weights (huggingface.co/KlingTeam/LivePortrait, formerly KwaiVGI) | MIT (model card, checked 2026-10-05) | models |
 
 LivePortrait's own face detector comes from InsightFace, whose models are
 non-commercial, so this test never downloads or runs them. The animal models (X-Pose)
 are skipped for the same reason.
 
-## Results so far
+## Results with the real weights
 
-Measured in a 4-core cloud container (Intel Xeon 2.8 GHz, PyTorch 2.5.1, 4 threads) with
-stand-in weights of the exact LivePortrait architecture and size (random values), because
-Hugging Face was not reachable. Speed depends only on the architecture, so the timings
-hold; the pictures do not, so real samples come with the next run.
+Measured 2026-10-05 in a 4-core cloud container (Intel Xeon, PyTorch 2.14 CPU, 4 threads,
+float32) with the real LivePortrait weights. Test photos: LivePortrait's example portraits
+of the Mona Lisa (1280 x 720) and Einstein around 1904 (500 x 375), both public domain.
 
-| Step | Time |
-|---|---|
-| Prepare the photo (find face, extract features) | 7.1 s, once |
-| Render one frame | about 5 s (warp 2 s, decode 3 to 5 s) |
-| Setup in this run: 2 moods x 8 mouth shapes x 10 frames = 160 frames | 13 min |
-| Per reply: 2.5 s clip, assemble + encode | 0.66 s, about 4x faster than real time |
+| Step | Mona Lisa | Einstein |
+|---|---|---|
+| Prepare the photo (find face, extract features) | 2.6 s, once | 13.6 s, once (first run) |
+| Render one frame | 4.8 s | 5.3 s |
+| Setup in this run (2 moods x 8 mouth shapes x N frames) | 400 frames, 31 min | 160 frames, 12 min |
+| Per reply: 2.5 s clip, assemble + encode | 1.3 to 1.5 s | 0.49 s |
 
-bfloat16 on this CPU was twice as slow, so the test uses float32.
+- The pictures are photoreal: skin, teeth and lips come from the photo, with no puppet look.
+  Mouth opening shows best on a clean-shaven face; a heavy moustache hides most of it.
+- Per-reply time grows with photo size, because each frame is pasted back into the full
+  photo and encoded. At 1280 x 720 it is still about 1.7x faster than real time; a 720 px
+  photo would be about 3x.
+- Mouth shapes were tuned by eye on the Mona Lisa: pressed lips (MBP) and the f/v shape
+  were too strong before. Blinks now use an expression edit on both eyelids, because
+  LivePortrait's eye retargeting model closed only one eye on a turned head. That also
+  removed the 114 MB landmark model from the download.
+- bfloat16 on this CPU was twice as slow in the earlier stand-in run, so the test uses
+  float32.
 
 Full plan estimate at 5 s per frame: 4 moods x 15 mouth shapes x a 2 s loop at 25 fps is
 3000 frames, about 4 hours of setup on a 4-core CPU. Halving the loop length or the number
@@ -44,11 +53,15 @@ of moods halves that. A faster laptop CPU should beat the cloud container.
 ## Run it
 
 Needs Python 3.11 or 3.12, git and ffmpeg (see the main README). About 500 MB downloads
-once from github.com, huggingface.co and storage.googleapis.com. The default run renders
-2 moods x 8 mouth shapes x 50 frames = 800 frames, which takes about an hour at 5 s per
-frame; add `--loop-seconds 0.4` for a 10-minute run.
+once from github.com, huggingface.co (files are served from us.aws.cdn.hf.co) and
+storage.googleapis.com. Behind a firewall that allows only those hosts, set
+`HF_HUB_DISABLE_XET=1` first so Hugging Face does not use its xethub hosts.
 
-macOS / Linux (on a Linux server, MediaPipe also needs `sudo apt install libegl1`):
+The default run renders 2 moods x 8 mouth shapes x 50 frames = 800 frames, which takes
+about an hour at 5 s per frame; add `--loop-seconds 0.4` for a 10-minute run (loops under
+1 s skip the blink).
+
+macOS / Linux (on a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`):
 
 ```
 . .venv/bin/activate
@@ -90,6 +103,6 @@ The log shows `Portrait ready`, `Mouth shapes rendered: N s per frame`, one
 
 ## Next steps if it looks right
 
-- Tune the mouth shapes and add the rest of the 12 to 15.
+- Add the rest of the 12 to 15 mouth shapes.
 - Drive mouth shapes from Kokoro's phoneme timings and add the voice track.
 - Cut setup time: fewer loop frames with interpolation, or an ONNX export of the models.

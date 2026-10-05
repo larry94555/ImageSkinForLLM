@@ -30,19 +30,25 @@ CONTROLS: dict[str, tuple[tuple[int, int, float], ...]] = {
         (20, 1, -0.01), (14, 1, -0.02), (17, 1, 0.0065), (17, 2, 0.003),
         (13, 1, -0.00275), (16, 1, -0.00275), (3, 1, -0.0035), (7, 1, -0.0035),
     ),
+    # Both eyelids, from the editor's eyeball-direction slider (sign flipped so positive
+    # closes). LivePortrait's eye retargeting model closed only one eye on a turned head.
+    "blink": ((11, 1, 0.001), (13, 1, -0.0003), (15, 1, 0.001), (16, 1, -0.0003)),
 }  # fmt: skip
 
+BLINK_CLOSED = 15.0  # "blink" amount that fully closes the eyes (checked on real weights)
+
 # A first set of mouth shapes (visemes). The full plan needs about 12 to 15; these cover the
-# most distinct ones so the test shows whether the edits look photoreal.
+# most distinct ones so the test shows whether the edits look photoreal. Amounts were tuned
+# by eye on the real weights with a clean-shaven, closed-mouth portrait.
 VISEMES: dict[str, dict[str, float]] = {
     "rest": {},
     "AA": {"open": 70.0},  # father, hot
     "EH": {"open": 35.0, "grin": 4.0},  # bed, cat
-    "EE": {"open": 15.0, "grin": 10.0},  # see, it
-    "OH": {"open": 45.0, "purse": 8.0},  # go, law
+    "EE": {"open": 12.0, "grin": 8.0},  # see, it
+    "OH": {"open": 40.0, "purse": 10.0},  # go, law
     "OO": {"open": 10.0, "purse": 12.0, "pout": 0.05},  # you, wood
-    "MBP": {"open": -40.0},  # lips pressed: m, b, p
-    "FV": {"open": 5.0, "purse": -10.0},  # lower lip to teeth: f, v
+    "MBP": {"open": -15.0},  # lips pressed: m, b, p
+    "FV": {"open": 15.0, "grin": 3.0},  # lower lip to teeth: f, v
 }
 
 # Moods are expression offsets held for a whole base loop.
@@ -65,7 +71,8 @@ def loop_motion(frame: int, n_frames: int, fps: float) -> tuple[float, float, fl
     """Head (pitch, yaw, roll) in degrees and eye openness (0..1) for one frame of a base loop.
 
     Motion is sinusoidal with whole cycles, so the last frame flows back into the first.
-    One blink of about 0.2 s sits a third of the way through.
+    One blink of about 0.2 s sits a third of the way through. Loops shorter than 1 s do not
+    blink, since repeating them would blink several times a second.
     """
     phase = 2 * math.pi * frame / n_frames
     pitch = 1.5 * math.sin(2 * phase)
@@ -74,7 +81,7 @@ def loop_motion(frame: int, n_frames: int, fps: float) -> tuple[float, float, fl
     blink_center = n_frames / 3
     half_width = max(1.0, 0.1 * fps)
     distance = abs(frame - blink_center) / half_width
-    eye_open = min(1.0, distance)
+    eye_open = min(1.0, distance) if n_frames >= fps else 1.0
     return pitch, yaw, roll, eye_open
 
 

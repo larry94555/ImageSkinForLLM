@@ -22,7 +22,15 @@ from typing import Any
 import cv2
 import numpy as np
 import torch
-from face_points import MOODS, MP_TO_68, VISEMES, expression_delta, loop_motion, viseme_frames
+from face_points import (
+    BLINK_CLOSED,
+    MOODS,
+    MP_TO_68,
+    VISEMES,
+    expression_delta,
+    loop_motion,
+    viseme_frames,
+)
 
 log = logging.getLogger("photoreal")
 HERE = Path(__file__).resolve().parent
@@ -64,7 +72,6 @@ class Portrait:
         from src.live_portrait_wrapper import LivePortraitWrapper
         from src.utils.camera import get_rotation_matrix
         from src.utils.crop import crop_image, paste_back, prepare_paste_back
-        from src.utils.human_landmark_runner import LandmarkRunner
 
         self._rotation = get_rotation_matrix
         self._paste_back = paste_back
@@ -91,8 +98,6 @@ class Portrait:
             vy_ratio=crop_cfg.vy_ratio,
             flag_do_rot=crop_cfg.flag_do_rot,
         )
-        runner = LandmarkRunner(ckpt_path=crop_cfg.landmark_ckpt_path, onnx_provider="cpu")
-        self.lmk203 = runner.run(self.photo, face68)
         self.crop_to_photo = crop["M_c2o"]
         h, w = self.photo.shape[:2]
         self.mask = prepare_paste_back(cfg.mask_crop, self.crop_to_photo, dsize=(w, h))
@@ -105,9 +110,6 @@ class Portrait:
         self.x_s = self.lp.transform_keypoint(self.info)
         self.t = self.info["t"].clone()
         self.t[..., 2] = 0
-        from src.utils.retargeting_utils import calc_eye_close_ratio
-
-        self.eye_ratio = float(calc_eye_close_ratio(self.lmk203[None]).mean())
         self.prepare_s = time.perf_counter() - start
         log.info("Portrait ready from %s in %.2f s", photo, self.prepare_s)
 
@@ -120,12 +122,11 @@ class Portrait:
     ) -> np.ndarray:
         """One 512x512 RGB face crop with the given expression, head pose and eye openness."""
         info = self.info
+        if eye_open < 1.0:
+            controls = {**controls, "blink": BLINK_CLOSED * (1.0 - eye_open)}
         delta = info["exp"] + torch.tensor(expression_delta(controls)).view(1, -1, 3)
         rot = self._rotation(info["pitch"] + pose[0], info["yaw"] + pose[1], info["roll"] + pose[2])
         x_d = info["scale"] * (info["kp"] @ rot + delta) + self.t
-        if eye_open < 1.0:
-            ratio = self.lp.calc_combined_eye_ratio([[self.eye_ratio * eye_open]], self.lmk203)
-            x_d = x_d + self.lp.retarget_eye(self.x_s, ratio)
         x_d = self.lp.stitching(self.x_s, x_d)
         out = self.lp.warp_decode(self.features, self.x_s, x_d)
         return self.lp.parse_output(out["out"])[0]

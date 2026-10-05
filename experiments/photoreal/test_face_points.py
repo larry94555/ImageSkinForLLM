@@ -1,5 +1,6 @@
 import pytest
 from face_points import (
+    BLINK_CLOSED,
     CONTROLS,
     MOODS,
     MP_TO_68,
@@ -48,6 +49,16 @@ def test_loop_motion_is_seamless_and_blinks_once() -> None:
     closed = [i for i, e in enumerate(eyes) if e < 1.0]
     assert closed == list(range(closed[0], closed[-1] + 1))  # one contiguous blink
     assert all(abs(p) <= 3.0 for i in range(n) for p in loop_motion(i, n, fps)[:3])
+
+
+def test_short_loop_does_not_blink() -> None:
+    assert all(loop_motion(i, 10, 25.0)[3] == 1.0 for i in range(10))
+
+
+def test_blink_closes_both_eyes_evenly() -> None:
+    delta = expression_delta({"blink": BLINK_CLOSED})
+    assert delta[11][1] == pytest.approx(delta[15][1]) and delta[11][1] > 0
+    assert delta[13][1] == pytest.approx(delta[16][1]) and delta[13][1] < 0
 
 
 def test_viseme_frames_holds_then_crossfades() -> None:

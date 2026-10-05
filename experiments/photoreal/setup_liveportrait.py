@@ -1,8 +1,8 @@
 """Download what the LivePortrait CPU test needs, once (about 500 MB).
 
 - LivePortrait code (MIT) from GitHub at a pinned commit, via git.
-- LivePortrait human weights from Hugging Face (KwaiVGI/LivePortrait). Only the base
-  models, the stitching/retargeting model and the landmark model are fetched; the
+- LivePortrait human weights from Hugging Face (KlingTeam/LivePortrait, MIT). Only the base
+  models and the stitching/retargeting model are fetched; the
   InsightFace and animal (X-Pose) files are skipped because their licenses are
   non-commercial.
 - MediaPipe Face Landmarker model (Apache 2.0) from storage.googleapis.com.
@@ -21,11 +21,10 @@ HERE = Path(__file__).resolve().parent
 
 LP_REPO = "https://github.com/KwaiVGI/LivePortrait"
 LP_COMMIT = "9b294b3d0536135442ea73cb01e6cb3ca7029dd3"  # main on 2026-06-02
-HF_REPO = "KwaiVGI/LivePortrait"
+HF_REPO = "KlingTeam/LivePortrait"  # formerly KwaiVGI; MIT license on the model card
 HF_PATTERNS = [
     "liveportrait/base_models/*",
     "liveportrait/retargeting_models/*",
-    "liveportrait/landmark.onnx",
 ]
 FACE_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
