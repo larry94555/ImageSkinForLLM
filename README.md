@@ -10,7 +10,24 @@ Requires Python 3.11 or later, and [ffmpeg](https://ffmpeg.org) on PATH for audi
 - macOS: `brew install ffmpeg`
 - Linux (Debian or Ubuntu): `sudo apt install ffmpeg`
 
-Check it with `ffmpeg -version`. Create a virtual environment and install the project once:
+Check it with `ffmpeg -version`.
+
+If Windows says `'ffmpeg' is not recognized` after installing (or winget says it is already installed), the terminal can't find it yet:
+
+1. Close every terminal (and VS Code, if you use its terminal), open a new Command Prompt and run `where ffmpeg`. If it prints a path, you're done.
+2. Check that winget's shortcut exists: `dir "%LOCALAPPDATA%\Microsoft\WinGet\Links\ffmpeg.exe"` (Command Prompt) or `Test-Path "$env:LOCALAPPDATA\Microsoft\WinGet\Links\ffmpeg.exe"` (PowerShell).
+3. If it exists, add that folder to your PATH once, in PowerShell, then open a new terminal:
+
+   ```
+   [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path","User") + ";$env:LOCALAPPDATA\Microsoft\WinGet\Links", "User")
+   ```
+
+   For the current window only: `set PATH=%PATH%;%LOCALAPPDATA%\Microsoft\WinGet\Links` (Command Prompt) or `$env:Path += ";$env:LOCALAPPDATA\Microsoft\WinGet\Links"` (PowerShell).
+4. If it doesn't exist, find the real file in PowerShell with `Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter ffmpeg.exe | Select-Object -ExpandProperty FullName` and add its `bin` folder to PATH the same way. A machine-wide install puts the shortcut in `C:\Program Files\WinGet\Links` instead.
+
+Avoid `setx PATH`: it can cut a long PATH short.
+
+Create a virtual environment and install the project once:
 
 macOS or Linux:
 
