@@ -2,25 +2,25 @@
 
 Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup, the chat, and the rest around it.
 
-PRs are numbered R1 to R33 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine, so the later numbers stay the same. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R33 so they don't get mixed up with GitHub PR numbers. R4b and R4c were added after R4 for the photoreal engine (R4a, mouth alignment, comes with GitHub PR #8), so the later numbers stay the same. Item numbers like "item 6" refer to features.md.
 
-This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4a to R4c replace it with a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
+This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
 ## Milestones
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 4 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 0 |
-| 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
-| 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
-| 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
-| 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.6% | 0 |
-| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.9% | 0 |
-| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
-| | **Total** | | **36** | **100%** | **4 of 36** |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 6 | 17.1% | 4 of 6 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 28.6% | 0 |
+| 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 14.3% | 0 |
+| 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.4% | 0 |
+| 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.9% | 0 |
+| 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.7% | 0 |
+| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 14.3% | 0 |
+| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.7% | 0 |
+| | **Total** | | **35** | **100%** | **4 of 35** |
 
-Sizes: 11 Simple, 25 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 11 Simple, 24 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -37,7 +37,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | Before | Decision |
 |---|---|
 | R3 | The first voice (TTS) engine. It must return word timings (needed for highlighting in R18), be free per use and run on CPU (Larry, 2026-10-04). **Picked in R3: Kokoro-82M** (Apache 2.0, runs on CPU on Windows and on a Linux server, reports word timings). It uses ready-made voices and cannot clone, so the person's own voice moves to R25. Rejected: ElevenLabs (per-use cost), XTTS-v2 and F5-TTS (non-commercial model licenses), MeloTTS plus OpenVoice v2 (install pins packages too old for Python 3.11), Chatterbox (reported slower than real time on CPU). |
-| R4 | The first video engine, local or hosted, and which tool. It must be free per use, run on CPU, allow hosted use and work on Python 3.11 and 3.12 (Larry, 2026-10-04). **Picked in R4: our own mouth animation with OpenCV** (Apache 2.0): OpenCV's bundled face detector finds the face, and the mouth opens with the loudness of the speech. No model download, renders faster than real time on a CPU; it looks like a puppet mouth rather than a photoreal talking head. Rejected: Wav2Lip (non-commercial weights), SadTalker (non-commercial Basel Face Model, pins Python 3.8, minutes per clip on CPU), MuseTalk (needs a base video, no Python 3.12, GPU-bound), LivePortrait (video-driven, non-commercial InsightFace models), diffusion models such as Hallo and LatentSync (GPU only), hosted avatars (per-use cost). **Changed after R4:** LivePortrait turned out usable (its weights are MIT, and MediaPipe replaces the non-commercial InsightFace), and pre-rendering its frames once makes each reply fast on the CPU (GitHub PR #8). Larry chose it for photoreal quality (2026-10-05); R4a to R4c build it. |
+| R4 | The first video engine, local or hosted, and which tool. It must be free per use, run on CPU, allow hosted use and work on Python 3.11 and 3.12 (Larry, 2026-10-04). **Picked in R4: our own mouth animation with OpenCV** (Apache 2.0): OpenCV's bundled face detector finds the face, and the mouth opens with the loudness of the speech. No model download, renders faster than real time on a CPU; it looks like a puppet mouth rather than a photoreal talking head. Rejected: Wav2Lip (non-commercial weights), SadTalker (non-commercial Basel Face Model, pins Python 3.8, minutes per clip on CPU), MuseTalk (needs a base video, no Python 3.12, GPU-bound), LivePortrait (video-driven, non-commercial InsightFace models), diffusion models such as Hallo and LatentSync (GPU only), hosted avatars (per-use cost). **Changed after R4:** LivePortrait turned out usable (its weights are MIT, and MediaPipe replaces the non-commercial InsightFace), and pre-rendering its frames once makes each reply fast on the CPU (GitHub PR #8). Larry chose it for photoreal quality (2026-10-05); R4b and R4c build it. |
 | R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. |
 | R21 | The latency target. Larry: a reply video that takes more than a few seconds to generate is unacceptable (2026-10-04). The photoreal test built a 2.5-second reply clip in 0.5 to 1.5 seconds on a 4-core CPU, so per-sentence clips should fit; R4c measures it with the real voice. |
 | R25 | The CPU voice-conversion tool that turns Kokoro's output into the person's voice (for example OpenVoice's tone-color converter or Seed-VC). It must be free per use, run on CPU and allow hosted use. Keeping the person's original accent (item 4) would need a different, cloning TTS and is left open. |
@@ -80,16 +80,12 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the ~30-second sample video of the person speaking the test script (in a ready-made voice until R25). This is the first end-to-end test of the whole idea, and the timings it logs set the latency target.
 - **Built:** `VideoEngine` protocol in `video.py`, the OpenCV engine in `mouth_warp.py` installed with `pip install -e ".[video]"`, and `imageskin sample --photo me.jpg [--voice ...] [-o sample.mp4]`, which logs `prepare_ms`, `speak_ms` and `render_ms`. The rest of the face stays still until R23.
 
-### R4a. Mouth alignment and fine-tuning (Medium) · item 6
-- Builds on the photoreal test in GitHub PR #8. In open mouth shapes (AA, OH, OO) the lower lip drifts sideways instead of opening evenly, because the "open" edit moves only LivePortrait keypoint 19, which sits off the centre line. Drive the mouth with LivePortrait's lip retargeting model instead, and tune every mouth shape against real speech.
-- **Can show:** a sheet of all mouth shapes with the lips opening evenly about the centre line, and a short clip of them in sequence, on two photos.
-
 ### R4b. Sound timings from the voice (Simple) · items 6, 11
 - Kokoro also reports when each sound (phoneme) starts and ends, not only each word, and each sound is mapped to a mouth shape (viseme). Closed-lip sounds (m, b, p) always get a frame, even when shorter than one.
 - **Can show:** `imageskin say` writes the sound timings and mouth shapes next to the word timings.
 
 ### R4c. Photoreal video engine (Medium) · item 6
-- A second adapter behind R4's `VideoEngine` interface. `prepare` renders the frame library once with LivePortrait (mood loops and mouth shapes, hours on the CPU), logs progress and resumes after an interruption. `render` picks frames from R4b's sound timings and adds the voice, in about a second per short reply.
+- A second adapter behind R4's `VideoEngine` interface, using the mouth shapes as tuned in R4a. `prepare` renders the frame library once with LivePortrait (mood loops and mouth shapes, hours on the CPU), logs progress and resumes after an interruption. `render` picks frames from R4b's sound timings and adds the voice, in about a second per short reply.
 - Command: `imageskin sample --photo me.jpg --engine photoreal`. The OpenCV engine stays the default until this one is accepted, as a quick fallback.
 - **Can show:** the sample video of the person in photoreal quality, lip-synced to the voice, with the render time logged. If it grows past Medium, preparing the library and rendering split into two PRs.
 
