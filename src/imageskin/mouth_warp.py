@@ -27,7 +27,7 @@ from imageskin.video import FPS, Face, VideoError, mouth_openness, read_pcm16
 logger = logging.getLogger(__name__)
 
 MAX_SIDE = 720  # longest side of the video, in pixels
-MAX_DROP = 0.15  # how far the lower lip drops at full volume, as a share of lips-to-chin
+MAX_DROP = 0.1  # how far the lower lip drops at full volume, as a share of lips-to-chin
 TEETH_FROM = 0.53  # openness above which the upper teeth start to show
 DEFAULT_TIMEOUT_S = 300.0
 
@@ -133,26 +133,32 @@ def draw_frame(
         roi, grid_x, grid_y - drop * weights, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
     )
     frame[y : y + h, x : x + w] = moved
-    # Fill the gap between the lips with a soft-edged, partly see-through opening. Only a patch
-    # around the mouth is blurred and blended, which keeps each frame fast.
-    half_w = max(1, int(0.36 * face.mouth_w))
-    sigma = max(1.0, drop / 4)
+    # Fill the gap between the lips with a soft-edged, partly see-through opening. It is
+    # almond-shaped, tallest in the middle and closing towards the corners of the lips, rather
+    # than a slot of even height. Only a patch around the mouth is blended, to keep frames fast.
+    half_w = max(1, round(0.45 * face.mouth_w))  # about the corners of the lips
+    sigma = max(0.7, drop / 6)
     pad = int(3 * sigma) + 2
     px0, px1 = max(0, face.mouth_x - half_w - pad), min(face.width, face.mouth_x + half_w + pad)
     py0, py1 = max(0, face.mouth_y - pad), min(face.height, face.mouth_y + int(drop) + pad)
     patch = frame[py0:py1, px0:px1].astype(np.float32)
+    dx = np.arange(px0, px1, dtype=np.float32) - face.mouth_x
+    gap = drop * np.clip(1 - (dx / half_w) ** 2, 0, 1) ** 1.5  # height of the opening per column
+    dy = np.arange(py0, py1, dtype=np.float32)[:, None] - face.mouth_y
+    # Share of each pixel inside the opening, which runs from the lip line down `gap` pixels.
+    inside_gap = np.minimum(dy + 0.5, gap[None, :] - dy + 0.5)
+    # Columns that open less than a pixel only get a faint shadow, not a line.
+    mask = (np.clip(inside_gap, 0, 1) * np.clip(gap, 0, 1)[None, :]).astype(np.float32)
+    alpha = 0.75 * cv2.GaussianBlur(mask, (0, 0), sigma)[..., None]
     cx, cy = face.mouth_x - px0, face.mouth_y - py0
-    mask = np.zeros(patch.shape[:2], dtype=np.float32)
-    cv2.ellipse(mask, (cx, cy + int(drop / 2)), (half_w, max(1, int(drop / 2))), 0, 0, 360, 1.0, -1)
-    alpha = 0.8 * cv2.GaussianBlur(mask, (0, 0), sigma)[..., None]
     inside = np.array([45, 40, 70], dtype=np.float32)  # BGR, a dark warm red
     patch = patch * (1 - alpha) + inside * alpha
     if o > TEETH_FROM:
         # A faint band of upper teeth just under the upper lip.
         teeth = np.zeros(patch.shape[:2], dtype=np.float32)
         th = max(1, int(drop * 0.18))
-        cv2.ellipse(teeth, (cx, cy + th), (int(half_w * 0.7), th), 0, 0, 180, 1.0, -1)
-        strength = 0.26 * (o - TEETH_FROM) / (1 - TEETH_FROM)
+        cv2.ellipse(teeth, (cx, cy + th), (int(half_w * 0.3), th), 0, 0, 180, 1.0, -1)
+        strength = 0.2 * (o - TEETH_FROM) / (1 - TEETH_FROM)
         t_alpha = strength * cv2.GaussianBlur(teeth, (0, 0), 1.0)[..., None]
         patch = patch * (1 - t_alpha) + np.array([200, 205, 215], dtype=np.float32) * t_alpha
     frame[py0:py1, px0:px1] = patch.astype(np.uint8)

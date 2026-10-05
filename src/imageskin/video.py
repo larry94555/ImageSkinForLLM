@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 FPS = 25
+SMOOTH_S = 0.05  # spread of the mouth smoothing, in seconds (a Gaussian sigma)
 INSTALL_HINT = 'OpenCV is not installed; run: pip install -e ".[video]"'
 
 
@@ -61,7 +62,8 @@ def mouth_openness(samples: array[int], sample_rate: int, fps: int = FPS) -> lis
     """How open the mouth is in each video frame, from 0 (closed) to 1, from the audio's loudness.
 
     Loudness is measured per frame and scaled so the loud parts of speech reach 1; quiet frames
-    (pauses, breaths) close the mouth. A light smoothing keeps the mouth from flickering.
+    (pauses, breaths) close the mouth. The result is smoothed over about a fifth of a second, so
+    the mouth eases open and shut over several frames instead of jumping between two positions.
     """
     per_frame = sample_rate / fps
     frames = math.ceil(len(samples) / per_frame)
@@ -76,8 +78,16 @@ def mouth_openness(samples: array[int], sample_rate: int, fps: int = FPS) -> lis
         return [0.0] * frames
     gate = 0.1
     raw = [min(1.0, max(0.0, (r / loud - gate) / (1 - gate))) for r in rms]
-    padded = [raw[0], *raw, raw[-1]]
+    return [round(v, 3) for v in smooth(raw, SMOOTH_S * fps)]
+
+
+def smooth(values: list[float], sigma: float) -> list[float]:
+    """Gaussian smoothing with `sigma` in frames; the ends are padded with the end values."""
+    radius = max(1, math.ceil(3 * sigma))
+    kernel = [math.exp(-0.5 * (k / sigma) ** 2) for k in range(-radius, radius + 1)]
+    total = sum(kernel)
+    n = len(values)
     return [
-        round(0.25 * padded[i] + 0.5 * padded[i + 1] + 0.25 * padded[i + 2], 3)
-        for i in range(frames)
+        sum(w * values[min(n - 1, max(0, i + k - radius))] for k, w in enumerate(kernel)) / total
+        for i in range(n)
     ]
