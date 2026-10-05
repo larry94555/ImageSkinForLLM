@@ -54,15 +54,6 @@ The PRs below are written for either kind of video engine, but these are the one
 | R21, R22 | The service streams video; the browser plays one stream. | The server renders sentence clips; the browser queues them. |
 | R23 | Idle motion likely comes from the service; small or dropped. | Needs idle motion (blinks, small head movement) drawn by the same engine. |
 
-## Photoreal follow-up
-
-[PR #8](https://github.com/larry94555/ImageSkinForLLM/pull/8) tested a photoreal engine on the CPU: LivePortrait renders mood loops and mouth shapes once at setup, and each reply blends the cached frames. Larry saw a clear improvement over R4's mouth (2026-10-05), with one flaw left for its own PR. That PR goes in before the photoreal engine replaces R4's engine in the app. It is not counted in the milestones until that switch is decided.
-
-### P1. Photoreal mouth alignment and tuning (Medium)
-- Problem: on open mouth shapes (AA, OH, OO), the lower lip and jaw shift sideways instead of opening straight down. The likely cause is that the "open" edit moves only one of LivePortrait's 21 face points, which sits off the centre line.
-- Fix: open the mouth symmetrically, probably by driving it with LivePortrait's lip retargeting model, then re-tune every mouth shape on at least two photos (one face turned slightly).
-- **Can show:** `mouth_shapes.png` and the reply clips, before and after, side by side, with the mouth opening straight down.
-
 ## Milestone 1: Sample video from the command line
 
 ### R1. Project skeleton (Simple) · Done in [PR #3](https://github.com/larry94555/ImageSkinForLLM/pull/3)
@@ -88,6 +79,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - Command: `imageskin sample --photo me.jpg` renders the item 6 script, spoken by R3's Kokoro voice, to an MP4, logging how long each step takes.
 - **Can show:** the ~30-second sample video of the person speaking the test script (in a ready-made voice until R25). This is the first end-to-end test of the whole idea, and the timings it logs set the latency target.
 - **Built:** `VideoEngine` protocol in `video.py`, the OpenCV engine in `mouth_warp.py` installed with `pip install -e ".[video]"`, and `imageskin sample --photo me.jpg [--voice ...] [-o sample.mp4]`, which logs `prepare_ms`, `speak_ms` and `render_ms`. The rest of the face stays still until R23.
+
+### R4a. Photoreal mouth alignment and tuning (Medium) · item 6
+- Found in Larry's laptop test of the photoreal engine (GitHub PR #8, 2026-10-05): on open mouth shapes (AA, OH, OO), the lower lip and jaw shift sideways instead of opening straight down. The likely cause is that the "open" edit moves only one of LivePortrait's 21 face points, which sits off the centre line.
+- Open the mouth symmetrically, probably by driving it with LivePortrait's lip retargeting model, then re-tune every mouth shape on at least two photos (one with the face turned slightly).
+- **Can show:** `mouth_shapes.png` and the reply clips before and after, side by side, with the mouth opening straight down.
 
 ## Milestone 2: Setup in the browser
 
