@@ -34,7 +34,11 @@ def face_photo(path: Path, size: tuple[int, int] = (200, 160), lips_y: int = 130
 
 
 def fixed_box(gray: np.ndarray) -> list[tuple[int, int, int, int]]:
-    return [(10, 10, 20, 20), (50, 20, 100, 125)]  # the bigger one is used
+    return [(50, 20, 100, 125)]
+
+
+def two_boxes(gray: np.ndarray) -> list[tuple[int, int, int, int]]:
+    return [(10, 10, 20, 20), (50, 20, 100, 125)]
 
 
 def write_wav(path: Path, seconds: float = 0.5) -> None:
@@ -84,13 +88,18 @@ def test_detect_faces_reports_a_missing_detector() -> None:
             detect_faces(np.full((120, 160), 128, dtype=np.uint8))
 
 
-def test_prepare_uses_the_largest_face(tmp_path: Path) -> None:
+def test_prepare_finds_the_mouth(tmp_path: Path) -> None:
     photo = face_photo(tmp_path / "f.png", lips_y=125)
     face = MouthWarpEngine(detect=fixed_box).prepare(photo)
     assert (face.width, face.height, face.mouth_x) == (200, 160, 100)
     assert abs(face.mouth_y - 125) <= 1
     assert face.mouth_w == 42
     assert face.jaw_h == 20 + int(1.02 * 125) - face.mouth_y  # chin just below the face box
+
+
+def test_prepare_rejects_more_than_one_face(tmp_path: Path) -> None:
+    with pytest.raises(VideoError, match="found 2 faces .* exactly one face"):
+        MouthWarpEngine(detect=two_boxes).prepare(face_photo(tmp_path / "f.png"))
 
 
 def test_prepare_without_a_face(tmp_path: Path) -> None:
@@ -183,12 +192,30 @@ def test_render_reports_ffmpeg_errors(tmp_path: Path) -> None:
         MouthWarpEngine().render(face, tmp_path / "s.wav", out)
 
 
+def test_render_failure_removes_partial_output(tmp_path: Path) -> None:
+    write_wav(tmp_path / "s.wav")
+    face = Face(face_photo(tmp_path / "f.png"), 200, 160, 100, 130, 42, 29)
+    out = tmp_path / "out.mp4"
+    out.write_bytes(b"partial")
+    with patch("imageskin.mouth_warp.subprocess.Popen") as popen:
+        proc = popen.return_value
+        proc.communicate.return_value = (None, b"Conversion failed!")
+        proc.returncode = 1
+        with pytest.raises(VideoError, match="Conversion failed"):
+            MouthWarpEngine().render(face, tmp_path / "s.wav", out)
+    assert not out.exists()
+
+
 def test_render_timeout_kills_ffmpeg(tmp_path: Path) -> None:
     write_wav(tmp_path / "s.wav")
     face = Face(face_photo(tmp_path / "f.png"), 200, 160, 100, 130, 42, 29)
+    out = tmp_path / "o.mp4"
+    out.write_bytes(b"partial")
     with patch("imageskin.mouth_warp.subprocess.Popen") as popen:
         proc = popen.return_value
-        proc.communicate.side_effect = subprocess.TimeoutExpired("ffmpeg", 1)
+        proc.communicate.side_effect = [subprocess.TimeoutExpired("ffmpeg", 1), (None, b"")]
         with pytest.raises(VideoError, match="longer than 1 seconds"):
-            MouthWarpEngine(timeout_s=1).render(face, tmp_path / "s.wav", tmp_path / "o.mp4")
+            MouthWarpEngine(timeout_s=1).render(face, tmp_path / "s.wav", out)
     proc.kill.assert_called_once()
+    assert proc.communicate.call_count == 2  # the killed process is reaped
+    assert not out.exists()

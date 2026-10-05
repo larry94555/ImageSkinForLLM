@@ -152,7 +152,11 @@ class MouthWarpEngine:
                 f"no face found in {photo.name}; "
                 "use a front-facing photo with the whole face visible"
             )
-        box = max(faces, key=lambda f: f[2] * f[3])
+        if len(faces) > 1:
+            raise VideoError(
+                f"found {len(faces)} faces in {photo.name}; use a photo with exactly one face"
+            )
+        box = faces[0]
         x, y, w, h = box
         mouth_y = find_lip_line(image, box)
         chin_y = min(image.shape[0] - 1, y + int(1.02 * h))
@@ -202,8 +206,11 @@ class MouthWarpEngine:
             _, err = proc.communicate(timeout=self._timeout_s)
         except subprocess.TimeoutExpired as e:
             proc.kill()
+            proc.communicate()  # reap the process and close its pipes
+            output.unlink(missing_ok=True)  # a partial MP4 must not look like a result
             raise VideoError(f"ffmpeg took longer than {self._timeout_s:g} seconds") from e
         if proc.returncode != 0:
+            output.unlink(missing_ok=True)
             detail = err.decode(errors="replace").strip().splitlines()[-1:] or ["no error output"]
             raise VideoError(f"ffmpeg could not write {output.name} ({detail[0]})")
         seconds = len(samples) / rate
