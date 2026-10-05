@@ -52,10 +52,20 @@ of moods halves that. A faster laptop CPU should beat the cloud container.
 
 ## Run it
 
-Needs Python 3.11 or 3.12, git and ffmpeg (see the main README). About 500 MB downloads
-once from github.com, huggingface.co (files are served from us.aws.cdn.hf.co) and
-storage.googleapis.com. Behind a firewall that allows only those hosts, set
-`HF_HUB_DISABLE_XET=1` first so Hugging Face does not use its xethub hosts.
+Needs Python 3.11 or 3.12, git and ffmpeg (see the main README). Setup downloads about
+540 MB once: 37 MB of code from github.com, 522 MB of weights from huggingface.co (files
+are served from us.aws.cdn.hf.co) and 4 MB from storage.googleapis.com.
+
+Setup prints git's progress, then a line every 5 seconds per weights file with MB done,
+speed and time left, for example
+`spade_generator.pth: 120.3 of 211.5 MB (56%), 3.20 MB/s, about 28 s left`.
+If no data arrives for 30 seconds (`--timeout`) it retries and resumes from the bytes
+already saved in a `.part` file; it gives up after 5 tries in a row with no progress
+(`--retries`). Running it again also resumes, and skips files that are already complete
+(each is checked against its SHA-256). Everything lands in
+`experiments/photoreal/LivePortrait/` (weights under `pretrained_weights/`).
+An earlier version used `huggingface_hub`; its leftover
+`pretrained_weights/.cache` folder can be deleted.
 
 The default run renders 2 moods x 8 mouth shapes x 50 frames = 800 frames, which takes
 about an hour at 5 s per frame; add `--loop-seconds 0.4` for a 10-minute run (loops under
