@@ -19,6 +19,11 @@ dependencies = [
 voice = [
     "kokoro>=0.9.4,<0.10",
 ]
+# Video on the CPU. OpenCV 5 no longer bundles the face detector, so stay on 4.x.
+video = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8,<5",
+]
 dev = [
     "httpx>=0.27",
     "mypy>=1.10",
