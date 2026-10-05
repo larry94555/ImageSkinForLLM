@@ -89,3 +89,41 @@ def test_say_unwritable_output_logs_error(
         out = tmp_path / "missing-dir" / "x.wav"
         assert main(["say", "-o", str(out), "Hi"]) == 1
     assert "could not write" in capsys.readouterr().err
+
+
+def test_sample_renders_video(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from imageskin.sample import SampleResult
+
+    out = tmp_path / "s.mp4"
+    result = SampleResult(seconds=31.2, speak_ms=9000, prepare_ms=50, render_ms=6000)
+    with patch("imageskin.cli.make_sample", return_value=result) as make:
+        args = ["sample", "--photo", "me.jpg", "--voice", "am_michael", "-o", str(out)]
+        assert main(args) == 0
+    photo, output, _, video_engine, voice = make.call_args.args
+    assert (photo, output, voice) == (Path("me.jpg"), out, "am_michael")
+    assert type(video_engine).__name__ == "MouthWarpEngine"
+    printed = capsys.readouterr().out
+    assert f"Wrote {out.resolve()} (31.2 seconds)" in printed
+    assert "0.1 s to prepare the photo, 9.0 s to speak and 6.0 s to render" in printed
+
+
+def test_sample_error_is_logged(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["sample", "--photo", str(tmp_path / "missing.jpg")]) == 1
+    entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert entry["message"] == "Could not make sample video"
+    assert "file not found" in entry["error"]
+
+
+def test_sample_without_opencv_explains_install(capsys: pytest.CaptureFixture[str]) -> None:
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_cv2(name: str, *args: object, **kwargs: object) -> object:
+        if name == "imageskin.mouth_warp":
+            raise ModuleNotFoundError("No module named 'cv2'", name="cv2")
+        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+    with patch("builtins.__import__", side_effect=no_cv2):
+        assert main(["sample", "--photo", "me.jpg"]) == 1
+    assert 'pip install -e \\".[video]\\"' in capsys.readouterr().err
