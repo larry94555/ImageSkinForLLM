@@ -93,7 +93,7 @@ This writes `hello.wav` and `hello.json` into the folder you run the command fro
 
 ## Making the sample video (on the CPU)
 
-`imageskin sample` makes the sample video from features.md item 6: the person in the photo says the test script, in a Kokoro voice, as an MP4 (H.264 video, AAC audio, 25 frames per second). It needs the voice extra from the section above, the video extra below, and ffmpeg on PATH.
+`imageskin sample` makes the sample video from features.md item 6: the person in the photo says the test script, in a Kokoro voice, as an MP4 (H.264 video, AAC audio, 25 frames per second). It needs the voice extra from the section above, the video extra below, and ffmpeg on PATH (see [Development](#development); check with `ffmpeg -version`, and open a new terminal after installing it). Without ffmpeg the command stops at once with `ffmpeg not found`.
 
 The video engine is part of this project: it finds the face with the face detector that ships with OpenCV (no model download, no account, no per-use cost; OpenCV is Apache 2.0) and opens and closes the mouth in time with how loud the speech is. It renders faster than real time on a laptop CPU. The rest of the face stays still for now; blinking and head motion come later. Use a front-facing photo with the mouth closed or slightly open, as the photo guide asks: a big grin with teeth showing looks wrong when the mouth opens.
 

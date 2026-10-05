@@ -169,6 +169,12 @@ def test_render_without_ffmpeg(tmp_path: Path) -> None:
             MouthWarpEngine().render(face, tmp_path / "s.wav", tmp_path / "out.mp4")
 
 
+def test_prepare_without_ffmpeg_fails_first(tmp_path: Path) -> None:
+    with patch("imageskin.mouth_warp.shutil.which", return_value=None):
+        with pytest.raises(VideoError, match="winget install Gyan.FFmpeg"):
+            MouthWarpEngine(detect=fixed_box).prepare(face_photo(tmp_path / "f.png"))
+
+
 def test_render_reports_ffmpeg_errors(tmp_path: Path) -> None:
     write_wav(tmp_path / "s.wav")
     face = Face(face_photo(tmp_path / "f.png"), 200, 160, 100, 130, 42, 29)

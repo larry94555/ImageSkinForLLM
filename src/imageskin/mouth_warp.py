@@ -122,6 +122,16 @@ def draw_frame(
     return (frame * (1 - alpha) + dark * alpha).astype(np.uint8)
 
 
+def find_ffmpeg() -> str:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise VideoError(
+            "ffmpeg not found; install it (Windows: winget install Gyan.FFmpeg), "
+            "open a new terminal and check with: ffmpeg -version"
+        )
+    return ffmpeg
+
+
 class MouthWarpEngine:
     def __init__(
         self,
@@ -133,6 +143,7 @@ class MouthWarpEngine:
 
     def prepare(self, photo: Path) -> Face:
         start = time.perf_counter()
+        find_ffmpeg()  # fail now, not after the slower speech step
         image = load_photo(photo)
         gray = np.asarray(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), dtype=np.uint8)
         faces = self._detect(gray)
@@ -176,10 +187,7 @@ class MouthWarpEngine:
         if image.shape[:2] != (face.height, face.width):
             raise VideoError(f"{face.photo.name} changed since it was prepared; prepare it again")
         region, weights = frame_weights(face)
-        ffmpeg = shutil.which("ffmpeg")
-        if ffmpeg is None:
-            raise VideoError("ffmpeg not found; install it and make sure it is on PATH")
-        cmd = [ffmpeg, "-nostdin", "-y", "-v", "error"]
+        cmd = [find_ffmpeg(), "-nostdin", "-y", "-v", "error"]
         cmd += ["-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{face.width}x{face.height}"]
         cmd += ["-r", str(FPS), "-i", "-", "-i", str(wav)]
         cmd += ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
