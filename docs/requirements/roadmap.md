@@ -10,7 +10,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 4 of 7 |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 5 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 0 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
@@ -80,15 +80,17 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the ~30-second sample video of the person speaking the test script (in a ready-made voice until R25). This is the first end-to-end test of the whole idea, and the timings it logs set the latency target.
 - **Built:** `VideoEngine` protocol in `video.py`, the OpenCV engine in `mouth_warp.py` installed with `pip install -e ".[video]"`, and `imageskin sample --photo me.jpg [--voice ...] [-o sample.mp4]`, which logs `prepare_ms`, `speak_ms` and `render_ms`. The rest of the face stays still until R23.
 
-### R4a. Photoreal mouth alignment and tuning (Medium) · item 6
+### R4a. Photoreal mouth alignment and tuning (Medium) · item 6 · Done in [PR #13](https://github.com/larry94555/ImageSkinForLLM/pull/13)
 - Found in Larry's laptop test of the photoreal engine (GitHub PR #8, 2026-10-05): on open mouth shapes (AA, OH, OO), the lower lip and jaw shift sideways instead of opening straight down. The likely cause is that the "open" edit moves only one of LivePortrait's 21 face points, which sits off the centre line.
 - Open the mouth symmetrically, probably by driving it with LivePortrait's lip retargeting model, then re-tune every mouth shape on at least two photos (one with the face turned slightly).
 - **Goal (Larry, 2026-10-05): the lips show each sound clearly enough to lip-read.** So the shape set covers the distinct lip positions: closed (m, b, p), lip on teeth (f, v), rounded (oo, w, oh), spread (ee), open (ah), and a small opening for the other consonants. Keep the opening small and the transitions gentle; a wide or square mouth looks like a dummy. A test of the OpenCV engine timed to each sound showed that warping a still photo cannot round or spread the lips, so these shapes must come from LivePortrait.
 - **Can show:** `mouth_shapes.png` and the reply clips before and after, side by side, with the mouth opening straight down, and each shape clearly different from the others.
+- **Result (PR #13, 2026-10-06):** the lip retargeting model opens the mouth straight down; 10 mouth shapes; tuned with Larry to soft, calm lips: shapes move 45% of the way from rest, the upper lip 30% as far as the rest of the mouth, sounds blend over 60 ms with the lips 30 ms ahead, and r stays neutral so the corners don't pulse. Larry accepted this as the minimum for now; further mouth polish can come later.
 
 ### R4b. Sound timings from the voice (Simple) · items 6, 11
 - Kokoro also reports when each sound (phoneme) starts and ends, not only each word, and each sound is mapped to a mouth shape (viseme). Closed-lip sounds (m, b, p) always get a frame, even when shorter than one.
 - **Can show:** `imageskin say` writes the sound timings and mouth shapes next to the word timings.
+- **Partly done in [PR #13](https://github.com/larry94555/ImageSkinForLLM/pull/13) (experiment):** Kokoro's per-sound timings, the sound-to-mouth-shape mapping and the closed-lip frame rule work in `experiments/lipread/`. Still to do here: move them into the app so `imageskin say` writes them.
 
 ### R4c. Photoreal video engine (Medium) · item 6
 - A second adapter behind R4's `VideoEngine` interface, using the mouth shapes as tuned in R4a. `prepare` renders the frame library once with LivePortrait (mood loops and mouth shapes, hours on the CPU), logs progress and resumes after an interruption. `render` picks frames from R4b's sound timings and adds the voice, in about a second per short reply.

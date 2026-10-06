@@ -1,0 +1,7 @@
+# Lip-reading test only; not needed by the app. Python 3.11 or 3.12.
+# LivePortrait stack from the photoreal test, plus Kokoro's ONNX build for speech and
+# per-sound timings. Versions are the ones the functional run used (2026-10-06).
+-r ../photoreal/requirements.txt
+kokoro-onnx==0.6.1
+onnx==1.23.1
+onnxruntime==1.30.0

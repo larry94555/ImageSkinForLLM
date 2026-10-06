@@ -8,3 +8,5 @@ __pycache__/
 dist/
 experiments/photoreal/LivePortrait/
 photoreal_out/
+experiments/lipread/models/
+lipread_out/
