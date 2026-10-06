@@ -28,7 +28,7 @@ The pr-rules skill sizes a PR by review time: Simple is 10 minutes or less, Medi
 
 ## Assumptions and decisions needed
 
-- **Stack (assumed, not yet confirmed by Larry):** Python with FastAPI on the server, TypeScript in the browser, ffmpeg for media conversion. If the stack changes, the PR list stays the same; only the tooling in R1 and R5 changes.
+- **Stack:** Python with FastAPI on the server, React with TypeScript in the browser (built with Vite; Larry chose React, 2026-10-06), ffmpeg for media conversion. If the stack changes, the PR list stays the same; only the tooling in R1 and R5 changes.
 - **Testing:** unit tests use fake voice and video engines so CI runs without a GPU or paid API. Each PR that touches a real engine proves it with a manual run and a short clip or log excerpt, per the pr-rules skill.
 - **Every code PR** follows the pr-rules skill: build, lint and format pass; unit tests with about 80% line coverage on changed code; logging for errors, timing and meaningful operations; proof and manual test steps in the description.
 
@@ -107,7 +107,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - TypeScript browser app served by FastAPI, with page routing and a shared layout.
 - Consent checkbox before setup (item 22).
 - **Can show:** the app opens in the browser and setup is blocked until consent is confirmed.
-- **Built:** TypeScript source in `web/src`, compiled by `tsc` alone (no bundler) into `src/imageskin/static/js`. The compiled files are committed, so running the app needs no Node.js; only changing the browser code does, and CI checks the committed files match the source. Pages use hash routes (`#/`, `#/consent`, `#/setup`). Consent is saved on the server as `consent.json` in the app's home folder (`IMAGESKIN_HOME`, default `~/.imageskin`) via `GET` and `POST /api/consent`; R6's upload endpoints should refuse requests until it is given.
+- **Built:** React with TypeScript in `web/` (Larry chose React, 2026-10-06), built by Vite into `src/imageskin/static`. The built files are committed, so running the app needs no Node.js; only changing the browser code does, and CI checks the committed files match the source. Pages use hash routes (`#/`, `#/consent`, `#/setup`). Consent is saved on the server as `consent.json` in the app's home folder (`IMAGESKIN_HOME`, default `~/.imageskin`) via `GET` and `POST /api/consent`; R6's upload endpoints should refuse requests until it is given.
 
 ### R6. Upload API with safe storage (Medium) · item 1
 - Server endpoints to upload, list, fetch and remove images (JPG, PNG, HEIC) and sound files (WAV, M4A, MP3).

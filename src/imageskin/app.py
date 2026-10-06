@@ -16,7 +16,7 @@ from imageskin.consent import load_consent, save_consent
 
 logger = logging.getLogger(__name__)
 
-# Built from web/src by `npm run build` (in web/); the compiled files are committed.
+# Built from web/ (React + TypeScript) by `npm run build`; the built files are committed.
 STATIC_DIR = Path(__file__).parent / "static"
 
 

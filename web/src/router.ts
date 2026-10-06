@@ -1,9 +1,10 @@
 // Page routing from the URL hash (#/consent). Pure, so it can be tested without a browser.
 
+import { useEffect, useState } from "react";
+
 export type Page = "home" | "consent" | "setup" | "not-found";
 
 const PAGES: Record<string, Page> = {
-  "": "home",
   "/": "home",
   "/consent": "consent",
   "/setup": "setup",
@@ -27,4 +28,15 @@ export function resolve(hash: string, consented: boolean): Route {
     return { page: "consent", redirect: "#/consent" };
   }
   return { page };
+}
+
+// The current URL hash, updated when it changes.
+export function useHash(): string {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const update = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  return hash;
 }
