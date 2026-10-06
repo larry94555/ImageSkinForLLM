@@ -113,9 +113,9 @@ class UploadStore:
         return self.root / kind
 
     def _total_bytes(self) -> int:
-        if not self.root.is_dir():
-            return 0
-        return sum(p.stat().st_size for p in self.root.rglob("*") if p.is_file())
+        """Bytes in stored uploads; files still being received or converted don't count."""
+        folders = [self._dir(kind) for kind in KINDS if self._dir(kind).is_dir()]
+        return sum(p.stat().st_size for folder in folders for p in folder.iterdir() if p.is_file())
 
     def save(self, kind: Kind, name: str | None, data: BinaryIO) -> Upload:
         """Check, convert and store one upload, or raise UploadError saying why not."""
@@ -146,6 +146,7 @@ class UploadStore:
         tmp_dir = self.root / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         upload_id = uuid.uuid4().hex
+        # Every working file for this upload starts with its id, so one glob removes them all.
         received = tmp_dir / f"{upload_id}.upload"
         converted = tmp_dir / f"{upload_id}.converted"
         try:
@@ -170,20 +171,27 @@ class UploadStore:
             final = self._dir(kind) / f"{upload_id}{SUFFIX[fmt]}"
             final.parent.mkdir(parents=True, exist_ok=True)
             converted.replace(final)
-            upload = Upload(
-                id=upload_id,
-                kind=kind,
-                name=name,
-                format=fmt,
-                size=final.stat().st_size,
-                uploaded_at=datetime.now(UTC).isoformat(timespec="seconds"),
-                seconds=seconds,
-            )
-            final.with_suffix(".json").write_text(json.dumps(asdict(upload)), encoding="utf-8")
+            try:
+                upload = Upload(
+                    id=upload_id,
+                    kind=kind,
+                    name=name,
+                    format=fmt,
+                    size=final.stat().st_size,
+                    uploaded_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                    seconds=seconds,
+                )
+                info = final.with_suffix(".json")
+                info.write_text(json.dumps(asdict(upload)), encoding="utf-8")
+            except BaseException:
+                # Without its info file the upload could not be listed or removed.
+                final.unlink(missing_ok=True)
+                final.with_suffix(".json").unlink(missing_ok=True)
+                raise
             return upload
         finally:
-            received.unlink(missing_ok=True)
-            converted.unlink(missing_ok=True)
+            for leftover in tmp_dir.glob(f"{upload_id}*"):
+                leftover.unlink(missing_ok=True)
 
     def _convert(self, fmt: str, src: Path, dst: Path) -> float | None:
         """Make the stored file from the received one; return a sound's length in seconds."""
@@ -212,10 +220,7 @@ class UploadStore:
             raise UploadError(
                 "The recording could not be read. Try exporting it again as WAV or MP3."
             ) from e
-        finally:
-            named.unlink(missing_ok=True)
         if seconds > MAX_SOUND_SECONDS:
-            wav_out.unlink()
             raise UploadError(
                 f"Recordings are limited to {MAX_SOUND_SECONDS // 60} minutes each;"
                 f" this one is {seconds / 60:.1f} minutes.",

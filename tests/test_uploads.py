@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from imageskin import uploads
+from imageskin.audio import AudioError
 from imageskin.uploads import UploadError, UploadStore, detect_format, display_name
 
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
@@ -141,6 +142,39 @@ def test_total_limit_is_enforced(tmp_path: Path) -> None:
         with pytest.raises(UploadError, match="in total") as e:
             store.save("photos", "b.jpg", io.BytesIO(JPG))
     assert e.value.status == 413
+
+
+def test_total_limit_counts_only_stored_uploads(tmp_path: Path) -> None:
+    # The file being received must not count twice: an upload that exactly fills the
+    # limit is accepted.
+    store = UploadStore(tmp_path)
+    store.save("photos", "a.jpg", io.BytesIO(JPG))
+    stored = sum(p.stat().st_size for p in (tmp_path / "uploads" / "photos").iterdir())
+    (tmp_path / "uploads" / "tmp" / "stray.upload").write_bytes(b"x" * 1000)
+    with patch.object(uploads, "MAX_TOTAL_BYTES", stored + len(JPG)):
+        store.save("photos", "b.jpg", io.BytesIO(JPG))
+
+
+def test_failed_conversion_leaves_no_working_files(tmp_path: Path) -> None:
+    def half_written(src: Path, dst: Path, timeout_s: float) -> None:
+        dst.write_bytes(b"partial")
+        raise AudioError("ffmpeg stopped")
+
+    store = UploadStore(tmp_path)
+    with patch("imageskin.uploads.to_wav", side_effect=half_written):
+        with pytest.raises(UploadError, match="could not be read"):
+            store.save("sounds", "a.wav", io.BytesIO(wav_bytes()))
+    assert list((tmp_path / "uploads" / "tmp").iterdir()) == []
+    assert store.list("sounds") == []
+
+
+def test_upload_without_its_info_file_is_not_kept(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    with patch("imageskin.uploads.json.dumps", side_effect=OSError("disk full")):
+        with pytest.raises(OSError):
+            store.save("photos", "a.jpg", io.BytesIO(JPG))
+    assert list((tmp_path / "uploads" / "photos").iterdir()) == []
+    assert list((tmp_path / "uploads" / "tmp").iterdir()) == []
 
 
 def test_remove_deletes_the_file_and_its_info(tmp_path: Path) -> None:
