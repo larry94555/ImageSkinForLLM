@@ -76,7 +76,9 @@ def create_app(home: Path | None = None) -> FastAPI:
         if not load_consent(data_home).agreed:
             logger.warning("Upload API used before consent")
             raise HTTPException(
-                status_code=403, detail="Confirm consent on the setup page before uploading."
+                status_code=403,
+                detail="Consent is needed before uploading. Open the app's setup page"
+                " (/#/consent), tick the box, then try again.",
             )
 
     store = UploadStore(data_home)

@@ -94,7 +94,7 @@ def test_uploads_are_refused_before_consent(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
     sent = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
     assert sent.status_code == 403
-    assert "consent" in sent.json()["detail"]
+    assert sent.json()["detail"].startswith("Consent is needed before uploading.")
     assert client.get("/api/uploads/photos").status_code == 403
     assert not (tmp_path / "uploads").exists()
 
