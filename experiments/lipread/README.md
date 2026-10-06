@@ -36,6 +36,9 @@ off, can you follow the words from the lips? The test sentences are:
   - `--smooth 0.06` and `--lead 0.03` (defaults): sounds blend over 60 ms, so the lips
     move more slowly with more in-between frames, and each shape starts 30 ms before its
     sound so it still lands on time.
+  - Steadier mouth corners: r no longer rounds the lips and ee spreads them less. Before,
+    "three green trees" switched between rounded r and spread ee three times in a row,
+    so the corners pulsed in and out at the end of the clip.
 
 The head is still in this test; mood loops, blinks and head motion come back in R4c.
 

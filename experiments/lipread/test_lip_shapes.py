@@ -117,3 +117,9 @@ def test_lip_contact_frame_moves_with_the_lead() -> None:
     segs = [Segment("AA", 0.0, 0.5), Segment("MBP", 0.5, 0.52), Segment("AA", 0.52, 1.0)]
     weights = frame_weights(segs, 30, 30.0, lead_s=0.1)
     assert weights[12] == {"MBP": 1.0}
+
+
+def test_r_keeps_the_mouth_neutral() -> None:
+    # Rounding r between ee sounds pulsed the mouth corners in "three green trees".
+    assert VISEME_OF["ɹ"] == VISEME_OF["r"] == "IH"
+    assert VISEME_OF["ʃ"] == "SH"

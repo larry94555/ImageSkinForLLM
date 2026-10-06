@@ -29,11 +29,11 @@ SHAPES: dict[str, Shape] = {
     "FV": Shape(0.08, {"grin": 8.0, "open": -8.0}),  # upper teeth on lower lip: f, v
     "AA": Shape(0.35, {"grin": 3.0}),  # father, cup
     "EH": Shape(0.25, {"grin": 5.0}),  # bed, cat
-    "EE": Shape(0.12, {"grin": 10.0}),  # see, it
+    "EE": Shape(0.12, {"grin": 7.0}),  # see, it
     "IH": Shape(0.18, {"grin": 3.0}),  # small opening: t, d, n, s, k, l, the
     "OH": Shape(0.30, {"purse": 14.0}),  # go, more
     "OO": Shape(0.12, {"purse": 24.0}),  # you, would, boat's w
-    "SH": Shape(0.15, {"purse": 10.0}),  # she, chair, red
+    "SH": Shape(0.15, {"purse": 10.0}),  # she, chair, judge
 }
 
 _GROUPS = {
@@ -44,8 +44,10 @@ _GROUPS = {
     "AA": "aɑʌɐ",
     "EH": "ɛeæ",
     "EE": "iɪj",
-    "SH": "ʃʒʧʤɹrɝɚ",
-    "IH": "tdnlszkgɡhθðŋɾʔxçəᵻ",
+    "SH": "ʃʒʧʤ",
+    # r stays neutral: rounding it made "three green trees" pulse the mouth corners in and
+    # out between r and ee (Larry, 2026-10-06).
+    "IH": "tdnlszkgɡhθðŋɾʔxçəᵻɹrɝɚ",
 }
 VISEME_OF: dict[str, str] = {ch: name for name, chars in _GROUPS.items() for ch in chars}
 PAUSES = set(",.!?;:—…")
