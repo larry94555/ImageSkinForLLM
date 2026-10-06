@@ -1,0 +1,251 @@
+import io
+import json
+import logging
+import shutil
+import subprocess
+import wave
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from imageskin import uploads
+from imageskin.uploads import UploadError, UploadStore, detect_format, display_name
+
+JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 100
+needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+
+
+def wav_bytes(seconds: float = 0.5, rate: int = 16000) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"\0\0" * int(seconds * rate))
+    return buf.getvalue()
+
+
+def encoded(tmp_path: Path, suffix: str) -> bytes:
+    """A short sound encoded by ffmpeg, as M4A or MP3."""
+    src, out = tmp_path / "in.wav", tmp_path / f"out{suffix}"
+    src.write_bytes(wav_bytes())
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), str(out)], check=True)
+    return out.read_bytes()
+
+
+@pytest.mark.parametrize(
+    ("head", "fmt"),
+    [
+        (JPG, "jpg"),
+        (PNG, "png"),
+        (b"RIFF\0\0\0\0WAVEfmt ", "wav"),
+        (b"\0\0\0\x18ftypheic\0\0\0\0", "heic"),
+        (b"\0\0\0\x18ftypmif1\0\0\0\0", "heic"),
+        (b"\0\0\0\x18ftypM4A \0\0\0\0", "m4a"),
+        (b"\0\0\0\x18ftypqt  \0\0\0\0", None),
+        (b"ID3\x04\0", "mp3"),
+        (b"\xff\xfb\x90\x00", "mp3"),
+        (b"%PDF-1.7", None),
+        (b"", None),
+    ],
+)
+def test_format_comes_from_the_first_bytes(head: bytes, fmt: str | None) -> None:
+    assert detect_format(head[:16]) == fmt
+
+
+@pytest.mark.parametrize(
+    ("name", "shown"),
+    [
+        ("me.jpg", "me.jpg"),
+        ("../../etc/passwd", "passwd"),
+        ("C:\\Users\\me\\photo.png", "photo.png"),
+        ("bad\nname.jpg", "badname.jpg"),
+        (None, "unnamed"),
+        ("x" * 300, "x" * 100),
+    ],
+)
+def test_display_name_is_only_the_last_part(name: str | None, shown: str) -> None:
+    assert display_name(name) == shown
+
+
+def test_photo_is_stored_under_a_generated_name(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = UploadStore(tmp_path)
+    with caplog.at_level(logging.INFO, logger="imageskin.uploads"):
+        upload = store.save("photos", "../me.jpg", io.BytesIO(JPG))
+    stored = next(r for r in caplog.records if r.getMessage() == "Upload stored")
+    assert vars(stored)["id"] == upload.id and vars(stored)["duration_ms"] >= 0
+    assert upload.name == "me.jpg" and upload.format == "jpg" and upload.size == len(JPG)
+    path = store.path("photos", upload.id)
+    assert path == tmp_path / "uploads" / "photos" / f"{upload.id}.jpg"
+    assert path.read_bytes() == JPG
+    assert store.list("photos") == [upload]
+    assert store.list("sounds") == []
+    assert list((tmp_path / "uploads" / "tmp").iterdir()) == []
+
+
+def test_list_is_oldest_first_and_skips_broken_info(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = UploadStore(tmp_path)
+    first = store.save("photos", "a.png", io.BytesIO(PNG))
+    second = store.save("photos", "b.jpg", io.BytesIO(JPG))
+    info = tmp_path / "uploads" / "photos" / f"{first.id}.json"
+    info.write_text(json.dumps({**json.loads(info.read_text()), "uploaded_at": "2000"}))
+    (tmp_path / "uploads" / "photos" / "junk.json").write_text("not json")
+    with caplog.at_level(logging.ERROR, logger="imageskin.uploads"):
+        assert [u.id for u in store.list("photos")] == [first.id, second.id]
+    assert any(r.getMessage() == "Could not read upload info" for r in caplog.records)
+
+
+def test_renamed_file_is_refused_with_the_reason_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = UploadStore(tmp_path)
+    with caplog.at_level(logging.WARNING, logger="imageskin.uploads"):
+        with pytest.raises(UploadError, match="not a JPG, PNG or HEIC photo") as e:
+            store.save("photos", "notes.jpg", io.BytesIO(b"%PDF-1.7 not a photo"))
+    assert e.value.status == 415
+    refused = next(r for r in caplog.records if r.getMessage() == "Upload refused")
+    assert vars(refused)["upload_name"] == "notes.jpg"
+    assert "not a JPG" in vars(refused)["reason"]
+    assert store.list("photos") == []
+    assert list((tmp_path / "uploads" / "tmp").iterdir()) == []
+
+
+def test_photo_sent_as_a_sound_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(UploadError, match="not a WAV, M4A or MP3 recording"):
+        UploadStore(tmp_path).save("sounds", "me.wav", io.BytesIO(JPG))
+
+
+def test_empty_file_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(UploadError, match="empty"):
+        UploadStore(tmp_path).save("photos", "me.jpg", io.BytesIO(b""))
+
+
+def test_oversized_file_is_refused(tmp_path: Path) -> None:
+    with patch.dict(uploads.MAX_BYTES, {"photos": 50}), patch.object(uploads, "CHUNK", 16):
+        with pytest.raises(UploadError, match="larger than") as e:
+            UploadStore(tmp_path).save("photos", "big.jpg", io.BytesIO(JPG))
+    assert e.value.status == 413
+    assert list((tmp_path / "uploads" / "tmp").iterdir()) == []
+
+
+def test_total_limit_is_enforced(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    store.save("photos", "a.jpg", io.BytesIO(JPG))
+    with patch.object(uploads, "MAX_TOTAL_BYTES", len(JPG) * 2 - 1):
+        with pytest.raises(UploadError, match="in total") as e:
+            store.save("photos", "b.jpg", io.BytesIO(JPG))
+    assert e.value.status == 413
+
+
+def test_remove_deletes_the_file_and_its_info(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    upload = store.save("photos", "a.jpg", io.BytesIO(JPG))
+    assert store.remove("photos", upload.id)
+    assert not store.remove("photos", upload.id)
+    assert list((tmp_path / "uploads" / "photos").iterdir()) == []
+
+
+@pytest.mark.parametrize("bad_id", ["..", "../consent", "A" * 32, "0" * 31, "*" * 32])
+def test_only_generated_ids_are_looked_up(tmp_path: Path, bad_id: str) -> None:
+    store = UploadStore(tmp_path)
+    assert store.path("photos", bad_id) is None
+    assert not store.remove("photos", bad_id)
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("fmt", ["wav", "m4a", "mp3"])
+def test_sound_is_converted_to_wav(tmp_path: Path, fmt: str) -> None:
+    data = wav_bytes() if fmt == "wav" else encoded(tmp_path, f".{fmt}")
+    store = UploadStore(tmp_path / "home")
+    upload = store.save("sounds", f"voice.{fmt}", io.BytesIO(data))
+    assert upload.format == fmt
+    assert upload.seconds is not None and 0.4 < upload.seconds < 0.7
+    path = store.path("sounds", upload.id)
+    assert path is not None and path.suffix == ".wav"
+    with wave.open(str(path), "rb") as w:
+        assert (w.getframerate(), w.getnchannels()) == (24000, 1)
+
+
+@needs_ffmpeg
+def test_too_long_sound_is_refused(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    with patch.object(uploads, "MAX_SOUND_SECONDS", 0.25):
+        with pytest.raises(UploadError, match="Recordings are limited to") as e:
+            store.save("sounds", "long.wav", io.BytesIO(wav_bytes()))
+    assert e.value.status == 413
+    assert store.list("sounds") == []
+    assert list((tmp_path / "uploads" / "tmp").iterdir()) == []
+
+
+@needs_ffmpeg
+def test_unreadable_sound_is_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.ERROR, logger="imageskin.uploads"):
+        with pytest.raises(UploadError, match="could not be read"):
+            UploadStore(tmp_path).save("sounds", "x.mp3", io.BytesIO(b"ID3" + b"\0" * 64))
+    assert any(r.getMessage() == "Sound conversion failed" for r in caplog.records)
+
+
+def test_heic_without_the_extra_says_how_to_add_it(tmp_path: Path) -> None:
+    heic = b"\0\0\0\x18ftypheic" + b"\0" * 64
+    with patch.object(uploads, "heic_supported", return_value=False):
+        with pytest.raises(UploadError, match=r"\.\[heic\]") as e:
+            UploadStore(tmp_path).save("photos", "me.heic", io.BytesIO(heic))
+    assert e.value.status == 415
+
+
+def test_heic_photo_is_converted_to_jpg(tmp_path: Path) -> None:
+    pillow_heif = pytest.importorskip("pillow_heif")
+    from PIL import Image
+
+    src = tmp_path / "me.heic"
+    pillow_heif.from_pillow(Image.new("RGB", (64, 48), "red")).save(src, quality=90)
+    store = UploadStore(tmp_path / "home")
+    upload = store.save("photos", "me.heic", io.BytesIO(src.read_bytes()))
+    assert upload.format == "heic"
+    path = store.path("photos", upload.id)
+    assert path is not None and path.suffix == ".jpg"
+    with Image.open(path) as image:
+        assert (image.format, image.size) == ("JPEG", (64, 48))
+
+
+def test_broken_heic_is_refused(tmp_path: Path) -> None:
+    pytest.importorskip("pillow_heif")
+    heic = b"\0\0\0\x18ftypheic" + b"\0" * 64
+    with pytest.raises(UploadError, match="HEIC photo could not be read"):
+        UploadStore(tmp_path).save("photos", "me.heic", io.BytesIO(heic))
+
+
+def test_heic_conversion_is_stopped_after_the_timeout(tmp_path: Path) -> None:
+    timeout = subprocess.TimeoutExpired(cmd="heic", timeout=60)
+    with patch("imageskin.uploads.subprocess.run", side_effect=timeout):
+        with pytest.raises(UploadError, match="took over 60 seconds"):
+            uploads.convert_heic(tmp_path / "a.heic", tmp_path / "a.jpg")
+
+
+def test_heic_command_needs_two_paths(capsys: pytest.CaptureFixture[str]) -> None:
+    from imageskin import heic
+
+    assert heic.main([]) == 2
+    assert "usage" in capsys.readouterr().err
+
+
+def test_heic_command_converts_and_reports_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pillow_heif = pytest.importorskip("pillow_heif")
+    from PIL import Image
+
+    from imageskin import heic
+
+    src, dst = tmp_path / "me.heic", tmp_path / "me.jpg"
+    pillow_heif.from_pillow(Image.new("RGB", (32, 32), "blue")).save(src, quality=90)
+    assert heic.main([str(src), str(dst)]) == 0
+    assert dst.read_bytes().startswith(b"\xff\xd8\xff")
+    assert heic.main([str(tmp_path / "missing.heic"), str(dst)]) == 1
+    assert "Error" in capsys.readouterr().err

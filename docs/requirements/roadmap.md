@@ -11,14 +11,14 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 1 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 2 of 10 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
 | 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
 | 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.6% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.9% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
-| | **Total** | | **36** | **100%** | **8 of 36** |
+| | **Total** | | **36** | **100%** | **9 of 36** |
 
 Sizes: 10 Simple, 26 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -109,10 +109,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the app opens in the browser and setup is blocked until consent is confirmed.
 - **Built:** TypeScript with Preact (works like React, library about 400 lines) in `web/`, built by Vite into `src/imageskin/static`. The built files are committed, so running the app needs no Node.js; only changing the browser code does, and CI checks the committed files match the source. Pages use hash routes (`#/`, `#/consent`, `#/setup`). Consent is saved on the server as `consent.json` in the app's home folder (`IMAGESKIN_HOME`, default `~/.imageskin`) via `GET` and `POST /api/consent`; R6's upload endpoints should refuse requests until it is given. It reviewed as Medium, not the Simple estimated, because of the browser build setup. Preact's MIT notice ships next to it as `preact-LICENSE.txt`.
 
-### R6. Upload API with safe storage (Medium) · item 1
+### R6. Upload API with safe storage (Medium) · item 1 · Done in [PR #18](https://github.com/larry94555/ImageSkinForLLM/pull/18)
 - Server endpoints to upload, list, fetch and remove images (JPG, PNG, HEIC) and sound files (WAV, M4A, MP3).
 - Hardening, built in from the start: file type checked from the file's content, not its name or extension; stored under generated names, never the uploaded name or path; size limits per file and in total, and a duration limit for audio; conversion (HEIC to JPG, audio to WAV via R2) runs with a timeout.
 - **Can show:** with curl or the API docs page, a valid photo and recording are stored and converted; a renamed non-image file or an oversized file is rejected with a plain message, and the logs show why.
+- **Built:** `GET`/`POST /api/uploads/{photos|sounds}` and `GET`/`DELETE /api/uploads/{photos|sounds}/{id}` in `app.py`, storage in `uploads.py`. All four refuse with 403 until consent is given. Files live in `<IMAGESKIN_HOME>/uploads/photos` and `/sounds` as `<random id>.jpg|.png|.wav`, each with a `.json` holding the uploaded name for display. Limits: 25 MB per photo, 100 MB per sound file, 10 minutes per recording, 1 GB in total; conversion stops after 60 seconds. HEIC needs the optional extra `.[heic]` (pillow-heif, whose wheels bundle LGPL-3 libheif/libde265 and GPL-2 x265; decode only), and is converted to JPG in a separate process so it can be timed out.
 
 ### R7. Upload screen (Medium) · item 1
 - Browser screen for uploading photos and recordings, listing them, viewing images and playing sound files. At least one photo is needed; the guide asks for five so the app can pick the best.
