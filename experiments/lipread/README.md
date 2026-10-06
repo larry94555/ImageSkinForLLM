@@ -27,6 +27,12 @@ off, can you follow the words from the lips? The test sentences are:
   the flow (no double lips from a plain cross-fade), is pasted into the photo and encoded.
   `--direct` also renders every frame with LivePortrait as a slow reference.
 
+- **Softer lips (`--strength`, default 0.6).** Larry found the full shapes too pronounced
+  on his photo (2026-10-06). Each shape now moves only part of the way from the photo's
+  rest position: 1.0 is the full shape, 0.6 is 60%. m, b, p, f and v still close the lips.
+  Sounds also blend over 40 ms (`--smooth 0.04`) instead of 30 ms, so the lips don't
+  fully hit every short sound.
+
 The head is still in this test; mood loops, blinks and head motion come back in R4c.
 
 ## Licenses
@@ -106,6 +112,10 @@ pip install -r experiments\lipread\requirements.txt
 python experiments\photoreal\setup_liveportrait.py
 python experiments\lipread\lipread.py --photo me.jpg
 ```
+
+To compare how pronounced the lips are, run it again with `--strength 1.0`, `--strength 0.4`
+and so on, each with its own `--out` folder, for example
+`--strength 0.4 --out lipread_40`.
 
 Add `--direct` for the frame-by-frame reference (about 2 s per frame on a 4-core CPU, so
 several minutes for the four sentences).

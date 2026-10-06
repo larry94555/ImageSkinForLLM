@@ -35,7 +35,7 @@ sys.path.insert(0, str(HERE.parent / "photoreal"))
 sys.path.insert(0, str(HERE))
 from face_points import VISEMES as OLD_SHAPES  # noqa: E402
 from face_points import expression_delta  # noqa: E402
-from lip_shapes import SHAPES, frame_weights, mix, segments, top_two  # noqa: E402
+from lip_shapes import SHAPES, frame_weights, mix, segments, soften, top_two  # noqa: E402
 from liveportrait_cpu import Portrait, contact_sheet  # noqa: E402
 from sound_timings import SAMPLE_RATE, Voice  # noqa: E402
 
@@ -167,6 +167,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lp-dir", type=Path, default=HERE.parent / "photoreal" / "LivePortrait")
     parser.add_argument("--out", type=Path, default=Path("lipread_out"))
     parser.add_argument("--fps", type=float, default=30.0)
+    parser.add_argument(
+        "--strength",
+        type=float,
+        default=0.6,
+        help="how far lips move from rest, 0..1 (1 = full shapes; lower is softer)",
+    )
+    parser.add_argument(
+        "--smooth", type=float, default=0.04, help="seconds that neighbouring sounds blend over"
+    )
     parser.add_argument("--direct", action="store_true", help="also render every frame (slow)")
     parser.add_argument("--threads", type=int, default=os.cpu_count() or 4)
     args = parser.parse_args(argv)
@@ -178,12 +187,18 @@ def main(argv: list[str] | None = None) -> int:
     timings: dict[str, Any] = {
         "cpu": platform.processor() or platform.machine(),
         "threads": args.threads,
+        "strength": args.strength,
+        "smooth_s": args.smooth,
     }
 
     # Setup, once per photo: mouth shapes and the flow between them.
     start = time.perf_counter()
     portrait = LipPortrait(args.lp_dir, args.photo, face_model)
-    faces = {name: portrait.render_mouth(s.controls, s.ratio) for name, s in SHAPES.items()}
+    log.info("Mouth strength %.2f, sounds blend over %.3f s", args.strength, args.smooth)
+    faces = {}
+    for name in SHAPES:
+        controls, ratio = soften(name, args.strength, portrait.photo_ratio)
+        faces[name] = portrait.render_mouth(controls, None if name == "rest" else ratio)
     contact_sheet({k: mouth_crop(v) for k, v in faces.items()}, args.out / "mouth_shapes.png")
     flows = pair_flows(faces)
     timings["setup_s"] = round(time.perf_counter() - start, 1)
@@ -204,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     write_wav(audio, wav_path)
     segs = segments(phonemes, seconds)
     n_frames = int(round(len(audio) / SAMPLE_RATE * args.fps))
-    weights = frame_weights(segs, n_frames, args.fps)
+    weights = frame_weights(segs, n_frames, args.fps, args.smooth)
     (args.out / "sounds.json").write_text(
         json.dumps(
             [{"shape": s.shape, "start": round(s.start, 3), "end": round(s.end, 3)} for s in segs],
@@ -240,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
         start = time.perf_counter()
         direct = []
         for i, wt in enumerate(weights):
-            controls, ratio = mix(wt, portrait.photo_ratio)
+            controls, ratio = mix(wt, portrait.photo_ratio, args.strength)
             direct.append(portrait.paste(portrait.render_mouth(controls, ratio)))
             if i % 30 == 0:
                 log.info("Direct render: frame %d of %d", i, n_frames)

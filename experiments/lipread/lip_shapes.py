@@ -81,7 +81,7 @@ def segments(phonemes: str, durations: list[float]) -> list[Segment]:
 
 
 def frame_weights(
-    segs: list[Segment], n_frames: int, fps: float, smooth_s: float = 0.03
+    segs: list[Segment], n_frames: int, fps: float, smooth_s: float = 0.04
 ) -> list[dict[str, float]]:
     """How much of each mouth shape to show in each video frame.
 
@@ -128,14 +128,30 @@ def frame_weights(
     return out
 
 
-def mix(weights: dict[str, float], photo_ratio: float) -> tuple[dict[str, float], float]:
-    """Blend shapes into one set of expression controls and one lip ratio."""
+def soften(name: str, strength: float, photo_ratio: float) -> tuple[dict[str, float], float]:
+    """A shape's controls and lip ratio, moved only `strength` (0..1) of the way from rest.
+
+    Lip-contact shapes (m, b, p, f, v) keep their lip ratio so the lips still touch; only
+    their press and spread soften.
+    """
+    if not 0.0 <= strength <= 1.0:
+        raise ValueError(f"strength must be between 0 and 1, got {strength}")
+    shape = SHAPES[name]
+    target = photo_ratio if shape.ratio is None else shape.ratio
+    ratio = target if name in CONTACT else photo_ratio + strength * (target - photo_ratio)
+    return {k: strength * v for k, v in shape.controls.items()}, ratio
+
+
+def mix(
+    weights: dict[str, float], photo_ratio: float, strength: float = 1.0
+) -> tuple[dict[str, float], float]:
+    """Blend softened shapes into one set of expression controls and one lip ratio."""
     controls: dict[str, float] = {}
     ratio = 0.0
     for name, w in weights.items():
-        shape = SHAPES[name]
-        ratio += w * (photo_ratio if shape.ratio is None else shape.ratio)
-        for key, value in shape.controls.items():
+        shape_controls, shape_ratio = soften(name, strength, photo_ratio)
+        ratio += w * shape_ratio
+        for key, value in shape_controls.items():
             controls[key] = controls.get(key, 0.0) + w * value
     return controls, ratio
 
