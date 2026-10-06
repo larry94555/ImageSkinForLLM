@@ -54,7 +54,7 @@ def test_top_two() -> None:
 
 def test_soften_moves_part_way_from_rest() -> None:
     controls, ratio = soften("OH", 0.5, photo_ratio=0.1)
-    assert controls == {"purse": pytest.approx(7.0)}
+    assert controls == {"purse": pytest.approx(3.5)}
     assert ratio == pytest.approx(0.1 + 0.5 * (0.30 - 0.1))
     controls, ratio = soften("rest", 0.4, 0.2)
     assert controls == {} and ratio == pytest.approx(0.2)
@@ -88,3 +88,8 @@ def test_idle_motion_is_subtle_seamless_and_blinks() -> None:
     closed = [i for i, f in enumerate(frames) if f[3] < 0.5]
     assert len(closed) >= 2 * len(BLINKS_AT)  # each blink lasts a few frames
     assert frames[0][3] == frames[-1][3] == 1.0  # no blink across the loop's seam
+
+
+def test_rounding_does_not_push_the_lips_forward() -> None:
+    delta = expression_delta({"purse": MOUTH_SHAPES["OO"].controls["purse"]})
+    assert all(row[2] == 0.0 for row in delta)  # no depth: no kiss-like pucker

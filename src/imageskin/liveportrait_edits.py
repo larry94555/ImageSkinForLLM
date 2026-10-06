@@ -36,7 +36,9 @@ MP_TO_68: tuple[int, ...] = (
 # (src/gradio_pipeline.py, MIT); names follow its slider labels.
 CONTROLS: dict[str, tuple[tuple[int, int, float], ...]] = {
     "open": ((19, 1, 0.001), (19, 2, 0.0001), (17, 1, -0.0001)),
-    "purse": ((14, 1, 0.001), (3, 1, -0.0005), (7, 1, -0.0005), (17, 2, -0.0005)),
+    # LivePortrait's editor also pushes keypoint 17 forward here; that made the lips look
+    # like a kiss (Larry, 2026-10-06), so rounding only draws the corners in.
+    "purse": ((14, 1, 0.001), (3, 1, -0.0005), (7, 1, -0.0005)),
     "grin": ((20, 2, -0.001), (20, 1, -0.001), (14, 1, -0.001)),
     # Both eyelids, from the editor's eyeball-direction slider (sign flipped so positive
     # closes). LivePortrait's eye retargeting model closed only one eye on a turned head.
@@ -67,9 +69,10 @@ MOUTH_SHAPES: dict[str, MouthShape] = {
     "EH": MouthShape(0.25, {"grin": 5.0}),  # bed, cat
     "EE": MouthShape(0.12, {"grin": 7.0}),  # see, it
     "IH": MouthShape(0.18, {"grin": 3.0}),  # small opening: t, d, n, s, k, l, the
-    "OH": MouthShape(0.30, {"purse": 14.0}),  # go, more
-    "OO": MouthShape(0.12, {"purse": 24.0}),  # you, would, boat's w
-    "SH": MouthShape(0.15, {"purse": 10.0}),  # she, chair, judge
+    # Rounding halved after Larry saw a kiss-like pucker (2026-10-06).
+    "OH": MouthShape(0.30, {"purse": 7.0}),  # go, more
+    "OO": MouthShape(0.12, {"purse": 12.0}),  # you, would, boat's w
+    "SH": MouthShape(0.15, {"purse": 5.0}),  # she, chair, judge
 }
 assert tuple(MOUTH_SHAPES) == SHAPES
 

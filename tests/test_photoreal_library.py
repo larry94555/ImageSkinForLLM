@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -108,3 +109,15 @@ def test_paster_puts_the_face_into_the_photo(tmp_path: Path, short_loop: object)
     lib.paste_template[:] = 0
     with pytest.raises(VideoError, match="outside the photo"):
         Paster(lib)
+
+
+def test_new_mouth_settings_rerender_only_the_shapes(tmp_path: Path, short_loop: object) -> None:
+    photo = photo_file(tmp_path)
+    prepare_library(photo, tmp_path, lambda _: FakePortrait())
+    again = FakePortrait()
+    with patch("imageskin.photoreal_library.mouth_key", return_value="new"):
+        prepare_library(photo, tmp_path, lambda _: again)
+        assert again.renders == len(SHAPES)  # the idle loop is kept
+        third = FakePortrait()
+        prepare_library(photo, tmp_path, lambda _: third)
+    assert third.renders == 0

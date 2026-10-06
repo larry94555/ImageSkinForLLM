@@ -23,7 +23,15 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from imageskin.liveportrait_edits import LOOP_SECONDS, STRENGTH, UPPER_LIP, idle_motion, soften
+from imageskin.liveportrait_edits import (
+    CONTROLS,
+    LOOP_SECONDS,
+    MOUTH_SHAPES,
+    STRENGTH,
+    UPPER_LIP,
+    idle_motion,
+    soften,
+)
 from imageskin.video import FPS, VideoError, write_mp4
 from imageskin.visemes import SHAPES
 
@@ -85,9 +93,14 @@ def to_gray(image: Image) -> NDArray[np.uint8]:
 
 def library_key(photo: Path) -> str:
     digest = hashlib.sha256(photo.read_bytes())
-    settings = f"v{LIBRARY_VERSION} s{STRENGTH} u{UPPER_LIP} l{LOOP_SECONDS} f{FPS}"
-    digest.update(settings.encode())
+    digest.update(f"v{LIBRARY_VERSION} l{LOOP_SECONDS} f{FPS}".encode())
     return digest.hexdigest()[:16]
+
+
+def mouth_key() -> str:
+    """Changes whenever the mouth-shape settings do, so only the shapes are rendered again."""
+    settings = repr((sorted(MOUTH_SHAPES.items()), sorted(CONTROLS.items()), STRENGTH, UPPER_LIP))
+    return hashlib.sha256(settings.encode()).hexdigest()[:12]
 
 
 def mouth_mask(landmarks: NDArray[np.float32], size: int = CROP) -> tuple[Mask, Window]:
@@ -152,16 +165,19 @@ def build_library(photo: Path, folder: Path, make_portrait: Callable[[Path], Por
     _save(folder / "crop_landmarks.npy", portrait.crop_landmarks)
     _save(folder / "crop_to_photo.npy", portrait.crop_to_photo)
 
-    if not (folder / "shapes.npy").exists():
+    shapes_meta = folder / "shapes.json"
+    old_mouth = json.loads(shapes_meta.read_text()).get("mouth") if shapes_meta.exists() else None
+    if old_mouth != mouth_key() or not (folder / "shapes.npy").exists():
         faces = []
         for name in SHAPES:
             controls, ratio = soften(name, STRENGTH, portrait.lip_ratio)
             faces.append(portrait.render(controls, None if name == "rest" else ratio, UPPER_LIP))
         _save(folder / "shapes.npy", np.stack(faces))
-        logger.info("Rendered mouth shapes", extra={"shapes": len(SHAPES)})
+        shapes_meta.write_text(json.dumps({"mouth": mouth_key()}), encoding="utf-8")
+        logger.info("Rendered mouth shapes", extra={"shapes": len(SHAPES), "mouth": mouth_key()})
 
     todo = [i for i in range(n_loop) if not (folder / "loop" / f"{i:04d}.npy").exists()]
-    if len(todo) < n_loop:
+    if 0 < len(todo) < n_loop:
         logger.info("Resuming idle loop", extra={"done": n_loop - len(todo), "of": n_loop})
     loop_start = time.perf_counter()
     for k, i in enumerate(todo, 1):
@@ -185,7 +201,14 @@ def build_library(photo: Path, folder: Path, make_portrait: Callable[[Path], Por
     loop = [np.load(folder / "loop" / f"{i:04d}.npy") for i in range(n_loop)]
     _save(folder / "align.npy", align_loop(shapes[0], loop, mask, window))
     (folder / "library.json").write_text(
-        json.dumps({"version": LIBRARY_VERSION, "photo": str(photo), "loop_frames": n_loop}),
+        json.dumps(
+            {
+                "version": LIBRARY_VERSION,
+                "photo": str(photo),
+                "loop_frames": n_loop,
+                "mouth": mouth_key(),
+            }
+        ),
         encoding="utf-8",
     )
     logger.info(
@@ -237,7 +260,10 @@ def prepare_library(
     if not photo.is_file():
         raise VideoError(f"{photo}: file not found")
     folder = home / "photoreal" / library_key(photo)
-    if not (folder / "library.json").exists():
+    meta = folder / "library.json"
+    if not meta.exists() or json.loads(meta.read_text()).get("mouth") != mouth_key():
+        # A new photo, an unfinished one, or new mouth settings (then only the 10 mouth
+        # shapes are rendered again, about a minute; the idle loop is kept).
         build_library(photo, folder, make_portrait or liveportrait_factory(home))
     lib = load_library(folder)
     logger.info(
