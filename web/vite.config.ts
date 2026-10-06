@@ -7,7 +7,8 @@ import { defineConfig } from "vitest/config";
 const APP_BANNER =
   "// Generated from web/src/*.tsx by `npm run build` in web/. Do not edit; edit web/src.";
 const LIBRARY_BANNER =
-  "// The Preact library, copied in by `npm run build` in web/. Not our code; do not edit.";
+  "// The Preact library (MIT, see preact-LICENSE.txt), copied in by `npm run build` in web/.\n" +
+  "// Not our code; do not edit.";
 export default defineConfig({
   plugins: [preact()],
   build: {

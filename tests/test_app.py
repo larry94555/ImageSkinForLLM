@@ -73,3 +73,9 @@ def test_browser_files_are_sent_compressed(tmp_path: Path) -> None:
         assert response.headers["content-encoding"] == "gzip"
         sent = sum(len(chunk) for chunk in response.iter_raw())
     assert 0 < sent < (STATIC_DIR / "assets" / "preact.js").stat().st_size / 2
+
+
+def test_preact_license_ships_with_the_app() -> None:
+    # Preact is MIT licensed: its notice must go wherever its code goes, the wheel included.
+    notice = (STATIC_DIR / "preact-LICENSE.txt").read_text(encoding="utf-8")
+    assert "The MIT License" in notice and "Jason Miller" in notice

@@ -1,4 +1,5 @@
-// The Preact library, copied in by `npm run build` in web/. Not our code; do not edit.
+// The Preact library (MIT, see preact-LICENSE.txt), copied in by `npm run build` in web/.
+// Not our code; do not edit.
 //#region node_modules/preact/dist/preact.module.js
 var n;
 var l$1;

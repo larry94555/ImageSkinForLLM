@@ -20,7 +20,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
 | | **Total** | | **36** | **100%** | **8 of 36** |
 
-Sizes: 11 Simple, 25 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 10 Simple, 26 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -103,11 +103,11 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 2: Setup in the browser
 
-### R5. Browser app and consent (Simple) · item 22 · Done in [PR #17](https://github.com/larry94555/ImageSkinForLLM/pull/17)
+### R5. Browser app and consent (Medium) · item 22 · Done in [PR #17](https://github.com/larry94555/ImageSkinForLLM/pull/17)
 - TypeScript browser app served by FastAPI, with page routing and a shared layout.
 - Consent checkbox before setup (item 22).
 - **Can show:** the app opens in the browser and setup is blocked until consent is confirmed.
-- **Built:** TypeScript with Preact (works like React, library about 400 lines) in `web/`, built by Vite into `src/imageskin/static`. The built files are committed, so running the app needs no Node.js; only changing the browser code does, and CI checks the committed files match the source. Pages use hash routes (`#/`, `#/consent`, `#/setup`). Consent is saved on the server as `consent.json` in the app's home folder (`IMAGESKIN_HOME`, default `~/.imageskin`) via `GET` and `POST /api/consent`; R6's upload endpoints should refuse requests until it is given.
+- **Built:** TypeScript with Preact (works like React, library about 400 lines) in `web/`, built by Vite into `src/imageskin/static`. The built files are committed, so running the app needs no Node.js; only changing the browser code does, and CI checks the committed files match the source. Pages use hash routes (`#/`, `#/consent`, `#/setup`). Consent is saved on the server as `consent.json` in the app's home folder (`IMAGESKIN_HOME`, default `~/.imageskin`) via `GET` and `POST /api/consent`; R6's upload endpoints should refuse requests until it is given. It reviewed as Medium, not the Simple estimated, because of the browser build setup. Preact's MIT notice ships next to it as `preact-LICENSE.txt`.
 
 ### R6. Upload API with safe storage (Medium) · item 1
 - Server endpoints to upload, list, fetch and remove images (JPG, PNG, HEIC) and sound files (WAV, M4A, MP3).
