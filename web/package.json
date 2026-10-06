@@ -1,0 +1,26 @@
+{
+  "name": "imageskin-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ImageSkinForLLM browser app (Preact + TypeScript). Built into src/imageskin/static.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc -p .",
+    "build": "tsc -p . && vite build",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "preact": "^10.27.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.0",
+    "@testing-library/preact": "^3.2.0",
+    "@vitest/coverage-v8": "^5.0.3",
+    "jsdom": "^27.0.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.0",
+    "vitest": "^5.0.0"
+  }
+}

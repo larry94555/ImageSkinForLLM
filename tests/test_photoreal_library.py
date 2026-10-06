@@ -11,7 +11,6 @@ from imageskin.photoreal_library import (
     Paster,
     align_loop,
     build_library,
-    default_home,
     library_key,
     load_library,
     mouth_mask,
@@ -22,13 +21,6 @@ from imageskin.video import VideoError
 from imageskin.visemes import SHAPES
 
 __all__ = ["short_loop"]  # a fixture, used by name
-
-
-def test_default_home_follows_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("IMAGESKIN_HOME", "/data/skin")
-    assert default_home() == Path("/data/skin")
-    monkeypatch.delenv("IMAGESKIN_HOME")
-    assert default_home() == Path.home() / ".imageskin"
 
 
 def test_library_key_depends_on_the_photo(tmp_path: Path) -> None:

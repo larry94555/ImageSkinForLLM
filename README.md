@@ -72,6 +72,22 @@ imageskin --config config.toml serve     # settings from a file; see config.exam
 
 Logs are written to stderr as one JSON object per line.
 
+## Browser app
+
+`imageskin serve` also serves the browser app: open http://127.0.0.1:8000/ in a browser. Setup asks you to confirm that the person in the photos and recordings agreed to be copied; the answer is saved in `consent.json` in the app's folder (`IMAGESKIN_HOME`, default `.imageskin` in your home folder). Delete that file to be asked again.
+
+The browser app is TypeScript with [Preact](https://preactjs.com) (a small library that works like React), in `web/`. It is built with Vite into `src/imageskin/static`, which is committed, so running the app needs no Node.js. Read and edit the code in `web/src` (the pages in `pages.tsx`, the layout in `App.tsx`); `static/assets/app.js` is generated from it and `static/assets/preact.js` is the Preact library. They are kept readable (not minified); the server compresses them when it sends them. To change the browser code, install [Node.js](https://nodejs.org) 22 (Windows: `winget install OpenJS.NodeJS.LTS`, then open a new terminal), then on any system:
+
+```
+cd web
+npm install
+npm run dev     # live-reloading app at http://localhost:5173, with `imageskin serve` running for the API
+npm test        # unit tests with coverage
+npm run build   # type check and build into src/imageskin/static
+```
+
+Commit the built files with the source change; CI fails if they are out of date.
+
 ## Making a voice sample
 
 Join the recordings from the recording guide (M4A, MP3 or WAV) into one WAV file, in the order given. Each recording is converted to 24 kHz mono WAV; `--timeout` sets how many seconds each conversion may take (default 60).

@@ -26,3 +26,23 @@ jobs:
         run: pytest
       - name: Build
         run: pip wheel --no-deps -w dist .
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - name: Type check and build
+        run: npm run build
+      - name: Unit tests with coverage
+        run: npm test
+      - name: Built files are committed and up to date
+        run: |
+          git status --porcelain -- ../src/imageskin/static
+          test -z "$(git status --porcelain -- ../src/imageskin/static)"

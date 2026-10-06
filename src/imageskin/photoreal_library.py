@@ -46,11 +46,6 @@ Mask = NDArray[np.float32]
 Window = tuple[int, int, int, int]  # x0, y0, x1, y1
 
 
-def default_home() -> Path:
-    """Where models and libraries are kept: IMAGESKIN_HOME, or .imageskin in the home folder."""
-    return Path(os.environ.get("IMAGESKIN_HOME") or Path.home() / ".imageskin")
-
-
 class PortraitLike(Protocol):
     photo: Image  # RGB, the size of the video
     lip_ratio: float

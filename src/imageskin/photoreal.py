@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from imageskin.config import default_home
 from imageskin.liveportrait_edits import top_two
 from imageskin.photoreal_library import (
     CROP,
@@ -25,7 +26,6 @@ from imageskin.photoreal_library import (
     Paster,
     PortraitLike,
     Window,
-    default_home,
     liveportrait_factory,
     optical_flow,
     prepare_library,

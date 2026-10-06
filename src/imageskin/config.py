@@ -1,6 +1,7 @@
 """Settings loaded from an optional TOML file."""
 
 import logging
+import os
 import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -8,6 +9,11 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
+
+def default_home() -> Path:
+    """Where models, libraries and app data are kept: IMAGESKIN_HOME, or ~/.imageskin."""
+    return Path(os.environ.get("IMAGESKIN_HOME") or Path.home() / ".imageskin")
 
 
 class ConfigError(Exception):
