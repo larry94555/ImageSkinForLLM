@@ -61,6 +61,15 @@ frontal photo (512 x 512, lips slightly apart at rest).
 
 ## Run it
 
+This is a separate test script, not `imageskin sample`: `sample.mp4` from that command
+still uses the old OpenCV mouth and will look the same as before. Get this PR's branch
+first, from the repository folder:
+
+```
+git fetch origin test/lipread-photoreal
+git checkout test/lipread-photoreal
+```
+
 Needs Python 3.11 or 3.12, git and ffmpeg (see the main README), and the photoreal setup:
 if you ran PR #8's test, `experiments/photoreal/LivePortrait/` is already there and the
 setup step finishes at once. The first run also downloads Kokoro's ONNX files (354 MB)
@@ -114,3 +123,28 @@ Output goes to `lipread_out\` (Windows) or `lipread_out/` in the folder you run 
 The log shows `Lips in the photo: gap ratio ...`, `Setup done: 10 mouth shapes and 90
 flows`, one `Spoke ...` line per sentence with its phonemes, and `Reply clip built` with
 the time taken.
+
+### Play the results
+
+Run these from the same folder you ran the test in. Watch `lipread_muted.mp4` first, with
+no sound, and try to follow the four sentences; then `lipread_voice.mp4` to check.
+
+Windows 11, Command Prompt:
+
+```
+start lipread_out\lipread_muted.mp4
+start lipread_out\lipread_voice.mp4
+start lipread_out\mouth_shapes.png
+start lipread_out\before_after.png
+```
+
+Windows 11, PowerShell:
+
+```
+Invoke-Item lipread_out\lipread_muted.mp4
+Invoke-Item lipread_out\lipread_voice.mp4
+Invoke-Item lipread_out\mouth_shapes.png
+Invoke-Item lipread_out\before_after.png
+```
+
+macOS: `open lipread_out/lipread_muted.mp4` (and so on). Linux: `xdg-open lipread_out/lipread_muted.mp4`.
