@@ -11,14 +11,14 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 0 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 1 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
 | 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
 | 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.6% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.9% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
-| | **Total** | | **36** | **100%** | **7 of 36** |
+| | **Total** | | **36** | **100%** | **8 of 36** |
 
 Sizes: 11 Simple, 25 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -103,10 +103,11 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 2: Setup in the browser
 
-### R5. Browser app and consent (Simple) · item 22
+### R5. Browser app and consent (Simple) · item 22 · Done in [PR #17](https://github.com/larry94555/ImageSkinForLLM/pull/17)
 - TypeScript browser app served by FastAPI, with page routing and a shared layout.
 - Consent checkbox before setup (item 22).
 - **Can show:** the app opens in the browser and setup is blocked until consent is confirmed.
+- **Built:** TypeScript source in `web/src`, compiled by `tsc` alone (no bundler) into `src/imageskin/static/js`. The compiled files are committed, so running the app needs no Node.js; only changing the browser code does, and CI checks the committed files match the source. Pages use hash routes (`#/`, `#/consent`, `#/setup`). Consent is saved on the server as `consent.json` in the app's home folder (`IMAGESKIN_HOME`, default `~/.imageskin`) via `GET` and `POST /api/consent`; R6's upload endpoints should refuse requests until it is given.
 
 ### R6. Upload API with safe storage (Medium) · item 1
 - Server endpoints to upload, list, fetch and remove images (JPG, PNG, HEIC) and sound files (WAV, M4A, MP3).

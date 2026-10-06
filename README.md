@@ -72,6 +72,20 @@ imageskin --config config.toml serve     # settings from a file; see config.exam
 
 Logs are written to stderr as one JSON object per line.
 
+## Browser app
+
+`imageskin serve` also serves the browser app: open http://127.0.0.1:8000/ in a browser. Setup asks you to confirm that the person in the photos and recordings agreed to be copied; the answer is saved in `consent.json` in the app's folder (`IMAGESKIN_HOME`, default `.imageskin` in your home folder). Delete that file to be asked again.
+
+The app's TypeScript source is in `web/src` and is compiled into `src/imageskin/static/js`, which is committed, so running the app needs no Node.js. To change the browser code, install [Node.js](https://nodejs.org) 20 or later (Windows: `winget install OpenJS.NodeJS.LTS`, then open a new terminal), then on any system:
+
+```
+cd web
+npm install
+npm test        # type check, compile into src/imageskin/static/js, run the browser tests
+```
+
+Commit the compiled files with the source change; CI fails if they are out of date.
+
 ## Making a voice sample
 
 Join the recordings from the recording guide (M4A, MP3 or WAV) into one WAV file, in the order given. Each recording is converted to 24 kHz mono WAV; `--timeout` sets how many seconds each conversion may take (default 60).

@@ -9,7 +9,7 @@ from typing import Any
 
 from imageskin import __version__
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
-from imageskin.config import ConfigError, load_settings
+from imageskin.config import ConfigError, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
 from imageskin.sample import SAMPLE_SCRIPT, SampleResult, make_sample
@@ -113,7 +113,6 @@ def prepare(photo: Path, output: Path) -> tuple[Path, float]:
     """Build the photo's photoreal library; return its folder and the preview's length."""
     try:
         from imageskin.photoreal_library import (
-            default_home,
             prepare_library,
             write_idle_preview,
         )

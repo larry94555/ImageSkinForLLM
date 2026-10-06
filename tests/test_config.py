@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from imageskin.config import ConfigError, Settings, load_settings
+from imageskin.config import ConfigError, Settings, default_home, load_settings
 
 
 def write(tmp_path: Path, text: str) -> Path:
@@ -46,3 +46,10 @@ def test_invalid_files_are_rejected(tmp_path: Path, text: str, message: str) -> 
 def test_missing_file_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="not found"):
         load_settings(tmp_path / "missing.toml")
+
+
+def test_default_home_follows_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("IMAGESKIN_HOME", "/data/skin")
+    assert default_home() == Path("/data/skin")
+    monkeypatch.delenv("IMAGESKIN_HOME")
+    assert default_home() == Path.home() / ".imageskin"
