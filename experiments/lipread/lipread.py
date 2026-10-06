@@ -35,9 +35,11 @@ sys.path.insert(0, str(HERE.parent / "photoreal"))
 sys.path.insert(0, str(HERE))
 from face_points import VISEMES as OLD_SHAPES  # noqa: E402
 from face_points import expression_delta  # noqa: E402
-from lip_shapes import SHAPES, frame_weights, mix, segments, soften, top_two  # noqa: E402
+from lip_shapes import SHAPES, mix, soften, top_two  # noqa: E402
 from liveportrait_cpu import Portrait, contact_sheet  # noqa: E402
 from sound_timings import SAMPLE_RATE, Voice  # noqa: E402
+
+from imageskin.visemes import frame_weights, shape_timings, sound_timings  # noqa: E402
 
 log = logging.getLogger("lipread")
 UPPER_LIP_KP = 20  # LivePortrait keypoint that lifts the upper lip (found by rendering each)
@@ -241,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     speech_s = time.perf_counter() - start
     wav_path = args.out / "voice.wav"
     write_wav(audio, wav_path)
-    segs = segments(phonemes, seconds)
+    segs = shape_timings(sound_timings(phonemes, seconds))
     n_frames = int(round(len(audio) / SAMPLE_RATE * args.fps))
     weights = frame_weights(segs, n_frames, args.fps, args.smooth, args.lead)
     (args.out / "sounds.json").write_text(

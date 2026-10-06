@@ -1,6 +1,7 @@
-"""Mouth shapes for lip-reading: sounds to shapes, and shapes to per-frame weights.
+"""LivePortrait edits for each mouth shape, and how to soften and blend them.
 
-Pure Python with no third-party imports, so these run in CI without the model stack.
+Which sound gets which shape, and how much of each shape to show per frame, live in the app
+(`imageskin.visemes`, roadmap R4b); this file keeps only the LivePortrait-specific part.
 
 Each mouth shape is a LivePortrait edit:
   - `ratio`: how far apart the lips are, fed to LivePortrait's lip retargeting model. That
@@ -11,8 +12,13 @@ Each mouth shape is a LivePortrait edit:
     "purse" rounds the lips, "grin" spreads them, "open" (kept small) presses or relaxes.
 """
 
-import math
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+# The app's package, so this runs from a checkout without installing it.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from imageskin.visemes import CONTACT  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -35,103 +41,6 @@ SHAPES: dict[str, Shape] = {
     "OO": Shape(0.12, {"purse": 24.0}),  # you, would, boat's w
     "SH": Shape(0.15, {"purse": 10.0}),  # she, chair, judge
 }
-
-_GROUPS = {
-    "MBP": "mbp",
-    "FV": "fv",
-    "OO": "uwʊ",
-    "OH": "oɔɒ",
-    "AA": "aɑʌɐ",
-    "EH": "ɛeæ",
-    "EE": "iɪj",
-    "SH": "ʃʒʧʤ",
-    # r stays neutral: rounding it made "three green trees" pulse the mouth corners in and
-    # out between r and ee (Larry, 2026-10-06).
-    "IH": "tdnlszkgɡhθðŋɾʔxçəᵻɹrɝɚ",
-}
-VISEME_OF: dict[str, str] = {ch: name for name, chars in _GROUPS.items() for ch in chars}
-PAUSES = set(",.!?;:—…")
-HOLDS = set(" ˈˌːʰ̃")  # spaces, stress and length marks keep the shape before them
-CONTACT = ("MBP", "FV")  # sounds a lip-reader needs to see the lips touch
-
-
-@dataclass(frozen=True)
-class Segment:
-    shape: str
-    start: float  # seconds
-    end: float
-
-
-def segments(phonemes: str, durations: list[float]) -> list[Segment]:
-    """Mouth-shape segments from phonemes and how long each lasts (seconds, one per char)."""
-    if len(phonemes) != len(durations):
-        raise ValueError(f"{len(phonemes)} phonemes but {len(durations)} durations")
-    out: list[Segment] = []
-    t = 0.0
-    for ch, d in zip(phonemes, durations, strict=True):
-        if ch in HOLDS and out:
-            last = out[-1]
-            out[-1] = Segment(last.shape, last.start, t + d)
-        else:
-            shape = "rest" if ch in PAUSES or ch in HOLDS else VISEME_OF.get(ch, "IH")
-            if out and out[-1].shape == shape:
-                out[-1] = Segment(shape, out[-1].start, t + d)
-            else:
-                out.append(Segment(shape, t, t + d))
-        t += d
-    return out
-
-
-def frame_weights(
-    segs: list[Segment],
-    n_frames: int,
-    fps: float,
-    smooth_s: float = 0.06,
-    lead_s: float = 0.03,
-) -> list[dict[str, float]]:
-    """How much of each mouth shape to show in each video frame.
-
-    Shapes blend into each other over several frames (a Gaussian of `smooth_s` seconds),
-    the way real lips start the next sound before the current one ends. Lip contact
-    sounds (m, b, p, f, v) are often shorter than a frame and would blur away, so the
-    frame nearest the middle of each one shows that shape fully.
-    """
-    step = 0.005
-    end = n_frames / fps
-    n_steps = int(math.ceil(end / step)) + 1
-    names = list(SHAPES)
-    grid = [[0.0] * n_steps for _ in names]
-    index = {name: i for i, name in enumerate(names)}
-    k = 0
-    for s in range(n_steps):
-        t = s * step
-        while k < len(segs) and segs[k].end <= t:
-            k += 1
-        shape = segs[k].shape if k < len(segs) and segs[k].start <= t else "rest"
-        grid[index[shape]][s] = 1.0
-
-    radius = max(1, int(3 * smooth_s / step))
-    kernel = [math.exp(-0.5 * (i * step / smooth_s) ** 2) for i in range(-radius, radius + 1)]
-    out: list[dict[str, float]] = []
-    for f in range(n_frames):
-        centre = round(((f + 0.5) / fps + lead_s) / step)
-        weights: dict[str, float] = {}
-        total = 0.0
-        for name, row in zip(names, grid, strict=True):
-            acc = 0.0
-            for j, kv in enumerate(kernel):
-                s = min(n_steps - 1, max(0, centre + j - radius))
-                acc += kv * row[s]
-            if acc > 1e-6:
-                weights[name] = acc
-                total += acc
-        out.append({name: w / total for name, w in weights.items()})
-
-    for seg in segs:
-        if seg.shape in CONTACT:
-            f = min(n_frames - 1, max(0, int(((seg.start + seg.end) / 2 - lead_s) * fps)))
-            out[f] = {seg.shape: 1.0}
-    return out
 
 
 def soften(name: str, strength: float, photo_ratio: float) -> tuple[dict[str, float], float]:

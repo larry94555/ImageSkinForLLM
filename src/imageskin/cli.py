@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=Path("speech.wav"),
-        help="WAV file to write; word timings go next to it as .json",
+        help="WAV file to write; word and sound timings go next to it as .json",
     )
     sample = commands.add_parser(
         "sample", help="render the sample video: the person in the photo speaks a test script"
@@ -128,7 +128,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         # Full paths, so it is clear where the files went (relative to the current folder).
         wav = args.output.resolve()
-        print(f"Wrote {wav} ({seconds:.1f} seconds) and word timings to {wav.with_suffix('.json')}")
+        timings = wav.with_suffix(".json")
+        print(f"Wrote {wav} ({seconds:.1f} seconds) and word and sound timings to {timings}")
         return 0
     if args.command == "sample":
         try:
