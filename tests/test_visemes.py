@@ -71,3 +71,31 @@ def test_a_closed_lip_sound_shorter_than_a_frame_still_gets_one() -> None:
 
 def test_frame_weights_with_no_frames() -> None:
     assert frame_weights([ShapeTiming("MBP", 0.0, 0.1)], n_frames=0, fps=25) == []
+
+
+def test_shapes_blend_between_sounds() -> None:
+    frames = frame_weights([ShapeTiming("AA", 0.0, 0.5), ShapeTiming("OO", 0.5, 1.0)], 30, 30.0)
+    assert frames[3] == {"AA": pytest.approx(1.0)}
+    assert 0.2 < frames[15]["AA"] < 0.8 and 0.2 < frames[15]["OO"] < 0.8
+
+
+def test_lips_lead_the_sound() -> None:
+    # With a lead, the frame just before the sound starts already leans toward it.
+    shapes = [ShapeTiming("rest", 0.0, 0.5), ShapeTiming("OO", 0.5, 1.0)]
+    no_lead = frame_weights(shapes, 30, 30.0, smooth_s=0.03, lead_s=0.0)
+    lead = frame_weights(shapes, 30, 30.0, smooth_s=0.03, lead_s=0.06)
+    assert lead[14].get("OO", 0.0) > no_lead[14].get("OO", 0.0) + 0.3
+
+
+def test_lip_contact_frame_moves_with_the_lead() -> None:
+    shapes = [
+        ShapeTiming("AA", 0.0, 0.5),
+        ShapeTiming("MBP", 0.5, 0.52),
+        ShapeTiming("AA", 0.52, 1.0),
+    ]
+    assert frame_weights(shapes, 30, 30.0, lead_s=0.1)[12] == {"MBP": 1.0}
+
+
+def test_r_keeps_the_mouth_neutral() -> None:
+    # Rounding r between ee sounds pulsed the mouth corners in "three green trees".
+    assert SHAPE_OF["ɹ"] == SHAPE_OF["r"] == "IH"
