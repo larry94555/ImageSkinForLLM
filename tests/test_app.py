@@ -63,5 +63,5 @@ def test_browser_app_is_served(tmp_path: Path) -> None:
     page = client.get("/")
     assert page.status_code == 200
     assert 'src="/assets/app.js"' in page.text
-    for asset in ("/assets/app.js", "/assets/index.css"):
+    for asset in ("/assets/app.js", "/assets/react.js", "/assets/index.css"):
         assert client.get(asset).status_code == 200, asset
