@@ -16,11 +16,13 @@ from imageskin.mouth_warp import (
     find_lip_line,
     frame_weights,
     load_photo,
+    refine_lip_line,
 )
 from imageskin.video import Face, VideoError
 
 SKIN = (150, 170, 220)  # BGR
 LIPS = (90, 80, 200)
+SEAM = (40, 35, 90)
 
 
 def face_photo(path: Path, size: tuple[int, int] = (200, 160), lips_y: int = 130) -> Path:
@@ -29,6 +31,7 @@ def face_photo(path: Path, size: tuple[int, int] = (200, 160), lips_y: int = 130
     image = np.zeros((h, w, 3), dtype=np.uint8)
     image[:] = SKIN
     image[lips_y - 4 : lips_y + 4, 80:120] = LIPS
+    image[lips_y, 80:120] = SEAM  # the dark line where closed lips meet
     cv2.imwrite(str(path), image)
     return path
 
@@ -78,6 +81,23 @@ def test_find_lip_line_without_lips_guesses(tmp_path: Path) -> None:
     assert find_lip_line(image, (50, 20, 100, 100)) == 100
 
 
+def test_refine_lip_line_moves_to_the_seam(tmp_path: Path) -> None:
+    image = load_photo(face_photo(tmp_path / "f.png", lips_y=120))
+    # Start a few rows below the seam, as the redness centre can on pale lips.
+    assert abs(refine_lip_line(image, 100, 123, 42, 30) - 120) <= 1
+
+
+def test_refine_lip_line_does_not_climb_to_the_nose(tmp_path: Path) -> None:
+    image = load_photo(face_photo(tmp_path / "f.png", lips_y=120))
+    image[100:104, 80:120] = 0  # a dark nostril shadow well above the lips
+    assert abs(refine_lip_line(image, 100, 120, 42, 30) - 120) <= 1
+
+
+def test_refine_lip_line_keeps_the_line_at_the_edge(tmp_path: Path) -> None:
+    image = load_photo(face_photo(tmp_path / "f.png", lips_y=120))
+    assert refine_lip_line(image, 100, 159, 42, 4) == 159
+
+
 def test_detect_faces_finds_nothing_in_a_blank_picture() -> None:
     assert detect_faces(np.full((120, 160), 128, dtype=np.uint8)) == []
 
@@ -122,8 +142,18 @@ def test_open_mouth_changes_only_below_the_lips(tmp_path: Path) -> None:
     changed = np.argwhere((frame != image).any(axis=2))
     # Nothing above the lips moves; only the soft edge of the opening reaches a little higher.
     assert changed[:, 0].min() >= 100 - 12
-    # The middle of the opening is dark.
-    assert frame[103, 100].sum() < 200
+    # The middle of the opening is dark red, and the upper teeth show just under the lip.
+    middle = frame[102, 100].astype(int)
+    assert middle.sum() < 300 and middle[2] > middle[0]
+    assert frame[101, 100].sum() > middle.sum()
+
+
+def test_quiet_sound_shows_no_teeth(tmp_path: Path) -> None:
+    image = load_photo(face_photo(tmp_path / "f.png", lips_y=100))
+    face = Face(tmp_path / "f.png", 200, 160, 100, 100, 42, 40)
+    region, weights = frame_weights(face)
+    frame = draw_frame(image, face, region, weights, 0.5)
+    assert frame[101, 100].sum() <= frame[102, 100].sum() + 30
 
 
 def test_render_writes_mp4(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

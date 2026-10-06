@@ -66,3 +66,10 @@ def test_read_pcm16_rejects_stereo(tmp_path: Path) -> None:
 def test_read_pcm16_missing_file(tmp_path: Path) -> None:
     with pytest.raises(VideoError, match="could not read"):
         read_pcm16(tmp_path / "missing.wav")
+
+
+def test_mouth_eases_open_over_several_frames() -> None:
+    openness = mouth_openness(array("h", [0] * 24000) + tone(1, 10000), 24000)
+    between = [o for o in openness[15:35] if 0.05 < o < 0.95]
+    assert len(between) >= 3  # not a jump from closed to open
+    assert openness == sorted(openness)  # and it never shuts again on the way up
