@@ -106,15 +106,6 @@ def soften(name: str, strength: float, photo_ratio: float) -> tuple[dict[str, fl
     return {k: strength * v for k, v in shape.controls.items()}, ratio
 
 
-def top_two(weights: dict[str, float]) -> tuple[str, str, float]:
-    """The two strongest shapes and how far to morph from the first toward the second."""
-    ranked = sorted(weights.items(), key=lambda kv: -kv[1])
-    if len(ranked) == 1:
-        return ranked[0][0], ranked[0][0], 0.0
-    (a, wa), (b, wb) = ranked[0], ranked[1]
-    return a, b, wb / (wa + wb)
-
-
 def eye_openness(t: float) -> float:
     """How open the eyes are (1 open, 0 closed) `t` seconds into the idle loop."""
     for at in BLINKS_AT:
