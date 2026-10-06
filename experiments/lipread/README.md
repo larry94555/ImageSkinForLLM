@@ -77,7 +77,7 @@ macOS / Linux (on a Linux server, MediaPipe also needs `sudo apt install libegl1
 . .venv/bin/activate
 pip install -r experiments/lipread/requirements.txt
 python experiments/photoreal/setup_liveportrait.py
-python experiments/lipread/lipread_test.py --photo me.jpg
+python experiments/lipread/lipread.py --photo me.jpg
 ```
 
 Windows 11, Command Prompt:
@@ -86,7 +86,7 @@ Windows 11, Command Prompt:
 .venv\Scripts\activate
 pip install -r experiments\lipread\requirements.txt
 python experiments\photoreal\setup_liveportrait.py
-python experiments\lipread\lipread_test.py --photo me.jpg
+python experiments\lipread\lipread.py --photo me.jpg
 ```
 
 Windows 11, PowerShell:
@@ -95,7 +95,7 @@ Windows 11, PowerShell:
 .venv\Scripts\Activate.ps1
 pip install -r experiments\lipread\requirements.txt
 python experiments\photoreal\setup_liveportrait.py
-python experiments\lipread\lipread_test.py --photo me.jpg
+python experiments\lipread\lipread.py --photo me.jpg
 ```
 
 Add `--direct` for the frame-by-frame reference (about 2 s per frame on a 4-core CPU, so
