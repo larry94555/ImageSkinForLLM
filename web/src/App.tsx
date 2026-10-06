@@ -1,12 +1,9 @@
 // The shared layout and the page for the current URL hash.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "preact/hooks";
 
 import { getConsent } from "./api";
-import { ConsentPage } from "./pages/ConsentPage";
-import { HomePage } from "./pages/HomePage";
-import { NotFoundPage } from "./pages/NotFoundPage";
-import { SetupPage } from "./pages/SetupPage";
+import { ConsentPage, HomePage, NotFoundPage, SetupPage } from "./pages";
 import { type Page, resolve, useHash } from "./router";
 
 const NAV: { page: Page; href: string; label: string }[] = [

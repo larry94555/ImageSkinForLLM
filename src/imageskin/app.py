@@ -29,7 +29,7 @@ def create_app(home: Path | None = None) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
     # The built browser files are committed unminified so they stay readable; compressing
-    # responses here makes them small on the wire instead (react.js: about 565 KB to 110 KB).
+    # responses here makes them small on the wire instead (less than half the size).
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     @app.middleware("http")

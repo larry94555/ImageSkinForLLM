@@ -1,6 +1,6 @@
 // Page routing from the URL hash (#/consent). Pure, so it can be tested without a browser.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "preact/hooks";
 
 export type Page = "home" | "consent" | "setup" | "not-found";
 

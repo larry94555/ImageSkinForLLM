@@ -63,13 +63,13 @@ def test_browser_app_is_served(tmp_path: Path) -> None:
     page = client.get("/")
     assert page.status_code == 200
     assert 'src="/assets/app.js"' in page.text
-    for asset in ("/assets/app.js", "/assets/react.js", "/assets/index.css"):
+    for asset in ("/assets/app.js", "/assets/preact.js", "/assets/index.css"):
         assert client.get(asset).status_code == 200, asset
 
 
 def test_browser_files_are_sent_compressed(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
-    with client.stream("GET", "/assets/react.js", headers={"Accept-Encoding": "gzip"}) as response:
+    with client.stream("GET", "/assets/preact.js", headers={"Accept-Encoding": "gzip"}) as response:
         assert response.headers["content-encoding"] == "gzip"
         sent = sum(len(chunk) for chunk in response.iter_raw())
-    assert 0 < sent < (STATIC_DIR / "assets" / "react.js").stat().st_size / 3
+    assert 0 < sent < (STATIC_DIR / "assets" / "preact.js").stat().st_size / 2

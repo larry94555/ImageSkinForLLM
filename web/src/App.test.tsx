@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
@@ -35,7 +35,7 @@ test("setup without consent goes to the consent page", async () => {
   serverWithConsent(false);
   await openAt("#/setup");
   expect(await screen.findByText("Before you start")).toBeTruthy();
-  expect(window.location.hash).toBe("#/consent");
+  await waitFor(() => expect(window.location.hash).toBe("#/consent"));
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(
     true,
   );
@@ -47,7 +47,9 @@ test("ticking the box and continuing saves consent and opens setup", async () =>
   fireEvent.click(await screen.findByRole("checkbox"));
   const button = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
   expect(button.disabled).toBe(false);
-  await act(async () => fireEvent.click(button));
+  await act(async () => {
+    fireEvent.click(button);
+  });
   expect(await screen.findByText("Thank you, consent is confirmed.")).toBeTruthy();
   expect(window.location.hash).toBe("#/setup");
   expect(fetchMock).toHaveBeenCalledWith("/api/consent", expect.objectContaining({ method: "POST" }));
@@ -57,7 +59,9 @@ test("a failed save shows a message and lets the user try again", async () => {
   serverWithConsent(false, false);
   await openAt("#/consent");
   fireEvent.click(await screen.findByRole("checkbox"));
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Continue" })));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  });
   expect(await screen.findByText("Could not save your answer. Please try again.")).toBeTruthy();
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(
     false,
