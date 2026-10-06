@@ -1,5 +1,7 @@
 """A stand-in for LivePortrait, shared by the photoreal tests."""
 
+import json
+import wave
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
@@ -60,6 +62,21 @@ class FakePortrait:
         if gap:
             cv2.ellipse(face, MOUTH, (30, gap), 0, 0, 360, (20, 10, 10), -1)
         return np.roll(face, round(pose[1]), axis=1)
+
+
+def write_speech(wav: Path, seconds: float = 0.4) -> None:
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(24000)
+        w.writeframes(b"\x00\x00" * int(24000 * seconds))
+    shapes = [
+        {"shape": "rest", "start": 0.0, "end": 0.1},
+        {"shape": "AA", "start": 0.1, "end": 0.25},
+        {"shape": "MBP", "start": 0.25, "end": 0.3},
+        {"shape": "rest", "start": 0.3, "end": seconds},
+    ]
+    wav.with_suffix(".json").write_text(json.dumps({"shapes": shapes}))
 
 
 @pytest.fixture

@@ -5,17 +5,20 @@ import logging
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from imageskin import __version__
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
-from imageskin.sample import SampleResult, make_sample
+from imageskin.sample import SAMPLE_SCRIPT, SampleResult, make_sample
 from imageskin.video import INSTALL_HINT, VideoEngine, VideoError, find_ffmpeg
 from imageskin.voice import VoiceError, write_speech
 
 logger = logging.getLogger(__name__)
+
+ENGINES = ("opencv", "photoreal")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,21 +75,38 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument(
         "-o", "--output", type=Path, default=Path("sample.mp4"), help="MP4 file to write"
     )
+    sample.add_argument(
+        "--text", default=SAMPLE_SCRIPT, help="what to say (default: the sample test script)"
+    )
+    sample.add_argument(
+        "--engine",
+        choices=ENGINES,
+        default="opencv",
+        help="opencv: quick mouth animation (default); photoreal: LivePortrait, with a "
+        "one-time setup per photo",
+    )
     return parser
 
 
-def load_video_engine() -> VideoEngine:
+def load_video_engine(engine: str = "opencv") -> VideoEngine[Any]:
     try:
+        if engine == "photoreal":
+            from imageskin.photoreal import PhotorealEngine
+
+            return PhotorealEngine()
         from imageskin.mouth_warp import MouthWarpEngine
     except ImportError as e:
         if e.name in ("cv2", "numpy"):
-            raise VideoError(INSTALL_HINT) from e
+            extra = "photoreal" if engine == "photoreal" else "video"
+            raise VideoError(INSTALL_HINT.replace(".[video]", f".[{extra}]")) from e
         raise
     return MouthWarpEngine()
 
 
-def sample(photo: Path, voice: str, output: Path) -> SampleResult:
-    return make_sample(photo, output, KokoroEngine(), load_video_engine(), voice)
+def sample(
+    photo: Path, voice: str, output: Path, engine: str = "opencv", text: str = SAMPLE_SCRIPT
+) -> SampleResult:
+    return make_sample(photo, output, KokoroEngine(), load_video_engine(engine), voice, text)
 
 
 def prepare(photo: Path, output: Path) -> tuple[Path, float]:
@@ -170,7 +190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "sample":
         try:
-            result = sample(args.photo, args.voice, args.output)
+            result = sample(args.photo, args.voice, args.output, args.engine, args.text)
         except (VoiceError, VideoError) as e:
             logger.error("Could not make sample video", extra={"error": str(e)})
             return 1

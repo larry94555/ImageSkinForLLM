@@ -5,6 +5,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from imageskin.video import VideoEngine
 from imageskin.voice import VoiceEngine, write_speech
@@ -36,7 +37,7 @@ def make_sample(
     photo: Path,
     output: Path,
     voice_engine: VoiceEngine,
-    video_engine: VideoEngine,
+    video_engine: VideoEngine[Any],
     voice: str,
     script: str = SAMPLE_SCRIPT,
 ) -> SampleResult:
