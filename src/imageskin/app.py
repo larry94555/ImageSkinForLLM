@@ -7,6 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -27,6 +28,9 @@ class ConsentRequest(BaseModel):
 def create_app(home: Path | None = None) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
+    # The built browser files are committed unminified so they stay readable; compressing
+    # responses here makes them small on the wire instead (react.js: about 565 KB to 110 KB).
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     @app.middleware("http")
     async def log_requests(

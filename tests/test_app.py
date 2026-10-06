@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from imageskin import __version__
-from imageskin.app import create_app
+from imageskin.app import STATIC_DIR, create_app
 
 
 def test_health_returns_ok_and_version() -> None:
@@ -65,3 +65,11 @@ def test_browser_app_is_served(tmp_path: Path) -> None:
     assert 'src="/assets/app.js"' in page.text
     for asset in ("/assets/app.js", "/assets/react.js", "/assets/index.css"):
         assert client.get(asset).status_code == 200, asset
+
+
+def test_browser_files_are_sent_compressed(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    with client.stream("GET", "/assets/react.js", headers={"Accept-Encoding": "gzip"}) as response:
+        assert response.headers["content-encoding"] == "gzip"
+        sent = sum(len(chunk) for chunk in response.iter_raw())
+    assert 0 < sent < (STATIC_DIR / "assets" / "react.js").stat().st_size / 3
