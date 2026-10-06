@@ -81,7 +81,11 @@ def segments(phonemes: str, durations: list[float]) -> list[Segment]:
 
 
 def frame_weights(
-    segs: list[Segment], n_frames: int, fps: float, smooth_s: float = 0.04
+    segs: list[Segment],
+    n_frames: int,
+    fps: float,
+    smooth_s: float = 0.06,
+    lead_s: float = 0.03,
 ) -> list[dict[str, float]]:
     """How much of each mouth shape to show in each video frame.
 
@@ -108,7 +112,7 @@ def frame_weights(
     kernel = [math.exp(-0.5 * (i * step / smooth_s) ** 2) for i in range(-radius, radius + 1)]
     out: list[dict[str, float]] = []
     for f in range(n_frames):
-        centre = round((f + 0.5) / fps / step)
+        centre = round(((f + 0.5) / fps + lead_s) / step)
         weights: dict[str, float] = {}
         total = 0.0
         for name, row in zip(names, grid, strict=True):
@@ -123,7 +127,7 @@ def frame_weights(
 
     for seg in segs:
         if seg.shape in CONTACT:
-            f = min(n_frames - 1, max(0, int((seg.start + seg.end) / 2 * fps)))
+            f = min(n_frames - 1, max(0, int(((seg.start + seg.end) / 2 - lead_s) * fps)))
             out[f] = {seg.shape: 1.0}
     return out
 

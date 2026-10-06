@@ -40,6 +40,7 @@ from liveportrait_cpu import Portrait, contact_sheet  # noqa: E402
 from sound_timings import SAMPLE_RATE, Voice  # noqa: E402
 
 log = logging.getLogger("lipread")
+UPPER_LIP_KP = 20  # LivePortrait keypoint that lifts the upper lip (found by rendering each)
 
 SENTENCES = (
     "Hello, my name is Mary. Would you like some more popcorn? "
@@ -71,16 +72,25 @@ class LipPortrait(Portrait):
         log.info("Lips in the photo: gap ratio %.3f", self.photo_ratio)
 
     @torch.no_grad()
-    def render_mouth(self, controls: dict[str, float], ratio: float | None) -> np.ndarray:
-        """One 512x512 RGB face crop with the head still and the given mouth."""
+    def render_mouth(
+        self, controls: dict[str, float], ratio: float | None, upper: float = 1.0
+    ) -> np.ndarray:
+        """One 512x512 RGB face crop with the head still and the given mouth.
+
+        `upper` scales how far the upper lip moves (LivePortrait keypoint 20), separately
+        from the lower lip and jaw.
+        """
         info = self.info
-        delta = info["exp"] + torch.tensor(expression_delta(controls)).view(1, -1, 3)
         rot = self._rotation(info["pitch"], info["yaw"], info["roll"])
-        x_d = info["scale"] * (info["kp"] @ rot + delta) + self.t
+        x_rest = info["scale"] * (info["kp"] @ rot + info["exp"]) + self.t
+        delta = torch.tensor(expression_delta(controls)).view(1, -1, 3)
+        x_d = x_rest + info["scale"] * delta
         if ratio is not None:
             lip = torch.tensor([[self.photo_ratio, ratio]], dtype=torch.float32)
             x_d = x_d + self.lp.retarget_lip(self.x_s, lip)
-        x_d = self.lp.stitching(self.x_s, x_d)
+        motion = x_d - x_rest
+        motion[:, UPPER_LIP_KP] *= upper
+        x_d = self.lp.stitching(self.x_s, x_rest + motion)
         out = self.lp.warp_decode(self.features, self.x_s, x_d)
         return self.lp.parse_output(out["out"])[0]  # type: ignore[no-any-return]
 
@@ -170,11 +180,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--strength",
         type=float,
-        default=0.6,
+        default=0.45,
         help="how far lips move from rest, 0..1 (1 = full shapes; lower is softer)",
     )
     parser.add_argument(
-        "--smooth", type=float, default=0.04, help="seconds that neighbouring sounds blend over"
+        "--upper", type=float, default=0.3, help="upper-lip movement relative to the rest, 0..1"
+    )
+    parser.add_argument(
+        "--smooth", type=float, default=0.06, help="seconds that neighbouring sounds blend over"
+    )
+    parser.add_argument(
+        "--lead", type=float, default=0.03, help="seconds the lips move ahead of the sound"
     )
     parser.add_argument("--direct", action="store_true", help="also render every frame (slow)")
     parser.add_argument("--threads", type=int, default=os.cpu_count() or 4)
@@ -188,17 +204,25 @@ def main(argv: list[str] | None = None) -> int:
         "cpu": platform.processor() or platform.machine(),
         "threads": args.threads,
         "strength": args.strength,
+        "upper": args.upper,
         "smooth_s": args.smooth,
+        "lead_s": args.lead,
     }
 
     # Setup, once per photo: mouth shapes and the flow between them.
     start = time.perf_counter()
     portrait = LipPortrait(args.lp_dir, args.photo, face_model)
-    log.info("Mouth strength %.2f, sounds blend over %.3f s", args.strength, args.smooth)
+    log.info(
+        "Mouth strength %.2f, upper lip %.2f, sounds blend over %.3f s, lips lead by %.3f s",
+        args.strength,
+        args.upper,
+        args.smooth,
+        args.lead,
+    )
     faces = {}
     for name in SHAPES:
         controls, ratio = soften(name, args.strength, portrait.photo_ratio)
-        faces[name] = portrait.render_mouth(controls, None if name == "rest" else ratio)
+        faces[name] = portrait.render_mouth(controls, None if name == "rest" else ratio, args.upper)
     contact_sheet({k: mouth_crop(v) for k, v in faces.items()}, args.out / "mouth_shapes.png")
     flows = pair_flows(faces)
     timings["setup_s"] = round(time.perf_counter() - start, 1)
@@ -219,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
     write_wav(audio, wav_path)
     segs = segments(phonemes, seconds)
     n_frames = int(round(len(audio) / SAMPLE_RATE * args.fps))
-    weights = frame_weights(segs, n_frames, args.fps, args.smooth)
+    weights = frame_weights(segs, n_frames, args.fps, args.smooth, args.lead)
     (args.out / "sounds.json").write_text(
         json.dumps(
             [{"shape": s.shape, "start": round(s.start, 3), "end": round(s.end, 3)} for s in segs],
@@ -256,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
         direct = []
         for i, wt in enumerate(weights):
             controls, ratio = mix(wt, portrait.photo_ratio, args.strength)
-            direct.append(portrait.paste(portrait.render_mouth(controls, ratio)))
+            direct.append(portrait.paste(portrait.render_mouth(controls, ratio, args.upper)))
             if i % 30 == 0:
                 log.info("Direct render: frame %d of %d", i, n_frames)
         write_mp4(direct, args.fps, args.out / "direct_voice.mp4", wav_path)

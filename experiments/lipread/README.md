@@ -27,11 +27,15 @@ off, can you follow the words from the lips? The test sentences are:
   the flow (no double lips from a plain cross-fade), is pasted into the photo and encoded.
   `--direct` also renders every frame with LivePortrait as a slow reference.
 
-- **Softer lips (`--strength`, default 0.6).** Larry found the full shapes too pronounced
-  on his photo (2026-10-06). Each shape now moves only part of the way from the photo's
-  rest position: 1.0 is the full shape, 0.6 is 60%. m, b, p, f and v still close the lips.
-  Sounds also blend over 40 ms (`--smooth 0.04`) instead of 30 ms, so the lips don't
-  fully hit every short sound.
+- **Softer, calmer lips.** Larry found the full shapes too pronounced on his photo, and
+  then 60% still too strong, mostly the upper lip (2026-10-06). Now:
+  - `--strength 0.45` (default): each shape moves only 45% of the way from the photo's rest
+    position; 1.0 is the full shape. m, b, p, f and v still close the lips.
+  - `--upper 0.3` (default): the upper lip (LivePortrait keypoint 20) moves only 30% as far
+    as the rest of the mouth, which keeps it from lifting and baring the teeth.
+  - `--smooth 0.06` and `--lead 0.03` (defaults): sounds blend over 60 ms, so the lips
+    move more slowly with more in-between frames, and each shape starts 30 ms before its
+    sound so it still lands on time.
 
 The head is still in this test; mood loops, blinks and head motion come back in R4c.
 

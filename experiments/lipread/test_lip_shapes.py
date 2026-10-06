@@ -103,3 +103,17 @@ def test_mix_applies_strength() -> None:
     controls, ratio = mix({"OO": 1.0}, photo_ratio=0.0, strength=0.5)
     assert controls == {"purse": pytest.approx(12.0)}
     assert ratio == pytest.approx(0.06)
+
+
+def test_lips_lead_the_sound() -> None:
+    # With a lead, the frame just before the sound starts already leans toward it.
+    segs = [Segment("rest", 0.0, 0.5), Segment("OO", 0.5, 1.0)]
+    no_lead = frame_weights(segs, 30, 30.0, smooth_s=0.03, lead_s=0.0)
+    lead = frame_weights(segs, 30, 30.0, smooth_s=0.03, lead_s=0.06)
+    assert lead[14].get("OO", 0.0) > no_lead[14].get("OO", 0.0) + 0.3
+
+
+def test_lip_contact_frame_moves_with_the_lead() -> None:
+    segs = [Segment("AA", 0.0, 0.5), Segment("MBP", 0.5, 0.52), Segment("AA", 0.52, 1.0)]
+    weights = frame_weights(segs, 30, 30.0, lead_s=0.1)
+    assert weights[12] == {"MBP": 1.0}
