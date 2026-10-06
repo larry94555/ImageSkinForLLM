@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import math
+import shutil
+import subprocess
 import sys
 import wave
 from array import array
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -40,6 +43,53 @@ class VideoEngine(Protocol):
     def render(self, face: Face, wav: Path, output: Path) -> float:
         """Write an MP4 of the face speaking the WAV; return its length in seconds."""
         ...
+
+
+def find_ffmpeg() -> str:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise VideoError(
+            "ffmpeg not found; install it (Windows: winget install Gyan.FFmpeg), "
+            "open a new terminal and check with: ffmpeg -version"
+        )
+    return ffmpeg
+
+
+def write_mp4(
+    frames: Iterable[bytes],
+    size: tuple[int, int],
+    wav: Path | None,
+    output: Path,
+    timeout_s: float,
+    pix_fmt: str = "bgr24",
+) -> None:
+    """Pipe raw frames (width x height, `pix_fmt`) to ffmpeg, which adds the WAV as AAC
+    (when given) and writes an H.264 MP4 at FPS frames per second."""
+    width, height = size
+    cmd = [find_ffmpeg(), "-nostdin", "-y", "-v", "error"]
+    cmd += ["-f", "rawvideo", "-pix_fmt", pix_fmt, "-s", f"{width}x{height}"]
+    cmd += ["-r", str(FPS), "-i", "-"]
+    if wav is not None:
+        cmd += ["-i", str(wav), "-c:a", "aac", "-shortest"]
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+    cmd += ["-movflags", "+faststart", str(output)]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert proc.stdin is not None
+    try:
+        for frame in frames:
+            proc.stdin.write(frame)
+        _, err = proc.communicate(timeout=timeout_s)
+    except BrokenPipeError:
+        _, err = proc.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired as e:
+        proc.kill()
+        proc.communicate()  # reap the process and close its pipes
+        output.unlink(missing_ok=True)  # a partial MP4 must not look like a result
+        raise VideoError(f"ffmpeg took longer than {timeout_s:g} seconds") from e
+    if proc.returncode != 0:
+        output.unlink(missing_ok=True)
+        detail = err.decode(errors="replace").strip().splitlines()[-1:] or ["no error output"]
+        raise VideoError(f"ffmpeg could not write {output.name} ({detail[0]})")
 
 
 def read_pcm16(wav: Path) -> tuple[array[int], int]:

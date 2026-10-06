@@ -5,7 +5,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from download import DownloadError, download
+
+from imageskin.download import DownloadError, download
 
 DATA = bytes(range(256)) * 4096  # 1 MB
 SHA = hashlib.sha256(DATA).hexdigest()

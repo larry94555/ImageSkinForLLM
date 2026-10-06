@@ -12,8 +12,6 @@ and blinking come later (R23).
 """
 
 import logging
-import shutil
-import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -22,7 +20,14 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from imageskin.video import FPS, Face, VideoError, mouth_openness, read_pcm16
+from imageskin.video import (
+    Face,
+    VideoError,
+    find_ffmpeg,
+    mouth_openness,
+    read_pcm16,
+    write_mp4,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -165,16 +170,6 @@ def draw_frame(
     return frame
 
 
-def find_ffmpeg() -> str:
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        raise VideoError(
-            "ffmpeg not found; install it (Windows: winget install Gyan.FFmpeg), "
-            "open a new terminal and check with: ffmpeg -version"
-        )
-    return ffmpeg
-
-
 class MouthWarpEngine:
     def __init__(
         self,
@@ -236,28 +231,8 @@ class MouthWarpEngine:
         if image.shape[:2] != (face.height, face.width):
             raise VideoError(f"{face.photo.name} changed since it was prepared; prepare it again")
         region, weights = frame_weights(face)
-        cmd = [find_ffmpeg(), "-nostdin", "-y", "-v", "error"]
-        cmd += ["-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{face.width}x{face.height}"]
-        cmd += ["-r", str(FPS), "-i", "-", "-i", str(wav)]
-        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
-        cmd += ["-c:a", "aac", "-shortest", "-movflags", "+faststart", str(output)]
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert proc.stdin is not None
-        try:
-            for o in openness:
-                proc.stdin.write(draw_frame(image, face, region, weights, o).tobytes())
-            _, err = proc.communicate(timeout=self._timeout_s)
-        except BrokenPipeError:
-            _, err = proc.communicate(timeout=self._timeout_s)
-        except subprocess.TimeoutExpired as e:
-            proc.kill()
-            proc.communicate()  # reap the process and close its pipes
-            output.unlink(missing_ok=True)  # a partial MP4 must not look like a result
-            raise VideoError(f"ffmpeg took longer than {self._timeout_s:g} seconds") from e
-        if proc.returncode != 0:
-            output.unlink(missing_ok=True)
-            detail = err.decode(errors="replace").strip().splitlines()[-1:] or ["no error output"]
-            raise VideoError(f"ffmpeg could not write {output.name} ({detail[0]})")
+        frames = (draw_frame(image, face, region, weights, o).tobytes() for o in openness)
+        write_mp4(frames, (face.width, face.height), wav, output, self._timeout_s)
         seconds = len(samples) / rate
         elapsed = time.perf_counter() - start
         logger.info(

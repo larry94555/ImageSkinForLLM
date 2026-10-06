@@ -12,7 +12,7 @@ from imageskin.config import ConfigError, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
 from imageskin.sample import SampleResult, make_sample
-from imageskin.video import INSTALL_HINT, VideoEngine, VideoError
+from imageskin.video import INSTALL_HINT, VideoEngine, VideoError, find_ffmpeg
 from imageskin.voice import VoiceError, write_speech
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("speech.wav"),
         help="WAV file to write; word and sound timings go next to it as .json",
     )
+    prepare = commands.add_parser(
+        "prepare",
+        help="one-time photoreal setup for a photo: render its frames (minutes on a CPU) and "
+        "write a silent preview of the idle face",
+    )
+    prepare.add_argument("--photo", type=Path, required=True, help="front-facing JPEG or PNG")
+    prepare.add_argument(
+        "-o", "--output", type=Path, default=Path("idle.mp4"), help="preview MP4 to write"
+    )
     sample = commands.add_parser(
         "sample", help="render the sample video: the person in the photo speaks a test script"
     )
@@ -78,6 +87,23 @@ def load_video_engine() -> VideoEngine:
 
 def sample(photo: Path, voice: str, output: Path) -> SampleResult:
     return make_sample(photo, output, KokoroEngine(), load_video_engine(), voice)
+
+
+def prepare(photo: Path, output: Path) -> tuple[Path, float]:
+    """Build the photo's photoreal library; return its folder and the preview's length."""
+    try:
+        from imageskin.photoreal_library import (
+            default_home,
+            prepare_library,
+            write_idle_preview,
+        )
+    except ImportError as e:
+        if e.name in ("cv2", "numpy"):
+            raise VideoError(INSTALL_HINT.replace(".[video]", ".[photoreal]")) from e
+        raise
+    find_ffmpeg()  # fail now, not after a long setup
+    lib = prepare_library(photo, default_home())
+    return lib.folder, write_idle_preview(lib, output)
 
 
 def say(text: str, voice: str, output: Path) -> float:
@@ -130,6 +156,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         wav = args.output.resolve()
         timings = wav.with_suffix(".json")
         print(f"Wrote {wav} ({seconds:.1f} seconds) and word and sound timings to {timings}")
+        return 0
+    if args.command == "prepare":
+        try:
+            folder, seconds = prepare(args.photo, args.output)
+        except VideoError as e:
+            logger.error("Could not prepare photo", extra={"error": str(e)})
+            return 1
+        print(
+            f"Photo prepared; its frames are in {folder}. "
+            f"Wrote {args.output.resolve()} ({seconds:.1f} seconds, no sound)."
+        )
         return 0
     if args.command == "sample":
         try:
