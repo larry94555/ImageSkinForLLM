@@ -1,16 +1,19 @@
 """Voice engine adapter for Kokoro-82M, a small open-source text to speech model that runs on CPU.
 
 Kokoro speaks with ready-made voices (it does not clone) and reports when each word starts and
-ends. The model (about 330 MB) is downloaded from Hugging Face on first use and cached.
+ends. It also reports how long it makes each sound (phoneme), in 25 ms steps that add up exactly
+to the audio's length, so the mouth shapes line up with the voice.
+The model (about 330 MB) is downloaded from Hugging Face on first use and cached.
 """
 
 import logging
 import sys
 import time
 from array import array
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Container, Iterable, Sequence
 from typing import Any
 
+from imageskin.visemes import SoundTiming, sound_timings
 from imageskin.voice import Speech, VoiceError, WordTiming
 
 logger = logging.getLogger(__name__)
@@ -19,6 +22,7 @@ REPO_ID = "hexgrad/Kokoro-82M"
 LANG_CODE = "a"  # American English
 SAMPLE_RATE = 24000
 DEFAULT_VOICE = "af_heart"
+STEP_S = 600 / SAMPLE_RATE  # one step of Kokoro's sound durations: 25 ms
 INSTALL_HINT = 'Kokoro is not installed; run: pip install -e ".[voice]"'
 
 
@@ -30,15 +34,35 @@ def to_pcm16(samples: Sequence[float]) -> bytes:
     return pcm.tobytes()
 
 
-def speech_from_results(results: Iterable[Any]) -> Speech:
+def chunk_sounds(
+    phonemes: str, steps: Sequence[float], offset: float, vocab: Container[str] | None
+) -> list[SoundTiming]:
+    """Sound timings for one chunk, from its phonemes and Kokoro's duration steps.
+
+    Kokoro drops phonemes it has no token for, then adds a padding token at each end; the
+    padding is shown as "." so the mouth rests there. Returns [] if the counts don't match.
+    """
+    kept = phonemes if vocab is None else "".join(ch for ch in phonemes if ch in vocab)
+    if len(steps) != len(kept) + 2:
+        logger.warning(
+            "Sound timings skipped for a chunk",
+            extra={"phonemes": phonemes, "steps": len(steps), "kept": len(kept)},
+        )
+        return []
+    return sound_timings("." + kept + ".", [s * STEP_S for s in steps], offset)
+
+
+def speech_from_results(results: Iterable[Any], vocab: Container[str] | None = None) -> Speech:
     """Join Kokoro's per-chunk results into one Speech.
 
-    Each result has `audio` (float samples) and `tokens` with `text`, `start_ts` and `end_ts` in
-    seconds from the start of that chunk, so chunk offsets are added to get times in the whole clip.
-    Punctuation tokens are left out of the word timings.
+    Each result has `audio` (float samples), `tokens` with `text`, `start_ts` and `end_ts` in
+    seconds from the start of that chunk, and `phonemes` with `pred_dur` (each phoneme's length
+    in steps), so chunk offsets are added to get times in the whole clip. Punctuation tokens are
+    left out of the word timings. `vocab` is the model's phoneme set, when known.
     """
     pcm = bytearray()
     words: list[WordTiming] = []
+    sounds: list[SoundTiming] = []
     for result in results:
         if result.audio is None:
             continue
@@ -55,8 +79,11 @@ def speech_from_results(results: Iterable[Any]) -> Speech:
                     round(offset + token.end_ts, 3),
                 )
             )
+        if result.pred_dur is not None:
+            steps = [float(d) for d in result.pred_dur.tolist()]
+            sounds += chunk_sounds(result.phonemes, steps, offset, vocab)
         pcm += to_pcm16(result.audio.tolist())
-    return Speech(pcm=bytes(pcm), sample_rate=SAMPLE_RATE, words=words)
+    return Speech(pcm=bytes(pcm), sample_rate=SAMPLE_RATE, words=words, sounds=sounds)
 
 
 def _load_pipeline() -> Callable[..., Iterable[Any]]:
@@ -85,7 +112,8 @@ class KokoroEngine:
         pipeline = self._get_pipeline()
         start = time.perf_counter()
         try:
-            speech = speech_from_results(pipeline(text, voice=voice))
+            vocab = getattr(getattr(pipeline, "model", None), "vocab", None)
+            speech = speech_from_results(pipeline(text, voice=voice), vocab)
         except Exception as e:  # the model's own errors (unknown voice, download failure)
             raise VoiceError(f"Kokoro could not speak with voice {voice!r}: {e}") from e
         elapsed = time.perf_counter() - start
@@ -96,6 +124,7 @@ class KokoroEngine:
                 "voice": voice,
                 "chars": len(text),
                 "words": len(speech.words),
+                "sounds": len(speech.sounds),
                 "audio_s": round(audio_s, 2),
                 "duration_ms": round(elapsed * 1000, 1),
                 # Below 1.0 means faster than real time.

@@ -10,6 +10,7 @@ from imageskin.kokoro_engine import (
     SAMPLE_RATE,
     KokoroEngine,
     _load_pipeline,
+    chunk_sounds,
     speech_from_results,
     to_pcm16,
 )
@@ -33,10 +34,22 @@ class Audio:
         return self.samples
 
 
+class Steps:
+    """Stands in for the pred_dur tensor: each phoneme's length in 25 ms steps."""
+
+    def __init__(self, *steps: int) -> None:
+        self.steps = list(steps)
+
+    def tolist(self) -> list[int]:
+        return self.steps
+
+
 @dataclass
 class Result:
     audio: Audio | None
     tokens: list[Token] = field(default_factory=list)
+    phonemes: str = ""
+    pred_dur: Steps | None = None
 
 
 def fake_pipeline(results: list[Result]) -> Callable[..., Iterable[Any]]:
@@ -63,6 +76,49 @@ def test_speech_from_results_offsets_later_chunks_and_skips_punctuation() -> Non
         ("Hello", 0.1, 0.5),
         ("there", 1.0, 1.4),
     ]
+
+
+def test_speech_from_results_times_each_sound_across_chunks() -> None:
+    results = [
+        # "hi": padding, h, I (as in "my"), padding = 10 steps = 0.25 s
+        Result(Audio(0.25), phonemes="hI", pred_dur=Steps(2, 3, 4, 1)),
+        Result(Audio(0.5), phonemes="mˈi", pred_dur=Steps(1, 2, 1, 3, 1)),
+    ]
+    sounds = speech_from_results(results).sounds
+    assert [(s.sound, s.start, s.end, s.shape) for s in sounds] == [
+        (".", 0.0, 0.05, "rest"),
+        ("h", 0.05, 0.125, "IH"),
+        ("I", 0.125, 0.225, "AA"),
+        (".", 0.225, 0.25, "rest"),
+        (".", 0.25, 0.275, "rest"),
+        ("m", 0.275, 0.35, "MBP"),  # the stress mark's step stays with m
+        ("i", 0.35, 0.425, "EE"),
+        (".", 0.425, 0.45, "rest"),
+    ]
+
+
+def test_chunk_sounds_drops_phonemes_the_model_has_no_token_for() -> None:
+    sounds = chunk_sounds("h~i", [1, 1, 1, 1], 1.0, vocab={"h", "i"})
+    assert [s.sound for s in sounds] == [".", "h", "i", "."]
+    assert sounds[0].start == 1.0
+
+
+def test_chunk_sounds_skips_a_chunk_whose_counts_do_not_match(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    assert chunk_sounds("hi", [1, 1], 0.0, vocab=None) == []
+    assert "Sound timings skipped" in caplog.text
+
+
+def test_speak_passes_the_models_phoneme_set() -> None:
+    class Pipeline:
+        model = type("Model", (), {"vocab": {"h": 1}})()
+
+        def __call__(self, text: str, voice: str) -> Iterable[Any]:
+            return iter([Result(Audio(0.1), phonemes="hx", pred_dur=Steps(1, 2, 1))])
+
+    sounds = KokoroEngine(lambda: Pipeline()).speak("af_heart", "Hi").sounds
+    assert [s.sound for s in sounds] == [".", "h", "."]
 
 
 def test_speak_loads_model_once() -> None:

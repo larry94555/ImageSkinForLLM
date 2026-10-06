@@ -10,7 +10,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 5 of 7 |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 6 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 0 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
@@ -18,7 +18,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.6% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.9% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
-| | **Total** | | **36** | **100%** | **4 of 36** |
+| | **Total** | | **36** | **100%** | **6 of 36** |
 
 Sizes: 11 Simple, 25 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -87,10 +87,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** `mouth_shapes.png` and the reply clips before and after, side by side, with the mouth opening straight down, and each shape clearly different from the others.
 - **Result (PR #13, 2026-10-06):** the lip retargeting model opens the mouth straight down; 10 mouth shapes; tuned with Larry to soft, calm lips: shapes move 45% of the way from rest, the upper lip 30% as far as the rest of the mouth, sounds blend over 60 ms with the lips 30 ms ahead, and r stays neutral so the corners don't pulse. Larry accepted this as the minimum for now; further mouth polish can come later.
 
-### R4b. Sound timings from the voice (Simple) · items 6, 11
+### R4b. Sound timings from the voice (Simple) · items 6, 11 · Done in [PR #14](https://github.com/larry94555/ImageSkinForLLM/pull/14)
 - Kokoro also reports when each sound (phoneme) starts and ends, not only each word, and each sound is mapped to a mouth shape (viseme). Closed-lip sounds (m, b, p) always get a frame, even when shorter than one.
 - **Can show:** `imageskin say` writes the sound timings and mouth shapes next to the word timings.
-- **Partly done in [PR #13](https://github.com/larry94555/ImageSkinForLLM/pull/13) (experiment):** Kokoro's per-sound timings, the sound-to-mouth-shape mapping and the closed-lip frame rule work in `experiments/lipread/`. Still to do here: move them into the app so `imageskin say` writes them.
+- **Partly done in [PR #13](https://github.com/larry94555/ImageSkinForLLM/pull/13) (experiment):** Kokoro's per-sound timings, the sound-to-mouth-shape mapping and the closed-lip frame rule work in `experiments/lipread/`.
+- **Built:** the app's Kokoro engine reads each sound's length straight from the model's results (no model patch needed with the PyTorch build), and `imageskin say` writes `sounds` (each phoneme, its time and mouth shape) and `shapes` (the mouth shapes over time) next to the word timings. `imageskin.visemes` holds the mapping (with Kokoro's diphthong letters added) and `frame_weights`, which turns shapes into per-frame weights with Larry's 60 ms blend and 30 ms lead and gives each m, b, p, f and v its own frame. R4c renders from these.
 
 ### R4c. Photoreal video engine (Medium) · item 6
 - A second adapter behind R4's `VideoEngine` interface, using the mouth shapes as tuned in R4a. `prepare` renders the frame library once with LivePortrait (mood loops and mouth shapes, hours on the CPU), logs progress and resumes after an interruption. `render` picks frames from R4b's sound timings and adds the voice, in about a second per short reply.
