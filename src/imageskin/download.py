@@ -13,7 +13,7 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-log = logging.getLogger("photoreal.download")
+log = logging.getLogger(__name__)
 
 CHUNK = 256 * 1024
 MB = 1024 * 1024
@@ -102,7 +102,7 @@ def download(
 
 
 def _fetch(url: str, part: Path, have: int, size: int, timeout: float, log_every: float) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "imageskin-photoreal-setup"})
+    request = urllib.request.Request(url, headers={"User-Agent": "imageskin"})
     if have:
         request.add_header("Range", f"bytes={have}-")
     with urllib.request.urlopen(request, timeout=timeout) as response:

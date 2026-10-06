@@ -127,3 +127,40 @@ def test_sample_without_opencv_explains_install(capsys: pytest.CaptureFixture[st
     with patch("builtins.__import__", side_effect=no_cv2):
         assert main(["sample", "--photo", "me.jpg"]) == 1
     assert 'pip install -e \\".[video]\\"' in capsys.readouterr().err
+
+
+def test_prepare_writes_preview(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    out = tmp_path / "idle.mp4"
+    lib = type("Lib", (), {"folder": tmp_path / "lib"})()
+    with (
+        patch("imageskin.photoreal_library.prepare_library", return_value=lib) as prep,
+        patch("imageskin.photoreal_library.write_idle_preview", return_value=8.0) as write,
+    ):
+        assert main(["prepare", "--photo", "me.jpg", "-o", str(out)]) == 0
+    assert prep.call_args.args[0] == Path("me.jpg")
+    assert write.call_args.args == (lib, out)
+    printed = capsys.readouterr().out
+    assert f"frames are in {tmp_path / 'lib'}" in printed
+    assert f"Wrote {out.resolve()} (8.0 seconds, no sound)" in printed
+
+
+def test_prepare_error_is_logged(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["prepare", "--photo", str(tmp_path / "missing.jpg")]) == 1
+    entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert entry["message"] == "Could not prepare photo"
+    assert "file not found" in entry["error"]
+
+
+def test_prepare_without_opencv_explains_install(capsys: pytest.CaptureFixture[str]) -> None:
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_cv2(name: str, *args: object, **kwargs: object) -> object:
+        if name == "imageskin.photoreal_library":
+            raise ModuleNotFoundError("No module named 'cv2'", name="cv2")
+        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+    with patch("builtins.__import__", side_effect=no_cv2):
+        assert main(["prepare", "--photo", "me.jpg"]) == 1
+    assert 'pip install -e \\".[photoreal]\\"' in capsys.readouterr().err
