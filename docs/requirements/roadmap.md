@@ -83,7 +83,8 @@ The PRs below are written for either kind of video engine, but these are the one
 ### R4a. Photoreal mouth alignment and tuning (Medium) · item 6
 - Found in Larry's laptop test of the photoreal engine (GitHub PR #8, 2026-10-05): on open mouth shapes (AA, OH, OO), the lower lip and jaw shift sideways instead of opening straight down. The likely cause is that the "open" edit moves only one of LivePortrait's 21 face points, which sits off the centre line.
 - Open the mouth symmetrically, probably by driving it with LivePortrait's lip retargeting model, then re-tune every mouth shape on at least two photos (one with the face turned slightly).
-- **Can show:** `mouth_shapes.png` and the reply clips before and after, side by side, with the mouth opening straight down.
+- **Goal (Larry, 2026-10-05): the lips show each sound clearly enough to lip-read.** So the shape set covers the distinct lip positions: closed (m, b, p), lip on teeth (f, v), rounded (oo, w, oh), spread (ee), open (ah), and a small opening for the other consonants. Keep the opening small and the transitions gentle; a wide or square mouth looks like a dummy. A test of the OpenCV engine timed to each sound showed that warping a still photo cannot round or spread the lips, so these shapes must come from LivePortrait.
+- **Can show:** `mouth_shapes.png` and the reply clips before and after, side by side, with the mouth opening straight down, and each shape clearly different from the others.
 
 ### R4b. Sound timings from the voice (Simple) · items 6, 11
 - Kokoro also reports when each sound (phoneme) starts and ends, not only each word, and each sound is mapped to a mouth shape (viseme). Closed-lip sounds (m, b, p) always get a frame, even when shorter than one.
@@ -93,6 +94,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - A second adapter behind R4's `VideoEngine` interface, using the mouth shapes as tuned in R4a. `prepare` renders the frame library once with LivePortrait (mood loops and mouth shapes, hours on the CPU), logs progress and resumes after an interruption. `render` picks frames from R4b's sound timings and adds the voice, in about a second per short reply.
 - Command: `imageskin sample --photo me.jpg --engine photoreal`. The OpenCV engine stays the default until this one is accepted, as a quick fallback.
 - **Can show:** the sample video of the person in photoreal quality, lip-synced to the voice, with the render time logged. If it grows past Medium, preparing the library and rendering split into two PRs.
+- **Acceptance (lip-reading test):** a clip of the person saying "Hello, my name is Mary. Would you like some more popcorn? Please move the blue boat. I see three green trees." Watched with the sound off, the lips visibly close on m, p and b, round on "oo" and "oh", and spread on "ee", so the words can be followed. Larry checks it on his own photo.
 
 ## Milestone 2: Setup in the browser
 
