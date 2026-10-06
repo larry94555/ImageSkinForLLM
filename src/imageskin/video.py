@@ -11,7 +11,7 @@ from array import array
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 FPS = 25
 SMOOTH_S = 0.05  # spread of the mouth smoothing, in seconds (a Gaussian sigma)
@@ -35,13 +35,21 @@ class Face:
     jaw_h: int  # distance from the lips to the chin
 
 
-class VideoEngine(Protocol):
-    def prepare(self, photo: Path) -> Face:
+FaceT = TypeVar("FaceT")
+
+
+class VideoEngine(Protocol[FaceT]):
+    """`prepare` does the per-photo work once; `render` makes each video from its result."""
+
+    def prepare(self, photo: Path) -> FaceT:
         """Find the face in the photo."""
         ...
 
-    def render(self, face: Face, wav: Path, output: Path) -> float:
-        """Write an MP4 of the face speaking the WAV; return its length in seconds."""
+    def render(self, face: FaceT, wav: Path, output: Path) -> float:
+        """Write an MP4 of the face speaking the WAV; return its length in seconds.
+
+        The timings JSON from `write_speech` sits next to the WAV, with the same name.
+        """
         ...
 
 

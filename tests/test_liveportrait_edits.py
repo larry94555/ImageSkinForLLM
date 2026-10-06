@@ -13,6 +13,7 @@ from imageskin.liveportrait_edits import (
     eye_openness,
     idle_motion,
     soften,
+    top_two,
 )
 from imageskin.visemes import CONTACT, SHAPES
 
@@ -42,6 +43,13 @@ def test_expression_delta_scales_and_sums_controls() -> None:
 def test_blink_closes_both_eyes_evenly() -> None:
     delta = expression_delta({"blink": BLINK_CLOSED})
     assert delta[11][1] == pytest.approx(delta[15][1]) and delta[11][1] > 0
+
+
+def test_top_two() -> None:
+    assert top_two({"AA": 1.0}) == ("AA", "AA", 0.0)
+    a, b, t = top_two({"AA": 0.6, "OO": 0.3, "EE": 0.1})
+    assert (a, b) == ("AA", "OO")
+    assert t == pytest.approx(1 / 3)
 
 
 def test_soften_moves_part_way_from_rest() -> None:

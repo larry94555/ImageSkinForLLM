@@ -146,12 +146,12 @@ If `import cv2` fails on Windows with `DLL load failed`, install the Microsoft V
 
 ## Photoreal video (LivePortrait, on the CPU)
 
-The photoreal engine makes the same videos with a photoreal face: the lips take a shape for each sound (closed for m, b and p, teeth on the lip for f and v, rounded for oo and oh, spread for ee), the head drifts by a degree or two and the eyes blink. It uses [LivePortrait](https://github.com/KwaiVGI/LivePortrait) (MIT license) and Google's MediaPipe face finder (Apache 2.0), both free for hosted use with no per-use cost, and runs on the CPU. The OpenCV engine above stays the default and the quick fallback.
+`--engine photoreal` makes the same videos with a photoreal face: the lips take a shape for each sound (closed for m, b and p, teeth on the lip for f and v, rounded for oo and oh, spread for ee), the head drifts by a degree or two and the eyes blink. It uses [LivePortrait](https://github.com/KwaiVGI/LivePortrait) (MIT license) and Google's MediaPipe face finder (Apache 2.0), both free for hosted use with no per-use cost, and runs on the CPU. The OpenCV engine above stays the default and the quick fallback.
 
 It works in two steps:
 
 1. **Prepare the photo, once.** LivePortrait renders the 10 mouth shapes and an 8-second idle loop of the face (200 frames). This takes about 15 to 20 minutes on a 4-core CPU, logs progress every 10 frames with the time left, and picks up where it stopped if interrupted (run the same command again). The frames are saved under `.imageskin\photoreal\` in your user folder (`%USERPROFILE%\.imageskin` on Windows, `~/.imageskin` on macOS and Linux), about 170 MB per photo, and reused for every video of that photo. Set `IMAGESKIN_HOME` to keep them somewhere else.
-2. **Each video is quick** (next PR). No model runs: the frames are mixed from the saved ones, timed to each sound from the voice, at about a third of real time.
+2. **Each video is quick.** No model runs: the frames are mixed from the saved ones, timed to each sound from the voice, at about a third of real time (6.9 seconds of speech in 2.2 seconds on a 4-core CPU).
 
 The first prepare also downloads the models into `.imageskin\models\`, about 520 MB, with a progress line every few seconds; an interrupted download resumes. It needs git on PATH (for LivePortrait's code) and Python 3.11 or 3.12.
 
@@ -169,8 +169,12 @@ Then, on any system (swap `me.jpg` for your photo's path):
 
 ```
 imageskin prepare --photo me.jpg
+imageskin sample --photo me.jpg --engine photoreal
+imageskin sample --photo me.jpg --engine photoreal -o mary.mp4 --text "Hello, my name is Mary. Would you like some more popcorn? Please move the blue boat. I see three green trees."
 ```
 
-`prepare` writes `idle.mp4` (or the `-o` name) in the current folder: the idle loop with no sound, to check the head motion and blinks, and prints its full path and where the frames are. The logs show `Rendered mouth shapes`, `Rendered idle loop frame N of 200` every 10 frames, `Photoreal library ready` and `Loaded photoreal library`. Running it again on the same photo finishes in about a second. Making videos with the photoreal engine (`imageskin sample --engine photoreal`) comes in the next PR (roadmap R4c, part 2).
+`prepare` writes `idle.mp4` (or the `-o` name) in the current folder: the idle loop with no sound, to check the head motion and blinks, and prints its full path and where the frames are. The logs show `Rendered mouth shapes`, `Rendered idle loop frame N of 200` every 10 frames, `Photoreal library ready` and `Loaded photoreal library`. Running it again on the same photo finishes in about a second.
 
-Play it with `start idle.mp4` (Command Prompt), `Invoke-Item idle.mp4` (PowerShell), `open idle.mp4` (macOS) or `xdg-open idle.mp4` (Linux).
+`sample --engine photoreal` writes `sample.mp4` (or the `-o` name) in the current folder and prints its full path; if the photo isn't prepared yet, it does that first. `--text` says something other than the sample script. The logs show `Loaded photoreal library`, `Spoke text` and `Rendered video` with `"engine": "photoreal"` and how long it took.
+
+Play the results with `start idle.mp4`, `start sample.mp4` and `start mary.mp4` (Command Prompt), `Invoke-Item idle.mp4` and so on (PowerShell), `open mary.mp4` (macOS) or `xdg-open mary.mp4` (Linux).

@@ -99,9 +99,10 @@ def test_sample_renders_video(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     with patch("imageskin.cli.make_sample", return_value=result) as make:
         args = ["sample", "--photo", "me.jpg", "--voice", "am_michael", "-o", str(out)]
         assert main(args) == 0
-    photo, output, _, video_engine, voice = make.call_args.args
+    photo, output, _, video_engine, voice, text = make.call_args.args
     assert (photo, output, voice) == (Path("me.jpg"), out, "am_michael")
     assert type(video_engine).__name__ == "MouthWarpEngine"
+    assert text.startswith("This is a test.")
     printed = capsys.readouterr().out
     assert f"Wrote {out.resolve()} (31.2 seconds)" in printed
     assert "0.1 s to prepare the photo, 9.0 s to speak and 6.0 s to render" in printed
@@ -127,6 +128,33 @@ def test_sample_without_opencv_explains_install(capsys: pytest.CaptureFixture[st
     with patch("builtins.__import__", side_effect=no_cv2):
         assert main(["sample", "--photo", "me.jpg"]) == 1
     assert 'pip install -e \\".[video]\\"' in capsys.readouterr().err
+
+
+def test_sample_photoreal_engine_and_text() -> None:
+    from imageskin.sample import SampleResult
+
+    result = SampleResult(seconds=2.0, speak_ms=1, prepare_ms=1, render_ms=1)
+    with patch("imageskin.cli.make_sample", return_value=result) as make:
+        args = ["sample", "--photo", "me.jpg", "--engine", "photoreal", "--text", "Hi there"]
+        assert main(args) == 0
+    _, _, _, video_engine, _, text = make.call_args.args
+    assert type(video_engine).__name__ == "PhotorealEngine"
+    assert text == "Hi there"
+
+
+def test_photoreal_without_opencv_explains_install(capsys: pytest.CaptureFixture[str]) -> None:
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_cv2(name: str, *args: object, **kwargs: object) -> object:
+        if name == "imageskin.photoreal":
+            raise ModuleNotFoundError("No module named 'cv2'", name="cv2")
+        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+    with patch("builtins.__import__", side_effect=no_cv2):
+        assert main(["sample", "--photo", "me.jpg", "--engine", "photoreal"]) == 1
+    assert 'pip install -e \\".[photoreal]\\"' in capsys.readouterr().err
 
 
 def test_prepare_writes_preview(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
