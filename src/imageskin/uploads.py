@@ -153,12 +153,6 @@ class UploadStore:
             size = copy_limited(data, received, MAX_BYTES[kind])
             if size == 0:
                 raise UploadError("The file is empty.")
-            if self._total_bytes() + size > MAX_TOTAL_BYTES:
-                raise UploadError(
-                    f"Uploads are limited to {MAX_TOTAL_BYTES // 2**20} MB in total."
-                    " Remove some files first.",
-                    status=413,
-                )
             with received.open("rb") as f:
                 fmt = detect_format(f.read(16))
             if fmt not in ALLOWED[kind]:
@@ -168,6 +162,14 @@ class UploadStore:
                     status=415,
                 )
             seconds = self._convert(fmt, received, converted)
+            # Checked on the converted file: that is what is stored, and a compressed
+            # recording grows when it becomes WAV.
+            if self._total_bytes() + converted.stat().st_size > MAX_TOTAL_BYTES:
+                raise UploadError(
+                    f"Uploads are limited to {MAX_TOTAL_BYTES // 2**20} MB in total."
+                    " Remove some files first.",
+                    status=413,
+                )
             final = self._dir(kind) / f"{upload_id}{SUFFIX[fmt]}"
             final.parent.mkdir(parents=True, exist_ok=True)
             converted.replace(final)

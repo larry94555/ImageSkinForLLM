@@ -155,6 +155,24 @@ def test_total_limit_counts_only_stored_uploads(tmp_path: Path) -> None:
         store.save("photos", "b.jpg", io.BytesIO(JPG))
 
 
+def test_total_limit_uses_the_converted_size(tmp_path: Path) -> None:
+    # A small compressed recording becomes a much larger WAV; the WAV is what is stored.
+    def grows(src: Path, dst: Path, timeout_s: float) -> None:
+        dst.write_bytes(wav_bytes(seconds=1.0))
+
+    small_upload = wav_bytes(seconds=0.1)
+    store = UploadStore(tmp_path)
+    with (
+        patch("imageskin.uploads.to_wav", side_effect=grows),
+        patch.object(uploads, "MAX_TOTAL_BYTES", len(small_upload) * 2),
+    ):
+        with pytest.raises(UploadError, match="in total") as e:
+            store.save("sounds", "a.mp3", io.BytesIO(small_upload))
+    assert e.value.status == 413
+    assert store.list("sounds") == []
+    assert list((tmp_path / "uploads" / "tmp").iterdir()) == []
+
+
 def test_failed_conversion_leaves_no_working_files(tmp_path: Path) -> None:
     def half_written(src: Path, dst: Path, timeout_s: float) -> None:
         dst.write_bytes(b"partial")
