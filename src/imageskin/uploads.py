@@ -8,6 +8,7 @@ photo is used for the video unless the user chose another. The recordings that p
 checks are joined, in the order they were uploaded, into the voice sample.
 """
 
+import contextlib
 import importlib.util
 import json
 import logging
@@ -150,6 +151,10 @@ FACE_CHECKS = 3
 SOUND_CHECKS = 1
 
 NO_VOICE = "No recording has passed the checks yet."
+JOIN_FAILED = (
+    "The recordings could not be joined into the voice sample. Remove the newest recording and"
+    " add it again."
+)
 SHORT_VOICE = (
     "The recordings that passed the checks have {speech:.0f} seconds of speech. The voice needs"
     f" at least {MIN_SAMPLE_SPEECH_S:.0f}: add another recording."
@@ -374,6 +379,9 @@ class UploadStore:
     def voice_sample(self) -> VoiceSample:
         """What the voice sample is made of, and what it still needs."""
         passed = [s for s in self.list("sounds") if s.problems == []]
+        if passed and not self.voice_sample_file.is_file():
+            # Joining them failed (see the server log): there is no sample to play.
+            return VoiceSample(recordings=0, seconds=0, speech=0, problem=JOIN_FAILED)
         speech = round(sum(s.speech or 0 for s in passed), 2)
         problem = None
         if not passed:
@@ -401,6 +409,8 @@ class UploadStore:
             except (AudioError, OSError, wave.Error) as e:
                 logger.error("Could not make the voice sample", extra={"error": str(e)})
                 joining.unlink(missing_ok=True)
+                # The old sample no longer matches the recordings, so it must not be served.
+                self.voice_sample_file.unlink(missing_ok=True)
                 return
         logger.info(
             "Voice sample updated",
@@ -455,7 +465,9 @@ class UploadStore:
 
     def remove(self, kind: Kind, upload_id: str) -> bool:
         """Delete an upload; False when there is none with that id."""
-        with self._sounds_lock:  # not while the voice sample is read from the sounds
+        # A sound is not removed while the voice sample is being joined from the sounds.
+        lock = self._sounds_lock if kind == "sounds" else contextlib.nullcontext()
+        with lock:
             stored = self.path(kind, upload_id)
             if stored is None:
                 return False

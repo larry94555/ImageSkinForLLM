@@ -564,3 +564,31 @@ def test_a_voice_sample_that_cannot_be_joined_is_logged(
     assert store.list("sounds") == [upload]  # the recording is kept
     assert "Could not make the voice sample" in caplog.text
     assert list((tmp_path / "uploads").glob("voice-sample*")) == []
+    assert store.voice_sample().problem == uploads.JOIN_FAILED
+
+
+@pytest.mark.parametrize("change", ["add", "remove"])
+def test_a_failed_rebuild_never_serves_the_old_voice_sample(tmp_path: Path, change: str) -> None:
+    store = sound_store(tmp_path, [PASSED] * 3)
+    first, second = (store.save("sounds", "a.wav", io.BytesIO(wav_bytes(s))) for s in (1, 2))
+    assert stored_seconds(store.voice_sample_file) == 3
+    with patch.object(uploads, "join_wavs", side_effect=AudioError("disk full")):
+        if change == "add":
+            store.save("sounds", "c.wav", io.BytesIO(wav_bytes(0.5)))
+        else:
+            assert store.remove("sounds", first.id)
+    assert not store.voice_sample_file.exists()  # not the old one, which no longer matches
+    assert store.voice_sample() == VoiceSample(
+        recordings=0, seconds=0, speech=0, problem=uploads.JOIN_FAILED
+    )
+    # The next change joins them again.
+    store.check_sound = lambda p: PASSED
+    store.save("sounds", "d.wav", io.BytesIO(wav_bytes(1)))
+    assert store.voice_sample_file.exists() and store.voice_sample().recordings >= 2
+
+
+def test_removing_a_photo_does_not_wait_for_the_voice_sample(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    with store._sounds_lock:  # a voice sample is being joined
+        assert store.remove("photos", photo.id)
