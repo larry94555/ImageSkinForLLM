@@ -28,6 +28,7 @@ from imageskin.photoreal_library import (
     liveportrait_factory,
     morph,
     optical_flow,
+    pixel_grid,
     prepare_library,
     to_gray,
 )
@@ -48,12 +49,14 @@ class MouthMorph:
         self.faces = {k: np.ascontiguousarray(v[y0:y1, x0:x1]) for k, v in shapes.items()}
         gray = {k: to_gray(v) for k, v in self.faces.items()}
         self.flows = {(a, b): optical_flow(gray[a], gray[b]) for a in gray for b in gray if a != b}
+        self.grid = pixel_grid(next(iter(self.faces.values())))  # made once, used every frame
 
     def __call__(self, a: str, b: str, t: float) -> Image:
         """The mouth t of the way (0..1) from shape a to shape b."""
         if a == b:
             return self.faces[a]
-        return morph(self.faces[a], self.faces[b], self.flows[(a, b)], self.flows[(b, a)], t)
+        flow_ab, flow_ba = self.flows[(a, b)], self.flows[(b, a)]
+        return morph(self.faces[a], self.faces[b], flow_ab, flow_ba, t, self.grid)
 
 
 class Compositor:

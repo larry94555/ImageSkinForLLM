@@ -17,6 +17,7 @@ from imageskin.photoreal_library import (
     morph,
     mouth_mask,
     optical_flow,
+    pixel_grid,
     prepare_library,
     to_gray,
     write_idle_preview,
@@ -143,3 +144,5 @@ def test_morph_follows_the_motion() -> None:
     cross_fade = (a.astype(int) + b.astype(int)) // 2
     assert np.abs(cross_fade[inner] - truth[inner].astype(int)).mean() > 12
     assert morph(a, b, there, back, 0.0) is a and morph(a, b, there, back, 1.0) is b
+    # A grid made once for the picture size gives the same picture.
+    assert np.array_equal(morph(a, b, there, back, 0.5, pixel_grid(a)), half)

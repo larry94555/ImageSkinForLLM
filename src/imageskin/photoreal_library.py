@@ -158,19 +158,31 @@ def key_frames(n_loop: int) -> list[int]:
     return sorted({i for i in range(n_loop) if i % KEY_EVERY == 0} | near)
 
 
+def pixel_grid(image: Image) -> NDArray[np.float32]:
+    """Each pixel's own (x, y), the starting point of a warp. Make it once per picture size."""
+    h, w = image.shape[:2]
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    return np.dstack([gx, gy])
+
+
 def morph(
-    a: Image, b: Image, flow_ab: NDArray[np.float32], flow_ba: NDArray[np.float32], t: float
+    a: Image,
+    b: Image,
+    flow_ab: NDArray[np.float32],
+    flow_ba: NDArray[np.float32],
+    t: float,
+    grid: NDArray[np.float32] | None = None,
 ) -> Image:
     """The picture t of the way (0..1) from a to b: both warped toward each other along their
     optical flows (`optical_flow(a, b)` and `(b, a)` of their grey images) and blended, which
-    keeps one set of edges instead of the doubled ones of a plain cross-fade."""
+    keeps one set of edges instead of the doubled ones of a plain cross-fade. Callers that morph
+    many times pass `pixel_grid(a)` so it is not made again each time."""
     if t <= 0.0:
         return a
     if t >= 1.0:
         return b
-    h, w = a.shape[:2]
-    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
-    grid = np.dstack([gx, gy])
+    if grid is None:
+        grid = pixel_grid(a)
     from_a = _remap(a, grid + t * flow_ba)
     from_b = _remap(b, grid + (1.0 - t) * flow_ab)
     return np.asarray(cv2.addWeighted(from_a, 1.0 - t, from_b, t, 0.0), np.uint8)
@@ -186,6 +198,7 @@ def fill_loop(loop: Path, n_loop: int, keys: list[int]) -> int:
     """Fill in the idle-loop frames between the rendered ones; return how many were made.
     The last frames are filled toward frame 0, since the loop wraps around."""
     made = 0
+    grid: NDArray[np.float32] | None = None  # all frames are the same size
     for k, a in enumerate(keys):
         b = keys[k + 1] if k + 1 < len(keys) else n_loop
         todo = [i for i in range(a + 1, b) if not (loop / f"{i:04d}.npy").exists()]
@@ -195,8 +208,11 @@ def fill_loop(loop: Path, n_loop: int, keys: list[int]) -> int:
         last = np.load(loop / f"{b % n_loop:04d}.npy")
         there = optical_flow(to_gray(first), to_gray(last))  # once per pair of rendered frames
         back = optical_flow(to_gray(last), to_gray(first))
+        if grid is None:
+            grid = pixel_grid(first)
         for i in todo:
-            _save(loop / f"{i:04d}.npy", morph(first, last, there, back, (i - a) / (b - a)))
+            t = (i - a) / (b - a)
+            _save(loop / f"{i:04d}.npy", morph(first, last, there, back, t, grid))
             made += 1
     return made
 
