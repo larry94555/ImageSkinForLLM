@@ -146,3 +146,11 @@ def test_morph_follows_the_motion() -> None:
     assert morph(a, b, there, back, 0.0) is a and morph(a, b, there, back, 1.0) is b
     # A grid made once for the picture size gives the same picture.
     assert np.array_equal(morph(a, b, there, back, 0.5, pixel_grid(a)), half)
+
+
+def test_mouth_key_changes_with_the_mouth_opening() -> None:
+    from imageskin import photoreal_library
+
+    before = photoreal_library.mouth_key()
+    with patch("imageskin.photoreal_library.OPENING", 0.9):
+        assert photoreal_library.mouth_key() != before

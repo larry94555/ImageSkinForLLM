@@ -1,9 +1,10 @@
-"""The prepare job (roadmap R12): gets the voice and the face ready for the video, in the
-background, and reports how far it has got.
+"""The prepare job (roadmaps R12 and R13): gets the voice and the face ready for the video,
+renders the sample video and the fixed lines, in the background, and reports how far it has got.
 
 The face step renders the photoreal frame library (`photoreal_library`), which takes tens of
 minutes or more on a laptop CPU. The job's state is saved in <data folder>/prepare.json, so
-when the server stops mid-way, the next start carries on: frames already rendered are kept.
+when the server stops mid-way, the next start carries on: frames and clips already rendered
+are kept. The clips are saved in <data folder>/clips/<name>.mp4.
 """
 
 import json
@@ -15,11 +16,12 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+from imageskin.sample import SAMPLE_SCRIPT, speak_and_render
 from imageskin.uploads import UploadStore
 from imageskin.video import INSTALL_HINT, VideoError, find_ffmpeg
-from imageskin.voice import VoiceError
+from imageskin.voice import VoiceEngine, VoiceError
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,16 @@ State = Literal["idle", "running", "done", "failed"]
 Progress = Callable[[str, int, int], None]  # step key, done, total
 PrepareVoice = Callable[[], None]
 PrepareFace = Callable[[Path, Progress], None]
+RenderClip = Callable[[Path, str, Path], None]  # photo, what to say, MP4 to write
+ClipName = Literal["sample", "goodbye", "welcome-back"]
+
+# The videos rendered after the face (features.md items 5 and 6): the sample video the user
+# reviews, and the fixed lines said on exit and on return.
+CLIPS: tuple[tuple[ClipName, str], ...] = (
+    ("goodbye", "Goodbye."),
+    ("welcome-back", "Welcome back."),
+    ("sample", SAMPLE_SCRIPT),
+)
 
 # The steps in order: key, what the browser shows, and roughly how many seconds each takes on a
 # 4-core CPU, which weights it in the overall percentage. The idle loop is most of the work.
@@ -36,6 +48,7 @@ STEPS = (
     ("shapes", "Render the 10 mouth shapes", 50),
     ("loop", "Render the idle video (blinks and head movement)", 300),
     ("align", "Line up the mouth with the head", 20),
+    ("clips", "Render the sample video and the fixed lines", 60),
 )
 NO_PHOTO = "Add a photo that passes the checks first."
 
@@ -88,11 +101,14 @@ class PrepareJob:
         store: UploadStore,
         prepare_voice: PrepareVoice,
         prepare_face: PrepareFace,
+        render_clip: RenderClip,
     ) -> None:
         self._file = home / "prepare.json"
+        self.clips_folder = home / "clips"
         self._store = store
         self._prepare_voice = prepare_voice
         self._prepare_face = prepare_face
+        self._render_clip = render_clip
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         # Per running step: when it started and how much was done then, for the time left.
@@ -136,6 +152,13 @@ class PrepareJob:
                 return PrepareStatus("idle")
         return status
 
+    def clip(self, name: ClipName) -> Path | None:
+        """The rendered clip, once the job has finished for what is uploaded now."""
+        if self.status().state != "done":
+            return None
+        path = self.clips_folder / f"{name}.mp4"
+        return path if path.is_file() else None
+
     def start(self) -> PrepareStatus:
         """Start preparing the chosen photo and the voice; while it runs, just report on it."""
         with self._lock:
@@ -147,6 +170,10 @@ class PrepareJob:
             problem = self._store.voice_sample().problem
             if problem:
                 raise PrepareError(problem)
+            # Clips from before were made from other uploads; the face's frames are kept per
+            # photo by the library, so only the clips are removed.
+            for old in self.clips_folder.glob("*.mp4"):
+                old.unlink()
             self._status = PrepareStatus(
                 "running", photo_id, steps=fresh_steps(), started_at=now_iso()
             )
@@ -207,6 +234,7 @@ class PrepareJob:
             self._prepare_voice()
             self._progress("voice", 1, 1)
             self._prepare_face(photo, self._progress)
+            self._render_clips(photo)
         except (VoiceError, VideoError, PrepareError) as e:  # these say what to do
             logger.error("Prepare job failed", extra={"error": str(e)})
             self._finish("failed", str(e))
@@ -220,6 +248,28 @@ class PrepareJob:
             "Prepare job finished",
             extra={"photo_id": photo_id, "duration_s": round(time.perf_counter() - start, 1)},
         )
+
+    def _render_clips(self, photo: Path) -> None:
+        """Render each clip not already there. Progress counts words, so the long sample
+        weighs more than "Goodbye." in the time left."""
+        self.clips_folder.mkdir(parents=True, exist_ok=True)
+        todo = [(n, t) for n, t in CLIPS if not (self.clips_folder / f"{n}.mp4").is_file()]
+        total = sum(len(text.split()) for _, text in CLIPS)
+        done = total - sum(len(text.split()) for _, text in todo)
+        self._progress("clips", done, total)
+        for name, text in todo:
+            start = time.perf_counter()
+            path = self.clips_folder / f"{name}.mp4"
+            # Written aside then moved, so a clip cut short by a restart is never used.
+            rendering = path.with_name(f"{name}.rendering.mp4")
+            self._render_clip(photo, text, rendering)
+            os.replace(rendering, path)
+            logger.info(
+                "Rendered clip",
+                extra={"clip": name, "duration_s": round(time.perf_counter() - start, 1)},
+            )
+            done += len(text.split())
+            self._progress("clips", done, total)
 
     def _finish(self, state: State, error: str | None) -> None:
         with self._lock:
@@ -240,11 +290,15 @@ class PrepareJob:
             self._save()
 
 
-def kokoro_voice() -> None:
-    """Load the voice model (downloaded the first time, about 330 MB) and say one word."""
-    from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
+def kokoro_voice(engine: VoiceEngine) -> PrepareVoice:
+    """Load the voice model (downloaded the first time, about 330 MB) by saying one word. The
+    same engine then speaks the clips, so the model is loaded once."""
+    from imageskin.kokoro_engine import DEFAULT_VOICE
 
-    KokoroEngine().speak(DEFAULT_VOICE, "Hello.")
+    def prepare() -> None:
+        engine.speak(DEFAULT_VOICE, "Hello.")
+
+    return prepare
 
 
 def photoreal_face(home: Path) -> PrepareFace:
@@ -261,3 +315,21 @@ def photoreal_face(home: Path) -> PrepareFace:
         prepare_library(photo, home, progress=progress)
 
     return prepare
+
+
+def photoreal_clip(home: Path, voice_engine: VoiceEngine) -> RenderClip:
+    """Speak the text and render it from the photo's photoreal library."""
+    # The video engine and the loaded library, made on first use and kept for the next clip.
+    kept: dict[str, Any] = {}
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        from imageskin.kokoro_engine import DEFAULT_VOICE
+        from imageskin.photoreal import PhotorealEngine
+
+        if kept.get("photo") != photo:
+            video = PhotorealEngine(home)
+            # Already rendered by the face step, so this only loads it.
+            kept.update(photo=photo, video=video, lib=video.prepare(photo))
+        speak_and_render(kept["lib"], text, output, voice_engine, kept["video"], DEFAULT_VOICE)
+
+    return render

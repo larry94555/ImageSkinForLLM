@@ -159,8 +159,11 @@ Under the uploads, the Setup page has a **Prepare** button (roadmap R12). It nee
 1. **Get the voice ready:** loads Kokoro (the first time it downloads the model, about 330 MB) and says one word. Needs `pip install -e ".[voice]"`.
 2. **Load the face model:** downloads the photoreal models the first time (about 500 MB). Needs `pip install -e ".[photoreal]"`.
 3. **Render the 10 mouth shapes**, then 4. **the idle video** (blinks and head movement; most of the time, about 6 minutes on a 4-core CPU; 60 of its 200 frames are rendered and the rest filled in), then 5. **line up the mouth with the head**.
+6. **Render the sample video and the fixed lines** (roadmap R13): the person says "Goodbye.", "Welcome back." and the sample script (about 25 seconds), saved in `clips` in the app data folder. About a minute.
 
-The page shows a progress bar, each step with how far it has got and about how long is left, and how long each finished step took. You can close the page meanwhile. If the server is stopped, the next `imageskin serve` carries on where it stopped (`Resuming prepare job` in the log); frames already rendered are kept. A photo prepared before takes seconds. The job's state is in `prepare.json` in the app data folder and the frames under `photoreal`. The log has `Prepare job started`, `Prepare step finished` with each step's `duration_s`, `Rendered idle loop frame N of 60` every 10 frames, `Filled in idle loop frames`, and `Prepare job finished` or `Prepare job failed` with the reason. Choosing another photo afterwards shows **Prepare** again.
+When it is done the sample video plays under **Prepare**.
+
+The page shows a progress bar, each step with how far it has got and about how long is left, and how long each finished step took. You can close the page meanwhile. If the server is stopped, the next `imageskin serve` carries on where it stopped (`Resuming prepare job` in the log); frames already rendered are kept. A photo prepared before reuses its frames, so preparing it again takes about a minute, mostly for the clips. The job's state is in `prepare.json` in the app data folder and the frames under `photoreal`. The log has `Prepare job started`, `Prepare step finished` with each step's `duration_s`, `Rendered idle loop frame N of 60` every 10 frames, `Filled in idle loop frames`, `Rendered clip` with each clip's `duration_s`, and `Prepare job finished` or `Prepare job failed` with the reason. Choosing another photo afterwards shows **Prepare** again.
 
 ## Making a voice sample
 

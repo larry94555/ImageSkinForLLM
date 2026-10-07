@@ -18,13 +18,17 @@ from pydantic import BaseModel
 from imageskin import __version__
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
+from imageskin.kokoro_engine import KokoroEngine
 from imageskin.prepare_job import (
+    ClipName,
     PrepareError,
     PrepareFace,
     PrepareJob,
     PrepareStatus,
     PrepareVoice,
+    RenderClip,
     kokoro_voice,
+    photoreal_clip,
     photoreal_face,
 )
 from imageskin.uploads import (
@@ -86,6 +90,7 @@ def create_app(
     check_sound: SoundCheck | None = None,
     prepare_voice: PrepareVoice | None = None,
     prepare_face: PrepareFace | None = None,
+    render_clip: RenderClip | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -206,8 +211,14 @@ def create_app(
             raise HTTPException(status_code=404, detail="No such file.")
         return {"removed": True}
 
+    # One voice engine for the job, so Prepare loads the voice model once.
+    voice_engine = KokoroEngine()
     job = PrepareJob(
-        data_home, store, prepare_voice or kokoro_voice, prepare_face or photoreal_face(data_home)
+        data_home,
+        store,
+        prepare_voice or kokoro_voice(voice_engine),
+        prepare_face or photoreal_face(data_home),
+        render_clip or photoreal_clip(data_home, voice_engine),
     )
     app.state.prepare_job = job
     job.resume()  # a job the server was stopped in the middle of carries on
@@ -222,6 +233,15 @@ def create_app(
             return job.start()
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
+
+    @app.get("/api/prepare/clips/{name}", dependencies=needs_consent)
+    def get_clip(name: ClipName) -> FileResponse:
+        path = job.clip(name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Not prepared yet. Click Prepare first.")
+        # no-cache: preparing again replaces it under the same address.
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
+        return FileResponse(path, media_type="video/mp4", headers=headers)
 
     # Last, so /health and /api routes win over the static files.
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

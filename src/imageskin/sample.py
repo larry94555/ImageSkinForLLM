@@ -33,6 +33,28 @@ def _ms_since(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
+def speak_and_render(
+    face: Any,
+    text: str,
+    output: Path,
+    voice_engine: VoiceEngine,
+    video_engine: VideoEngine[Any],
+    voice: str,
+) -> tuple[float, float, float]:
+    """Speak the text and render it on a prepared face; return the video's length in seconds
+    and the milliseconds taken to speak and to render."""
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = Path(tmp) / "speech.wav"
+        start = time.perf_counter()
+        write_speech(voice_engine.speak(voice, text), wav, wav.with_suffix(".json"))
+        speak_ms = _ms_since(start)
+
+        start = time.perf_counter()
+        seconds = video_engine.render(face, wav, output)
+        render_ms = _ms_since(start)
+    return seconds, speak_ms, render_ms
+
+
 def make_sample(
     photo: Path,
     output: Path,
@@ -42,20 +64,13 @@ def make_sample(
     script: str = SAMPLE_SCRIPT,
 ) -> SampleResult:
     """Prepare the photo, speak the script and render the MP4, timing each step."""
-    with tempfile.TemporaryDirectory() as tmp:
-        # The photo goes first, so a photo with no face fails before the slower speech step.
-        start = time.perf_counter()
-        face = video_engine.prepare(photo)
-        prepare_ms = _ms_since(start)
-
-        wav = Path(tmp) / "speech.wav"
-        start = time.perf_counter()
-        write_speech(voice_engine.speak(voice, script), wav, wav.with_suffix(".json"))
-        speak_ms = _ms_since(start)
-
-        start = time.perf_counter()
-        seconds = video_engine.render(face, wav, output)
-        render_ms = _ms_since(start)
+    # The photo goes first, so a photo with no face fails before the slower speech step.
+    start = time.perf_counter()
+    face = video_engine.prepare(photo)
+    prepare_ms = _ms_since(start)
+    seconds, speak_ms, render_ms = speak_and_render(
+        face, script, output, voice_engine, video_engine, voice
+    )
     result = SampleResult(seconds, speak_ms, prepare_ms, render_ms)
     logger.info(
         "Wrote sample video",

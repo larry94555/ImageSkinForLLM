@@ -30,6 +30,7 @@ from imageskin.liveportrait_edits import (
     CONTROLS,
     LOOP_SECONDS,
     MOUTH_SHAPES,
+    OPENING,
     STRENGTH,
     UPPER_LIP,
     eye_openness,
@@ -107,7 +108,9 @@ def library_key(photo: Path) -> str:
 
 def mouth_key() -> str:
     """Changes whenever the mouth-shape settings do, so only the shapes are rendered again."""
-    settings = repr((sorted(MOUTH_SHAPES.items()), sorted(CONTROLS.items()), STRENGTH, UPPER_LIP))
+    settings = repr(
+        (sorted(MOUTH_SHAPES.items()), sorted(CONTROLS.items()), STRENGTH, OPENING, UPPER_LIP)
+    )
     return hashlib.sha256(settings.encode()).hexdigest()[:12]
 
 

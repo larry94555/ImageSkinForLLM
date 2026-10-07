@@ -55,7 +55,7 @@ def test_top_two() -> None:
 def test_soften_moves_part_way_from_rest() -> None:
     controls, ratio = soften("OH", 0.5, photo_ratio=0.1)
     assert controls == {"purse": pytest.approx(3.5)}
-    assert ratio == pytest.approx(0.1 + 0.5 * (0.30 - 0.1))
+    assert ratio == pytest.approx(0.1 + 0.6 * (0.51 - 0.1))  # opening 60% of the way
     controls, ratio = soften("rest", 0.4, 0.2)
     assert controls == {} and ratio == pytest.approx(0.2)
 
