@@ -103,6 +103,8 @@ class PrepareJob:
         try:
             data = json.loads(self._file.read_text(encoding="utf-8"))
             steps = [Step(**s) for s in data.pop("steps") or []]
+            if [s.key for s in steps] != [key for key, _, _ in STEPS]:
+                steps = fresh_steps()  # saved by a version with other steps
             return PrepareStatus(**data, steps=steps)
         except FileNotFoundError:
             return PrepareStatus("idle")
@@ -150,8 +152,8 @@ class PrepareJob:
         with self._lock:
             if self._status.state != "running":
                 return
+            # The steps keep showing how far it had got until each one reports again.
             logger.info("Resuming prepare job", extra={"photo_id": self._status.photo_id})
-            self._status = replace(self._status, steps=fresh_steps(), percent=0)
             self._run_in_background()
 
     def _run_in_background(self) -> None:
@@ -173,7 +175,9 @@ class PrepareJob:
             started, done_at_start = self._clock.setdefault(key, (now, done))
             elapsed = now - started
             seconds, left = None, None
-            if done >= total:
+            if done >= total and done_at_start >= total:
+                logger.info("Prepare step already done", extra={"step": key})  # kept from before
+            elif done >= total:
                 seconds = round(elapsed, 1)
                 logger.info("Prepare step finished", extra={"step": key, "duration_s": seconds})
             elif done > done_at_start:
@@ -181,8 +185,7 @@ class PrepareJob:
             new = replace(old, done=done, total=total, seconds=seconds, left_s=left)
             steps = [new if s.key == key else s for s in steps]
             self._status = replace(self._status, steps=steps, percent=percent(steps))
-            if done >= total or done == done_at_start:  # not on every frame
-                self._save()
+            self._save()  # a small file, and a frame takes seconds
 
     def _run(self) -> None:
         start = time.perf_counter()

@@ -77,8 +77,11 @@ def test_prepares_the_voice_then_the_face_and_saves_the_result(
     assert status.state == "done" and status.percent == 100 and status.error is None
     assert status.steps is not None
     assert [s.key for s in status.steps] == ["voice", "models", "shapes", "loop", "align"]
-    assert all(s.done == s.total and s.seconds is not None for s in status.steps)
-    assert caplog.text.count("Prepare step finished") == 5
+    assert all(s.done == s.total for s in status.steps)
+    # Mouth shapes from before: done, with no time, since nothing was rendered.
+    assert [s.seconds is None for s in status.steps] == [False, False, True, False, False]
+    assert caplog.text.count("Prepare step finished") == 4
+    assert caplog.text.count("Prepare step already done") == 1
     assert "Prepare job finished" in caplog.text
     saved = json.loads((tmp_path / "prepare.json").read_text())
     assert saved["state"] == "done" and saved["finished_at"]
@@ -163,7 +166,9 @@ def test_a_job_stopped_by_a_restart_carries_on(tmp_path: Path) -> None:
         json.dumps({"state": "running", "photo_id": PHOTO_ID, "percent": 40, "steps": []})
     )
     job, _ = make_job(tmp_path)
-    assert job.status().state == "running"
+    status = job.status()
+    assert status.state == "running" and status.percent == 40
+    assert status.steps is not None and len(status.steps) == 5
     job.resume()
     job.wait(5)
     assert job.status().state == "done"
