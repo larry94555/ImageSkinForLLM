@@ -17,7 +17,15 @@ from pydantic import BaseModel
 from imageskin import __version__
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
-from imageskin.uploads import MEDIA_TYPE, Kind, PhotoCheck, Upload, UploadError, UploadStore
+from imageskin.uploads import (
+    MEDIA_TYPE,
+    Kind,
+    PhotoCheck,
+    PhotoChoice,
+    Upload,
+    UploadError,
+    UploadStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +35,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 class ConsentRequest(BaseModel):
     agreed: bool
+
+
+class PhotoChoiceRequest(BaseModel):
+    id: str
 
 
 def face_checker(home: Path) -> PhotoCheck | None:
@@ -120,6 +132,18 @@ def create_app(home: Path | None = None, check_photo: PhotoCheck | None = None) 
         if checked is None:
             raise HTTPException(status_code=404, detail="No such photo.")
         return checked
+
+    # Before the {upload_id} routes; ids are 32 hex digits, so they never clash.
+    @app.get("/api/uploads/photos/chosen", dependencies=needs_consent)
+    def get_photo_choice() -> PhotoChoice:
+        return store.photo_choice()
+
+    @app.put("/api/uploads/photos/chosen", dependencies=needs_consent)
+    def put_photo_choice(body: PhotoChoiceRequest) -> PhotoChoice:
+        try:
+            return store.choose_photo(body.id)
+        except UploadError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
 
     @app.get(uploads_api + "/{upload_id}", dependencies=needs_consent)
     def get_upload(kind: Kind, upload_id: str) -> FileResponse:

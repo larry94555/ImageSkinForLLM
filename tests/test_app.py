@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from imageskin import __version__
 from imageskin.app import STATIC_DIR, create_app, face_checker
-from imageskin.uploads import UploadStore
+from imageskin.uploads import PhotoResult, UploadStore
 
 
 def test_health_returns_ok_and_version() -> None:
@@ -86,8 +86,8 @@ def test_preact_license_ships_with_the_app() -> None:
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
 
 
-def no_problems(photo: Path) -> list[str]:
-    return []
+def no_problems(photo: Path) -> PhotoResult:
+    return PhotoResult([], 80)
 
 
 def consented_client(home: Path) -> TestClient:
@@ -158,8 +158,30 @@ def test_face_checks_are_on_with_mediapipe(tmp_path: Path) -> None:
 def test_a_photo_uploaded_before_the_checks_can_be_checked(tmp_path: Path) -> None:
     consented_client(tmp_path)
     old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
-    client = TestClient(create_app(tmp_path, check_photo=lambda p: ["Your face is too small."]))
+    client = TestClient(
+        create_app(tmp_path, check_photo=lambda p: PhotoResult(["Your face is too small."]))
+    )
     assert client.get("/api/uploads/photos").json()[0]["problems"] is None
     checked = client.post(f"/api/uploads/photos/{old.id}/check")
     assert checked.json()["problems"] == ["Your face is too small."]
     assert client.post(f"/api/uploads/photos/{'f' * 32}/check").status_code == 404
+
+
+def test_the_photo_for_the_video_can_be_read_and_chosen(tmp_path: Path) -> None:
+    client = consented_client(tmp_path)
+    assert client.get("/api/uploads/photos/chosen").json() == {"id": None, "chosen_by": "app"}
+    first, second = (
+        client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()["id"]
+        for _ in range(2)
+    )
+    picked = client.get("/api/uploads/photos/chosen").json()
+    assert picked["id"] in (first, second) and picked["chosen_by"] == "app"  # equal scores
+    chosen = client.put("/api/uploads/photos/chosen", json={"id": second})
+    assert chosen.json() == {"id": second, "chosen_by": "you"}
+    assert client.get("/api/uploads/photos/chosen").json()["id"] == second
+    missing = client.put("/api/uploads/photos/chosen", json={"id": "f" * 32})
+    assert missing.status_code == 404 and missing.json()["detail"] == "No such photo."
+    assert (
+        TestClient(create_app(tmp_path / "other")).get("/api/uploads/photos/chosen").status_code
+        == 403
+    )

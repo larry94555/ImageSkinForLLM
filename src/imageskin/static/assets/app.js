@@ -43,6 +43,18 @@ async function checkPhoto(id) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function getPhotoChoice() {
+	return json(await fetch("/api/uploads/photos/chosen"));
+}
+async function choosePhoto(id) {
+	const response = await fetch("/api/uploads/photos/chosen", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ id })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 async function removeUpload(kind, id) {
 	const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
@@ -136,10 +148,37 @@ function UploadSection(props) {
 	const [sending, setSending] = d(null);
 	const [refused, setRefused] = d([]);
 	const [toCheck, setToCheck] = d([]);
+	const [choice, setChoice] = d(null);
+	const [choosing, setChoosing] = d(null);
+	async function refreshChoice() {
+		if (kind !== "photos") return;
+		try {
+			setChoice(await getPhotoChoice());
+		} catch (e) {
+			console.error("Could not get the chosen photo", e);
+		}
+	}
+	async function choose(item) {
+		if (choosing !== null) return;
+		setChoosing(item.id);
+		setRefused([]);
+		try {
+			setChoice(await choosePhoto(item.id));
+		} catch (e) {
+			console.error(`Could not choose ${item.name}`, e);
+			setRefused([{
+				name: item.name,
+				reason: e.message
+			}]);
+		}
+		setChoosing(null);
+	}
 	h(() => {
 		listUploads(kind).then((list) => {
 			setItems(list);
-			if (kind === "photos") checkOldPhotos(list);
+			if (kind !== "photos") return;
+			checkOldPhotos(list);
+			refreshChoice();
 		}).catch((e) => {
 			console.error(`Could not list ${kind}`, e);
 			setLoadFailed(true);
@@ -153,6 +192,7 @@ function UploadSection(props) {
 				const checked = await checkPhoto(photo.id);
 				setItems((current) => (current ?? []).map((i) => i.id === checked.id ? checked : i));
 				if (checked.problems === null) break;
+				if (checked.problems.length === 0) await refreshChoice();
 			} catch (e) {
 				console.error(`Could not check ${photo.name}`, e);
 			}
@@ -170,6 +210,7 @@ function UploadSection(props) {
 			try {
 				const upload = await uploadFile(kind, file);
 				setItems((current) => [...current ?? [], upload]);
+				if (upload.problems?.length === 0) await refreshChoice();
 			} catch (e) {
 				console.error(`Upload of ${file.name} refused`, e);
 				setRefused((current) => [...current, {
@@ -185,6 +226,7 @@ function UploadSection(props) {
 		try {
 			await removeUpload(kind, item.id);
 			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
+			if (item.id === choice?.id) await refreshChoice();
 		} catch (e) {
 			console.error(`Could not remove ${item.name}`, e);
 			setRefused([{
@@ -238,42 +280,57 @@ function UploadSection(props) {
 		}),
 		/* @__PURE__ */ u("ul", {
 			className: kind,
-			children: items?.map((item) => /* @__PURE__ */ u("li", { children: [
-				kind === "photos" ? /* @__PURE__ */ u("a", {
-					href: uploadUrl(kind, item.id),
-					target: "_blank",
-					rel: "noreferrer",
-					children: /* @__PURE__ */ u("img", {
-						src: uploadUrl(kind, item.id),
-						alt: item.name
+			children: items?.map((item) => /* @__PURE__ */ u("li", {
+				className: item.id === choice?.id ? "chosen" : void 0,
+				children: [
+					kind === "photos" ? /* @__PURE__ */ u("a", {
+						href: uploadUrl(kind, item.id),
+						target: "_blank",
+						rel: "noreferrer",
+						children: /* @__PURE__ */ u("img", {
+							src: uploadUrl(kind, item.id),
+							alt: item.name
+						})
+					}) : /* @__PURE__ */ u("audio", {
+						controls: true,
+						preload: "none",
+						src: uploadUrl(kind, item.id)
+					}),
+					/* @__PURE__ */ u("span", {
+						className: "name",
+						children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
+					}),
+					kind === "photos" && /* @__PURE__ */ u(FaceChecks, {
+						problems: item.problems,
+						score: item.score,
+						queue: toCheck.indexOf(item.id)
+					}),
+					kind === "photos" && item.id === choice?.id && /* @__PURE__ */ u("span", {
+						className: "chosen-note",
+						children: ["Used for the video", choice.chosen_by === "app" ? " (best score)" : " (your choice)"]
+					}),
+					kind === "photos" && item.problems?.length === 0 && item.id !== choice?.id && /* @__PURE__ */ u("button", {
+						type: "button",
+						className: choosing === item.id ? "use busy" : "use",
+						onClick: () => choose(item),
+						children: choosing === item.id ? "Saving…" : "Use this photo"
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "remove",
+						onClick: () => remove(item),
+						children: "Remove"
 					})
-				}) : /* @__PURE__ */ u("audio", {
-					controls: true,
-					preload: "none",
-					src: uploadUrl(kind, item.id)
-				}),
-				/* @__PURE__ */ u("span", {
-					className: "name",
-					children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
-				}),
-				kind === "photos" && /* @__PURE__ */ u(FaceChecks, {
-					problems: item.problems,
-					queue: toCheck.indexOf(item.id)
-				}),
-				/* @__PURE__ */ u("button", {
-					type: "button",
-					className: "remove",
-					onClick: () => remove(item),
-					children: "Remove"
-				})
-			] }, item.id))
+				]
+			}, item.id))
 		})
 	] });
 }
-function FaceChecks({ problems, queue }) {
+function FaceChecks(props) {
+	const { problems, score, queue } = props;
 	if (queue === 0) return /* @__PURE__ */ u("span", {
 		className: "muted check busy",
-		children: "Checking face…"
+		children: "Checking photo…"
 	});
 	if (queue > 0) return /* @__PURE__ */ u("span", {
 		className: "muted check",
@@ -285,7 +342,7 @@ function FaceChecks({ problems, queue }) {
 	});
 	if (problems.length === 0) return /* @__PURE__ */ u("span", {
 		className: "done check",
-		children: "Looks good"
+		children: ["Looks good", score !== null && ` · score ${score} of 100`]
 	});
 	return /* @__PURE__ */ u("ul", {
 		className: "problems",

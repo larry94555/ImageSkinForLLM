@@ -12,10 +12,19 @@ import pytest
 
 from imageskin import uploads
 from imageskin.audio import AudioError
-from imageskin.uploads import UploadError, UploadStore, detect_format, display_name
+from imageskin.uploads import (
+    PhotoChoice,
+    PhotoResult,
+    UploadError,
+    UploadStore,
+    detect_format,
+    display_name,
+)
 
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 100
+SMALL = PhotoResult(["Your face is too small."])
+GOOD = PhotoResult([], 80)
 needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 
 
@@ -307,9 +316,9 @@ def test_heic_command_converts_and_reports_errors(
 def test_photos_are_checked_as_they_arrive(tmp_path: Path) -> None:
     checked: list[Path] = []
 
-    def check(photo: Path) -> list[str]:
+    def check(photo: Path) -> PhotoResult:
         checked.append(photo)
-        return ["Your face is too small."]
+        return SMALL
 
     store = UploadStore(tmp_path, check_photo=check)
     upload = store.save("photos", "me.jpg", io.BytesIO(JPG))
@@ -328,7 +337,7 @@ def test_sounds_are_not_face_checked(tmp_path: Path) -> None:
 def test_a_photo_that_cannot_be_checked_is_kept_unchecked(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    def broken(photo: Path) -> list[str]:
+    def broken(photo: Path) -> PhotoResult:
         raise RuntimeError("models missing")
 
     store = UploadStore(tmp_path, check_photo=broken)
@@ -347,25 +356,25 @@ def test_photos_stored_before_checks_are_checked_on_request(tmp_path: Path) -> N
     store = UploadStore(tmp_path, check_photo=lambda p: pytest.fail("listing must not check"))
     assert [u.problems for u in store.list("photos")] == [None]
 
-    store.check_photo = lambda p: ["Your face is too small."]
+    store.check_photo = lambda p: SMALL
     checked = replace(old, problems=["Your face is too small."], checks=uploads.FACE_CHECKS)
     assert store.check(old.id) == checked
     assert store.list("photos") == [checked]
 
 
 def test_results_of_older_checks_are_listed_as_not_checked(tmp_path: Path) -> None:
-    store = UploadStore(tmp_path, check_photo=lambda p: ["Your face is too small."])
+    store = UploadStore(tmp_path, check_photo=lambda p: SMALL)
     photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
     assert photo.checks == uploads.FACE_CHECKS
     with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
         assert [u.problems for u in store.list("photos")] == [None]
-        store.check_photo = lambda p: []
+        store.check_photo = lambda p: GOOD
         assert store.check(photo.id).problems == []  # type: ignore[union-attr]
         assert [u.problems for u in store.list("photos")] == [[]]
 
 
 def test_checking_needs_a_stored_photo(tmp_path: Path) -> None:
-    store = UploadStore(tmp_path, check_photo=lambda p: [])
+    store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
     assert store.check("f" * 32) is None
     assert store.check("not-an-id") is None
 
@@ -377,10 +386,10 @@ def test_a_check_that_fails_keeps_the_photo_unchecked(tmp_path: Path) -> None:
 
 
 def test_old_results_stay_hidden_when_the_recheck_cannot_run(tmp_path: Path) -> None:
-    store = UploadStore(tmp_path, check_photo=lambda p: ["Your face is too small."])
+    store = UploadStore(tmp_path, check_photo=lambda p: SMALL)
     photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
 
-    def broken(p: Path) -> list[str]:
+    def broken(p: Path) -> PhotoResult:
         raise RuntimeError("models missing")
 
     with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
@@ -390,7 +399,7 @@ def test_old_results_stay_hidden_when_the_recheck_cannot_run(tmp_path: Path) -> 
 
 
 def test_a_photo_removed_while_its_result_is_saved_leaves_no_info_file(tmp_path: Path) -> None:
-    store = UploadStore(tmp_path, check_photo=lambda p: [])
+    store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
     photo = UploadStore(tmp_path).save("photos", "me.jpg", io.BytesIO(JPG))
     write_info = UploadStore._write_info
 
@@ -402,3 +411,55 @@ def test_a_photo_removed_while_its_result_is_saved_leaves_no_info_file(tmp_path:
         store.check(photo.id)
     assert store.list("photos") == []
     assert list((tmp_path / "uploads" / "photos").iterdir()) == []
+
+
+# --- The photo used for the video (R9) ---
+
+
+def test_the_best_scoring_photo_that_passed_is_picked(tmp_path: Path) -> None:
+    results = [PhotoResult([], 70), PhotoResult([], 90), SMALL, PhotoResult([], 85)]
+    store = UploadStore(tmp_path, check_photo=lambda p: results.pop(0))
+    assert store.photo_choice() == PhotoChoice(None)
+    ids = [store.save("photos", f"{n}.jpg", io.BytesIO(JPG)).id for n in range(4)]
+    assert store.photo_choice() == PhotoChoice(ids[1], "app")
+
+
+def test_the_users_choice_wins_while_it_is_there(tmp_path: Path) -> None:
+    results = [PhotoResult([], 90), PhotoResult([], 60), SMALL]
+    store = UploadStore(tmp_path, check_photo=lambda p: results.pop(0))
+    best, other, failed = (store.save("photos", "me.jpg", io.BytesIO(JPG)).id for _ in range(3))
+    assert store.choose_photo(other) == PhotoChoice(other, "you")
+    assert UploadStore(tmp_path).photo_choice() == PhotoChoice(other, "you")  # kept on disk
+    with pytest.raises(UploadError, match="passed the checks") as refused:
+        store.choose_photo(failed)
+    assert refused.value.status == 400
+    with pytest.raises(UploadError, match="No such photo") as missing:
+        store.choose_photo("f" * 32)
+    assert missing.value.status == 404
+    store.remove("photos", other)
+    assert store.photo_choice() == PhotoChoice(best, "app")
+
+
+def test_a_chosen_photo_whose_checks_are_redone_falls_back_to_the_best(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG)).id
+    store.choose_photo(photo)
+    with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
+        assert store.photo_choice() == PhotoChoice(None)  # not checked by the new checks yet
+
+
+def test_an_unreadable_choice_file_is_logged_and_ignored(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG)).id
+    (tmp_path / "uploads" / "chosen-photo.json").write_text("[not json", encoding="utf-8")
+    with caplog.at_level(logging.ERROR):
+        assert store.photo_choice() == PhotoChoice(photo, "app")
+    assert "Could not read the chosen photo" in caplog.text
+
+
+def test_the_choice_file_is_not_listed_as_a_photo(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
+    store.choose_photo(store.save("photos", "me.jpg", io.BytesIO(JPG)).id)
+    assert len(store.list("photos")) == 1
