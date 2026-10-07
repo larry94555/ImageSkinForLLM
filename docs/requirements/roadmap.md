@@ -1,8 +1,8 @@
 # ImageSkinForLLM: Roadmap
 
-Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup, the chat, and the rest around it.
+Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it.
 
-PRs are numbered R1 to R33 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), so the later numbers stay the same. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R33 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), and R25a and R25b for the voice, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -10,17 +10,17 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 9 of 10 |
-| 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
-| 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
-| 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
-| 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.6% | 0 |
-| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.9% | 0 |
-| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
-| | **Total** | | **36** | **100%** | **14 of 36** |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 18.4% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 23.7% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice (Americanized or their own accent), and setup ends with accept or reject. | R25a, R25, R25b, R26, R14 | 5 | 13.2% | 0 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 13.2% | 0 |
+| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 10.5% | 0 |
+| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.6% | 0 |
+| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.2% | 0 |
+| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.3% | 0 |
+| | **Total** | | **38** | **100%** | **16 of 38** |
 
-Sizes: 10 Simple, 26 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 10 Simple, 28 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -40,7 +40,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | R4 | The first video engine, local or hosted, and which tool. It must be free per use, run on CPU, allow hosted use and work on Python 3.11 and 3.12 (Larry, 2026-10-04). **Picked in R4: our own mouth animation with OpenCV** (Apache 2.0): OpenCV's bundled face detector finds the face, and the mouth opens with the loudness of the speech. No model download, renders faster than real time on a CPU; it looks like a puppet mouth rather than a photoreal talking head. Rejected: Wav2Lip (non-commercial weights), SadTalker (non-commercial Basel Face Model, pins Python 3.8, minutes per clip on CPU), MuseTalk (needs a base video, no Python 3.12, GPU-bound), LivePortrait (video-driven, non-commercial InsightFace models), diffusion models such as Hallo and LatentSync (GPU only), hosted avatars (per-use cost). **Changed after R4:** LivePortrait turned out usable (its weights are MIT, and MediaPipe replaces the non-commercial InsightFace), and pre-rendering its frames once makes each reply fast on the CPU (GitHub PR #8). Larry chose it for photoreal quality (2026-10-05); R4b and R4c build it. |
 | R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. **Picked in R10:** at least 30 seconds of speech in the voice sample, and at least 15 in each recording (pauses not counted); constants in `sound_checks.py`. |
 | R21 | The latency target. Larry: a reply video that takes more than a few seconds to generate is unacceptable (2026-10-04). The photoreal test built a 2.5-second reply clip in 0.5 to 1.5 seconds on a 4-core CPU, so per-sentence clips should fit. Measured in R4c with the real voice on a 4-core CPU: the video for 6.9 seconds of speech renders in 2.2 seconds (about a third of real time), after Kokoro's 2 seconds to speak it. |
-| R25 | The CPU voice-conversion tool that turns Kokoro's output into the person's voice (for example OpenVoice's tone-color converter or Seed-VC). It must be free per use, run on CPU and allow hosted use. Keeping the person's original accent (item 4) would need a different, cloning TTS and is left open. |
+| R25 | The voice tool that makes the person's voice: a CPU voice-conversion tool that turns Kokoro's output into the person's voice (for example OpenVoice's tone-color converter or Seed-VC), and, for keeping the person's own accent (item 4), possibly a cloning TTS. It must be free per use, run on CPU and allow hosted use. **Picked from R25a's listening test**, by Larry. |
 | R32 | How the hosted site restricts access to its one user. features.md says single-user and HTTPS but names no mechanism. The simplest option is one password checked at the HTTPS proxy, with no accounts. |
 
 ## After the engine decision
@@ -152,12 +152,35 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the sample video plays in the browser after prepare finishes.
 - **Built:** a sixth prepare step renders "Goodbye.", "Welcome back." and the sample script (Kokoro voice, photoreal engine) into `<IMAGESKIN_HOME>/clips/`, with progress counted in words so the time left allows for the long sample. Each clip is written aside and then moved into place, so a restart keeps finished clips and redoes only a cut-short one; preparing again removes the old clips first. `GET /api/prepare/clips/{sample|goodbye|welcome-back}` serves a clip while the job is done for the uploads as they are now (404 otherwise), and the Setup page plays the sample under Prepare when it is ready. Larry found the mouth barely moved in the sample (the timing matched the voice, but the shapes opened only 45% of the way, R4a's setting); the vowel openings are now 1.7 times wider and the mouth opens 60% of the way to them (halfway between the old setting and the full wider one, which opened too far), with the lip spread and rounding still at 45%. A prepared photo re-renders only its 10 mouth shapes (about a minute) on the next Prepare.
 
+## Milestone 3: The person's voice, reviewed
+
+### R25a. Voice cloning test (Medium) · items 3, 4
+- **Why first:** if the person's voice can't be cloned convincingly, the project fails, so this is proven before any chat work (Larry, 2026-10-07). Done so far: R2 and R10 turn the recordings into a checked voice sample, R11 checks there is one speaker, and R13 renders the sample video, but every clip so far uses a ready-made Kokoro voice; nothing has been made in the person's voice yet.
+- An experiment in `experiments/voice/`, like the photoreal test in GitHub PR #8: take Larry's voice sample (the R10 `voice-sample.wav`) and make the sample script (item 6) and a few chat-like replies in his voice with at least two candidate tools that are free per use, run on the CPU and allow hosted use (licenses checked first). Candidates: voice conversion of Kokoro's output (for example OpenVoice v2's tone-color converter, Seed-VC or kNN-VC), which gives an American accent, and, for keeping the person's own accent, a cloning TTS if one meets the limits.
+- Logs the time each tool adds per sentence on a 4-core CPU, since every reply will pay it.
+- **Can show:** a page of clips side by side: a stretch of Larry's own recording, the Kokoro voice, and each tool's version of the same lines, plus the same lines rendered on the photoreal video.
+- **Acceptance:** Larry listens and says whether a tool sounds like him, and picks one (the R25 decision). If none does, the work stops here and Larry decides what to relax (GPU, a paid service, longer recordings, a fine-tuned voice) before anything else is built.
+
+### R25. The person's voice by voice conversion (Medium) · items 3, 4
+- Voice-conversion adapter on the CPU: R3's American Kokoro voice is converted to the person's timbre, learned from the R2 voice sample (the tool Larry picked in R25a). Word timings from R3 still apply because conversion keeps the timing.
+- Commands: `imageskin say --voice-sample voice-sample.wav "Hello there"` and `imageskin sample --photo me.jpg --voice-sample voice-sample.wav`.
+- If R25a picked a cloning TTS for keeping the accent, it is a second adapter behind R3's `VoiceEngine` interface; if both are needed and together they grow past Medium, they split into two PRs.
+- **Can show:** the same sentence in the ready-made voice and in the person's voice, side by side, with the time conversion adds per sentence in the logs.
+
+### R25b. The person's voice in prepare and the sample video (Medium) · items 5, 6
+- The prepare job gets a voice step that prepares the person's voice from the voice sample with R25's tool, and the sample video, "Goodbye." and "Welcome back." are rendered in that voice instead of the Kokoro voice. Changing the recordings means preparing again.
+- **Can show:** in the browser, after Prepare, the sample video plays in the person's own voice, lip-synced, with the voice step's time in the logs.
+
+### R26. Accent choice in setup (Simple) · item 4
+- Accent question in setup (Americanize or keep as is), saved with the setup; changing it reruns the sample. If R25a found no tool that keeps the accent, the question is left out and noted in features.md.
+- **Can show:** choose Americanize in setup and see the sample rerun in that accent.
+
 ### R14. Review screen (Simple) · item 7
-- Accept, Reject image (back to image upload), Reject voice (back to sound upload). Change accent is added in R26.
+- Accept, Reject image (back to image upload), Reject voice (back to sound upload), and Change accent, which toggles R26's choice and reruns the sample.
 - Chat stays locked until a sample is accepted.
 - **Can show:** the full setup flow from upload to an accepted sample, with both reject paths working.
 
-## Milestone 3: Talking chat
+## Milestone 4: Talking chat
 
 ### R15. Text chat with the LLM (Medium) · items 10, 15, 16
 - OpenAI-compatible client pointed at local llama.cpp, with the short-reply system prompt.
@@ -170,9 +193,9 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** unit tests on sample replies; a command prints the spoken version of a reply.
 
 ### R17. Spoken video replies (Medium) · items 11, 20
-- Each cleaned reply is voiced with R3 and animated with R4, then played in the chat.
+- Each cleaned reply is voiced in the person's voice (R25) and animated with R4c, then played in the chat.
 - If voice or video fails, the text still shows with a short friendly note; if the LLM fails, a plain message says so.
-- **Can show:** the person speaks each LLM reply in their voice. This is the app's core experience, though slower than the target until Milestone 4.
+- **Can show:** the person speaks each LLM reply in their voice. This is the app's core experience, though slower than the target until Milestone 5.
 
 ### R18. Word highlighting (Medium) · item 11
 - Highlights each word as it is spoken, using the word timings from R3 and the map from R16.
@@ -182,7 +205,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - Stop button ends playback and cancels any rendering still in progress; volume and mute controls.
 - **Can show:** a reply can be stopped mid-sentence; volume and mute work.
 
-## Milestone 4: Real-time replies
+## Milestone 5: Real-time replies
 
 ### R20. Streaming LLM text and sentence splitting (Simple) · item 12
 - The LLM client streams text; a splitter turns it into sentences as they complete, handling abbreviations, numbers and decimals.
@@ -202,22 +225,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - Returns to the idle pose between sentence clips and crossfades the joins.
 - **Can show:** the person looks alive while waiting, and multi-sentence replies play without visible jumps.
 
-## Milestone 5: Spoken prompts
+## Milestone 6: Spoken prompts
 
 ### R24. Push-to-talk microphone (Medium) · item 9
 - Microphone button, push-to-talk, transcribed with browser speech recognition (whisper.cpp can be added later as a separate PR if needed); the transcribed prompt is shown as sent.
 - **Can show:** hold the button, ask a question out loud, and the person answers on video.
-
-## Milestone 6: The person's voice
-
-### R25. The person's voice by voice conversion (Medium) · items 3, 4
-- Voice-conversion adapter on the CPU: R3's American Kokoro voice is converted to the person's timbre, learned from the R2 voice sample (tool decided before this PR, for example OpenVoice's tone-color converter or Seed-VC). Word timings from R3 still apply because conversion keeps the timing.
-- Commands: `imageskin say --voice-sample voice-sample.wav "Hello there"` and `imageskin sample --photo me.jpg --voice-sample voice-sample.wav`.
-- **Can show:** the same sentence in the ready-made voice and in the person's voice, side by side, with the time conversion adds per sentence in the logs.
-
-### R26. Accent choice in setup and review (Simple) · items 4, 7 (Change accent)
-- Accent question in setup, and Change accent on the review screen, which reruns the sample.
-- **Can show:** choose Americanize in setup, then switch back with Change accent and see the sample rerun.
 
 ## Milestone 7: Settings, exit and return
 
