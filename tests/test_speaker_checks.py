@@ -76,8 +76,9 @@ def test_two_groups_split_by_voice() -> None:
     me, other = unit([1, 0, 0, 0]), unit([0, 1, 0, 0])
 
     def prints(voice: NDArray[np.float64], count: int) -> NDArray[np.float64]:
-        p = voice + rng.normal(0, 0.1, (count, 4))
-        return p / np.linalg.norm(p, axis=1, keepdims=True)
+        p: NDArray[np.float64] = voice + rng.normal(0, 0.1, (count, 4))
+        unit_prints: NDArray[np.float64] = p / np.linalg.norm(p, axis=1, keepdims=True)
+        return unit_prints
 
     one = two_groups(prints(me, 30))
     assert one.stretches == 30 and one.alike > 0.9 and problems(one) == []
