@@ -11,14 +11,14 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 8 of 10 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 9 of 10 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
 | 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
 | 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.6% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.9% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
-| | **Total** | | **36** | **100%** | **13 of 36** |
+| | **Total** | | **36** | **100%** | **14 of 36** |
 
 Sizes: 10 Simple, 26 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -147,7 +147,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** clicking Prepare shows progress moving through each step, with step timings in the logs.
 - **Built:** `prepare_job.py`: Prepare on the Setup page starts a background job (`POST /api/prepare`; `GET /api/prepare` reports it) with five steps: load Kokoro, load the photoreal models, render the mouth shapes, render the idle loop, line up the mouth. The browser shows a progress bar weighted by how long each step takes, each step's count and time left, and asks every second while it runs. The state is saved in `prepare.json`; a job the server was stopped in the middle of is resumed at the next start, keeping the frames already rendered. The face step uses the photoreal engine only.
 
-### R13. Sample video in the browser (Medium) · items 5, 6
+### R13. Sample video in the browser (Medium) · items 5, 6 · Done in [PR #26](https://github.com/larry94555/ImageSkinForLLM/pull/26)
 - After prepare, the job renders the sample video and pre-renders "Goodbye." and "Welcome back."; the browser plays the sample.
 - **Can show:** the sample video plays in the browser after prepare finishes.
 - **Built:** a sixth prepare step renders "Goodbye.", "Welcome back." and the sample script (Kokoro voice, photoreal engine) into `<IMAGESKIN_HOME>/clips/`, with progress counted in words so the time left allows for the long sample. Each clip is written aside and then moved into place, so a restart keeps finished clips and redoes only a cut-short one; preparing again removes the old clips first. `GET /api/prepare/clips/{sample|goodbye|welcome-back}` serves a clip while the job is done for the uploads as they are now (404 otherwise), and the Setup page plays the sample under Prepare when it is ready.
