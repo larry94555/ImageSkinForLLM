@@ -11,14 +11,14 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 4 of 10 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 5 of 10 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
 | 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
 | 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.6% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.9% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
-| | **Total** | | **36** | **100%** | **10 of 36** |
+| | **Total** | | **36** | **100%** | **11 of 36** |
 
 Sizes: 10 Simple, 26 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -125,10 +125,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** a group photo, a small face or a side-on photo is rejected with a message a nontechnical person can act on.
 - **Built:** `face_checks.py` runs MediaPipe's face landmarker (faces, size, head turn) and multiclass selfie segmenter (hands, masks, sunglasses over the face) on each photo as it is uploaded; about 20 MB of models are downloaded to `<IMAGESKIN_HOME>/models/faces` on first use. Limits: face at least 180 px from mid-forehead to chin, measured after shrinking the photo to 1280 px on its longest side as the photoreal engine does (Larry's 1080p webcam photos measure 200 to 216; the ~512 px in features.md was a guess before the engine existed), turned or tilted at most 25°, at most 12% of the face below the eyebrows covered (hair and beards allowed). The problems are saved in each photo's `.json`, returned as `problems` by the uploads API, and shown under each photo (Looks good, the messages, or Not checked). The models load when the server starts; photos uploaded before the checks are checked one at a time after the list shows (`POST /api/uploads/photos/{id}/check`), with Waiting to check / Checking face… under each, and the screen says Loading… while the list loads. Needs the optional extra `.[faces]` (or `.[photoreal]`); without it photos show Not checked. A group photo whose other faces are small or turned may be found as one face; the size check usually rejects it.
 
-### R9. Photo quality checks and best photo (Medium) · item 2 (part 2)
+### R9. Photo quality checks and best photo (Medium) · item 2 (part 2) · Done in [PR #21](https://github.com/larry94555/ImageSkinForLLM/pull/21)
 - The remaining two checks: sharp, and evenly lit.
 - Scores valid photos, picks the best, and lets the user choose another.
 - **Can show:** a blurry or dark photo is rejected; the best photo is highlighted and can be changed.
+- **Built:** `face_checks.light_and_sharpness` measures the face scaled to its size in the video (about 222 px tall): sharpness is the spread of the Laplacian over the face's average grey level (at least 0.05; sharp phone photos measure 0.1 to 0.23, a 720p webcam photo 0.1, a 1.5 px blur 0.02 to 0.04), brightness is the lightness 90% of the face below the eyebrows is under (at least 75 of 255, so dark skin in good light passes), at most 25% of the face pure white, and the darker side of the face at least 0.4 times as light as the other (window light to one side measures about 0.5 and passes). Limits were set on real phone and webcam photos and blurred, darkened, brightened and side-shaded copies. Photos that pass get a 0 to 100 score averaging sharpness, size, head angle, covering, brightness and evenness, each capped where more stops helping the video. The best scoring photo is outlined as **Used for the video**; **Use this photo** picks another (saved in `uploads/chosen-photo.json`, read and set through `GET`/`PUT /api/uploads/photos/chosen`); removing the chosen photo falls back to the best. `FACE_CHECKS` went to 3 so earlier photos are rechecked.
 
 ### R10. Sound checks (Medium) · item 3 (part 1)
 - Checks: long enough (threshold decided before this PR), not clipped, low background noise, each with a plain-language message.
