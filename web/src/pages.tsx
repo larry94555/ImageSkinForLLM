@@ -7,6 +7,7 @@ import {
   choosePhoto,
   confirmConsent,
   getPhotoChoice,
+  clipUrl,
   getPrepare,
   getVoiceSample,
   type Kind,
@@ -399,7 +400,8 @@ function VoiceSampleView({ changes }: { changes: number }) {
 export const PREPARE_POLL_MS = 1000;
 
 // Setup step 2 (roadmap R12): get the voice and the face ready for the video, with a progress
-// bar. The job runs on the server, so the page can be closed or reloaded meanwhile.
+// bar, then play the sample video it renders (R13). The job runs on the server, so the page can
+// be closed or reloaded meanwhile.
 function PrepareSection({ changes }: { changes: number }) {
   // null until the server has answered.
   const [status, setStatus] = useState<PrepareStatus | null>(null);
@@ -459,7 +461,8 @@ function PrepareSection({ changes }: { changes: number }) {
     <section className="prepare">
       <h2>Prepare</h2>
       <p className="muted">
-        Gets the voice and the face ready for the video. The first time takes 20 minutes or more.
+        Gets the voice and the face ready for the video, then makes a short sample video of the
+        person talking. The first time takes 20 minutes or more.
         You can leave this page meanwhile; if the app is stopped, it carries on where it left off
         when the app starts again.
       </p>
@@ -496,7 +499,15 @@ function PrepareSection({ changes }: { changes: number }) {
         </>
       )}
       {status?.state === "done" && (
-        <p className="done">Ready: the voice and the face are prepared.</p>
+        <div className="sample-video">
+          <p className="done">Ready. Here is the sample video:</p>
+          <video
+            controls
+            preload="metadata"
+            src={clipUrl("sample", status)}
+            aria-label="Sample video"
+          />
+        </div>
       )}
       {status?.state === "failed" && <p className="error">{status.error}</p>}
     </section>

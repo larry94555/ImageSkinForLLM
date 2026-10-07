@@ -141,6 +141,12 @@ export interface PrepareStatus {
   finished_at: string | null;
 }
 
+// A video the prepare job rendered (roadmap R13). The finish time is added so that the browser
+// fetches it afresh after preparing again, which replaces it under the same address.
+export function clipUrl(name: "sample" | "goodbye" | "welcome-back", status: PrepareStatus) {
+  return `/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`;
+}
+
 export async function getPrepare(): Promise<PrepareStatus> {
   return json<PrepareStatus>(await fetch("/api/prepare"));
 }

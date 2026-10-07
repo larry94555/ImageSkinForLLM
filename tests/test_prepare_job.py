@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from imageskin.app import create_app
 from imageskin.prepare_job import (
+    CLIPS,
     NO_PHOTO,
     PrepareError,
     PrepareJob,
@@ -20,6 +21,7 @@ from imageskin.prepare_job import (
     fresh_steps,
     kokoro_voice,
     percent,
+    photoreal_clip,
     photoreal_face,
 )
 from imageskin.uploads import PhotoChoice, PhotoResult, UploadStore, VoiceSample
@@ -58,11 +60,18 @@ def face_in_steps(photo: Path, progress: Progress) -> None:
     progress("align", 1, 1)
 
 
+def write_clip(photo: Path, text: str, output: Path) -> None:
+    output.write_text(text)
+
+
 def make_job(
-    tmp_path: Path, face: object = face_in_steps, voice: object = lambda: None
+    tmp_path: Path,
+    face: object = face_in_steps,
+    voice: object = lambda: None,
+    clip: object = write_clip,
 ) -> tuple[PrepareJob, FakeStore]:
     store = FakeStore(tmp_path)
-    job = PrepareJob(tmp_path, cast(UploadStore, store), voice, face)  # type: ignore[arg-type]
+    job = PrepareJob(tmp_path, cast(UploadStore, store), voice, face, clip)  # type: ignore[arg-type]
     return job, store
 
 
@@ -78,11 +87,13 @@ def test_prepares_the_voice_then_the_face_and_saves_the_result(
     status = job.status()
     assert status.state == "done" and status.percent == 100 and status.error is None
     assert status.steps is not None
-    assert [s.key for s in status.steps] == ["voice", "models", "shapes", "loop", "align"]
+    keys = [s.key for s in status.steps]
+    assert keys == ["voice", "models", "shapes", "loop", "align", "clips"]
     assert all(s.done == s.total for s in status.steps)
     # Mouth shapes from before: done, with no time, since nothing was rendered.
-    assert [s.seconds is None for s in status.steps] == [False, False, True, False, False]
-    assert caplog.text.count("Prepare step finished") == 4
+    assert [s.seconds is None for s in status.steps] == [False, False, True, False, False, False]
+    assert caplog.text.count("Prepare step finished") == 5
+    assert caplog.text.count("Rendered clip") == 3
     assert caplog.text.count("Prepare step already done") == 1
     assert "Prepare job finished" in caplog.text
     saved = json.loads((tmp_path / "prepare.json").read_text())
@@ -214,7 +225,7 @@ def test_a_state_file_from_other_steps_loads_consistently(tmp_path: Path) -> Non
     job, _ = make_job(tmp_path)
     running = job.status()
     assert running.state == "running" and running.percent == 0
-    assert [s.done for s in running.steps or []] == [0] * 5
+    assert [s.done for s in running.steps or []] == [0] * 6
     job.resume()
     job.wait(5)
     assert job.status().state == "done"
@@ -267,6 +278,7 @@ def test_the_api_starts_the_job_and_reports_on_it(tmp_path: Path) -> None:
             check_photo=lambda p: PhotoResult([], 80),
             prepare_voice=lambda: None,
             prepare_face=face_in_steps,
+            render_clip=write_clip,
         )
     )
     assert client.get("/api/prepare").status_code == 403  # consent first
@@ -280,5 +292,100 @@ def test_the_api_starts_the_job_and_reports_on_it(tmp_path: Path) -> None:
         assert client.post("/api/prepare").json()["state"] == "running"
         client.app.state.prepare_job.wait(5)  # type: ignore[attr-defined]
         done = client.get("/api/prepare").json()
+        sample = client.get("/api/prepare/clips/sample")
+        goodbye = client.get("/api/prepare/clips/goodbye")
+        other = client.get("/api/prepare/clips/other")
     assert done["state"] == "done" and done["percent"] == 100
-    assert [s["done"] for s in done["steps"]] == [1, 1, 10, 4, 1]
+    assert [s["done"] for s in done["steps"]][:5] == [1, 1, 10, 4, 1]
+    assert sample.status_code == 200 and sample.headers["content-type"] == "video/mp4"
+    assert sample.text.startswith("This is a test.")
+    assert goodbye.text == "Goodbye." and other.status_code == 422
+    # No voice sample any more: the clips were made from old uploads, so they are not served.
+    missing = client.get("/api/prepare/clips/sample")
+    assert missing.status_code == 404 and "Prepare" in missing.json()["detail"]
+
+
+def test_renders_the_sample_and_the_fixed_lines_after_the_face(tmp_path: Path) -> None:
+    said: list[str] = []
+
+    def clip(photo: Path, text: str, output: Path) -> None:
+        said.append(text)
+        write_clip(photo, text, output)
+
+    job, store = make_job(tmp_path, clip=clip)
+    assert job.clip("sample") is None  # nothing prepared yet
+    job.start()
+    job.wait(5)
+    assert said == [text for _, text in CLIPS]
+    assert said[:2] == ["Goodbye.", "Welcome back."]
+    sample = job.clip("sample")
+    assert sample == tmp_path / "clips" / "sample.mp4"
+    assert sample.read_text().startswith("This is a test. How do I sound?")
+    assert not list((tmp_path / "clips").glob("*.rendering.mp4"))
+    clips = next(s for s in job.status().steps or [] if s.key == "clips")
+    assert clips.done == clips.total > 3  # counted in words
+
+    # Preparing again (say for another photo) renders every clip afresh.
+    said.clear()
+    job.start()
+    job.wait(5)
+    assert len(said) == 3
+
+
+def test_a_restart_keeps_the_clips_already_rendered(tmp_path: Path) -> None:
+    steps = [asdict(s) for s in fresh_steps()]
+    for s in steps[:5]:
+        s["done"] = s["total"]
+    saved = {"state": "running", "photo_id": PHOTO_ID, "percent": 95, "steps": steps}
+    (tmp_path / "prepare.json").write_text(json.dumps(saved))
+    (tmp_path / "clips").mkdir()
+    (tmp_path / "clips" / "goodbye.mp4").write_text("kept")
+    (tmp_path / "clips" / "sample.rendering.mp4").write_text("cut short")
+    said: list[str] = []
+
+    def clip(photo: Path, text: str, output: Path) -> None:
+        said.append(text)
+        write_clip(photo, text, output)
+
+    job, _ = make_job(tmp_path, clip=clip)
+    job.resume()
+    job.wait(5)
+    assert said[0] == "Welcome back." and len(said) == 2
+    assert (tmp_path / "clips" / "goodbye.mp4").read_text() == "kept"
+    assert job.status().state == "done"
+
+
+def test_a_clip_that_fails_fails_the_job_and_is_not_served(tmp_path: Path) -> None:
+    def broken(photo: Path, text: str, output: Path) -> None:
+        output.write_text("half")
+        raise VideoError("ffmpeg failed")
+
+    job, _ = make_job(tmp_path, clip=broken)
+    job.start()
+    job.wait(5)
+    assert job.status().error == "ffmpeg failed"
+    assert job.clip("goodbye") is None
+    assert not (tmp_path / "clips" / "goodbye.mp4").exists()
+
+
+def test_default_clip_speaks_with_kokoro_and_renders_photoreal(tmp_path: Path) -> None:
+    from imageskin.voice import Speech
+
+    speech = Speech(b"\0\0" * 2400, 24000, [])
+    with (
+        patch("imageskin.kokoro_engine.KokoroEngine.speak", return_value=speech) as speak,
+        patch("imageskin.photoreal.PhotorealEngine") as engine,
+    ):
+        render = photoreal_clip(tmp_path)
+        render(tmp_path / "me.jpg", "Goodbye.", tmp_path / "goodbye.mp4")
+        render(tmp_path / "me.jpg", "Welcome back.", tmp_path / "welcome.mp4")
+    assert [c.args for c in speak.call_args_list] == [
+        ("af_heart", "Goodbye."),
+        ("af_heart", "Welcome back."),
+    ]
+    engine.assert_called_once_with(tmp_path)  # the library is loaded once for all clips
+    video = engine.return_value
+    video.prepare.assert_called_once_with(tmp_path / "me.jpg")
+    assert video.render.call_count == 2
+    lib, wav, output = video.render.call_args.args
+    assert lib is video.prepare.return_value and output == tmp_path / "welcome.mp4"

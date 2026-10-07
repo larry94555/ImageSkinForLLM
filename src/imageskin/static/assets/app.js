@@ -62,6 +62,9 @@ async function removeUpload(kind, id) {
 	const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
 }
+function clipUrl(name, status) {
+	return `/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`;
+}
 async function getPrepare() {
 	return json(await fetch("/api/prepare"));
 }
@@ -482,7 +485,7 @@ function PrepareSection({ changes }) {
 			/* @__PURE__ */ u("h2", { children: "Prepare" }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Gets the voice and the face ready for the video. The first time takes 20 minutes or more. You can leave this page meanwhile; if the app is stopped, it carries on where it left off when the app starts again."
+				children: "Gets the voice and the face ready for the video, then makes a short sample video of the person talking. The first time takes 20 minutes or more. You can leave this page meanwhile; if the app is stopped, it carries on where it left off when the app starts again."
 			}),
 			status === null && !loadFailed && /* @__PURE__ */ u("p", {
 				className: "muted busy",
@@ -533,9 +536,17 @@ function PrepareSection({ changes }) {
 					})
 				] }, step.key))
 			})] }),
-			status?.state === "done" && /* @__PURE__ */ u("p", {
-				className: "done",
-				children: "Ready: the voice and the face are prepared."
+			status?.state === "done" && /* @__PURE__ */ u("div", {
+				className: "sample-video",
+				children: [/* @__PURE__ */ u("p", {
+					className: "done",
+					children: "Ready. Here is the sample video:"
+				}), /* @__PURE__ */ u("video", {
+					controls: true,
+					preload: "metadata",
+					src: clipUrl("sample", status),
+					"aria-label": "Sample video"
+				})]
 			}),
 			status?.state === "failed" && /* @__PURE__ */ u("p", {
 				className: "error",

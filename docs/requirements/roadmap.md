@@ -150,6 +150,7 @@ The PRs below are written for either kind of video engine, but these are the one
 ### R13. Sample video in the browser (Medium) · items 5, 6
 - After prepare, the job renders the sample video and pre-renders "Goodbye." and "Welcome back."; the browser plays the sample.
 - **Can show:** the sample video plays in the browser after prepare finishes.
+- **Built:** a sixth prepare step renders "Goodbye.", "Welcome back." and the sample script (Kokoro voice, photoreal engine) into `<IMAGESKIN_HOME>/clips/`, with progress counted in words so the time left allows for the long sample. Each clip is written aside and then moved into place, so a restart keeps finished clips and redoes only a cut-short one; preparing again removes the old clips first. `GET /api/prepare/clips/{sample|goodbye|welcome-back}` serves a clip while the job is done for the uploads as they are now (404 otherwise), and the Setup page plays the sample under Prepare when it is ready.
 
 ### R14. Review screen (Simple) · item 7
 - Accept, Reject image (back to image upload), Reject voice (back to sound upload). Change accent is added in R26.

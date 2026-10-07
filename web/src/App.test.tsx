@@ -806,16 +806,23 @@ test("prepare starts the job and shows each step's progress until it is ready", 
 
   // The page asks again every second while it runs.
   expect(
-    await screen.findByText("Ready: the voice and the face are prepared.", {}, { timeout: 3000 }),
+    await screen.findByText("Ready. Here is the sample video:", {}, { timeout: 3000 }),
   ).toBeTruthy();
   expect(screen.getByText("Done in 17 min")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Prepare again" })).toBeTruthy();
+  // The sample video plays from the server, fetched afresh each time it is prepared again.
+  const video = screen.getByLabelText("Sample video") as HTMLVideoElement;
+  expect(video.getAttribute("src")).toBe(
+    "/api/prepare/clips/sample?v=2026-10-07T09%3A20%3A00%2B00%3A00",
+  );
+  expect(video.controls).toBe(true);
 });
 
 test("a job already running when the page opens is shown and followed", async () => {
   prepareServer([RUNNING]);
   await openAt("#/setup");
   expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
+  expect(screen.queryByLabelText("Sample video")).toBeNull(); // not until it is done
 });
 
 test("prepare says what is missing when it can't start", async () => {
@@ -884,14 +891,14 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
   vi.stubGlobal("fetch", fetchMock);
   vi.spyOn(window, "confirm").mockReturnValue(true);
   await openAt("#/setup");
-  expect(await screen.findByText("Ready: the voice and the face are prepared.")).toBeTruthy();
+  expect(await screen.findByText("Ready. Here is the sample video:")).toBeTruthy();
 
   fireEvent.click(await screen.findByRole("button", { name: "Use this photo" }));
   expect(await screen.findByRole("button", { name: "Prepare" })).toBeTruthy();
-  expect(screen.queryByText("Ready: the voice and the face are prepared.")).toBeNull();
+  expect(screen.queryByText("Ready. Here is the sample video:")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Use this photo" })); // back to the first
-  expect(await screen.findByText("Ready: the voice and the face are prepared.")).toBeTruthy();
+  expect(await screen.findByText("Ready. Here is the sample video:")).toBeTruthy();
 
   const recording = (await screen.findByText(/voice1\.m4a/)).closest("li") as HTMLElement;
   fireEvent.click(within(recording).getByRole("button", { name: "Remove" }));
