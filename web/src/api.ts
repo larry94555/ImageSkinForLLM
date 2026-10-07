@@ -36,10 +36,12 @@ export interface Upload {
   size: number;
   uploaded_at: string;
   seconds: number | null;
-  // Photos only: what the photo checks found ([] when it passed), or null when not checked.
+  // What the photo or sound checks found ([] when it passed), or null when not checked.
   problems: string[] | null;
   // Photos that passed the checks: 0 to 100, higher is better.
   score: number | null;
+  // Checked recordings: seconds of speech, pauses not counted.
+  speech: number | null;
 }
 
 // The photo the video will be made from (id null until a photo passes the checks): the best
@@ -48,6 +50,17 @@ export interface PhotoChoice {
   id: string | null;
   chosen_by: "app" | "you";
 }
+
+// The recordings that passed the sound checks, joined into one. problem says what is missing
+// while there is not enough speech for the voice.
+export interface VoiceSample {
+  recordings: number;
+  seconds: number;
+  speech: number;
+  problem: string | null;
+}
+
+export const voiceSampleAudioUrl = "/api/voice-sample/audio";
 
 // The server's explanation for a refused request, meant for the person using the app.
 async function refusal(response: Response): Promise<string> {
@@ -77,11 +90,15 @@ export async function uploadFile(kind: Kind, file: File): Promise<Upload> {
   return (await response.json()) as Upload;
 }
 
-// Runs the face checks on a photo uploaded before they were on; returns it with the result.
-export async function checkPhoto(id: string): Promise<Upload> {
-  const response = await fetch(`${uploadUrl("photos", id)}/check`, { method: "POST" });
+// Runs the checks on an upload stored before they were on; returns it with the result.
+export async function checkUpload(kind: Kind, id: string): Promise<Upload> {
+  const response = await fetch(`${uploadUrl(kind, id)}/check`, { method: "POST" });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Upload;
+}
+
+export async function getVoiceSample(): Promise<VoiceSample> {
+  return json<VoiceSample>(await fetch("/api/voice-sample"));
 }
 
 export async function getPhotoChoice(): Promise<PhotoChoice> {

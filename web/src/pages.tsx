@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
-  checkPhoto,
+  checkUpload,
   choosePhoto,
   confirmConsent,
   getPhotoChoice,
+  getVoiceSample,
   type Kind,
   listUploads,
   type PhotoChoice,
@@ -14,6 +15,8 @@ import {
   type Upload,
   uploadFile,
   uploadUrl,
+  type VoiceSample,
+  voiceSampleAudioUrl,
 } from "./api";
 
 export function HomePage({ consented }: { consented: boolean }) {
@@ -107,8 +110,10 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
   const [loadFailed, setLoadFailed] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   const [refused, setRefused] = useState<Refused[]>([]);
-  // Photos still to be checked, in order; the first one is being checked now.
+  // Uploads still to be checked, in order; the first one is being checked now.
   const [toCheck, setToCheck] = useState<string[]>([]);
+  // Sounds only (roadmap R10): counts changes to the recordings, so the voice sample is read again.
+  const [soundChanges, setSoundChanges] = useState(0);
   // Photos only (roadmap R9): the one the video will be made from.
   const [choice, setChoice] = useState<PhotoChoice | null>(null);
   const [choosing, setChoosing] = useState<string | null>(null);
@@ -154,8 +159,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
     listUploads(kind)
       .then((list) => {
         setItems(list);
-        if (kind !== "photos") return;
-        void checkOldPhotos(list);
+        void checkOld(list);
         void refreshChoice();
       })
       .catch((e: unknown) => {
@@ -164,19 +168,27 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
       });
   }, [kind]);
 
-  // Photos uploaded before the face checks were on are checked one at a time after the list
-  // shows, so the page doesn't wait for them.
-  async function checkOldPhotos(list: Upload[]) {
-    const unchecked = list.filter((p) => p.problems === null);
-    setToCheck(unchecked.map((p) => p.id));
-    for (const photo of unchecked) {
+  // Something about the recordings changed: read the voice sample again.
+  function soundsChanged() {
+    if (kind === "sounds") setSoundChanges((n) => n + 1);
+  }
+
+  // Uploads stored before the checks were on are checked one at a time after the list shows,
+  // so the page doesn't wait for them.
+  async function checkOld(list: Upload[]) {
+    const unchecked = list.filter((u) => u.problems === null);
+    setToCheck(unchecked.map((u) => u.id));
+    for (const upload of unchecked) {
       try {
-        const checked = await checkPhoto(photo.id);
+        const checked = await checkUpload(kind, upload.id);
         setItems((current) => (current ?? []).map((i) => (i.id === checked.id ? checked : i)));
         if (checked.problems === null) break; // checks are off; the rest would be the same
-        if (checked.problems.length === 0) await refreshChoice();
+        if (checked.problems.length === 0) {
+          await refreshChoice();
+          soundsChanged();
+        }
       } catch (e) {
-        console.error(`Could not check ${photo.name}`, e); // removed meanwhile, or server down
+        console.error(`Could not check ${upload.name}`, e); // removed meanwhile, or server down
       }
       setToCheck((ids) => ids.slice(1));
     }
@@ -194,7 +206,10 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
       try {
         const upload = await uploadFile(kind, file);
         setItems((current) => [...(current ?? []), upload]);
-        if (upload.problems?.length === 0) await refreshChoice();
+        if (upload.problems?.length === 0) {
+          await refreshChoice();
+          soundsChanged();
+        }
       } catch (e) {
         console.error(`Upload of ${file.name} refused`, e);
         setRefused((current) => [...current, { name: file.name, reason: (e as Error).message }]);
@@ -210,6 +225,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
       setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
       // Always asked, not only when it was the chosen one: it may be the one being chosen now.
       await refreshChoice();
+      soundsChanged();
     } catch (e) {
       console.error(`Could not remove ${item.name}`, e);
       setRefused([{ name: item.name, reason: "Could not remove it. Please try again." }]);
@@ -226,7 +242,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
       <p className="muted">{props.hint}</p>
       <label className={ready ? "button" : "button busy"}>
         {sending
-          ? `${kind === "photos" ? "Uploading and checking" : "Uploading"} ${sending}…`
+          ? `Uploading and checking ${sending}…`
           : loading
             ? "Loading…"
             : `Add ${props.title.toLowerCase()}`}
@@ -261,13 +277,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
               {item.name}
               {item.seconds !== null && ` (${minutes(item.seconds)})`}
             </span>
-            {kind === "photos" && (
-              <FaceChecks
-                problems={item.problems}
-                score={item.score}
-                queue={toCheck.indexOf(item.id)}
-              />
-            )}
+            <Checks item={item} queue={toCheck.indexOf(item.id)} />
             {kind === "photos" && item.id === choice?.id && (
               <span className="chosen-note">
                 Used for the video
@@ -289,20 +299,27 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
           </li>
         ))}
       </ul>
+      {kind === "sounds" && <VoiceSampleView changes={soundChanges} />}
     </section>
   );
 }
 
-// Under each photo (roadmap R8, R9): what to fix, or that it passed the checks and its score.
-// queue: 0 while this photo is being checked, above 0 while it waits its turn, -1 otherwise.
-function FaceChecks(props: { problems: string[] | null; score: number | null; queue: number }) {
-  const { problems, score, queue } = props;
-  if (queue === 0) return <span className="muted check busy">Checking photo…</span>;
+// Under each photo or recording (roadmap R8 to R10): what to fix, or that it passed the checks,
+// with a photo's score or a recording's length of speech.
+// queue: 0 while it is being checked, above 0 while it waits its turn, -1 otherwise.
+function Checks({ item, queue }: { item: Upload; queue: number }) {
+  const { problems, score, speech } = item;
+  const what = item.kind === "photos" ? "photo" : "recording";
+  if (queue === 0) return <span className="muted check busy">Checking {what}…</span>;
   if (queue > 0) return <span className="muted check">Waiting to check</span>;
   if (problems == null) return <span className="muted check">Not checked</span>;
   if (problems.length === 0) {
     return (
-      <span className="done check">Looks good{score !== null && ` · score ${score} of 100`}</span>
+      <span className="done check">
+        Looks good
+        {score !== null && ` · score ${score} of 100`}
+        {speech !== null && ` · ${minutes(speech)} of speech`}
+      </span>
     );
   }
   return (
@@ -313,6 +330,48 @@ function FaceChecks(props: { problems: string[] | null; score: number | null; qu
         </li>
       ))}
     </ul>
+  );
+}
+
+// Under the recordings (roadmap R10): the ones that passed the checks, joined into the voice
+// sample the person's voice will be made from.
+function VoiceSampleView({ changes }: { changes: number }) {
+  const [sample, setSample] = useState<VoiceSample | null>(null);
+
+  useEffect(() => {
+    let newest = true; // set to false once a later read is sent, so an old answer isn't shown
+    getVoiceSample()
+      .then((s) => {
+        if (newest) setSample(s);
+      })
+      .catch((e: unknown) => console.error("Could not get the voice sample", e));
+    return () => {
+      newest = false;
+    };
+  }, [changes]);
+
+  if (sample === null) return null;
+  return (
+    <div className="voice-sample">
+      <h3>Voice sample</h3>
+      {sample.recordings > 0 && (
+        <>
+          {/* changes in the address, so the player loads the new sample after each change */}
+          <audio controls preload="none" src={`${voiceSampleAudioUrl}?v=${changes}`} />
+          <p className="name">
+            {sample.recordings === 1
+              ? "Made from the recording that passed the checks"
+              : `Made from the ${sample.recordings} recordings that passed the checks, in order`}
+            : {minutes(sample.speech)} of speech.
+          </p>
+        </>
+      )}
+      {sample.problem === null ? (
+        <p className="done">Enough speech to make the voice.</p>
+      ) : (
+        <p className={sample.recordings > 0 ? "error" : "muted"}>{sample.problem}</p>
+      )}
+    </div>
   );
 }
 

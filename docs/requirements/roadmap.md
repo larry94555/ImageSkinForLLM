@@ -11,14 +11,14 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 5 of 10 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 6 of 10 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
 | 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
 | 6 | **The person's voice.** Replies in the person's own voice (by voice conversion, with an American accent), and the accent choice in setup. | R25 to R26 | 2 | 5.6% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.9% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.6% | 0 |
-| | **Total** | | **36** | **100%** | **11 of 36** |
+| | **Total** | | **36** | **100%** | **12 of 36** |
 
 Sizes: 10 Simple, 26 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -38,7 +38,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 |---|---|
 | R3 | The first voice (TTS) engine. It must return word timings (needed for highlighting in R18), be free per use and run on CPU (Larry, 2026-10-04). **Picked in R3: Kokoro-82M** (Apache 2.0, runs on CPU on Windows and on a Linux server, reports word timings). It uses ready-made voices and cannot clone, so the person's own voice moves to R25. Rejected: ElevenLabs (per-use cost), XTTS-v2 and F5-TTS (non-commercial model licenses), MeloTTS plus OpenVoice v2 (install pins packages too old for Python 3.11), Chatterbox (reported slower than real time on CPU). |
 | R4 | The first video engine, local or hosted, and which tool. It must be free per use, run on CPU, allow hosted use and work on Python 3.11 and 3.12 (Larry, 2026-10-04). **Picked in R4: our own mouth animation with OpenCV** (Apache 2.0): OpenCV's bundled face detector finds the face, and the mouth opens with the loudness of the speech. No model download, renders faster than real time on a CPU; it looks like a puppet mouth rather than a photoreal talking head. Rejected: Wav2Lip (non-commercial weights), SadTalker (non-commercial Basel Face Model, pins Python 3.8, minutes per clip on CPU), MuseTalk (needs a base video, no Python 3.12, GPU-bound), LivePortrait (video-driven, non-commercial InsightFace models), diffusion models such as Hallo and LatentSync (GPU only), hosted avatars (per-use cost). **Changed after R4:** LivePortrait turned out usable (its weights are MIT, and MediaPipe replaces the non-commercial InsightFace), and pre-rendering its frames once makes each reply fast on the CPU (GitHub PR #8). Larry chose it for photoreal quality (2026-10-05); R4b and R4c build it. |
-| R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. |
+| R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. **Picked in R10:** at least 30 seconds of speech in the voice sample, and at least 15 in each recording (pauses not counted); constants in `sound_checks.py`. |
 | R21 | The latency target. Larry: a reply video that takes more than a few seconds to generate is unacceptable (2026-10-04). The photoreal test built a 2.5-second reply clip in 0.5 to 1.5 seconds on a 4-core CPU, so per-sentence clips should fit. Measured in R4c with the real voice on a 4-core CPU: the video for 6.9 seconds of speech renders in 2.2 seconds (about a third of real time), after Kokoro's 2 seconds to speak it. |
 | R25 | The CPU voice-conversion tool that turns Kokoro's output into the person's voice (for example OpenVoice's tone-color converter or Seed-VC). It must be free per use, run on CPU and allow hosted use. Keeping the person's original accent (item 4) would need a different, cloning TTS and is left open. |
 | R32 | How the hosted site restricts access to its one user. features.md says single-user and HTTPS but names no mechanism. The simplest option is one password checked at the HTTPS proxy, with no accounts. |
@@ -131,10 +131,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** a blurry or dark photo is rejected; the best photo is highlighted and can be changed.
 - **Built:** `face_checks.light_and_sharpness` measures the face scaled to its size in the video (about 222 px tall): sharpness is the spread of the Laplacian over the face's average grey level (at least 0.05; sharp phone photos measure 0.1 to 0.23, a 720p webcam photo 0.1, a 1.5 px blur 0.02 to 0.04), brightness is the lightness 90% of the face below the eyebrows is under (at least 75 of 255, so dark skin in good light passes), at most 25% of the face pure white, and the darker side of the face at least 0.4 times as light as the other (window light to one side measures about 0.5 and passes). Limits were set on real phone and webcam photos and blurred, darkened, brightened and side-shaded copies. Photos that pass get a 0 to 100 score averaging sharpness, size, head angle, covering, brightness and evenness, each capped where more stops helping the video. The best scoring photo is outlined as **Used for the video**; **Use this photo** picks another (saved in `uploads/chosen-photo.json`, read and set through `GET`/`PUT /api/uploads/photos/chosen`); removing the chosen photo falls back to the best. `FACE_CHECKS` went to 3 so earlier photos are rechecked.
 
-### R10. Sound checks (Medium) · item 3 (part 1)
+### R10. Sound checks (Medium) · item 3 (part 1) · Done in [PR #22](https://github.com/larry94555/ImageSkinForLLM/pull/22)
 - Checks: long enough (threshold decided before this PR), not clipped, low background noise, each with a plain-language message.
 - Combines the valid files into the voice sample used by R25.
 - **Can show:** a short, clipped or noisy recording is flagged; valid recordings are combined into one voice sample.
+- **Built:** `sound_checks.py` (numpy only, no model): at least 15 seconds of speech per recording (pauses not counted), at most 0.05% of the speech clipped, speech at least 20 dB above the background noise (set on the VoiceBank-DEMAND test set). The recordings that pass are joined into `uploads/voice-sample.wav`, shown with a player under the recordings; the voice needs at least 30 seconds of speech in all. Both lengths are constants at the top of `sound_checks.py`, so they are easy to change.
 
 ### R11. One-speaker check (Medium) · item 3 (part 2)
 - Detects a second voice in a recording (speaker diarization) and flags it with a plain-language message.

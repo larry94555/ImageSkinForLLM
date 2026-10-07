@@ -14,6 +14,8 @@ dependencies = [
     "uvicorn>=0.29",
     # Reads uploaded files (Apache 2.0).
     "python-multipart>=0.0.9",
+    # Sound checks on uploaded recordings (BSD).
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
@@ -23,13 +25,11 @@ voice = [
 ]
 # Video on the CPU. OpenCV 5 no longer bundles the face detector, so stay on 4.x.
 video = [
-    "numpy>=1.24",
     "opencv-python-headless>=4.8,<5",
 ]
 # Photoreal video on the CPU (LivePortrait, MIT; MediaPipe, Apache 2.0). Python 3.11 or 3.12.
 # The models (about 500 MB) are downloaded on first use.
 photoreal = [
-    "numpy>=1.24",
     "opencv-python-headless>=4.8,<5",
     "torch>=2.4",
     "mediapipe>=0.10.14",
@@ -41,7 +41,6 @@ photoreal = [
 # Face checks on uploaded photos (MediaPipe, Apache 2.0; it also installs OpenCV). Python 3.11
 # or 3.12. The models (about 20 MB) are downloaded on first use.
 faces = [
-    "numpy>=1.24",
     "mediapipe>=0.10.14",
 ]
 # HEIC photos from iPhones. pillow-heif's wheels bundle libheif and libde265 (LGPL-3) and x265

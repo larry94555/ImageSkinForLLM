@@ -112,6 +112,12 @@ ul.sounds audio { grid-column: 1 / -1; width: 100%; }
 .check { font-size: 0.875rem; }
 ul.problems { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
 ul.problems li { display: block; padding: 0; border: 0; background: none; font-size: 0.875rem; }
+ul.sounds .check, ul.sounds ul.problems { grid-column: 1 / -1; order: 1; }
+/* The recordings that passed the checks, joined (roadmap R10). */
+.voice-sample { margin-top: 16px; display: grid; gap: 6px; }
+.voice-sample h3 { margin: 0; font-size: 1rem; }
+.voice-sample audio { width: 100%; }
+.voice-sample p { margin: 0; }
 /* The photo the video will be made from (roadmap R9). */
 ul.photos li.chosen { border: 2px solid var(--accent); padding: 7px; }
 .chosen-note { color: var(--accent); font-size: 0.875rem; font-weight: 600; }

@@ -9,14 +9,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from sound_fakes import speechlike, wav_of
 
-from imageskin import uploads
+from imageskin import sound_checks, uploads
 from imageskin.audio import AudioError
+from imageskin.sound_checks import SoundResult
 from imageskin.uploads import (
     PhotoChoice,
     PhotoResult,
     UploadError,
     UploadStore,
+    VoiceSample,
     detect_format,
     display_name,
 )
@@ -329,9 +332,13 @@ def test_photos_are_checked_as_they_arrive(tmp_path: Path) -> None:
 
 
 @needs_ffmpeg
-def test_sounds_are_not_face_checked(tmp_path: Path) -> None:
+def test_sounds_are_sound_checked_not_face_checked(tmp_path: Path) -> None:
     store = UploadStore(tmp_path, check_photo=lambda p: pytest.fail("checked a sound"))
-    assert store.save("sounds", "a.wav", io.BytesIO(wav_bytes())).problems is None
+    silent = store.save("sounds", "a.wav", io.BytesIO(wav_bytes()))
+    assert silent.problems == [sound_checks.TOO_SHORT.format(speech=0)]
+    assert silent.checks == uploads.SOUND_CHECKS and silent.speech == 0
+    spoken = store.save("sounds", "b.wav", io.BytesIO(wav_of(speechlike(30))))
+    assert spoken.problems == [] and spoken.speech is not None and spoken.speech > 15
 
 
 def test_a_photo_that_cannot_be_checked_is_kept_unchecked(
@@ -358,7 +365,7 @@ def test_photos_stored_before_checks_are_checked_on_request(tmp_path: Path) -> N
 
     store.check_photo = lambda p: SMALL
     checked = replace(old, problems=["Your face is too small."], checks=uploads.FACE_CHECKS)
-    assert store.check(old.id) == checked
+    assert store.check("photos", old.id) == checked
     assert store.list("photos") == [checked]
 
 
@@ -369,19 +376,19 @@ def test_results_of_older_checks_are_listed_as_not_checked(tmp_path: Path) -> No
     with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
         assert [u.problems for u in store.list("photos")] == [None]
         store.check_photo = lambda p: GOOD
-        assert store.check(photo.id).problems == []  # type: ignore[union-attr]
+        assert store.check("photos", photo.id).problems == []  # type: ignore[union-attr]
         assert [u.problems for u in store.list("photos")] == [[]]
 
 
 def test_checking_needs_a_stored_photo(tmp_path: Path) -> None:
     store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
-    assert store.check("f" * 32) is None
-    assert store.check("not-an-id") is None
+    assert store.check("photos", "f" * 32) is None
+    assert store.check("photos", "not-an-id") is None
 
 
 def test_a_check_that_fails_keeps_the_photo_unchecked(tmp_path: Path) -> None:
     old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
-    assert UploadStore(tmp_path).check(old.id) == old  # checks are off
+    assert UploadStore(tmp_path).check("photos", old.id) == old  # checks are off
     assert [u.problems for u in UploadStore(tmp_path).list("photos")] == [None]
 
 
@@ -393,9 +400,9 @@ def test_old_results_stay_hidden_when_the_recheck_cannot_run(tmp_path: Path) -> 
         raise RuntimeError("models missing")
 
     with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
-        assert UploadStore(tmp_path).check(photo.id).problems is None  # type: ignore[union-attr]
+        assert UploadStore(tmp_path).check("photos", photo.id).problems is None  # type: ignore[union-attr]
         store.check_photo = broken
-        assert store.check(photo.id).problems is None  # type: ignore[union-attr]
+        assert store.check("photos", photo.id).problems is None  # type: ignore[union-attr]
 
 
 def test_a_photo_removed_while_its_result_is_saved_leaves_no_info_file(tmp_path: Path) -> None:
@@ -408,7 +415,7 @@ def test_a_photo_removed_while_its_result_is_saved_leaves_no_info_file(tmp_path:
         write_info(stored, upload)
 
     with patch.object(UploadStore, "_write_info", staticmethod(remove_then_write)):
-        store.check(photo.id)
+        store.check("photos", photo.id)
     assert store.list("photos") == []
     assert list((tmp_path / "uploads" / "photos").iterdir()) == []
 
@@ -463,3 +470,125 @@ def test_the_choice_file_is_not_listed_as_a_photo(tmp_path: Path) -> None:
     store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
     store.choose_photo(store.save("photos", "me.jpg", io.BytesIO(JPG)).id)
     assert len(store.list("photos")) == 1
+
+
+# --- Sound checks and the voice sample (R10) ---
+
+PASSED = SoundResult([], 20.0)
+NOISY = SoundResult([sound_checks.NOISY], 20.0)
+
+
+def sound_store(tmp_path: Path, results: list[SoundResult]) -> UploadStore:
+    """A store whose sound checks give these results, in order."""
+    queue = iter(results)
+    return UploadStore(tmp_path, check_sound=lambda p: next(queue))
+
+
+def stored_seconds(path: Path) -> float:
+    with wave.open(str(path), "rb") as w:
+        return w.getnframes() / w.getframerate()
+
+
+def test_the_voice_sample_joins_the_recordings_that_passed(tmp_path: Path) -> None:
+    store = sound_store(tmp_path, [PASSED, NOISY, PASSED])
+    for seconds in (1.0, 2.0, 0.5):
+        store.save("sounds", "a.wav", io.BytesIO(wav_bytes(seconds)))
+    assert store.voice_sample() == VoiceSample(recordings=2, seconds=1.5, speech=40.0, problem=None)
+    assert stored_seconds(store.voice_sample_file) == 1.5
+
+
+def test_recordings_sent_together_keep_their_order(tmp_path: Path) -> None:
+    store = sound_store(tmp_path, [PASSED] * 5)
+    sent = [store.save("sounds", f"{n}.wav", io.BytesIO(wav_bytes(0.1))).id for n in range(5)]
+    assert [u.id for u in store.list("sounds")] == sent
+
+
+def test_the_voice_sample_says_what_it_still_needs(tmp_path: Path) -> None:
+    store = sound_store(tmp_path, [NOISY, PASSED])
+    assert store.voice_sample().problem == uploads.NO_VOICE
+    store.save("sounds", "noisy.wav", io.BytesIO(wav_bytes()))
+    assert store.voice_sample().problem == uploads.NO_VOICE
+    assert not store.voice_sample_file.exists()
+    store.save("sounds", "short.wav", io.BytesIO(wav_bytes()))
+    assert store.voice_sample().problem == (
+        "The recordings that passed the checks have 20 seconds of speech. The voice needs at"
+        " least 30: add another recording."
+    )
+
+
+def test_removing_a_recording_updates_the_voice_sample(tmp_path: Path) -> None:
+    store = sound_store(tmp_path, [PASSED, PASSED])
+    first, second = (store.save("sounds", "a.wav", io.BytesIO(wav_bytes(s))) for s in (1, 2))
+    assert store.remove("sounds", first.id)
+    assert stored_seconds(store.voice_sample_file) == 2
+    assert store.remove("sounds", second.id)
+    assert not store.voice_sample_file.exists()
+    assert store.voice_sample().recordings == 0
+
+
+def test_sounds_stored_before_the_checks_are_checked_on_request(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_sound=None)
+    old = store.save("sounds", "old.wav", io.BytesIO(wav_bytes()))
+    assert old.problems is None and store.voice_sample().recordings == 0
+
+    store.check_sound = lambda p: PASSED
+    checked = store.check("sounds", old.id)
+    assert checked == replace(old, problems=[], checks=uploads.SOUND_CHECKS, speech=20.0)
+    assert store.voice_sample_file.exists()
+    with patch.object(uploads, "SOUND_CHECKS", uploads.SOUND_CHECKS + 1):
+        assert [(u.problems, u.speech) for u in store.list("sounds")] == [(None, None)]
+
+
+def test_a_sound_that_cannot_be_checked_is_kept_unchecked(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(sound: Path) -> SoundResult:
+        raise ValueError("not 16-bit")
+
+    store = UploadStore(tmp_path, check_sound=broken)
+    with caplog.at_level(logging.ERROR):
+        upload = store.save("sounds", "a.wav", io.BytesIO(wav_bytes()))
+    assert upload.problems is None
+    assert "Sound checks failed" in caplog.text
+
+
+def test_a_voice_sample_that_cannot_be_joined_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = sound_store(tmp_path, [PASSED])
+    with (
+        patch.object(uploads, "join_wavs", side_effect=AudioError("disk full")),
+        caplog.at_level(logging.ERROR),
+    ):
+        upload = store.save("sounds", "a.wav", io.BytesIO(wav_bytes()))
+    assert store.list("sounds") == [upload]  # the recording is kept
+    assert "Could not make the voice sample" in caplog.text
+    assert list((tmp_path / "uploads").glob("voice-sample*")) == []
+    assert store.voice_sample().problem == uploads.JOIN_FAILED
+
+
+@pytest.mark.parametrize("change", ["add", "remove"])
+def test_a_failed_rebuild_never_serves_the_old_voice_sample(tmp_path: Path, change: str) -> None:
+    store = sound_store(tmp_path, [PASSED] * 3)
+    first, second = (store.save("sounds", "a.wav", io.BytesIO(wav_bytes(s))) for s in (1, 2))
+    assert stored_seconds(store.voice_sample_file) == 3
+    with patch.object(uploads, "join_wavs", side_effect=AudioError("disk full")):
+        if change == "add":
+            store.save("sounds", "c.wav", io.BytesIO(wav_bytes(0.5)))
+        else:
+            assert store.remove("sounds", first.id)
+    assert not store.voice_sample_file.exists()  # not the old one, which no longer matches
+    assert store.voice_sample() == VoiceSample(
+        recordings=0, seconds=0, speech=0, problem=uploads.JOIN_FAILED
+    )
+    # The next change joins them again.
+    store.check_sound = lambda p: PASSED
+    store.save("sounds", "d.wav", io.BytesIO(wav_bytes(1)))
+    assert store.voice_sample_file.exists() and store.voice_sample().recordings >= 2
+
+
+def test_removing_a_photo_does_not_wait_for_the_voice_sample(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path)
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    with store._sounds_lock:  # a voice sample is being joined
+        assert store.remove("photos", photo.id)

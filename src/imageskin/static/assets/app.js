@@ -38,10 +38,13 @@ async function uploadFile(kind, file) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
-async function checkPhoto(id) {
-	const response = await fetch(`${uploadUrl("photos", id)}/check`, { method: "POST" });
+async function checkUpload(kind, id) {
+	const response = await fetch(`${uploadUrl(kind, id)}/check`, { method: "POST" });
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
+}
+async function getVoiceSample() {
+	return json(await fetch("/api/voice-sample"));
 }
 async function getPhotoChoice() {
 	return json(await fetch("/api/uploads/photos/chosen"));
@@ -148,6 +151,7 @@ function UploadSection(props) {
 	const [sending, setSending] = d(null);
 	const [refused, setRefused] = d([]);
 	const [toCheck, setToCheck] = d([]);
+	const [soundChanges, setSoundChanges] = d(0);
 	const [choice, setChoice] = d(null);
 	const [choosing, setChoosing] = d(null);
 	const choiceRequests = A(0);
@@ -184,25 +188,30 @@ function UploadSection(props) {
 	h(() => {
 		listUploads(kind).then((list) => {
 			setItems(list);
-			if (kind !== "photos") return;
-			checkOldPhotos(list);
+			checkOld(list);
 			refreshChoice();
 		}).catch((e) => {
 			console.error(`Could not list ${kind}`, e);
 			setLoadFailed(true);
 		});
 	}, [kind]);
-	async function checkOldPhotos(list) {
-		const unchecked = list.filter((p) => p.problems === null);
-		setToCheck(unchecked.map((p) => p.id));
-		for (const photo of unchecked) {
+	function soundsChanged() {
+		if (kind === "sounds") setSoundChanges((n) => n + 1);
+	}
+	async function checkOld(list) {
+		const unchecked = list.filter((u) => u.problems === null);
+		setToCheck(unchecked.map((u) => u.id));
+		for (const upload of unchecked) {
 			try {
-				const checked = await checkPhoto(photo.id);
+				const checked = await checkUpload(kind, upload.id);
 				setItems((current) => (current ?? []).map((i) => i.id === checked.id ? checked : i));
 				if (checked.problems === null) break;
-				if (checked.problems.length === 0) await refreshChoice();
+				if (checked.problems.length === 0) {
+					await refreshChoice();
+					soundsChanged();
+				}
 			} catch (e) {
-				console.error(`Could not check ${photo.name}`, e);
+				console.error(`Could not check ${upload.name}`, e);
 			}
 			setToCheck((ids) => ids.slice(1));
 		}
@@ -218,7 +227,10 @@ function UploadSection(props) {
 			try {
 				const upload = await uploadFile(kind, file);
 				setItems((current) => [...current ?? [], upload]);
-				if (upload.problems?.length === 0) await refreshChoice();
+				if (upload.problems?.length === 0) {
+					await refreshChoice();
+					soundsChanged();
+				}
 			} catch (e) {
 				console.error(`Upload of ${file.name} refused`, e);
 				setRefused((current) => [...current, {
@@ -235,6 +247,7 @@ function UploadSection(props) {
 			await removeUpload(kind, item.id);
 			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
 			await refreshChoice();
+			soundsChanged();
 		} catch (e) {
 			console.error(`Could not remove ${item.name}`, e);
 			setRefused([{
@@ -253,7 +266,7 @@ function UploadSection(props) {
 		}),
 		/* @__PURE__ */ u("label", {
 			className: ready ? "button" : "button busy",
-			children: [sending ? `${kind === "photos" ? "Uploading and checking" : "Uploading"} ${sending}…` : loading ? "Loading…" : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
+			children: [sending ? `Uploading and checking ${sending}…` : loading ? "Loading…" : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
 				type: "file",
 				multiple: true,
 				accept: props.accept,
@@ -308,9 +321,8 @@ function UploadSection(props) {
 						className: "name",
 						children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
 					}),
-					kind === "photos" && /* @__PURE__ */ u(FaceChecks, {
-						problems: item.problems,
-						score: item.score,
+					/* @__PURE__ */ u(Checks, {
+						item,
 						queue: toCheck.indexOf(item.id)
 					}),
 					kind === "photos" && item.id === choice?.id && /* @__PURE__ */ u("span", {
@@ -331,14 +343,20 @@ function UploadSection(props) {
 					})
 				]
 			}, item.id))
-		})
+		}),
+		kind === "sounds" && /* @__PURE__ */ u(VoiceSampleView, { changes: soundChanges })
 	] });
 }
-function FaceChecks(props) {
-	const { problems, score, queue } = props;
+function Checks({ item, queue }) {
+	const { problems, score, speech } = item;
+	const what = item.kind === "photos" ? "photo" : "recording";
 	if (queue === 0) return /* @__PURE__ */ u("span", {
 		className: "muted check busy",
-		children: "Checking photo…"
+		children: [
+			"Checking ",
+			what,
+			"…"
+		]
 	});
 	if (queue > 0) return /* @__PURE__ */ u("span", {
 		className: "muted check",
@@ -350,7 +368,11 @@ function FaceChecks(props) {
 	});
 	if (problems.length === 0) return /* @__PURE__ */ u("span", {
 		className: "done check",
-		children: ["Looks good", score !== null && ` · score ${score} of 100`]
+		children: [
+			"Looks good",
+			score !== null && ` · score ${score} of 100`,
+			speech !== null && ` · ${minutes(speech)} of speech`
+		]
 	});
 	return /* @__PURE__ */ u("ul", {
 		className: "problems",
@@ -358,6 +380,45 @@ function FaceChecks(props) {
 			className: "error",
 			children: p
 		}, p))
+	});
+}
+function VoiceSampleView({ changes }) {
+	const [sample, setSample] = d(null);
+	h(() => {
+		let newest = true;
+		getVoiceSample().then((s) => {
+			if (newest) setSample(s);
+		}).catch((e) => console.error("Could not get the voice sample", e));
+		return () => {
+			newest = false;
+		};
+	}, [changes]);
+	if (sample === null) return null;
+	return /* @__PURE__ */ u("div", {
+		className: "voice-sample",
+		children: [
+			/* @__PURE__ */ u("h3", { children: "Voice sample" }),
+			sample.recordings > 0 && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("audio", {
+				controls: true,
+				preload: "none",
+				src: `/api/voice-sample/audio?v=${changes}`
+			}), /* @__PURE__ */ u("p", {
+				className: "name",
+				children: [
+					sample.recordings === 1 ? "Made from the recording that passed the checks" : `Made from the ${sample.recordings} recordings that passed the checks, in order`,
+					": ",
+					minutes(sample.speech),
+					" of speech."
+				]
+			})] }),
+			sample.problem === null ? /* @__PURE__ */ u("p", {
+				className: "done",
+				children: "Enough speech to make the voice."
+			}) : /* @__PURE__ */ u("p", {
+				className: sample.recordings > 0 ? "error" : "muted",
+				children: sample.problem
+			})
+		]
 	});
 }
 function minutes(seconds) {
