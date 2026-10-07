@@ -137,17 +137,20 @@ On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Wit
 
 ### Sound checks
 
-Each uploaded recording is checked as it arrives (in well under a second), and the upload screen shows **Looks good** with its length of speech, or what to fix, under it. Speech is measured in 20 ms steps: the quietest tenth of them, in the pauses between words, gives the background noise level, and the loudest twentieth the speech level. Pauses don't count as speech. The checks, each with a fixed message:
+Each uploaded recording is checked as it arrives (in about a second per minute of sound, most of it the one-speaker check), and the upload screen shows **Looks good** with its length of speech, or what to fix, under it. Speech is measured in 20 ms steps: the quietest tenth of them, in the pauses between words, gives the background noise level, and the loudest twentieth the speech level. Pauses don't count as speech. The checks, each with a fixed message:
 
 | Check | Fails when | Message |
 |---|---|---|
 | Long enough | under 15 seconds of speech in the recording | "This recording has only N seconds of speech. …" |
 | Not too loud | over 0.05% of the speech is clipped (at the top of what the file can hold) | "The recording is too loud, so parts of it are distorted. …" |
 | Little background noise | the speech is less than 20 dB louder than the background noise | "There is too much background noise. …" |
+| Only you speaking | a second voice talks for about 3 seconds or more | "Someone else can be heard talking in this recording. …" |
 
 The recordings that pass are joined, in the order they were uploaded, into the voice sample `uploads/voice-sample.wav`, which the person's own voice will be made from (roadmap R25). It is shown under the recordings with a player. The voice needs at least 30 seconds of speech in all; until then the screen says how much there is. If joining fails (logged as `Could not make the voice sample`), the old sample is removed rather than served, and the screen says so. Each recording in the recording guide has a minute or more.
 
 The noise limit was set on the VoiceBank-DEMAND test set: clean studio speech measures 29 to 38 dB, the same speech with cafe, street or office noise mixed in so the voice is still clear 22 to 25 dB, and with noise that competes with the voice 13 to 20 dB. The limits, including the speech lengths, are at the top of `src/imageskin/sound_checks.py`; when they change, raise `SOUND_CHECKS` in `uploads.py` so recordings checked before are checked again. Recordings uploaded before the checks show **Checking recording…** and are checked one at a time after the page shows. Each check is logged as `Sound checked` with what it measured (`speech_s`, `clipped`, `snr_db`), and each change to the voice sample as `Voice sample updated`.
+
+The one-speaker check (roadmap R11) gives each 1.5 second stretch of speech a voice print with CAM++, a speaker recognition model from 3D-Speaker (Apache 2.0), run on the CPU by ONNX Runtime (MIT). The prints are split into the two groups that sound most different; when the two groups sound like different people and the smaller one has at least 3 stretches, the recording is flagged. A minute of sound takes about a second. The server downloads the model (28 MB) into `models/speakers` in the app data folder when it starts (`Speaker model ready` in the log); if that fails (`Speaker checks are off until restart`), new recordings show **Not checked** until the server is restarted. Each check is logged as `Speaker checked` with `stretches`, `other` (stretches in the smaller group) and `alike` (how alike the two groups sound, -1 to 1; flagged below 0.55). The limits were set on LibriSpeech: one-minute recordings of one reader measure 0.63 to 0.95, two readers taking turns -0.08 to 0.52. A recording that changes microphone or room halfway can also be flagged, since the voice then sounds different.
 
 ## Making a voice sample
 

@@ -10,6 +10,7 @@ speech level. No model is needed, so the checks take well under a second per min
 import logging
 import time
 import wave
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -81,17 +82,31 @@ def frame_levels(samples: NDArray[np.float64], rate: int) -> NDArray[np.float64]
     return levels
 
 
+def speech_and_noise(levels: NDArray[np.float64]) -> tuple[float, float]:
+    """The speech level (the loudest 5% of frames) and the noise level (the quietest 10%)."""
+    # Pauses that are digital silence, such as from a recorder's noise suppression, give a
+    # very low noise level: right, since there is no noise in them.
+    return float(np.percentile(levels, 95)), float(np.percentile(levels, 10))
+
+
+def speech_frames(levels: NDArray[np.float64]) -> NDArray[np.bool_]:
+    """Which frames hold speech rather than a pause."""
+    if len(levels) == 0:
+        return np.zeros(0, dtype=bool)
+    speech, noise = speech_and_noise(levels)
+    is_speech: NDArray[np.bool_] = levels > max(
+        noise + SPEECH_ABOVE_NOISE_DB, speech - SPEECH_RANGE_DB
+    )
+    return is_speech
+
+
 def measure(samples: NDArray[np.float64], rate: int) -> SoundMeasure:
     """Measure samples scaled to -1..1."""
     levels = frame_levels(samples, rate)
     if len(levels) == 0:
         return SoundMeasure(speech_s=0.0, clipped=0.0, snr_db=0.0)
-    # Pauses that are digital silence, such as from a recorder's noise suppression, give a
-    # very low noise level: right, since there is no noise in them.
-    noise = float(np.percentile(levels, 10))
-    speech = float(np.percentile(levels, 95))
-    threshold = max(noise + SPEECH_ABOVE_NOISE_DB, speech - SPEECH_RANGE_DB)
-    is_speech = levels > threshold
+    speech, noise = speech_and_noise(levels)
+    is_speech = speech_frames(levels)
     size = round(rate * FRAME_S)
     speech_samples = samples[: len(levels) * size].reshape(len(levels), size)[is_speech]
     clipped = float(np.mean(np.abs(speech_samples) >= CLIP_LEVEL)) if speech_samples.size else 0.0
@@ -124,11 +139,18 @@ def read_wav(path: Path) -> tuple[NDArray[np.float64], int]:
     return np.frombuffer(data, dtype="<i2").astype(np.float64) / 32768.0, rate
 
 
-def check(path: Path) -> SoundResult:
-    """Run the sound checks on a stored recording."""
+# Given the samples and their rate, the problems found in who is speaking (roadmap R11).
+VoiceCheck = Callable[[NDArray[np.float64], int], list[str]]
+
+
+def check(path: Path, voices: VoiceCheck | None = None) -> SoundResult:
+    """Run the sound checks on a stored recording, and the voice check when given."""
     start = time.perf_counter()
-    m = measure(*read_wav(path))
+    samples, rate = read_wav(path)
+    m = measure(samples, rate)
     found = problems(m)
+    if voices is not None:
+        found += voices(samples, rate)
     logger.info(
         "Sound checked",
         extra={

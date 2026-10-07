@@ -9,7 +9,8 @@ from sound_fakes import speechlike, wav_of
 
 from imageskin import __version__
 from imageskin.app import STATIC_DIR, create_app, face_checker
-from imageskin.uploads import PhotoResult, UploadStore
+from imageskin.speaker_checks import TWO_VOICES
+from imageskin.uploads import SOUND_CHECKS, PhotoResult, UploadStore
 
 
 def test_health_returns_ok_and_version() -> None:
@@ -211,3 +212,15 @@ def test_sounds_can_be_checked_and_joined_into_the_voice_sample(tmp_path: Path) 
     assert audio.headers["content-type"] == "audio/wav"
     assert audio.headers["cache-control"] == "no-store"
     assert audio.content[:4] == b"RIFF"
+
+
+def test_a_recording_with_a_second_voice_is_flagged(tmp_path: Path) -> None:
+    with (
+        patch("imageskin.speaker_checks.SpeakerChecker.prepare") as prepare,
+        patch("imageskin.speaker_checks.SpeakerChecker.check", return_value=[TWO_VOICES]),
+    ):
+        client = consented_client(tmp_path)
+        sent = client.post("/api/uploads/sounds", files={"file": ("two.wav", SPEECH)}).json()
+    prepare.assert_called_once()  # the model is fetched in the background at startup
+    assert sent["problems"] == [TWO_VOICES] and sent["checks"] == SOUND_CHECKS
+    assert client.get("/api/voice-sample").json()["recordings"] == 0
