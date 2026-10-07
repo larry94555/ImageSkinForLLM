@@ -4,6 +4,7 @@ import logging
 import shutil
 import subprocess
 import wave
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -301,3 +302,103 @@ def test_heic_command_converts_and_reports_errors(
     assert dst.read_bytes().startswith(b"\xff\xd8\xff")
     assert heic.main([str(tmp_path / "missing.heic"), str(dst)]) == 1
     assert "Error" in capsys.readouterr().err
+
+
+def test_photos_are_checked_as_they_arrive(tmp_path: Path) -> None:
+    checked: list[Path] = []
+
+    def check(photo: Path) -> list[str]:
+        checked.append(photo)
+        return ["Your face is too small."]
+
+    store = UploadStore(tmp_path, check_photo=check)
+    upload = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    assert upload.problems == ["Your face is too small."]
+    assert checked == [store.path("photos", upload.id)]
+    assert store.list("photos") == [upload]
+    assert len(checked) == 1  # the stored result is used, not checked again
+
+
+@needs_ffmpeg
+def test_sounds_are_not_face_checked(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: pytest.fail("checked a sound"))
+    assert store.save("sounds", "a.wav", io.BytesIO(wav_bytes())).problems is None
+
+
+def test_a_photo_that_cannot_be_checked_is_kept_unchecked(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(photo: Path) -> list[str]:
+        raise RuntimeError("models missing")
+
+    store = UploadStore(tmp_path, check_photo=broken)
+    with caplog.at_level(logging.ERROR):
+        upload = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    assert upload.problems is None
+    assert store.list("photos") == [upload]
+    failed = [r for r in caplog.records if r.message == "Face checks failed"]
+    assert failed and failed[0].error == "models missing"  # type: ignore[attr-defined]
+
+
+def test_photos_stored_before_checks_are_checked_on_request(tmp_path: Path) -> None:
+    old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
+    assert old.problems is None
+
+    store = UploadStore(tmp_path, check_photo=lambda p: pytest.fail("listing must not check"))
+    assert [u.problems for u in store.list("photos")] == [None]
+
+    store.check_photo = lambda p: ["Your face is too small."]
+    checked = replace(old, problems=["Your face is too small."], checks=uploads.FACE_CHECKS)
+    assert store.check(old.id) == checked
+    assert store.list("photos") == [checked]
+
+
+def test_results_of_older_checks_are_listed_as_not_checked(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: ["Your face is too small."])
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    assert photo.checks == uploads.FACE_CHECKS
+    with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
+        assert [u.problems for u in store.list("photos")] == [None]
+        store.check_photo = lambda p: []
+        assert store.check(photo.id).problems == []  # type: ignore[union-attr]
+        assert [u.problems for u in store.list("photos")] == [[]]
+
+
+def test_checking_needs_a_stored_photo(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: [])
+    assert store.check("f" * 32) is None
+    assert store.check("not-an-id") is None
+
+
+def test_a_check_that_fails_keeps_the_photo_unchecked(tmp_path: Path) -> None:
+    old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
+    assert UploadStore(tmp_path).check(old.id) == old  # checks are off
+    assert [u.problems for u in UploadStore(tmp_path).list("photos")] == [None]
+
+
+def test_old_results_stay_hidden_when_the_recheck_cannot_run(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: ["Your face is too small."])
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
+
+    def broken(p: Path) -> list[str]:
+        raise RuntimeError("models missing")
+
+    with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
+        assert UploadStore(tmp_path).check(photo.id).problems is None  # type: ignore[union-attr]
+        store.check_photo = broken
+        assert store.check(photo.id).problems is None  # type: ignore[union-attr]
+
+
+def test_a_photo_removed_while_its_result_is_saved_leaves_no_info_file(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: [])
+    photo = UploadStore(tmp_path).save("photos", "me.jpg", io.BytesIO(JPG))
+    write_info = UploadStore._write_info
+
+    def remove_then_write(stored: Path, upload: uploads.Upload) -> None:
+        assert store.remove("photos", photo.id)  # DELETE lands just before the write
+        write_info(stored, upload)
+
+    with patch.object(UploadStore, "_write_info", staticmethod(remove_then_write)):
+        store.check(photo.id)
+    assert store.list("photos") == []
+    assert list((tmp_path / "uploads" / "photos").iterdir()) == []

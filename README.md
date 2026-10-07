@@ -100,10 +100,30 @@ Behind the screen, the server stores uploaded photos (JPG, PNG, HEIC) and record
 | `GET /api/uploads/photos` or `/sounds` | List the uploads |
 | `GET /api/uploads/photos/{id}` | Download one (also `/sounds/{id}`) |
 | `DELETE /api/uploads/photos/{id}` | Remove one (also `/sounds/{id}`) |
+| `POST /api/uploads/photos/{id}/check` | Run the face checks on a stored photo |
 
 Try them on the API docs page at http://127.0.0.1:8000/docs while `imageskin serve` is running.
 
 HEIC photos (from iPhones) need an optional extra: `pip install -e ".[heic]"`. It is optional because pillow-heif's wheels include libheif and libde265 (LGPL-3) and x265 (GPL-2); the app only uses them to read HEIC files.
+
+### Face checks
+
+Each uploaded photo is checked as it arrives, and the upload screen shows **Looks good** or what to fix under it. The four checks, each with a fixed message:
+
+| Check | Fails when | Message |
+|---|---|---|
+| One face | no face, or more than one | "No face was found. …" / "More than one face was found. …" |
+| Large enough | the face, mid-forehead to chin, is under 180 px once the photo is shrunk to 1280 px on its longest side, as the video engine does (a 1080p webcam photo of your head and shoulders measures about 200) | "Your face is too small. …" |
+| Facing the camera | the head is turned or tilted more than 25° | "Your face is turned away. …" |
+| Nothing covering it | over 12% of the face below the eyebrows is hidden by hands, a mask, sunglasses or other things (hair and beards are fine) | "Something is covering your face. …" |
+
+The limits are at the top of `src/imageskin/face_checks.py`; when they change, raise `FACE_CHECKS` in `uploads.py` so photos checked before are checked again. The checks need MediaPipe (Apache 2.0), installed with the faces extra (the photoreal extra includes it too). It needs Python 3.11 or 3.12. On first use the server downloads two models, about 20 MB, into `models/faces` in the app data folder.
+
+```
+pip install -e ".[faces]"
+```
+
+On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Without MediaPipe the server logs `Face checks are off` at startup and photos show **Not checked**. The server downloads and loads the models when it starts (`Face checks ready` in the log), so the first photo isn't held up. Photos uploaded before the checks were on show **Waiting to check**, then **Checking face…**, and are checked one at a time after the page shows, through `POST /api/uploads/photos/{id}/check`. Each check takes about a second and is logged as `Face checks done` with what it measured.
 
 ## Making a voice sample
 

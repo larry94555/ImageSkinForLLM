@@ -36,6 +36,8 @@ export interface Upload {
   size: number;
   uploaded_at: string;
   seconds: number | null;
+  // Photos only: what the face checks found ([] when it passed), or null when not checked.
+  problems: string[] | null;
 }
 
 // The server's explanation for a refused request, meant for the person using the app.
@@ -62,6 +64,13 @@ export async function uploadFile(kind: Kind, file: File): Promise<Upload> {
   const form = new FormData();
   form.append("file", file);
   const response = await fetch(`/api/uploads/${kind}`, { method: "POST", body: form });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as Upload;
+}
+
+// Runs the face checks on a photo uploaded before they were on; returns it with the result.
+export async function checkPhoto(id: string): Promise<Upload> {
+  const response = await fetch(`${uploadUrl("photos", id)}/check`, { method: "POST" });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Upload;
 }

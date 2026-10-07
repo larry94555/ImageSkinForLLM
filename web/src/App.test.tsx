@@ -107,6 +107,7 @@ const PHOTO: Upload = {
   size: 1000,
   uploaded_at: "2026-10-07T00:00:00+00:00",
   seconds: null,
+  problems: [],
 };
 const SOUND: Upload = {
   ...PHOTO,
@@ -115,6 +116,7 @@ const SOUND: Upload = {
   name: "voice1.m4a",
   format: "m4a",
   seconds: 95.4,
+  problems: null,
 };
 
 // A fake server with consent given and these uploads stored. POSTs answer with `posted` in turn.
@@ -145,6 +147,88 @@ test("setup lists stored photos and recordings so they can be viewed and played"
   const audio = document.querySelector("audio") as HTMLAudioElement;
   expect(audio.getAttribute("src")).toBe(`/api/uploads/sounds/${SOUND.id}`);
   expect(audio.controls).toBe(true);
+});
+
+test("each photo shows what the face checks found", async () => {
+  const small =
+    "Your face is too small. Move closer to the camera, or crop the photo around your face.";
+  const turned = "Your face is turned away. Look straight at the camera.";
+  uploadServer([
+    PHOTO,
+    { ...PHOTO, id: "c".repeat(32), name: "side.jpg", problems: [small, turned] },
+    SOUND,
+  ]);
+  await openAt("#/setup");
+  expect(await screen.findByText("Looks good")).toBeTruthy();
+  const side = (await screen.findByAltText("side.jpg")).closest("li") as HTMLElement;
+  const shown = Array.from(side.querySelectorAll("li.error")).map((li) => li.textContent);
+  expect(shown).toEqual([small, turned]);
+  // Recordings aren't face-checked.
+  const sound = (await screen.findByText("voice1.m4a (1:35)")).closest("li") as HTMLElement;
+  expect(sound.textContent).not.toContain("Looks good");
+});
+
+test("photos uploaded before the checks are checked after the list shows", async () => {
+  const turned = "Your face is turned away. Look straight at the camera.";
+  const old = { ...PHOTO, id: "d".repeat(32), name: "old.jpg", problems: null };
+  const next = { ...old, id: "e".repeat(32), name: "next.jpg" };
+  let finishCheck: () => void = () => {};
+  const checkPending = new Promise<void>((resolve) => {
+    finishCheck = resolve;
+  });
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url.endsWith("/check")) {
+      await checkPending;
+      const photo = [old, next].find((p) => url.includes(p.id));
+      return Response.json({ ...photo, problems: [turned] });
+    }
+    return Response.json(url === "/api/uploads/photos" ? [old, next] : []);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await openAt("#/setup");
+  expect(await screen.findByText("Checking face…")).toBeTruthy();
+  expect(screen.getByText("Waiting to check")).toBeTruthy();
+  // Adding isn't held up by the check.
+  const input = screen.getByText("Add photos").querySelector("input") as HTMLInputElement;
+  expect(input.disabled).toBe(false);
+  await act(async () => {
+    finishCheck();
+  });
+  await waitFor(() => expect(screen.getAllByText(turned)).toHaveLength(2));
+  expect(screen.queryByText("Checking face…")).toBeNull();
+  expect(screen.queryByText("Waiting to check")).toBeNull();
+  expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/photos/${old.id}/check`, {
+    method: "POST",
+  });
+});
+
+test("when the checks are off, old photos say not checked and are tried only once", async () => {
+  const old = [1, 2].map((n) => ({ ...PHOTO, id: String(n).repeat(32), problems: null }));
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url.endsWith("/check")) return Response.json(old[0]);
+    return Response.json(url === "/api/uploads/photos" ? old : []);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await openAt("#/setup");
+  await waitFor(() => expect(screen.getAllByText("Not checked")).toHaveLength(2));
+  const checks = fetchMock.mock.calls.filter(([url]) => url.endsWith("/check"));
+  expect(checks).toHaveLength(1);
+});
+
+test("a photo that can't be checked is skipped and the next one is checked", async () => {
+  const old = [1, 2].map((n) => ({ ...PHOTO, id: String(n).repeat(32), problems: null }));
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === `/api/uploads/photos/${old[0].id}/check`) return new Response("", { status: 404 });
+    if (url.endsWith("/check")) return Response.json({ ...old[1], problems: [] });
+    return Response.json(url === "/api/uploads/photos" ? old : []);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await openAt("#/setup");
+  expect(await screen.findByText("Looks good")).toBeTruthy();
+  expect(screen.getByText("Not checked")).toBeTruthy();
 });
 
 test("with nothing uploaded each section says so", async () => {
@@ -250,12 +334,16 @@ test("adding waits until the first list has loaded, so it can't hide a new uploa
     }),
   );
   await openAt("#/setup");
-  const input = (await screen.findByText("Add photos")).querySelector("input") as HTMLInputElement;
+  const note = await screen.findByText("Loading your photos…");
+  const photos = note.closest("section") as HTMLElement;
+  const input = photos.querySelector("input") as HTMLInputElement;
   expect(input.disabled).toBe(true);
+  expect(photos.querySelector("label")?.textContent).toBe("Loading…");
   await act(async () => {
     finishList(Response.json([]));
   });
   await waitFor(() => expect(input.disabled).toBe(false));
+  expect(screen.queryByText("Loading your photos…")).toBeNull();
   await act(async () => {
     chooseFiles("Add photos", [new File(["x"], "front.jpg")]);
   });

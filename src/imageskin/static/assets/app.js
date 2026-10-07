@@ -38,6 +38,11 @@ async function uploadFile(kind, file) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function checkPhoto(id) {
+	const response = await fetch(`${uploadUrl("photos", id)}/check`, { method: "POST" });
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 async function removeUpload(kind, id) {
 	const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
@@ -130,12 +135,31 @@ function UploadSection(props) {
 	const [loadFailed, setLoadFailed] = d(false);
 	const [sending, setSending] = d(null);
 	const [refused, setRefused] = d([]);
+	const [toCheck, setToCheck] = d([]);
 	h(() => {
-		listUploads(kind).then(setItems).catch((e) => {
+		listUploads(kind).then((list) => {
+			setItems(list);
+			if (kind === "photos") checkOldPhotos(list);
+		}).catch((e) => {
 			console.error(`Could not list ${kind}`, e);
 			setLoadFailed(true);
 		});
 	}, [kind]);
+	async function checkOldPhotos(list) {
+		const unchecked = list.filter((p) => p.problems === null);
+		setToCheck(unchecked.map((p) => p.id));
+		for (const photo of unchecked) {
+			try {
+				const checked = await checkPhoto(photo.id);
+				setItems((current) => (current ?? []).map((i) => i.id === checked.id ? checked : i));
+				if (checked.problems === null) break;
+			} catch (e) {
+				console.error(`Could not check ${photo.name}`, e);
+			}
+			setToCheck((ids) => ids.slice(1));
+		}
+		setToCheck([]);
+	}
 	async function add(event) {
 		const input = event.currentTarget;
 		const files = Array.from(input.files ?? []);
@@ -170,6 +194,7 @@ function UploadSection(props) {
 		}
 	}
 	const ready = sending === null && (items !== null || loadFailed);
+	const loading = items === null && !loadFailed;
 	return /* @__PURE__ */ u("section", { children: [
 		/* @__PURE__ */ u("h2", { children: props.title }),
 		/* @__PURE__ */ u("p", {
@@ -177,8 +202,8 @@ function UploadSection(props) {
 			children: props.hint
 		}),
 		/* @__PURE__ */ u("label", {
-			className: "button",
-			children: [sending ? `Uploading ${sending}…` : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
+			className: ready ? "button" : "button busy",
+			children: [sending ? `${kind === "photos" ? "Uploading and checking" : "Uploading"} ${sending}…` : loading ? "Loading…" : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
 				type: "file",
 				multiple: true,
 				accept: props.accept,
@@ -198,6 +223,14 @@ function UploadSection(props) {
 		loadFailed && /* @__PURE__ */ u("p", {
 			className: "error",
 			children: "Could not load the list. Reload the page to try again."
+		}),
+		loading && /* @__PURE__ */ u("p", {
+			className: "muted busy",
+			children: [
+				"Loading your ",
+				props.title.toLowerCase(),
+				"…"
+			]
 		}),
 		items?.length === 0 && /* @__PURE__ */ u("p", {
 			className: "muted",
@@ -223,6 +256,10 @@ function UploadSection(props) {
 					className: "name",
 					children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
 				}),
+				kind === "photos" && /* @__PURE__ */ u(FaceChecks, {
+					problems: item.problems,
+					queue: toCheck.indexOf(item.id)
+				}),
 				/* @__PURE__ */ u("button", {
 					type: "button",
 					className: "remove",
@@ -232,6 +269,31 @@ function UploadSection(props) {
 			] }, item.id))
 		})
 	] });
+}
+function FaceChecks({ problems, queue }) {
+	if (queue === 0) return /* @__PURE__ */ u("span", {
+		className: "muted check busy",
+		children: "Checking face…"
+	});
+	if (queue > 0) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Waiting to check"
+	});
+	if (problems == null) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Not checked"
+	});
+	if (problems.length === 0) return /* @__PURE__ */ u("span", {
+		className: "done check",
+		children: "Looks good"
+	});
+	return /* @__PURE__ */ u("ul", {
+		className: "problems",
+		children: problems.map((p) => /* @__PURE__ */ u("li", {
+			className: "error",
+			children: p
+		}, p))
+	});
 }
 function minutes(seconds) {
 	const whole = Math.round(seconds);
