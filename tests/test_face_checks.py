@@ -229,8 +229,8 @@ def textured(size: int, low: int = 90, high: int = 210) -> np.ndarray:
     y, x = np.mgrid[0:size, 0:size] / size
     shade = low + (high - low - 20) * (1 - np.hypot(x - 0.5, y - 0.4))
     # Grain about a pixel wide at the face's size in the video, whatever the photo's size.
-    grain = np.random.default_rng(1).integers(0, 30, (240, 240)).astype(np.float32)
-    grain = cv2.resize(grain, (size, size), interpolation=cv2.INTER_NEAREST)
+    pores = np.random.default_rng(1).integers(0, 30, (240, 240)).astype(np.float32)
+    grain = cv2.resize(pores, (size, size), interpolation=cv2.INTER_NEAREST)
     grey = np.clip(shade + grain, 0, 255).astype(np.uint8)
     return np.repeat(grey[..., None], 3, axis=2)
 
