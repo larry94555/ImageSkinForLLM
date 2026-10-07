@@ -52,10 +52,10 @@ def test_top_two() -> None:
     assert t == pytest.approx(1 / 3)
 
 
-def test_soften_moves_part_way_from_rest() -> None:
+def test_soften_moves_the_controls_part_way_and_opens_in_full() -> None:
     controls, ratio = soften("OH", 0.5, photo_ratio=0.1)
     assert controls == {"purse": pytest.approx(3.5)}
-    assert ratio == pytest.approx(0.1 + 0.5 * (0.30 - 0.1))
+    assert ratio == pytest.approx(0.51)  # the mouth opens fully, so speech is visible
     controls, ratio = soften("rest", 0.4, 0.2)
     assert controls == {} and ratio == pytest.approx(0.2)
 

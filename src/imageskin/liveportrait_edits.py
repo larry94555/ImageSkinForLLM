@@ -15,7 +15,7 @@ Each mouth shape is a LivePortrait edit:
 import math
 from dataclasses import dataclass
 
-from imageskin.visemes import CONTACT, SHAPES
+from imageskin.visemes import SHAPES
 
 NUM_KP = 21  # LivePortrait's implicit keypoints
 UPPER_LIP_KP = 20  # the keypoint that lifts the upper lip (found by rendering each)
@@ -47,8 +47,9 @@ CONTROLS: dict[str, tuple[tuple[int, int, float], ...]] = {
 
 BLINK_CLOSED = 15.0  # "blink" amount that fully closes the eyes (checked on real weights)
 
-# Larry's accepted settings (2026-10-06): shapes move 45% of the way from rest, and the
-# upper lip moves 30% as far as the rest of the mouth.
+# Larry's accepted settings (2026-10-06): the lip spread and rounding move 45% of the way
+# from rest, and the upper lip moves 30% as far as the rest of the mouth. The lip opening is
+# not softened (R13: at 45% the mouth barely moved and did not read as speech).
 STRENGTH = 0.45
 UPPER_LIP = 0.3
 
@@ -59,20 +60,21 @@ class MouthShape:
     controls: dict[str, float]
 
 
-# Tuned by eye on two portraits (a painting turned slightly sideways and a frontal photo),
-# keeping the gap between the lips small.
+# Tuned by eye on two portraits (a painting turned slightly sideways and a frontal photo).
+# The vowel openings were widened 1.7 times in R13, when Larry found the mouth barely moved
+# in the sample video.
 MOUTH_SHAPES: dict[str, MouthShape] = {
     "rest": MouthShape(None, {}),
     "MBP": MouthShape(0.0, {"open": -15.0}),  # lips pressed: m, b, p
     "FV": MouthShape(0.08, {"grin": 8.0, "open": -8.0}),  # upper teeth on lower lip: f, v
-    "AA": MouthShape(0.35, {"grin": 3.0}),  # father, cup
-    "EH": MouthShape(0.25, {"grin": 5.0}),  # bed, cat
-    "EE": MouthShape(0.12, {"grin": 7.0}),  # see, it
-    "IH": MouthShape(0.18, {"grin": 3.0}),  # small opening: t, d, n, s, k, l, the
+    "AA": MouthShape(0.60, {"grin": 3.0}),  # father, cup
+    "EH": MouthShape(0.43, {"grin": 5.0}),  # bed, cat
+    "EE": MouthShape(0.20, {"grin": 7.0}),  # see, it
+    "IH": MouthShape(0.31, {"grin": 3.0}),  # small opening: t, d, n, s, k, l, the
     # Rounding halved after Larry saw a kiss-like pucker (2026-10-06).
-    "OH": MouthShape(0.30, {"purse": 7.0}),  # go, more
-    "OO": MouthShape(0.12, {"purse": 12.0}),  # you, would, boat's w
-    "SH": MouthShape(0.15, {"purse": 5.0}),  # she, chair, judge
+    "OH": MouthShape(0.51, {"purse": 7.0}),  # go, more
+    "OO": MouthShape(0.20, {"purse": 12.0}),  # you, would, boat's w
+    "SH": MouthShape(0.26, {"purse": 5.0}),  # she, chair, judge
 }
 assert tuple(MOUTH_SHAPES) == SHAPES
 
@@ -93,17 +95,14 @@ def expression_delta(controls: dict[str, float]) -> list[list[float]]:
 
 
 def soften(name: str, strength: float, photo_ratio: float) -> tuple[dict[str, float], float]:
-    """A shape's controls and lip ratio, moved only `strength` (0..1) of the way from rest.
-
-    Lip-contact shapes (m, b, p, f, v) keep their lip ratio so the lips still touch; only
-    their press and spread soften.
+    """A shape's controls, moved only `strength` (0..1) of the way from rest, and its lip
+    ratio, in full so the mouth opens enough to read as speech. "rest" keeps the photo's.
     """
     if not 0.0 <= strength <= 1.0:
         raise ValueError(f"strength must be between 0 and 1, got {strength}")
     shape = MOUTH_SHAPES[name]
     target = photo_ratio if shape.ratio is None else shape.ratio
-    ratio = target if name in CONTACT else photo_ratio + strength * (target - photo_ratio)
-    return {k: strength * v for k, v in shape.controls.items()}, ratio
+    return {k: strength * v for k, v in shape.controls.items()}, target
 
 
 def top_two(weights: dict[str, float]) -> tuple[str, str, float]:
