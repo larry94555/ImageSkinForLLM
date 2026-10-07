@@ -163,17 +163,17 @@ class SpeakerChecker:
         if self._broken is not None:
             raise SpeakerCheckError(self._broken)
         if self._session is None:
-            import onnxruntime
-
             start = time.perf_counter()
             try:
+                import onnxruntime
+
                 download(MODEL_URL, self._model_file, MODEL_SIZE, MODEL_SHA256)
                 options = onnxruntime.SessionOptions()
                 options.log_severity_level = 3  # errors only
                 self._session = onnxruntime.InferenceSession(
                     str(self._model_file), options, providers=["CPUExecutionProvider"]
                 )
-            except (DownloadError, OSError, RuntimeError) as e:
+            except (ImportError, DownloadError, OSError, RuntimeError) as e:
                 # Don't retry on every recording: a failed download retries for minutes.
                 self._broken = f"the speaker model could not be loaded: {e}"
                 logger.error("Speaker checks are off until restart", extra={"error": str(e)})
@@ -211,8 +211,10 @@ class SpeakerChecker:
     def check(self, samples: NDArray[np.float64], rate: int) -> list[str]:
         """The problem when someone else is talking in the recording; [] when not."""
         start = time.perf_counter()
-        stretches = speech_stretches(to_model_rate(samples, rate))
-        with self._lock:  # one recording at a time keeps memory and CPU use down
+        # One recording at a time keeps memory and CPU use down: the features of a 10 minute
+        # recording take a few hundred MB while they are made.
+        with self._lock:
+            stretches = speech_stretches(to_model_rate(samples, rate))
             prints = self.voice_prints(stretches) if len(stretches) else np.zeros((0, 1))
         m = two_groups(prints)
         found = problems(m)

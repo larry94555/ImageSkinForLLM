@@ -137,7 +137,7 @@ On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Wit
 
 ### Sound checks
 
-Each uploaded recording is checked as it arrives (in well under a second), and the upload screen shows **Looks good** with its length of speech, or what to fix, under it. Speech is measured in 20 ms steps: the quietest tenth of them, in the pauses between words, gives the background noise level, and the loudest twentieth the speech level. Pauses don't count as speech. The checks, each with a fixed message:
+Each uploaded recording is checked as it arrives (in about a second per minute of sound, most of it the one-speaker check), and the upload screen shows **Looks good** with its length of speech, or what to fix, under it. Speech is measured in 20 ms steps: the quietest tenth of them, in the pauses between words, gives the background noise level, and the loudest twentieth the speech level. Pauses don't count as speech. The checks, each with a fixed message:
 
 | Check | Fails when | Message |
 |---|---|---|

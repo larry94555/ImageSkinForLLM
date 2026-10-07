@@ -1,5 +1,7 @@
 import logging
 import sys
+import threading
+import time
 import types
 from pathlib import Path
 from typing import Any
@@ -144,6 +146,45 @@ def test_a_failed_download_turns_the_check_off_until_restart(
             checker.check(speechlike(20), RATE)
     assert download.call_count == 1  # not retried on every recording
     assert "Speaker checks are off until restart" in caplog.text
+
+
+def test_a_runtime_that_cannot_load_turns_the_check_off_until_restart(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    checker = SpeakerChecker(tmp_path / "models")
+    with patch.dict(sys.modules, {"onnxruntime": None}), caplog.at_level(logging.ERROR):
+        checker.prepare()  # logged, doesn't raise
+        with pytest.raises(SpeakerCheckError, match="onnxruntime"):
+            checker.check(speechlike(20), RATE)
+    assert caplog.text.count("Speaker checks are off until restart") == 1
+
+
+def test_recordings_are_checked_one_at_a_time(tmp_path: Path) -> None:
+    checker = SpeakerChecker(tmp_path / "models")
+    running = []
+    overlapped = threading.Event()
+    real = speaker_checks.speech_stretches
+
+    def slow_stretches(samples: NDArray[np.float64]) -> NDArray[np.float32]:
+        running.append(1)
+        if len(running) > 1:
+            overlapped.set()
+        time.sleep(0.2)
+        running.pop()
+        return real(samples)
+
+    with (
+        patch.dict(sys.modules, fake_onnxruntime()),
+        patch.object(speaker_checks, "download"),
+        patch.object(speaker_checks, "speech_stretches", slow_stretches),
+    ):
+        threads = [threading.Thread(target=checker.check, args=(speechlike(5), RATE))]
+        threads.append(threading.Thread(target=checker.check, args=(speechlike(5), RATE)))
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    assert not overlapped.is_set()
 
 
 def test_prepare_loads_the_model(tmp_path: Path) -> None:
