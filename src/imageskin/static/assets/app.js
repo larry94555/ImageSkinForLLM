@@ -1,5 +1,5 @@
 // Generated from web/src/*.tsx by `npm run build` in web/. Do not edit; edit web/src.
-import { a as S, i as R, n as d, r as h, t as u } from "./preact.js";
+import { a as R, i as h, n as A, o as S, r as d, t as u } from "./preact.js";
 //#region src/api.ts
 async function json(response) {
 	if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -150,16 +150,21 @@ function UploadSection(props) {
 	const [toCheck, setToCheck] = d([]);
 	const [choice, setChoice] = d(null);
 	const [choosing, setChoosing] = d(null);
+	const choiceRequests = A(0);
+	const lastChange = A(0);
 	async function refreshChoice() {
 		if (kind !== "photos") return;
+		const request = ++choiceRequests.current;
 		try {
-			setChoice(await getPhotoChoice());
+			const current = await getPhotoChoice();
+			if (request > lastChange.current) setChoice(current);
 		} catch (e) {
 			console.error("Could not get the chosen photo", e);
 		}
 	}
 	async function choose(item) {
 		if (choosing !== null) return;
+		lastChange.current = ++choiceRequests.current;
 		setChoosing(item.id);
 		setRefused([]);
 		try {

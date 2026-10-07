@@ -219,6 +219,40 @@ test("the best photo is highlighted and another good photo can be chosen instead
   });
 });
 
+test("a slow first read of the choice can't undo the user's click", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  let answerFirstRead: () => void = () => {};
+  const firstRead = new Promise<void>((resolve) => {
+    answerFirstRead = resolve;
+  });
+  let reads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/uploads/photos/chosen") {
+        if (init?.method === "PUT") return Response.json({ id: second.id, chosen_by: "you" });
+        if (++reads === 1) await firstRead; // answers with the choice from before the click
+        return Response.json({ id: PHOTO.id, chosen_by: "app" });
+      }
+      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+    }),
+  );
+  await openAt("#/setup");
+  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+  });
+  await waitFor(() => expect(other.className).toBe("chosen"));
+  await act(async () => {
+    answerFirstRead();
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let the old answer arrive
+  });
+  expect(reads).toBe(1);
+  expect(other.className).toBe("chosen");
+  expect(other.textContent).toContain("Used for the video (your choice)");
+});
+
 test("a refused choice says why", async () => {
   const gone = { ...PHOTO, id: "f".repeat(32), name: "gone.jpg" };
   uploadServer([PHOTO, gone]);

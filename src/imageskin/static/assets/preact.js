@@ -72,7 +72,7 @@ function P(n) {
 		if (null != l && null != l.__e) return n.__e = n.__c.base = l.__e;
 	}), P(n);
 }
-function A(n) {
+function A$1(n) {
 	(!n.__d && (n.__d = !0) && i$2.push(n) && !H.__r++ || r$1 != l$1.debounceRendering) && ((r$1 = l$1.debounceRendering) || o$1)(H);
 }
 function H() {
@@ -84,10 +84,10 @@ function H() {
 }
 function L(n, l, u, t, i, r, o, e, f, c, a) {
 	var s, h, p, v, y, _, g = t && t.__k || w$1, m = l.length;
-	for (f = T(u, l, g, f, m), s = 0; s < m; s++) null != (p = u.__k[s]) && (h = -1 != p.__i && g[p.__i] || d$1, p.__i = s, _ = q(n, p, h, i, r, o, e, f, c, a), v = p.__e, p.ref && h.ref != p.ref && (h.ref && J(h.ref, null, p), a.push(p.ref, p.__c || v, p)), null == y && null != v && (y = v), 4 & p.__u ? (f = j$1(p, f, n), h.__e && (h.__e = null)) : "function" == typeof p.type && void 0 !== _ ? f = _ : v && (f = v.nextSibling), p.__u &= -7);
+	for (f = T$1(u, l, g, f, m), s = 0; s < m; s++) null != (p = u.__k[s]) && (h = -1 != p.__i && g[p.__i] || d$1, p.__i = s, _ = q(n, p, h, i, r, o, e, f, c, a), v = p.__e, p.ref && h.ref != p.ref && (h.ref && J(h.ref, null, p), a.push(p.ref, p.__c || v, p)), null == y && null != v && (y = v), 4 & p.__u ? (f = j$1(p, f, n), h.__e && (h.__e = null)) : "function" == typeof p.type && void 0 !== _ ? f = _ : v && (f = v.nextSibling), p.__u &= -7);
 	return u.__e = y, f;
 }
-function T(n, l, u, t, i) {
+function T$1(n, l, u, t, i) {
 	var r, o, e, f, c, a = u.length, s = a, h = 0;
 	for (n.__k = new Array(i), r = 0; r < i; r++) null != (o = l[r]) && "boolean" != typeof o && "function" != typeof o ? ("string" == typeof o || "number" == typeof o || "bigint" == typeof o || o.constructor == String ? o = n.__k[r] = x(null, o, null, null, null) : g(o) ? o = n.__k[r] = x(S, { children: o }, null, null, null) : void 0 === o.constructor && o.__b > 0 ? o = n.__k[r] = x(o.type, o.props, o.key, o.ref ? o.ref : null, o.__v) : n.__k[r] = o, f = r + h, o.__ = n, o.__b = n.__b + 1, e = null, -1 != (c = o.__i = O(o, u, f, s)) && (s--, (e = u[c]) && (e.__u |= 2)), null == e || null == e.__v ? (-1 == c && (i > a ? h-- : i < a && h++), "function" != typeof o.type && (o.__u |= 4)) : c != f && (c == f - 1 ? h-- : c == f + 1 ? h++ : (c > f ? h-- : h++, o.__u |= 4))) : n.__k[r] = null;
 	if (s) for (r = 0; r < a; r++) null != (e = u[r]) && 0 == (2 & e.__u) && (e.__e == t && (t = $(e)), K(e, e));
@@ -259,9 +259,9 @@ n = w$1.slice, l$1 = { __e: function(n, l, u, t) {
 	throw n;
 } }, u$2 = 0, C$1.prototype.setState = function(n, l) {
 	var u = null != this.__s && this.__s != this.state ? this.__s : this.__s = m$1({}, this.state);
-	"function" == typeof n && (n = n(m$1({}, u), this.props)), n && m$1(u, n), null != n && this.__v && (l && this._sb.push(l), A(this));
+	"function" == typeof n && (n = n(m$1({}, u), this.props)), n && m$1(u, n), null != n && this.__v && (l && this._sb.push(l), A$1(this));
 }, C$1.prototype.forceUpdate = function(n) {
-	this.__v && (this.__e = !0, n && this.__h.push(n), A(this));
+	this.__v && (this.__e = !0, n && this.__h.push(n), A$1(this));
 }, C$1.prototype.render = S, i$2 = [], o$1 = "function" == typeof Promise ? Promise.prototype.then.bind(Promise.resolve()) : setTimeout, e$1 = function(n, l) {
 	return n.__v.__b - l.__v.__b;
 }, H.__r = 0, f$2 = Math.random().toString(8), c$1 = "__d" + f$2, a$1 = "__a" + f$2, s$1 = /(PointerCapture)$|Capture$/i, h$1 = 0, p$1 = V(!1), v$1 = V(!0);
@@ -327,6 +327,15 @@ function y(n, u, i) {
 function h(n, u) {
 	var i = s(t++, 3);
 	!c.__s && C(i.__H, u) && (i.__ = n, i.u = u, r.__H.__h.push(i));
+}
+function A(n) {
+	return o = 5, T(function() {
+		return { current: n };
+	}, []);
+}
+function T(n, r) {
+	var u = s(t++, 7);
+	return C(u.__H, r) && (u.__ = n(), u.__H = r, u.__h = n), u.__;
 }
 function j() {
 	for (var n; n = f$1.shift();) {
@@ -429,4 +438,4 @@ function u(e, t, n, o, i, u) {
 	return l$1.vnode && l$1.vnode(l), l;
 }
 //#endregion
-export { S as a, R as i, d as n, h as r, u as t };
+export { R as a, h as i, A as n, S as o, d as r, u as t };

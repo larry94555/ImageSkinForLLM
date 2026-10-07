@@ -62,7 +62,7 @@ class Upload:
     size: int  # bytes as stored
     uploaded_at: str  # ISO 8601, UTC
     seconds: float | None = None  # sounds only
-    # Photos only: what the face checks found ([] when it passed), or None when not checked.
+    # Photos only: what the photo checks found ([] when it passed), or None when not checked.
     problems: list[str] | None = None
     checks: int | None = None  # the FACE_CHECKS version that found `problems`
     score: int | None = None  # photos that passed the checks: 0 to 100, higher is better
@@ -299,7 +299,7 @@ class UploadStore:
         return replace(upload, problems=None, score=None)
 
     def check(self, upload_id: str) -> Upload | None:
-        """Run the face checks on a stored photo, such as one uploaded before they were on, and
+        """Run the photo checks on a stored photo, such as one uploaded before they were on, and
         save the result. None when there is no such photo."""
         stored = self.path("photos", upload_id)
         upload = self._read(stored.with_suffix(".json")) if stored else None

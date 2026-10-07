@@ -1,6 +1,6 @@
 // The app's pages. Each one is a function that returns what the page shows.
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
   checkPhoto,
@@ -113,11 +113,18 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
   const [choice, setChoice] = useState<PhotoChoice | null>(null);
   const [choosing, setChoosing] = useState<string | null>(null);
 
+  // Each read or change of the choice gets the next number. A read is dropped when a change was
+  // sent after it, so a slow read can't put back the choice from before the user's click.
+  const choiceRequests = useRef(0);
+  const lastChange = useRef(0);
+
   // Asked again whenever the photos or their checks change, since the best one may change.
   async function refreshChoice() {
     if (kind !== "photos") return;
+    const request = ++choiceRequests.current;
     try {
-      setChoice(await getPhotoChoice());
+      const current = await getPhotoChoice();
+      if (request > lastChange.current) setChoice(current);
     } catch (e) {
       console.error("Could not get the chosen photo", e);
     }
@@ -125,6 +132,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
 
   async function choose(item: Upload) {
     if (choosing !== null) return; // one at a time
+    lastChange.current = ++choiceRequests.current;
     setChoosing(item.id);
     setRefused([]);
     try {
