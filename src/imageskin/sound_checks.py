@@ -77,7 +77,8 @@ def frame_levels(samples: NDArray[np.float64], rate: int) -> NDArray[np.float64]
     count = len(samples) // size
     frames = samples[: count * size].reshape(count, size)
     rms = np.sqrt(np.mean(frames**2, axis=1))
-    return 20 * np.log10(np.maximum(rms, 1e-6))
+    levels: NDArray[np.float64] = 20 * np.log10(np.maximum(rms, 1e-6))
+    return levels
 
 
 def measure(samples: NDArray[np.float64], rate: int) -> SoundMeasure:
