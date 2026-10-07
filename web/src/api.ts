@@ -36,8 +36,17 @@ export interface Upload {
   size: number;
   uploaded_at: string;
   seconds: number | null;
-  // Photos only: what the face checks found ([] when it passed), or null when not checked.
+  // Photos only: what the photo checks found ([] when it passed), or null when not checked.
   problems: string[] | null;
+  // Photos that passed the checks: 0 to 100, higher is better.
+  score: number | null;
+}
+
+// The photo the video will be made from (id null until a photo passes the checks): the best
+// scoring one, picked by the app, or the one the user chose.
+export interface PhotoChoice {
+  id: string | null;
+  chosen_by: "app" | "you";
 }
 
 // The server's explanation for a refused request, meant for the person using the app.
@@ -73,6 +82,20 @@ export async function checkPhoto(id: string): Promise<Upload> {
   const response = await fetch(`${uploadUrl("photos", id)}/check`, { method: "POST" });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Upload;
+}
+
+export async function getPhotoChoice(): Promise<PhotoChoice> {
+  return json<PhotoChoice>(await fetch("/api/uploads/photos/chosen"));
+}
+
+export async function choosePhoto(id: string): Promise<PhotoChoice> {
+  const response = await fetch("/api/uploads/photos/chosen", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as PhotoChoice;
 }
 
 export async function removeUpload(kind: Kind, id: string): Promise<void> {

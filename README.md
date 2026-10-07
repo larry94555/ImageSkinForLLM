@@ -100,15 +100,17 @@ Behind the screen, the server stores uploaded photos (JPG, PNG, HEIC) and record
 | `GET /api/uploads/photos` or `/sounds` | List the uploads |
 | `GET /api/uploads/photos/{id}` | Download one (also `/sounds/{id}`) |
 | `DELETE /api/uploads/photos/{id}` | Remove one (also `/sounds/{id}`) |
-| `POST /api/uploads/photos/{id}/check` | Run the face checks on a stored photo |
+| `POST /api/uploads/photos/{id}/check` | Run the photo checks on a stored photo |
+| `GET /api/uploads/photos/chosen` | The photo the video will be made from, and whether the app or you chose it |
+| `PUT /api/uploads/photos/chosen` | Use another photo that passed the checks (JSON body `{"id": "…"}`) |
 
 Try them on the API docs page at http://127.0.0.1:8000/docs while `imageskin serve` is running.
 
 HEIC photos (from iPhones) need an optional extra: `pip install -e ".[heic]"`. It is optional because pillow-heif's wheels include libheif and libde265 (LGPL-3) and x265 (GPL-2); the app only uses them to read HEIC files.
 
-### Face checks
+### Photo checks
 
-Each uploaded photo is checked as it arrives, and the upload screen shows **Looks good** or what to fix under it. The four checks, each with a fixed message:
+Each uploaded photo is checked as it arrives, and the upload screen shows **Looks good** with the photo's score, or what to fix, under it. The checks, each with a fixed message:
 
 | Check | Fails when | Message |
 |---|---|---|
@@ -116,14 +118,20 @@ Each uploaded photo is checked as it arrives, and the upload screen shows **Look
 | Large enough | the face, mid-forehead to chin, is under 180 px once the photo is shrunk to 1280 px on its longest side, as the video engine does (a 1080p webcam photo of your head and shoulders measures about 200) | "Your face is too small. …" |
 | Facing the camera | the head is turned or tilted more than 25° | "Your face is turned away. …" |
 | Nothing covering it | over 12% of the face below the eyebrows is hidden by hands, a mask, sunglasses or other things (hair and beards are fine) | "Something is covering your face. …" |
+| Sharp | too little fine detail on the face once it is scaled to its size in the video (about 222 px tall): the spread of the Laplacian over the face's average grey level is under 0.05 (sharp phone photos measure 0.1 to 0.23, a 720p webcam photo 0.1) | "The photo is blurry. …" |
+| Not too dark | 90% of the face below the eyebrows is darker than 75 of 255 (Lab lightness), so dark skin in good light still passes | "The photo is too dark. …" |
+| Not too bright | over 25% of the face is pure white | "The photo is too bright. …" |
+| Evenly lit | the darker side of the face is under 0.4 times as light as the other side (a face lit by a window to one side measures about 0.5 and passes) | "One side of your face is in shadow. …" |
 
-The limits are at the top of `src/imageskin/face_checks.py`; when they change, raise `FACE_CHECKS` in `uploads.py` so photos checked before are checked again. The checks need MediaPipe (Apache 2.0), installed with the faces extra (the photoreal extra includes it too). It needs Python 3.11 or 3.12. On first use the server downloads two models, about 20 MB, into `models/faces` in the app data folder.
+Photos that pass every check get a score from 0 to 100: the average of how sharp, large, straight, uncovered, bright and evenly lit the face is, each counted only up to what the video needs. The best scoring photo is outlined and marked **Used for the video (best score)**; **Use this photo** under another photo that passed picks that one instead (**your choice**), which is saved in `uploads/chosen-photo.json`. If the chosen photo is removed, the best scoring one is used again.
+
+The limits were set by measuring real phone and webcam photos and the same photos blurred, darkened, brightened and shaded on one side. They are at the top of `src/imageskin/face_checks.py`; when they change, raise `FACE_CHECKS` in `uploads.py` so photos checked before are checked again. The checks need MediaPipe (Apache 2.0), installed with the faces extra (the photoreal extra includes it too). It needs Python 3.11 or 3.12. On first use the server downloads two models, about 20 MB, into `models/faces` in the app data folder.
 
 ```
 pip install -e ".[faces]"
 ```
 
-On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Without MediaPipe the server logs `Face checks are off` at startup and photos show **Not checked**. The server downloads and loads the models when it starts (`Face checks ready` in the log), so the first photo isn't held up. Photos uploaded before the checks were on show **Waiting to check**, then **Checking face…**, and are checked one at a time after the page shows, through `POST /api/uploads/photos/{id}/check`. Each check takes about a second and is logged as `Face checks done` with what it measured.
+On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Without MediaPipe the server logs `Face checks are off` at startup and photos show **Not checked**. The server downloads and loads the models when it starts (`Face checks ready` in the log), so the first photo isn't held up. Photos uploaded before the checks were on show **Waiting to check**, then **Checking photo…**, and are checked one at a time after the page shows, through `POST /api/uploads/photos/{id}/check`. Each check takes about a second and is logged as `Face checks done` with what it measured (including `sharpness`, `brightness`, `washed_out`, `evenness` and `score`). Choosing a photo is logged as `Photo chosen for the video`.
 
 ## Making a voice sample
 

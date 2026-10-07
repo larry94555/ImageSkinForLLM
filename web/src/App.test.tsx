@@ -1,4 +1,12 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { Upload } from "./api";
@@ -108,6 +116,7 @@ const PHOTO: Upload = {
   uploaded_at: "2026-10-07T00:00:00+00:00",
   seconds: null,
   problems: [],
+  score: 90,
 };
 const SOUND: Upload = {
   ...PHOTO,
@@ -117,12 +126,23 @@ const SOUND: Upload = {
   format: "m4a",
   seconds: 95.4,
   problems: null,
+  score: null,
 };
 
 // A fake server with consent given and these uploads stored. POSTs answer with `posted` in turn.
+// The first photo is the one the app picks for the video.
 function uploadServer(stored: Upload[], posted: Response[] = []) {
+  let choice = { id: stored.find((u) => u.kind === "photos")?.id ?? null, chosen_by: "app" };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen") {
+      if (init?.method === "PUT") {
+        const { id } = JSON.parse(init.body as string) as { id: string };
+        if (id === "f".repeat(32)) return Response.json({ detail: "No such photo." }, { status: 404 });
+        choice = { id, chosen_by: "you" };
+      }
+      return Response.json(choice);
+    }
     const kind = url.split("/")[3];
     if (init?.method === "POST") return posted.shift() ?? new Response("", { status: 500 });
     if (init?.method === "DELETE") return Response.json({ removed: true });
@@ -149,7 +169,7 @@ test("setup lists stored photos and recordings so they can be viewed and played"
   expect(audio.controls).toBe(true);
 });
 
-test("each photo shows what the face checks found", async () => {
+test("each photo shows what the photo checks found", async () => {
   const small =
     "Your face is too small. Move closer to the camera, or crop the photo around your face.";
   const turned = "Your face is turned away. Look straight at the camera.";
@@ -159,13 +179,241 @@ test("each photo shows what the face checks found", async () => {
     SOUND,
   ]);
   await openAt("#/setup");
-  expect(await screen.findByText("Looks good")).toBeTruthy();
+  expect(await screen.findByText("Looks good · score 90 of 100")).toBeTruthy();
   const side = (await screen.findByAltText("side.jpg")).closest("li") as HTMLElement;
   const shown = Array.from(side.querySelectorAll("li.error")).map((li) => li.textContent);
   expect(shown).toEqual([small, turned]);
   // Recordings aren't face-checked.
   const sound = (await screen.findByText("voice1.m4a (1:35)")).closest("li") as HTMLElement;
   expect(sound.textContent).not.toContain("Looks good");
+  expect(sound.textContent).not.toContain("Use this photo");
+});
+
+// --- Best photo (R9) ---
+
+test("the best photo is highlighted and another good photo can be chosen instead", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  const blurry = { ...PHOTO, id: "d".repeat(32), name: "blurry.jpg", problems: ["Blurry."] };
+  const fetchMock = uploadServer([PHOTO, second, blurry]);
+  await openAt("#/setup");
+  const best = (await screen.findByAltText("front.jpg")).closest("li") as HTMLElement;
+  await waitFor(() => expect(best.className).toBe("chosen"));
+  expect(best.textContent).toContain("Used for the video (best score)");
+  expect(best.textContent).not.toContain("Use this photo");
+  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  // A photo that failed a check can't be chosen.
+  const failed = (await screen.findByAltText("blurry.jpg")).closest("li") as HTMLElement;
+  expect(failed.textContent).not.toContain("Use this photo");
+
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+  });
+  await waitFor(() => expect(other.className).toBe("chosen"));
+  expect(other.textContent).toContain("Used for the video (your choice)");
+  expect(best.className).toBe("");
+  expect(within(best).getByRole("button", { name: "Use this photo" })).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith("/api/uploads/photos/chosen", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: second.id }),
+  });
+});
+
+test("a slow first read of the choice can't undo the user's click", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  let answerFirstRead: () => void = () => {};
+  const firstRead = new Promise<void>((resolve) => {
+    answerFirstRead = resolve;
+  });
+  let reads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/uploads/photos/chosen") {
+        if (init?.method === "PUT") return Response.json({ id: second.id, chosen_by: "you" });
+        if (++reads === 1) await firstRead; // answers with the choice from before the click
+        return Response.json({ id: PHOTO.id, chosen_by: "app" });
+      }
+      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+    }),
+  );
+  await openAt("#/setup");
+  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+  });
+  await waitFor(() => expect(other.className).toBe("chosen"));
+  await act(async () => {
+    answerFirstRead();
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let the old answer arrive
+  });
+  expect(reads).toBe(1);
+  expect(other.className).toBe("chosen");
+  expect(other.textContent).toContain("Used for the video (your choice)");
+});
+
+test("an older read of the choice answering last doesn't replace a newer one", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 95 };
+  let answerFirstRead: () => void = () => {};
+  const firstRead = new Promise<void>((resolve) => {
+    answerFirstRead = resolve;
+  });
+  let reads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/uploads/photos/chosen") {
+        if (++reads === 1) {
+          await firstRead; // from before the better photo arrived
+          return Response.json({ id: PHOTO.id, chosen_by: "app" });
+        }
+        return Response.json({ id: second.id, chosen_by: "app" });
+      }
+      if (init?.method === "POST") return Response.json(second);
+      return Response.json(url === "/api/uploads/photos" ? [PHOTO] : []);
+    }),
+  );
+  await openAt("#/setup");
+  await screen.findByAltText("front.jpg");
+  await act(async () => {
+    chooseFiles("Add photos", [new File(["x"], "second.jpg")]); // a better photo: read again
+  });
+  const newer = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  await waitFor(() => expect(newer.className).toBe("chosen"));
+  await act(async () => {
+    answerFirstRead();
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let the old answer arrive
+  });
+  expect(reads).toBe(2);
+  expect(newer.className).toBe("chosen");
+});
+
+test("a read sent while the choice is being saved can't undo it", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  const third = { ...PHOTO, id: "e".repeat(32), name: "third.jpg", score: 70 };
+  let finishSave: () => void = () => {};
+  const saving = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  let answerSecondRead: () => void = () => {};
+  const secondRead = new Promise<void>((resolve) => {
+    answerSecondRead = resolve;
+  });
+  let saved = { id: PHOTO.id, chosen_by: "app" };
+  let reads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/uploads/photos/chosen") {
+        if (init?.method === "PUT") {
+          await saving;
+          saved = { id: second.id, chosen_by: "you" };
+          return Response.json(saved);
+        }
+        if (++reads === 2) {
+          const before = saved; // read by the server before the save landed
+          await secondRead;
+          return Response.json(before);
+        }
+        return Response.json(saved);
+      }
+      if (init?.method === "POST") return Response.json(third);
+      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+    }),
+  );
+  await openAt("#/setup");
+  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  await screen.findByText("Used for the video (best score)");
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+  });
+  await act(async () => {
+    chooseFiles("Add photos", [new File(["x"], "third.jpg")]); // reads the choice again
+  });
+  await waitFor(() => expect(reads).toBe(2));
+  await act(async () => {
+    finishSave();
+  });
+  await waitFor(() => expect(other.className).toBe("chosen"));
+  await act(async () => {
+    answerSecondRead();
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let the old answer arrive
+  });
+  expect(other.className).toBe("chosen");
+  expect(other.textContent).toContain("Used for the video (your choice)");
+});
+
+test("removing the photo being chosen falls back to the best one", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  let finishSave: () => void = () => {};
+  const saving = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/uploads/photos/chosen") {
+        if (init?.method === "PUT") {
+          await saving; // the server saved it before the photo was removed
+          return Response.json({ id: second.id, chosen_by: "you" });
+        }
+        return Response.json({ id: PHOTO.id, chosen_by: "app" }); // falls back to the best
+      }
+      if (init?.method === "DELETE") return Response.json({ removed: true });
+      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+    }),
+  );
+  await openAt("#/setup");
+  const best = (await screen.findByAltText("front.jpg")).closest("li") as HTMLElement;
+  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  await waitFor(() => expect(best.className).toBe("chosen"));
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+  });
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Remove" }));
+  });
+  await act(async () => {
+    finishSave();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(screen.queryByAltText("second.jpg")).toBeNull();
+  await waitFor(() => expect(best.className).toBe("chosen"));
+  expect(best.textContent).toContain("Used for the video (best score)");
+});
+
+test("a refused choice says why", async () => {
+  const gone = { ...PHOTO, id: "f".repeat(32), name: "gone.jpg" };
+  uploadServer([PHOTO, gone]);
+  await openAt("#/setup");
+  const item = (await screen.findByAltText("gone.jpg")).closest("li") as HTMLElement;
+  await act(async () => {
+    fireEvent.click(within(item).getByRole("button", { name: "Use this photo" }));
+  });
+  expect(await screen.findByText("gone.jpg: No such photo.")).toBeTruthy();
+});
+
+test("the choice is asked again after a good photo is uploaded or the chosen one removed", async () => {
+  const fetchMock = uploadServer([PHOTO], [Response.json({ ...PHOTO, id: "c".repeat(32) })]);
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  await openAt("#/setup");
+  await screen.findByText("Used for the video (best score)");
+  const asked = () => fetchMock.mock.calls.filter(([url]) => url.endsWith("/chosen")).length;
+  expect(asked()).toBe(1);
+  await act(async () => {
+    chooseFiles("Add photos", [new File(["x"], "new.jpg")]);
+  });
+  await waitFor(() => expect(asked()).toBe(2));
+  const chosen = screen.getByText("Used for the video (best score)").closest("li") as HTMLElement;
+  await act(async () => {
+    fireEvent.click(within(chosen).getByRole("button", { name: "Remove" }));
+  });
+  await waitFor(() => expect(asked()).toBe(3));
 });
 
 test("photos uploaded before the checks are checked after the list shows", async () => {
@@ -187,7 +435,7 @@ test("photos uploaded before the checks are checked after the list shows", async
   });
   vi.stubGlobal("fetch", fetchMock);
   await openAt("#/setup");
-  expect(await screen.findByText("Checking face…")).toBeTruthy();
+  expect(await screen.findByText("Checking photo…")).toBeTruthy();
   expect(screen.getByText("Waiting to check")).toBeTruthy();
   // Adding isn't held up by the check.
   const input = screen.getByText("Add photos").querySelector("input") as HTMLInputElement;
@@ -196,7 +444,7 @@ test("photos uploaded before the checks are checked after the list shows", async
     finishCheck();
   });
   await waitFor(() => expect(screen.getAllByText(turned)).toHaveLength(2));
-  expect(screen.queryByText("Checking face…")).toBeNull();
+  expect(screen.queryByText("Checking photo…")).toBeNull();
   expect(screen.queryByText("Waiting to check")).toBeNull();
   expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/photos/${old.id}/check`, {
     method: "POST",
@@ -227,7 +475,7 @@ test("a photo that can't be checked is skipped and the next one is checked", asy
   });
   vi.stubGlobal("fetch", fetchMock);
   await openAt("#/setup");
-  expect(await screen.findByText("Looks good")).toBeTruthy();
+  expect(await screen.findByText("Looks good · score 90 of 100")).toBeTruthy();
   expect(screen.getByText("Not checked")).toBeTruthy();
 });
 

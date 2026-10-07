@@ -2,6 +2,7 @@ import logging
 import math
 import sys
 import types
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -13,22 +14,29 @@ import pytest
 from imageskin import face_checks
 from imageskin.download import DownloadError
 from imageskin.face_checks import (
+    BLURRY,
     COVERED,
     EYEBROWS,
     FACE_OVAL,
     MANY_FACES,
     NO_FACE,
+    TOO_BRIGHT,
+    TOO_DARK,
     TOO_SMALL,
     TURNED,
+    UNEVEN,
     FaceChecker,
     FaceCheckError,
     FaceMeasure,
     covered_share,
     head_angles,
+    light_and_sharpness,
     problems,
     read_rgb,
+    score,
 )
 from imageskin.liveportrait import MAX_SIDE
+from imageskin.uploads import PhotoResult
 
 GOOD = FaceMeasure(faces=1, height_px=600, yaw_deg=5, pitch_deg=-3, covered=0.02)
 
@@ -47,6 +55,14 @@ GOOD = FaceMeasure(faces=1, height_px=600, yaw_deg=5, pitch_deg=-3, covered=0.02
             FaceMeasure(faces=1, height_px=100, yaw_deg=40, covered=0.5),
             [TOO_SMALL, TURNED, COVERED],
         ),
+        (FaceMeasure(faces=1, height_px=600, sharpness=0.03), [BLURRY]),
+        (FaceMeasure(faces=1, height_px=600, brightness=60), [TOO_DARK]),
+        (FaceMeasure(faces=1, height_px=600, washed_out=0.4), [TOO_BRIGHT]),
+        (FaceMeasure(faces=1, height_px=600, evenness=0.3), [UNEVEN]),
+        (
+            FaceMeasure(faces=1, height_px=600, sharpness=0.03, brightness=40, evenness=0.2),
+            [BLURRY, TOO_DARK, UNEVEN],
+        ),
     ],
 )
 def test_each_failed_check_gives_its_message(measure: FaceMeasure, expected: list[str]) -> None:
@@ -56,6 +72,18 @@ def test_each_failed_check_gives_its_message(measure: FaceMeasure, expected: lis
 def test_messages_are_plain_sentences() -> None:
     for message in (NO_FACE, MANY_FACES, TOO_SMALL, TURNED, COVERED):
         assert message.endswith(".") and len(message) < 120
+    for message in (BLURRY, TOO_DARK, TOO_BRIGHT, UNEVEN):
+        assert message.endswith(".") and len(message) < 120
+
+
+def test_score_rises_with_each_quality_up_to_what_the_video_needs() -> None:
+    best = FaceMeasure(faces=1, height_px=300, sharpness=0.15, brightness=180, evenness=0.9)
+    assert score(best) == 100
+    assert score(replace(best, height_px=1000, sharpness=2.0)) == 100  # more doesn't count
+    assert score(replace(best, sharpness=0.06)) == 92
+    assert score(replace(best, yaw_deg=-20, covered=0.06)) < score(replace(best, yaw_deg=5))
+    worst = FaceMeasure(faces=1, yaw_deg=90, covered=1, sharpness=0, brightness=0, evenness=0)
+    assert score(worst) == 0
 
 
 def rotation(yaw_deg: float, pitch_deg: float) -> np.ndarray:
@@ -195,10 +223,62 @@ def fake_mediapipe(faces: int = 1, yaw: float = 0.0, label: int = 3) -> dict[str
     }
 
 
+def textured(size: int, low: int = 90, high: int = 210) -> np.ndarray:
+    """A sharp, evenly lit stand-in for a face: smooth shading from high in the middle to low
+    at the corners, like a face's shape, with fine grain on top, like skin's pores."""
+    y, x = np.mgrid[0:size, 0:size] / size
+    shade = low + (high - low - 20) * (1 - np.hypot(x - 0.5, y - 0.4))
+    # Grain about a pixel wide at the face's size in the video, whatever the photo's size.
+    pores = np.random.default_rng(1).integers(0, 30, (240, 240)).astype(np.float32)
+    grain = cv2.resize(pores, (size, size), interpolation=cv2.INTER_NEAREST)
+    grey = np.clip(shade + grain, 0, 255).astype(np.uint8)
+    return np.repeat(grey[..., None], 3, axis=2)
+
+
 def photo(tmp_path: Path, size: int) -> Path:
     path = tmp_path / "me.png"
-    path.write_bytes(cv2.imencode(".png", np.zeros((size, size, 3), np.uint8))[1].tobytes())
+    path.write_bytes(cv2.imencode(".png", textured(size))[1].tobytes())
     return path
+
+
+def test_a_sharp_evenly_lit_face_passes_the_quality_checks() -> None:
+    m = FaceMeasure(faces=1, height_px=600, **light_and_sharpness(textured(400), face_points(400)))
+    assert problems(m) == []
+    assert m.sharpness > 0.08 and 150 < m.brightness < 220 and m.evenness > 0.95
+    big = light_and_sharpness(textured(1600), face_points(1600))  # shrunk to the video's size
+    assert big["sharpness"] > 0.08
+    assert m.washed_out == 0
+
+
+def test_a_blurred_face_is_blurry_whatever_the_photo_size() -> None:
+    for size in (400, 1600):  # the face is scaled to its size in the video first
+        blurred = cv2.GaussianBlur(textured(size), (0, 0), 1.5 * size / 222).astype(np.uint8)
+        found = light_and_sharpness(blurred, face_points(size))
+        assert found["sharpness"] < 0.05, size
+
+
+def test_a_dark_face_is_too_dark_but_not_blurry() -> None:
+    found = light_and_sharpness(textured(400) // 4, face_points(400))
+    assert found["brightness"] < 75
+    assert found["sharpness"] > 0.08  # judged against the face's own grey level
+
+
+def test_a_white_face_is_washed_out() -> None:
+    found = light_and_sharpness(textured(400, 250, 280), face_points(400))
+    assert found["washed_out"] > 0.25
+
+
+def test_a_face_lit_from_one_side_is_uneven() -> None:
+    image = textured(400)
+    image[:, :200] //= 4  # the left half in shadow
+    assert light_and_sharpness(image, face_points(400))["evenness"] < 0.4
+
+
+def test_a_face_with_nothing_below_the_brows_measures_no_light() -> None:
+    points = face_points(200)
+    points[EYEBROWS, 1] = 199
+    found = light_and_sharpness(textured(200), points)
+    assert found["brightness"] == 0 and found["evenness"] == 0
 
 
 MODELS = (Path("face.task"), Path("segment.tflite"))
@@ -214,9 +294,11 @@ def test_checker_passes_a_large_straight_uncovered_face(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     with patch.dict(sys.modules, fake_mediapipe()), caplog.at_level(logging.INFO):
-        assert checker(tmp_path).check(photo(tmp_path, 600)) == []
+        result = checker(tmp_path).check(photo(tmp_path, 600))
+    assert result.problems == [] and result.score is not None and result.score > 90
     record = next(r for r in caplog.records if r.message == "Face checks done")
     assert record.faces == 1 and record.problems == 0  # type: ignore[attr-defined]
+    assert record.score == result.score  # type: ignore[attr-defined]
     assert record.face_px > 500  # type: ignore[attr-defined]
     face_options, segment_options = FakeModel.opened
     assert face_options["base_options"] == str(MODELS[0]) and face_options["num_faces"] == 3
@@ -226,12 +308,13 @@ def test_checker_passes_a_large_straight_uncovered_face(
 
 def test_checker_reports_each_problem(tmp_path: Path) -> None:
     with patch.dict(sys.modules, fake_mediapipe(yaw=40, label=5)):
-        assert checker(tmp_path).check(photo(tmp_path, 150)) == [TOO_SMALL, TURNED, COVERED]
+        found = checker(tmp_path).check(photo(tmp_path, 150))
+        assert found == PhotoResult([TOO_SMALL, TURNED, COVERED])
     with patch.dict(sys.modules, fake_mediapipe(faces=2)):
-        assert checker(tmp_path).check(photo(tmp_path, 600)) == [MANY_FACES]
+        assert checker(tmp_path).check(photo(tmp_path, 600)) == PhotoResult([MANY_FACES])
         assert len(FakeModel.opened) == 1  # no need to segment
     with patch.dict(sys.modules, fake_mediapipe(faces=0)):
-        assert checker(tmp_path).check(photo(tmp_path, 600)) == [NO_FACE]
+        assert checker(tmp_path).check(photo(tmp_path, 600)) == PhotoResult([NO_FACE])
 
 
 def test_models_are_downloaded_once(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

@@ -3,7 +3,8 @@
 The type is read from the file's first bytes, never from its name. Each file is stored under a
 generated id: photos as JPG or PNG (HEIC is converted to JPG), sounds as 24 kHz mono WAV via
 audio.to_wav. A small JSON file next to each one keeps the name it was uploaded with, for display,
-and for photos the problems the face checks found (roadmap R8).
+and for photos the problems the photo checks found (roadmap R8) and the score of a photo that
+passed them (roadmap R9). The best photo is used for the video unless the user chose another.
 """
 
 import importlib.util
@@ -61,9 +62,26 @@ class Upload:
     size: int  # bytes as stored
     uploaded_at: str  # ISO 8601, UTC
     seconds: float | None = None  # sounds only
-    # Photos only: what the face checks found ([] when it passed), or None when not checked.
+    # Photos only: what the photo checks found ([] when it passed), or None when not checked.
     problems: list[str] | None = None
     checks: int | None = None  # the FACE_CHECKS version that found `problems`
+    score: int | None = None  # photos that passed the checks: 0 to 100, higher is better
+
+
+@dataclass(frozen=True)
+class PhotoResult:
+    """What the photo checks found: the problems, and the score when there are none."""
+
+    problems: list[str]
+    score: int | None = None
+
+
+@dataclass(frozen=True)
+class PhotoChoice:
+    """The photo the video will be made from: id None when no photo has passed the checks."""
+
+    id: str | None
+    chosen_by: Literal["app", "you"] = "app"
 
 
 def detect_format(head: bytes) -> str | None:
@@ -108,22 +126,24 @@ def convert_heic(src: Path, dst: Path, timeout_s: float = CONVERT_TIMEOUT_S) -> 
         raise UploadError("The HEIC photo could not be read. Try saving it as JPG.")
 
 
-PhotoCheck = Callable[[Path], list[str]]
-# Raise this when the face checks' limits change: photos checked by an older version are then
+PhotoCheck = Callable[[Path], PhotoResult]
+# Raise this when the photo checks' limits change: photos checked by an older version are then
 # listed as not checked, and the browser checks them again.
-FACE_CHECKS = 2
+FACE_CHECKS = 3
 
 
 class UploadStore:
     """Uploads kept in <home>/uploads/photos and <home>/uploads/sounds.
 
     check_photo, when given, returns the problems found in a stored photo; photos are checked
-    as they arrive, and check() checks one stored before the checks were available.
+    as they arrive, and check() checks one stored before the checks were available. The photo
+    the user chose for the video is kept in <home>/uploads/chosen-photo.json.
     """
 
     def __init__(self, home: Path, check_photo: PhotoCheck | None = None) -> None:
         self.root = home / "uploads"
         self.check_photo = check_photo
+        self._choice_file = self.root / "chosen-photo.json"
 
     def _dir(self, kind: Kind) -> Path:
         return self.root / kind
@@ -248,8 +268,8 @@ class UploadStore:
         wav_out.replace(dst)
         return round(seconds, 2)
 
-    def _check(self, photo: Path) -> list[str] | None:
-        """The face checks' problems, or None when they are off or could not run."""
+    def _check(self, photo: Path) -> PhotoResult | None:
+        """What the photo checks found, or None when they are off or could not run."""
         if self.check_photo is None:
             return None
         try:
@@ -273,11 +293,13 @@ class UploadStore:
 
     @staticmethod
     def _current(upload: Upload) -> Upload:
-        """Results from older face checks count as not checked, so they are redone."""
-        return upload if upload.checks == FACE_CHECKS else replace(upload, problems=None)
+        """Results from older photo checks count as not checked, so they are redone."""
+        if upload.checks == FACE_CHECKS:
+            return upload
+        return replace(upload, problems=None, score=None)
 
     def check(self, upload_id: str) -> Upload | None:
-        """Run the face checks on a stored photo, such as one uploaded before they were on, and
+        """Run the photo checks on a stored photo, such as one uploaded before they were on, and
         save the result. None when there is no such photo."""
         stored = self.path("photos", upload_id)
         upload = self._read(stored.with_suffix(".json")) if stored else None
@@ -293,10 +315,38 @@ class UploadStore:
         return checked
 
     def _with_checks(self, upload: Upload, stored: Path) -> Upload:
-        problems = self._check(stored)
-        return replace(
-            upload, problems=problems, checks=FACE_CHECKS if problems is not None else None
-        )
+        result = self._check(stored)
+        if result is None:
+            return replace(upload, problems=None, checks=None, score=None)
+        return replace(upload, problems=result.problems, checks=FACE_CHECKS, score=result.score)
+
+    def photo_choice(self) -> PhotoChoice:
+        """The photo the user chose, while it is there and passes the checks; otherwise the
+        best scoring photo, picked by the app."""
+        passed = [p for p in self.list("photos") if p.problems == [] and p.score is not None]
+        try:
+            chosen = json.loads(self._choice_file.read_text(encoding="utf-8")).get("id")
+        except FileNotFoundError:
+            chosen = None
+        except (OSError, ValueError, AttributeError) as e:
+            logger.error("Could not read the chosen photo", extra={"error": str(e)})
+            chosen = None
+        if any(p.id == chosen for p in passed):
+            return PhotoChoice(chosen, "you")
+        best = max(passed, key=lambda p: p.score or 0, default=None)
+        return PhotoChoice(best.id if best else None)
+
+    def choose_photo(self, upload_id: str) -> PhotoChoice:
+        """Use this photo for the video, or raise UploadError saying why not."""
+        photo = next((p for p in self.list("photos") if p.id == upload_id), None)
+        if photo is None:
+            raise UploadError("No such photo.", status=404)
+        if photo.problems != []:
+            raise UploadError("Only a photo that passed the checks can be used for the video.")
+        self.root.mkdir(parents=True, exist_ok=True)
+        self._choice_file.write_text(json.dumps({"id": upload_id}), encoding="utf-8")
+        logger.info("Photo chosen for the video", extra={"id": upload_id, "score": photo.score})
+        return PhotoChoice(upload_id, "you")
 
     def _read(self, info: Path) -> Upload | None:
         try:
