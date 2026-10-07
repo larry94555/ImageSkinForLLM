@@ -143,6 +143,9 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
     }
   }
 
+  // Adding waits for the first list, so a late list can't hide a file uploaded meanwhile.
+  const ready = sending === null && (items !== null || loadFailed);
+
   return (
     <section>
       <h2>{props.title}</h2>
@@ -153,7 +156,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
           type="file"
           multiple
           accept={props.accept}
-          disabled={sending !== null}
+          disabled={!ready}
           onChange={add}
           className="file"
         />

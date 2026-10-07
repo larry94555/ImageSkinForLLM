@@ -235,3 +235,46 @@ test("minutes formats a recording's length", () => {
   expect(minutes(59.6)).toBe("1:00");
   expect(minutes(605)).toBe("10:05");
 });
+
+test("adding waits until the first list has loaded, so it can't hide a new upload", async () => {
+  let finishList: (r: Response) => void = () => {};
+  const listPending = new Promise<Response>((resolve) => {
+    finishList = resolve;
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (init?.method === "POST") return Response.json(PHOTO);
+      return url === "/api/uploads/photos" ? listPending : Response.json([]);
+    }),
+  );
+  await openAt("#/setup");
+  const input = (await screen.findByText("Add photos")).querySelector("input") as HTMLInputElement;
+  expect(input.disabled).toBe(true);
+  await act(async () => {
+    finishList(Response.json([]));
+  });
+  await waitFor(() => expect(input.disabled).toBe(false));
+  await act(async () => {
+    chooseFiles("Add photos", [new File(["x"], "front.jpg")]);
+  });
+  expect(await screen.findByAltText("front.jpg")).toBeTruthy();
+});
+
+test("if the list failed, adding still works", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (init?.method === "POST") return Response.json(PHOTO);
+      return new Response("", { status: 500 });
+    }),
+  );
+  await openAt("#/setup");
+  await screen.findAllByText("Could not load the list. Reload the page to try again.");
+  await act(async () => {
+    chooseFiles("Add photos", [new File(["x"], "front.jpg")]);
+  });
+  expect(await screen.findByAltText("front.jpg")).toBeTruthy();
+});

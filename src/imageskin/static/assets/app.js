@@ -169,6 +169,7 @@ function UploadSection(props) {
 			}]);
 		}
 	}
+	const ready = sending === null && (items !== null || loadFailed);
 	return /* @__PURE__ */ u("section", { children: [
 		/* @__PURE__ */ u("h2", { children: props.title }),
 		/* @__PURE__ */ u("p", {
@@ -181,7 +182,7 @@ function UploadSection(props) {
 				type: "file",
 				multiple: true,
 				accept: props.accept,
-				disabled: sending !== null,
+				disabled: !ready,
 				onChange: add,
 				className: "file"
 			})]
