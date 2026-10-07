@@ -253,6 +253,43 @@ test("a slow first read of the choice can't undo the user's click", async () => 
   expect(other.textContent).toContain("Used for the video (your choice)");
 });
 
+test("an older read of the choice answering last doesn't replace a newer one", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 95 };
+  let answerFirstRead: () => void = () => {};
+  const firstRead = new Promise<void>((resolve) => {
+    answerFirstRead = resolve;
+  });
+  let reads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/uploads/photos/chosen") {
+        if (++reads === 1) {
+          await firstRead; // from before the better photo arrived
+          return Response.json({ id: PHOTO.id, chosen_by: "app" });
+        }
+        return Response.json({ id: second.id, chosen_by: "app" });
+      }
+      if (init?.method === "POST") return Response.json(second);
+      return Response.json(url === "/api/uploads/photos" ? [PHOTO] : []);
+    }),
+  );
+  await openAt("#/setup");
+  await screen.findByAltText("front.jpg");
+  await act(async () => {
+    chooseFiles("Add photos", [new File(["x"], "second.jpg")]); // a better photo: read again
+  });
+  const newer = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  await waitFor(() => expect(newer.className).toBe("chosen"));
+  await act(async () => {
+    answerFirstRead();
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let the old answer arrive
+  });
+  expect(reads).toBe(2);
+  expect(newer.className).toBe("chosen");
+});
+
 test("a refused choice says why", async () => {
   const gone = { ...PHOTO, id: "f".repeat(32), name: "gone.jpg" };
   uploadServer([PHOTO, gone]);

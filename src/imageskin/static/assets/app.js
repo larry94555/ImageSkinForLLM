@@ -151,20 +151,19 @@ function UploadSection(props) {
 	const [choice, setChoice] = d(null);
 	const [choosing, setChoosing] = d(null);
 	const choiceRequests = A(0);
-	const lastChange = A(0);
 	async function refreshChoice() {
 		if (kind !== "photos") return;
 		const request = ++choiceRequests.current;
 		try {
 			const current = await getPhotoChoice();
-			if (request > lastChange.current) setChoice(current);
+			if (request === choiceRequests.current) setChoice(current);
 		} catch (e) {
 			console.error("Could not get the chosen photo", e);
 		}
 	}
 	async function choose(item) {
 		if (choosing !== null) return;
-		lastChange.current = ++choiceRequests.current;
+		++choiceRequests.current;
 		setChoosing(item.id);
 		setRefused([]);
 		try {

@@ -113,10 +113,10 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
   const [choice, setChoice] = useState<PhotoChoice | null>(null);
   const [choosing, setChoosing] = useState<string | null>(null);
 
-  // Each read or change of the choice gets the next number. A read is dropped when a change was
-  // sent after it, so a slow read can't put back the choice from before the user's click.
+  // Each read or change of the choice gets the next number. Only the newest request's answer is
+  // shown, so a slow read can't put back an older choice: neither the one from before the user's
+  // click, nor an older best photo after a newer read has answered.
   const choiceRequests = useRef(0);
-  const lastChange = useRef(0);
 
   // Asked again whenever the photos or their checks change, since the best one may change.
   async function refreshChoice() {
@@ -124,7 +124,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
     const request = ++choiceRequests.current;
     try {
       const current = await getPhotoChoice();
-      if (request > lastChange.current) setChoice(current);
+      if (request === choiceRequests.current) setChoice(current);
     } catch (e) {
       console.error("Could not get the chosen photo", e);
     }
@@ -132,7 +132,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
 
   async function choose(item: Upload) {
     if (choosing !== null) return; // one at a time
-    lastChange.current = ++choiceRequests.current;
+    ++choiceRequests.current; // reads sent before this click are now out of date
     setChoosing(item.id);
     setRefused([]);
     try {
