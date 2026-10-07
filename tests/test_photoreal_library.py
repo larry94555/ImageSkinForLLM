@@ -11,12 +11,14 @@ from imageskin.photoreal_library import (
     Paster,
     align_loop,
     build_library,
-    in_between,
     key_frames,
     library_key,
     load_library,
+    morph,
     mouth_mask,
+    optical_flow,
     prepare_library,
+    to_gray,
     write_idle_preview,
 )
 from imageskin.video import VideoError
@@ -130,12 +132,14 @@ def test_key_frames_are_every_fourth_and_each_blink() -> None:
     assert 46 not in keys and 55 not in keys
 
 
-def test_in_between_follows_the_motion() -> None:
+def test_morph_follows_the_motion() -> None:
     a = texture()
     b = np.roll(a, 8, axis=1)  # the face moved 8 px to the right
-    half = in_between(a, b, 0.5)
+    there, back = optical_flow(to_gray(a), to_gray(b)), optical_flow(to_gray(b), to_gray(a))
+    half = morph(a, b, there, back, 0.5)
     truth = np.roll(a, 4, axis=1)
     inner = (slice(64, -64), slice(64, -64))
     assert np.abs(half[inner].astype(int) - truth[inner].astype(int)).mean() < 6
     cross_fade = (a.astype(int) + b.astype(int)) // 2
     assert np.abs(cross_fade[inner] - truth[inner].astype(int)).mean() > 12
+    assert morph(a, b, there, back, 0.0) is a and morph(a, b, there, back, 1.0) is b

@@ -41,7 +41,9 @@ from imageskin.visemes import SHAPES
 
 logger = logging.getLogger(__name__)
 
-# Bump when the frames a library holds would change, so old libraries are rebuilt.
+# Bump when existing libraries become unusable or must be made again, so they are rebuilt. A
+# change that only makes new frames differently (such as filling in idle-loop frames) keeps
+# the version: libraries made before stay valid.
 LIBRARY_VERSION = 1
 CROP = 512  # LivePortrait's face crop is CROP x CROP pixels
 KEY_EVERY = 4  # idle-loop frames rendered by the model; the rest are filled in between
@@ -156,17 +158,28 @@ def key_frames(n_loop: int) -> list[int]:
     return sorted({i for i in range(n_loop) if i % KEY_EVERY == 0} | near)
 
 
-def in_between(a: Image, b: Image, t: float) -> Image:
-    """The face t of the way (0..1) from frame a to frame b: both warped toward each other
-    along their optical flow and blended, so nothing is doubled as in a plain cross-fade."""
+def morph(
+    a: Image, b: Image, flow_ab: NDArray[np.float32], flow_ba: NDArray[np.float32], t: float
+) -> Image:
+    """The picture t of the way (0..1) from a to b: both warped toward each other along their
+    optical flows (`optical_flow(a, b)` and `(b, a)` of their grey images) and blended, which
+    keeps one set of edges instead of the doubled ones of a plain cross-fade."""
+    if t <= 0.0:
+        return a
+    if t >= 1.0:
+        return b
     h, w = a.shape[:2]
     gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
     grid = np.dstack([gx, gy])
-    to_a = grid + t * optical_flow(to_gray(b), to_gray(a))
-    to_b = grid + (1.0 - t) * optical_flow(to_gray(a), to_gray(b))
-    from_a = cv2.remap(a, to_a, None, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)  # type: ignore[call-overload]
-    from_b = cv2.remap(b, to_b, None, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)  # type: ignore[call-overload]
+    from_a = _remap(a, grid + t * flow_ba)
+    from_b = _remap(b, grid + (1.0 - t) * flow_ab)
     return np.asarray(cv2.addWeighted(from_a, 1.0 - t, from_b, t, 0.0), np.uint8)
+
+
+def _remap(image: Image, mapping: NDArray[np.float32]) -> Image:
+    """Each output pixel (x, y) takes the colour of `image` at mapping[y, x]."""
+    out = cv2.remap(image, mapping, None, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)  # type: ignore[call-overload]
+    return np.asarray(out, np.uint8)
 
 
 def fill_loop(loop: Path, n_loop: int, keys: list[int]) -> int:
@@ -180,8 +193,10 @@ def fill_loop(loop: Path, n_loop: int, keys: list[int]) -> int:
             continue
         first = np.load(loop / f"{a:04d}.npy")
         last = np.load(loop / f"{b % n_loop:04d}.npy")
+        there = optical_flow(to_gray(first), to_gray(last))  # once per pair of rendered frames
+        back = optical_flow(to_gray(last), to_gray(first))
         for i in todo:
-            _save(loop / f"{i:04d}.npy", in_between(first, last, (i - a) / (b - a)))
+            _save(loop / f"{i:04d}.npy", morph(first, last, there, back, (i - a) / (b - a)))
             made += 1
     return made
 

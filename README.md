@@ -263,7 +263,7 @@ imageskin sample --photo me.jpg --engine photoreal
 imageskin sample --photo me.jpg --engine photoreal -o mary.mp4 --text "Hello, my name is Mary. Would you like some more popcorn? Please move the blue boat. I see three green trees."
 ```
 
-`prepare` writes `idle.mp4` (or the `-o` name) in the current folder: the idle loop with no sound, to check the head motion and blinks, and prints its full path and where the frames are. The logs show `Rendered mouth shapes`, `Rendered idle loop frame N of 60` every 10 frames, `Filled in idle loop frames` (140, about 12 seconds), `Photoreal library ready` and `Loaded photoreal library`. Running it again on the same photo finishes in about a second.
+`prepare` writes `idle.mp4` (or the `-o` name) in the current folder: the idle loop with no sound, to check the head motion and blinks, and prints its full path and where the frames are. The logs show `Rendered mouth shapes`, `Rendered idle loop frame N of 60` every 10 frames, `Filled in idle loop frames` (140, about 5 seconds), `Photoreal library ready` and `Loaded photoreal library`. Running it again on the same photo finishes in about a second.
 
 `sample --engine photoreal` writes `sample.mp4` (or the `-o` name) in the current folder and prints its full path; if the photo isn't prepared yet, it does that first. `--text` says something other than the sample script. The logs show `Loaded photoreal library`, `Spoke text` and `Rendered video` with `"engine": "photoreal"` and how long it took.
 
