@@ -9,7 +9,7 @@ import {
 } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import type { Upload } from "./api";
+import type { Upload, VoiceSample } from "./api";
 import { App } from "./App";
 import { minutes } from "./pages";
 
@@ -117,6 +117,7 @@ const PHOTO: Upload = {
   seconds: null,
   problems: [],
   score: 90,
+  speech: null,
 };
 const SOUND: Upload = {
   ...PHOTO,
@@ -129,9 +130,16 @@ const SOUND: Upload = {
   score: null,
 };
 
+const NO_VOICE: VoiceSample = {
+  recordings: 0,
+  seconds: 0,
+  speech: 0,
+  problem: "No recording has passed the checks yet.",
+};
+
 // A fake server with consent given and these uploads stored. POSTs answer with `posted` in turn.
 // The first photo is the one the app picks for the video.
-function uploadServer(stored: Upload[], posted: Response[] = []) {
+function uploadServer(stored: Upload[], posted: Response[] = [], voice = NO_VOICE) {
   let choice = { id: stored.find((u) => u.kind === "photos")?.id ?? null, chosen_by: "app" };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
@@ -143,6 +151,7 @@ function uploadServer(stored: Upload[], posted: Response[] = []) {
       }
       return Response.json(choice);
     }
+    if (url === "/api/voice-sample") return Response.json(voice);
     const kind = url.split("/")[3];
     if (init?.method === "POST") return posted.shift() ?? new Response("", { status: 500 });
     if (init?.method === "DELETE") return Response.json({ removed: true });
@@ -613,4 +622,111 @@ test("if the list failed, adding still works", async () => {
     chooseFiles("Add photos", [new File(["x"], "front.jpg")]);
   });
   expect(await screen.findByAltText("front.jpg")).toBeTruthy();
+});
+
+// --- Sound checks and the voice sample (R10) ---
+
+const NOISY =
+  "There is too much background noise. Record in a quiet room, away from fans, open windows," +
+  " music or a TV.";
+const PASSED_SOUND: Upload = { ...SOUND, problems: [], speech: 70.2 };
+const ONE_VOICE: VoiceSample = { recordings: 1, seconds: 95.4, speech: 70.2, problem: null };
+
+test("each recording shows what the sound checks found, and the voice sample plays", async () => {
+  const noisy = { ...SOUND, id: "c".repeat(32), name: "kitchen.m4a", problems: [NOISY] };
+  uploadServer([PASSED_SOUND, noisy], [], ONE_VOICE);
+  await openAt("#/setup");
+  expect(await screen.findByText("Looks good · 1:10 of speech")).toBeTruthy();
+  const failed = (await screen.findByText("kitchen.m4a (1:35)")).closest("li") as HTMLElement;
+  expect(within(failed).getByText(NOISY).className).toBe("error");
+  expect(await screen.findByText("Voice sample")).toBeTruthy();
+  expect(
+    screen.getByText("Made from the recording that passed the checks: 1:10 of speech."),
+  ).toBeTruthy();
+  expect(screen.getByText("Enough speech to make the voice.")).toBeTruthy();
+  const players = Array.from(document.querySelectorAll("audio")).map((a) => a.getAttribute("src"));
+  expect(players).toContain("/api/voice-sample/audio?v=0");
+});
+
+test("without enough speech the voice sample says what to add", async () => {
+  const short = "The recordings that passed the checks have 20 seconds of speech.";
+  uploadServer([PASSED_SOUND, { ...PASSED_SOUND, id: "c".repeat(32) }], [], {
+    recordings: 2,
+    seconds: 40,
+    speech: 20,
+    problem: short,
+  });
+  await openAt("#/setup");
+  expect((await screen.findByText(short)).className).toBe("error");
+  expect(screen.getByText(/Made from the 2 recordings that passed the checks, in order/)).toBeTruthy();
+});
+
+test("with no recording passed, there is nothing to play yet", async () => {
+  uploadServer([]);
+  await openAt("#/setup");
+  expect((await screen.findByText(NO_VOICE.problem as string)).className).toBe("muted");
+  expect(document.querySelector(".voice-sample audio")).toBeNull();
+});
+
+test("the voice sample is read again after a recording is added, checked or removed", async () => {
+  const fetchMock = uploadServer(
+    [SOUND],
+    [Response.json(PASSED_SOUND), Response.json({ ...PASSED_SOUND, id: "c".repeat(32) })],
+    ONE_VOICE,
+  );
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  const reads = () => fetchMock.mock.calls.filter(([url]) => url === "/api/voice-sample").length;
+  await openAt("#/setup");
+  // The stored recording predates the checks, so it is checked first, then the sample read.
+  expect(await screen.findByText("Looks good · 1:10 of speech")).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/sounds/${SOUND.id}/check`, {
+    method: "POST",
+  });
+  await waitFor(() => expect(reads()).toBe(2));
+  await act(async () => {
+    chooseFiles("Add recordings", [new File(["x"], "voice2.m4a")]);
+  });
+  await waitFor(() => expect(reads()).toBe(3));
+  expect(document.querySelector(".voice-sample audio")?.getAttribute("src")).toBe(
+    "/api/voice-sample/audio?v=2",
+  );
+  await act(async () => {
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+  });
+  await waitFor(() => expect(reads()).toBe(4));
+});
+
+test("an older read of the voice sample answering last is not shown", async () => {
+  let answerFirstRead: () => void = () => {};
+  const firstRead = new Promise<void>((resolve) => {
+    answerFirstRead = resolve;
+  });
+  let reads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/voice-sample") {
+        if (++reads === 1) {
+          await firstRead; // from before the recording arrived
+          return Response.json(NO_VOICE);
+        }
+        return Response.json(ONE_VOICE);
+      }
+      if (init?.method === "POST") return Response.json(PASSED_SOUND);
+      return Response.json([]);
+    }),
+  );
+  await openAt("#/setup");
+  await screen.findAllByText("None yet.");
+  await act(async () => {
+    chooseFiles("Add recordings", [new File(["x"], "voice1.m4a")]);
+  });
+  expect(await screen.findByText("Enough speech to make the voice.")).toBeTruthy();
+  await act(async () => {
+    answerFirstRead();
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let the old answer arrive
+  });
+  expect(reads).toBe(2);
+  expect(screen.getByText("Enough speech to make the voice.")).toBeTruthy();
 });

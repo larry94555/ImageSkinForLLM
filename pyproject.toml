@@ -14,6 +14,8 @@ dependencies = [
     "uvicorn>=0.29",
     # Reads uploaded files (Apache 2.0).
     "python-multipart>=0.0.9",
+    # Sound checks on uploaded recordings (BSD).
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]

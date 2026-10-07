@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sound_fakes import speechlike, wav_of
 
 from imageskin import __version__
 from imageskin.app import STATIC_DIR, create_app, face_checker
@@ -84,6 +85,7 @@ def test_preact_license_ships_with_the_app() -> None:
 
 
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
+SPEECH = wav_of(speechlike(30))
 
 
 def no_problems(photo: Path) -> PhotoResult:
@@ -185,3 +187,27 @@ def test_the_photo_for_the_video_can_be_read_and_chosen(tmp_path: Path) -> None:
         TestClient(create_app(tmp_path / "other")).get("/api/uploads/photos/chosen").status_code
         == 403
     )
+
+
+def test_sounds_can_be_checked_and_joined_into_the_voice_sample(tmp_path: Path) -> None:
+    client = consented_client(tmp_path)
+    assert client.get("/api/voice-sample").json() == {
+        "recordings": 0,
+        "seconds": 0,
+        "speech": 0,
+        "problem": "No recording has passed the checks yet.",
+    }
+    assert client.get("/api/voice-sample/audio").status_code == 404
+
+    old = UploadStore(tmp_path, check_sound=None).save("sounds", "a.wav", io.BytesIO(SPEECH))
+    assert client.get("/api/uploads/sounds").json()[0]["problems"] is None
+    checked = client.post(f"/api/uploads/sounds/{old.id}/check").json()
+    assert checked["problems"] == [] and checked["speech"] > 15
+    assert client.post(f"/api/uploads/sounds/{'f' * 32}/check").status_code == 404
+
+    sample = client.get("/api/voice-sample").json()
+    assert sample["recordings"] == 1 and sample["problem"] is not None  # under 30 s of speech
+    audio = client.get("/api/voice-sample/audio")
+    assert audio.headers["content-type"] == "audio/wav"
+    assert audio.headers["cache-control"] == "no-store"
+    assert audio.content[:4] == b"RIFF"

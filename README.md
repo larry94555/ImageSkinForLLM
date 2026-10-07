@@ -100,9 +100,11 @@ Behind the screen, the server stores uploaded photos (JPG, PNG, HEIC) and record
 | `GET /api/uploads/photos` or `/sounds` | List the uploads |
 | `GET /api/uploads/photos/{id}` | Download one (also `/sounds/{id}`) |
 | `DELETE /api/uploads/photos/{id}` | Remove one (also `/sounds/{id}`) |
-| `POST /api/uploads/photos/{id}/check` | Run the photo checks on a stored photo |
+| `POST /api/uploads/photos/{id}/check` | Run the photo checks on a stored photo (also `/sounds/{id}/check` for the sound checks) |
 | `GET /api/uploads/photos/chosen` | The photo the video will be made from, and whether the app or you chose it |
 | `PUT /api/uploads/photos/chosen` | Use another photo that passed the checks (JSON body `{"id": "…"}`) |
+| `GET /api/voice-sample` | How many recordings the voice sample joins, its seconds of speech, and what it still needs |
+| `GET /api/voice-sample/audio` | The voice sample as WAV |
 
 Try them on the API docs page at http://127.0.0.1:8000/docs while `imageskin serve` is running.
 
@@ -132,6 +134,20 @@ pip install -e ".[faces]"
 ```
 
 On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Without MediaPipe the server logs `Face checks are off` at startup and photos show **Not checked**. The server downloads and loads the models when it starts (`Face checks ready` in the log), so the first photo isn't held up. Photos uploaded before the checks were on show **Waiting to check**, then **Checking photo…**, and are checked one at a time after the page shows, through `POST /api/uploads/photos/{id}/check`. Each check takes about a second and is logged as `Face checks done` with what it measured (including `sharpness`, `brightness`, `washed_out`, `evenness` and `score`). Choosing a photo is logged as `Photo chosen for the video`.
+
+### Sound checks
+
+Each uploaded recording is checked as it arrives (in well under a second), and the upload screen shows **Looks good** with its length of speech, or what to fix, under it. Speech is measured in 20 ms steps: the quietest tenth of them, in the pauses between words, gives the background noise level, and the loudest twentieth the speech level. Pauses don't count as speech. The checks, each with a fixed message:
+
+| Check | Fails when | Message |
+|---|---|---|
+| Long enough | under 15 seconds of speech in the recording | "This recording has only N seconds of speech. …" |
+| Not too loud | over 0.05% of the speech is clipped (at the top of what the file can hold) | "The recording is too loud, so parts of it are distorted. …" |
+| Little background noise | the speech is less than 20 dB louder than the background noise | "There is too much background noise. …" |
+
+The recordings that pass are joined, in the order they were uploaded, into the voice sample `uploads/voice-sample.wav`, which the person's own voice will be made from (roadmap R25). It is shown under the recordings with a player. The voice needs at least 30 seconds of speech in all; until then the screen says how much there is. Each recording in the recording guide has a minute or more.
+
+The noise limit was set on the VoiceBank-DEMAND test set: clean studio speech measures 29 to 38 dB, the same speech with cafe, street or office noise mixed in so the voice is still clear 22 to 25 dB, and with noise that competes with the voice 13 to 20 dB. The limits, including the speech lengths, are at the top of `src/imageskin/sound_checks.py`; when they change, raise `SOUND_CHECKS` in `uploads.py` so recordings checked before are checked again. Recordings uploaded before the checks show **Checking recording…** and are checked one at a time after the page shows. Each check is logged as `Sound checked` with what it measured (`speech_s`, `clipped`, `snr_db`), and each change to the voice sample as `Voice sample updated`.
 
 ## Making a voice sample
 

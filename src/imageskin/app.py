@@ -25,6 +25,7 @@ from imageskin.uploads import (
     Upload,
     UploadError,
     UploadStore,
+    VoiceSample,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,12 +127,24 @@ def create_app(home: Path | None = None, check_photo: PhotoCheck | None = None) 
     def list_uploads(kind: Kind) -> list[Upload]:
         return store.list(kind)
 
-    @app.post("/api/uploads/photos/{upload_id}/check", dependencies=needs_consent)
-    def check_photo_now(upload_id: str) -> Upload:
-        checked = store.check(upload_id)
+    @app.post(uploads_api + "/{upload_id}/check", dependencies=needs_consent)
+    def check_upload_now(kind: Kind, upload_id: str) -> Upload:
+        checked = store.check(kind, upload_id)
         if checked is None:
-            raise HTTPException(status_code=404, detail="No such photo.")
+            raise HTTPException(status_code=404, detail="No such file.")
         return checked
+
+    @app.get("/api/voice-sample", dependencies=needs_consent)
+    def get_voice_sample() -> VoiceSample:
+        return store.voice_sample()
+
+    @app.get("/api/voice-sample/audio", dependencies=needs_consent)
+    def get_voice_sample_audio() -> FileResponse:
+        if not store.voice_sample_file.is_file():
+            raise HTTPException(status_code=404, detail="No recording has passed the checks yet.")
+        # no-store: it changes whenever a recording is added or removed.
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
+        return FileResponse(store.voice_sample_file, media_type="audio/wav", headers=headers)
 
     # Before the {upload_id} routes; ids are 32 hex digits, so they never clash.
     @app.get("/api/uploads/photos/chosen", dependencies=needs_consent)
