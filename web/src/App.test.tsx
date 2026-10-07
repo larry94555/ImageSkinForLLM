@@ -853,3 +853,47 @@ test("duration says seconds or minutes", () => {
   expect(duration(89)).toBe("89 s");
   expect(duration(1034)).toBe("17 min");
 });
+
+test("Prepare is asked again after the chosen photo or the recordings change", async () => {
+  const other: Upload = { ...PHOTO, id: "c".repeat(32), name: "side.jpg", score: 80 };
+  const sound: Upload = { ...SOUND, problems: [], speech: 40 };
+  let choice = { id: PHOTO.id, chosen_by: "app" };
+  let sounds = [sound];
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen") {
+      if (init?.method === "PUT") {
+        const { id } = JSON.parse(init.body as string) as { id: string };
+        choice = { id, chosen_by: "you" };
+      }
+      return Response.json(choice);
+    }
+    if (url === "/api/voice-sample") return Response.json(NO_VOICE);
+    // The server reports the finished job only while its photo and enough speech are there.
+    if (url === "/api/prepare") {
+      return Response.json(choice.id === PHOTO.id && sounds.length > 0 ? DONE : IDLE);
+    }
+    if (url === "/api/uploads/photos") return Response.json([PHOTO, other]);
+    if (url === "/api/uploads/sounds") return Response.json(sounds);
+    if (init?.method === "DELETE") {
+      sounds = [];
+      return Response.json({ removed: true });
+    }
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  await openAt("#/setup");
+  expect(await screen.findByText("Ready: the voice and the face are prepared.")).toBeTruthy();
+
+  fireEvent.click(await screen.findByRole("button", { name: "Use this photo" }));
+  expect(await screen.findByRole("button", { name: "Prepare" })).toBeTruthy();
+  expect(screen.queryByText("Ready: the voice and the face are prepared.")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Use this photo" })); // back to the first
+  expect(await screen.findByText("Ready: the voice and the face are prepared.")).toBeTruthy();
+
+  const recording = (await screen.findByText(/voice1\.m4a/)).closest("li") as HTMLElement;
+  fireEvent.click(within(recording).getByRole("button", { name: "Remove" }));
+  expect(await screen.findByRole("button", { name: "Prepare" })).toBeTruthy();
+});

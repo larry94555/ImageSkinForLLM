@@ -103,9 +103,14 @@ class PrepareJob:
         try:
             data = json.loads(self._file.read_text(encoding="utf-8"))
             steps = [Step(**s) for s in data.pop("steps") or []]
+            status = PrepareStatus(**data, steps=steps)
             if [s.key for s in steps] != [key for key, _, _ in STEPS]:
-                steps = fresh_steps()  # saved by a version with other steps
-            return PrepareStatus(**data, steps=steps)
+                # Saved by a version with other steps: a running job starts its steps afresh
+                # (frames already rendered are still kept); anything else needs preparing again.
+                if status.state != "running":
+                    return PrepareStatus("idle")
+                status = replace(status, steps=fresh_steps(), percent=0)
+            return status
         except FileNotFoundError:
             return PrepareStatus("idle")
         except (OSError, ValueError, TypeError, KeyError) as e:
@@ -120,12 +125,14 @@ class PrepareJob:
         os.replace(tmp, self._file)
 
     def status(self) -> PrepareStatus:
-        """How far the job has got. A finished job for a photo that is no longer the chosen one
-        shows as idle: the new photo needs preparing."""
+        """How far the job has got. A finished job shows as idle once what it was made from
+        changed: another photo is chosen, or the voice sample no longer has enough speech."""
         with self._lock:
             status = self._status
         if status.state in ("done", "failed"):
             if status.photo_id != self._store.photo_choice().id:
+                return PrepareStatus("idle")
+            if self._store.voice_sample().problem:
                 return PrepareStatus("idle")
         return status
 

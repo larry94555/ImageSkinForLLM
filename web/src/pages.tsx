@@ -83,6 +83,10 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
 // Setup: upload photos and recordings, see them and play them back (roadmap R7), then prepare
 // the voice and the face (R12).
 export function SetupPage() {
+  // Counts changes to the photos, the chosen photo and the recordings, so Prepare asks again
+  // whether what it prepared is still current.
+  const [changes, setChanges] = useState(0);
+  const changed = () => setChanges((n) => n + 1);
   return (
     <>
       <h1>Setup</h1>
@@ -92,14 +96,16 @@ export function SetupPage() {
         title="Photos"
         hint="Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best."
         accept="image/jpeg,image/png,image/heic,.heic"
+        onChange={changed}
       />
       <UploadSection
         kind="sounds"
         title="Recordings"
         hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
         accept="audio/*,.m4a,.wav,.mp3"
+        onChange={changed}
       />
-      <PrepareSection />
+      <PrepareSection changes={changes} />
     </>
   );
 }
@@ -109,7 +115,13 @@ interface Refused {
   reason: string;
 }
 
-function UploadSection(props: { kind: Kind; title: string; hint: string; accept: string }) {
+function UploadSection(props: {
+  kind: Kind;
+  title: string;
+  hint: string;
+  accept: string;
+  onChange: () => void; // a file was added, passed its checks or removed, or a photo chosen
+}) {
   const { kind } = props;
   // null until the list has loaded.
   const [items, setItems] = useState<Upload[] | null>(null);
@@ -153,6 +165,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
       const readWhileSaving = choiceRequests.current > sent;
       ++choiceRequests.current;
       setChoice(chosen);
+      props.onChange();
       if (readWhileSaving) void refreshChoice();
     } catch (e) {
       console.error(`Could not choose ${item.name}`, e);
@@ -174,9 +187,10 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
       });
   }, [kind]);
 
-  // Something about the recordings changed: read the voice sample again.
-  function soundsChanged() {
+  // Something about the uploads changed: read the voice sample again, and tell the page.
+  function uploadsChanged() {
     if (kind === "sounds") setSoundChanges((n) => n + 1);
+    props.onChange();
   }
 
   // Uploads stored before the checks were on are checked one at a time after the list shows,
@@ -191,7 +205,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
         if (checked.problems === null) break; // checks are off; the rest would be the same
         if (checked.problems.length === 0) {
           await refreshChoice();
-          soundsChanged();
+          uploadsChanged();
         }
       } catch (e) {
         console.error(`Could not check ${upload.name}`, e); // removed meanwhile, or server down
@@ -214,7 +228,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
         setItems((current) => [...(current ?? []), upload]);
         if (upload.problems?.length === 0) {
           await refreshChoice();
-          soundsChanged();
+          uploadsChanged();
         }
       } catch (e) {
         console.error(`Upload of ${file.name} refused`, e);
@@ -231,7 +245,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
       setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
       // Always asked, not only when it was the chosen one: it may be the one being chosen now.
       await refreshChoice();
-      soundsChanged();
+      uploadsChanged();
     } catch (e) {
       console.error(`Could not remove ${item.name}`, e);
       setRefused([{ name: item.name, reason: "Could not remove it. Please try again." }]);
@@ -386,7 +400,7 @@ export const PREPARE_POLL_MS = 1000;
 
 // Setup step 2 (roadmap R12): get the voice and the face ready for the video, with a progress
 // bar. The job runs on the server, so the page can be closed or reloaded meanwhile.
-function PrepareSection() {
+function PrepareSection({ changes }: { changes: number }) {
   // null until the server has answered.
   const [status, setStatus] = useState<PrepareStatus | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -421,9 +435,11 @@ function PrepareSection() {
     setStarting(false);
   }
 
+  // Read when the page opens, and again after the uploads change: a finished job for another
+  // photo, or with too little speech left, then shows Prepare again.
   useEffect(() => {
     void read();
-  }, []);
+  }, [changes]);
 
   // While it runs, ask every second how far it has got.
   const running = status?.state === "running";

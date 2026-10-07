@@ -132,6 +132,8 @@ function ConsentPage({ onConfirmed }) {
 	] });
 }
 function SetupPage() {
+	const [changes, setChanges] = d(0);
+	const changed = () => setChanges((n) => n + 1);
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("h1", { children: "Setup" }),
 		/* @__PURE__ */ u("p", {
@@ -142,15 +144,17 @@ function SetupPage() {
 			kind: "photos",
 			title: "Photos",
 			hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
-			accept: "image/jpeg,image/png,image/heic,.heic"
+			accept: "image/jpeg,image/png,image/heic,.heic",
+			onChange: changed
 		}),
 		/* @__PURE__ */ u(UploadSection, {
 			kind: "sounds",
 			title: "Recordings",
 			hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
-			accept: "audio/*,.m4a,.wav,.mp3"
+			accept: "audio/*,.m4a,.wav,.mp3",
+			onChange: changed
 		}),
-		/* @__PURE__ */ u(PrepareSection, {})
+		/* @__PURE__ */ u(PrepareSection, { changes })
 	] });
 }
 function UploadSection(props) {
@@ -184,6 +188,7 @@ function UploadSection(props) {
 			const readWhileSaving = choiceRequests.current > sent;
 			++choiceRequests.current;
 			setChoice(chosen);
+			props.onChange();
 			if (readWhileSaving) refreshChoice();
 		} catch (e) {
 			console.error(`Could not choose ${item.name}`, e);
@@ -204,8 +209,9 @@ function UploadSection(props) {
 			setLoadFailed(true);
 		});
 	}, [kind]);
-	function soundsChanged() {
+	function uploadsChanged() {
 		if (kind === "sounds") setSoundChanges((n) => n + 1);
+		props.onChange();
 	}
 	async function checkOld(list) {
 		const unchecked = list.filter((u) => u.problems === null);
@@ -217,7 +223,7 @@ function UploadSection(props) {
 				if (checked.problems === null) break;
 				if (checked.problems.length === 0) {
 					await refreshChoice();
-					soundsChanged();
+					uploadsChanged();
 				}
 			} catch (e) {
 				console.error(`Could not check ${upload.name}`, e);
@@ -238,7 +244,7 @@ function UploadSection(props) {
 				setItems((current) => [...current ?? [], upload]);
 				if (upload.problems?.length === 0) {
 					await refreshChoice();
-					soundsChanged();
+					uploadsChanged();
 				}
 			} catch (e) {
 				console.error(`Upload of ${file.name} refused`, e);
@@ -256,7 +262,7 @@ function UploadSection(props) {
 			await removeUpload(kind, item.id);
 			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
 			await refreshChoice();
-			soundsChanged();
+			uploadsChanged();
 		} catch (e) {
 			console.error(`Could not remove ${item.name}`, e);
 			setRefused([{
@@ -431,7 +437,7 @@ function VoiceSampleView({ changes }) {
 	});
 }
 var PREPARE_POLL_MS = 1e3;
-function PrepareSection() {
+function PrepareSection({ changes }) {
 	const [status, setStatus] = d(null);
 	const [loadFailed, setLoadFailed] = d(false);
 	const [starting, setStarting] = d(false);
@@ -463,7 +469,7 @@ function PrepareSection() {
 	}
 	h(() => {
 		read();
-	}, []);
+	}, [changes]);
 	const running = status?.state === "running";
 	h(() => {
 		if (!running) return;

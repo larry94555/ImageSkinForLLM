@@ -1,6 +1,7 @@
 import json
 import logging
 import threading
+from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from imageskin.prepare_job import (
     NO_PHOTO,
     PrepareError,
     PrepareJob,
+    PrepareStatus,
     Progress,
     Step,
     fresh_steps,
@@ -162,13 +164,14 @@ def test_a_removed_photo_fails_the_job(tmp_path: Path) -> None:
 
 
 def test_a_job_stopped_by_a_restart_carries_on(tmp_path: Path) -> None:
-    (tmp_path / "prepare.json").write_text(
-        json.dumps({"state": "running", "photo_id": PHOTO_ID, "percent": 40, "steps": []})
-    )
+    steps = [asdict(s) for s in fresh_steps()]
+    steps[3]["done"], steps[3]["total"] = 80, 200
+    saved = {"state": "running", "photo_id": PHOTO_ID, "percent": 40, "steps": steps}
+    (tmp_path / "prepare.json").write_text(json.dumps(saved))
     job, _ = make_job(tmp_path)
-    status = job.status()
+    status = job.status()  # how far it had got shows until the steps report again
     assert status.state == "running" and status.percent == 40
-    assert status.steps is not None and len(status.steps) == 5
+    assert status.steps is not None and status.steps[3].done == 80
     job.resume()
     job.wait(5)
     assert job.status().state == "done"
@@ -187,6 +190,34 @@ def test_a_new_photo_needs_preparing_again(tmp_path: Path) -> None:
     job.wait(5)
     store.chosen = "b" * 32
     assert job.status().state == "idle"
+
+
+def test_too_little_speech_after_preparing_needs_preparing_again(tmp_path: Path) -> None:
+    job, store = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    assert job.status().state == "done"
+    store.problem = "Add more recordings."  # recordings removed afterwards
+    assert job.status().state == "idle"
+    store.problem = None
+    assert job.status().state == "done"
+
+
+def test_a_state_file_from_other_steps_loads_consistently(tmp_path: Path) -> None:
+    old_steps = [{"key": "face", "label": "Old step", "done": 1, "total": 1}]
+    saved = {"state": "done", "photo_id": PHOTO_ID, "percent": 100, "steps": old_steps}
+    (tmp_path / "prepare.json").write_text(json.dumps(saved))
+    job, _ = make_job(tmp_path)
+    assert job.status() == PrepareStatus("idle")
+
+    (tmp_path / "prepare.json").write_text(json.dumps({**saved, "state": "running"}))
+    job, _ = make_job(tmp_path)
+    running = job.status()
+    assert running.state == "running" and running.percent == 0
+    assert [s.done for s in running.steps or []] == [0] * 5
+    job.resume()
+    job.wait(5)
+    assert job.status().state == "done"
 
 
 def test_an_unreadable_state_file_is_ignored(
