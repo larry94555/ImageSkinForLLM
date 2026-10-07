@@ -208,7 +208,8 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
     try {
       await removeUpload(kind, item.id);
       setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
-      if (item.id === choice?.id) await refreshChoice();
+      // Always asked, not only when it was the chosen one: it may be the one being chosen now.
+      await refreshChoice();
     } catch (e) {
       console.error(`Could not remove ${item.name}`, e);
       setRefused([{ name: item.name, reason: "Could not remove it. Please try again." }]);

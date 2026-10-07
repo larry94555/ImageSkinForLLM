@@ -346,6 +346,47 @@ test("a read sent while the choice is being saved can't undo it", async () => {
   expect(other.textContent).toContain("Used for the video (your choice)");
 });
 
+test("removing the photo being chosen falls back to the best one", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  let finishSave: () => void = () => {};
+  const saving = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/uploads/photos/chosen") {
+        if (init?.method === "PUT") {
+          await saving; // the server saved it before the photo was removed
+          return Response.json({ id: second.id, chosen_by: "you" });
+        }
+        return Response.json({ id: PHOTO.id, chosen_by: "app" }); // falls back to the best
+      }
+      if (init?.method === "DELETE") return Response.json({ removed: true });
+      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+    }),
+  );
+  await openAt("#/setup");
+  const best = (await screen.findByAltText("front.jpg")).closest("li") as HTMLElement;
+  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  await waitFor(() => expect(best.className).toBe("chosen"));
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+  });
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Remove" }));
+  });
+  await act(async () => {
+    finishSave();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(screen.queryByAltText("second.jpg")).toBeNull();
+  await waitFor(() => expect(best.className).toBe("chosen"));
+  expect(best.textContent).toContain("Used for the video (best score)");
+});
+
 test("a refused choice says why", async () => {
   const gone = { ...PHOTO, id: "f".repeat(32), name: "gone.jpg" };
   uploadServer([PHOTO, gone]);
