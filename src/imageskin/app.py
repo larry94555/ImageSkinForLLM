@@ -1,5 +1,6 @@
 """FastAPI application: the JSON API under /api and the browser app at /."""
 
+import functools
 import importlib.util
 import logging
 import threading
@@ -22,6 +23,7 @@ from imageskin.uploads import (
     Kind,
     PhotoCheck,
     PhotoChoice,
+    SoundCheck,
     Upload,
     UploadError,
     UploadStore,
@@ -58,7 +60,22 @@ def face_checker(home: Path) -> PhotoCheck | None:
     return checker.check
 
 
-def create_app(home: Path | None = None, check_photo: PhotoCheck | None = None) -> FastAPI:
+def sound_checker(home: Path) -> SoundCheck:
+    """The sound checks, with the check for a second voice (roadmap R11)."""
+    from imageskin import sound_checks
+    from imageskin.speaker_checks import SpeakerChecker
+
+    speakers = SpeakerChecker(home / "models" / "speakers")
+    # Download the model now, so the first recording isn't held up by it.
+    threading.Thread(target=speakers.prepare, name="speaker-model", daemon=True).start()
+    return functools.partial(sound_checks.check, voices=speakers.check)
+
+
+def create_app(
+    home: Path | None = None,
+    check_photo: PhotoCheck | None = None,
+    check_sound: SoundCheck | None = None,
+) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
     # The built browser files are committed unminified so they stay readable; compressing
@@ -112,7 +129,11 @@ def create_app(home: Path | None = None, check_photo: PhotoCheck | None = None) 
                 " (/#/consent), tick the box, then try again.",
             )
 
-    store = UploadStore(data_home, check_photo or face_checker(data_home))
+    store = UploadStore(
+        data_home,
+        check_photo or face_checker(data_home),
+        check_sound or sound_checker(data_home),
+    )
     uploads_api = "/api/uploads/{kind}"
     needs_consent = [Depends(require_consent)]
 

@@ -11,7 +11,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 6 of 10 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 7 of 10 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
 | 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
@@ -137,9 +137,10 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** a short, clipped or noisy recording is flagged; valid recordings are combined into one voice sample.
 - **Built:** `sound_checks.py` (numpy only, no model): at least 15 seconds of speech per recording (pauses not counted), at most 0.05% of the speech clipped, speech at least 20 dB above the background noise (set on the VoiceBank-DEMAND test set). The recordings that pass are joined into `uploads/voice-sample.wav`, shown with a player under the recordings; the voice needs at least 30 seconds of speech in all. Both lengths are constants at the top of `sound_checks.py`, so they are easy to change.
 
-### R11. One-speaker check (Medium) · item 3 (part 2)
+### R11. One-speaker check (Medium) · item 3 (part 2) · Done in [PR #23](https://github.com/larry94555/ImageSkinForLLM/pull/23)
 - Detects a second voice in a recording (speaker diarization) and flags it with a plain-language message.
 - **Can show:** a recording with two people talking is flagged; a single-speaker recording passes.
+- **Built:** `speaker_checks.py`: a voice print for each 1.5 second stretch of speech from CAM++ (3D-Speaker, Apache 2.0, 28 MB, downloaded on first use) run by ONNX Runtime (MIT, now a core dependency); the prints are split into the two most different groups, and the recording is flagged when the groups sound like different people (alike below 0.55, set on LibriSpeech) and the smaller has at least 3 stretches. About a second per minute of sound.
 
 ### R12. Prepare job with progress (Medium) · item 5
 - A background job runs prepare (prepare the voice, prepare the face) and reports progress; the browser shows a progress bar. With the photoreal engine the face step takes hours, so the job survives a restart and continues where it stopped.

@@ -16,6 +16,8 @@ dependencies = [
     "python-multipart>=0.0.9",
     # Sound checks on uploaded recordings (BSD).
     "numpy>=1.24",
+    # Runs the speaker model for the one-speaker check (MIT).
+    "onnxruntime>=1.17",
 ]
 
 [project.optional-dependencies]
@@ -74,7 +76,7 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["kokoro", "torch", "mediapipe", "mediapipe.*", "pillow_heif", "PIL", "PIL.*", "src.*"]
+module = ["kokoro", "torch", "mediapipe", "mediapipe.*", "onnxruntime", "pillow_heif", "PIL", "PIL.*", "src.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

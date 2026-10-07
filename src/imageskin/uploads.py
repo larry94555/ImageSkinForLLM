@@ -3,8 +3,8 @@
 The type is read from the file's first bytes, never from its name. Each file is stored under a
 generated id: photos as JPG or PNG (HEIC is converted to JPG), sounds as 24 kHz mono WAV via
 audio.to_wav. A small JSON file next to each one keeps the name it was uploaded with, for display,
-and the problems the photo checks (roadmap R8, R9) or sound checks (roadmap R10) found. The best
-photo is used for the video unless the user chose another. The recordings that pass the sound
+and the problems the photo checks (roadmap R8, R9) or sound checks (roadmap R10, R11) found. The
+best photo is used for the video unless the user chose another. The recordings that pass the sound
 checks are joined, in the order they were uploaded, into the voice sample.
 """
 
@@ -148,7 +148,7 @@ SoundCheck = Callable[[Path], SoundResult]
 # Raise these when the checks' limits change: uploads checked by an older version are then
 # listed as not checked, and the browser checks them again.
 FACE_CHECKS = 3
-SOUND_CHECKS = 1
+SOUND_CHECKS = 2
 
 NO_VOICE = "No recording has passed the checks yet."
 JOIN_FAILED = (

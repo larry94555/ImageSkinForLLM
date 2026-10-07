@@ -10,13 +10,13 @@ RATE = 24000
 
 
 def speechlike(
-    seconds: float, level: float = 0.3, noise: float = 0.001, seed: int = 0
+    seconds: float, level: float = 0.3, noise: float = 0.001, seed: int = 0, pitch: float = 200
 ) -> np.ndarray:
-    """Samples scaled to -1..1: 250 ms bursts of a 200 Hz voice-like tone, every 400 ms."""
+    """Samples scaled to -1..1: 250 ms bursts of a voice-like tone (200 Hz), every 400 ms."""
     rng = np.random.default_rng(seed)
     t = np.arange(int(seconds * RATE)) / RATE
     on = (t % 0.4) < 0.25
-    voice = level * np.sin(2 * np.pi * 200 * t) * on
+    voice = level * np.sin(2 * np.pi * pitch * t) * on
     return voice + rng.normal(0, noise, len(t))
 
 
