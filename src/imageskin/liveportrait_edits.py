@@ -15,7 +15,7 @@ Each mouth shape is a LivePortrait edit:
 import math
 from dataclasses import dataclass
 
-from imageskin.visemes import SHAPES
+from imageskin.visemes import CONTACT, SHAPES
 
 NUM_KP = 21  # LivePortrait's implicit keypoints
 UPPER_LIP_KP = 20  # the keypoint that lifts the upper lip (found by rendering each)
@@ -48,9 +48,11 @@ CONTROLS: dict[str, tuple[tuple[int, int, float], ...]] = {
 BLINK_CLOSED = 15.0  # "blink" amount that fully closes the eyes (checked on real weights)
 
 # Larry's accepted settings (2026-10-06): the lip spread and rounding move 45% of the way
-# from rest, and the upper lip moves 30% as far as the rest of the mouth. The lip opening is
-# not softened (R13: at 45% the mouth barely moved and did not read as speech).
+# from rest, and the upper lip moves 30% as far as the rest of the mouth. In R13 the opening
+# barely moved at 45% and opened too far at 100% of the wider shapes below; Larry asked for
+# halfway between, which is 60% of the way to the wider shapes.
 STRENGTH = 0.45
+OPENING = 0.6
 UPPER_LIP = 0.3
 
 
@@ -95,14 +97,18 @@ def expression_delta(controls: dict[str, float]) -> list[list[float]]:
 
 
 def soften(name: str, strength: float, photo_ratio: float) -> tuple[dict[str, float], float]:
-    """A shape's controls, moved only `strength` (0..1) of the way from rest, and its lip
-    ratio, in full so the mouth opens enough to read as speech. "rest" keeps the photo's.
+    """A shape's controls moved only `strength` (0..1) of the way from rest, and its lip
+    ratio moved OPENING of the way from the photo's.
+
+    Lip-contact shapes (m, b, p, f, v) keep their lip ratio so the lips still touch; only
+    their press and spread soften.
     """
     if not 0.0 <= strength <= 1.0:
         raise ValueError(f"strength must be between 0 and 1, got {strength}")
     shape = MOUTH_SHAPES[name]
     target = photo_ratio if shape.ratio is None else shape.ratio
-    return {k: strength * v for k, v in shape.controls.items()}, target
+    ratio = target if name in CONTACT else photo_ratio + OPENING * (target - photo_ratio)
+    return {k: strength * v for k, v in shape.controls.items()}, ratio
 
 
 def top_two(weights: dict[str, float]) -> tuple[str, str, float]:
