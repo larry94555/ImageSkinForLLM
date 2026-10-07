@@ -119,3 +119,35 @@ export async function removeUpload(kind: Kind, id: string): Promise<void> {
   const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
   if (!response.ok) throw new Error(await refusal(response));
 }
+
+// One step of the prepare job (roadmap R12), such as rendering the idle video.
+export interface PrepareStep {
+  key: string;
+  label: string;
+  done: number;
+  total: number;
+  seconds: number | null; // how long it took, once finished
+  left_s: number | null; // while it runs: about how many seconds are left
+}
+
+// How far the prepare job has got. It runs on the server, and carries on after a restart.
+export interface PrepareStatus {
+  state: "idle" | "running" | "done" | "failed";
+  photo_id: string | null;
+  percent: number;
+  steps: PrepareStep[] | null;
+  error: string | null; // why it failed
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export async function getPrepare(): Promise<PrepareStatus> {
+  return json<PrepareStatus>(await fetch("/api/prepare"));
+}
+
+// Starts the job, or reports on it while it runs. Throws an Error saying what is missing.
+export async function startPrepare(): Promise<PrepareStatus> {
+  const response = await fetch("/api/prepare", { method: "POST" });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as PrepareStatus;
+}

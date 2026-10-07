@@ -62,6 +62,14 @@ async function removeUpload(kind, id) {
 	const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function getPrepare() {
+	return json(await fetch("/api/prepare"));
+}
+async function startPrepare() {
+	const response = await fetch("/api/prepare", { method: "POST" });
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 //#endregion
 //#region src/pages.tsx
 function HomePage({ consented }) {
@@ -141,7 +149,8 @@ function SetupPage() {
 			title: "Recordings",
 			hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
 			accept: "audio/*,.m4a,.wav,.mp3"
-		})
+		}),
+		/* @__PURE__ */ u(PrepareSection, {})
 	] });
 }
 function UploadSection(props) {
@@ -420,6 +429,139 @@ function VoiceSampleView({ changes }) {
 			})
 		]
 	});
+}
+var PREPARE_POLL_MS = 1e3;
+function PrepareSection() {
+	const [status, setStatus] = d(null);
+	const [loadFailed, setLoadFailed] = d(false);
+	const [starting, setStarting] = d(false);
+	const [refused, setRefused] = d(null);
+	const requests = A(0);
+	async function read() {
+		const request = ++requests.current;
+		try {
+			const current = await getPrepare();
+			if (request === requests.current) setStatus(current);
+			setLoadFailed(false);
+		} catch (e) {
+			console.error("Could not read the prepare job", e);
+			setLoadFailed(true);
+		}
+	}
+	async function start() {
+		const request = ++requests.current;
+		setStarting(true);
+		setRefused(null);
+		try {
+			const started = await startPrepare();
+			if (request === requests.current) setStatus(started);
+		} catch (e) {
+			console.error("Could not start preparing", e);
+			setRefused(e.message);
+		}
+		setStarting(false);
+	}
+	h(() => {
+		read();
+	}, []);
+	const running = status?.state === "running";
+	h(() => {
+		if (!running) return;
+		const timer = window.setInterval(() => void read(), PREPARE_POLL_MS);
+		return () => window.clearInterval(timer);
+	}, [running]);
+	return /* @__PURE__ */ u("section", {
+		className: "prepare",
+		children: [
+			/* @__PURE__ */ u("h2", { children: "Prepare" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Gets the voice and the face ready for the video. The first time takes 20 minutes or more. You can leave this page meanwhile; if the app is stopped, it carries on where it left off when the app starts again."
+			}),
+			status === null && !loadFailed && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			}),
+			loadFailed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "Could not read how far preparing has got. Reload the page to try again."
+			}),
+			status !== null && !running && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: starting ? "busy" : void 0,
+				onClick: start,
+				disabled: starting,
+				children: starting ? "Starting…" : {
+					idle: "Prepare",
+					running: "Preparing…",
+					done: "Prepare again",
+					failed: "Try again"
+				}[status.state]
+			}),
+			refused && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: refused
+			}),
+			running && /* @__PURE__ */ u("p", {
+				className: "busy",
+				children: [
+					"Preparing… ",
+					status.percent,
+					"% done"
+				]
+			}),
+			status?.steps && status.state !== "idle" && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("progress", {
+				max: 100,
+				value: status.percent,
+				"aria-label": "Preparing",
+				children: [status.percent, "%"]
+			}), /* @__PURE__ */ u("ol", {
+				className: "steps",
+				children: status.steps.map((step, i) => /* @__PURE__ */ u("li", { children: [
+					/* @__PURE__ */ u("span", { children: step.label }),
+					" ",
+					/* @__PURE__ */ u(StepState, {
+						step,
+						status,
+						index: i
+					})
+				] }, step.key))
+			})] }),
+			status?.state === "done" && /* @__PURE__ */ u("p", {
+				className: "done",
+				children: "Ready: the voice and the face are prepared."
+			}),
+			status?.state === "failed" && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: status.error
+			})
+		]
+	});
+}
+function StepState(props) {
+	const { step, status } = props;
+	if (step.done >= step.total) {
+		const took = step.seconds !== null ? ` in ${duration(step.seconds)}` : "";
+		return /* @__PURE__ */ u("span", {
+			className: "done",
+			children: ["Done", took]
+		});
+	}
+	if (!(status.steps?.findIndex((s) => s.done < s.total) === props.index)) return /* @__PURE__ */ u("span", {
+		className: "muted",
+		children: "Waiting"
+	});
+	if (status.state === "failed") return /* @__PURE__ */ u("span", {
+		className: "error",
+		children: "Stopped"
+	});
+	return /* @__PURE__ */ u("span", {
+		className: "busy",
+		children: [step.total > 1 ? `${step.done} of ${step.total}` : "Working…", step.left_s !== null && ` · about ${duration(step.left_s)} left`]
+	});
+}
+function duration(seconds) {
+	return seconds < 90 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`;
 }
 function minutes(seconds) {
 	const whole = Math.round(seconds);

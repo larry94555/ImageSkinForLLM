@@ -18,6 +18,15 @@ from pydantic import BaseModel
 from imageskin import __version__
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
+from imageskin.prepare_job import (
+    PrepareError,
+    PrepareFace,
+    PrepareJob,
+    PrepareStatus,
+    PrepareVoice,
+    kokoro_voice,
+    photoreal_face,
+)
 from imageskin.uploads import (
     MEDIA_TYPE,
     Kind,
@@ -75,6 +84,8 @@ def create_app(
     home: Path | None = None,
     check_photo: PhotoCheck | None = None,
     check_sound: SoundCheck | None = None,
+    prepare_voice: PrepareVoice | None = None,
+    prepare_face: PrepareFace | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -194,6 +205,23 @@ def create_app(
         if not store.remove(kind, upload_id):
             raise HTTPException(status_code=404, detail="No such file.")
         return {"removed": True}
+
+    job = PrepareJob(
+        data_home, store, prepare_voice or kokoro_voice, prepare_face or photoreal_face(data_home)
+    )
+    app.state.prepare_job = job
+    job.resume()  # a job the server was stopped in the middle of carries on
+
+    @app.get("/api/prepare", dependencies=needs_consent)
+    def get_prepare() -> PrepareStatus:
+        return job.status()
+
+    @app.post("/api/prepare", dependencies=needs_consent)
+    def start_prepare() -> PrepareStatus:
+        try:
+            return job.start()
+        except PrepareError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
 
     # Last, so /health and /api routes win over the static files.
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

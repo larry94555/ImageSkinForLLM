@@ -145,6 +145,7 @@ The PRs below are written for either kind of video engine, but these are the one
 ### R12. Prepare job with progress (Medium) · item 5
 - A background job runs prepare (prepare the voice, prepare the face) and reports progress; the browser shows a progress bar. With the photoreal engine the face step takes hours, so the job survives a restart and continues where it stopped.
 - **Can show:** clicking Prepare shows progress moving through each step, with step timings in the logs.
+- **Built:** `prepare_job.py`: Prepare on the Setup page starts a background job (`POST /api/prepare`; `GET /api/prepare` reports it) with five steps: load Kokoro, load the photoreal models, render the mouth shapes, render the idle loop, line up the mouth. The browser shows a progress bar weighted by how long each step takes, each step's count and time left, and asks every second while it runs. The state is saved in `prepare.json`; a job the server was stopped in the middle of is resumed at the next start, keeping the frames already rendered. The face step uses the photoreal engine only.
 
 ### R13. Sample video in the browser (Medium) · items 5, 6
 - After prepare, the job renders the sample video and pre-renders "Goodbye." and "Welcome back."; the browser plays the sample.

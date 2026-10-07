@@ -7,11 +7,15 @@ import {
   choosePhoto,
   confirmConsent,
   getPhotoChoice,
+  getPrepare,
   getVoiceSample,
   type Kind,
   listUploads,
   type PhotoChoice,
+  type PrepareStatus,
+  type PrepareStep,
   removeUpload,
+  startPrepare,
   type Upload,
   uploadFile,
   uploadUrl,
@@ -76,7 +80,8 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   );
 }
 
-// Setup step 1 (roadmap R7): upload photos and recordings, see them and play them back.
+// Setup: upload photos and recordings, see them and play them back (roadmap R7), then prepare
+// the voice and the face (R12).
 export function SetupPage() {
   return (
     <>
@@ -94,6 +99,7 @@ export function SetupPage() {
         hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
         accept="audio/*,.m4a,.wav,.mp3"
       />
+      <PrepareSection />
     </>
   );
 }
@@ -373,6 +379,135 @@ function VoiceSampleView({ changes }: { changes: number }) {
       )}
     </div>
   );
+}
+
+// How often the page asks how far the prepare job has got, while it runs.
+export const PREPARE_POLL_MS = 1000;
+
+// Setup step 2 (roadmap R12): get the voice and the face ready for the video, with a progress
+// bar. The job runs on the server, so the page can be closed or reloaded meanwhile.
+function PrepareSection() {
+  // null until the server has answered.
+  const [status, setStatus] = useState<PrepareStatus | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  // Only the newest request's answer is shown, so a slow read can't undo a click on Prepare.
+  const requests = useRef(0);
+
+  async function read() {
+    const request = ++requests.current;
+    try {
+      const current = await getPrepare();
+      if (request === requests.current) setStatus(current);
+      setLoadFailed(false);
+    } catch (e) {
+      console.error("Could not read the prepare job", e);
+      setLoadFailed(true);
+    }
+  }
+
+  async function start() {
+    const request = ++requests.current;
+    setStarting(true);
+    setRefused(null);
+    try {
+      const started = await startPrepare();
+      if (request === requests.current) setStatus(started);
+    } catch (e) {
+      console.error("Could not start preparing", e);
+      setRefused((e as Error).message);
+    }
+    setStarting(false);
+  }
+
+  useEffect(() => {
+    void read();
+  }, []);
+
+  // While it runs, ask every second how far it has got.
+  const running = status?.state === "running";
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => void read(), PREPARE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  const label: Record<PrepareStatus["state"], string> = {
+    idle: "Prepare",
+    running: "Preparing…",
+    done: "Prepare again",
+    failed: "Try again",
+  };
+  return (
+    <section className="prepare">
+      <h2>Prepare</h2>
+      <p className="muted">
+        Gets the voice and the face ready for the video. The first time takes 20 minutes or more.
+        You can leave this page meanwhile; if the app is stopped, it carries on where it left off
+        when the app starts again.
+      </p>
+      {status === null && !loadFailed && <p className="muted busy">Loading…</p>}
+      {loadFailed && (
+        <p className="error">
+          Could not read how far preparing has got. Reload the page to try again.
+        </p>
+      )}
+      {status !== null && !running && (
+        <button
+          type="button"
+          className={starting ? "busy" : undefined}
+          onClick={start}
+          disabled={starting}
+        >
+          {starting ? "Starting…" : label[status.state]}
+        </button>
+      )}
+      {refused && <p className="error">{refused}</p>}
+      {running && <p className="busy">Preparing… {status.percent}% done</p>}
+      {status?.steps && status.state !== "idle" && (
+        <>
+          <progress max={100} value={status.percent} aria-label="Preparing">
+            {status.percent}%
+          </progress>
+          <ol className="steps">
+            {status.steps.map((step, i) => (
+              <li key={step.key}>
+                <span>{step.label}</span> <StepState step={step} status={status} index={i} />
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      {status?.state === "done" && (
+        <p className="done">Ready: the voice and the face are prepared.</p>
+      )}
+      {status?.state === "failed" && <p className="error">{status.error}</p>}
+    </section>
+  );
+}
+
+// Next to each step: done (and how long it took), how far it has got, or waiting its turn.
+function StepState(props: { step: PrepareStep; status: PrepareStatus; index: number }) {
+  const { step, status } = props;
+  if (step.done >= step.total) {
+    const took = step.seconds !== null ? ` in ${duration(step.seconds)}` : "";
+    return <span className="done">Done{took}</span>;
+  }
+  const current = status.steps?.findIndex((s) => s.done < s.total) === props.index;
+  if (!current) return <span className="muted">Waiting</span>;
+  if (status.state === "failed") return <span className="error">Stopped</span>;
+  return (
+    <span className="busy">
+      {step.total > 1 ? `${step.done} of ${step.total}` : "Working…"}
+      {step.left_s !== null && ` · about ${duration(step.left_s)} left`}
+    </span>
+  );
+}
+
+// 42 -> "42 s", 1034 -> "17 min"
+export function duration(seconds: number): string {
+  return seconds < 90 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`;
 }
 
 // 75.4 -> "1:15"
