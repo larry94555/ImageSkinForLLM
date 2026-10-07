@@ -57,8 +57,13 @@ def test_build_load_and_resume(tmp_path: Path, short_loop: object) -> None:
     assert not (folder / "library.json").exists()
 
     second = FakePortrait()
-    build_library(tmp_path / "me.png", folder, lambda _: second)
+    steps: list[tuple[str, int, int]] = []
+    build_library(tmp_path / "me.png", folder, lambda _: second, lambda *s: steps.append(s))
     assert second.renders == 10 - 4  # shapes and the first frames are kept
+    # Progress starts from the frames already there and ends with every step complete.
+    assert steps[:3] == [("models", 0, 1), ("models", 1, 1), ("shapes", 10, 10)]
+    assert ("loop", 4, 10) in steps and ("loop", 10, 10) in steps
+    assert steps[-1] == ("align", 1, 1)
     lib = load_library(folder)
     assert len(lib.loop) == 10 and set(lib.shapes) == set(SHAPES)
     assert lib.align.shape == (10, 2, 3)

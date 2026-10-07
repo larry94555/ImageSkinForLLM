@@ -9,13 +9,24 @@ import {
 } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import type { Upload, VoiceSample } from "./api";
+import type { PrepareStatus, Upload, VoiceSample } from "./api";
 import { App } from "./App";
-import { minutes } from "./pages";
+import { duration, minutes } from "./pages";
+
+const IDLE: PrepareStatus = {
+  state: "idle",
+  photo_id: null,
+  percent: 0,
+  steps: null,
+  error: null,
+  started_at: null,
+  finished_at: null,
+};
 
 function serverWithConsent(agreed: boolean, postOk = true) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.startsWith("/api/uploads/")) return Response.json([]);
+    if (url === "/api/prepare") return Response.json(IDLE);
     if (init?.method === "POST") {
       return postOk
         ? Response.json({ agreed: true, agreed_at: "2026-10-06T20:00:00+00:00" })
@@ -152,6 +163,7 @@ function uploadServer(stored: Upload[], posted: Response[] = [], voice = NO_VOIC
       return Response.json(choice);
     }
     if (url === "/api/voice-sample") return Response.json(voice);
+    if (url === "/api/prepare") return Response.json(IDLE);
     const kind = url.split("/")[3];
     if (init?.method === "POST") return posted.shift() ?? new Response("", { status: 500 });
     if (init?.method === "DELETE") return Response.json({ removed: true });
@@ -729,4 +741,159 @@ test("an older read of the voice sample answering last is not shown", async () =
   });
   expect(reads).toBe(2);
   expect(screen.getByText("Enough speech to make the voice.")).toBeTruthy();
+});
+
+// --- Prepare (R12) ---
+
+const STEPS = [
+  { key: "voice", label: "Get the voice ready", done: 1, total: 1, seconds: 4.2, left_s: null },
+  { key: "models", label: "Load the face model", done: 1, total: 1, seconds: 31, left_s: null },
+  { key: "shapes", label: "Render the mouth shapes", done: 10, total: 10, seconds: null, left_s: null },
+  { key: "loop", label: "Render the idle video", done: 52, total: 200, seconds: null, left_s: 725 },
+  { key: "align", label: "Line up the mouth", done: 0, total: 1, seconds: null, left_s: null },
+];
+const RUNNING: PrepareStatus = {
+  ...IDLE,
+  state: "running",
+  photo_id: PHOTO.id,
+  percent: 31,
+  steps: STEPS,
+  started_at: "2026-10-07T09:00:00+00:00",
+};
+const DONE: PrepareStatus = {
+  ...RUNNING,
+  state: "done",
+  percent: 100,
+  steps: STEPS.map((s) => ({
+    ...s,
+    done: s.total,
+    seconds: s.key === "loop" ? 1034 : s.seconds,
+    left_s: null,
+  })),
+  finished_at: "2026-10-07T09:20:00+00:00",
+};
+
+// A fake server with consent given, nothing uploaded, and the prepare job answering with each
+// of `reads` in turn (the last one repeats); POST /api/prepare answers with `started`.
+function prepareServer(reads: (PrepareStatus | Response)[], started?: Response) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen") return Response.json({ id: null, chosen_by: "app" });
+    if (url === "/api/voice-sample") return Response.json(NO_VOICE);
+    if (url === "/api/prepare") {
+      if (init?.method === "POST") return started ?? Response.json(RUNNING);
+      const next = reads.length > 1 ? reads.shift() : reads[0];
+      return next instanceof Response ? next : Response.json(next);
+    }
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("prepare starts the job and shows each step's progress until it is ready", async () => {
+  const fetchMock = prepareServer([IDLE, RUNNING, DONE]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare" }));
+  expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
+  const bar = screen.getByRole("progressbar", { name: "Preparing" }) as HTMLProgressElement;
+  expect(bar.value).toBe(31);
+  expect(screen.getByText("Done in 31 s")).toBeTruthy();
+  expect(screen.getByText("52 of 200 · about 12 min left")).toBeTruthy();
+  expect(screen.getByText("Waiting")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Prepare/ })).toBeNull(); // no second start
+
+  // The page asks again every second while it runs.
+  expect(
+    await screen.findByText("Ready: the voice and the face are prepared.", {}, { timeout: 3000 }),
+  ).toBeTruthy();
+  expect(screen.getByText("Done in 17 min")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Prepare again" })).toBeTruthy();
+});
+
+test("a job already running when the page opens is shown and followed", async () => {
+  prepareServer([RUNNING]);
+  await openAt("#/setup");
+  expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
+});
+
+test("prepare says what is missing when it can't start", async () => {
+  prepareServer(
+    [IDLE],
+    Response.json({ detail: "Add a photo that passes the checks first." }, { status: 409 }),
+  );
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare" }));
+  expect(await screen.findByText("Add a photo that passes the checks first.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Prepare" })).toBeTruthy();
+});
+
+test("a failed job says why, marks where it stopped and can be tried again", async () => {
+  const steps = STEPS.map((s) => (s.key === "loop" ? { ...s, left_s: null } : s));
+  prepareServer([{ ...RUNNING, state: "failed", steps, error: "ffmpeg was not found." }]);
+  await openAt("#/setup");
+  expect(await screen.findByText("ffmpeg was not found.")).toBeTruthy();
+  expect(screen.getByText("Stopped")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+});
+
+test("if the prepare status can't be read the page says so", async () => {
+  prepareServer([new Response("", { status: 500 })]);
+  await openAt("#/setup");
+  expect(
+    await screen.findByText(
+      "Could not read how far preparing has got. Reload the page to try again.",
+    ),
+  ).toBeTruthy();
+});
+
+test("duration says seconds or minutes", () => {
+  expect(duration(4.2)).toBe("4 s");
+  expect(duration(89)).toBe("89 s");
+  expect(duration(1034)).toBe("17 min");
+});
+
+test("Prepare is asked again after the chosen photo or the recordings change", async () => {
+  const other: Upload = { ...PHOTO, id: "c".repeat(32), name: "side.jpg", score: 80 };
+  const sound: Upload = { ...SOUND, problems: [], speech: 40 };
+  let choice = { id: PHOTO.id, chosen_by: "app" };
+  let sounds = [sound];
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen") {
+      if (init?.method === "PUT") {
+        const { id } = JSON.parse(init.body as string) as { id: string };
+        choice = { id, chosen_by: "you" };
+      }
+      return Response.json(choice);
+    }
+    if (url === "/api/voice-sample") return Response.json(NO_VOICE);
+    // The server reports the finished job only while its photo and enough speech are there.
+    if (url === "/api/prepare") {
+      return Response.json(choice.id === PHOTO.id && sounds.length > 0 ? DONE : IDLE);
+    }
+    if (url === "/api/uploads/photos") return Response.json([PHOTO, other]);
+    if (url === "/api/uploads/sounds") return Response.json(sounds);
+    if (init?.method === "DELETE") {
+      sounds = [];
+      return Response.json({ removed: true });
+    }
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  await openAt("#/setup");
+  expect(await screen.findByText("Ready: the voice and the face are prepared.")).toBeTruthy();
+
+  fireEvent.click(await screen.findByRole("button", { name: "Use this photo" }));
+  expect(await screen.findByRole("button", { name: "Prepare" })).toBeTruthy();
+  expect(screen.queryByText("Ready: the voice and the face are prepared.")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Use this photo" })); // back to the first
+  expect(await screen.findByText("Ready: the voice and the face are prepared.")).toBeTruthy();
+
+  const recording = (await screen.findByText(/voice1\.m4a/)).closest("li") as HTMLElement;
+  fireEvent.click(within(recording).getByRole("button", { name: "Remove" }));
+  expect(await screen.findByRole("button", { name: "Prepare" })).toBeTruthy();
 });

@@ -44,6 +44,12 @@ CROP = 512  # LivePortrait's face crop is CROP x CROP pixels
 Image = NDArray[np.uint8]
 Mask = NDArray[np.float32]
 Window = tuple[int, int, int, int]  # x0, y0, x1, y1
+# Told how far a step has got: the step ("models", "shapes", "loop" or "align"), done, total.
+Progress = Callable[[str, int, int], None]
+
+
+def no_progress(step: str, done: int, total: int) -> None:
+    pass
 
 
 class PortraitLike(Protocol):
@@ -144,7 +150,12 @@ def _save(path: Path, array: NDArray[np.generic]) -> None:
     os.replace(tmp, path)
 
 
-def build_library(photo: Path, folder: Path, make_portrait: Callable[[Path], PortraitLike]) -> None:
+def build_library(
+    photo: Path,
+    folder: Path,
+    make_portrait: Callable[[Path], PortraitLike],
+    progress: Progress = no_progress,
+) -> None:
     """Render the frames for one photo into `folder`, skipping frames already there."""
     start = time.perf_counter()
     folder.mkdir(parents=True, exist_ok=True)
@@ -154,7 +165,9 @@ def build_library(photo: Path, folder: Path, make_portrait: Callable[[Path], Por
         "Preparing photoreal library",
         extra={"photo": str(photo), "folder": str(folder), "loop_frames": n_loop},
     )
+    progress("models", 0, 1)
     portrait = make_portrait(photo)
+    progress("models", 1, 1)
     _save(folder / "photo.npy", portrait.photo)
     _save(folder / "paste_template.npy", portrait.paste_template)
     _save(folder / "crop_landmarks.npy", portrait.crop_landmarks)
@@ -164,9 +177,11 @@ def build_library(photo: Path, folder: Path, make_portrait: Callable[[Path], Por
     old_mouth = json.loads(shapes_meta.read_text()).get("mouth") if shapes_meta.exists() else None
     if old_mouth != mouth_key() or not (folder / "shapes.npy").exists():
         faces = []
+        progress("shapes", 0, len(SHAPES))
         for name in SHAPES:
             controls, ratio = soften(name, STRENGTH, portrait.lip_ratio)
             faces.append(portrait.render(controls, None if name == "rest" else ratio, UPPER_LIP))
+            progress("shapes", len(faces), len(SHAPES))
         _save(folder / "shapes.npy", np.stack(faces))
         shapes_meta.write_text(json.dumps({"mouth": mouth_key()}), encoding="utf-8")
         logger.info("Rendered mouth shapes", extra={"shapes": len(SHAPES), "mouth": mouth_key()})
@@ -174,11 +189,14 @@ def build_library(photo: Path, folder: Path, make_portrait: Callable[[Path], Por
     todo = [i for i in range(n_loop) if not (folder / "loop" / f"{i:04d}.npy").exists()]
     if 0 < len(todo) < n_loop:
         logger.info("Resuming idle loop", extra={"done": n_loop - len(todo), "of": n_loop})
+    progress("shapes", len(SHAPES), len(SHAPES))
+    progress("loop", n_loop - len(todo), n_loop)
     loop_start = time.perf_counter()
     for k, i in enumerate(todo, 1):
         pitch, yaw, roll, eye_open = idle_motion(i, n_loop, FPS)
         face = portrait.render({}, None, 1.0, (pitch, yaw, roll), eye_open)
         _save(folder / "loop" / f"{i:04d}.npy", face)
+        progress("loop", n_loop - len(todo) + k, n_loop)
         if k % 10 == 0 or k == len(todo):
             per_frame = (time.perf_counter() - loop_start) / k
             logger.info(
@@ -194,7 +212,9 @@ def build_library(photo: Path, folder: Path, make_portrait: Callable[[Path], Por
     shapes = np.load(folder / "shapes.npy")
     mask, window = mouth_mask(portrait.crop_landmarks)
     loop = [np.load(folder / "loop" / f"{i:04d}.npy") for i in range(n_loop)]
+    progress("align", 0, 1)
     _save(folder / "align.npy", align_loop(shapes[0], loop, mask, window))
+    progress("align", 1, 1)
     (folder / "library.json").write_text(
         json.dumps(
             {
@@ -248,7 +268,10 @@ def liveportrait_factory(home: Path) -> Callable[[Path], PortraitLike]:
 
 
 def prepare_library(
-    photo: Path, home: Path, make_portrait: Callable[[Path], PortraitLike] | None = None
+    photo: Path,
+    home: Path,
+    make_portrait: Callable[[Path], PortraitLike] | None = None,
+    progress: Progress = no_progress,
 ) -> Library:
     """Build the photo's library under `home` unless it is already there, then load it."""
     start = time.perf_counter()
@@ -259,7 +282,7 @@ def prepare_library(
     if not meta.exists() or json.loads(meta.read_text()).get("mouth") != mouth_key():
         # A new photo, an unfinished one, or new mouth settings (then only the 10 mouth
         # shapes are rendered again, about a minute; the idle loop is kept).
-        build_library(photo, folder, make_portrait or liveportrait_factory(home))
+        build_library(photo, folder, make_portrait or liveportrait_factory(home), progress)
     lib = load_library(folder)
     logger.info(
         "Loaded photoreal library",

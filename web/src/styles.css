@@ -137,3 +137,7 @@ button.remove {
   border: 1px solid var(--line);
   font-size: 0.875rem;
 }
+/* The prepare job's progress (roadmap R12). */
+.prepare progress { width: 100%; height: 12px; margin-top: 12px; accent-color: var(--accent); }
+ol.steps { padding-left: 1.4em; margin: 8px 0 0; display: grid; gap: 4px; font-size: 0.875rem; }
+ol.steps li { display: list-item; padding: 0; border: 0; background: none; }

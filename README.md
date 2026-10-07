@@ -152,6 +152,16 @@ The noise limit was set on the VoiceBank-DEMAND test set: clean studio speech me
 
 The one-speaker check (roadmap R11) gives each 1.5 second stretch of speech a voice print with CAM++, a speaker recognition model from 3D-Speaker (Apache 2.0), run on the CPU by ONNX Runtime (MIT). The prints are split into the two groups that sound most different; when the two groups sound like different people and the smaller one has at least 3 stretches, the recording is flagged. A minute of sound takes about a second. The server downloads the model (28 MB) into `models/speakers` in the app data folder when it starts (`Speaker model ready` in the log); if that fails (`Speaker checks are off until restart`), new recordings show **Not checked** until the server is restarted. Each check is logged as `Speaker checked` with `stretches`, `other` (stretches in the smaller group) and `alike` (how alike the two groups sound, -1 to 1; flagged below 0.55). The limits were set on LibriSpeech: one-minute recordings of one reader measure 0.63 to 0.95, two readers taking turns -0.08 to 0.52. A recording that changes microphone or room halfway can also be flagged, since the voice then sounds different.
 
+## Preparing the voice and the face
+
+Under the uploads, the Setup page has a **Prepare** button (roadmap R12). It needs a photo that passed the checks and enough speech in the voice sample, and says which one is missing otherwise. Preparing runs in the server, in the background:
+
+1. **Get the voice ready:** loads Kokoro (the first time it downloads the model, about 330 MB) and says one word. Needs `pip install -e ".[voice]"`.
+2. **Load the face model:** downloads the photoreal models the first time (about 500 MB). Needs `pip install -e ".[photoreal]"`.
+3. **Render the 10 mouth shapes**, then 4. **the idle video** (200 frames with blinks and head movement; most of the time, about 17 minutes on a 4-core CPU), then 5. **line up the mouth with the head**.
+
+The page shows a progress bar, each step with how far it has got and about how long is left, and how long each finished step took. You can close the page meanwhile. If the server is stopped, the next `imageskin serve` carries on where it stopped (`Resuming prepare job` in the log); frames already rendered are kept. A photo prepared before takes seconds. The job's state is in `prepare.json` in the app data folder and the frames under `photoreal`. The log has `Prepare job started`, `Prepare step finished` with each step's `duration_s`, `Rendered idle loop frame N of 200` every 10 frames, and `Prepare job finished` or `Prepare job failed` with the reason. Choosing another photo afterwards shows **Prepare** again.
+
 ## Making a voice sample
 
 Join the recordings from the recording guide (M4A, MP3 or WAV) into one WAV file, in the order given. Each recording is converted to 24 kHz mono WAV; `--timeout` sets how many seconds each conversion may take (default 60).
