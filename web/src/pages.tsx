@@ -132,11 +132,17 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
 
   async function choose(item: Upload) {
     if (choosing !== null) return; // one at a time
-    ++choiceRequests.current; // reads sent before this click are now out of date
+    const sent = ++choiceRequests.current; // reads sent before this click are now out of date
     setChoosing(item.id);
     setRefused([]);
     try {
-      setChoice(await choosePhoto(item.id));
+      const chosen = await choosePhoto(item.id);
+      // Reads sent while this change was on its way may have seen the old choice: drop them too,
+      // and ask again if there were any, since something else changed meanwhile.
+      const readWhileSaving = choiceRequests.current > sent;
+      ++choiceRequests.current;
+      setChoice(chosen);
+      if (readWhileSaving) void refreshChoice();
     } catch (e) {
       console.error(`Could not choose ${item.name}`, e);
       setRefused([{ name: item.name, reason: (e as Error).message }]);

@@ -290,6 +290,62 @@ test("an older read of the choice answering last doesn't replace a newer one", a
   expect(newer.className).toBe("chosen");
 });
 
+test("a read sent while the choice is being saved can't undo it", async () => {
+  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  const third = { ...PHOTO, id: "e".repeat(32), name: "third.jpg", score: 70 };
+  let finishSave: () => void = () => {};
+  const saving = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  let answerSecondRead: () => void = () => {};
+  const secondRead = new Promise<void>((resolve) => {
+    answerSecondRead = resolve;
+  });
+  let saved = { id: PHOTO.id, chosen_by: "app" };
+  let reads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/uploads/photos/chosen") {
+        if (init?.method === "PUT") {
+          await saving;
+          saved = { id: second.id, chosen_by: "you" };
+          return Response.json(saved);
+        }
+        if (++reads === 2) {
+          const before = saved; // read by the server before the save landed
+          await secondRead;
+          return Response.json(before);
+        }
+        return Response.json(saved);
+      }
+      if (init?.method === "POST") return Response.json(third);
+      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+    }),
+  );
+  await openAt("#/setup");
+  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  await screen.findByText("Used for the video (best score)");
+  await act(async () => {
+    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+  });
+  await act(async () => {
+    chooseFiles("Add photos", [new File(["x"], "third.jpg")]); // reads the choice again
+  });
+  await waitFor(() => expect(reads).toBe(2));
+  await act(async () => {
+    finishSave();
+  });
+  await waitFor(() => expect(other.className).toBe("chosen"));
+  await act(async () => {
+    answerSecondRead();
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let the old answer arrive
+  });
+  expect(other.className).toBe("chosen");
+  expect(other.textContent).toContain("Used for the video (your choice)");
+});
+
 test("a refused choice says why", async () => {
   const gone = { ...PHOTO, id: "f".repeat(32), name: "gone.jpg" };
   uploadServer([PHOTO, gone]);

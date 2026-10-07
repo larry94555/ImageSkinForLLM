@@ -163,11 +163,15 @@ function UploadSection(props) {
 	}
 	async function choose(item) {
 		if (choosing !== null) return;
-		++choiceRequests.current;
+		const sent = ++choiceRequests.current;
 		setChoosing(item.id);
 		setRefused([]);
 		try {
-			setChoice(await choosePhoto(item.id));
+			const chosen = await choosePhoto(item.id);
+			const readWhileSaving = choiceRequests.current > sent;
+			++choiceRequests.current;
+			setChoice(chosen);
+			if (readWhileSaving) refreshChoice();
 		} catch (e) {
 			console.error(`Could not choose ${item.name}`, e);
 			setRefused([{
