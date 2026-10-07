@@ -10,7 +10,9 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.110",
+    # Video clips are served with HTTP Range (seeking), which Starlette added in 0.39.
+    "fastapi>=0.115.2",
+    "starlette>=0.39",
     "uvicorn>=0.29",
     # Reads uploaded files (Apache 2.0).
     "python-multipart>=0.0.9",

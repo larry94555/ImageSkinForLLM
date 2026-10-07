@@ -10,7 +10,6 @@ are kept. The clips are saved in <data folder>/clips/<name>.mp4.
 import json
 import logging
 import os
-import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -19,10 +18,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from imageskin.sample import SAMPLE_SCRIPT
+from imageskin.sample import SAMPLE_SCRIPT, speak_and_render
 from imageskin.uploads import UploadStore
 from imageskin.video import INSTALL_HINT, VideoError, find_ffmpeg
-from imageskin.voice import VoiceError
+from imageskin.voice import VoiceEngine, VoiceError
 
 logger = logging.getLogger(__name__)
 
@@ -291,11 +290,15 @@ class PrepareJob:
             self._save()
 
 
-def kokoro_voice() -> None:
-    """Load the voice model (downloaded the first time, about 330 MB) and say one word."""
-    from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
+def kokoro_voice(engine: VoiceEngine) -> PrepareVoice:
+    """Load the voice model (downloaded the first time, about 330 MB) by saying one word. The
+    same engine then speaks the clips, so the model is loaded once."""
+    from imageskin.kokoro_engine import DEFAULT_VOICE
 
-    KokoroEngine().speak(DEFAULT_VOICE, "Hello.")
+    def prepare() -> None:
+        engine.speak(DEFAULT_VOICE, "Hello.")
+
+    return prepare
 
 
 def photoreal_face(home: Path) -> PrepareFace:
@@ -314,25 +317,19 @@ def photoreal_face(home: Path) -> PrepareFace:
     return prepare
 
 
-def photoreal_clip(home: Path) -> RenderClip:
-    """Speak the text with Kokoro and render it from the photo's photoreal library."""
-    # The engines and the loaded library, made on first use and kept for the next clip.
+def photoreal_clip(home: Path, voice_engine: VoiceEngine) -> RenderClip:
+    """Speak the text and render it from the photo's photoreal library."""
+    # The video engine and the loaded library, made on first use and kept for the next clip.
     kept: dict[str, Any] = {}
 
     def render(photo: Path, text: str, output: Path) -> None:
-        from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
+        from imageskin.kokoro_engine import DEFAULT_VOICE
         from imageskin.photoreal import PhotorealEngine
-        from imageskin.voice import write_speech
 
-        if "voice" not in kept:
-            kept["voice"] = KokoroEngine()
         if kept.get("photo") != photo:
             video = PhotorealEngine(home)
             # Already rendered by the face step, so this only loads it.
             kept.update(photo=photo, video=video, lib=video.prepare(photo))
-        with tempfile.TemporaryDirectory() as tmp:
-            wav = Path(tmp) / "speech.wav"
-            write_speech(kept["voice"].speak(DEFAULT_VOICE, text), wav, wav.with_suffix(".json"))
-            kept["video"].render(kept["lib"], wav, output)
+        speak_and_render(kept["lib"], text, output, voice_engine, kept["video"], DEFAULT_VOICE)
 
     return render

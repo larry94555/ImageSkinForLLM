@@ -4,7 +4,7 @@ import threading
 from dataclasses import asdict
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -251,9 +251,9 @@ def test_percent_is_weighted_by_how_long_each_step_takes() -> None:
 
 
 def test_default_voice_step_says_a_word() -> None:
-    with patch("imageskin.kokoro_engine.KokoroEngine.speak") as speak:
-        kokoro_voice()
-    speak.assert_called_once_with("af_heart", "Hello.")
+    engine = MagicMock()
+    kokoro_voice(engine)()
+    engine.speak.assert_called_once_with("af_heart", "Hello.")
 
 
 def test_default_face_step_builds_the_photoreal_library(tmp_path: Path) -> None:
@@ -296,9 +296,13 @@ def test_the_api_starts_the_job_and_reports_on_it(tmp_path: Path) -> None:
         sample = client.get("/api/prepare/clips/sample")
         goodbye = client.get("/api/prepare/clips/goodbye")
         other = client.get("/api/prepare/clips/other")
+        part = client.get("/api/prepare/clips/sample", headers={"Range": "bytes=0-3"})
     assert done["state"] == "done" and done["percent"] == 100
     assert [s["done"] for s in done["steps"]][:5] == [1, 1, 10, 4, 1]
     assert sample.status_code == 200 and sample.headers["content-type"] == "video/mp4"
+    # Seekable: the browser asks for parts of the video.
+    assert part.status_code == 206 and part.text == "This"
+    assert part.headers["content-range"] == f"bytes 0-3/{len(sample.content)}"
     assert sample.text.startswith("This is a test.")
     assert goodbye.text == "Goodbye." and other.status_code == 422
     # No voice sample any more: the clips were made from old uploads, so they are not served.
@@ -369,18 +373,18 @@ def test_a_clip_that_fails_fails_the_job_and_is_not_served(tmp_path: Path) -> No
     assert not (tmp_path / "clips" / "goodbye.mp4").exists()
 
 
-def test_default_clip_speaks_with_kokoro_and_renders_photoreal(tmp_path: Path) -> None:
+def test_default_clip_speaks_and_renders_photoreal_with_the_shared_voice(
+    tmp_path: Path,
+) -> None:
     from imageskin.voice import Speech
 
-    speech = Speech(b"\0\0" * 2400, 24000, [])
-    with (
-        patch("imageskin.kokoro_engine.KokoroEngine.speak", return_value=speech) as speak,
-        patch("imageskin.photoreal.PhotorealEngine") as engine,
-    ):
-        render = photoreal_clip(tmp_path)
+    voice = MagicMock()
+    voice.speak.return_value = Speech(b"\0\0" * 2400, 24000, [])
+    with patch("imageskin.photoreal.PhotorealEngine") as engine:
+        render = photoreal_clip(tmp_path, voice)
         render(tmp_path / "me.jpg", "Goodbye.", tmp_path / "goodbye.mp4")
         render(tmp_path / "me.jpg", "Welcome back.", tmp_path / "welcome.mp4")
-    assert [c.args for c in speak.call_args_list] == [
+    assert [c.args for c in voice.speak.call_args_list] == [
         ("af_heart", "Goodbye."),
         ("af_heart", "Welcome back."),
     ]
@@ -390,3 +394,19 @@ def test_default_clip_speaks_with_kokoro_and_renders_photoreal(tmp_path: Path) -
     assert video.render.call_count == 2
     lib, wav, output = video.render.call_args.args
     assert lib is video.prepare.return_value and output == tmp_path / "welcome.mp4"
+
+
+def test_the_voice_check_and_the_clips_share_one_voice_engine(tmp_path: Path) -> None:
+    speaks: list[object] = []
+
+    def speak(self: object, voice: str, text: str) -> None:
+        speaks.append(self)
+        raise RuntimeError("stop here")
+
+    with patch("imageskin.kokoro_engine.KokoroEngine.speak", speak):
+        job = create_app(tmp_path, check_photo=lambda p: PhotoResult([], 80)).state.prepare_job
+        with pytest.raises(RuntimeError):
+            job._prepare_voice()
+        with pytest.raises(RuntimeError), patch("imageskin.photoreal.PhotorealEngine"):
+            job._render_clip(tmp_path / "me.jpg", "Goodbye.", tmp_path / "goodbye.mp4")
+    assert len(speaks) == 2 and speaks[0] is speaks[1]
