@@ -15,7 +15,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from numpy.typing import NDArray
 
 from imageskin.config import default_home
 from imageskin.liveportrait_edits import top_two
@@ -27,7 +26,9 @@ from imageskin.photoreal_library import (
     PortraitLike,
     Window,
     liveportrait_factory,
+    morph,
     optical_flow,
+    pixel_grid,
     prepare_library,
     to_gray,
 )
@@ -39,12 +40,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_S = 300.0
 
 
-def _remap(image: Image, mapping: NDArray[np.float32]) -> Image:
-    """Each output pixel (x, y) takes the colour of `image` at mapping[y, x]."""
-    out = cv2.remap(image, mapping, None, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)  # type: ignore[call-overload]
-    return np.asarray(out, np.uint8)
-
-
 class MouthMorph:
     """In-between mouths: two shapes warped toward each other along their optical flow and
     blended, which keeps one set of lips instead of the double lips of a plain cross-fade."""
@@ -54,20 +49,14 @@ class MouthMorph:
         self.faces = {k: np.ascontiguousarray(v[y0:y1, x0:x1]) for k, v in shapes.items()}
         gray = {k: to_gray(v) for k, v in self.faces.items()}
         self.flows = {(a, b): optical_flow(gray[a], gray[b]) for a in gray for b in gray if a != b}
-        gx, gy = np.meshgrid(
-            np.arange(x1 - x0, dtype=np.float32), np.arange(y1 - y0, dtype=np.float32)
-        )
-        self.grid = np.dstack([gx, gy])
+        self.grid = pixel_grid(next(iter(self.faces.values())))  # made once, used every frame
 
     def __call__(self, a: str, b: str, t: float) -> Image:
         """The mouth t of the way (0..1) from shape a to shape b."""
-        if a == b or t <= 0.0:
+        if a == b:
             return self.faces[a]
-        if t >= 1.0:
-            return self.faces[b]
-        from_a = _remap(self.faces[a], self.grid + t * self.flows[(b, a)])
-        from_b = _remap(self.faces[b], self.grid + (1.0 - t) * self.flows[(a, b)])
-        return np.asarray(cv2.addWeighted(from_a, 1.0 - t, from_b, t, 0.0), np.uint8)
+        flow_ab, flow_ba = self.flows[(a, b)], self.flows[(b, a)]
+        return morph(self.faces[a], self.faces[b], flow_ab, flow_ba, t, self.grid)
 
 
 class Compositor:

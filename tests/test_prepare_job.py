@@ -246,7 +246,8 @@ def test_percent_is_weighted_by_how_long_each_step_takes() -> None:
     assert percent(steps) == 0
     voice_done = [Step("voice", "", 1, 1)] + steps[1:]
     loop_half = steps[:3] + [Step("loop", "", 100, 200)] + steps[4:]
-    assert percent(voice_done) < 2 < 40 < percent(loop_half) < 50
+    # Of the 470 weighted seconds, the voice is 10 and the idle video 300.
+    assert (percent(voice_done), percent(loop_half)) == (2, 31)
 
 
 def test_default_voice_step_says_a_word() -> None:

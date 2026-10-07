@@ -47,7 +47,7 @@ STEPS = (
     ("voice", "Get the voice ready", 10),
     ("models", "Load the face model", 30),
     ("shapes", "Render the 10 mouth shapes", 50),
-    ("loop", "Render the idle video (blinks and head movement)", 1000),
+    ("loop", "Render the idle video (blinks and head movement)", 300),
     ("align", "Line up the mouth with the head", 20),
     ("clips", "Render the sample video and the fixed lines", 60),
 )

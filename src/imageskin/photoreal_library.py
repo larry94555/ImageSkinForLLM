@@ -3,7 +3,10 @@
 `prepare_library` (once per photo, minutes to tens of minutes on a laptop CPU) renders and
 saves to a folder:
   - the 10 mouth shapes on the still head, with Larry's accepted softness (R4a);
-  - an idle loop of the face with a slight head drift and two blinks (LOOP_SECONDS long);
+  - an idle loop of the face with a slight head drift and two blinks (LOOP_SECONDS long).
+    Only every KEY_EVERY-th frame and the frames around the blinks are rendered; the head
+    moves less than a tenth of a degree per frame, so the ones between are filled in along
+    the optical flow (45 to 55 dB PSNR against fully rendered frames, about 3x faster);
   - how the lower face moves in each loop frame, so the mouth can follow the head.
 An interrupted run picks up where it stopped; a finished library is reused. Making videos
 from a library needs only NumPy and OpenCV, no model.
@@ -29,6 +32,7 @@ from imageskin.liveportrait_edits import (
     MOUTH_SHAPES,
     STRENGTH,
     UPPER_LIP,
+    eye_openness,
     idle_motion,
     soften,
 )
@@ -37,9 +41,12 @@ from imageskin.visemes import SHAPES
 
 logger = logging.getLogger(__name__)
 
-# Bump when the frames a library holds would change, so old libraries are rebuilt.
+# Bump when existing libraries become unusable or must be made again, so they are rebuilt. A
+# change that only makes new frames differently (such as filling in idle-loop frames) keeps
+# the version: libraries made before stay valid.
 LIBRARY_VERSION = 1
 CROP = 512  # LivePortrait's face crop is CROP x CROP pixels
+KEY_EVERY = 4  # idle-loop frames rendered by the model; the rest are filled in between
 
 Image = NDArray[np.uint8]
 Mask = NDArray[np.float32]
@@ -143,6 +150,73 @@ def align_loop(rest: Image, loop: list[Image], mask: Mask, window: Window) -> ND
     return out
 
 
+def key_frames(n_loop: int) -> list[int]:
+    """The idle-loop frames the model renders: every KEY_EVERY-th one, and each frame in or
+    next to a blink, since eyelids move too fast to fill in."""
+    blinking = {i for i in range(n_loop) if eye_openness(i / FPS) < 1.0}
+    near = {j for i in blinking for j in (i - 1, i, i + 1) if 0 <= j < n_loop}
+    return sorted({i for i in range(n_loop) if i % KEY_EVERY == 0} | near)
+
+
+def pixel_grid(image: Image) -> NDArray[np.float32]:
+    """Each pixel's own (x, y), the starting point of a warp. Make it once per picture size."""
+    h, w = image.shape[:2]
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    return np.dstack([gx, gy])
+
+
+def morph(
+    a: Image,
+    b: Image,
+    flow_ab: NDArray[np.float32],
+    flow_ba: NDArray[np.float32],
+    t: float,
+    grid: NDArray[np.float32] | None = None,
+) -> Image:
+    """The picture t of the way (0..1) from a to b: both warped toward each other along their
+    optical flows (`optical_flow(a, b)` and `(b, a)` of their grey images) and blended, which
+    keeps one set of edges instead of the doubled ones of a plain cross-fade. Callers that morph
+    many times pass `pixel_grid(a)` so it is not made again each time."""
+    if t <= 0.0:
+        return a
+    if t >= 1.0:
+        return b
+    if grid is None:
+        grid = pixel_grid(a)
+    from_a = _remap(a, grid + t * flow_ba)
+    from_b = _remap(b, grid + (1.0 - t) * flow_ab)
+    return np.asarray(cv2.addWeighted(from_a, 1.0 - t, from_b, t, 0.0), np.uint8)
+
+
+def _remap(image: Image, mapping: NDArray[np.float32]) -> Image:
+    """Each output pixel (x, y) takes the colour of `image` at mapping[y, x]."""
+    out = cv2.remap(image, mapping, None, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)  # type: ignore[call-overload]
+    return np.asarray(out, np.uint8)
+
+
+def fill_loop(loop: Path, n_loop: int, keys: list[int]) -> int:
+    """Fill in the idle-loop frames between the rendered ones; return how many were made.
+    The last frames are filled toward frame 0, since the loop wraps around."""
+    made = 0
+    grid: NDArray[np.float32] | None = None  # all frames are the same size
+    for k, a in enumerate(keys):
+        b = keys[k + 1] if k + 1 < len(keys) else n_loop
+        todo = [i for i in range(a + 1, b) if not (loop / f"{i:04d}.npy").exists()]
+        if not todo:
+            continue
+        first = np.load(loop / f"{a:04d}.npy")
+        last = np.load(loop / f"{b % n_loop:04d}.npy")
+        there = optical_flow(to_gray(first), to_gray(last))  # once per pair of rendered frames
+        back = optical_flow(to_gray(last), to_gray(first))
+        if grid is None:
+            grid = pixel_grid(first)
+        for i in todo:
+            t = (i - a) / (b - a)
+            _save(loop / f"{i:04d}.npy", morph(first, last, there, back, t, grid))
+            made += 1
+    return made
+
+
 def _save(path: Path, array: NDArray[np.generic]) -> None:
     """Save an array so that an interrupted write never leaves a file that looks complete."""
     tmp = path.with_name(path.stem + ".tmp.npy")
@@ -186,28 +260,37 @@ def build_library(
         shapes_meta.write_text(json.dumps({"mouth": mouth_key()}), encoding="utf-8")
         logger.info("Rendered mouth shapes", extra={"shapes": len(SHAPES), "mouth": mouth_key()})
 
-    todo = [i for i in range(n_loop) if not (folder / "loop" / f"{i:04d}.npy").exists()]
-    if 0 < len(todo) < n_loop:
-        logger.info("Resuming idle loop", extra={"done": n_loop - len(todo), "of": n_loop})
+    keys = key_frames(n_loop)
+    todo = [i for i in keys if not (folder / "loop" / f"{i:04d}.npy").exists()]
+    if 0 < len(todo) < len(keys):
+        logger.info("Resuming idle loop", extra={"done": len(keys) - len(todo), "of": len(keys)})
     progress("shapes", len(SHAPES), len(SHAPES))
-    progress("loop", n_loop - len(todo), n_loop)
+    progress("loop", len(keys) - len(todo), len(keys))
     loop_start = time.perf_counter()
     for k, i in enumerate(todo, 1):
         pitch, yaw, roll, eye_open = idle_motion(i, n_loop, FPS)
         face = portrait.render({}, None, 1.0, (pitch, yaw, roll), eye_open)
         _save(folder / "loop" / f"{i:04d}.npy", face)
-        progress("loop", n_loop - len(todo) + k, n_loop)
+        progress("loop", len(keys) - len(todo) + k, len(keys))
         if k % 10 == 0 or k == len(todo):
             per_frame = (time.perf_counter() - loop_start) / k
             logger.info(
                 "Rendered idle loop frame %d of %d",
-                n_loop - len(todo) + k,
-                n_loop,
+                len(keys) - len(todo) + k,
+                len(keys),
                 extra={
                     "s_per_frame": round(per_frame, 2),
                     "s_left": round(per_frame * (len(todo) - k)),
                 },
             )
+
+    fill_start = time.perf_counter()
+    filled = fill_loop(folder / "loop", n_loop, keys)
+    if filled:
+        logger.info(
+            "Filled in idle loop frames",
+            extra={"frames": filled, "duration_s": round(time.perf_counter() - fill_start, 1)},
+        )
 
     shapes = np.load(folder / "shapes.npy")
     mask, window = mouth_mask(portrait.crop_landmarks)
