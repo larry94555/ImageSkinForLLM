@@ -1,10 +1,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
+import type { Upload } from "./api";
 import { App } from "./App";
+import { minutes } from "./pages";
 
 function serverWithConsent(agreed: boolean, postOk = true) {
-  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith("/api/uploads/")) return Response.json([]);
     if (init?.method === "POST") {
       return postOk
         ? Response.json({ agreed: true, agreed_at: "2026-10-06T20:00:00+00:00" })
@@ -92,4 +95,143 @@ test("home starts setup at consent until it is given", async () => {
   await openAt("#/");
   const start = await screen.findByRole("link", { name: "Start setup" });
   expect(start.getAttribute("href")).toBe("#/consent");
+});
+
+// --- Upload screen (R7) ---
+
+const PHOTO: Upload = {
+  id: "a".repeat(32),
+  kind: "photos",
+  name: "front.jpg",
+  format: "jpg",
+  size: 1000,
+  uploaded_at: "2026-10-07T00:00:00+00:00",
+  seconds: null,
+};
+const SOUND: Upload = {
+  ...PHOTO,
+  id: "b".repeat(32),
+  kind: "sounds",
+  name: "voice1.m4a",
+  format: "m4a",
+  seconds: 95.4,
+};
+
+// A fake server with consent given and these uploads stored. POSTs answer with `posted` in turn.
+function uploadServer(stored: Upload[], posted: Response[] = []) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    const kind = url.split("/")[3];
+    if (init?.method === "POST") return posted.shift() ?? new Response("", { status: 500 });
+    if (init?.method === "DELETE") return Response.json({ removed: true });
+    return Response.json(stored.filter((u) => u.kind === kind));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function chooseFiles(label: string, files: File[]) {
+  const input = screen.getByText(label).querySelector("input") as HTMLInputElement;
+  Object.defineProperty(input, "files", { value: files, configurable: true });
+  fireEvent.change(input);
+}
+
+test("setup lists stored photos and recordings so they can be viewed and played", async () => {
+  uploadServer([PHOTO, SOUND]);
+  await openAt("#/setup");
+  const img = (await screen.findByAltText("front.jpg")) as HTMLImageElement;
+  expect(img.getAttribute("src")).toBe(`/api/uploads/photos/${PHOTO.id}`);
+  expect(await screen.findByText("voice1.m4a (1:35)")).toBeTruthy();
+  const audio = document.querySelector("audio") as HTMLAudioElement;
+  expect(audio.getAttribute("src")).toBe(`/api/uploads/sounds/${SOUND.id}`);
+  expect(audio.controls).toBe(true);
+});
+
+test("with nothing uploaded each section says so", async () => {
+  uploadServer([]);
+  await openAt("#/setup");
+  await waitFor(() => expect(screen.getAllByText("None yet.")).toHaveLength(2));
+});
+
+test("choosing several photos uploads each and shows why one was refused", async () => {
+  const fetchMock = uploadServer(
+    [],
+    [
+      Response.json(PHOTO),
+      Response.json({ detail: "This is not a JPG, PNG or HEIC photo." }, { status: 415 }),
+    ],
+  );
+  await openAt("#/setup");
+  await screen.findAllByText("None yet.");
+  await act(async () => {
+    chooseFiles("Add photos", [new File(["x"], "front.jpg"), new File(["y"], "notes.txt")]);
+  });
+  expect(await screen.findByAltText("front.jpg")).toBeTruthy();
+  expect(
+    await screen.findByText("notes.txt: This is not a JPG, PNG or HEIC photo."),
+  ).toBeTruthy();
+  const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
+  expect(posts.map(([url]) => url)).toEqual(["/api/uploads/photos", "/api/uploads/photos"]);
+  expect((posts[0][1]?.body as FormData).get("file")).toBeInstanceOf(File);
+});
+
+test("a refusal without a JSON reason still says something", async () => {
+  uploadServer([], [new Response("bad gateway", { status: 502 })]);
+  await openAt("#/setup");
+  await screen.findAllByText("None yet.");
+  await act(async () => {
+    chooseFiles("Add recordings", [new File(["x"], "voice1.wav")]);
+  });
+  expect(await screen.findByText("voice1.wav: The server refused it (502).")).toBeTruthy();
+});
+
+test("remove asks first, then deletes the file", async () => {
+  const fetchMock = uploadServer([PHOTO]);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+  await openAt("#/setup");
+  await screen.findByAltText("front.jpg");
+  fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+  expect(screen.queryByAltText("front.jpg")).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+  });
+  await waitFor(() => expect(screen.queryByAltText("front.jpg")).toBeNull());
+  expect(confirm).toHaveBeenCalledWith("Remove front.jpg?");
+  expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/photos/${PHOTO.id}`, { method: "DELETE" });
+});
+
+test("a failed remove keeps the file and says so", async () => {
+  uploadServer([PHOTO]);
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  await openAt("#/setup");
+  await screen.findByAltText("front.jpg");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+  });
+  expect(await screen.findByText("front.jpg: Could not remove it. Please try again.")).toBeTruthy();
+  expect(screen.getByAltText("front.jpg")).toBeTruthy();
+});
+
+test("if the list can't be loaded the page says so", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === "/api/consent"
+        ? Response.json({ agreed: true, agreed_at: null })
+        : new Response("", { status: 500 }),
+    ),
+  );
+  await openAt("#/setup");
+  await waitFor(() =>
+    expect(
+      screen.getAllByText("Could not load the list. Reload the page to try again."),
+    ).toHaveLength(2),
+  );
+});
+
+test("minutes formats a recording's length", () => {
+  expect(minutes(0)).toBe("0:00");
+  expect(minutes(59.6)).toBe("1:00");
+  expect(minutes(605)).toBe("10:05");
 });

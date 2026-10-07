@@ -15,6 +15,33 @@ async function confirmConsent() {
 		body: JSON.stringify({ agreed: true })
 	}));
 }
+async function refusal(response) {
+	try {
+		const body = await response.json();
+		if (typeof body.detail === "string") return body.detail;
+	} catch {}
+	return `The server refused it (${response.status}).`;
+}
+function uploadUrl(kind, id) {
+	return `/api/uploads/${kind}/${id}`;
+}
+async function listUploads(kind) {
+	return json(await fetch(`/api/uploads/${kind}`));
+}
+async function uploadFile(kind, file) {
+	const form = new FormData();
+	form.append("file", file);
+	const response = await fetch(`/api/uploads/${kind}`, {
+		method: "POST",
+		body: form
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
+async function removeUpload(kind, id) {
+	const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
+	if (!response.ok) throw new Error(await refusal(response));
+}
 //#endregion
 //#region src/pages.tsx
 function HomePage({ consented }) {
@@ -83,8 +110,131 @@ function SetupPage() {
 			className: "done",
 			children: "Thank you, consent is confirmed."
 		}),
-		/* @__PURE__ */ u("p", { children: "Uploading photos and recordings comes in the next version." })
+		/* @__PURE__ */ u(UploadSection, {
+			kind: "photos",
+			title: "Photos",
+			hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
+			accept: "image/jpeg,image/png,image/heic,.heic"
+		}),
+		/* @__PURE__ */ u(UploadSection, {
+			kind: "sounds",
+			title: "Recordings",
+			hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
+			accept: "audio/*,.m4a,.wav,.mp3"
+		})
 	] });
+}
+function UploadSection(props) {
+	const { kind } = props;
+	const [items, setItems] = d(null);
+	const [loadFailed, setLoadFailed] = d(false);
+	const [sending, setSending] = d(null);
+	const [refused, setRefused] = d([]);
+	h(() => {
+		listUploads(kind).then(setItems).catch((e) => {
+			console.error(`Could not list ${kind}`, e);
+			setLoadFailed(true);
+		});
+	}, [kind]);
+	async function add(event) {
+		const input = event.currentTarget;
+		const files = Array.from(input.files ?? []);
+		input.value = "";
+		setRefused([]);
+		for (const file of files) {
+			setSending(file.name);
+			try {
+				const upload = await uploadFile(kind, file);
+				setItems((current) => [...current ?? [], upload]);
+			} catch (e) {
+				console.error(`Upload of ${file.name} refused`, e);
+				setRefused((current) => [...current, {
+					name: file.name,
+					reason: e.message
+				}]);
+			}
+		}
+		setSending(null);
+	}
+	async function remove(item) {
+		if (!window.confirm(`Remove ${item.name}?`)) return;
+		try {
+			await removeUpload(kind, item.id);
+			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
+		} catch (e) {
+			console.error(`Could not remove ${item.name}`, e);
+			setRefused([{
+				name: item.name,
+				reason: "Could not remove it. Please try again."
+			}]);
+		}
+	}
+	return /* @__PURE__ */ u("section", { children: [
+		/* @__PURE__ */ u("h2", { children: props.title }),
+		/* @__PURE__ */ u("p", {
+			className: "muted",
+			children: props.hint
+		}),
+		/* @__PURE__ */ u("label", {
+			className: "button",
+			children: [sending ? `Uploading ${sending}…` : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
+				type: "file",
+				multiple: true,
+				accept: props.accept,
+				disabled: sending !== null,
+				onChange: add,
+				className: "file"
+			})]
+		}),
+		refused.map((r) => /* @__PURE__ */ u("p", {
+			className: "error",
+			children: [
+				r.name,
+				": ",
+				r.reason
+			]
+		}, r.name)),
+		loadFailed && /* @__PURE__ */ u("p", {
+			className: "error",
+			children: "Could not load the list. Reload the page to try again."
+		}),
+		items?.length === 0 && /* @__PURE__ */ u("p", {
+			className: "muted",
+			children: "None yet."
+		}),
+		/* @__PURE__ */ u("ul", {
+			className: kind,
+			children: items?.map((item) => /* @__PURE__ */ u("li", { children: [
+				kind === "photos" ? /* @__PURE__ */ u("a", {
+					href: uploadUrl(kind, item.id),
+					target: "_blank",
+					rel: "noreferrer",
+					children: /* @__PURE__ */ u("img", {
+						src: uploadUrl(kind, item.id),
+						alt: item.name
+					})
+				}) : /* @__PURE__ */ u("audio", {
+					controls: true,
+					preload: "none",
+					src: uploadUrl(kind, item.id)
+				}),
+				/* @__PURE__ */ u("span", {
+					className: "name",
+					children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
+				}),
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "remove",
+					onClick: () => remove(item),
+					children: "Remove"
+				})
+			] }, item.id))
+		})
+	] });
+}
+function minutes(seconds) {
+	const whole = Math.round(seconds);
+	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 function NotFoundPage() {
 	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Page not found" }), /* @__PURE__ */ u("a", {

@@ -11,7 +11,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in R25). | R1 to R4c | 7 | 19.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 2 of 10 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video, accept or reject. | R5 to R14 | 10 | 27.8% | 3 of 10 |
 | 3 | **Talking chat.** Type a prompt; the person speaks the LLM's reply with words highlighted. | R15 to R19 | 5 | 13.9% | 0 |
 | 4 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 11.1% | 0 |
 | 5 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.8% | 0 |
@@ -115,9 +115,10 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** with curl or the API docs page, a valid photo and recording are stored and converted; a renamed non-image file or an oversized file is rejected with a plain message, and the logs show why.
 - **Built:** `GET`/`POST /api/uploads/{photos|sounds}` and `GET`/`DELETE /api/uploads/{photos|sounds}/{id}` in `app.py`, storage in `uploads.py`. All four refuse with 403 until consent is given. Files live in `<IMAGESKIN_HOME>/uploads/photos` and `/sounds` as `<random id>.jpg|.png|.wav`, each with a `.json` holding the uploaded name for display. Limits: 25 MB per photo, 100 MB per sound file, 10 minutes per recording, 1 GB in total; conversion stops after 60 seconds. HEIC needs the optional extra `.[heic]` (pillow-heif, whose wheels bundle LGPL-3 libheif/libde265 and GPL-2 x265; decode only), and is converted to JPG in a separate process so it can be timed out.
 
-### R7. Upload screen (Medium) · item 1
+### R7. Upload screen (Medium) · item 1 · Done in [PR #19](https://github.com/larry94555/ImageSkinForLLM/pull/19)
 - Browser screen for uploading photos and recordings, listing them, viewing images and playing sound files. At least one photo is needed; the guide asks for five so the app can pick the best.
 - **Can show:** upload one or more photos and the recordings, then view and play them in the browser.
+- **Built:** the Setup page (`#/setup`, in `web/src/pages.tsx`) has a Photos and a Recordings section, each with an Add button taking several files at once (uploaded one at a time through R6's API), the server's reason shown next to any refused file, photo thumbnails that open full size, a player and length for each recording, and Remove (asks first). No server changes.
 
 ### R8. Face checks (Medium) · item 2 (part 1)
 - Four checks from item 2, each with its fixed plain-language message on the upload screen: exactly one face, face large enough, facing the camera, nothing covering the face.

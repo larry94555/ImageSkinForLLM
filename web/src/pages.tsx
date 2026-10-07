@@ -1,8 +1,16 @@
 // The app's pages. Each one is a function that returns what the page shows.
 
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 
-import { confirmConsent } from "./api";
+import {
+  confirmConsent,
+  type Kind,
+  listUploads,
+  removeUpload,
+  type Upload,
+  uploadFile,
+  uploadUrl,
+} from "./api";
 
 export function HomePage({ consented }: { consented: boolean }) {
   return (
@@ -61,14 +69,130 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   );
 }
 
+// Setup step 1 (roadmap R7): upload photos and recordings, see them and play them back.
 export function SetupPage() {
   return (
     <>
       <h1>Setup</h1>
       <p className="done">Thank you, consent is confirmed.</p>
-      <p>Uploading photos and recordings comes in the next version.</p>
+      <UploadSection
+        kind="photos"
+        title="Photos"
+        hint="Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best."
+        accept="image/jpeg,image/png,image/heic,.heic"
+      />
+      <UploadSection
+        kind="sounds"
+        title="Recordings"
+        hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
+        accept="audio/*,.m4a,.wav,.mp3"
+      />
     </>
   );
+}
+
+interface Refused {
+  name: string;
+  reason: string;
+}
+
+function UploadSection(props: { kind: Kind; title: string; hint: string; accept: string }) {
+  const { kind } = props;
+  // null until the list has loaded.
+  const [items, setItems] = useState<Upload[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [sending, setSending] = useState<string | null>(null);
+  const [refused, setRefused] = useState<Refused[]>([]);
+
+  useEffect(() => {
+    listUploads(kind)
+      .then(setItems)
+      .catch((e: unknown) => {
+        console.error(`Could not list ${kind}`, e);
+        setLoadFailed(true);
+      });
+  }, [kind]);
+
+  // One file at a time, so each refusal is shown next to the file's name.
+  async function add(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    setRefused([]);
+    for (const file of files) {
+      setSending(file.name);
+      try {
+        const upload = await uploadFile(kind, file);
+        setItems((current) => [...(current ?? []), upload]);
+      } catch (e) {
+        console.error(`Upload of ${file.name} refused`, e);
+        setRefused((current) => [...current, { name: file.name, reason: (e as Error).message }]);
+      }
+    }
+    setSending(null);
+  }
+
+  async function remove(item: Upload) {
+    if (!window.confirm(`Remove ${item.name}?`)) return;
+    try {
+      await removeUpload(kind, item.id);
+      setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
+    } catch (e) {
+      console.error(`Could not remove ${item.name}`, e);
+      setRefused([{ name: item.name, reason: "Could not remove it. Please try again." }]);
+    }
+  }
+
+  return (
+    <section>
+      <h2>{props.title}</h2>
+      <p className="muted">{props.hint}</p>
+      <label className="button">
+        {sending ? `Uploading ${sending}…` : `Add ${props.title.toLowerCase()}`}
+        <input
+          type="file"
+          multiple
+          accept={props.accept}
+          disabled={sending !== null}
+          onChange={add}
+          className="file"
+        />
+      </label>
+      {refused.map((r) => (
+        <p key={r.name} className="error">
+          {r.name}: {r.reason}
+        </p>
+      ))}
+      {loadFailed && <p className="error">Could not load the list. Reload the page to try again.</p>}
+      {items?.length === 0 && <p className="muted">None yet.</p>}
+      <ul className={kind}>
+        {items?.map((item) => (
+          <li key={item.id}>
+            {kind === "photos" ? (
+              <a href={uploadUrl(kind, item.id)} target="_blank" rel="noreferrer">
+                <img src={uploadUrl(kind, item.id)} alt={item.name} />
+              </a>
+            ) : (
+              <audio controls preload="none" src={uploadUrl(kind, item.id)} />
+            )}
+            <span className="name">
+              {item.name}
+              {item.seconds !== null && ` (${minutes(item.seconds)})`}
+            </span>
+            <button type="button" className="remove" onClick={() => remove(item)}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// 75.4 -> "1:15"
+export function minutes(seconds: number): string {
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
 export function NotFoundPage() {

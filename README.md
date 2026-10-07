@@ -90,7 +90,9 @@ Commit the built files with the source change; CI fails if they are out of date.
 
 ## Uploading photos and recordings
 
-The server stores uploaded photos (JPG, PNG, HEIC) and recordings (WAV, M4A, MP3) in `uploads` inside the app's folder, under random names. The type is checked from each file's contents, not its name. Photos are kept as JPG or PNG; recordings are converted to WAV with ffmpeg. Uploads are refused until consent is confirmed. Limits: 25 MB per photo, 100 MB per recording, 10 minutes per recording, 1 GB in total.
+Open http://127.0.0.1:8000/#/setup while `imageskin serve` is running to upload photos and recordings in the browser: **Add photos** and **Add recordings** take one or more files at a time, uploaded photos are shown as pictures (click one to open it full size), recordings can be played, and **Remove** deletes a file. A refused file is listed with the reason. The files land in `uploads` inside the app data folder that the server logs at startup.
+
+Behind the screen, the server stores uploaded photos (JPG, PNG, HEIC) and recordings (WAV, M4A, MP3) in `uploads` inside the app's folder, under random names. The type is checked from each file's contents, not its name. Photos are kept as JPG or PNG; recordings are converted to WAV with ffmpeg. Uploads are refused until consent is confirmed. Limits: 25 MB per photo, 100 MB per recording, 10 minutes per recording, 1 GB in total.
 
 | Request | What it does |
 |---|---|
