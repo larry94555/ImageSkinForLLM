@@ -139,6 +139,8 @@ def serve(host: str, port: int) -> None:
     from imageskin.app import create_app
 
     logger.info("Starting server", extra={"host": host, "port": port, "version": __version__})
+    # Consent and uploads are kept here; set IMAGESKIN_HOME to use another folder.
+    logger.info("App data folder", extra={"path": str(default_home().resolve())})
     # access_log=False: the app's own middleware logs each request with its duration.
     uvicorn.run(create_app(), host=host, port=port, log_config=None, access_log=False)
 

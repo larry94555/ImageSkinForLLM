@@ -79,3 +79,52 @@ def test_preact_license_ships_with_the_app() -> None:
     # Preact is MIT licensed: its notice must go wherever its code goes, the wheel included.
     notice = (STATIC_DIR / "preact-LICENSE.txt").read_text(encoding="utf-8")
     assert "The MIT License" in notice and "Jason Miller" in notice
+
+
+JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
+
+
+def consented_client(home: Path) -> TestClient:
+    client = TestClient(create_app(home))
+    client.post("/api/consent", json={"agreed": True})
+    return client
+
+
+def test_uploads_are_refused_before_consent(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    sent = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    assert sent.status_code == 403
+    assert sent.json()["detail"].startswith("Consent is needed before uploading.")
+    assert client.get("/api/uploads/photos").status_code == 403
+    assert not (tmp_path / "uploads").exists()
+
+
+def test_photo_can_be_uploaded_listed_fetched_and_removed(tmp_path: Path) -> None:
+    client = consented_client(tmp_path)
+    sent = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG, "text/plain")})
+    assert sent.status_code == 200
+    upload = sent.json()
+    assert upload["name"] == "me.jpg" and upload["format"] == "jpg"
+
+    assert client.get("/api/uploads/photos").json() == [upload]
+    fetched = client.get(f"/api/uploads/photos/{upload['id']}")
+    assert fetched.content == JPG
+    assert fetched.headers["content-type"] == "image/jpeg"
+    assert fetched.headers["x-content-type-options"] == "nosniff"
+
+    assert client.delete(f"/api/uploads/photos/{upload['id']}").json() == {"removed": True}
+    assert client.get("/api/uploads/photos").json() == []
+    assert client.get(f"/api/uploads/photos/{upload['id']}").status_code == 404
+    assert client.delete(f"/api/uploads/photos/{upload['id']}").status_code == 404
+
+
+def test_upload_errors_are_plain_messages(tmp_path: Path) -> None:
+    client = consented_client(tmp_path)
+    renamed = client.post("/api/uploads/photos", files={"file": ("me.jpg", b"hello")})
+    assert renamed.status_code == 415
+    assert renamed.json()["detail"].startswith("This is not a JPG, PNG or HEIC photo.")
+
+
+def test_unknown_upload_kind_is_rejected(tmp_path: Path) -> None:
+    client = consented_client(tmp_path)
+    assert client.get("/api/uploads/videos").status_code == 422

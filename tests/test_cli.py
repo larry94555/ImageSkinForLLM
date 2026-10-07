@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,6 +37,21 @@ def test_serve_runs_uvicorn_with_config(tmp_path: Path) -> None:
         assert main(["--config", str(config), "serve"]) == 0
     assert run.call_args.kwargs["host"] == "127.0.0.1"
     assert run.call_args.kwargs["port"] == 9123
+
+
+def test_serve_logs_the_data_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("IMAGESKIN_HOME", str(tmp_path / "data"))
+    # setup_logging would replace the handler caplog listens on.
+    with (
+        patch("uvicorn.run"),
+        patch("imageskin.cli.setup_logging"),
+        caplog.at_level(logging.INFO, logger="imageskin.cli"),
+    ):
+        assert main(["serve"]) == 0
+    record = next(r for r in caplog.records if r.getMessage() == "App data folder")
+    assert vars(record)["path"] == str((tmp_path / "data").resolve())
 
 
 def test_voice_sample_writes_wav(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

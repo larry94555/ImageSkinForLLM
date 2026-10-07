@@ -88,6 +88,21 @@ npm run build   # type check and build into src/imageskin/static
 
 Commit the built files with the source change; CI fails if they are out of date.
 
+## Uploading photos and recordings
+
+The server stores uploaded photos (JPG, PNG, HEIC) and recordings (WAV, M4A, MP3) in `uploads` inside the app's folder, under random names. The type is checked from each file's contents, not its name. Photos are kept as JPG or PNG; recordings are converted to WAV with ffmpeg. Uploads are refused until consent is confirmed. Limits: 25 MB per photo, 100 MB per recording, 10 minutes per recording, 1 GB in total.
+
+| Request | What it does |
+|---|---|
+| `POST /api/uploads/photos` or `/sounds` | Upload one file (form field `file`) |
+| `GET /api/uploads/photos` or `/sounds` | List the uploads |
+| `GET /api/uploads/photos/{id}` | Download one (also `/sounds/{id}`) |
+| `DELETE /api/uploads/photos/{id}` | Remove one (also `/sounds/{id}`) |
+
+Try them on the API docs page at http://127.0.0.1:8000/docs while `imageskin serve` is running.
+
+HEIC photos (from iPhones) need an optional extra: `pip install -e ".[heic]"`. It is optional because pillow-heif's wheels include libheif and libde265 (LGPL-3) and x265 (GPL-2); the app only uses them to read HEIC files.
+
 ## Making a voice sample
 
 Join the recordings from the recording guide (M4A, MP3 or WAV) into one WAV file, in the order given. Each recording is converted to 24 kHz mono WAV; `--timeout` sets how many seconds each conversion may take (default 60).
