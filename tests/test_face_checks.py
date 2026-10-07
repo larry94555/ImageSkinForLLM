@@ -261,3 +261,23 @@ def test_failed_model_download_turns_checks_off_until_restart(
                 face_checker.check(photo(tmp_path, 600))
     assert ensure.call_count == 1  # not retried on every photo
     assert "Face checks are off until restart" in caplog.text
+
+
+def test_prepare_downloads_the_models_and_logs_a_failure_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    face_checker = FaceChecker(tmp_path / "models")
+    with (
+        patch.dict(sys.modules, fake_mediapipe(faces=0)),
+        patch.object(face_checks, "ensure_models", return_value=MODELS) as ensure,
+        caplog.at_level(logging.INFO),
+    ):
+        face_checker.prepare()
+    ensure.assert_called_once()
+    assert len(FakeModel.opened) == 1  # MediaPipe loaded once, ahead of the first photo
+    assert "Face checks ready" in caplog.text
+    broken = FaceChecker(tmp_path / "models")
+    failing = patch.object(face_checks, "ensure_models", side_effect=DownloadError("offline"))
+    with failing, caplog.at_level(logging.ERROR):
+        broken.prepare()  # doesn't raise
+    assert "Face checks are off until restart" in caplog.text

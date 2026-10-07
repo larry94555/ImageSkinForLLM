@@ -114,7 +114,7 @@ class UploadStore:
     """Uploads kept in <home>/uploads/photos and <home>/uploads/sounds.
 
     check_photo, when given, returns the problems found in a stored photo; photos are checked
-    as they arrive, and photos stored before checks were available are checked when listed.
+    as they arrive, and check() checks one stored before the checks were available.
     """
 
     def __init__(self, home: Path, check_photo: PhotoCheck | None = None) -> None:
@@ -260,20 +260,20 @@ class UploadStore:
         stored.with_suffix(".json").write_text(json.dumps(asdict(upload)), encoding="utf-8")
 
     def list(self, kind: Kind) -> list[Upload]:
-        """Stored uploads of one kind, oldest first."""
+        """Stored uploads of one kind, oldest first. Never runs the face checks, so it is quick."""
         folder = self._dir(kind)
         if not folder.is_dir():
             return []
         uploads = [u for p in folder.glob("*.json") if (u := self._read(p)) is not None]
-        if kind == "photos" and self.check_photo is not None:
-            uploads = [self._checked(u) for u in uploads]
         return sorted(uploads, key=lambda u: u.uploaded_at)
 
-    def _checked(self, upload: Upload) -> Upload:
-        """A photo stored before it could be checked, checked now and saved."""
-        stored = self.path(upload.kind, upload.id)
-        if upload.problems is not None or stored is None:
-            return upload
+    def check(self, upload_id: str) -> Upload | None:
+        """Run the face checks on a stored photo, such as one uploaded before they were on, and
+        save the result. None when there is no such photo."""
+        stored = self.path("photos", upload_id)
+        upload = self._read(stored.with_suffix(".json")) if stored else None
+        if stored is None or upload is None:
+            return None
         problems = self._check(stored)
         if problems is None or not stored.exists():  # removed while it was being checked
             return upload

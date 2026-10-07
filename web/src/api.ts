@@ -68,6 +68,13 @@ export async function uploadFile(kind: Kind, file: File): Promise<Upload> {
   return (await response.json()) as Upload;
 }
 
+// Runs the face checks on a photo uploaded before they were on; returns it with the result.
+export async function checkPhoto(id: string): Promise<Upload> {
+  const response = await fetch(`${uploadUrl("photos", id)}/check`, { method: "POST" });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as Upload;
+}
+
 export async function removeUpload(kind: Kind, id: string): Promise<void> {
   const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
   if (!response.ok) throw new Error(await refusal(response));

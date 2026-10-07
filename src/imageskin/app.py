@@ -2,6 +2,7 @@
 
 import importlib.util
 import logging
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
@@ -38,7 +39,10 @@ def face_checker(home: Path) -> PhotoCheck | None:
     from imageskin.face_checks import FaceChecker
 
     logger.info("Face checks are on")
-    return FaceChecker(home / "models" / "faces").check
+    checker = FaceChecker(home / "models" / "faces")
+    # Download the models now, so the first photo isn't held up by it.
+    threading.Thread(target=checker.prepare, name="face-models", daemon=True).start()
+    return checker.check
 
 
 def create_app(home: Path | None = None, check_photo: PhotoCheck | None = None) -> FastAPI:
@@ -109,6 +113,13 @@ def create_app(home: Path | None = None, check_photo: PhotoCheck | None = None) 
     @app.get(uploads_api, dependencies=needs_consent)
     def list_uploads(kind: Kind) -> list[Upload]:
         return store.list(kind)
+
+    @app.post("/api/uploads/photos/{upload_id}/check", dependencies=needs_consent)
+    def check_photo_now(upload_id: str) -> Upload:
+        checked = store.check(upload_id)
+        if checked is None:
+            raise HTTPException(status_code=404, detail="No such photo.")
+        return checked
 
     @app.get(uploads_api + "/{upload_id}", dependencies=needs_consent)
     def get_upload(kind: Kind, upload_id: str) -> FileResponse:

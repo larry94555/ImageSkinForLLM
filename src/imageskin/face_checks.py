@@ -173,12 +173,29 @@ class FaceChecker:
             )
         return self._paths
 
+    def prepare(self) -> None:
+        """Download the models if needed and load MediaPipe once, so the first photo is checked
+        as fast as the rest. A failure is logged and leaves the checks off."""
+        with self._lock:
+            try:
+                self._model_paths()
+            except FaceCheckError:
+                return  # already logged
+            start = time.perf_counter()
+            self.measure_rgb(np.zeros((64, 64, 3), np.uint8))
+            logger.info(
+                "Face checks ready",
+                extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
+            )
+
     def measure(self, photo: Path) -> FaceMeasure:
+        return self.measure_rgb(read_rgb(photo))
+
+    def measure_rgb(self, rgb: NDArray[np.uint8]) -> FaceMeasure:
         import mediapipe as mp
         from mediapipe.tasks.python import BaseOptions, vision
 
         face_model, segment_model = self._model_paths()
-        rgb = read_rgb(photo)
         h, w = rgb.shape[:2]
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         face_options = vision.FaceLandmarkerOptions(

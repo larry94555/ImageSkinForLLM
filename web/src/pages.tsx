@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import {
+  checkPhoto,
   confirmConsent,
   type Kind,
   listUploads,
@@ -103,15 +104,38 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
   const [loadFailed, setLoadFailed] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   const [refused, setRefused] = useState<Refused[]>([]);
+  // Photos still to be checked, in order; the first one is being checked now.
+  const [toCheck, setToCheck] = useState<string[]>([]);
 
   useEffect(() => {
     listUploads(kind)
-      .then(setItems)
+      .then((list) => {
+        setItems(list);
+        if (kind === "photos") void checkOldPhotos(list);
+      })
       .catch((e: unknown) => {
         console.error(`Could not list ${kind}`, e);
         setLoadFailed(true);
       });
   }, [kind]);
+
+  // Photos uploaded before the face checks were on are checked one at a time after the list
+  // shows, so the page doesn't wait for them.
+  async function checkOldPhotos(list: Upload[]) {
+    const unchecked = list.filter((p) => p.problems === null);
+    setToCheck(unchecked.map((p) => p.id));
+    for (const photo of unchecked) {
+      try {
+        const checked = await checkPhoto(photo.id);
+        setItems((current) => (current ?? []).map((i) => (i.id === checked.id ? checked : i)));
+        if (checked.problems === null) break; // checks are off; the rest would be the same
+      } catch (e) {
+        console.error(`Could not check ${photo.name}`, e); // removed meanwhile, or server down
+      }
+      setToCheck((ids) => ids.slice(1));
+    }
+    setToCheck([]);
+  }
 
   // One file at a time, so each refusal is shown next to the file's name.
   async function add(event: Event) {
@@ -145,15 +169,18 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
 
   // Adding waits for the first list, so a late list can't hide a file uploaded meanwhile.
   const ready = sending === null && (items !== null || loadFailed);
+  const loading = items === null && !loadFailed;
 
   return (
     <section>
       <h2>{props.title}</h2>
       <p className="muted">{props.hint}</p>
-      <label className="button">
+      <label className={ready ? "button" : "button busy"}>
         {sending
           ? `${kind === "photos" ? "Uploading and checking" : "Uploading"} ${sending}…`
-          : `Add ${props.title.toLowerCase()}`}
+          : loading
+            ? "Loading…"
+            : `Add ${props.title.toLowerCase()}`}
         <input
           type="file"
           multiple
@@ -169,6 +196,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
         </p>
       ))}
       {loadFailed && <p className="error">Could not load the list. Reload the page to try again.</p>}
+      {loading && <p className="muted busy">Loading your {props.title.toLowerCase()}…</p>}
       {items?.length === 0 && <p className="muted">None yet.</p>}
       <ul className={kind}>
         {items?.map((item) => (
@@ -184,7 +212,9 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
               {item.name}
               {item.seconds !== null && ` (${minutes(item.seconds)})`}
             </span>
-            {kind === "photos" && <FaceChecks problems={item.problems} />}
+            {kind === "photos" && (
+              <FaceChecks problems={item.problems} queue={toCheck.indexOf(item.id)} />
+            )}
             <button type="button" className="remove" onClick={() => remove(item)}>
               Remove
             </button>
@@ -196,7 +226,10 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
 }
 
 // Under each photo (roadmap R8): what to fix, or that it passed the face checks.
-function FaceChecks({ problems }: { problems: string[] | null }) {
+// queue: 0 while this photo is being checked, above 0 while it waits its turn, -1 otherwise.
+function FaceChecks({ problems, queue }: { problems: string[] | null; queue: number }) {
+  if (queue === 0) return <span className="muted check busy">Checking face…</span>;
+  if (queue > 0) return <span className="muted check">Waiting to check</span>;
   if (problems == null) return <span className="muted check">Not checked</span>;
   if (problems.length === 0) return <span className="done check">Looks good</span>;
   return (

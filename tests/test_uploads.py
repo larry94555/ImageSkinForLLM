@@ -4,6 +4,7 @@ import logging
 import shutil
 import subprocess
 import wave
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -339,12 +340,25 @@ def test_a_photo_that_cannot_be_checked_is_kept_unchecked(
     assert failed and failed[0].error == "models missing"  # type: ignore[attr-defined]
 
 
-def test_photos_stored_before_checks_are_checked_when_listed(tmp_path: Path) -> None:
+def test_photos_stored_before_checks_are_checked_on_request(tmp_path: Path) -> None:
     old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
     assert old.problems is None
 
+    store = UploadStore(tmp_path, check_photo=lambda p: pytest.fail("listing must not check"))
+    assert [u.problems for u in store.list("photos")] == [None]
+
+    store.check_photo = lambda p: ["Your face is too small."]
+    assert store.check(old.id) == replace(old, problems=["Your face is too small."])
+    assert [u.problems for u in store.list("photos")] == [["Your face is too small."]]
+
+
+def test_checking_needs_a_stored_photo(tmp_path: Path) -> None:
     store = UploadStore(tmp_path, check_photo=lambda p: [])
-    assert [u.problems for u in store.list("photos")] == [[]]
-    # Saved, so the next list doesn't check again.
-    again = UploadStore(tmp_path, check_photo=lambda p: pytest.fail("checked twice"))
-    assert [u.problems for u in again.list("photos")] == [[]]
+    assert store.check("f" * 32) is None
+    assert store.check("not-an-id") is None
+
+
+def test_a_check_that_fails_keeps_the_photo_unchecked(tmp_path: Path) -> None:
+    old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
+    assert UploadStore(tmp_path).check(old.id) == old  # checks are off
+    assert [u.problems for u in UploadStore(tmp_path).list("photos")] == [None]

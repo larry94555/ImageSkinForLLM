@@ -100,6 +100,7 @@ Behind the screen, the server stores uploaded photos (JPG, PNG, HEIC) and record
 | `GET /api/uploads/photos` or `/sounds` | List the uploads |
 | `GET /api/uploads/photos/{id}` | Download one (also `/sounds/{id}`) |
 | `DELETE /api/uploads/photos/{id}` | Remove one (also `/sounds/{id}`) |
+| `POST /api/uploads/photos/{id}/check` | Run the face checks on a stored photo |
 
 Try them on the API docs page at http://127.0.0.1:8000/docs while `imageskin serve` is running.
 
@@ -122,7 +123,7 @@ The limits are at the top of `src/imageskin/face_checks.py`. The checks need Med
 pip install -e ".[faces]"
 ```
 
-On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Without MediaPipe the server logs `Face checks are off` at startup and photos show **Not checked**. Photos uploaded before the checks were on are checked the next time the list is opened. Each check takes about half a second and is logged as `Face checks done` with what it measured.
+On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Without MediaPipe the server logs `Face checks are off` at startup and photos show **Not checked**. The server downloads and loads the models when it starts (`Face checks ready` in the log), so the first photo isn't held up. Photos uploaded before the checks were on show **Waiting to check**, then **Checking face…**, and are checked one at a time after the page shows, through `POST /api/uploads/photos/{id}/check`. Each check takes about a second and is logged as `Face checks done` with what it measured.
 
 ## Making a voice sample
 

@@ -78,7 +78,22 @@ h2 { margin: 32px 0 4px; font-size: 1.15rem; }
 input.file { position: absolute; opacity: 0; width: 1px; height: 1px; }
 label.button { position: relative; }
 label.button:focus-within { outline: 2px solid var(--fg); outline-offset: 2px; }
-label.button:has(input:disabled) { opacity: 0.45; cursor: wait; }
+label.button:has(input:disabled) { opacity: 0.8; cursor: progress; }
+/* A small spinning ring before the text of anything still working. */
+.busy::before {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 8px;
+  vertical-align: -0.12em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .busy::before { animation-duration: 2.4s; } }
 ul.photos, ul.sounds { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 12px; }
 ul.photos { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 ul.photos li { align-content: start; }
