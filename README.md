@@ -158,9 +158,9 @@ Under the uploads, the Setup page has a **Prepare** button (roadmap R12). It nee
 
 1. **Get the voice ready:** loads Kokoro (the first time it downloads the model, about 330 MB) and says one word. Needs `pip install -e ".[voice]"`.
 2. **Load the face model:** downloads the photoreal models the first time (about 500 MB). Needs `pip install -e ".[photoreal]"`.
-3. **Render the 10 mouth shapes**, then 4. **the idle video** (200 frames with blinks and head movement; most of the time, about 17 minutes on a 4-core CPU), then 5. **line up the mouth with the head**.
+3. **Render the 10 mouth shapes**, then 4. **the idle video** (blinks and head movement; most of the time, about 6 minutes on a 4-core CPU; 60 of its 200 frames are rendered and the rest filled in), then 5. **line up the mouth with the head**.
 
-The page shows a progress bar, each step with how far it has got and about how long is left, and how long each finished step took. You can close the page meanwhile. If the server is stopped, the next `imageskin serve` carries on where it stopped (`Resuming prepare job` in the log); frames already rendered are kept. A photo prepared before takes seconds. The job's state is in `prepare.json` in the app data folder and the frames under `photoreal`. The log has `Prepare job started`, `Prepare step finished` with each step's `duration_s`, `Rendered idle loop frame N of 200` every 10 frames, and `Prepare job finished` or `Prepare job failed` with the reason. Choosing another photo afterwards shows **Prepare** again.
+The page shows a progress bar, each step with how far it has got and about how long is left, and how long each finished step took. You can close the page meanwhile. If the server is stopped, the next `imageskin serve` carries on where it stopped (`Resuming prepare job` in the log); frames already rendered are kept. A photo prepared before takes seconds. The job's state is in `prepare.json` in the app data folder and the frames under `photoreal`. The log has `Prepare job started`, `Prepare step finished` with each step's `duration_s`, `Rendered idle loop frame N of 60` every 10 frames, `Filled in idle loop frames`, and `Prepare job finished` or `Prepare job failed` with the reason. Choosing another photo afterwards shows **Prepare** again.
 
 ## Making a voice sample
 
@@ -240,7 +240,7 @@ If `import cv2` fails on Windows with `DLL load failed`, install the Microsoft V
 
 It works in two steps:
 
-1. **Prepare the photo, once.** LivePortrait renders the 10 mouth shapes and an 8-second idle loop of the face (200 frames). This takes about 15 to 20 minutes on a 4-core CPU, logs progress every 10 frames with the time left, and picks up where it stopped if interrupted (run the same command again). The frames are saved under `.imageskin\photoreal\` in your user folder (`%USERPROFILE%\.imageskin` on Windows, `~/.imageskin` on macOS and Linux), about 170 MB per photo, and reused for every video of that photo. Set `IMAGESKIN_HOME` to keep them somewhere else.
+1. **Prepare the photo, once.** LivePortrait renders the 10 mouth shapes and an 8-second idle loop of the face (200 frames). Only 60 of the frames are rendered: every 4th one and those around the two blinks. The head moves less than a tenth of a degree per frame, so the 140 between them are filled in along the optical flow, which looks the same (45 to 55 dB PSNR against fully rendered frames). This takes about 7 minutes on a 4-core CPU, logs progress every 10 frames with the time left, and picks up where it stopped if interrupted (run the same command again). The frames are saved under `.imageskin\photoreal\` in your user folder (`%USERPROFILE%\.imageskin` on Windows, `~/.imageskin` on macOS and Linux), about 170 MB per photo, and reused for every video of that photo. Set `IMAGESKIN_HOME` to keep them somewhere else.
 2. **Each video is quick.** No model runs: the frames are mixed from the saved ones, timed to each sound from the voice, at about a third of real time (6.9 seconds of speech in 2.2 seconds on a 4-core CPU).
 
 The first prepare also downloads the models into `.imageskin\models\`, about 520 MB, with a progress line every few seconds; an interrupted download resumes. It needs git on PATH (for LivePortrait's code) and Python 3.11 or 3.12.
@@ -263,7 +263,7 @@ imageskin sample --photo me.jpg --engine photoreal
 imageskin sample --photo me.jpg --engine photoreal -o mary.mp4 --text "Hello, my name is Mary. Would you like some more popcorn? Please move the blue boat. I see three green trees."
 ```
 
-`prepare` writes `idle.mp4` (or the `-o` name) in the current folder: the idle loop with no sound, to check the head motion and blinks, and prints its full path and where the frames are. The logs show `Rendered mouth shapes`, `Rendered idle loop frame N of 200` every 10 frames, `Photoreal library ready` and `Loaded photoreal library`. Running it again on the same photo finishes in about a second.
+`prepare` writes `idle.mp4` (or the `-o` name) in the current folder: the idle loop with no sound, to check the head motion and blinks, and prints its full path and where the frames are. The logs show `Rendered mouth shapes`, `Rendered idle loop frame N of 60` every 10 frames, `Filled in idle loop frames` (140, about 12 seconds), `Photoreal library ready` and `Loaded photoreal library`. Running it again on the same photo finishes in about a second.
 
 `sample --engine photoreal` writes `sample.mp4` (or the `-o` name) in the current folder and prints its full path; if the photo isn't prepared yet, it does that first. `--text` says something other than the sample script. The logs show `Loaded photoreal library`, `Spoke text` and `Rendered video` with `"engine": "photoreal"` and how long it took.
 

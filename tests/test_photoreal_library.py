@@ -11,6 +11,8 @@ from imageskin.photoreal_library import (
     Paster,
     align_loop,
     build_library,
+    in_between,
+    key_frames,
     library_key,
     load_library,
     mouth_mask,
@@ -50,19 +52,19 @@ def test_align_loop_finds_the_head_shift() -> None:
 
 def test_build_load_and_resume(tmp_path: Path, short_loop: object) -> None:
     folder = tmp_path / "lib"
-    first = FakePortrait(fail_after=len(SHAPES) + 4)
+    first = FakePortrait(fail_after=len(SHAPES) + 2)
     with pytest.raises(KeyboardInterrupt):
         build_library(tmp_path / "me.png", folder, lambda _: first)
-    assert len(list((folder / "loop").glob("*.npy"))) == 4
+    assert sorted(p.name for p in (folder / "loop").glob("*.npy")) == ["0000.npy", "0004.npy"]
     assert not (folder / "library.json").exists()
 
     second = FakePortrait()
     steps: list[tuple[str, int, int]] = []
     build_library(tmp_path / "me.png", folder, lambda _: second, lambda *s: steps.append(s))
-    assert second.renders == 10 - 4  # shapes and the first frames are kept
+    assert second.renders == 1  # shapes and the first frames are kept; only frame 8 is left
     # Progress starts from the frames already there and ends with every step complete.
     assert steps[:3] == [("models", 0, 1), ("models", 1, 1), ("shapes", 10, 10)]
-    assert ("loop", 4, 10) in steps and ("loop", 10, 10) in steps
+    assert ("loop", 2, 3) in steps and ("loop", 3, 3) in steps  # frames 0, 4 and 8
     assert steps[-1] == ("align", 1, 1)
     lib = load_library(folder)
     assert len(lib.loop) == 10 and set(lib.shapes) == set(SHAPES)
@@ -118,3 +120,22 @@ def test_new_mouth_settings_rerender_only_the_shapes(tmp_path: Path, short_loop:
         third = FakePortrait()
         prepare_library(photo, tmp_path, lambda _: third)
     assert third.renders == 0
+
+
+def test_key_frames_are_every_fourth_and_each_blink() -> None:
+    keys = key_frames(200)  # 8 s at 25 fps, blinks at 2.0 s and 5.6 s
+    assert len(keys) == 60
+    assert keys[:4] == [0, 4, 8, 12]
+    assert set(range(48, 55)) <= set(keys)  # the first blink, frames 49 to 53, and either side
+    assert 46 not in keys and 55 not in keys
+
+
+def test_in_between_follows_the_motion() -> None:
+    a = texture()
+    b = np.roll(a, 8, axis=1)  # the face moved 8 px to the right
+    half = in_between(a, b, 0.5)
+    truth = np.roll(a, 4, axis=1)
+    inner = (slice(64, -64), slice(64, -64))
+    assert np.abs(half[inner].astype(int) - truth[inner].astype(int)).mean() < 6
+    cross_fade = (a.astype(int) + b.astype(int)) // 2
+    assert np.abs(cross_fade[inner] - truth[inner].astype(int)).mean() > 12
