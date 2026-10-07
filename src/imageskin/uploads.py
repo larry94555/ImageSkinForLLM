@@ -269,9 +269,12 @@ class UploadStore:
         if not folder.is_dir():
             return []
         uploads = [u for p in folder.glob("*.json") if (u := self._read(p)) is not None]
-        # Results from older checks count as not checked, so they are redone.
-        uploads = [u if u.checks == FACE_CHECKS else replace(u, problems=None) for u in uploads]
-        return sorted(uploads, key=lambda u: u.uploaded_at)
+        return sorted(map(self._current, uploads), key=lambda u: u.uploaded_at)
+
+    @staticmethod
+    def _current(upload: Upload) -> Upload:
+        """Results from older face checks count as not checked, so they are redone."""
+        return upload if upload.checks == FACE_CHECKS else replace(upload, problems=None)
 
     def check(self, upload_id: str) -> Upload | None:
         """Run the face checks on a stored photo, such as one uploaded before they were on, and
@@ -282,8 +285,11 @@ class UploadStore:
             return None
         checked = self._with_checks(upload, stored)
         if checked.problems is None or not stored.exists():  # removed while it was being checked
-            return upload
+            return self._current(upload)
         self._write_info(stored, checked)
+        if not stored.exists():
+            # Removed between the test above and the write: drop the info file written back.
+            stored.with_suffix(".json").unlink(missing_ok=True)
         return checked
 
     def _with_checks(self, upload: Upload, stored: Path) -> Upload:

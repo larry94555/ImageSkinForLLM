@@ -22,6 +22,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from imageskin.download import DownloadError, download
+from imageskin.liveportrait import FACE_MODEL_SHA256, FACE_MODEL_SIZE, FACE_MODEL_URL, MAX_SIDE
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +37,9 @@ COVERED = (
     " away from your face."
 )
 
-# The photoreal engine first shrinks a photo so its longest side is this (liveportrait.MAX_SIDE),
-# then cuts a 512 x 512 square around the face about 2.3 times the face's height. The face is
+# The photoreal engine first shrinks a photo so its longest side is liveportrait.MAX_SIDE, then
+# cuts a 512 x 512 square around the face about 2.3 times the face's height. The face is
 # measured at that size, from mid-forehead to chin as MediaPipe's face points place them.
-VIDEO_MAX_SIDE = 1280
 # Below this the 512 px square is blown up from a smaller area and the video looks soft. A face
 # filling about a third of the height of a 1080p webcam photo measures about 200.
 MIN_FACE_PX = 180
@@ -51,12 +51,6 @@ LEVEL_PITCH_DEG = 10.0
 # Share of the face below the eyebrows that may be hidden by something other than hair.
 MAX_COVERED = 0.12
 
-FACE_MODEL_URL = (
-    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
-    "face_landmarker/float16/1/face_landmarker.task"
-)
-FACE_MODEL_SIZE = 3758596
-FACE_MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
 SEGMENT_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/image_segmenter/"
     "selfie_multiclass_256x256/float32/1/selfie_multiclass_256x256.tflite"
@@ -85,7 +79,7 @@ class FaceMeasure:
     """What the checks look at, for the first face found."""
 
     faces: int
-    height_px: float = 0.0  # mid-forehead to chin, at the video engine's size (VIDEO_MAX_SIDE)
+    height_px: float = 0.0  # mid-forehead to chin, at the video engine's size (MAX_SIDE)
     yaw_deg: float = 0.0  # turned left or right
     pitch_deg: float = 0.0  # tilted up or down, from level
     covered: float = 0.0  # share of the face hidden, 0 to 1
@@ -223,7 +217,7 @@ class FaceChecker:
         return FaceMeasure(
             faces=1,
             height_px=float(points[:, 1].max() - points[:, 1].min())
-            * min(1.0, VIDEO_MAX_SIDE / max(h, w)),
+            * min(1.0, MAX_SIDE / max(h, w)),
             yaw_deg=yaw,
             pitch_deg=pitch,
             covered=covered_share(categories, points),

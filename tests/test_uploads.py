@@ -374,3 +374,31 @@ def test_a_check_that_fails_keeps_the_photo_unchecked(tmp_path: Path) -> None:
     old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
     assert UploadStore(tmp_path).check(old.id) == old  # checks are off
     assert [u.problems for u in UploadStore(tmp_path).list("photos")] == [None]
+
+
+def test_old_results_stay_hidden_when_the_recheck_cannot_run(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: ["Your face is too small."])
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
+
+    def broken(p: Path) -> list[str]:
+        raise RuntimeError("models missing")
+
+    with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
+        assert UploadStore(tmp_path).check(photo.id).problems is None  # type: ignore[union-attr]
+        store.check_photo = broken
+        assert store.check(photo.id).problems is None  # type: ignore[union-attr]
+
+
+def test_a_photo_removed_while_its_result_is_saved_leaves_no_info_file(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: [])
+    photo = UploadStore(tmp_path).save("photos", "me.jpg", io.BytesIO(JPG))
+    write_info = UploadStore._write_info
+
+    def remove_then_write(stored: Path, upload: uploads.Upload) -> None:
+        assert store.remove("photos", photo.id)  # DELETE lands just before the write
+        write_info(stored, upload)
+
+    with patch.object(UploadStore, "_write_info", staticmethod(remove_then_write)):
+        store.check(photo.id)
+    assert store.list("photos") == []
+    assert list((tmp_path / "uploads" / "photos").iterdir()) == []

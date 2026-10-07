@@ -28,6 +28,7 @@ from imageskin.face_checks import (
     problems,
     read_rgb,
 )
+from imageskin.liveportrait import MAX_SIDE
 
 GOOD = FaceMeasure(faces=1, height_px=600, yaw_deg=5, pitch_deg=-3, covered=0.02)
 
@@ -283,14 +284,8 @@ def test_prepare_downloads_the_models_and_logs_a_failure_once(
     assert "Face checks are off until restart" in caplog.text
 
 
-def test_face_size_is_measured_at_the_video_engines_size() -> None:
-    from imageskin.liveportrait import MAX_SIDE
-
-    assert face_checks.VIDEO_MAX_SIDE == MAX_SIDE
-
-
 def test_a_big_photo_is_measured_as_the_engine_will_shrink_it(tmp_path: Path) -> None:
-    # face_points fills about 90% of the height: 2560 px here, 1280 px after shrinking to 1280.
+    # face_points fills 90% of the height; the engine shrinks the photo to MAX_SIDE first.
     with patch.dict(sys.modules, fake_mediapipe()):
-        measure = checker(tmp_path).measure(photo(tmp_path, 2560))
-    assert measure.height_px == pytest.approx(1280 * 0.9, rel=0.02)
+        measure = checker(tmp_path).measure(photo(tmp_path, 2 * MAX_SIDE))
+    assert measure.height_px == pytest.approx(MAX_SIDE * 0.9, rel=0.02)
