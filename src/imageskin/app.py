@@ -1,5 +1,6 @@
 """FastAPI application: the JSON API under /api and the browser app at /."""
 
+import importlib.util
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -15,7 +16,7 @@ from pydantic import BaseModel
 from imageskin import __version__
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
-from imageskin.uploads import MEDIA_TYPE, Kind, Upload, UploadError, UploadStore
+from imageskin.uploads import MEDIA_TYPE, Kind, PhotoCheck, Upload, UploadError, UploadStore
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,20 @@ class ConsentRequest(BaseModel):
     agreed: bool
 
 
-def create_app(home: Path | None = None) -> FastAPI:
+def face_checker(home: Path) -> PhotoCheck | None:
+    """The face checks when MediaPipe is installed; photos are then checked as they arrive."""
+    if importlib.util.find_spec("mediapipe") is None:
+        logger.warning(
+            'Face checks are off: MediaPipe is not installed. Run: pip install -e ".[faces]"'
+        )
+        return None
+    from imageskin.face_checks import FaceChecker
+
+    logger.info("Face checks are on")
+    return FaceChecker(home / "models" / "faces").check
+
+
+def create_app(home: Path | None = None, check_photo: PhotoCheck | None = None) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
     # The built browser files are committed unminified so they stay readable; compressing
@@ -81,7 +95,7 @@ def create_app(home: Path | None = None) -> FastAPI:
                 " (/#/consent), tick the box, then try again.",
             )
 
-    store = UploadStore(data_home)
+    store = UploadStore(data_home, check_photo or face_checker(data_home))
     uploads_api = "/api/uploads/{kind}"
     needs_consent = [Depends(require_consent)]
 

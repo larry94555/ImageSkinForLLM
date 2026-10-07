@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from imageskin import __version__
-from imageskin.app import STATIC_DIR, create_app
+from imageskin.app import STATIC_DIR, create_app, face_checker
 
 
 def test_health_returns_ok_and_version() -> None:
@@ -84,8 +84,12 @@ def test_preact_license_ships_with_the_app() -> None:
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
 
 
+def no_problems(photo: Path) -> list[str]:
+    return []
+
+
 def consented_client(home: Path) -> TestClient:
-    client = TestClient(create_app(home))
+    client = TestClient(create_app(home, check_photo=no_problems))
     client.post("/api/consent", json={"agreed": True})
     return client
 
@@ -105,6 +109,7 @@ def test_photo_can_be_uploaded_listed_fetched_and_removed(tmp_path: Path) -> Non
     assert sent.status_code == 200
     upload = sent.json()
     assert upload["name"] == "me.jpg" and upload["format"] == "jpg"
+    assert upload["problems"] == []
 
     assert client.get("/api/uploads/photos").json() == [upload]
     fetched = client.get(f"/api/uploads/photos/{upload['id']}")
@@ -128,3 +133,17 @@ def test_upload_errors_are_plain_messages(tmp_path: Path) -> None:
 def test_unknown_upload_kind_is_rejected(tmp_path: Path) -> None:
     client = consented_client(tmp_path)
     assert client.get("/api/uploads/videos").status_code == 422
+
+
+def test_face_checks_are_off_without_mediapipe(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with patch("importlib.util.find_spec", return_value=None), caplog.at_level(logging.WARNING):
+        assert face_checker(tmp_path) is None
+    assert "Face checks are off" in caplog.text
+
+
+def test_face_checks_are_on_with_mediapipe(tmp_path: Path) -> None:
+    with patch("importlib.util.find_spec", return_value=object()):
+        check = face_checker(tmp_path)
+    assert check is not None

@@ -36,6 +36,8 @@ export interface Upload {
   size: number;
   uploaded_at: string;
   seconds: number | null;
+  // Photos only: what the face checks found ([] when it passed), or null when not checked.
+  problems: string[] | null;
 }
 
 // The server's explanation for a refused request, meant for the person using the app.

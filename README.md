@@ -105,6 +105,25 @@ Try them on the API docs page at http://127.0.0.1:8000/docs while `imageskin ser
 
 HEIC photos (from iPhones) need an optional extra: `pip install -e ".[heic]"`. It is optional because pillow-heif's wheels include libheif and libde265 (LGPL-3) and x265 (GPL-2); the app only uses them to read HEIC files.
 
+### Face checks
+
+Each uploaded photo is checked as it arrives, and the upload screen shows **Looks good** or what to fix under it. The four checks, each with a fixed message:
+
+| Check | Fails when | Message |
+|---|---|---|
+| One face | no face, or more than one | "No face was found. …" / "More than one face was found. …" |
+| Large enough | the face, mid-forehead to chin, is under 400 px (about 500 px to the hairline) | "Your face is too small. …" |
+| Facing the camera | the head is turned or tilted more than 25° | "Your face is turned away. …" |
+| Nothing covering it | over 12% of the face below the eyebrows is hidden by hands, a mask, sunglasses or other things (hair and beards are fine) | "Something is covering your face. …" |
+
+The limits are at the top of `src/imageskin/face_checks.py`. The checks need MediaPipe (Apache 2.0), installed with the faces extra (the photoreal extra includes it too). It needs Python 3.11 or 3.12. On first use the server downloads two models, about 20 MB, into `models/faces` in the app data folder.
+
+```
+pip install -e ".[faces]"
+```
+
+On a Linux server, MediaPipe also needs `sudo apt install libegl1 libgles2`. Without MediaPipe the server logs `Face checks are off` at startup and photos show **Not checked**. Photos uploaded before the checks were on are checked the next time the list is opened. Each check takes about half a second and is logged as `Face checks done` with what it measured.
+
 ## Making a voice sample
 
 Join the recordings from the recording guide (M4A, MP3 or WAV) into one WAV file, in the order given. Each recording is converted to 24 kHz mono WAV; `--timeout` sets how many seconds each conversion may take (default 60).

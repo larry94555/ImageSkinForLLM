@@ -151,7 +151,9 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
       <h2>{props.title}</h2>
       <p className="muted">{props.hint}</p>
       <label className="button">
-        {sending ? `Uploading ${sending}…` : `Add ${props.title.toLowerCase()}`}
+        {sending
+          ? `${kind === "photos" ? "Uploading and checking" : "Uploading"} ${sending}…`
+          : `Add ${props.title.toLowerCase()}`}
         <input
           type="file"
           multiple
@@ -182,6 +184,7 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
               {item.name}
               {item.seconds !== null && ` (${minutes(item.seconds)})`}
             </span>
+            {kind === "photos" && <FaceChecks problems={item.problems} />}
             <button type="button" className="remove" onClick={() => remove(item)}>
               Remove
             </button>
@@ -189,6 +192,21 @@ function UploadSection(props: { kind: Kind; title: string; hint: string; accept:
         ))}
       </ul>
     </section>
+  );
+}
+
+// Under each photo (roadmap R8): what to fix, or that it passed the face checks.
+function FaceChecks({ problems }: { problems: string[] | null }) {
+  if (problems == null) return <span className="muted check">Not checked</span>;
+  if (problems.length === 0) return <span className="done check">Looks good</span>;
+  return (
+    <ul className="problems">
+      {problems.map((p) => (
+        <li key={p} className="error">
+          {p}
+        </li>
+      ))}
+    </ul>
   );
 }
 

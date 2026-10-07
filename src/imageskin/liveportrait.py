@@ -17,6 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from imageskin.download import MB, DownloadError, download
+from imageskin.face_checks import FACE_MODEL_SHA256, FACE_MODEL_SIZE, FACE_MODEL_URL
 from imageskin.liveportrait_edits import (
     BLINK_CLOSED,
     MP_TO_68,
@@ -60,12 +61,6 @@ HF_FILES = [
         "3652d5a3f95099141a56986aaddec92fadf0a73c87a20fac9a2c07c32b28b611",
     ),
 ]
-FACE_MODEL_URL = (
-    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
-    "face_landmarker/float16/1/face_landmarker.task"
-)
-FACE_MODEL_SIZE = 3758596
-FACE_MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
 GIT_STALL_SECONDS = 60  # git gives up when the transfer stays under 1 KB/s this long
 MAX_SIDE = 1280  # longest side of the video, in pixels
 INSTALL_HINT = 'the photoreal engine is not installed; run: pip install -e ".[photoreal]"'

@@ -107,6 +107,7 @@ const PHOTO: Upload = {
   size: 1000,
   uploaded_at: "2026-10-07T00:00:00+00:00",
   seconds: null,
+  problems: [],
 };
 const SOUND: Upload = {
   ...PHOTO,
@@ -115,6 +116,7 @@ const SOUND: Upload = {
   name: "voice1.m4a",
   format: "m4a",
   seconds: 95.4,
+  problems: null,
 };
 
 // A fake server with consent given and these uploads stored. POSTs answer with `posted` in turn.
@@ -145,6 +147,27 @@ test("setup lists stored photos and recordings so they can be viewed and played"
   const audio = document.querySelector("audio") as HTMLAudioElement;
   expect(audio.getAttribute("src")).toBe(`/api/uploads/sounds/${SOUND.id}`);
   expect(audio.controls).toBe(true);
+});
+
+test("each photo shows what the face checks found", async () => {
+  const small =
+    "Your face is too small. Move closer to the camera, or crop the photo around your face.";
+  const turned = "Your face is turned away. Look straight at the camera.";
+  uploadServer([
+    PHOTO,
+    { ...PHOTO, id: "c".repeat(32), name: "side.jpg", problems: [small, turned] },
+    { ...PHOTO, id: "d".repeat(32), name: "old.jpg", problems: null },
+    SOUND,
+  ]);
+  await openAt("#/setup");
+  expect(await screen.findByText("Looks good")).toBeTruthy();
+  const side = (await screen.findByAltText("side.jpg")).closest("li") as HTMLElement;
+  const shown = Array.from(side.querySelectorAll("li.error")).map((li) => li.textContent);
+  expect(shown).toEqual([small, turned]);
+  expect(screen.getByText("Not checked")).toBeTruthy();
+  // Recordings aren't face-checked.
+  const sound = (await screen.findByText("voice1.m4a (1:35)")).closest("li") as HTMLElement;
+  expect(sound.textContent).not.toContain("checked");
 });
 
 test("with nothing uploaded each section says so", async () => {

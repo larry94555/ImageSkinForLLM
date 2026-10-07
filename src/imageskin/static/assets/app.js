@@ -178,7 +178,7 @@ function UploadSection(props) {
 		}),
 		/* @__PURE__ */ u("label", {
 			className: "button",
-			children: [sending ? `Uploading ${sending}…` : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
+			children: [sending ? `${kind === "photos" ? "Uploading and checking" : "Uploading"} ${sending}…` : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
 				type: "file",
 				multiple: true,
 				accept: props.accept,
@@ -223,6 +223,7 @@ function UploadSection(props) {
 					className: "name",
 					children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
 				}),
+				kind === "photos" && /* @__PURE__ */ u(FaceChecks, { problems: item.problems }),
 				/* @__PURE__ */ u("button", {
 					type: "button",
 					className: "remove",
@@ -232,6 +233,23 @@ function UploadSection(props) {
 			] }, item.id))
 		})
 	] });
+}
+function FaceChecks({ problems }) {
+	if (problems == null) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Not checked"
+	});
+	if (problems.length === 0) return /* @__PURE__ */ u("span", {
+		className: "done check",
+		children: "Looks good"
+	});
+	return /* @__PURE__ */ u("ul", {
+		className: "problems",
+		children: problems.map((p) => /* @__PURE__ */ u("li", {
+			className: "error",
+			children: p
+		}, p))
+	});
 }
 function minutes(seconds) {
 	const whole = Math.round(seconds);

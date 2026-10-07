@@ -2,7 +2,8 @@
 
 The type is read from the file's first bytes, never from its name. Each file is stored under a
 generated id: photos as JPG or PNG (HEIC is converted to JPG), sounds as 24 kHz mono WAV via
-audio.to_wav. A small JSON file next to each one keeps the name it was uploaded with, for display.
+audio.to_wav. A small JSON file next to each one keeps the name it was uploaded with, for display,
+and for photos the problems the face checks found (roadmap R8).
 """
 
 import importlib.util
@@ -14,7 +15,8 @@ import sys
 import time
 import uuid
 import wave
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, Literal
@@ -59,6 +61,8 @@ class Upload:
     size: int  # bytes as stored
     uploaded_at: str  # ISO 8601, UTC
     seconds: float | None = None  # sounds only
+    # Photos only: what the face checks found ([] when it passed), or None when not checked.
+    problems: list[str] | None = None
 
 
 def detect_format(head: bytes) -> str | None:
@@ -103,11 +107,19 @@ def convert_heic(src: Path, dst: Path, timeout_s: float = CONVERT_TIMEOUT_S) -> 
         raise UploadError("The HEIC photo could not be read. Try saving it as JPG.")
 
 
-class UploadStore:
-    """Uploads kept in <home>/uploads/photos and <home>/uploads/sounds."""
+PhotoCheck = Callable[[Path], list[str]]
 
-    def __init__(self, home: Path) -> None:
+
+class UploadStore:
+    """Uploads kept in <home>/uploads/photos and <home>/uploads/sounds.
+
+    check_photo, when given, returns the problems found in a stored photo; photos are checked
+    as they arrive, and photos stored before checks were available are checked when listed.
+    """
+
+    def __init__(self, home: Path, check_photo: PhotoCheck | None = None) -> None:
         self.root = home / "uploads"
+        self.check_photo = check_photo
 
     def _dir(self, kind: Kind) -> Path:
         return self.root / kind
@@ -183,8 +195,9 @@ class UploadStore:
                     uploaded_at=datetime.now(UTC).isoformat(timespec="seconds"),
                     seconds=seconds,
                 )
-                info = final.with_suffix(".json")
-                info.write_text(json.dumps(asdict(upload)), encoding="utf-8")
+                if kind == "photos":
+                    upload = replace(upload, problems=self._check(final))
+                self._write_info(final, upload)
             except BaseException:
                 # Without its info file the upload could not be listed or removed.
                 final.unlink(missing_ok=True)
@@ -231,13 +244,42 @@ class UploadStore:
         wav_out.replace(dst)
         return round(seconds, 2)
 
+    def _check(self, photo: Path) -> list[str] | None:
+        """The face checks' problems, or None when they are off or could not run."""
+        if self.check_photo is None:
+            return None
+        try:
+            return self.check_photo(photo)
+        except Exception as e:
+            # A photo that can't be checked is still kept; it shows as not checked.
+            logger.error("Face checks failed", extra={"photo": photo.name, "error": str(e)})
+            return None
+
+    @staticmethod
+    def _write_info(stored: Path, upload: Upload) -> None:
+        stored.with_suffix(".json").write_text(json.dumps(asdict(upload)), encoding="utf-8")
+
     def list(self, kind: Kind) -> list[Upload]:
         """Stored uploads of one kind, oldest first."""
         folder = self._dir(kind)
         if not folder.is_dir():
             return []
         uploads = [u for p in folder.glob("*.json") if (u := self._read(p)) is not None]
+        if kind == "photos" and self.check_photo is not None:
+            uploads = [self._checked(u) for u in uploads]
         return sorted(uploads, key=lambda u: u.uploaded_at)
+
+    def _checked(self, upload: Upload) -> Upload:
+        """A photo stored before it could be checked, checked now and saved."""
+        stored = self.path(upload.kind, upload.id)
+        if upload.problems is not None or stored is None:
+            return upload
+        problems = self._check(stored)
+        if problems is None or not stored.exists():  # removed while it was being checked
+            return upload
+        upload = replace(upload, problems=problems)
+        self._write_info(stored, upload)
+        return upload
 
     def _read(self, info: Path) -> Upload | None:
         try:

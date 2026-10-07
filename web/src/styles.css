@@ -81,6 +81,7 @@ label.button:focus-within { outline: 2px solid var(--fg); outline-offset: 2px; }
 label.button:has(input:disabled) { opacity: 0.45; cursor: wait; }
 ul.photos, ul.sounds { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 12px; }
 ul.photos { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+ul.photos li { align-content: start; }
 ul li {
   display: grid;
   gap: 6px;
@@ -93,6 +94,9 @@ ul.photos img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radi
 ul.sounds li { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 ul.sounds audio { grid-column: 1 / -1; width: 100%; }
 .name { overflow-wrap: anywhere; font-size: 0.875rem; }
+.check { font-size: 0.875rem; }
+ul.problems { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+ul.problems li { display: block; padding: 0; border: 0; background: none; font-size: 0.875rem; }
 button.remove {
   justify-self: start;
   padding: 2px 10px;

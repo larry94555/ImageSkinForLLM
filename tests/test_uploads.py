@@ -301,3 +301,50 @@ def test_heic_command_converts_and_reports_errors(
     assert dst.read_bytes().startswith(b"\xff\xd8\xff")
     assert heic.main([str(tmp_path / "missing.heic"), str(dst)]) == 1
     assert "Error" in capsys.readouterr().err
+
+
+def test_photos_are_checked_as_they_arrive(tmp_path: Path) -> None:
+    checked: list[Path] = []
+
+    def check(photo: Path) -> list[str]:
+        checked.append(photo)
+        return ["Your face is too small."]
+
+    store = UploadStore(tmp_path, check_photo=check)
+    upload = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    assert upload.problems == ["Your face is too small."]
+    assert checked == [store.path("photos", upload.id)]
+    assert store.list("photos") == [upload]
+    assert len(checked) == 1  # the stored result is used, not checked again
+
+
+@needs_ffmpeg
+def test_sounds_are_not_face_checked(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: pytest.fail("checked a sound"))
+    assert store.save("sounds", "a.wav", io.BytesIO(wav_bytes())).problems is None
+
+
+def test_a_photo_that_cannot_be_checked_is_kept_unchecked(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(photo: Path) -> list[str]:
+        raise RuntimeError("models missing")
+
+    store = UploadStore(tmp_path, check_photo=broken)
+    with caplog.at_level(logging.ERROR):
+        upload = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    assert upload.problems is None
+    assert store.list("photos") == [upload]
+    failed = [r for r in caplog.records if r.message == "Face checks failed"]
+    assert failed and failed[0].error == "models missing"  # type: ignore[attr-defined]
+
+
+def test_photos_stored_before_checks_are_checked_when_listed(tmp_path: Path) -> None:
+    old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
+    assert old.problems is None
+
+    store = UploadStore(tmp_path, check_photo=lambda p: [])
+    assert [u.problems for u in store.list("photos")] == [[]]
+    # Saved, so the next list doesn't check again.
+    again = UploadStore(tmp_path, check_photo=lambda p: pytest.fail("checked twice"))
+    assert [u.problems for u in again.list("photos")] == [[]]

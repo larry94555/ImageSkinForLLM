@@ -38,6 +38,12 @@ photoreal = [
     "pyyaml>=6",
     "rich>=13",
 ]
+# Face checks on uploaded photos (MediaPipe, Apache 2.0; it also installs OpenCV). Python 3.11
+# or 3.12. The models (about 20 MB) are downloaded on first use.
+faces = [
+    "numpy>=1.24",
+    "mediapipe>=0.10.14",
+]
 # HEIC photos from iPhones. pillow-heif's wheels bundle libheif and libde265 (LGPL-3) and x265
 # (GPL-2), so it is optional; only decoding is used.
 heic = [
