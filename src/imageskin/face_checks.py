@@ -36,9 +36,13 @@ COVERED = (
     " away from your face."
 )
 
-# Face height from mid-forehead to chin, as MediaPipe's face points measure it. The whole face
-# up to the hairline is about a fifth taller, so this asks for a face about 500 px tall.
-MIN_FACE_PX = 400
+# The photoreal engine first shrinks a photo so its longest side is this (liveportrait.MAX_SIDE),
+# then cuts a 512 x 512 square around the face about 2.3 times the face's height. The face is
+# measured at that size, from mid-forehead to chin as MediaPipe's face points place them.
+VIDEO_MAX_SIDE = 1280
+# Below this the 512 px square is blown up from a smaller area and the video looks soft. A face
+# filling about a third of the height of a 1080p webcam photo measures about 200.
+MIN_FACE_PX = 180
 # How far the head may turn left or right, or tilt up or down, in degrees.
 MAX_TURN_DEG = 25.0
 # MediaPipe's face model reads about 10 degrees "up" on photos taken straight on, so
@@ -81,7 +85,7 @@ class FaceMeasure:
     """What the checks look at, for the first face found."""
 
     faces: int
-    height_px: float = 0.0
+    height_px: float = 0.0  # mid-forehead to chin, at the video engine's size (VIDEO_MAX_SIDE)
     yaw_deg: float = 0.0  # turned left or right
     pitch_deg: float = 0.0  # tilted up or down, from level
     covered: float = 0.0  # share of the face hidden, 0 to 1
@@ -218,7 +222,8 @@ class FaceChecker:
         yaw, pitch = head_angles(found.facial_transformation_matrixes[0])
         return FaceMeasure(
             faces=1,
-            height_px=float(points[:, 1].max() - points[:, 1].min()),
+            height_px=float(points[:, 1].max() - points[:, 1].min())
+            * min(1.0, VIDEO_MAX_SIDE / max(h, w)),
             yaw_deg=yaw,
             pitch_deg=pitch,
             covered=covered_share(categories, points),

@@ -38,7 +38,7 @@ GOOD = FaceMeasure(faces=1, height_px=600, yaw_deg=5, pitch_deg=-3, covered=0.02
         (GOOD, []),
         (FaceMeasure(faces=0), [NO_FACE]),
         (FaceMeasure(faces=3), [MANY_FACES]),
-        (FaceMeasure(faces=1, height_px=300), [TOO_SMALL]),
+        (FaceMeasure(faces=1, height_px=150), [TOO_SMALL]),
         (FaceMeasure(faces=1, height_px=600, yaw_deg=-40), [TURNED]),
         (FaceMeasure(faces=1, height_px=600, pitch_deg=30), [TURNED]),
         (FaceMeasure(faces=1, height_px=600, covered=0.3), [COVERED]),
@@ -225,7 +225,7 @@ def test_checker_passes_a_large_straight_uncovered_face(
 
 def test_checker_reports_each_problem(tmp_path: Path) -> None:
     with patch.dict(sys.modules, fake_mediapipe(yaw=40, label=5)):
-        assert checker(tmp_path).check(photo(tmp_path, 200)) == [TOO_SMALL, TURNED, COVERED]
+        assert checker(tmp_path).check(photo(tmp_path, 150)) == [TOO_SMALL, TURNED, COVERED]
     with patch.dict(sys.modules, fake_mediapipe(faces=2)):
         assert checker(tmp_path).check(photo(tmp_path, 600)) == [MANY_FACES]
         assert len(FakeModel.opened) == 1  # no need to segment
@@ -281,3 +281,16 @@ def test_prepare_downloads_the_models_and_logs_a_failure_once(
     with failing, caplog.at_level(logging.ERROR):
         broken.prepare()  # doesn't raise
     assert "Face checks are off until restart" in caplog.text
+
+
+def test_face_size_is_measured_at_the_video_engines_size() -> None:
+    from imageskin.liveportrait import MAX_SIDE
+
+    assert face_checks.VIDEO_MAX_SIDE == MAX_SIDE
+
+
+def test_a_big_photo_is_measured_as_the_engine_will_shrink_it(tmp_path: Path) -> None:
+    # face_points fills about 90% of the height: 2560 px here, 1280 px after shrinking to 1280.
+    with patch.dict(sys.modules, fake_mediapipe()):
+        measure = checker(tmp_path).measure(photo(tmp_path, 2560))
+    assert measure.height_px == pytest.approx(1280 * 0.9, rel=0.02)

@@ -348,8 +348,20 @@ def test_photos_stored_before_checks_are_checked_on_request(tmp_path: Path) -> N
     assert [u.problems for u in store.list("photos")] == [None]
 
     store.check_photo = lambda p: ["Your face is too small."]
-    assert store.check(old.id) == replace(old, problems=["Your face is too small."])
-    assert [u.problems for u in store.list("photos")] == [["Your face is too small."]]
+    checked = replace(old, problems=["Your face is too small."], checks=uploads.FACE_CHECKS)
+    assert store.check(old.id) == checked
+    assert store.list("photos") == [checked]
+
+
+def test_results_of_older_checks_are_listed_as_not_checked(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: ["Your face is too small."])
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    assert photo.checks == uploads.FACE_CHECKS
+    with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
+        assert [u.problems for u in store.list("photos")] == [None]
+        store.check_photo = lambda p: []
+        assert store.check(photo.id).problems == []  # type: ignore[union-attr]
+        assert [u.problems for u in store.list("photos")] == [[]]
 
 
 def test_checking_needs_a_stored_photo(tmp_path: Path) -> None:

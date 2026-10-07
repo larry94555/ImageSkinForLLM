@@ -113,11 +113,11 @@ Each uploaded photo is checked as it arrives, and the upload screen shows **Look
 | Check | Fails when | Message |
 |---|---|---|
 | One face | no face, or more than one | "No face was found. …" / "More than one face was found. …" |
-| Large enough | the face, mid-forehead to chin, is under 400 px (about 500 px to the hairline) | "Your face is too small. …" |
+| Large enough | the face, mid-forehead to chin, is under 180 px once the photo is shrunk to 1280 px on its longest side, as the video engine does (a 1080p webcam photo of your head and shoulders measures about 200) | "Your face is too small. …" |
 | Facing the camera | the head is turned or tilted more than 25° | "Your face is turned away. …" |
 | Nothing covering it | over 12% of the face below the eyebrows is hidden by hands, a mask, sunglasses or other things (hair and beards are fine) | "Something is covering your face. …" |
 
-The limits are at the top of `src/imageskin/face_checks.py`. The checks need MediaPipe (Apache 2.0), installed with the faces extra (the photoreal extra includes it too). It needs Python 3.11 or 3.12. On first use the server downloads two models, about 20 MB, into `models/faces` in the app data folder.
+The limits are at the top of `src/imageskin/face_checks.py`; when they change, raise `FACE_CHECKS` in `uploads.py` so photos checked before are checked again. The checks need MediaPipe (Apache 2.0), installed with the faces extra (the photoreal extra includes it too). It needs Python 3.11 or 3.12. On first use the server downloads two models, about 20 MB, into `models/faces` in the app data folder.
 
 ```
 pip install -e ".[faces]"

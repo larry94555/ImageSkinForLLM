@@ -63,6 +63,7 @@ class Upload:
     seconds: float | None = None  # sounds only
     # Photos only: what the face checks found ([] when it passed), or None when not checked.
     problems: list[str] | None = None
+    checks: int | None = None  # the FACE_CHECKS version that found `problems`
 
 
 def detect_format(head: bytes) -> str | None:
@@ -108,6 +109,9 @@ def convert_heic(src: Path, dst: Path, timeout_s: float = CONVERT_TIMEOUT_S) -> 
 
 
 PhotoCheck = Callable[[Path], list[str]]
+# Raise this when the face checks' limits change: photos checked by an older version are then
+# listed as not checked, and the browser checks them again.
+FACE_CHECKS = 2
 
 
 class UploadStore:
@@ -196,7 +200,7 @@ class UploadStore:
                     seconds=seconds,
                 )
                 if kind == "photos":
-                    upload = replace(upload, problems=self._check(final))
+                    upload = self._with_checks(upload, final)
                 self._write_info(final, upload)
             except BaseException:
                 # Without its info file the upload could not be listed or removed.
@@ -265,6 +269,8 @@ class UploadStore:
         if not folder.is_dir():
             return []
         uploads = [u for p in folder.glob("*.json") if (u := self._read(p)) is not None]
+        # Results from older checks count as not checked, so they are redone.
+        uploads = [u if u.checks == FACE_CHECKS else replace(u, problems=None) for u in uploads]
         return sorted(uploads, key=lambda u: u.uploaded_at)
 
     def check(self, upload_id: str) -> Upload | None:
@@ -274,12 +280,17 @@ class UploadStore:
         upload = self._read(stored.with_suffix(".json")) if stored else None
         if stored is None or upload is None:
             return None
-        problems = self._check(stored)
-        if problems is None or not stored.exists():  # removed while it was being checked
+        checked = self._with_checks(upload, stored)
+        if checked.problems is None or not stored.exists():  # removed while it was being checked
             return upload
-        upload = replace(upload, problems=problems)
-        self._write_info(stored, upload)
-        return upload
+        self._write_info(stored, checked)
+        return checked
+
+    def _with_checks(self, upload: Upload, stored: Path) -> Upload:
+        problems = self._check(stored)
+        return replace(
+            upload, problems=problems, checks=FACE_CHECKS if problems is not None else None
+        )
 
     def _read(self, info: Path) -> Upload | None:
         try:
