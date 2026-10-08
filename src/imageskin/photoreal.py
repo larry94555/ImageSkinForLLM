@@ -124,8 +124,6 @@ class Compositor:
         self.jaw = jaw_field(lm, lib.window)
         self.brow = brow_field(lm, lib.eye_window)
         self.head = head_weight(lm)
-        self.mouth_grid = pixel_grid(self.morph.faces["rest"])
-        self.eye_grid = pixel_grid(self.eyes.morph.faces["0"])
         self.crop_grid = pixel_grid(lib.shapes["rest"])
         self.pivot = (float(lm[8, 0]), float(lm[8, 1]) + 40)  # below the chin, at the neck
 
@@ -151,11 +149,11 @@ class Compositor:
         mouth = self.morph(*top_two(weights))
         jaw = move.jaw * openness(weights)
         if abs(jaw) > 0.05:
-            mouth = push(mouth, self.mouth_grid, 0.0, jaw * self.jaw)
+            mouth = push(mouth, self.morph.grid, 0.0, jaw * self.jaw)
         self._put(face, mouth, lib.window, mouth_box, lib.align[j], lib.mouth)
         eyes = self.eyes(eye_open)
         if move.brow > 0.05:
-            eyes = push(eyes, self.eye_grid, 0.0, -move.brow * self.brow)
+            eyes = push(eyes, self.eyes.morph.grid, 0.0, -move.brow * self.brow)
         self._put(face, eyes, lib.eye_window, eye_box, lib.eye_align[j], lib.eye_mask)
         if move.nod or move.tilt or move.sway:
             face = self._move_head(face, move)
