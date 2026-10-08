@@ -1,3 +1,4 @@
+from array import array
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,16 +16,18 @@ from photoreal_fakes import (
 )
 
 from imageskin import photoreal
+from imageskin.liveportrait_edits import eye_track
 from imageskin.photoreal import (
     Compositor,
     EyeMorph,
     PhotorealEngine,
     ShapeMorph,
+    audio_seed,
     reach,
     read_shapes,
 )
 from imageskin.photoreal_library import build_library, load_library, mouth_mask
-from imageskin.video import VideoError
+from imageskin.video import VideoError, read_pcm16
 from imageskin.visemes import SHAPES
 
 __all__ = ["short_loop"]  # a fixture, used by name
@@ -136,6 +139,14 @@ def test_render_blinks_on_the_eye_track(tmp_path: Path, short_loop: object) -> N
         engine.render(lib, wav, tmp_path / "reply.mp4")
     assert seen == track
     assert eye_track.call_args.args[:2] == (10, 25)
+    assert eye_track.call_args.kwargs["seed"] == audio_seed(read_pcm16(wav)[0])
+
+
+def test_blinks_are_seeded_by_the_speech_not_its_length() -> None:
+    a, b = array("h", [0, 1, 2, 3] * 1000), array("h", [0, 1, 2, 4] * 1000)
+    assert audio_seed(a) == audio_seed(array("h", [0, 1, 2, 3] * 1000))
+    assert audio_seed(a) != audio_seed(b)
+    assert eye_track(250, 25.0, audio_seed(a)) != eye_track(250, 25.0, audio_seed(b))
 
 
 def test_prepare_needs_ffmpeg(tmp_path: Path) -> None:

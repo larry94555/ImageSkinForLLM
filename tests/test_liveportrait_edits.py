@@ -95,9 +95,20 @@ def test_blinks_come_at_irregular_natural_times() -> None:
     assert all(g > 0.15 for g in gaps) and max(gaps) <= 9.0
     assert len({round(g, 1) for g in gaps}) > 30  # not on a beat
     assert any(b.depth > 0 for b in blinks) and any(g < 0.6 for g in gaps)  # half and double
+    assert not any(a < 0.6 and b < 0.6 for a, b in zip(gaps, gaps[1:], strict=False))  # no triple
     assert len({b.close_s for b in blinks}) == len(blinks)  # each a little different
     assert blink_times(600.0, seed=1) == blinks
     assert blink_times(600.0, seed=2) != blinks
+
+
+def test_every_blink_ends_before_the_video_does() -> None:
+    blinks = blink_times(3.0, seed=28)  # used to start a blink at 2.997 s, ending at 3.223 s
+    assert blinks and blinks[-1].start < 1.0
+    for seed in range(300):
+        for seconds in (1.0, 2.6, 4.3, 7.9):
+            ends = [b.start + b.close_s + b.hold_s + b.open_s for b in blink_times(seconds, seed)]
+            assert all(end <= seconds for end in ends)  # doubles included
+    assert all(eye_track(75, 25.0, seed)[-1] == 1.0 for seed in range(300))
 
 
 def test_eye_track_follows_the_blinks_frame_by_frame() -> None:

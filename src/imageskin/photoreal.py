@@ -8,9 +8,11 @@ mouth on the matching idle-loop frame, adds the blinks (at natural, irregular ti
 the voice.
 """
 
+import hashlib
 import json
 import logging
 import time
+from array import array
 from collections.abc import Callable, Iterator
 from itertools import pairwise
 from pathlib import Path
@@ -151,6 +153,12 @@ class Compositor:
         return self.paste(self.face(weights, frame, eye_open))
 
 
+def audio_seed(samples: array[int]) -> int:
+    """A seed taken from the speech itself: each video gets its own blinks, and the same
+    speech always gets the same ones."""
+    return int.from_bytes(hashlib.sha256(samples.tobytes()).digest()[:8], "big")
+
+
 def read_shapes(timings: Path) -> list[ShapeTiming]:
     """The mouth shapes over time from the timings JSON that `write_speech` writes."""
     try:
@@ -182,7 +190,7 @@ class PhotorealEngine:
         seconds = len(samples) / rate
         n_frames = max(1, round(seconds * FPS))
         weights = frame_weights(read_shapes(wav.with_suffix(".json")), n_frames, FPS)
-        eyes = eye_track(n_frames, FPS, seed=len(samples))  # each video blinks differently
+        eyes = eye_track(n_frames, FPS, seed=audio_seed(samples))
         compositor = self._compositors.get(lib.folder) or Compositor(lib)
         self._compositors[lib.folder] = compositor
 

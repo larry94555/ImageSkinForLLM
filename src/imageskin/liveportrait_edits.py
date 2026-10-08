@@ -152,22 +152,28 @@ class Blink:
 def blink_times(seconds: float, seed: int) -> list[Blink]:
     """When the person blinks in a video `seconds` long: about every 3 seconds but never on a
     beat (2 to 8 s apart), each blink a little different, now and then a half blink or two
-    blinks in a row, as people do while talking. The same seed gives the same blinks."""
+    blinks in a row, as people do while talking. The same seed gives the same blinks.
+
+    Every blink ends before the video does: one cut off would leave the eyes half shut on
+    the last frame, which a player keeps on screen."""
     rng = random.Random(seed)
     blinks: list[Blink] = []
     t = rng.uniform(0.5, 2.5)
-    while t < seconds:
+    double = False
+    while True:
         depth = rng.uniform(0.2, 0.5) if rng.random() < 0.15 else 0.0
         blink = Blink(
             t, rng.uniform(0.07, 0.1), rng.uniform(0.0, 0.05), rng.uniform(0.14, 0.24), depth
         )
-        blinks.append(blink)
         end = t + blink.close_s + blink.hold_s + blink.open_s
-        if rng.random() < 0.1:
-            t = end + rng.uniform(0.08, 0.2)  # a second blink straight after
+        if end > seconds:
+            return blinks
+        blinks.append(blink)
+        double = not double and rng.random() < 0.1  # a second blink after it, never a third
+        if double:
+            t = end + rng.uniform(0.08, 0.2)
         else:
             t = end + min(8.0, max(2.0, rng.lognormvariate(math.log(3.0), 0.5)))
-    return blinks
 
 
 def eye_track(n_frames: int, fps: float, seed: int) -> list[float]:

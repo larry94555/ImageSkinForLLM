@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -146,6 +147,20 @@ def test_new_mouth_settings_rerender_only_the_shapes(tmp_path: Path, short_loop:
         third = FakePortrait()
         prepare_library(photo, tmp_path, lambda _: third)
     assert third.renders == 0
+
+
+def test_a_library_from_an_older_version_is_rendered_again(
+    tmp_path: Path, short_loop: object
+) -> None:
+    photo = photo_file(tmp_path)
+    with patch("imageskin.photoreal_library.LIBRARY_VERSION", 1):  # finished, blinks baked in
+        old = prepare_library(photo, tmp_path, lambda _: FakePortrait())
+    assert json.loads((old.folder / "library.json").read_text())["version"] == 1
+    fresh = FakePortrait()
+    lib = prepare_library(photo, tmp_path, lambda _: fresh)
+    assert lib.folder != old.folder  # the version is part of the folder name
+    assert fresh.renders == len(SHAPES) + len(EYE_STAGES) + 3  # loop key frames 0, 4 and 8 too
+    assert json.loads((lib.folder / "library.json").read_text())["version"] == 2
 
 
 def test_key_frames_are_every_fourth() -> None:
