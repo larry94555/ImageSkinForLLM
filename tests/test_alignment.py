@@ -13,6 +13,7 @@ from imageskin.alignment import (
     Word,
     ctc_frames,
     ensure_aligner,
+    hf_cache,
     letter_tokens,
     sound_timings_for,
     to_rate,
@@ -233,3 +234,25 @@ def test_load_loads_the_model_and_pronunciation_once() -> None:
     aligner.load()
     aligner.load()
     assert loads == ["model", "g2p"]
+
+
+def test_ensure_aligner_copies_from_the_hugging_face_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+    snapshot = hf_cache() / "models--facebook--wav2vec2-base-960h" / "snapshots" / ALIGNER_REVISION
+    snapshot.mkdir(parents=True)
+    (snapshot / "vocab.json").write_text("{}")
+    folder = ensure_aligner(tmp_path / "home", lambda *args: None)
+    assert (folder / "vocab.json").read_text() == "{}"
+    assert not (folder / "config.json").exists()
+
+
+def test_hf_cache_follows_hugging_face_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    assert hf_cache() == tmp_path / "hub"
+    monkeypatch.delenv("HF_HOME")
+    assert hf_cache() == Path.home() / ".cache" / "huggingface" / "hub"

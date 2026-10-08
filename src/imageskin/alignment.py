@@ -11,6 +11,8 @@ out the word's time equally.
 
 import json
 import logging
+import os
+import shutil
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -261,12 +263,26 @@ class Aligner:
         return self._g2p
 
 
+def hf_cache() -> Path:
+    """Hugging Face's download cache folder."""
+    if os.environ.get("HF_HUB_CACHE"):
+        return Path(os.environ["HF_HUB_CACHE"])
+    return Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface") / "hub"
+
+
 def ensure_aligner(home: Path, fetch: Callable[[str, Path, int, str], None] = download) -> Path:
     """Download the recognizer into <home>/models once; files already there are checked."""
     folder = home / "models" / "wav2vec2-base-960h"
+    cached = hf_cache() / "models--facebook--wav2vec2-base-960h" / "snapshots" / ALIGNER_REVISION
     for name, size, sha256 in ALIGNER_FILES:
+        dest = folder / name
+        if not dest.exists() and (cached / name).is_file():
+            # An earlier version fetched it into Hugging Face's cache; copy it rather than download
+            # it again. The downloader still checks its size and checksum.
+            folder.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(cached / name, dest)
         url = f"https://huggingface.co/{ALIGNER_REPO}/resolve/{ALIGNER_REVISION}/{name}"
-        fetch(url, folder / name, size, sha256)
+        fetch(url, dest, size, sha256)
     return folder
 
 
