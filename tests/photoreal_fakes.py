@@ -15,6 +15,7 @@ from imageskin import photoreal_library
 from imageskin.photoreal_library import CROP
 
 MOUTH = (256, 370)
+EYES = ((228, 230), (284, 230))
 
 
 def landmarks() -> NDArray[np.float32]:
@@ -23,6 +24,11 @@ def landmarks() -> NDArray[np.float32]:
     points[48:68, 1] = MOUTH[1]
     points[33] = (256, 327)  # nose
     points[8] = (256, 431)  # chin
+    points[17:27, 0] = np.linspace(200, 312, 10)  # brows at y 205
+    points[17:27, 1] = 205
+    for eye, (x, y) in zip((points[36:42], points[42:48]), EYES, strict=True):
+        eye[:, 0] = np.linspace(x - 16, x + 16, 6)
+        eye[:, 1] = (y - 6, y - 6, y, y + 6, y + 6, y)
     return points
 
 
@@ -33,7 +39,8 @@ def texture() -> NDArray[np.uint8]:
 
 
 class FakePortrait:
-    """Draws a dark mouth on a textured face; the head pose shifts the picture sideways."""
+    """Draws a dark mouth and eyes on a textured face; the head pose shifts the picture
+    sideways."""
 
     def __init__(self, fail_after: int | None = None) -> None:
         self.photo = np.full((160, 200, 3), 120, np.uint8)
@@ -61,6 +68,9 @@ class FakePortrait:
         gap = round(60 * (ratio or 0.0))
         if gap:
             cv2.ellipse(face, MOUTH, (30, gap), 0, 0, 360, (20, 10, 10), -1)
+        lid = round(8 * eye_open)
+        for eye in EYES if lid else ():
+            cv2.ellipse(face, eye, (14, lid), 0, 0, 360, (10, 10, 30), -1)
         return np.roll(face, round(pose[1]), axis=1)
 
 

@@ -13,6 +13,7 @@ Each mouth shape is a LivePortrait edit:
 """
 
 import math
+import random
 from dataclasses import dataclass
 
 from imageskin.visemes import CONTACT, SHAPES
@@ -43,6 +44,9 @@ CONTROLS: dict[str, tuple[tuple[int, int, float], ...]] = {
     # Both eyelids, from the editor's eyeball-direction slider (sign flipped so positive
     # closes). LivePortrait's eye retargeting model closed only one eye on a turned head.
     "blink": ((11, 1, 0.001), (13, 1, -0.0003), (15, 1, 0.001), (16, 1, -0.0003)),
+    # Lowers the brows (found by rendering each keypoint): in a real blink the muscle around
+    # the eye pulls them down a little, and lids moving alone look like a doll's.
+    "brow": ((2, 1, -0.001),),
 }
 
 BLINK_CLOSED = 15.0  # "blink" amount that fully closes the eyes (checked on real weights)
@@ -82,9 +86,12 @@ assert tuple(MOUTH_SHAPES) == SHAPES
 
 # The idle loop the face moves through while it speaks: whole cycles, so it repeats smoothly.
 LOOP_SECONDS = 8.0
-BLINKS_AT = (2.0, 5.6)  # seconds into the loop; uneven gaps look less mechanical
-BLINK_CLOSE_S = 0.08  # eyelids close quickly and open more slowly, as in a real blink
-BLINK_OPEN_S = 0.16
+
+# Blinks are added when a video is made, not baked into the idle loop, so they never repeat
+# on the loop's cycle. The eyes are rendered on the still head at these openness levels
+# (1 open, 0 closed), with the brows dipping by up to BLINK_BROW.
+EYE_STAGES = (0.7, 0.4, 0.15, 0.0)
+BLINK_BROW = 6.0
 
 
 def expression_delta(controls: dict[str, float]) -> list[list[float]]:
@@ -120,21 +127,62 @@ def top_two(weights: dict[str, float]) -> tuple[str, str, float]:
     return a, b, wb / (wa + wb)
 
 
-def eye_openness(t: float) -> float:
-    """How open the eyes are (1 open, 0 closed) `t` seconds into the idle loop."""
-    for at in BLINKS_AT:
-        if at - BLINK_CLOSE_S <= t <= at:
-            x = (at - t) / BLINK_CLOSE_S
-        elif at < t <= at + BLINK_OPEN_S:
-            x = (t - at) / BLINK_OPEN_S
+@dataclass(frozen=True)
+class Blink:
+    start: float  # seconds
+    close_s: float  # the lids come down fast...
+    hold_s: float
+    open_s: float  # ...and go back up more slowly
+    depth: float = 0.0  # how open the eyes get at the bottom: 0 is fully closed
+
+    def openness(self, t: float) -> float:
+        t -= self.start
+        if t <= 0.0 or t >= self.close_s + self.hold_s + self.open_s:
+            return 1.0
+        if t < self.close_s:
+            s = t / self.close_s
+            return 1.0 - (1.0 - self.depth) * s * s  # the lids speed up as they close
+        t -= self.close_s
+        if t < self.hold_s:
+            return self.depth
+        s = (t - self.hold_s) / self.open_s
+        return self.depth + (1.0 - self.depth) * (1.0 - (1.0 - s) ** 2)  # and slow to a stop
+
+
+def blink_times(seconds: float, seed: int) -> list[Blink]:
+    """When the person blinks in a video `seconds` long: about every 3 seconds but never on a
+    beat (2 to 8 s apart), each blink a little different, now and then a half blink or two
+    blinks in a row, as people do while talking. The same seed gives the same blinks."""
+    rng = random.Random(seed)
+    blinks: list[Blink] = []
+    t = rng.uniform(0.5, 2.5)
+    while t < seconds:
+        depth = rng.uniform(0.2, 0.5) if rng.random() < 0.15 else 0.0
+        blink = Blink(
+            t, rng.uniform(0.07, 0.1), rng.uniform(0.0, 0.05), rng.uniform(0.14, 0.24), depth
+        )
+        blinks.append(blink)
+        end = t + blink.close_s + blink.hold_s + blink.open_s
+        if rng.random() < 0.1:
+            t = end + rng.uniform(0.08, 0.2)  # a second blink straight after
         else:
-            continue
-        return 0.5 - 0.5 * math.cos(math.pi * x)  # eased, so the lids don't snap
-    return 1.0
+            t = end + min(8.0, max(2.0, rng.lognormvariate(math.log(3.0), 0.5)))
+    return blinks
 
 
-def idle_motion(frame: int, n_frames: int, fps: float) -> tuple[float, float, float, float]:
-    """Head (pitch, yaw, roll) in degrees and eye openness for one frame of the idle loop.
+def eye_track(n_frames: int, fps: float, seed: int) -> list[float]:
+    """How open the eyes are in each video frame, averaged over the frame's time as a camera
+    would see it, so a blink shorter than a frame still shows."""
+    blinks = blink_times(n_frames / fps, seed)
+    track = []
+    for f in range(n_frames):
+        times = [(f + (k + 0.5) / 4) / fps for k in range(4)]
+        track.append(sum(min((b.openness(t) for b in blinks), default=1.0) for t in times) / 4)
+    return track
+
+
+def idle_motion(frame: int, n_frames: int) -> tuple[float, float, float]:
+    """Head (pitch, yaw, roll) in degrees for one frame of the idle loop.
 
     The head drifts by a degree or two: a slow turn with a faster, smaller one on top, a
     slight nod and tilt, all in whole cycles so the last frame flows back into the first.
@@ -143,4 +191,4 @@ def idle_motion(frame: int, n_frames: int, fps: float) -> tuple[float, float, fl
     pitch = 0.8 * math.sin(2 * phase + 0.5)
     yaw = 1.5 * math.sin(phase) + 0.5 * math.sin(3 * phase + 1.0)
     roll = 0.6 * math.sin(phase + 2.0)
-    return pitch, yaw, roll, eye_openness(frame / fps)
+    return pitch, yaw, roll

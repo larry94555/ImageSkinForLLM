@@ -4,13 +4,23 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 import pytest
-from photoreal_fakes import MOUTH, FakePortrait, landmarks, photo_file, short_loop, texture
+from photoreal_fakes import (
+    EYES,
+    MOUTH,
+    FakePortrait,
+    landmarks,
+    photo_file,
+    short_loop,
+    texture,
+)
 
+from imageskin.liveportrait_edits import EYE_STAGES
 from imageskin.photoreal_library import (
     CROP,
     Paster,
     align_loop,
     build_library,
+    eye_mask,
     key_frames,
     library_key,
     load_library,
@@ -44,6 +54,16 @@ def test_mouth_mask_covers_mouth_and_jaw_only() -> None:
     assert x0 < 220 and x1 > 292 and y0 > 300 and y1 < CROP
 
 
+def test_eye_mask_covers_eyes_and_brows_only() -> None:
+    mask, (x0, y0, x1, y1) = eye_mask(landmarks())
+    assert all(mask[y, x] == pytest.approx(1.0, abs=0.01) for x, y in EYES)
+    assert mask[205, 256] > 0.5  # between the brows
+    assert mask[MOUTH[1], MOUTH[0]] == 0.0 and mask[327, 256] == 0.0  # mouth and nose tip
+    assert x0 < 200 and x1 > 312 and y0 < 205 and y1 < 300
+    with pytest.raises(VideoError, match="eyes"):
+        eye_mask(np.full((68, 2), -100.0, np.float32))
+
+
 def test_align_loop_finds_the_head_shift() -> None:
     rest = texture()
     moved = np.roll(np.roll(rest, 3, axis=1), -2, axis=0)
@@ -55,7 +75,7 @@ def test_align_loop_finds_the_head_shift() -> None:
 
 def test_build_load_and_resume(tmp_path: Path, short_loop: object) -> None:
     folder = tmp_path / "lib"
-    first = FakePortrait(fail_after=len(SHAPES) + 2)
+    first = FakePortrait(fail_after=len(SHAPES) + len(EYE_STAGES) + 2)
     with pytest.raises(KeyboardInterrupt):
         build_library(tmp_path / "me.png", folder, lambda _: first)
     assert sorted(p.name for p in (folder / "loop").glob("*.npy")) == ["0000.npy", "0004.npy"]
@@ -66,12 +86,15 @@ def test_build_load_and_resume(tmp_path: Path, short_loop: object) -> None:
     build_library(tmp_path / "me.png", folder, lambda _: second, lambda *s: steps.append(s))
     assert second.renders == 1  # shapes and the first frames are kept; only frame 8 is left
     # Progress starts from the frames already there and ends with every step complete.
-    assert steps[:3] == [("models", 0, 1), ("models", 1, 1), ("shapes", 10, 10)]
+    assert steps[:3] == [("models", 0, 1), ("models", 1, 1), ("shapes", 14, 14)]
     assert ("loop", 2, 3) in steps and ("loop", 3, 3) in steps  # frames 0, 4 and 8
     assert steps[-1] == ("align", 1, 1)
     lib = load_library(folder)
     assert len(lib.loop) == 10 and set(lib.shapes) == set(SHAPES)
-    assert lib.align.shape == (10, 2, 3)
+    assert lib.align.shape == lib.eye_align.shape == (10, 2, 3)
+    assert len(lib.eyes) == len(EYE_STAGES)
+    eye = (slice(EYES[0][1] - 2, EYES[0][1] + 3), slice(EYES[0][0] - 4, EYES[0][0] + 5))
+    assert lib.eyes[-1][eye].mean() > lib.shapes["rest"][eye].mean() + 40  # shut: no dark eye
     assert not list(folder.rglob("*.tmp.npy"))
 
 
@@ -119,18 +142,14 @@ def test_new_mouth_settings_rerender_only_the_shapes(tmp_path: Path, short_loop:
     again = FakePortrait()
     with patch("imageskin.photoreal_library.mouth_key", return_value="new"):
         prepare_library(photo, tmp_path, lambda _: again)
-        assert again.renders == len(SHAPES)  # the idle loop is kept
+        assert again.renders == len(SHAPES) + len(EYE_STAGES)  # the idle loop is kept
         third = FakePortrait()
         prepare_library(photo, tmp_path, lambda _: third)
     assert third.renders == 0
 
 
-def test_key_frames_are_every_fourth_and_each_blink() -> None:
-    keys = key_frames(200)  # 8 s at 25 fps, blinks at 2.0 s and 5.6 s
-    assert len(keys) == 60
-    assert keys[:4] == [0, 4, 8, 12]
-    assert set(range(48, 55)) <= set(keys)  # the first blink, frames 49 to 53, and either side
-    assert 46 not in keys and 55 not in keys
+def test_key_frames_are_every_fourth() -> None:
+    assert key_frames(200) == list(range(0, 200, 4))  # no blinks in the loop to render
 
 
 def test_morph_follows_the_motion() -> None:
@@ -153,4 +172,6 @@ def test_mouth_key_changes_with_the_mouth_opening() -> None:
 
     before = photoreal_library.mouth_key()
     with patch("imageskin.photoreal_library.OPENING", 0.9):
+        assert photoreal_library.mouth_key() != before
+    with patch("imageskin.photoreal_library.BLINK_BROW", 1.0):
         assert photoreal_library.mouth_key() != before

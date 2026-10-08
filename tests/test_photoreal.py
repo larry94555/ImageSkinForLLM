@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import pytest
 from photoreal_fakes import (
+    EYES,
     MOUTH,
     FakePortrait,
     landmarks,
@@ -13,7 +14,15 @@ from photoreal_fakes import (
     write_speech,
 )
 
-from imageskin.photoreal import Compositor, MouthMorph, PhotorealEngine, read_shapes
+from imageskin import photoreal
+from imageskin.photoreal import (
+    Compositor,
+    EyeMorph,
+    PhotorealEngine,
+    ShapeMorph,
+    reach,
+    read_shapes,
+)
 from imageskin.photoreal_library import build_library, load_library, mouth_mask
 from imageskin.video import VideoError
 from imageskin.visemes import SHAPES
@@ -25,7 +34,7 @@ def test_mouth_morph_goes_from_one_shape_to_the_other() -> None:
     portrait = FakePortrait()
     shapes = {name: portrait.render({}, 0.3 if name == "AA" else None) for name in SHAPES}
     window = mouth_mask(landmarks())[1]
-    morph = MouthMorph(shapes, window)
+    morph = ShapeMorph(shapes, window)
     x0, y0, x1, y1 = window
     assert np.array_equal(morph("rest", "AA", 0.0), shapes["rest"][y0:y1, x0:x1])
     assert np.array_equal(morph("rest", "AA", 1.0), shapes["AA"][y0:y1, x0:x1])
@@ -71,6 +80,62 @@ def test_frame_shows_the_mouth_shape_in_the_photo(tmp_path: Path, short_loop: ob
     mouth = (slice(16 + 370 // 4 - 3, 16 + 370 // 4 + 3), slice(36 + 60, 36 + 68))
     assert opened[mouth].mean() < closed[mouth].mean() - 20
     assert np.array_equal(opened[:10], closed[:10])  # outside the face is the photo
+
+
+def test_eye_morph_closes_the_eyes_part_way(tmp_path: Path, short_loop: object) -> None:
+    build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
+    lib = load_library(tmp_path / "lib")
+    eyes = EyeMorph(lib)
+    x0, y0, x1, y1 = lib.eye_window
+    assert np.array_equal(eyes(1.0), lib.shapes["rest"][y0:y1, x0:x1])
+    assert np.array_equal(eyes(0.4), lib.eyes[1][y0:y1, x0:x1])
+    assert np.array_equal(eyes(0.0), lib.eyes[-1][y0:y1, x0:x1])
+    assert np.array_equal(eyes(-0.1), eyes(0.0)) and np.array_equal(eyes(1.2), eyes(1.0))
+    x, y = EYES[0]
+    eye = (slice(y - y0 - 8, y - y0 + 9), slice(x - x0 - 10, x - x0 + 11))
+    light = [float(eyes(level)[eye].mean()) for level in (1.0, 0.55, 0.0)]
+    assert light[0] < light[1] < light[2]  # the dark eye goes as the lids close
+
+
+def test_frame_blinks(tmp_path: Path, short_loop: object) -> None:
+    build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
+    comp = Compositor(load_library(tmp_path / "lib"))
+    opened = comp.frame({"rest": 1.0}, 3)
+    shut = comp.frame({"rest": 1.0}, 3, eye_open=0.0)
+    x, y = EYES[0]
+    eye = (slice(16 + y // 4 - 1, 16 + y // 4 + 2), slice(36 + x // 4 - 2, 36 + x // 4 + 3))
+    assert shut[eye].mean() > opened[eye].mean() + 20
+    mouth = (slice(16 + 370 // 4 - 3, 16 + 370 // 4 + 3), slice(36 + 60, 36 + 68))
+    assert np.array_equal(shut[mouth], opened[mouth])  # the blink leaves the mouth alone
+
+
+def test_reach_covers_where_the_window_moves() -> None:
+    still = np.eye(2, 3)
+    shifted = np.array([[1.0, 0.0, 3.0], [0.0, 1.0, -2.0]])
+    assert reach((10, 10, 20, 20), np.stack([still, shifted])) == (6, 6, 24, 24)
+    assert reach((0, 500, 30, 512), np.stack([shifted])) == (0, 496, 34, 512)  # inside the crop
+
+
+def test_render_blinks_on_the_eye_track(tmp_path: Path, short_loop: object) -> None:
+    engine = PhotorealEngine(home=tmp_path / "home", make_portrait=lambda _: FakePortrait())
+    lib = engine.prepare(photo_file(tmp_path))
+    wav = tmp_path / "speech.wav"
+    write_speech(wav)
+    seen: list[float] = []
+    real_frame = Compositor.frame
+
+    def frame(self: Compositor, w: dict[str, float], i: int, eye_open: float = 1.0) -> object:
+        seen.append(eye_open)
+        return real_frame(self, w, i, eye_open)
+
+    track = [1.0, 0.5, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    with (
+        patch.object(photoreal, "eye_track", return_value=track) as eye_track,
+        patch.object(Compositor, "frame", frame),
+    ):
+        engine.render(lib, wav, tmp_path / "reply.mp4")
+    assert seen == track
+    assert eye_track.call_args.args[:2] == (10, 25)
 
 
 def test_prepare_needs_ffmpeg(tmp_path: Path) -> None:

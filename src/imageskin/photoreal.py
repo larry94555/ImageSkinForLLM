@@ -3,25 +3,29 @@
 `prepare` builds the photo's frame library once (see `photoreal_library`) and loads it.
 `render` turns the sound timings into mouth-shape weights per frame (`imageskin.visemes`),
 morphs between the two strongest shapes along the optical flow between them, places that
-mouth on the matching idle-loop frame, pastes the face back into the photo and encodes the
-MP4 with the voice.
+mouth on the matching idle-loop frame, adds the blinks (at natural, irregular times from
+`liveportrait_edits.eye_track`), pastes the face back into the photo and encodes the MP4 with
+the voice.
 """
 
 import json
 import logging
 import time
 from collections.abc import Callable, Iterator
+from itertools import pairwise
 from pathlib import Path
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 from imageskin.config import default_home
-from imageskin.liveportrait_edits import top_two
+from imageskin.liveportrait_edits import EYE_STAGES, eye_track, top_two
 from imageskin.photoreal_library import (
     CROP,
     Image,
     Library,
+    Mask,
     Paster,
     PortraitLike,
     Window,
@@ -40,9 +44,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_S = 300.0
 
 
-class MouthMorph:
-    """In-between mouths: two shapes warped toward each other along their optical flow and
-    blended, which keeps one set of lips instead of the double lips of a plain cross-fade."""
+class ShapeMorph:
+    """In-between shapes: two shapes warped toward each other along their optical flow and
+    blended, which keeps one set of lips (or lids) instead of the double ones of a plain
+    cross-fade."""
 
     def __init__(self, shapes: dict[str, Image], window: Window) -> None:
         x0, y0, x1, y1 = window
@@ -59,33 +64,91 @@ class MouthMorph:
         return morph(self.faces[a], self.faces[b], flow_ab, flow_ba, t, self.grid)
 
 
+def reach(window: Window, moves: NDArray[np.float64]) -> Window:
+    """The part of the crop that `window` can land on in any loop frame, given each frame's
+    move from the still head (2x3 affines), with a pixel to spare."""
+    x0, y0, x1, y1 = window
+    corners = np.array([[x0, y0, 1], [x1, y0, 1], [x0, y1, 1], [x1, y1, 1]], np.float64)
+    shift = int(np.ceil(np.abs(corners @ moves.transpose(0, 2, 1) - corners[:, :2]).max())) + 1
+    return (
+        max(0, x0 - shift),
+        max(0, y0 - shift),
+        min(CROP, x1 + shift),
+        min(CROP, y1 + shift),
+    )
+
+
+class EyeMorph:
+    """The eyes at any openness, morphed between the two nearest rendered stages."""
+
+    def __init__(self, lib: Library) -> None:
+        self.levels = (1.0, *EYE_STAGES)
+        stages = [lib.shapes["rest"], *lib.eyes]
+        self.morph = ShapeMorph({str(i): face for i, face in enumerate(stages)}, lib.eye_window)
+
+    def __call__(self, eye_open: float) -> Image:
+        """The eyes `eye_open` open (1 as in the photo, 0 closed)."""
+        for i, (high, low) in enumerate(pairwise(self.levels)):
+            if eye_open >= low:
+                return self.morph(str(i), str(i + 1), (high - min(eye_open, high)) / (high - low))
+        return self.morph.faces[str(len(self.levels) - 1)]
+
+
 class Compositor:
     """Builds whole video frames from a library: mouth on the idle loop, face on the photo."""
 
     def __init__(self, lib: Library) -> None:
         self.lib = lib
-        self.morph = MouthMorph(lib.shapes, lib.window)
+        self.morph = ShapeMorph(lib.shapes, lib.window)
+        self.eyes = EyeMorph(lib)
         self.paste = Paster(lib)
+        self.boxes = (reach(lib.window, lib.align), reach(lib.eye_window, lib.eye_align))
 
-    def face(self, weights: dict[str, float], frame: int) -> Image:
-        """The face crop for one video frame: idle-loop frame `frame`, mouth from `weights`.
+    def face(self, weights: dict[str, float], frame: int, eye_open: float = 1.0) -> Image:
+        """The face crop for one video frame: idle-loop frame `frame`, mouth from `weights`,
+        eyes `eye_open` open.
 
-        The mouth is made on the still head, then moved with the head (a shift and a slight
-        turn, from `Library.align`) and blended in through the soft mouth mask.
+        The mouth and the eyes are made on the still head, then moved with the head (a shift
+        and a slight turn, from `Library.align` and `Library.eye_align`) and blended in
+        through their soft masks.
         """
         lib = self.lib
         j = frame % len(lib.loop)
-        x0, y0, x1, y1 = lib.window
-        still = lib.shapes["rest"].copy()
-        still[y0:y1, x0:x1] = self.morph(*top_two(weights))
-        to_loop = lib.align[j]
-        mask = cv2.warpAffine(lib.mouth, to_loop, (CROP, CROP))[..., None]
-        moved = cv2.warpAffine(still, to_loop, (CROP, CROP), borderMode=cv2.BORDER_REFLECT)
-        return np.asarray(lib.loop[j] * (1.0 - mask) + moved * mask, np.uint8)
+        face = lib.loop[j].copy()
+        mouth_box, eye_box = self.boxes
+        self._put(
+            face, self.morph(*top_two(weights)), lib.window, mouth_box, lib.align[j], lib.mouth
+        )
+        self._put(
+            face, self.eyes(eye_open), lib.eye_window, eye_box, lib.eye_align[j], lib.eye_mask
+        )
+        return face
 
-    def frame(self, weights: dict[str, float], frame: int) -> Image:
+    def _put(
+        self,
+        face: Image,
+        part: Image,
+        window: Window,
+        box: Window,
+        to_loop: NDArray[np.float64],
+        mask: Mask,
+    ) -> None:
+        """Blend `part`, the still head inside `window`, into `face`: moved by `to_loop` and
+        through the moved `mask`. Only `box`, where the moved window can land, is touched."""
+        (x0, y0, x1, y1), (bx0, by0, bx1, by1) = window, box
+        still = self.lib.shapes["rest"][by0:by1, bx0:bx1].copy()
+        still[y0 - by0 : y1 - by0, x0 - bx0 : x1 - bx0] = part
+        origin = np.array([bx0, by0], np.float64)
+        move = to_loop.copy()
+        move[:, 2] += to_loop[:, :2] @ origin - origin  # the same move, in the box's pixels
+        size = (bx1 - bx0, by1 - by0)
+        soft = cv2.warpAffine(mask[by0:by1, bx0:bx1], move, size)[..., None]
+        moved = cv2.warpAffine(still, move, size, borderMode=cv2.BORDER_REFLECT)
+        face[by0:by1, bx0:bx1] = face[by0:by1, bx0:bx1] * (1.0 - soft) + moved * soft
+
+    def frame(self, weights: dict[str, float], frame: int, eye_open: float = 1.0) -> Image:
         """One whole RGB video frame."""
-        return self.paste(self.face(weights, frame))
+        return self.paste(self.face(weights, frame, eye_open))
 
 
 def read_shapes(timings: Path) -> list[ShapeTiming]:
@@ -119,12 +182,13 @@ class PhotorealEngine:
         seconds = len(samples) / rate
         n_frames = max(1, round(seconds * FPS))
         weights = frame_weights(read_shapes(wav.with_suffix(".json")), n_frames, FPS)
+        eyes = eye_track(n_frames, FPS, seed=len(samples))  # each video blinks differently
         compositor = self._compositors.get(lib.folder) or Compositor(lib)
         self._compositors[lib.folder] = compositor
 
         def frames() -> Iterator[bytes]:
             for i, w in enumerate(weights):
-                yield compositor.frame(w, i).tobytes()
+                yield compositor.frame(w, i, eyes[i]).tobytes()
 
         h, w = lib.photo.shape[:2]
         write_mp4(frames(), (w, h), wav, output, self._timeout_s, pix_fmt="rgb24")
