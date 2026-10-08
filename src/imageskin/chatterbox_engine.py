@@ -112,11 +112,11 @@ class ChatterboxEngine:
         self,
         load: Callable[[], Cloner] | None = None,
         aligner: Aligner | None = None,
-        check: Callable[[], None] = check_installed,
+        check: Callable[[], None] | None = None,
     ) -> None:
         self._load = load or _load_cloner
         self._aligner = aligner or Aligner()
-        self._check = check
+        self._check = check or check_installed
         self._cloner: Cloner | None = None
         self._voice: str | None = None  # the voice the cloner has learned
         self._reference: tuple[str, np.ndarray] | None = None  # a checked voice sample

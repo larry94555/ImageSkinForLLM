@@ -132,11 +132,10 @@ def test_learning_errors_become_voice_errors(voice_sample: Path) -> None:
 def test_check_installed_names_what_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     import importlib.util
 
-    real = importlib.util.find_spec
     monkeypatch.setattr(
         importlib.util,
         "find_spec",
-        lambda name: None if name in ("chatterbox", "kokoro") else real(name),
+        lambda name: None if name in ("chatterbox", "kokoro") else object(),
     )
     with pytest.raises(VoiceError) as exc:
         check_installed()
