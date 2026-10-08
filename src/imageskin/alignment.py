@@ -51,6 +51,7 @@ WORD_GAP = "|"  # the recognizer's token between words
 # matched the mouth shapes from Kokoro's own sound timings best (the same shape 62% to 65% of
 # the time, against 24% to 28% without it); moving word starts earlier only made it worse.
 END_PAD_S = 0.2
+WILDCARD_PENALTY = 0.1  # log-probability below the best token, for speech with no letters
 
 
 @dataclass(frozen=True)
@@ -107,7 +108,8 @@ def ctc_frames(log_probs: np.ndarray, targets: Sequence[int], blank: int = 0) ->
 def letter_tokens(text: str, vocab: dict[str, int]) -> list[int]:
     """The recognizer's tokens for a word's letters; characters it has no token for are left out.
 
-    A word with digits gets none, since "3pm" is said as "three p m" but spelled with two letters.
+    A word with digits gets none, since "3pm" is said as "three p m" but spelled with two letters;
+    word_timings matches it with a wildcard instead.
     """
     if any(ch.isdigit() for ch in text):
         return []
@@ -117,34 +119,51 @@ def letter_tokens(text: str, vocab: dict[str, int]) -> list[int]:
 def word_timings(
     words: Sequence[Word], log_probs: np.ndarray, vocab: dict[str, int], seconds: float
 ) -> list[WordTiming]:
-    """When each word is said. Words with no letters (such as "45") fill the gap around them."""
+    """When each word is said.
+
+    A run of words with no letters to align (such as "45 67" or "2026") is matched by a wildcard
+    token that stands for any sounds, so the run gets its own stretch of the audio instead of
+    the words around it absorbing it; its words then share that stretch by how many sounds each
+    has.
+    """
+    wildcard = log_probs.shape[1]
     targets: list[int] = []
-    spans: list[tuple[int, int] | None] = []
+    spans: list[tuple[int, int]] = []  # each word's first and last target (a run shares one)
+    anchored = [bool(letter_tokens(w.text, vocab)) for w in words]
     for i, word in enumerate(words):
-        letters = letter_tokens(word.text, vocab)
-        if not letters:
-            spans.append(None)
+        if not anchored[i] and i > 0 and not anchored[i - 1]:
+            spans.append(spans[-1])
             continue
         if targets and not words[i - 1].joined:
             targets.append(vocab[WORD_GAP])
-        spans.append((len(targets), len(targets) + len(letters) - 1))
-        targets += letters
-    if not targets:
-        raise ValueError("no letters to align")
-    frames = ctc_frames(log_probs, targets, blank=vocab.get("<pad>", 0))
+        tokens = letter_tokens(word.text, vocab) or [wildcard]
+        spans.append((len(targets), len(targets) + len(tokens) - 1))
+        targets += tokens
+    # The wildcard scores, in each frame, a little below the most likely token there, so silence
+    # still goes to the blank and the text's own letters still win where they are heard.
+    best = log_probs.max(axis=1, keepdims=True) - WILDCARD_PENALTY
+    scores = np.concatenate([log_probs, best], axis=1)
+    frames = ctc_frames(scores, targets, blank=vocab.get("<pad>", 0))
     frame_s = seconds / len(log_probs)
-    times: list[tuple[float, float] | None] = [
-        None if span is None else (frames[span[0]].start * frame_s, frames[span[1]].stop * frame_s)
-        for span in spans
-    ]
     out: list[WordTiming] = []
-    for i, (word, t) in enumerate(zip(words, times, strict=True)):
-        if t is None:
-            start = out[-1].end if out else 0.0
-            later = next((u for u in times[i + 1 :] if u is not None), None)
-            t = (start, max(start, later[0] if later else seconds))
-        out.append(WordTiming(word.text, round(t[0], 3), round(t[1], 3)))
+    i = 0
+    while i < len(words):
+        j = i + 1
+        while j < len(words) and spans[j] == spans[i]:
+            j += 1
+        start = frames[spans[i][0]].start * frame_s
+        length = frames[spans[i][1]].stop * frame_s - start
+        weights = [max(1, sound_count(w.phonemes)) for w in words[i:j]]
+        for word, weight in zip(words[i:j], weights, strict=True):
+            step = length * weight / sum(weights)
+            out.append(WordTiming(word.text, round(start, 3), round(start + step, 3)))
+            start += step
+        i = j
     return widened(out, seconds)
+
+
+def sound_count(phonemes: str) -> int:
+    return sum(ch not in HOLDS for ch in phonemes)
 
 
 def widened(timings: Sequence[WordTiming], seconds: float) -> list[WordTiming]:
@@ -205,9 +224,9 @@ class Aligner:
         self._g2p: G2P | None = None
 
     def load(self) -> None:
-        """Load (and the first time, download) the recognizer and the pronunciation step."""
-        self._get_model()
+        """Load the pronunciation step, then (the first time, downloading it) the recognizer."""
         self._get_g2p()
+        self._get_model()
 
     def align(
         self, samples: np.ndarray, rate: int, text: str
@@ -287,12 +306,12 @@ def ensure_aligner(home: Path, fetch: Callable[[str, Path, int, str], None] = do
 
 
 def _load_recognizer() -> tuple[Emissions, dict[str, int]]:  # pragma: no cover - needs the model
-    folder = ensure_aligner(default_home())
-    with quiet_library_warnings():
+    with quiet_library_warnings():  # imported first, so a missing install fails before download
         import torch
         from transformers import Wav2Vec2ForCTC
         from transformers.utils import logging as transformers_logging
-
+    folder = ensure_aligner(default_home())
+    with quiet_library_warnings():
         # Its load report reads like an error.
         transformers_logging.set_verbosity_error()  # type: ignore[no-untyped-call,unused-ignore]
         model = Wav2Vec2ForCTC.from_pretrained(folder)

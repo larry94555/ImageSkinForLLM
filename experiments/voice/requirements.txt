@@ -8,17 +8,7 @@
 # pip stops with a conflict instead.
 # Chatterbox (MIT, Resemble AI) pins torch 2.6, numpy 1 and other old versions that would
 # downgrade the app's packages, so it is installed without its pins and its real needs are pinned
-# here instead, to the versions that were measured.
-# Measured with the app's torch 2.14.1 and numpy 2.4.6.
-# torchaudio 2.11 declares no torch requirement, so it installs next to torch 2.14.
-torchaudio==2.11.0
-librosa==0.11.0
-s3tokenizer==0.3.0
-transformers==5.19.0
-diffusers==0.41.0
-conformer==0.3.2
-omegaconf==2.3.1
-pyloudnorm==0.2.0
-resemble-perth==1.0.1
+# instead, once, in the app's own clone-requirements.txt (R25), to the versions that were measured.
+-r ../../clone-requirements.txt
 # Speaker similarity scores on the listening page (Apache 2.0).
 speechbrain==1.1.1

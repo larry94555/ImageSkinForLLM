@@ -29,8 +29,9 @@ VOCAB = {"<pad>": 0, "|": 1, "A": 2, "B": 3, "'": 4, "M": 5, "I": 6}
 
 
 def emissions_for(path: str) -> np.ndarray:
-    """Log-probabilities that make the recognizer hear one token per frame; "-" is blank."""
-    tokens = {"-": 0, **VOCAB}
+    """Log-probabilities that make the recognizer hear one token per frame; "-" is blank and "x"
+    is speech that matches no letter of the text (as when a number is said)."""
+    tokens = {"-": 0, "x": VOCAB["M"], **VOCAB}
     out = np.full((len(path), len(VOCAB)), np.log(0.01))
     for t, ch in enumerate(path):
         out[t, tokens[ch]] = np.log(0.9)
@@ -79,18 +80,29 @@ def test_joined_words_have_no_gap_token() -> None:
     assert timings[0].start == 0.0 and timings[1].start == pytest.approx(0.1)
 
 
-def test_words_without_letters_fill_the_gap_around_them() -> None:
+def test_words_without_letters_get_their_own_stretch() -> None:
+    # 0.1 s frames: "a" is heard at 0.0, the number from 0.2 to 0.5, "b" at 0.6.
     words = [Word("a", "ɐ"), Word("45", "fɔɹTi fIv"), Word("b", "b")]
-    timings = word_timings(words, emissions_for("A|-----|B-"), VOCAB, 1.0)
-    assert timings[1] == WordTiming("45", timings[0].end, 0.8)
-    # At the end, the gap runs to the end of the clip.
-    end = word_timings(words[:2], emissions_for("A---"), VOCAB, 1.0)
-    assert end[1] == WordTiming("45", end[0].end, 1.0)
+    timings = word_timings(words, emissions_for("A|xxx|B-"), VOCAB, 0.8)
+    assert timings[0] == WordTiming("a", 0.0, 0.2)  # it does not swallow the number
+    assert timings[1] == WordTiming("45", 0.2, 0.6)
+    assert timings[2].start == 0.6
 
 
-def test_word_timings_with_no_letters_raise() -> None:
-    with pytest.raises(ValueError, match="no letters"):
-        word_timings([Word("45", "")], emissions_for("--"), VOCAB, 1.0)
+def test_all_numeric_text_is_found_in_the_audio() -> None:
+    words = [Word("2026", "twˈɛnti twˈɛnti sˈɪks")]
+    timings = word_timings(words, emissions_for("--xxxx----"), VOCAB, 1.0)
+    assert timings == [WordTiming("2026", 0.2, 0.8)]
+
+
+def test_adjacent_words_without_letters_share_their_stretch_by_sounds() -> None:
+    # "A 45 67 B": the numbers are heard from 0.2 to 0.8 s; "45" has 8 sounds and "67" 6.
+    words = [Word("A", "A"), Word("45", "fɔɹti fIv"), Word("67", "sɪksti"), Word("B", "b")]
+    timings = word_timings(words, emissions_for("A|xxxxxx|B-"), VOCAB, 1.1)
+    assert timings[1].start == 0.2
+    assert timings[2].start == timings[1].end
+    assert timings[2].end == timings[3].start == 0.9
+    assert timings[1].end == pytest.approx(0.2 + 0.6 * 8 / 14, abs=0.001)
 
 
 def test_widened_runs_into_the_next_word_or_a_short_way_into_a_pause() -> None:
@@ -233,7 +245,7 @@ def test_load_loads_the_model_and_pronunciation_once() -> None:
     aligner = Aligner(load=load, g2p=g2p)  # type: ignore[arg-type]
     aligner.load()
     aligner.load()
-    assert loads == ["model", "g2p"]
+    assert loads == ["g2p", "model"]  # the quick one first, so a missing Kokoro fails fast
 
 
 def test_ensure_aligner_copies_from_the_hugging_face_cache(

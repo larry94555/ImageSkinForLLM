@@ -11,6 +11,7 @@ versions of torch and numpy, so it is installed without its pins; see the README
 """
 
 import importlib.resources
+import importlib.util
 import logging
 import sys
 import time
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 SAMPLE_RATE = 24000  # Chatterbox's output rate, and the voice sample's
 REFERENCE_S = 10.0  # Chatterbox learns from about this much of the voice sample
 TURBO_REVISION = "749d1c1a46eb10492095d68fbcf55691ccf137cd"  # the weights tested in R25a
-INSTALL_HINT = "Chatterbox is not installed; see 'Your own voice' in the README"
+INSTALL_HINT = "see 'Your own voice' in the README"
 
 
 class Cloner(Protocol):
@@ -94,20 +95,43 @@ def provide_pkg_resources() -> None:
         sys.modules["pkg_resources"] = shim
 
 
+REQUIRED = ("chatterbox", "transformers", "kokoro")  # the clone, the aligner, pronunciation
+
+
+def check_installed() -> None:
+    """Fail at once, before any download, when a package the clone needs is missing."""
+    missing = [name for name in REQUIRED if importlib.util.find_spec(name) is None]
+    if missing:
+        raise VoiceError(f"{', '.join(missing)} not installed; {INSTALL_HINT}")
+
+
 class ChatterboxEngine:
     """Speaks text in the voice of a voice sample; `voice` is the sample's path."""
 
     def __init__(
-        self, load: Callable[[], Cloner] | None = None, aligner: Aligner | None = None
+        self,
+        load: Callable[[], Cloner] | None = None,
+        aligner: Aligner | None = None,
+        check: Callable[[], None] = check_installed,
     ) -> None:
         self._load = load or _load_cloner
         self._aligner = aligner or Aligner()
+        self._check = check
         self._cloner: Cloner | None = None
-        self._voice: str | None = None
+        self._voice: str | None = None  # the voice the cloner has learned
+        self._reference: tuple[str, np.ndarray] | None = None  # a checked voice sample
+
+    def check_voice_sample(self, voice: str) -> None:
+        """Check the install and read the voice sample, so a mistake in either shows at once,
+        before the models download or a photo is prepared. speak() reuses what was read."""
+        self._check()
+        if voice != self._voice and (self._reference is None or self._reference[0] != voice):
+            self._reference = (voice, reference_clip(read_voice_sample(Path(voice))))
 
     def speak(self, voice: str, text: str) -> Speech:
         if not text.strip():
             raise VoiceError("no text to speak")
+        self.check_voice_sample(voice)
         cloner = self._get_cloner()
         # The aligner too, so a download or install problem shows before the slow clone.
         self._aligner.load()
@@ -139,7 +163,8 @@ class ChatterboxEngine:
         return Speech(to_pcm16(samples.tolist()), SAMPLE_RATE, words, sounds)
 
     def _learn_voice(self, cloner: Cloner, voice: str) -> None:
-        reference = reference_clip(read_voice_sample(Path(voice)))
+        assert self._reference is not None and self._reference[0] == voice
+        reference = self._reference[1]
         start = time.perf_counter()
         try:
             cloner.set_voice(reference)
@@ -161,8 +186,6 @@ class ChatterboxEngine:
             try:
                 self._cloner = self._load()
             except ImportError as e:
-                if e.name == "chatterbox":
-                    raise VoiceError(INSTALL_HINT) from e
                 logger.exception("Could not import Chatterbox")
                 raise VoiceError(f"Chatterbox is installed but could not be loaded: {e}") from e
             except Exception as e:  # download or model load failure
@@ -174,7 +197,7 @@ class ChatterboxEngine:
         return self._cloner
 
 
-class _TurboCloner:  # pragma: no cover - needs the models; see the functional run in the PR
+class TurboCloner:  # pragma: no cover - needs the models; see the functional run in the PR
     def __init__(self) -> None:
         provide_pkg_resources()
         from chatterbox.tts_turbo import REPO_ID, ChatterboxTurboTTS
@@ -184,7 +207,7 @@ class _TurboCloner:  # pragma: no cover - needs the models; see the functional r
         folder = snapshot_download(
             REPO_ID, revision=TURBO_REVISION, ignore_patterns=["s3gen.safetensors"]
         )
-        self._tts = ChatterboxTurboTTS.from_local(folder, "cpu")
+        self.tts = ChatterboxTurboTTS.from_local(folder, "cpu")
 
     def set_voice(self, reference: np.ndarray) -> None:
         import tempfile
@@ -193,18 +216,18 @@ class _TurboCloner:  # pragma: no cover - needs the models; see the functional r
 
         # Chatterbox's own loudness step turns the audio into float64 under NumPy 2, which its
         # model then rejects, so the reference is levelled here and kept float32.
-        levelled = self._tts.norm_loudness(reference, SAMPLE_RATE).astype(np.float32)
+        levelled = self.tts.norm_loudness(reference, SAMPLE_RATE).astype(np.float32)
         with tempfile.TemporaryDirectory() as tmp:
             wav = Path(tmp) / "reference.wav"
             soundfile.write(wav, levelled, SAMPLE_RATE, subtype="FLOAT")
-            self._tts.prepare_conditionals(str(wav), exaggeration=0.0, norm_loudness=False)
+            self.tts.prepare_conditionals(str(wav), exaggeration=0.0, norm_loudness=False)
 
     def __call__(self, text: str) -> np.ndarray:
         with quiet_library_warnings():
-            out: np.ndarray = self._tts.generate(text).squeeze(0).cpu().numpy()
+            out: np.ndarray = self.tts.generate(text).squeeze(0).cpu().numpy()
         return out
 
 
 def _load_cloner() -> Cloner:  # pragma: no cover - needs the models
     with quiet_library_warnings():
-        return _TurboCloner()
+        return TurboCloner()

@@ -4,31 +4,31 @@
   to the person's, learned from their voice sample. The timing does not change, so Kokoro's word
   and sound timings still drive the mouth. The accent is Kokoro's (American).
 - clone: Chatterbox Turbo (MIT) speaks the text directly in a voice cloned from the sample,
-  which keeps the person's own accent. It reports no word or sound timings.
+  which keeps the person's own accent. It reports no word or sound timings. Larry picked it, so
+  R25 moved it into the app (imageskin.chatterbox_engine), and this test now uses that copy.
 
 Both run on the CPU. Chatterbox marks its output with Resemble AI's inaudible Perth watermark.
 The models (about 2 GB) are downloaded from Hugging Face on first use and cached.
 """
 
-import importlib.resources
 import logging
-import sys
 import time
-import types
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
 import numpy as np
 
+from imageskin.chatterbox_engine import (  # the app's clone (R25); this test reuses it
+    SAMPLE_RATE,
+    TurboCloner,
+    provide_pkg_resources,
+    reference_clip,
+)
 from imageskin.kokoro_engine import to_pcm16
 from imageskin.voice import Speech
 
 logger = logging.getLogger(__name__)
-
-SAMPLE_RATE = 24000  # Kokoro's and Chatterbox's output rate
-REFERENCE_S = 10.0  # Chatterbox uses about this much of the voice sample
-TURBO_REVISION = "749d1c1a46eb10492095d68fbcf55691ccf137cd"  # tested Chatterbox Turbo weights
 
 
 def pcm16_to_float(pcm: bytes) -> np.ndarray:
@@ -42,39 +42,11 @@ def fit_length(samples: np.ndarray, n: int) -> np.ndarray:
     return np.concatenate([samples, np.zeros(n - len(samples), dtype=samples.dtype)])
 
 
-def start_of_speech(samples: np.ndarray, threshold: float = 0.02) -> int:
-    """Index of the first sample louder than the threshold (0 if none), to skip leading silence."""
-    loud = np.flatnonzero(np.abs(samples) > threshold)
-    return int(loud[0]) if len(loud) else 0
-
-
-def reference_clip(samples: np.ndarray, rate: int = SAMPLE_RATE) -> np.ndarray:
-    """The stretch of the voice sample the tools learn from: REFERENCE_S seconds of speech."""
-    start = start_of_speech(samples)
-    return samples[start : start + int(REFERENCE_S * rate)]
-
-
 def converted(speech: Speech, convert: Callable[[np.ndarray], np.ndarray]) -> Speech:
     """The same speech in another voice: new audio, the same word and sound timings."""
     samples = pcm16_to_float(speech.pcm)
     out = fit_length(convert(samples).astype(np.float32), len(samples))
     return replace(speech, pcm=to_pcm16(out.tolist()))
-
-
-def provide_pkg_resources() -> None:
-    """Let Chatterbox's watermarker import pkg_resources, which setuptools 81 removed.
-
-    It only calls resource_filename to find its bundled model folder, so when setuptools no longer
-    provides the module, a stand-in answers that one call. Nothing is installed or downgraded.
-    """
-    try:
-        import pkg_resources  # noqa: F401
-    except ImportError:
-        shim = types.ModuleType("pkg_resources")
-        shim.resource_filename = lambda package, name: str(  # type: ignore[attr-defined]
-            importlib.resources.files(package) / name
-        )
-        sys.modules["pkg_resources"] = shim
 
 
 def _timed(what: str, start: float) -> None:
@@ -119,42 +91,14 @@ class ChatterboxConverter:  # pragma: no cover - needs the models; see the funct
         return marked
 
 
-class ChatterboxCloner:  # pragma: no cover - needs the models; see the functional run
-    """Text in, speech in a voice cloned from the sample out (24 kHz float samples)."""
-
-    def __init__(self) -> None:
-        start = time.perf_counter()
-        provide_pkg_resources()
-        from chatterbox.tts_turbo import REPO_ID, ChatterboxTurboTTS
-        from huggingface_hub import snapshot_download
-
-        # The repository also holds the ten-step decoder (1 GB) that Turbo never loads; skipping
-        # it cuts the first download from 3.8 GB to 2.8 GB.
-        folder = snapshot_download(
-            REPO_ID, revision=TURBO_REVISION, ignore_patterns=["s3gen.safetensors"]
-        )
-        _timed("Downloaded Chatterbox Turbo (cached after the first run)", start)
-        start = time.perf_counter()
-        self.tts = ChatterboxTurboTTS.from_local(folder, "cpu")
-        _timed("Loaded Chatterbox Turbo", start)
-
-    def set_voice(self, reference: np.ndarray) -> None:
-        import tempfile
-        from pathlib import Path
-
-        import soundfile
-
-        start = time.perf_counter()
-        # Chatterbox's own loudness step turns the audio into float64 under NumPy 2, which its
-        # model then rejects, so the reference is levelled here and kept float32.
-        levelled = self.tts.norm_loudness(reference, SAMPLE_RATE).astype(np.float32)
-        with tempfile.TemporaryDirectory() as tmp:
-            wav = Path(tmp) / "reference.wav"
-            soundfile.write(wav, levelled, SAMPLE_RATE, subtype="FLOAT")
-            self.tts.prepare_conditionals(str(wav), exaggeration=0.0, norm_loudness=False)
-        _timed("Learned voice for cloning", start)
-
-    def __call__(self, text: str) -> np.ndarray:
-        wav = self.tts.generate(text)
-        out: np.ndarray = wav.squeeze(0).cpu().numpy()
-        return out
+# Chatterbox Turbo cloning, as the app does it (`.tts` is the loaded model the converter shares).
+ChatterboxCloner = TurboCloner
+__all__ = [
+    "SAMPLE_RATE",
+    "ChatterboxCloner",
+    "ChatterboxConverter",
+    "converted",
+    "fit_length",
+    "pcm16_to_float",
+    "reference_clip",
+]

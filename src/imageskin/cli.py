@@ -32,7 +32,9 @@ def voice_engine(voice: str, voice_sample: Path | None) -> tuple[VoiceEngine, st
         return KokoroEngine(), voice
     from imageskin.chatterbox_engine import ChatterboxEngine
 
-    return ChatterboxEngine(), str(voice_sample)
+    engine = ChatterboxEngine()
+    engine.check_voice_sample(str(voice_sample))  # before the photo is prepared or models load
+    return engine, str(voice_sample)
 
 
 def build_parser() -> argparse.ArgumentParser:

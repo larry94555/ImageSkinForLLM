@@ -131,9 +131,13 @@ def test_say_with_voice_sample_uses_the_clone(
 
     out = tmp_path / "hello.wav"
     speech = Speech(pcm=b"\x00\x00" * 2400, sample_rate=24000, words=[])
-    with patch("imageskin.chatterbox_engine.ChatterboxEngine.speak", return_value=speech) as speak:
+    with (
+        patch("imageskin.chatterbox_engine.ChatterboxEngine.check_voice_sample") as check,
+        patch("imageskin.chatterbox_engine.ChatterboxEngine.speak", return_value=speech) as speak,
+    ):
         args = ["say", "--voice-sample", "me.wav", "-o", str(out), "Hello"]
         assert main(args) == 0
+    check.assert_called_once_with("me.wav")
     speak.assert_called_once_with("me.wav", "Hello")
     assert f"Wrote {out.resolve()} (0.1 seconds)" in capsys.readouterr().out
 
@@ -142,7 +146,10 @@ def test_sample_with_voice_sample_uses_the_clone() -> None:
     from imageskin.sample import SampleResult
 
     result = SampleResult(seconds=2.0, speak_ms=1, prepare_ms=1, render_ms=1)
-    with patch("imageskin.cli.make_sample", return_value=result) as make:
+    with (
+        patch("imageskin.chatterbox_engine.ChatterboxEngine.check_voice_sample"),
+        patch("imageskin.cli.make_sample", return_value=result) as make,
+    ):
         assert main(["sample", "--photo", "me.jpg", "--voice-sample", "me.wav"]) == 0
     _, _, voice_engine, _, voice, _ = make.call_args.args
     assert type(voice_engine).__name__ == "ChatterboxEngine"
@@ -243,3 +250,16 @@ def test_main_turns_off_xet_and_the_symlink_warning(monkeypatch: pytest.MonkeyPa
     assert main([]) == 0
     assert os.environ["HF_HUB_DISABLE_XET"] == "1"
     assert os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] == "1"
+
+
+def test_sample_with_a_bad_voice_sample_fails_before_the_photo(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with (
+        patch("imageskin.chatterbox_engine.check_installed"),
+        patch("imageskin.cli.make_sample") as make,
+    ):
+        args = ["sample", "--photo", "me.jpg", "--voice-sample", str(tmp_path / "missing.wav")]
+        assert main(args) == 1
+    make.assert_not_called()
+    assert "could not read the voice sample" in capsys.readouterr().err
