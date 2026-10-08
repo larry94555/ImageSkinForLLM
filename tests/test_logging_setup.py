@@ -42,3 +42,25 @@ def test_setup_logging_writes_json_to_stderr(capsys: pytest.CaptureFixture[str])
     logging.getLogger("imageskin.test").warning("shown")
     lines = capsys.readouterr().err.strip().splitlines()
     assert [json.loads(line)["message"] for line in lines] == ["shown"]
+
+
+def test_setup_logging_quiets_http_and_hugging_face_lines() -> None:
+    setup_logging("INFO")
+    assert logging.getLogger("httpx").getEffectiveLevel() == logging.WARNING
+    assert logging.getLogger("huggingface_hub.utils._http").getEffectiveLevel() == logging.ERROR
+    assert logging.getLogger("imageskin.cli").getEffectiveLevel() == logging.INFO
+
+
+def test_quiet_library_warnings_hides_only_library_noise() -> None:
+    import warnings
+
+    from imageskin.logging_setup import quiet_library_warnings
+
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        with quiet_library_warnings():
+            warnings.warn("old API", FutureWarning, stacklevel=1)
+            warnings.warn("pkg_resources is deprecated as an API", UserWarning, stacklevel=1)
+            warnings.warn("cache-system uses symlinks by default", UserWarning, stacklevel=1)
+            warnings.warn("something the app should show", UserWarning, stacklevel=1)
+    assert [str(w.message) for w in seen] == ["something the app should show"]

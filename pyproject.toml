@@ -78,7 +78,9 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["kokoro", "torch", "mediapipe", "mediapipe.*", "onnxruntime", "pillow_heif", "PIL", "PIL.*", "src.*"]
+module = ["kokoro", "torch", "mediapipe", "mediapipe.*", "onnxruntime", "pillow_heif", "PIL", "PIL.*", "src.*",
+    "chatterbox", "chatterbox.*", "soundfile", "transformers", "transformers.*", "huggingface_hub",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

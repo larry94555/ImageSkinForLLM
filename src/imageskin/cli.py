@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -14,11 +15,26 @@ from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
 from imageskin.sample import SAMPLE_SCRIPT, SampleResult, make_sample
 from imageskin.video import INSTALL_HINT, VideoEngine, VideoError, find_ffmpeg
-from imageskin.voice import VoiceError, write_speech
+from imageskin.voice import VoiceEngine, VoiceError, write_speech
 
 logger = logging.getLogger(__name__)
 
 ENGINES = ("opencv", "photoreal")
+VOICE_SAMPLE_HELP = (
+    "speak in the voice of this voice sample (from imageskin voice-sample) instead of a Kokoro "
+    "voice, cloned with Chatterbox Turbo; see 'Your own voice' in the README"
+)
+
+
+def voice_engine(voice: str, voice_sample: Path | None) -> tuple[VoiceEngine, str]:
+    """The engine and voice to speak with: a clone of the voice sample, or a Kokoro voice."""
+    if voice_sample is None:
+        return KokoroEngine(), voice
+    from imageskin.chatterbox_engine import ChatterboxEngine
+
+    engine = ChatterboxEngine()
+    engine.check_voice_sample(str(voice_sample))  # before the photo is prepared or models load
+    return engine, str(voice_sample)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,13 +56,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_TIMEOUT_S,
         help="seconds allowed to convert each recording",
     )
-    say = commands.add_parser("say", help="speak text with a Kokoro voice, on the CPU")
+    say = commands.add_parser(
+        "say", help="speak text with a Kokoro voice, or in the person's own voice, on the CPU"
+    )
     say.add_argument("text", help="what to say")
     say.add_argument(
         "--voice",
         default=DEFAULT_VOICE,
         help=f"Kokoro voice name, such as af_heart or am_michael (default {DEFAULT_VOICE})",
     )
+    say.add_argument("--voice-sample", type=Path, help=VOICE_SAMPLE_HELP)
     say.add_argument(
         "-o",
         "--output",
@@ -72,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_VOICE,
         help=f"Kokoro voice name (default {DEFAULT_VOICE})",
     )
+    sample.add_argument("--voice-sample", type=Path, help=VOICE_SAMPLE_HELP)
     sample.add_argument(
         "-o", "--output", type=Path, default=Path("sample.mp4"), help="MP4 file to write"
     )
@@ -104,9 +124,15 @@ def load_video_engine(engine: str = "opencv") -> VideoEngine[Any]:
 
 
 def sample(
-    photo: Path, voice: str, output: Path, engine: str = "opencv", text: str = SAMPLE_SCRIPT
+    photo: Path,
+    voice: str,
+    output: Path,
+    engine: str = "opencv",
+    text: str = SAMPLE_SCRIPT,
+    voice_sample: Path | None = None,
 ) -> SampleResult:
-    return make_sample(photo, output, KokoroEngine(), load_video_engine(engine), voice, text)
+    speaker, voice = voice_engine(voice, voice_sample)
+    return make_sample(photo, output, speaker, load_video_engine(engine), voice, text)
 
 
 def prepare(photo: Path, output: Path) -> tuple[Path, float]:
@@ -125,8 +151,9 @@ def prepare(photo: Path, output: Path) -> tuple[Path, float]:
     return lib.folder, write_idle_preview(lib, output)
 
 
-def say(text: str, voice: str, output: Path) -> float:
-    speech = KokoroEngine().speak(voice, text)
+def say(text: str, voice: str, output: Path, voice_sample: Path | None = None) -> float:
+    speaker, voice = voice_engine(voice, voice_sample)
+    speech = speaker.speak(voice, text)
     try:
         return write_speech(speech, output, output.with_suffix(".json"))
     except OSError as e:
@@ -146,6 +173,11 @@ def serve(host: str, port: int) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Hugging Face's Xet transfer crawled on Larry's Windows laptop (GitHub PR #8) while plain
+    # HTTP downloads were steady; this must be set before any model library loads. Windows
+    # without Developer Mode can't make the cache's symlinks, which works but warns every run.
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     parser = build_parser()
     args = parser.parse_args(argv)
     setup_logging()
@@ -169,7 +201,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "say":
         try:
-            seconds = say(args.text, args.voice, args.output)
+            seconds = say(args.text, args.voice, args.output, args.voice_sample)
         except VoiceError as e:
             logger.error("Could not speak text", extra={"error": str(e)})
             return 1
@@ -191,7 +223,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "sample":
         try:
-            result = sample(args.photo, args.voice, args.output, args.engine, args.text)
+            result = sample(
+                args.photo, args.voice, args.output, args.engine, args.text, args.voice_sample
+            )
         except (VoiceError, VideoError) as e:
             logger.error("Could not make sample video", extra={"error": str(e)})
             return 1

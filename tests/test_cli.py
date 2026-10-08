@@ -124,6 +124,38 @@ def test_sample_renders_video(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     assert "0.1 s to prepare the photo, 9.0 s to speak and 6.0 s to render" in printed
 
 
+def test_say_with_voice_sample_uses_the_clone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from imageskin.voice import Speech
+
+    out = tmp_path / "hello.wav"
+    speech = Speech(pcm=b"\x00\x00" * 2400, sample_rate=24000, words=[])
+    with (
+        patch("imageskin.chatterbox_engine.ChatterboxEngine.check_voice_sample") as check,
+        patch("imageskin.chatterbox_engine.ChatterboxEngine.speak", return_value=speech) as speak,
+    ):
+        args = ["say", "--voice-sample", "me.wav", "-o", str(out), "Hello"]
+        assert main(args) == 0
+    check.assert_called_once_with("me.wav")
+    speak.assert_called_once_with("me.wav", "Hello")
+    assert f"Wrote {out.resolve()} (0.1 seconds)" in capsys.readouterr().out
+
+
+def test_sample_with_voice_sample_uses_the_clone() -> None:
+    from imageskin.sample import SampleResult
+
+    result = SampleResult(seconds=2.0, speak_ms=1, prepare_ms=1, render_ms=1)
+    with (
+        patch("imageskin.chatterbox_engine.ChatterboxEngine.check_voice_sample"),
+        patch("imageskin.cli.make_sample", return_value=result) as make,
+    ):
+        assert main(["sample", "--photo", "me.jpg", "--voice-sample", "me.wav"]) == 0
+    _, _, voice_engine, _, voice, _ = make.call_args.args
+    assert type(voice_engine).__name__ == "ChatterboxEngine"
+    assert voice == "me.wav"
+
+
 def test_sample_error_is_logged(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["sample", "--photo", str(tmp_path / "missing.jpg")]) == 1
     entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
@@ -208,3 +240,26 @@ def test_prepare_without_opencv_explains_install(capsys: pytest.CaptureFixture[s
     with patch("builtins.__import__", side_effect=no_cv2):
         assert main(["prepare", "--photo", "me.jpg"]) == 1
     assert 'pip install -e \\".[photoreal]\\"' in capsys.readouterr().err
+
+
+def test_main_turns_off_xet_and_the_symlink_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    monkeypatch.delenv("HF_HUB_DISABLE_XET", raising=False)
+    monkeypatch.delenv("HF_HUB_DISABLE_SYMLINKS_WARNING", raising=False)
+    assert main([]) == 0
+    assert os.environ["HF_HUB_DISABLE_XET"] == "1"
+    assert os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] == "1"
+
+
+def test_sample_with_a_bad_voice_sample_fails_before_the_photo(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with (
+        patch("imageskin.chatterbox_engine.check_installed"),
+        patch("imageskin.cli.make_sample") as make,
+    ):
+        args = ["sample", "--photo", "me.jpg", "--voice-sample", str(tmp_path / "missing.wav")]
+        assert main(args) == 1
+    make.assert_not_called()
+    assert "could not read the voice sample" in capsys.readouterr().err
