@@ -1,0 +1,8 @@
+# R25a voice cloning test. Install in its own virtual environment (Python 3.11 or 3.12) with the
+# app:  pip install -e ".[voice,photoreal]" -r experiments/voice/requirements.txt
+# Chatterbox (MIT, Resemble AI) pins torch 2.6, which the app's engines also run on.
+chatterbox-tts==0.1.7
+# Chatterbox's watermarker still imports pkg_resources, which setuptools 81 removed.
+setuptools<81
+# Speaker similarity scores on the listening page (Apache 2.0).
+speechbrain>=1.0
