@@ -268,7 +268,7 @@ imageskin sample --photo me.jpg --voice-sample voice-sample.wav -o sample-mine.m
 
 Add `--engine photoreal` to the last command for the photoreal video (see [Photoreal video](#photoreal-video-liveportrait-on-the-cpu)). Play `kokoro.wav` and `mine.wav` one after the other to hear the ready-made voice and your own (`start mine.wav` in Command Prompt, `Invoke-Item mine.wav` in PowerShell, `open mine.wav` on macOS, `xdg-open mine.wav` on Linux). The logs (JSON lines on stderr) show `Loaded Chatterbox Turbo`, `Learned voice`, `Loaded aligner`, `Aligned words` and then `Spoke text in cloned voice` with `clone_ms` and `align_ms` (the time each took) and `real_time_factor` (seconds of work per second of speech).
 
-If pip stops with `ResolutionImpossible` or `conflict`, nothing was installed: one of the pinned packages needs a different version of something the app already has; report the message. If `say` reports `Chatterbox is not installed`, run the last `pip install` line again.
+If pip stops with `ResolutionImpossible` or `conflict`, nothing was installed: one of the pinned packages needs a different version of something the app already has; report the message. If `say` reports `Chatterbox is not installed`, run the last `pip install` line again. Before this was fixed, the first run also printed a `Wav2Vec2ForCTC LOAD REPORT` saying `wav2vec2.masked_spec_embed` is `MISSING`; the app now hides it. If you see it, it is harmless: that value is only used while the model is being trained, and the published model ships without it.
 
 ## Making the sample video (on the CPU)
 
