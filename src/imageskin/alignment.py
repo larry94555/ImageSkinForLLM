@@ -11,7 +11,6 @@ out the word's time equally.
 
 import json
 import logging
-import os
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -20,7 +19,10 @@ from typing import Any
 
 import numpy as np
 
+from imageskin.config import default_home
+from imageskin.download import download
 from imageskin.kokoro_engine import INSTALL_HINT as KOKORO_HINT
+from imageskin.logging_setup import quiet_library_warnings
 from imageskin.visemes import HOLDS, SoundTiming, sound_timings
 from imageskin.voice import VoiceError, WordTiming
 
@@ -30,6 +32,17 @@ CLONE_HINT = "see 'Your own voice' in the README"
 ALIGNER_REPO = "facebook/wav2vec2-base-960h"
 ALIGNER_REVISION = "22aad52d435eb6dbaf354bdad9b0da84ce7d6156"  # the tested weights
 ALIGNER_RATE = 16000
+# The recognizer's files at that revision, as (name, bytes, sha256). They are fetched with the
+# app's own downloader, which logs progress and resumes after a dropped connection.
+ALIGNER_FILES = [
+    ("config.json", 1596, "d3ec255c063d9f95057b553b19c20135b259875834a4fe9deb218a6be25b4cf3"),
+    ("vocab.json", 291, "19727f8944fe6459fc3f240ae2c198395b740f6a029bd23e06656266b83bcf64"),
+    (
+        "model.safetensors",
+        377607901,
+        "8aa76ab2243c81747a1f832954586bc566090c83a0ac167df6f31f0fa917d74a",
+    ),
+]
 WORD_GAP = "|"  # the recognizer's token between words
 # The recognizer stops hearing a word's last letter before its sound has died away, so each word
 # runs on into the next one, or for at most this long into a pause. On three test texts that
@@ -189,6 +202,11 @@ class Aligner:
         self._model: tuple[Emissions, dict[str, int]] | None = None
         self._g2p: G2P | None = None
 
+    def load(self) -> None:
+        """Load (and the first time, download) the recognizer and the pronunciation step."""
+        self._get_model()
+        self._get_g2p()
+
     def align(
         self, samples: np.ndarray, rate: int, text: str
     ) -> tuple[list[WordTiming], list[SoundTiming]]:
@@ -243,21 +261,26 @@ class Aligner:
         return self._g2p
 
 
-def _load_recognizer() -> tuple[Emissions, dict[str, int]]:  # pragma: no cover - needs the model
-    # Hugging Face's Xet transfer crawled on Larry's Windows laptop (GitHub PR #8); plain HTTP
-    # downloads were steady. Only takes effect before huggingface_hub is first imported.
-    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-    import torch
-    from huggingface_hub import snapshot_download
-    from transformers import Wav2Vec2ForCTC
+def ensure_aligner(home: Path, fetch: Callable[[str, Path, int, str], None] = download) -> Path:
+    """Download the recognizer into <home>/models once; files already there are checked."""
+    folder = home / "models" / "wav2vec2-base-960h"
+    for name, size, sha256 in ALIGNER_FILES:
+        url = f"https://huggingface.co/{ALIGNER_REPO}/resolve/{ALIGNER_REVISION}/{name}"
+        fetch(url, folder / name, size, sha256)
+    return folder
 
-    folder = snapshot_download(
-        ALIGNER_REPO,
-        revision=ALIGNER_REVISION,
-        allow_patterns=["config.json", "vocab.json", "model.safetensors"],
-    )
-    vocab: dict[str, int] = json.loads((Path(folder) / "vocab.json").read_text(encoding="utf-8"))
-    model = Wav2Vec2ForCTC.from_pretrained(folder)
+
+def _load_recognizer() -> tuple[Emissions, dict[str, int]]:  # pragma: no cover - needs the model
+    folder = ensure_aligner(default_home())
+    with quiet_library_warnings():
+        import torch
+        from transformers import Wav2Vec2ForCTC
+        from transformers.utils import logging as transformers_logging
+
+        # Its load report reads like an error.
+        transformers_logging.set_verbosity_error()  # type: ignore[no-untyped-call,unused-ignore]
+        model = Wav2Vec2ForCTC.from_pretrained(folder)
+    vocab: dict[str, int] = json.loads((folder / "vocab.json").read_text(encoding="utf-8"))
     model.eval()  # type: ignore[no-untyped-call,unused-ignore]
 
     def emissions(samples: np.ndarray) -> np.ndarray:
@@ -283,11 +306,13 @@ def words_from_tokens(tokens: Sequence[Any]) -> list[Word]:
 
 
 def _load_g2p() -> G2P:  # pragma: no cover - needs Kokoro
-    from kokoro import KPipeline
+    with quiet_library_warnings():
+        from kokoro import KPipeline
 
     from imageskin.kokoro_engine import LANG_CODE, REPO_ID
 
-    pipeline = KPipeline(lang_code=LANG_CODE, repo_id=REPO_ID, model=False)
+    with quiet_library_warnings():
+        pipeline = KPipeline(lang_code=LANG_CODE, repo_id=REPO_ID, model=False)
 
     def g2p(text: str) -> list[Word]:
         _, tokens = pipeline.g2p(text)

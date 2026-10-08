@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -170,6 +171,11 @@ def serve(host: str, port: int) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Hugging Face's Xet transfer crawled on Larry's Windows laptop (GitHub PR #8) while plain
+    # HTTP downloads were steady; this must be set before any model library loads. Windows
+    # without Developer Mode can't make the cache's symlinks, which works but warns every run.
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     parser = build_parser()
     args = parser.parse_args(argv)
     setup_logging()

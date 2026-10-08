@@ -233,3 +233,13 @@ def test_prepare_without_opencv_explains_install(capsys: pytest.CaptureFixture[s
     with patch("builtins.__import__", side_effect=no_cv2):
         assert main(["prepare", "--photo", "me.jpg"]) == 1
     assert 'pip install -e \\".[photoreal]\\"' in capsys.readouterr().err
+
+
+def test_main_turns_off_xet_and_the_symlink_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    monkeypatch.delenv("HF_HUB_DISABLE_XET", raising=False)
+    monkeypatch.delenv("HF_HUB_DISABLE_SYMLINKS_WARNING", raising=False)
+    assert main([]) == 0
+    assert os.environ["HF_HUB_DISABLE_XET"] == "1"
+    assert os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] == "1"

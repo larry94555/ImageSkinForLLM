@@ -44,6 +44,11 @@ class FakeCloner:
 
 
 class FakeAligner(Aligner):
+    loads = 0
+
+    def load(self) -> None:
+        self.loads += 1
+
     def align(
         self, samples: np.ndarray, rate: int, text: str
     ) -> tuple[list[WordTiming], list[SoundTiming]]:
@@ -65,8 +70,10 @@ def test_speak_returns_audio_and_timings(
     voice_sample: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     cloner = FakeCloner()
+    aligner = FakeAligner()
     with caplog.at_level(logging.INFO, logger="imageskin.chatterbox_engine"):
-        speech = engine(cloner).speak(str(voice_sample), "Hello")
+        speech = ChatterboxEngine(lambda: cloner, aligner).speak(str(voice_sample), "Hello")
+    assert aligner.loads == 1  # loaded up front, before the slow clone
     assert speech.sample_rate == SAMPLE_RATE
     assert len(speech.pcm) == SAMPLE_RATE  # half a second of 16-bit samples
     assert speech.words == [WordTiming("Hello", 0.0, 0.5)]

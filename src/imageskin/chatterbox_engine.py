@@ -12,10 +12,10 @@ versions of torch and numpy, so it is installed without its pins; see the README
 
 import importlib.resources
 import logging
-import os
 import sys
 import time
 import types
+import warnings
 import wave
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +25,7 @@ import numpy as np
 
 from imageskin.alignment import Aligner
 from imageskin.kokoro_engine import to_pcm16
+from imageskin.logging_setup import quiet_library_warnings
 from imageskin.voice import Speech, VoiceError
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,9 @@ def provide_pkg_resources() -> None:
     provides the module, a stand-in answers that one call. Nothing is installed or downgraded.
     """
     try:
-        import pkg_resources  # noqa: F401
+        with warnings.catch_warnings():  # setuptools 80 warns that pkg_resources is deprecated
+            warnings.simplefilter("ignore")
+            import pkg_resources  # noqa: F401
     except ImportError:
         shim = types.ModuleType("pkg_resources")
         shim.resource_filename = lambda package, name: str(  # type: ignore[attr-defined]
@@ -106,6 +109,8 @@ class ChatterboxEngine:
         if not text.strip():
             raise VoiceError("no text to speak")
         cloner = self._get_cloner()
+        # The aligner too, so a download or install problem shows before the slow clone.
+        self._aligner.load()
         if voice != self._voice:
             self._learn_voice(cloner, voice)
         start = time.perf_counter()
@@ -172,9 +177,6 @@ class ChatterboxEngine:
 class _TurboCloner:  # pragma: no cover - needs the models; see the functional run in the PR
     def __init__(self) -> None:
         provide_pkg_resources()
-        # Hugging Face's Xet transfer crawled on Larry's Windows laptop (GitHub PR #8); plain
-        # HTTP downloads were steady. Only takes effect before huggingface_hub is first imported.
-        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
         from chatterbox.tts_turbo import REPO_ID, ChatterboxTurboTTS
         from huggingface_hub import snapshot_download
 
@@ -198,9 +200,11 @@ class _TurboCloner:  # pragma: no cover - needs the models; see the functional r
             self._tts.prepare_conditionals(str(wav), exaggeration=0.0, norm_loudness=False)
 
     def __call__(self, text: str) -> np.ndarray:
-        out: np.ndarray = self._tts.generate(text).squeeze(0).cpu().numpy()
+        with quiet_library_warnings():
+            out: np.ndarray = self._tts.generate(text).squeeze(0).cpu().numpy()
         return out
 
 
 def _load_cloner() -> Cloner:  # pragma: no cover - needs the models
-    return _TurboCloner()
+    with quiet_library_warnings():
+        return _TurboCloner()

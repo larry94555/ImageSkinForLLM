@@ -1,14 +1,18 @@
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from imageskin.alignment import (
+    ALIGNER_FILES,
+    ALIGNER_REVISION,
     END_PAD_S,
     Aligner,
     Word,
     ctc_frames,
+    ensure_aligner,
     letter_tokens,
     sound_timings_for,
     to_rate,
@@ -200,3 +204,32 @@ def test_aligner_without_kokoro_explains_install() -> None:
     aligner._load_g2p = no_kokoro  # type: ignore[assignment]
     with pytest.raises(VoiceError, match=r"\.\[voice\]"):
         aligner.align(np.zeros(1), 16000, "a")
+
+
+def test_ensure_aligner_downloads_each_file_into_the_models_folder(tmp_path: Path) -> None:
+    calls: list[tuple[str, Path, int, str]] = []
+    folder = ensure_aligner(tmp_path, lambda *args: calls.append(args))
+    assert folder == tmp_path / "models" / "wav2vec2-base-960h"
+    assert [c[1] for c in calls] == [folder / name for name, _, _ in ALIGNER_FILES]
+    assert calls[2][0] == (
+        f"https://huggingface.co/facebook/wav2vec2-base-960h/resolve/{ALIGNER_REVISION}"
+        "/model.safetensors"
+    )
+    assert calls[2][2] == 377607901
+
+
+def test_load_loads_the_model_and_pronunciation_once() -> None:
+    loads: list[str] = []
+
+    def load() -> tuple[object, dict[str, int]]:
+        loads.append("model")
+        return (lambda samples: emissions_for("A")), VOCAB
+
+    def g2p() -> object:
+        loads.append("g2p")
+        return lambda text: []
+
+    aligner = Aligner(load=load, g2p=g2p)  # type: ignore[arg-type]
+    aligner.load()
+    aligner.load()
+    assert loads == ["model", "g2p"]
