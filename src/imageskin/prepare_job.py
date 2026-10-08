@@ -9,7 +9,6 @@ when the server stops mid-way, the next start carries on: frames and clips alrea
 are kept. The clips are saved in <data folder>/clips/<name>.mp4.
 """
 
-import hashlib
 import json
 import logging
 import os
@@ -21,6 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from imageskin.download import sha256_of
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.sample import SAMPLE_SCRIPT, speak_and_render
 from imageskin.uploads import UploadStore
@@ -80,7 +80,7 @@ class Step:
 class PrepareStatus:
     state: State
     photo_id: str | None = None  # the photo being, or last, prepared
-    voice_id: str | None = None  # the voice sample it was prepared from (voice_fingerprint)
+    voice_id: str | None = None  # the voice the clips are spoken in: "<kind>:<voice_fingerprint>"
     percent: int = 0
     steps: list[Step] | None = None
     error: str | None = None  # why it failed
@@ -100,9 +100,9 @@ def percent(steps: list[Step]) -> int:
 
 def voice_fingerprint(path: Path) -> str | None:
     """Tells voice samples apart: it changes whenever the recordings the sample is joined from
-    change. None when there is no voice sample. A few MB, read in milliseconds."""
+    change. None when there is no voice sample."""
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+        return sha256_of(path)[:16]
     except FileNotFoundError:
         return None
 
@@ -121,6 +121,7 @@ class PrepareJob:
         prepare_voice: PrepareVoice,
         prepare_face: PrepareFace,
         render_clip: RenderClip,
+        voice_kind: str = "kokoro",  # what speaks the clips: "clone" or "kokoro"
     ) -> None:
         self._file = home / "prepare.json"
         self.clips_folder = home / "clips"
@@ -128,6 +129,7 @@ class PrepareJob:
         self._prepare_voice = prepare_voice
         self._prepare_face = prepare_face
         self._render_clip = render_clip
+        self._voice_kind = voice_kind
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         # Per running step: when it started and how much was done then, for the time left.
@@ -170,7 +172,7 @@ class PrepareJob:
                 return PrepareStatus("idle")
             if self._store.voice_sample().problem:
                 return PrepareStatus("idle")
-            if status.voice_id != voice_fingerprint(self._store.voice_sample_file):
+            if status.voice_id != self._voice_id():
                 return PrepareStatus("idle")
         return status
 
@@ -194,14 +196,25 @@ class PrepareJob:
                 raise PrepareError(problem)
             # Clips from before were made from other uploads; the face's frames are kept per
             # photo by the library, so only the clips are removed.
-            for old in self.clips_folder.glob("*.mp4"):
-                old.unlink()
+            self._remove_clips()
             self._status = PrepareStatus(
                 "running", photo_id, steps=fresh_steps(), started_at=now_iso()
             )
             self._save()
             self._run_in_background()
             return self._status
+
+    def _voice_id(self) -> str | None:
+        """The voice clips are spoken in now: who speaks them and the sample they learned from.
+        Installing Chatterbox after a Kokoro prepare changes it too."""
+        fingerprint = voice_fingerprint(self._store.voice_sample_file)
+        return f"{self._voice_kind}:{fingerprint}" if fingerprint else None
+
+    def _remove_clips(self) -> int:
+        old = list(self.clips_folder.glob("*.mp4"))
+        for path in old:
+            path.unlink()
+        return len(old)
 
     def resume(self) -> None:
         """At server start: carry on with a job the last run of the server didn't finish."""
@@ -249,9 +262,17 @@ class PrepareJob:
         self._clock = {}
         logger.info("Prepare job started", extra={"photo_id": photo_id})
         with self._lock:
-            # The voice is learned from the sample as it is now, also when resuming.
-            voice_id = voice_fingerprint(self._store.voice_sample_file)
-            self._status = replace(self._status, voice_id=voice_id)
+            # The voice is learned from the sample as it is now. A job resumed after the
+            # recordings changed, or saved before voices were tracked, may have clips in another
+            # voice; they are rendered again rather than mixed with new ones.
+            voice_id = self._voice_id()
+            if self._status.voice_id != voice_id:
+                removed = self._remove_clips()
+                if removed:
+                    message = "Voice changed; rendering the clips again"
+                    logger.info(message, extra={"clips": removed})
+                self._status = replace(self._status, voice_id=voice_id)
+                self._save()
         try:
             photo = self._store.path("photos", photo_id)
             if photo is None:
@@ -341,9 +362,10 @@ def cloned_voice(engine: "ChatterboxEngine", voice_sample: Path) -> PrepareVoice
     return prepare
 
 
-def clip_voice(voice_sample: Path) -> tuple[PrepareVoice, VoiceEngine, str]:
-    """The voice step, the engine and the voice the clips are spoken in: the person's own, cloned
-    from the voice sample, when Chatterbox is installed (see the README); otherwise Kokoro's."""
+def clip_voice(voice_sample: Path) -> tuple[PrepareVoice, VoiceEngine, str, str]:
+    """The voice step, the engine, the voice the clips are spoken in and its kind ("clone" or
+    "kokoro"): the person's own, cloned from the voice sample, when Chatterbox is installed (see
+    the README); otherwise Kokoro's."""
     from imageskin.chatterbox_engine import ChatterboxEngine, check_installed
 
     try:
@@ -352,10 +374,10 @@ def clip_voice(voice_sample: Path) -> tuple[PrepareVoice, VoiceEngine, str]:
         message = "Prepare speaks in a ready-made Kokoro voice, not the person's"
         logger.warning(message, extra={"reason": str(e)})
         kokoro = KokoroEngine()
-        return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE
+        return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE, "kokoro"
     logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
     engine = ChatterboxEngine()
-    return cloned_voice(engine, voice_sample), engine, str(voice_sample)
+    return cloned_voice(engine, voice_sample), engine, str(voice_sample), "clone"
 
 
 def photoreal_face(home: Path) -> PrepareFace:

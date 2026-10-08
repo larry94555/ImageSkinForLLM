@@ -75,10 +75,18 @@ def make_job(
     face: object = face_in_steps,
     voice: object = lambda: None,
     clip: object = write_clip,
+    kind: str = "kokoro",
 ) -> tuple[PrepareJob, FakeStore]:
     store = FakeStore(tmp_path)
-    job = PrepareJob(tmp_path, cast(UploadStore, store), voice, face, clip)  # type: ignore[arg-type]
+    job = PrepareJob(tmp_path, cast(UploadStore, store), voice, face, clip, kind)  # type: ignore[arg-type]
     return job, store
+
+
+def first_voice_id(tmp_path: Path, kind: str = "kokoro") -> str:
+    """The voice_id of FakeStore's voice sample, as a job saved before a restart has it."""
+    sample = tmp_path / "voice-sample.wav"
+    sample.write_bytes(b"first recordings")
+    return f"{kind}:{voice_fingerprint(sample)}"
 
 
 def test_prepares_the_voice_then_the_face_and_saves_the_result(
@@ -224,7 +232,7 @@ def test_new_recordings_need_preparing_again(tmp_path: Path) -> None:
     job, store = make_job(tmp_path)
     job.start()
     job.wait(5)
-    assert job.status().voice_id == voice_fingerprint(store.voice_sample_file)
+    assert job.status().voice_id == f"kokoro:{voice_fingerprint(store.voice_sample_file)}"
     assert job.status().state == "done" and job.clip("sample") is not None
     # A recording added or removed: the clips spoke in the voice learned from the old ones.
     store.voice_sample_file.write_bytes(b"other recordings")
@@ -313,9 +321,9 @@ def test_clips_speak_in_the_cloned_voice_when_chatterbox_is_installed(
         patch("imageskin.chatterbox_engine.check_installed"),
         patch.object(ChatterboxEngine, "learn_voice") as learn,
     ):
-        step, engine, voice = clip_voice(sample)
+        step, engine, voice, kind = clip_voice(sample)
         step()
-    assert isinstance(engine, ChatterboxEngine) and voice == str(sample)
+    assert isinstance(engine, ChatterboxEngine) and (voice, kind) == (str(sample), "clone")
     learn.assert_called_once_with(str(sample))
     assert "the person's own voice, cloned with Chatterbox Turbo" in caplog.text
 
@@ -330,8 +338,8 @@ def test_clips_speak_in_kokoro_when_chatterbox_is_missing(
         caplog.at_level(logging.WARNING),
         patch("imageskin.chatterbox_engine.check_installed", side_effect=missing),
     ):
-        _, engine, voice = clip_voice(tmp_path / "voice-sample.wav")
-    assert isinstance(engine, KokoroEngine) and voice == "af_heart"
+        _, engine, voice, kind = clip_voice(tmp_path / "voice-sample.wav")
+    assert isinstance(engine, KokoroEngine) and (voice, kind) == ("af_heart", "kokoro")
     record = next(r for r in caplog.records if r.levelname == "WARNING")
     assert "Kokoro voice" in record.getMessage() and "README" in vars(record)["reason"]
 
@@ -421,7 +429,13 @@ def test_a_restart_keeps_the_clips_already_rendered(tmp_path: Path) -> None:
     steps = [asdict(s) for s in fresh_steps()]
     for s in steps[:5]:
         s["done"] = s["total"]
-    saved = {"state": "running", "photo_id": PHOTO_ID, "percent": 95, "steps": steps}
+    saved = {
+        "state": "running",
+        "photo_id": PHOTO_ID,
+        "voice_id": first_voice_id(tmp_path),
+        "percent": 95,
+        "steps": steps,
+    }
     (tmp_path / "prepare.json").write_text(json.dumps(saved))
     (tmp_path / "clips").mkdir()
     (tmp_path / "clips" / "goodbye.mp4").write_text("kept")
@@ -438,6 +452,37 @@ def test_a_restart_keeps_the_clips_already_rendered(tmp_path: Path) -> None:
     assert said[0] == "Welcome back." and len(said) == 2
     assert (tmp_path / "clips" / "goodbye.mp4").read_text() == "kept"
     assert job.status().state == "done"
+
+
+@pytest.mark.parametrize("saved_voice", ["kokoro:0123456789abcdef", None])
+def test_a_restart_in_another_voice_renders_every_clip_again(
+    tmp_path: Path, saved_voice: str | None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Stopped mid-way, then the recordings changed (or saved before voices were tracked).
+    steps = [asdict(s) for s in fresh_steps()]
+    saved = {"state": "running", "photo_id": PHOTO_ID, "voice_id": saved_voice, "steps": steps}
+    (tmp_path / "prepare.json").write_text(json.dumps(saved))
+    (tmp_path / "clips").mkdir()
+    (tmp_path / "clips" / "goodbye.mp4").write_text("old voice")
+    job, store = make_job(tmp_path)
+    with caplog.at_level(logging.INFO):
+        job.resume()
+        job.wait(5)
+    assert (tmp_path / "clips" / "goodbye.mp4").read_text() == "Goodbye."
+    assert job.status().state == "done"
+    assert job.status().voice_id == f"kokoro:{voice_fingerprint(store.voice_sample_file)}"
+    assert "Voice changed; rendering the clips again" in caplog.text
+
+
+def test_a_kokoro_prepare_needs_preparing_again_once_the_clone_is_installed(
+    tmp_path: Path,
+) -> None:
+    job, _ = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    assert job.status().state == "done"
+    later, _ = make_job(tmp_path, kind="clone")  # the server restarted with Chatterbox
+    assert later.status().state == "idle" and later.clip("sample") is None
 
 
 def test_a_clip_that_fails_fails_the_job_and_is_not_served(tmp_path: Path) -> None:

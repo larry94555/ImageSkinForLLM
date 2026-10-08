@@ -211,13 +211,14 @@ def create_app(
         return {"removed": True}
 
     # One voice engine for the job, so Prepare loads the voice model once.
-    voice_step, voice_engine, voice = clip_voice(store.voice_sample_file)
+    voice_step, voice_engine, voice, voice_kind = clip_voice(store.voice_sample_file)
     job = PrepareJob(
         data_home,
         store,
         prepare_voice or voice_step,
         prepare_face or photoreal_face(data_home),
         render_clip or photoreal_clip(data_home, voice_engine, voice),
+        voice_kind,
     )
     app.state.prepare_job = job
     job.resume()  # a job the server was stopped in the middle of carries on
