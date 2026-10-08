@@ -82,5 +82,5 @@ module = ["kokoro", "torch", "mediapipe", "mediapipe.*", "onnxruntime", "pillow_
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "experiments/voice"]
+testpaths = ["tests", "experiments/voice", "experiments/expressive"]
 addopts = "--cov=imageskin --cov-report=term-missing"

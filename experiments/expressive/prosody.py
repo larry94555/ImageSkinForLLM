@@ -1,0 +1,210 @@
+"""Expressive motion from the voice itself: loudness and pitch, per video frame.
+
+An experiment for Larry's question after R25 (2026-10-08): the cloned voice rises, falls and
+gets louder, but the face moves the same way whether a word is whispered or shouted. Nothing
+here runs a model; everything comes from the WAV the voice engine already wrote.
+
+  - `loudness`: how loud each frame is, 0 (the quiet end of this speech) to 1 (its loudest).
+  - `pitch`: how far the voice is above or below its own middle, in semitones, smoothed.
+  - `accents`: the stressed beats (loudness peaks), the moments a speaker nods on.
+
+`Motion` turns them into what the face does: how wide the mouth opens, how far the brows lift,
+and how the head nods and tilts.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import time
+from dataclasses import dataclass
+
+import numpy as np
+from numpy.typing import NDArray
+
+logger = logging.getLogger(__name__)
+
+Track = NDArray[np.float64]
+
+LEAD_S = 0.03  # the face moves just ahead of the sound, like the mouth (visemes.frame_weights)
+
+
+def _smooth(x: Track, fps: float, sigma_s: float) -> Track:
+    """A Gaussian blur over time."""
+    sigma = sigma_s * fps
+    radius = max(1, int(3 * sigma))
+    k = np.exp(-0.5 * (np.arange(-radius, radius + 1) / sigma) ** 2)
+    k /= k.sum()
+    return np.convolve(np.pad(x, radius, mode="edge"), k, mode="valid")
+
+
+def loudness(samples: NDArray[np.float32], rate: int, n_frames: int, fps: float) -> Track:
+    """Loudness per frame, scaled to this speech: 0.05 at its quiet end, 1 at its loudest.
+
+    Speech loudness is measured in dB over a 40 ms window; silence (more than 35 dB below the
+    loudest part) is 0.
+    """
+    half = int(0.02 * rate)
+    db = np.full(n_frames, -120.0)
+    for f in range(n_frames):
+        c = int(((f + 0.5) / fps + LEAD_S) * rate)
+        w = samples[max(0, c - half) : c + half]
+        if len(w):
+            db[f] = 10 * math.log10(float(np.mean(w.astype(np.float64) ** 2)) + 1e-12)
+    top = float(np.percentile(db, 98))
+    if top < -70:  # no speech at all
+        return np.zeros(n_frames)
+    speech = db > top - 35
+    if not speech.any():
+        return np.zeros(n_frames)
+    low = min(float(np.percentile(db[speech], 15)), top - 12)  # even steady speech has a range
+    level = np.clip((db - low) / (top - low), 0.0, 1.0)
+    return np.where(speech, 0.05 + 0.95 * level, 0.0)  # any speech is above 0, silence is 0
+
+
+def _f0(window: NDArray[np.float64], rate: int) -> float:
+    """The voice's pitch in one window by autocorrelation, or 0 where it is not voiced. The
+    earliest strong peak wins, which avoids landing an octave low."""
+    w = (window - window.mean()) * np.hanning(len(window))
+    spec = np.fft.rfft(w, n=2 * len(w))
+    ac = np.fft.irfft(np.abs(spec) ** 2)[: len(w)]
+    if ac[0] <= 0:
+        return 0.0
+    ac = ac / ac[0]
+    lo, hi = int(rate / 400), min(len(ac) - 1, int(rate / 65))
+    if hi <= lo:
+        return 0.0
+    seg = ac[lo:hi]
+    best = float(seg.max())
+    if best < 0.5:
+        return 0.0
+    i = int(np.argmax(seg >= 0.9 * best))
+    while i + 1 < len(seg) and seg[i + 1] > seg[i]:  # climb to the top of that peak
+        i += 1
+    shift = 0.0
+    if 0 < i < len(seg) - 1:  # and place it between samples
+        a, b, c = seg[i - 1], seg[i], seg[i + 1]
+        shift = 0.5 * (a - c) / (a - 2 * b + c) if a - 2 * b + c else 0.0
+    return rate / (lo + i + shift)
+
+
+def pitch(
+    samples: NDArray[np.float32], rate: int, n_frames: int, fps: float, voiced: Track
+) -> Track:
+    """Pitch per frame in semitones from the speaker's own median, 0 where there is no voice.
+
+    Unvoiced frames hold the last voiced value and ease back to 0, so the motion it drives
+    does not jump between syllables.
+    """
+    half = int(0.02 * rate)
+    f0 = np.zeros(n_frames)
+    for f in range(n_frames):
+        c = int(((f + 0.5) / fps + LEAD_S) * rate)
+        w = samples[max(0, c - half) : c + half].astype(np.float64)
+        if voiced[f] > 0.25 and len(w) == 2 * half:
+            f0[f] = _f0(w, rate)
+    good = f0 > 0
+    if good.sum() < 5:
+        return np.zeros(n_frames)
+    mid = float(np.median(f0[good]))
+    f0 = np.where(f0 > 1.7 * mid, f0 / 2, np.where(good & (f0 < mid / 1.7), f0 * 2, f0))  # octaves
+    st = np.zeros(n_frames)
+    st[good] = 12 * np.log2(f0[good] / mid)
+    # A median over 5 frames drops the odd wrong frame without blunting real rises.
+    padded = np.pad(np.where(good, st, np.nan), 2, constant_values=np.nan)
+    windows = np.lib.stride_tricks.sliding_window_view(padded, 5)
+    st[good] = np.nanmedian(windows[good], axis=1)
+    out = np.zeros(n_frames)
+    last = 0.0
+    for i in range(n_frames):
+        last = float(st[i]) if good[i] else last * 0.9
+        out[i] = last
+    return _smooth(out, fps, 0.08)
+
+
+def accents(loud: Track, fps: float, min_gap_s: float = 0.3) -> list[tuple[int, float]]:
+    """The stressed beats: loudness peaks that stand out from the frames around them, as
+    (frame, strength 0..1), at least `min_gap_s` apart."""
+    smooth = _smooth(loud, fps, 0.04)
+    base = _smooth(loud, fps, 0.4)
+    rise = smooth - base
+    out: list[tuple[int, float]] = []
+    gap = int(min_gap_s * fps)
+    for i in range(1, len(rise) - 1):
+        if rise[i] >= rise[i - 1] and rise[i] > rise[i + 1] and rise[i] > 0.08 and smooth[i] > 0.5:
+            if out and i - out[-1][0] < gap:
+                if rise[i] > out[-1][1]:
+                    out[-1] = (i, float(rise[i]))
+                continue
+            out.append((i, float(rise[i])))
+    peak = max((s for _, s in out), default=1.0)
+    return [(i, min(1.0, s / peak)) for i, s in out]
+
+
+@dataclass(frozen=True)
+class Gains:
+    """How strongly the voice drives the face. Pixels are in LivePortrait's 512 px face crop."""
+
+    jaw_px: float = 12.0  # extra opening at the loudest syllables, on the most open shape
+    quiet: float = 0.35  # the quietest syllables open this share of jaw_px less
+    brow_px: float = 8.0  # brow lift at a high or stressed note
+    nod_px: float = 6.0  # head dip on a strong beat
+    tilt_deg: float = 2.0  # head tilt per 4 semitones of pitch
+    lift_px: float = 3.5  # head lift per 4 semitones of pitch
+
+
+@dataclass(frozen=True)
+class Motion:
+    """Per frame: extra jaw opening (px, negative closes a little), brow lift (px), head drop
+    (px, positive is down) and tilt (degrees)."""
+
+    jaw: Track
+    brow: Track
+    nod: Track
+    tilt: Track
+
+
+DEFAULT_GAINS = Gains()
+
+
+def motion(
+    samples: NDArray[np.float32],
+    rate: int,
+    n_frames: int,
+    fps: float,
+    gains: Gains = DEFAULT_GAINS,
+) -> Motion:
+    start = time.perf_counter()
+    loud = loudness(samples, rate, n_frames, fps)
+    st = pitch(samples, rate, n_frames, fps, loud)
+    beats = accents(loud, fps)
+
+    level = _smooth(loud, fps, 0.05)
+    # Average syllables keep today's mouth; louder ones open wider, quieter ones a little less.
+    centred = 2 * (level - 0.5)
+    jaw = gains.jaw_px * np.where(centred > 0, centred, gains.quiet * centred) * (loud > 0)
+
+    high = np.clip(_smooth(st, fps, 0.15) / 4.0, 0.0, 1.0)
+    brow = np.zeros(n_frames)
+    nod = np.zeros(n_frames)
+    t = np.arange(n_frames) / fps
+    for f, s in beats:
+        u = (t - t[f] + 0.06) / 0.16  # peaks 0.1 s after the beat starts
+        bump = np.where(u > 0, u * np.exp(1 - u), 0.0)
+        nod += gains.nod_px * s * bump
+        brow += 0.5 * s * bump * (0.4 + high[f])  # brows go up most on high, stressed words
+    brow = gains.brow_px * np.clip(0.6 * high + brow, 0.0, 1.0)
+
+    slow = _smooth(st, fps, 0.45) / 4.0
+    tilt = gains.tilt_deg * np.clip(slow, -1.0, 1.0)
+    nod = nod - gains.lift_px * np.clip(slow, -1.0, 1.0)
+    logger.info(
+        "Measured voice expression",
+        extra={
+            "frames": n_frames,
+            "beats": len(beats),
+            "pitch_range_st": round(float(np.ptp(st)), 1),
+            "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+        },
+    )
+    return Motion(jaw, brow, _smooth(nod, fps, 0.04), _smooth(tilt, fps, 0.08))
