@@ -10,7 +10,8 @@ stays as it is:
   - jaw: louder syllables open wider and quiet ones a little less, scaled by how open the
     mouth shape already is, so m, b, p, f and v still close;
   - brows: lift on high or stressed words;
-  - head: nods on stressed beats, tilts and lifts as the pitch rises.
+  - head: a gentle nod on the strongest beat of a phrase, a tilt with the pitch and a slow
+    side-to-side drift while speaking.
 """
 
 from __future__ import annotations
@@ -146,7 +147,7 @@ class ExpressiveCompositor(Compositor):
         px, py = self.pivot
         gx = self.crop_grid[..., 0] - px
         gy = self.crop_grid[..., 1] - py
-        dx = (math.cos(a) - 1) * gx - math.sin(a) * gy
+        dx = (math.cos(a) - 1) * gx - math.sin(a) * gy + float(m.sway[i])
         dy = math.sin(a) * gx + (math.cos(a) - 1) * gy + float(m.nod[i])
         return _push(face, self.crop_grid, dx * self.head, dy * self.head)
 
@@ -177,7 +178,14 @@ def render(lib: Library, wav: Path, output: Path, gains: Gains = DEFAULT_GAINS) 
             "real_time_factor": round(elapsed / (n_frames / FPS), 2),
         },
     )
-    np.savez(output.with_suffix(".motion.npz"), jaw=m.jaw, brow=m.brow, nod=m.nod, tilt=m.tilt)
+    np.savez(
+        output.with_suffix(".motion.npz"),
+        jaw=m.jaw,
+        brow=m.brow,
+        nod=m.nod,
+        tilt=m.tilt,
+        sway=m.sway,
+    )
     return elapsed
 
 

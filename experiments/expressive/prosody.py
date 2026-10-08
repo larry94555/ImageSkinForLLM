@@ -14,6 +14,7 @@ and how the head nods and tilts.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import time
@@ -148,20 +149,41 @@ class Gains:
     jaw_px: float = 12.0  # extra opening at the loudest syllables, on the most open shape
     quiet: float = 0.35  # the quietest syllables open this share of jaw_px less
     brow_px: float = 8.0  # brow lift at a high or stressed note
-    nod_px: float = 6.0  # head dip on a strong beat
-    tilt_deg: float = 2.0  # head tilt per 4 semitones of pitch
-    lift_px: float = 3.5  # head lift per 4 semitones of pitch
+    # The head: Larry found nodding on every stressed syllable bouncy (2026-10-08), so it nods
+    # only on the strongest beat of a phrase, gently and slowly, and drifts side to side.
+    nod_px: float = 2.5  # head dip on the strongest beat of a phrase
+    nod_gap_s: float = 1.5  # at most one nod in this long
+    tilt_deg: float = 1.5  # head tilt per 4 semitones of pitch
+    lift_px: float = 1.0  # head lift per 4 semitones of pitch
+    sway_px: float = 3.0  # slow side-to-side drift while speaking
 
 
 @dataclass(frozen=True)
 class Motion:
     """Per frame: extra jaw opening (px, negative closes a little), brow lift (px), head drop
-    (px, positive is down) and tilt (degrees)."""
+    (px, positive is down), tilt (degrees) and sway (px, positive is to the right)."""
 
     jaw: Track
     brow: Track
     nod: Track
     tilt: Track
+    sway: Track
+
+
+def sway(loud: Track, fps: float, seed: int) -> Track:
+    """A slow side-to-side drift, 1 at most: a few slow waves (3 to 8 seconds long) mixed at
+    random, so it never repeats on a beat, and larger while the person speaks than in pauses.
+    The same seed gives the same drift."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(len(loud)) / fps
+    wave = sum(
+        rng.uniform(0.5, 1.0) * np.sin(2 * np.pi * rng.uniform(0.12, 0.33) * t + rng.uniform(0, 7))
+        for _ in range(3)
+    )
+    wave = np.asarray(wave, np.float64)
+    wave /= max(1e-6, float(np.abs(wave).max()))
+    speaking = np.clip(1.5 * _smooth((loud > 0).astype(np.float64), fps, 0.8), 0.4, 1.0)
+    return _smooth(wave * speaking, fps, 0.2)
 
 
 DEFAULT_GAINS = Gains()
@@ -178,6 +200,7 @@ def motion(
     loud = loudness(samples, rate, n_frames, fps)
     st = pitch(samples, rate, n_frames, fps, loud)
     beats = accents(loud, fps)
+    phrase_beats = [(f, s) for f, s in accents(loud, fps, gains.nod_gap_s) if s >= 0.5]
 
     level = _smooth(loud, fps, 0.05)
     # Average syllables keep today's mouth; louder ones open wider, quieter ones a little less.
@@ -191,20 +214,30 @@ def motion(
     for f, s in beats:
         u = (t - t[f] + 0.06) / 0.16  # peaks 0.1 s after the beat starts
         bump = np.where(u > 0, u * np.exp(1 - u), 0.0)
-        nod += gains.nod_px * s * bump
         brow += 0.5 * s * bump * (0.4 + high[f])  # brows go up most on high, stressed words
+    for f, s in phrase_beats:
+        u = (t - t[f] + 0.1) / 0.35  # a slow, gentle nod that peaks 0.25 s after the beat
+        nod += gains.nod_px * s * np.where(u > 0, u * np.exp(1 - u), 0.0)
     brow = gains.brow_px * np.clip(0.6 * high + brow, 0.0, 1.0)
 
     slow = _smooth(st, fps, 0.45) / 4.0
     tilt = gains.tilt_deg * np.clip(slow, -1.0, 1.0)
     nod = nod - gains.lift_px * np.clip(slow, -1.0, 1.0)
+    seed = int.from_bytes(hashlib.sha256(samples.tobytes()).digest()[:8], "big")
     logger.info(
         "Measured voice expression",
         extra={
             "frames": n_frames,
             "beats": len(beats),
+            "nods": len(phrase_beats),
             "pitch_range_st": round(float(np.ptp(st)), 1),
             "duration_ms": round((time.perf_counter() - start) * 1000, 1),
         },
     )
-    return Motion(jaw, brow, _smooth(nod, fps, 0.04), _smooth(tilt, fps, 0.08))
+    return Motion(
+        jaw,
+        brow,
+        _smooth(nod, fps, 0.1),
+        _smooth(tilt, fps, 0.15),
+        gains.sway_px * sway(loud, fps, seed),
+    )

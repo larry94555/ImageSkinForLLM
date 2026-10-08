@@ -17,7 +17,7 @@ from expressive import (
     openness,
     render,
 )
-from prosody import Motion, _f0, accents, loudness, motion, pitch
+from prosody import Gains, Motion, _f0, accents, loudness, motion, pitch, sway
 
 from imageskin.photoreal import Compositor
 from imageskin.photoreal_library import build_library, load_library
@@ -93,6 +93,24 @@ def test_motion_opens_wider_when_loud_and_logs(caplog: pytest.LogCaptureFixture)
     assert "Measured voice expression" in caplog.text
 
 
+def test_head_nods_gently_and_only_on_the_strongest_beats() -> None:
+    beats = np.concatenate([tone(150, 0.12, 0.6 if k % 2 else 0.1) for k in range(40)])  # 4.8 s
+    m = motion(beats, RATE, 120, FPS, Gains(lift_px=0.0))
+    every_beat = len(accents(loudness(beats, RATE, 120, FPS), FPS))
+    dips = int((np.diff(np.sign(np.diff(m.nod))) < 0).sum())  # turning points of the head
+    assert dips <= every_beat // 3
+    assert m.nod.max() <= 2.5 + 1e-6 and m.nod.min() >= -1e-6
+
+
+def test_sway_is_slow_bounded_and_seeded() -> None:
+    loud = np.ones(250)
+    a, b = sway(loud, FPS, 1), sway(loud, FPS, 2)
+    assert np.abs(a).max() <= 1.0 and np.abs(a).max() > 0.5
+    assert np.abs(np.diff(a)).max() < 0.1  # no jumps between frames
+    assert np.array_equal(a, sway(loud, FPS, 1)) and not np.array_equal(a, b)
+    assert np.abs(sway(np.zeros(250), FPS, 1)).max() < np.abs(a).max()  # calmer in pauses
+
+
 def test_openness_keeps_the_lips_closed_for_m_b_p_f_v() -> None:
     assert openness({"AA": 1.0}) == pytest.approx(1.0)
     assert openness({"MBP": 1.0}) == 0.0 and openness({"FV": 1.0}) == 0.0
@@ -115,7 +133,7 @@ def test_fields_move_the_right_parts_and_fade_out_at_the_edges() -> None:
 
 def still(n: int) -> Motion:
     zero = np.zeros(n)
-    return Motion(zero, zero, zero, zero)
+    return Motion(zero, zero, zero, zero, zero)
 
 
 def test_no_motion_gives_todays_face(tmp_path: Path, short_loop: object) -> None:
@@ -133,9 +151,10 @@ def test_jaw_brows_and_nod_change_the_face(tmp_path: Path, short_loop: object) -
     one = np.ones(1)
     zero = np.zeros(1)
     for m, rows in (
-        (Motion(12 * one, zero, zero, zero), slice(360, 420)),  # the jaw
-        (Motion(zero, 8 * one, zero, zero), slice(190, 230)),  # the brows
-        (Motion(zero, zero, 6 * one, 2 * one), slice(100, 450)),  # the whole head
+        (Motion(12 * one, zero, zero, zero, zero), slice(360, 420)),  # the jaw
+        (Motion(zero, 8 * one, zero, zero, zero), slice(190, 230)),  # the brows
+        (Motion(zero, zero, 6 * one, 2 * one, zero), slice(100, 450)),  # nod and tilt
+        (Motion(zero, zero, zero, zero, 4 * one), slice(100, 450)),  # side to side
     ):
         moved = comp.expressive_face({"AA": 1.0}, 0, 1.0, m, 0)
         assert np.abs(moved[rows].astype(int) - base[rows]).mean() > 1
@@ -165,5 +184,6 @@ def test_render_writes_the_video_and_motion(
     video = cv2.VideoCapture(str(out))
     assert int(video.get(cv2.CAP_PROP_FRAME_COUNT)) == 10
     video.release()
-    assert np.load(out.with_suffix(".motion.npz"))["jaw"].shape == (10,)
+    saved = np.load(out.with_suffix(".motion.npz"))
+    assert saved["jaw"].shape == saved["sway"].shape == (10,)
     assert "Rendered expressive video" in caplog.text
