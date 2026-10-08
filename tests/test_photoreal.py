@@ -16,6 +16,7 @@ from photoreal_fakes import (
 )
 
 from imageskin import photoreal
+from imageskin.expression import FrameMotion
 from imageskin.liveportrait_edits import eye_track
 from imageskin.photoreal import (
     Compositor,
@@ -127,9 +128,11 @@ def test_render_blinks_on_the_eye_track(tmp_path: Path, short_loop: object) -> N
     seen: list[float] = []
     real_frame = Compositor.frame
 
-    def frame(self: Compositor, w: dict[str, float], i: int, eye_open: float = 1.0) -> object:
+    def frame(
+        self: Compositor, w: dict[str, float], i: int, eye_open: float, move: FrameMotion
+    ) -> object:
         seen.append(eye_open)
-        return real_frame(self, w, i, eye_open)
+        return real_frame(self, w, i, eye_open, move)
 
     track = [1.0, 0.5, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     with (

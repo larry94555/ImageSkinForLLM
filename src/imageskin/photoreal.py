@@ -4,7 +4,8 @@
 `render` turns the sound timings into mouth-shape weights per frame (`imageskin.visemes`),
 morphs between the two strongest shapes along the optical flow between them, places that
 mouth on the matching idle-loop frame, adds the blinks (at natural, irregular times from
-`liveportrait_edits.eye_track`), pastes the face back into the photo and encodes the MP4 with
+`liveportrait_edits.eye_track`), moves the jaw, brows and head with the voice's loudness and
+pitch (`imageskin.expression`), pastes the face back into the photo and encodes the MP4 with
 the voice.
 """
 
@@ -13,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import time
 from array import array
 from collections.abc import Callable, Iterator
@@ -24,6 +26,16 @@ import numpy as np
 from numpy.typing import NDArray
 
 from imageskin.config import default_home
+from imageskin.expression import (
+    STILL,
+    FrameMotion,
+    brow_field,
+    head_weight,
+    jaw_field,
+    motion,
+    openness,
+    push,
+)
 from imageskin.liveportrait_edits import EYE_STAGES, eye_track, top_two
 from imageskin.photoreal_library import (
     CROP,
@@ -107,26 +119,57 @@ class Compositor:
         self.eyes = EyeMorph(lib)
         self.paste = Paster(lib)
         self.boxes = (reach(lib.window, lib.align), reach(lib.eye_window, lib.eye_align))
+        # Where the voice's expression moves the face (imageskin.expression), made once.
+        lm = np.load(lib.folder / "crop_landmarks.npy")
+        self.jaw = jaw_field(lm, lib.window)
+        self.brow = brow_field(lm, lib.eye_window)
+        self.head = head_weight(lm)
+        self.mouth_grid = pixel_grid(self.morph.faces["rest"])
+        self.eye_grid = pixel_grid(self.eyes.morph.faces["0"])
+        self.crop_grid = pixel_grid(lib.shapes["rest"])
+        self.pivot = (float(lm[8, 0]), float(lm[8, 1]) + 40)  # below the chin, at the neck
 
-    def face(self, weights: dict[str, float], frame: int, eye_open: float = 1.0) -> Image:
+    def face(
+        self,
+        weights: dict[str, float],
+        frame: int,
+        eye_open: float = 1.0,
+        move: FrameMotion = STILL,
+    ) -> Image:
         """The face crop for one video frame: idle-loop frame `frame`, mouth from `weights`,
-        eyes `eye_open` open.
+        eyes `eye_open` open, jaw, brows and head moved by `move`.
 
         The mouth and the eyes are made on the still head, then moved with the head (a shift
         and a slight turn, from `Library.align` and `Library.eye_align`) and blended in
-        through their soft masks.
+        through their soft masks. The head's nod, tilt and sway are added last, fading out
+        before the crop's edge so the paste into the photo stays seamless.
         """
         lib = self.lib
         j = frame % len(lib.loop)
         face = lib.loop[j].copy()
         mouth_box, eye_box = self.boxes
-        self._put(
-            face, self.morph(*top_two(weights)), lib.window, mouth_box, lib.align[j], lib.mouth
-        )
-        self._put(
-            face, self.eyes(eye_open), lib.eye_window, eye_box, lib.eye_align[j], lib.eye_mask
-        )
+        mouth = self.morph(*top_two(weights))
+        jaw = move.jaw * openness(weights)
+        if abs(jaw) > 0.05:
+            mouth = push(mouth, self.mouth_grid, 0.0, jaw * self.jaw)
+        self._put(face, mouth, lib.window, mouth_box, lib.align[j], lib.mouth)
+        eyes = self.eyes(eye_open)
+        if move.brow > 0.05:
+            eyes = push(eyes, self.eye_grid, 0.0, -move.brow * self.brow)
+        self._put(face, eyes, lib.eye_window, eye_box, lib.eye_align[j], lib.eye_mask)
+        if move.nod or move.tilt or move.sway:
+            face = self._move_head(face, move)
         return face
+
+    def _move_head(self, face: Image, move: FrameMotion) -> Image:
+        """Turn the head about the neck by `move.tilt` and shift it by the nod and sway."""
+        a = math.radians(move.tilt)
+        px, py = self.pivot
+        gx = self.crop_grid[..., 0] - px
+        gy = self.crop_grid[..., 1] - py
+        dx = (math.cos(a) - 1) * gx - math.sin(a) * gy + move.sway
+        dy = math.sin(a) * gx + (math.cos(a) - 1) * gy + move.nod
+        return push(face, self.crop_grid, dx * self.head, dy * self.head)
 
     def _put(
         self,
@@ -150,9 +193,15 @@ class Compositor:
         moved = cv2.warpAffine(still, move, size, borderMode=cv2.BORDER_REFLECT)
         face[by0:by1, bx0:bx1] = face[by0:by1, bx0:bx1] * (1.0 - soft) + moved * soft
 
-    def frame(self, weights: dict[str, float], frame: int, eye_open: float = 1.0) -> Image:
+    def frame(
+        self,
+        weights: dict[str, float],
+        frame: int,
+        eye_open: float = 1.0,
+        move: FrameMotion = STILL,
+    ) -> Image:
         """One whole RGB video frame."""
-        return self.paste(self.face(weights, frame, eye_open))
+        return self.paste(self.face(weights, frame, eye_open, move))
 
 
 def audio_seed(samples: array[int]) -> int:
@@ -193,12 +242,13 @@ class PhotorealEngine:
         n_frames = max(1, round(seconds * FPS))
         weights = frame_weights(read_shapes(wav.with_suffix(".json")), n_frames, FPS)
         eyes = eye_track(n_frames, FPS, seed=audio_seed(samples))
+        moves = motion(np.asarray(samples, np.float32) / 32768.0, rate, n_frames, FPS)
         compositor = self._compositors.get(lib.folder) or Compositor(lib)
         self._compositors[lib.folder] = compositor
 
         def frames() -> Iterator[bytes]:
             for i, w in enumerate(weights):
-                yield compositor.frame(w, i, eyes[i]).tobytes()
+                yield compositor.frame(w, i, eyes[i], moves.at(i)).tobytes()
 
         h, w = lib.photo.shape[:2]
         write_mp4(frames(), (w, h), wav, output, self._timeout_s, pix_fmt="rgb24")

@@ -1,15 +1,15 @@
-"""Expressive motion from the voice itself: loudness and pitch, per video frame.
+"""Expression from the voice itself: loudness and pitch drive the jaw, brows and head.
 
-An experiment for Larry's question after R25 (2026-10-08): the cloned voice rises, falls and
-gets louder, but the face moves the same way whether a word is whispered or shouted. Nothing
-here runs a model; everything comes from the WAV the voice engine already wrote.
-
-  - `loudness`: how loud each frame is, 0 (the quiet end of this speech) to 1 (its loudest).
-  - `pitch`: how far the voice is above or below its own middle, in semitones, smoothed.
-  - `accents`: the stressed beats (loudness peaks), the moments a speaker nods on.
-
-`Motion` turns them into what the face does: how wide the mouth opens, how far the brows lift,
-and how the head nods and tilts.
+Larry, after R25 (2026-10-08): the cloned voice rises, falls and gets louder, but the face moved
+the same way whether a word was whispered or shouted. Tried in experiments/expressive (GitHub
+PR #32) and kept. Nothing here runs a model; everything comes from the WAV the voice engine
+wrote, and the motion is drawn as small smooth warps on the photoreal engine's frames:
+  - jaw: louder syllables open wider and quiet ones a little less, scaled by how open the
+    mouth shape already is, so m, b, p, f and v still close;
+  - brows: lift on high or stressed words;
+  - head: a gentle nod on the strongest beat of a phrase, a tilt and slight lift with the
+    pitch, and a slow side-to-side drift while speaking.
+Pixels are in LivePortrait's 512 px face crop.
 """
 
 from __future__ import annotations
@@ -19,13 +19,21 @@ import logging
 import math
 import time
 from dataclasses import dataclass
+from typing import Any, NamedTuple
 
+import cv2
 import numpy as np
 from numpy.typing import NDArray
+
+from imageskin.liveportrait_edits import MOUTH_SHAPES
+from imageskin.photoreal_library import CROP, Image
+from imageskin.visemes import CONTACT
 
 logger = logging.getLogger(__name__)
 
 Track = NDArray[np.float64]
+Field = NDArray[np.float32]
+Shift = NDArray[np.floating[Any]] | float  # pixels to move, per pixel or for all of them
 
 LEAD_S = 0.03  # the face moves just ahead of the sound, like the mouth (visemes.frame_weights)
 
@@ -169,6 +177,28 @@ class Motion:
     tilt: Track
     sway: Track
 
+    def at(self, i: int) -> FrameMotion:
+        return FrameMotion(
+            float(self.jaw[i]),
+            float(self.brow[i]),
+            float(self.nod[i]),
+            float(self.tilt[i]),
+            float(self.sway[i]),
+        )
+
+
+class FrameMotion(NamedTuple):
+    """The motion in one frame, in the units of `Motion`."""
+
+    jaw: float = 0.0
+    brow: float = 0.0
+    nod: float = 0.0
+    tilt: float = 0.0
+    sway: float = 0.0
+
+
+STILL = FrameMotion()
+
 
 def sway(loud: Track, fps: float, seed: int) -> Track:
     """A slow side-to-side drift, 1 at most: a few slow waves (3 to 8 seconds long) mixed at
@@ -241,3 +271,76 @@ def motion(
         _smooth(tilt, fps, 0.15),
         gains.sway_px * sway(loud, fps, seed),
     )
+
+
+MOST_OPEN = max(s.ratio or 0.0 for s in MOUTH_SHAPES.values())
+
+
+def openness(weights: dict[str, float]) -> float:
+    """How open the mouth shapes in this frame are, 0 (closed or lips touching) to 1."""
+    return sum(
+        w * (MOUTH_SHAPES[k].ratio or 0.0) / MOST_OPEN
+        for k, w in weights.items()
+        if k not in CONTACT
+    )
+
+
+def _taper(d: NDArray[np.float64], inner: float, outer: float) -> NDArray[np.float64]:
+    """1 within `inner`, easing to 0 at `outer` (a raised cosine)."""
+    s = np.clip((d - inner) / max(1e-6, outer - inner), 0.0, 1.0)
+    return 0.5 * (1 + np.cos(math.pi * s))
+
+
+def jaw_field(lm: NDArray[np.float32], window: tuple[int, int, int, int]) -> Field:
+    """How far each pixel of the mouth patch moves down per pixel of extra opening: the lower
+    lip and jaw the whole way, the chin less, the upper lip a quarter of the way up."""
+    x0, y0, x1, y1 = window
+    lip = float((lm[62, 1] + lm[66, 1]) / 2)
+    chin = float(lm[8, 1])
+    cx = float(lm[48:68, 0].mean())
+    half = float(np.ptp(lm[48:60, 0])) / 2
+    ys = np.arange(y0, y1, dtype=np.float64)
+    xs = np.arange(x0, x1, dtype=np.float64)
+    v = np.interp(
+        ys,
+        [y0, lip - 30, lip - 12, lip - 2, lip + 6, lip + 30, chin, y1 - 1],
+        [0.0, 0.0, -0.25, -0.25, 1.0, 1.0, 0.6, 0.0],
+    )
+    h = _taper(np.abs(xs - cx), 0.6 * half, min(2.0 * half, cx - x0 - 2, x1 - cx - 2))
+    return np.asarray(v[:, None] * h[None, :], np.float32)
+
+
+def brow_field(lm: NDArray[np.float32], window: tuple[int, int, int, int]) -> Field:
+    """How far each pixel of the eye patch moves up per pixel of brow lift."""
+    x0, y0, x1, y1 = window
+    brow = float(lm[17:27, 1].mean())
+    eye = float(lm[36:48, 1].mean())
+    ys = np.arange(y0, y1, dtype=np.float64)
+    xs = np.arange(x0, x1, dtype=np.float64)
+    v = np.interp(ys, [y0, brow - 25, brow - 8, brow + 6, eye - 6, y1 - 1], [0, 0.5, 1, 1, 0, 0])
+    left, right = float(lm[17, 0]), float(lm[26, 0])
+    cx, half = (left + right) / 2, (right - left) / 2
+    h = _taper(np.abs(xs - cx), half - 5, min(half + 20, cx - x0 - 2, x1 - cx - 2))
+    return np.asarray(v[:, None] * h[None, :], np.float32)
+
+
+def head_weight(lm: NDArray[np.float32]) -> Field:
+    """How much of the head's nod and tilt each pixel of the face crop takes: all of it over
+    the head, easing to none well before the crop's edge, so the paste stays seamless."""
+    gy, gx = np.mgrid[0:CROP, 0:CROP].astype(np.float64)
+    cx, cy = float(lm[:, 0].mean()), float(lm[:, 1].mean()) - 20
+    fade, margin = 1.6, 10.0  # the outermost 10 px never move
+    rx = min(150.0, (min(cx, CROP - 1 - cx) - margin) / fade)
+    up, down = (cy - margin) / fade, (CROP - 1 - cy - margin) / fade
+    ry = np.where(gy < cy, min(180.0, up), min(140.0, down))
+    r = np.sqrt(((gx - cx) / rx) ** 2 + ((gy - cy) / ry) ** 2)
+    return np.asarray(_taper(r, 1.0, fade), np.float32)
+
+
+def push(image: Image, grid: Field, dx: Shift, dy: Shift) -> Image:
+    """Move pixels by (dx, dy): each output pixel takes the colour from where it came."""
+    m = grid.copy()
+    m[..., 0] -= dx
+    m[..., 1] -= dy
+    out = cv2.remap(image, m, None, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)  # type: ignore[call-overload]
+    return np.asarray(out, np.uint8)

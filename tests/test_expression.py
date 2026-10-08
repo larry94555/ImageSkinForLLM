@@ -1,29 +1,31 @@
-"""Unit tests for the expressive-face experiment, on synthetic sounds and a fake library."""
+"""Unit tests for the voice-driven expression, on synthetic sounds and a fake library."""
 
-import json
 import logging
-import sys
-import wave
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pytest
-from expressive import (
-    ExpressiveCompositor,
+from numpy.typing import NDArray
+from photoreal_fakes import FakePortrait, landmarks, short_loop
+
+from imageskin.expression import (
+    STILL,
+    FrameMotion,
+    Gains,
+    Motion,
+    _f0,
+    accents,
     brow_field,
     head_weight,
     jaw_field,
+    loudness,
+    motion,
     openness,
-    render,
+    pitch,
+    sway,
 )
-from prosody import Gains, Motion, _f0, accents, loudness, motion, pitch, sway
-
 from imageskin.photoreal import Compositor
 from imageskin.photoreal_library import build_library, load_library
-
-sys.path.insert(0, str(Path(__file__).parents[2] / "tests"))
-from photoreal_fakes import FakePortrait, landmarks, short_loop  # noqa: E402
 
 __all__ = ["short_loop"]  # a fixture, used by name
 
@@ -31,7 +33,9 @@ RATE = 24000
 FPS = 25
 
 
-def tone(hz: float | np.ndarray, seconds: float, level: float = 0.3) -> np.ndarray:
+def tone(
+    hz: float | NDArray[np.float64], seconds: float, level: float = 0.3
+) -> NDArray[np.float32]:
     """A voice-like buzz: a fundamental with falling harmonics, at a fixed or gliding pitch."""
     n = int(seconds * RATE)
     f = np.broadcast_to(np.asarray(hz, np.float64), (n,)) if np.ndim(hz) else np.full(n, hz)
@@ -131,59 +135,36 @@ def test_fields_move_the_right_parts_and_fade_out_at_the_edges() -> None:
     assert head[256, 256] == 1.0 and head[0, 0] == 0.0 and head[511, 0] == 0.0
 
 
-def still(n: int) -> Motion:
-    zero = np.zeros(n)
-    return Motion(zero, zero, zero, zero, zero)
+def test_motion_at_a_frame() -> None:
+    track = np.arange(3, dtype=np.float64)
+    m = Motion(track, 2 * track, 3 * track, 4 * track, 5 * track)
+    assert m.at(1) == FrameMotion(1.0, 2.0, 3.0, 4.0, 5.0)
 
 
-def test_no_motion_gives_todays_face(tmp_path: Path, short_loop: object) -> None:
+def test_still_gives_the_face_without_expression(tmp_path: Path, short_loop: object) -> None:
     build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
-    lib = load_library(tmp_path / "lib")
-    plain, expressive = Compositor(lib), ExpressiveCompositor(lib)
+    comp = Compositor(load_library(tmp_path / "lib"))
     for w in ({"rest": 1.0}, {"AA": 1.0}):
-        assert np.array_equal(plain.face(w, 3), expressive.expressive_face(w, 3, 1.0, still(1), 0))
+        assert np.array_equal(comp.face(w, 3), comp.face(w, 3, 1.0, FrameMotion(0.01, 0.01)))
 
 
-def test_jaw_brows_and_nod_change_the_face(tmp_path: Path, short_loop: object) -> None:
+def test_jaw_brows_and_head_move_the_face(tmp_path: Path, short_loop: object) -> None:
     build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
-    comp = ExpressiveCompositor(load_library(tmp_path / "lib"))
-    base = comp.expressive_face({"AA": 1.0}, 0, 1.0, still(1), 0)
-    one = np.ones(1)
-    zero = np.zeros(1)
-    for m, rows in (
-        (Motion(12 * one, zero, zero, zero, zero), slice(360, 420)),  # the jaw
-        (Motion(zero, 8 * one, zero, zero, zero), slice(190, 230)),  # the brows
-        (Motion(zero, zero, 6 * one, 2 * one, zero), slice(100, 450)),  # nod and tilt
-        (Motion(zero, zero, zero, zero, 4 * one), slice(100, 450)),  # side to side
+    comp = Compositor(load_library(tmp_path / "lib"))
+    base = comp.face({"AA": 1.0}, 0, 1.0, STILL)
+    for move, rows in (
+        (FrameMotion(jaw=12), slice(360, 420)),
+        (FrameMotion(brow=8), slice(190, 230)),
+        (FrameMotion(nod=6, tilt=2), slice(100, 450)),
+        (FrameMotion(sway=4), slice(100, 450)),
     ):
-        moved = comp.expressive_face({"AA": 1.0}, 0, 1.0, m, 0)
+        moved = comp.face({"AA": 1.0}, 0, 1.0, move)
         assert np.abs(moved[rows].astype(int) - base[rows]).mean() > 1
         assert np.array_equal(moved[:8], base[:8])  # the crop's edge stays put for the paste
 
 
-def write_voice(wav: Path) -> None:
-    audio = np.concatenate([tone(110, 0.2, 0.05), tone(150, 0.2, 0.6)])
-    with wave.open(str(wav), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(RATE)
-        w.writeframes((audio * 32767).astype(np.int16).tobytes())
-    shapes = [{"shape": "AA", "start": 0.0, "end": 0.4}]
-    wav.with_suffix(".json").write_text(json.dumps({"shapes": shapes}))
-
-
-def test_render_writes_the_video_and_motion(
-    tmp_path: Path, short_loop: object, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_jaw_leaves_closed_lips_alone(tmp_path: Path, short_loop: object) -> None:
     build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
-    wav = tmp_path / "speech.wav"
-    write_voice(wav)
-    out = tmp_path / "after.mp4"
-    with caplog.at_level(logging.INFO):
-        render(load_library(tmp_path / "lib"), wav, out)
-    video = cv2.VideoCapture(str(out))
-    assert int(video.get(cv2.CAP_PROP_FRAME_COUNT)) == 10
-    video.release()
-    saved = np.load(out.with_suffix(".motion.npz"))
-    assert saved["jaw"].shape == saved["sway"].shape == (10,)
-    assert "Rendered expressive video" in caplog.text
+    comp = Compositor(load_library(tmp_path / "lib"))
+    closed = comp.face({"MBP": 1.0}, 0)
+    assert np.array_equal(closed, comp.face({"MBP": 1.0}, 0, 1.0, FrameMotion(jaw=12)))
