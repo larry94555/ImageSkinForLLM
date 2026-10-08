@@ -1,5 +1,7 @@
-"""The prepare job (roadmaps R12 and R13): gets the voice and the face ready for the video,
+"""The prepare job (roadmaps R12, R13 and R25b): gets the voice and the face ready for the video,
 renders the sample video and the fixed lines, in the background, and reports how far it has got.
+The clips are spoken in the person's own voice, cloned from the voice sample, when Chatterbox is
+installed (R25), and in a ready-made Kokoro voice otherwise.
 
 The face step renders the photoreal frame library (`photoreal_library`), which takes tens of
 minutes or more on a laptop CPU. The job's state is saved in <data folder>/prepare.json, so
@@ -7,6 +9,7 @@ when the server stops mid-way, the next start carries on: frames and clips alrea
 are kept. The clips are saved in <data folder>/clips/<name>.mp4.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -16,12 +19,16 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.sample import SAMPLE_SCRIPT, speak_and_render
 from imageskin.uploads import UploadStore
 from imageskin.video import INSTALL_HINT, VideoError, find_ffmpeg
 from imageskin.voice import VoiceEngine, VoiceError
+
+if TYPE_CHECKING:
+    from imageskin.chatterbox_engine import ChatterboxEngine
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +48,16 @@ CLIPS: tuple[tuple[ClipName, str], ...] = (
 )
 
 # The steps in order: key, what the browser shows, and roughly how many seconds each takes on a
-# 4-core CPU, which weights it in the overall percentage. The idle loop is most of the work.
+# 4-core CPU, which weights it in the overall percentage. The idle loop is most of the work. The
+# voice and clips weights are for the cloned voice, which loads for about 30 seconds and takes
+# about 2.5 seconds per second of speech; Kokoro is quicker.
 STEPS = (
-    ("voice", "Get the voice ready", 10),
+    ("voice", "Get the voice ready", 40),
     ("models", "Load the face model", 30),
     ("shapes", "Render the 10 mouth shapes and the blinking eyes", 70),
     ("loop", "Render the idle video (head movement)", 250),
     ("align", "Line up the mouth with the head", 20),
-    ("clips", "Render the sample video and the fixed lines", 60),
+    ("clips", "Render the sample video and the fixed lines", 100),
 )
 NO_PHOTO = "Add a photo that passes the checks first."
 
@@ -71,6 +80,7 @@ class Step:
 class PrepareStatus:
     state: State
     photo_id: str | None = None  # the photo being, or last, prepared
+    voice_id: str | None = None  # the voice sample it was prepared from (voice_fingerprint)
     percent: int = 0
     steps: list[Step] | None = None
     error: str | None = None  # why it failed
@@ -86,6 +96,15 @@ def percent(steps: list[Step]) -> int:
     weights = {key: weight for key, _, weight in STEPS}
     done = sum(weights[s.key] * s.done / s.total for s in steps if s.total)
     return int(100 * done / sum(weights.values()))
+
+
+def voice_fingerprint(path: Path) -> str | None:
+    """Tells voice samples apart: it changes whenever the recordings the sample is joined from
+    change. None when there is no voice sample. A few MB, read in milliseconds."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    except FileNotFoundError:
+        return None
 
 
 def now_iso() -> str:
@@ -142,13 +161,16 @@ class PrepareJob:
 
     def status(self) -> PrepareStatus:
         """How far the job has got. A finished job shows as idle once what it was made from
-        changed: another photo is chosen, or the voice sample no longer has enough speech."""
+        changed: another photo is chosen, or the recordings changed (the clips speak in the voice
+        learned from them)."""
         with self._lock:
             status = self._status
         if status.state in ("done", "failed"):
             if status.photo_id != self._store.photo_choice().id:
                 return PrepareStatus("idle")
             if self._store.voice_sample().problem:
+                return PrepareStatus("idle")
+            if status.voice_id != voice_fingerprint(self._store.voice_sample_file):
                 return PrepareStatus("idle")
         return status
 
@@ -226,6 +248,10 @@ class PrepareJob:
         photo_id = self._status.photo_id or ""
         self._clock = {}
         logger.info("Prepare job started", extra={"photo_id": photo_id})
+        with self._lock:
+            # The voice is learned from the sample as it is now, also when resuming.
+            voice_id = voice_fingerprint(self._store.voice_sample_file)
+            self._status = replace(self._status, voice_id=voice_id)
         try:
             photo = self._store.path("photos", photo_id)
             if photo is None:
@@ -293,12 +319,43 @@ class PrepareJob:
 def kokoro_voice(engine: VoiceEngine) -> PrepareVoice:
     """Load the voice model (downloaded the first time, about 330 MB) by saying one word. The
     same engine then speaks the clips, so the model is loaded once."""
-    from imageskin.kokoro_engine import DEFAULT_VOICE
 
     def prepare() -> None:
         engine.speak(DEFAULT_VOICE, "Hello.")
 
     return prepare
+
+
+def cloned_voice(engine: "ChatterboxEngine", voice_sample: Path) -> PrepareVoice:
+    """Load the clone's models (downloaded the first time, about 3 GB) and learn the person's
+    voice from the voice sample. The same engine then speaks the clips in that voice."""
+
+    def prepare() -> None:
+        start = time.perf_counter()
+        engine.learn_voice(str(voice_sample))
+        logger.info(
+            "Voice ready: the person's own",
+            extra={"duration_s": round(time.perf_counter() - start, 1)},
+        )
+
+    return prepare
+
+
+def clip_voice(voice_sample: Path) -> tuple[PrepareVoice, VoiceEngine, str]:
+    """The voice step, the engine and the voice the clips are spoken in: the person's own, cloned
+    from the voice sample, when Chatterbox is installed (see the README); otherwise Kokoro's."""
+    from imageskin.chatterbox_engine import ChatterboxEngine, check_installed
+
+    try:
+        check_installed()
+    except VoiceError as e:
+        message = "Prepare speaks in a ready-made Kokoro voice, not the person's"
+        logger.warning(message, extra={"reason": str(e)})
+        kokoro = KokoroEngine()
+        return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE
+    logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
+    engine = ChatterboxEngine()
+    return cloned_voice(engine, voice_sample), engine, str(voice_sample)
 
 
 def photoreal_face(home: Path) -> PrepareFace:
@@ -317,19 +374,18 @@ def photoreal_face(home: Path) -> PrepareFace:
     return prepare
 
 
-def photoreal_clip(home: Path, voice_engine: VoiceEngine) -> RenderClip:
-    """Speak the text and render it from the photo's photoreal library."""
+def photoreal_clip(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_VOICE) -> RenderClip:
+    """Speak the text in the voice and render it from the photo's photoreal library."""
     # The video engine and the loaded library, made on first use and kept for the next clip.
     kept: dict[str, Any] = {}
 
     def render(photo: Path, text: str, output: Path) -> None:
-        from imageskin.kokoro_engine import DEFAULT_VOICE
         from imageskin.photoreal import PhotorealEngine
 
         if kept.get("photo") != photo:
             video = PhotorealEngine(home)
             # Already rendered by the face step, so this only loads it.
             kept.update(photo=photo, video=video, lib=video.prepare(photo))
-        speak_and_render(kept["lib"], text, output, voice_engine, kept["video"], DEFAULT_VOICE)
+        speak_and_render(kept["lib"], text, output, voice_engine, kept["video"], voice)
 
     return render

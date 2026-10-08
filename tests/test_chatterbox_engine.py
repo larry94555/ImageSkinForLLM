@@ -106,6 +106,22 @@ def test_voice_is_learned_once_per_sample(voice_sample: Path, tmp_path: Path) ->
     assert len(cloner.voices) == 2
 
 
+def test_learn_voice_loads_the_models_and_relearns_a_changed_sample(
+    voice_sample: Path,
+) -> None:
+    cloner = FakeCloner()
+    aligner = FakeAligner()
+    eng = ChatterboxEngine(lambda: cloner, aligner, lambda: None)
+    eng.learn_voice(str(voice_sample))
+    assert aligner.loads == 1 and len(cloner.voices) == 1 and cloner.texts == []
+    # New recordings: the sample is joined again under the same name.
+    write_wav(voice_sample, np.full(SAMPLE_RATE * 12, 0.25, dtype=np.float32))
+    eng.learn_voice(str(voice_sample))
+    assert len(cloner.voices) == 2 and cloner.voices[1][0] == 0.25
+    eng.speak(str(voice_sample), "Hello")
+    assert len(cloner.voices) == 2  # speaking keeps the voice just learned
+
+
 def test_empty_text_is_rejected(voice_sample: Path) -> None:
     with pytest.raises(VoiceError, match="no text"):
         engine(FakeCloner()).speak(str(voice_sample), "  ")

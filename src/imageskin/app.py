@@ -18,7 +18,6 @@ from pydantic import BaseModel
 from imageskin import __version__
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
-from imageskin.kokoro_engine import KokoroEngine
 from imageskin.prepare_job import (
     ClipName,
     PrepareError,
@@ -27,7 +26,7 @@ from imageskin.prepare_job import (
     PrepareStatus,
     PrepareVoice,
     RenderClip,
-    kokoro_voice,
+    clip_voice,
     photoreal_clip,
     photoreal_face,
 )
@@ -212,13 +211,13 @@ def create_app(
         return {"removed": True}
 
     # One voice engine for the job, so Prepare loads the voice model once.
-    voice_engine = KokoroEngine()
+    voice_step, voice_engine, voice = clip_voice(store.voice_sample_file)
     job = PrepareJob(
         data_home,
         store,
-        prepare_voice or kokoro_voice(voice_engine),
+        prepare_voice or voice_step,
         prepare_face or photoreal_face(data_home),
-        render_clip or photoreal_clip(data_home, voice_engine),
+        render_clip or photoreal_clip(data_home, voice_engine, voice),
     )
     app.state.prepare_job = job
     job.resume()  # a job the server was stopped in the middle of carries on
