@@ -2,12 +2,13 @@
 
 `prepare_library` (once per photo, minutes to tens of minutes on a laptop CPU) renders and
 saves to a folder:
-  - the 10 mouth shapes on the still head, with Larry's accepted softness (R4a);
-  - an idle loop of the face with a slight head drift and two blinks (LOOP_SECONDS long).
-    Only every KEY_EVERY-th frame and the frames around the blinks are rendered; the head
+  - the 10 mouth shapes on the still head, with Larry's accepted softness (R4a), and the eyes
+    part-way and fully closed for blinks, which are added when a video is made;
+  - an idle loop of the face with a slight head drift and open eyes (LOOP_SECONDS long).
+    Only every KEY_EVERY-th frame is rendered; the head
     moves less than a tenth of a degree per frame, so the ones between are filled in along
     the optical flow (45 to 55 dB PSNR against fully rendered frames, about 3x faster);
-  - how the lower face moves in each loop frame, so the mouth can follow the head.
+  - how the lower face and the eyes move in each loop frame, so they follow the head.
 An interrupted run picks up where it stopped; a finished library is reused. Making videos
 from a library needs only NumPy and OpenCV, no model.
 """
@@ -27,13 +28,14 @@ import numpy as np
 from numpy.typing import NDArray
 
 from imageskin.liveportrait_edits import (
+    BLINK_BROW,
     CONTROLS,
+    EYE_STAGES,
     LOOP_SECONDS,
     MOUTH_SHAPES,
     OPENING,
     STRENGTH,
     UPPER_LIP,
-    eye_openness,
     idle_motion,
     soften,
 )
@@ -45,7 +47,7 @@ logger = logging.getLogger(__name__)
 # Bump when existing libraries become unusable or must be made again, so they are rebuilt. A
 # change that only makes new frames differently (such as filling in idle-loop frames) keeps
 # the version: libraries made before stay valid.
-LIBRARY_VERSION = 1
+LIBRARY_VERSION = 2  # 2: blinks taken out of the idle loop
 CROP = 512  # LivePortrait's face crop is CROP x CROP pixels
 KEY_EVERY = 4  # idle-loop frames rendered by the model; the rest are filled in between
 
@@ -88,6 +90,10 @@ class Library:
     align: NDArray[np.float64]  # per loop frame, 2x3 affine from the still head to that frame
     mouth: Mask  # where the mouth and jaw are, soft-edged, in the still head's crop
     window: Window  # the part of the crop that holds the mouth mask
+    eyes: list[Image]  # the still head with its eyes at each of EYE_STAGES
+    eye_align: NDArray[np.float64]  # like align, for the eyes and brows
+    eye_mask: Mask
+    eye_window: Window
 
 
 def optical_flow(a: NDArray[np.uint8], b: NDArray[np.uint8]) -> NDArray[np.float32]:
@@ -107,10 +113,12 @@ def library_key(photo: Path) -> str:
 
 
 def mouth_key() -> str:
-    """Changes whenever the mouth-shape settings do, so only the shapes are rendered again."""
+    """Changes whenever the mouth-shape or blink settings do, so only the shapes and eyes are
+    rendered again."""
     settings = repr(
         (sorted(MOUTH_SHAPES.items()), sorted(CONTROLS.items()), STRENGTH, OPENING, UPPER_LIP)
     )
+    settings += repr((EYE_STAGES, BLINK_BROW))
     return hashlib.sha256(settings.encode()).hexdigest()[:12]
 
 
@@ -133,9 +141,26 @@ def mouth_mask(landmarks: NDArray[np.float32], size: int = CROP) -> tuple[Mask, 
     return mask, (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
 
 
+def eye_mask(landmarks: NDArray[np.float32], size: int = CROP) -> tuple[Mask, Window]:
+    """A soft patch over both eyes and brows, and its bounds. Inside it the blinks come from
+    the eye stages; outside, from the idle loop."""
+    points = np.concatenate([landmarks[17:27], landmarks[36:48]]).astype(np.int32)
+    width = max(4.0, float(np.ptp(points[:, 0])))
+    mask = np.zeros((size, size), np.float32)
+    cv2.fillConvexPoly(mask, cv2.convexHull(points), 1.0)
+    grow = max(1, round(0.12 * width))  # so the lids close well inside the soft edge
+    disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * grow + 1, 2 * grow + 1))
+    mask = np.asarray(cv2.dilate(mask, disc), np.float32)
+    mask = np.asarray(cv2.GaussianBlur(mask, (0, 0), 0.05 * width), np.float32)
+    ys, xs = np.nonzero(mask > 0.01)
+    if not len(xs):
+        raise VideoError("could not find the eyes in the face crop")
+    return mask, (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+
+
 def align_loop(rest: Image, loop: list[Image], mask: Mask, window: Window) -> NDArray[np.float64]:
-    """For each loop frame, the shift, turn and scale that carries the still head's lower
-    face onto that frame's, from the optical flow between them.
+    """For each loop frame, the shift, turn and scale that carries the part of the still head
+    under `mask` (the lower face, or the eyes) onto that frame's, from the optical flow.
 
     The head moves by a degree or two, so this keeps the mouth in place to within a pixel.
     """
@@ -154,11 +179,8 @@ def align_loop(rest: Image, loop: list[Image], mask: Mask, window: Window) -> ND
 
 
 def key_frames(n_loop: int) -> list[int]:
-    """The idle-loop frames the model renders: every KEY_EVERY-th one, and each frame in or
-    next to a blink, since eyelids move too fast to fill in."""
-    blinking = {i for i in range(n_loop) if eye_openness(i / FPS) < 1.0}
-    near = {j for i in blinking for j in (i - 1, i, i + 1) if 0 <= j < n_loop}
-    return sorted({i for i in range(n_loop) if i % KEY_EVERY == 0} | near)
+    """The idle-loop frames the model renders: every KEY_EVERY-th one."""
+    return list(range(0, n_loop, KEY_EVERY))
 
 
 def pixel_grid(image: Image) -> NDArray[np.float32]:
@@ -254,25 +276,34 @@ def build_library(
     old_mouth = json.loads(shapes_meta.read_text()).get("mouth") if shapes_meta.exists() else None
     if old_mouth != mouth_key() or not (folder / "shapes.npy").exists():
         faces = []
-        progress("shapes", 0, len(SHAPES))
+        total = len(SHAPES) + len(EYE_STAGES)
+        progress("shapes", 0, total)
         for name in SHAPES:
             controls, ratio = soften(name, STRENGTH, portrait.lip_ratio)
             faces.append(portrait.render(controls, None if name == "rest" else ratio, UPPER_LIP))
-            progress("shapes", len(faces), len(SHAPES))
+            progress("shapes", len(faces), total)
+        eyes = []
+        for level in EYE_STAGES:
+            brow = {"brow": BLINK_BROW * (1.0 - level)}
+            eyes.append(portrait.render(brow, None, UPPER_LIP, (0.0, 0.0, 0.0), level))
+            progress("shapes", len(faces) + len(eyes), total)
         _save(folder / "shapes.npy", np.stack(faces))
+        _save(folder / "eyes.npy", np.stack(eyes))
         shapes_meta.write_text(json.dumps({"mouth": mouth_key()}), encoding="utf-8")
-        logger.info("Rendered mouth shapes", extra={"shapes": len(SHAPES), "mouth": mouth_key()})
+        logger.info(
+            "Rendered mouth and eye shapes",
+            extra={"shapes": len(SHAPES), "eyes": len(EYE_STAGES), "mouth": mouth_key()},
+        )
 
     keys = key_frames(n_loop)
     todo = [i for i in keys if not (folder / "loop" / f"{i:04d}.npy").exists()]
     if 0 < len(todo) < len(keys):
         logger.info("Resuming idle loop", extra={"done": len(keys) - len(todo), "of": len(keys)})
-    progress("shapes", len(SHAPES), len(SHAPES))
+    progress("shapes", len(SHAPES) + len(EYE_STAGES), len(SHAPES) + len(EYE_STAGES))
     progress("loop", len(keys) - len(todo), len(keys))
     loop_start = time.perf_counter()
     for k, i in enumerate(todo, 1):
-        pitch, yaw, roll, eye_open = idle_motion(i, n_loop, FPS)
-        face = portrait.render({}, None, 1.0, (pitch, yaw, roll), eye_open)
+        face = portrait.render({}, None, 1.0, idle_motion(i, n_loop))
         _save(folder / "loop" / f"{i:04d}.npy", face)
         progress("loop", len(keys) - len(todo) + k, len(keys))
         if k % 10 == 0 or k == len(todo):
@@ -300,6 +331,8 @@ def build_library(
     loop = [np.load(folder / "loop" / f"{i:04d}.npy") for i in range(n_loop)]
     progress("align", 0, 1)
     _save(folder / "align.npy", align_loop(shapes[0], loop, mask, window))
+    emask, ewindow = eye_mask(portrait.crop_landmarks)
+    _save(folder / "eye_align.npy", align_loop(shapes[0], loop, emask, ewindow))
     progress("align", 1, 1)
     (folder / "library.json").write_text(
         json.dumps(
@@ -323,6 +356,7 @@ def load_library(folder: Path) -> Library:
     shapes = np.load(folder / "shapes.npy")
     landmarks = np.load(folder / "crop_landmarks.npy")
     mask, window = mouth_mask(landmarks)
+    emask, ewindow = eye_mask(landmarks)
     return Library(
         folder=folder,
         photo=np.load(folder / "photo.npy"),
@@ -333,6 +367,10 @@ def load_library(folder: Path) -> Library:
         align=np.load(folder / "align.npy"),
         mouth=mask,
         window=window,
+        eyes=list(np.load(folder / "eyes.npy")),
+        eye_align=np.load(folder / "eye_align.npy"),
+        eye_mask=emask,
+        eye_window=ewindow,
     )
 
 
@@ -409,7 +447,8 @@ class Paster:
 
 
 def write_idle_preview(lib: Library, output: Path, timeout_s: float = 300.0) -> float:
-    """Write the idle loop, pasted into the photo, as a silent MP4; return its length."""
+    """Write the idle loop, pasted into the photo, as a silent MP4; return its length. It has
+    no blinks: those are added when a video is made."""
     paste = Paster(lib)
     h, w = lib.photo.shape[:2]
     frames = (paste(face).tobytes() for face in lib.loop)
