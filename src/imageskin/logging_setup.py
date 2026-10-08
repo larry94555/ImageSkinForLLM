@@ -3,6 +3,9 @@
 import json
 import logging
 import sys
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -33,3 +36,18 @@ def setup_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level)
+    # A line per HTTP request while models download, and Hugging Face's advice to sign in, buried
+    # the app's own lines (Larry, 2026-10-08). Their errors still show.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+
+
+@contextmanager
+def quiet_library_warnings() -> Iterator[None]:
+    """Hide the warnings model libraries print while they load and run (deprecations, Hugging
+    Face's cache and sign-in advice), which are not ours to act on and read like errors."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        warnings.simplefilter("ignore", DeprecationWarning)
+        warnings.filterwarnings("ignore", message=".*(pkg_resources|symlinks|unauthenticated)")
+        yield

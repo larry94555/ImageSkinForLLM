@@ -182,7 +182,7 @@ Play the result to check it:
 
 ## Speaking text (Kokoro, on the CPU)
 
-`imageskin say` speaks text with [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a free open-source voice model (Apache 2.0) that runs on the CPU, with no account and no per-use cost. It writes the audio as WAV and, next to it, a JSON file with when each word starts and ends (in seconds), when each sound (phoneme) starts and ends with the mouth shape it needs, and the mouth shapes over time, which the photoreal video engine (R4c) renders from. Kokoro uses ready-made voices; it does not clone the person's voice yet. With Kokoro, use Python 3.11 or 3.12. Setup, voices and troubleshooting: [docs/guides/Local-Voice-Setup-Guide.pdf](docs/guides/Local-Voice-Setup-Guide.pdf).
+`imageskin say` speaks text with [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a free open-source voice model (Apache 2.0) that runs on the CPU, with no account and no per-use cost. It writes the audio as WAV and, next to it, a JSON file with when each word starts and ends (in seconds), when each sound (phoneme) starts and ends with the mouth shape it needs, and the mouth shapes over time, which the photoreal video engine (R4c) renders from. Kokoro uses ready-made voices; for the person's own voice, see [Your own voice](#your-own-voice-chatterbox-turbo-on-the-cpu). With Kokoro, use Python 3.11 or 3.12. Setup, voices and troubleshooting: [docs/guides/Local-Voice-Setup-Guide.pdf](docs/guides/Local-Voice-Setup-Guide.pdf).
 
 Install it once into the virtual environment (this adds PyTorch, about 1 GB on disk). The first `say` also downloads the model, about 330 MB. You don't need to install espeak-ng separately: Kokoro uses it for words that aren't in its dictionary, and pip installs a bundled copy (the `espeakng-loader` package, with builds for Windows, macOS and Linux).
 
@@ -214,9 +214,65 @@ The JSON looks like this (shortened). Each sound is one of Kokoro's phonemes, `.
 }
 ``` American voices include `af_heart` (the default), `af_bella`, `af_nicole`, `am_michael` and `am_fenrir`.
 
+## Your own voice (Chatterbox Turbo, on the CPU)
+
+`--voice-sample` makes `say` and `sample` speak in the person's own voice instead of a Kokoro voice. [Chatterbox Turbo](https://huggingface.co/ResembleAI/chatterbox-turbo) (MIT, Resemble AI), picked in R25a because it sounds like Larry, learns the voice from 10 seconds of the voice sample (see [Making a voice sample](#making-a-voice-sample)) with no training, keeps the person's own accent and runs on the CPU, with no account and no per-use cost. Chatterbox adds Resemble AI's inaudible Perth watermark to what it makes.
+
+Chatterbox reports no timings, so the app finds them in its audio: a speech recognizer, [wav2vec2](https://huggingface.co/facebook/wav2vec2-base-960h) (Apache 2.0), hears when each word starts and ends (forced alignment of the known text), and Kokoro's pronunciation step supplies each word's sounds for the mouth. The JSON next to the WAV has the same layout as with Kokoro.
+
+It is slow: on a 4-core CPU, cloning takes 1.5 to 2.5 seconds per second of speech, and finding the timings adds about 0.2 seconds per sentence. Loading the models takes about 30 seconds once per command and learning the voice about 2 seconds. The first run downloads about 2.8 GB of Chatterbox models (into the Hugging Face cache) and 360 MB for the recognizer (into `models` in the app data folder, `%USERPROFILE%\.imageskin` on Windows or `~/.imageskin` on macOS and Linux), logging its progress every few seconds; both are kept for later runs. If the connection drops, the recognizer's download picks up where it stopped, and running the command again resumes it too.
+
+Chatterbox pins old versions of PyTorch, NumPy and other packages that would downgrade the app's, so it is installed without its pins (`--no-deps`), and `clone-requirements.txt` lists what it really needs at the tested versions. The second command below saves every package already installed as a constraint, so if the install would change any of them, pip stops with a conflict and nothing is changed. Use Python 3.11 or 3.12, and replace `rec1.m4a rec2.m4a` with your recordings and `me.jpg` with your photo.
+
+macOS / Linux:
+
+```
+source .venv/bin/activate
+pip install -e ".[voice,video]"
+pip freeze --all --exclude-editable > app-constraints.txt
+pip install --retries 10 -r clone-requirements.txt -c app-constraints.txt
+pip install --no-deps chatterbox-tts==0.1.7
+imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
+imageskin say -o kokoro.wav "Hello there, how are you today?"
+imageskin say --voice-sample voice-sample.wav -o mine.wav "Hello there, how are you today?"
+imageskin sample --photo me.jpg --voice-sample voice-sample.wav -o sample-mine.mp4
+```
+
+Windows 11, Command Prompt:
+
+```
+.venv\Scripts\activate.bat
+pip install -e ".[voice,video]"
+pip freeze --all --exclude-editable > app-constraints.txt
+pip install --retries 10 -r clone-requirements.txt -c app-constraints.txt
+pip install --no-deps chatterbox-tts==0.1.7
+imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
+imageskin say -o kokoro.wav "Hello there, how are you today?"
+imageskin say --voice-sample voice-sample.wav -o mine.wav "Hello there, how are you today?"
+imageskin sample --photo me.jpg --voice-sample voice-sample.wav -o sample-mine.mp4
+```
+
+Windows 11, PowerShell (`>` would write the constraints file in a format pip can't read, so it goes through `Set-Content`):
+
+```
+.venv\Scripts\Activate.ps1
+pip install -e ".[voice,video]"
+pip freeze --all --exclude-editable | Set-Content -Encoding ascii app-constraints.txt
+pip install --retries 10 -r clone-requirements.txt -c app-constraints.txt
+pip install --no-deps chatterbox-tts==0.1.7
+imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
+imageskin say -o kokoro.wav "Hello there, how are you today?"
+imageskin say --voice-sample voice-sample.wav -o mine.wav "Hello there, how are you today?"
+imageskin sample --photo me.jpg --voice-sample voice-sample.wav -o sample-mine.mp4
+```
+
+Add `--engine photoreal` to the last command for the photoreal video (see [Photoreal video](#photoreal-video-liveportrait-on-the-cpu)). Play `kokoro.wav` and `mine.wav` one after the other to hear the ready-made voice and your own (`start mine.wav` in Command Prompt, `Invoke-Item mine.wav` in PowerShell, `open mine.wav` on macOS, `xdg-open mine.wav` on Linux). The logs (JSON lines on stderr) show `Loaded Chatterbox Turbo`, `Learned voice`, `Loaded aligner`, `Aligned words` and then `Spoke text in cloned voice` with `clone_ms` and `align_ms` (the time each took) and `real_time_factor` (seconds of work per second of speech).
+
+If pip stops with `ResolutionImpossible` or `conflict`, nothing was installed: one of the pinned packages needs a different version of something the app already has; report the message. If `say` reports `Chatterbox is not installed`, run the last `pip install` line again. Before this was fixed, the first run also printed a `Wav2Vec2ForCTC LOAD REPORT` saying `wav2vec2.masked_spec_embed` is `MISSING`; the app now hides it. If you see it, it is harmless: that value is only used while the model is being trained, and the published model ships without it.
+
 ## Making the sample video (on the CPU)
 
-`imageskin sample` makes the sample video from features.md item 6: the person in the photo says the test script, in a Kokoro voice, as an MP4 (H.264 video, AAC audio, 25 frames per second). It needs the voice extra from the section above, the video extra below, and ffmpeg on PATH (see [Development](#development); check with `ffmpeg -version`, and open a new terminal after installing it). Without ffmpeg the command stops at once with `ffmpeg not found`.
+`imageskin sample` makes the sample video from features.md item 6: the person in the photo says the test script, in a Kokoro voice or with `--voice-sample` in their own voice, as an MP4 (H.264 video, AAC audio, 25 frames per second). It needs the voice extra from the section above, the video extra below, and ffmpeg on PATH (see [Development](#development); check with `ffmpeg -version`, and open a new terminal after installing it). Without ffmpeg the command stops at once with `ffmpeg not found`.
 
 The video engine is part of this project: it finds the face with the face detector that ships with OpenCV (no model download, no account, no per-use cost; OpenCV is Apache 2.0) and opens and closes the mouth in time with how loud the speech is. It renders faster than real time on a laptop CPU. The rest of the face stays still; the photoreal engine below adds blinking and head motion. Use a front-facing photo with the mouth closed or slightly open, as the photo guide asks: a big grin with teeth showing looks wrong when the mouth opens.
 

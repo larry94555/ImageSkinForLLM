@@ -1,0 +1,23 @@
+# What Chatterbox Turbo (the person's cloned voice, R25) needs, pinned to the tested versions.
+# Chatterbox pins old versions of torch, numpy and other packages that would downgrade the app's,
+# so it is installed without its pins and its real needs are listed here. Install into the app's
+# virtual environment, after the voice extra, without changing anything already in it:
+#   pip install -e ".[voice]"
+#   pip freeze --all --exclude-editable > app-constraints.txt
+#   pip install -r clone-requirements.txt -c app-constraints.txt
+#   pip install --no-deps chatterbox-tts==0.1.7
+# The constraints file holds every installed package at its current version, so if anything here
+# would replace one (torch, numpy, OpenCV, setuptools...), pip stops with a conflict instead.
+# Tested with torch 2.14.1 and numpy 2.4.6 on Python 3.11 (R25a and R25).
+# torchaudio 2.11 declares no torch requirement, so it installs next to torch 2.14.
+torchaudio==2.11.0
+librosa==0.11.0
+s3tokenizer==0.3.0
+# Also runs the word aligner (wav2vec2). A range, so a venv that already has 5.18 (from an earlier
+# install) keeps it instead of conflicting with its constraint; both were tested (R25).
+transformers>=5.18,<5.20
+diffusers==0.41.0
+conformer==0.3.2
+omegaconf==2.3.1
+pyloudnorm==0.2.0
+resemble-perth==1.0.1
