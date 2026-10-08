@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 
+from imageskin.kokoro_engine import to_pcm16
 from imageskin.voice import Speech
 
 logger = logging.getLogger(__name__)
@@ -29,10 +30,6 @@ TURBO_REVISION = "749d1c1a46eb10492095d68fbcf55691ccf137cd"  # tested Chatterbox
 
 def pcm16_to_float(pcm: bytes) -> np.ndarray:
     return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768
-
-
-def float_to_pcm16(samples: np.ndarray) -> bytes:
-    return (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
 def fit_length(samples: np.ndarray, n: int) -> np.ndarray:
@@ -58,7 +55,7 @@ def converted(speech: Speech, convert: Callable[[np.ndarray], np.ndarray]) -> Sp
     """The same speech in another voice: new audio, the same word and sound timings."""
     samples = pcm16_to_float(speech.pcm)
     out = fit_length(convert(samples).astype(np.float32), len(samples))
-    return replace(speech, pcm=float_to_pcm16(out))
+    return replace(speech, pcm=to_pcm16(out.tolist()))
 
 
 def _timed(what: str, start: float) -> None:

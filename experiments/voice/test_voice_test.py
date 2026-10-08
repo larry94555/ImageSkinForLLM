@@ -12,12 +12,12 @@ from voice_tools import (
     SAMPLE_RATE,
     converted,
     fit_length,
-    float_to_pcm16,
     pcm16_to_float,
     reference_clip,
     start_of_speech,
 )
 
+from imageskin.kokoro_engine import to_pcm16
 from imageskin.visemes import SoundTiming
 from imageskin.voice import Speech, WordTiming
 
@@ -25,7 +25,7 @@ from imageskin.voice import Speech, WordTiming
 def fake_speech(text: str) -> Speech:
     samples = np.full(SAMPLE_RATE // 2, 0.25, dtype=np.float32)  # half a second
     return Speech(
-        float_to_pcm16(samples),
+        to_pcm16(samples.tolist()),
         SAMPLE_RATE,
         [WordTiming(text.split()[0], 0.0, 0.5)],
         [SoundTiming("h", 0.0, 0.1), SoundTiming("a", 0.1, 0.5)],
@@ -34,7 +34,7 @@ def fake_speech(text: str) -> Speech:
 
 def test_pcm_round_trip_and_clipping() -> None:
     samples = np.array([0.0, 0.5, -0.5, 2.0, -2.0], dtype=np.float32)
-    back = pcm16_to_float(float_to_pcm16(samples))
+    back = pcm16_to_float(to_pcm16(samples.tolist()))
     assert back == pytest.approx([0.0, 0.5, -0.5, 1.0, -1.0], abs=1e-4)
 
 

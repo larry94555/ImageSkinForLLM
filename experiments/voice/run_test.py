@@ -22,10 +22,10 @@ from page import Clip, Line, build_page
 from voice_tools import (
     SAMPLE_RATE,
     converted,
-    float_to_pcm16,
     reference_clip,
 )
 
+from imageskin.kokoro_engine import to_pcm16
 from imageskin.sample import SAMPLE_SCRIPT
 from imageskin.video import read_pcm16
 from imageskin.voice import Speech, write_speech
@@ -58,7 +58,9 @@ def _ms(start: float) -> float:
 
 def write_wav(samples: np.ndarray, path: Path) -> float:
     """Write float samples as a WAV with no timings; return the length in seconds."""
-    write_speech(Speech(float_to_pcm16(samples), SAMPLE_RATE, []), path, path.with_suffix(".json"))
+    write_speech(
+        Speech(to_pcm16(samples.tolist()), SAMPLE_RATE, []), path, path.with_suffix(".json")
+    )
     return len(samples) / SAMPLE_RATE
 
 

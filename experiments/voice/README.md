@@ -43,21 +43,50 @@ both tools takes about 22 seconds once; learning a voice takes under 2 seconds.
 
 Uses the app's own virtual environment (`.venv`, already set up with the `voice` and `photoreal`
 extras), Python 3.11 or 3.12, and ffmpeg. Chatterbox pins old versions of torch, numpy and other
-packages that would downgrade the app's, so it is installed without its pins (`--no-deps`) and
-`requirements.txt` lists what it really needs; that leaves torch, numpy and OpenCV unchanged
-(checked on a fresh Python 3.11 setup with torch 2.14 and numpy 2.4). The first run downloads about 2.8 GB of Chatterbox models from Hugging Face (plus Kokoro's and
+packages that would downgrade the app's, so it is installed without its pins (`--no-deps`), and
+`requirements.txt` pins what it really needs to the versions that were measured (with torch
+2.14.1 and numpy 2.4.6). The first command saves every package already installed as a
+constraint, so if the install would change any of them, pip stops with a conflict instead
+(checked on a fresh Python 3.11 setup: torch, numpy, OpenCV and Starlette stayed the same).
+
+The first run downloads about 2.8 GB of Chatterbox models from Hugging Face (plus Kokoro's and
 the similarity model's if not already there), which dominates its time on a slow connection; they
 are cached for later runs. The script turns off Hugging Face's Xet transfer, which crawled on a
-Windows laptop, and skips a 1 GB file Chatterbox Turbo never loads.
+Windows laptop, and skips a 1 GB file Chatterbox Turbo never loads. Replace `rec1.m4a rec2.m4a`
+with your own recordings.
 
+macOS / Linux:
 ```
-pip install --retries 10 -r experiments/voice/requirements.txt
+source .venv/bin/activate
+pip freeze --exclude-editable > app-constraints.txt
+pip install --retries 10 -r experiments/voice/requirements.txt -c app-constraints.txt
 pip install --no-deps chatterbox-tts==0.1.7
 imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
-python experiments/voice/run_test.py --sample voice-sample.wav --photo me.jpg -o voice-test
+python experiments/voice/run_test.py --sample voice-sample.wav -o voice-test
 ```
 
-Open `voice-test/index.html` in a browser. `--photo` is optional; without it there are no videos.
-With it, the photo is prepared first if it has not been (about 17 minutes on a 4-core CPU), then
+Windows 11, Command Prompt:
+```
+.venv\Scripts\activate.bat
+pip freeze --exclude-editable > app-constraints.txt
+pip install --retries 10 -r experiments\voice\requirements.txt -c app-constraints.txt
+pip install --no-deps chatterbox-tts==0.1.7
+imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
+python experiments\voice\run_test.py --sample voice-sample.wav -o voice-test
+```
+
+Windows 11, PowerShell:
+```
+.venv\Scripts\Activate.ps1
+pip freeze --exclude-editable | Set-Content -Encoding ascii app-constraints.txt
+pip install --retries 10 -r experiments\voice\requirements.txt -c app-constraints.txt
+pip install --no-deps chatterbox-tts==0.1.7
+imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
+python experiments\voice\run_test.py --sample voice-sample.wav -o voice-test
+```
+
+Add `--photo me.jpg` to the last command to also get videos.
+
+Open `voice-test/index.html` in a browser (double-click it; no server needed). With `--photo`, the photo is prepared first if it has not been (about 17 minutes on a 4-core CPU), then
 the Kokoro and conversion clips are rendered on the photoreal video. Each line is logged as a
 `Made line` JSON line with `duration_ms`, `seconds_per_speech_second` and `similarity`.
