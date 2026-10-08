@@ -13,6 +13,7 @@ from voice_tools import (
     converted,
     fit_length,
     pcm16_to_float,
+    provide_pkg_resources,
     reference_clip,
     start_of_speech,
 )
@@ -115,3 +116,33 @@ def test_summary_and_page() -> None:
     assert "One &lt;b&gt;" in html and 'src="k2.mp4"' in html and 'src="me.wav"' in html
     assert "not made" in html  # line 2 has no conversion
     assert "0.50 s per second of speech, mean similarity 0.20" in html
+
+
+def test_provide_pkg_resources_stands_in_when_setuptools_has_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import builtins
+    import sys
+
+    real_import = builtins.__import__
+
+    def no_pkg_resources(name: str, *args: object, **kwargs: object) -> object:
+        if name == "pkg_resources":
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.delitem(sys.modules, "pkg_resources", raising=False)
+    monkeypatch.setattr(builtins, "__import__", no_pkg_resources)
+    provide_pkg_resources()
+    shim = sys.modules["pkg_resources"]
+    assert shim.resource_filename("json", "decoder.py").endswith("decoder.py")
+
+
+def test_provide_pkg_resources_keeps_the_real_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    real = types.ModuleType("pkg_resources")
+    monkeypatch.setitem(sys.modules, "pkg_resources", real)
+    provide_pkg_resources()
+    assert sys.modules["pkg_resources"] is real

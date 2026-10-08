@@ -10,8 +10,11 @@ Both run on the CPU. Chatterbox marks its output with Resemble AI's inaudible Pe
 The models (about 2 GB) are downloaded from Hugging Face on first use and cached.
 """
 
+import importlib.resources
 import logging
+import sys
 import time
+import types
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
@@ -58,6 +61,22 @@ def converted(speech: Speech, convert: Callable[[np.ndarray], np.ndarray]) -> Sp
     return replace(speech, pcm=to_pcm16(out.tolist()))
 
 
+def provide_pkg_resources() -> None:
+    """Let Chatterbox's watermarker import pkg_resources, which setuptools 81 removed.
+
+    It only calls resource_filename to find its bundled model folder, so when setuptools no longer
+    provides the module, a stand-in answers that one call. Nothing is installed or downgraded.
+    """
+    try:
+        import pkg_resources  # noqa: F401
+    except ImportError:
+        shim = types.ModuleType("pkg_resources")
+        shim.resource_filename = lambda package, name: str(  # type: ignore[attr-defined]
+            importlib.resources.files(package) / name
+        )
+        sys.modules["pkg_resources"] = shim
+
+
 def _timed(what: str, start: float) -> None:
     logger.info(what, extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)})
 
@@ -71,6 +90,7 @@ class ChatterboxConverter:  # pragma: no cover - needs the models; see the funct
 
     def __init__(self, s3gen: Any = None) -> None:
         start = time.perf_counter()
+        provide_pkg_resources()
         from chatterbox.vc import ChatterboxVC
 
         if s3gen is None:
@@ -104,6 +124,7 @@ class ChatterboxCloner:  # pragma: no cover - needs the models; see the function
 
     def __init__(self) -> None:
         start = time.perf_counter()
+        provide_pkg_resources()
         from chatterbox.tts_turbo import REPO_ID, ChatterboxTurboTTS
         from huggingface_hub import snapshot_download
 

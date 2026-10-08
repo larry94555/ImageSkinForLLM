@@ -45,9 +45,12 @@ Uses the app's own virtual environment (`.venv`, already set up with the `voice`
 extras), Python 3.11 or 3.12, and ffmpeg. Chatterbox pins old versions of torch, numpy and other
 packages that would downgrade the app's, so it is installed without its pins (`--no-deps`), and
 `requirements.txt` pins what it really needs to the versions that were measured (with torch
-2.14.1 and numpy 2.4.6). The first command saves every package already installed as a
-constraint, so if the install would change any of them, pip stops with a conflict instead
-(checked on a fresh Python 3.11 setup: torch, numpy, OpenCV and Starlette stayed the same).
+2.14.1 and numpy 2.4.6). The first command saves every package already installed, pip and setuptools
+included (`--all`), as a constraint, so if the install would change any of them, pip stops with a
+conflict instead (checked on a fresh Python 3.11 setup with setuptools 84: torch, numpy, OpenCV,
+Starlette and setuptools stayed the same). Chatterbox's watermarker imports `pkg_resources`,
+which setuptools 81 removed; the script stands in for the one call it makes rather than
+downgrading setuptools.
 
 The first run downloads about 2.8 GB of Chatterbox models from Hugging Face (plus Kokoro's and
 the similarity model's if not already there), which dominates its time on a slow connection; they
@@ -58,7 +61,7 @@ with your own recordings.
 macOS / Linux:
 ```
 source .venv/bin/activate
-pip freeze --exclude-editable > app-constraints.txt
+pip freeze --all --exclude-editable > app-constraints.txt
 pip install --retries 10 -r experiments/voice/requirements.txt -c app-constraints.txt
 pip install --no-deps chatterbox-tts==0.1.7
 imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
@@ -68,7 +71,7 @@ python experiments/voice/run_test.py --sample voice-sample.wav -o voice-test
 Windows 11, Command Prompt:
 ```
 .venv\Scripts\activate.bat
-pip freeze --exclude-editable > app-constraints.txt
+pip freeze --all --exclude-editable > app-constraints.txt
 pip install --retries 10 -r experiments\voice\requirements.txt -c app-constraints.txt
 pip install --no-deps chatterbox-tts==0.1.7
 imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
@@ -78,7 +81,7 @@ python experiments\voice\run_test.py --sample voice-sample.wav -o voice-test
 Windows 11, PowerShell:
 ```
 .venv\Scripts\Activate.ps1
-pip freeze --exclude-editable | Set-Content -Encoding ascii app-constraints.txt
+pip freeze --all --exclude-editable | Set-Content -Encoding ascii app-constraints.txt
 pip install --retries 10 -r experiments\voice\requirements.txt -c app-constraints.txt
 pip install --no-deps chatterbox-tts==0.1.7
 imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
