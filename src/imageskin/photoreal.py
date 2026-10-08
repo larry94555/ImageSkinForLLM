@@ -8,6 +8,8 @@ mouth on the matching idle-loop frame, adds the blinks (at natural, irregular ti
 the voice.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
