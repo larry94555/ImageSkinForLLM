@@ -1,0 +1,296 @@
+"""Word and sound timings for speech whose text is known, found in the audio (forced alignment).
+
+The cloned voice (Chatterbox) reports no timings, but the mouth and the word highlighting need
+them. The words are known, so a speech recognizer only has to say when each letter is heard:
+wav2vec2 (facebook/wav2vec2-base-960h, Apache 2.0, about 360 MB, on the CPU) scores every
+letter in each 20 ms of audio, and the most likely path through the text's letters (CTC
+alignment) gives each word's start and end. Each word's sounds come from Kokoro's own
+pronunciation step (misaki), so they are the phonemes the mouth shapes were tuned on; they share
+out the word's time equally.
+"""
+
+import json
+import logging
+import os
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from imageskin.kokoro_engine import INSTALL_HINT as KOKORO_HINT
+from imageskin.visemes import HOLDS, SoundTiming, sound_timings
+from imageskin.voice import VoiceError, WordTiming
+
+logger = logging.getLogger(__name__)
+
+CLONE_HINT = "see 'Your own voice' in the README"
+ALIGNER_REPO = "facebook/wav2vec2-base-960h"
+ALIGNER_REVISION = "22aad52d435eb6dbaf354bdad9b0da84ce7d6156"  # the tested weights
+ALIGNER_RATE = 16000
+WORD_GAP = "|"  # the recognizer's token between words
+# The recognizer stops hearing a word's last letter before its sound has died away, so each word
+# runs on into the next one, or for at most this long into a pause. On three test texts that
+# matched the mouth shapes from Kokoro's own sound timings best (the same shape 62% to 65% of
+# the time, against 24% to 28% without it); moving word starts earlier only made it worse.
+END_PAD_S = 0.2
+
+
+@dataclass(frozen=True)
+class Word:
+    text: str
+    phonemes: str
+    joined: bool = False  # no space before the next word, as in "I" + "'m"
+
+
+Emissions = Callable[[np.ndarray], np.ndarray]  # 16 kHz samples in, log-probabilities [T, V] out
+G2P = Callable[[str], list[Word]]
+
+
+def ctc_frames(log_probs: np.ndarray, targets: Sequence[int], blank: int = 0) -> list[range]:
+    """The frames each target token is heard in, on the most likely CTC path (Viterbi).
+
+    `log_probs` has one row per frame and one column per token. Every target gets at least one
+    frame. Raises ValueError when the audio has too few frames for the text.
+    """
+    n_frames = len(log_probs)
+    ext = np.full(2 * len(targets) + 1, blank)
+    ext[1::2] = targets
+    n_states = len(ext)
+    # A token may follow the one two states back (skipping a blank) unless it repeats it.
+    can_skip = np.zeros(n_states, dtype=bool)
+    can_skip[2:] = (ext[2:] != blank) & (ext[2:] != ext[:-2])
+    score = np.full(n_states, -np.inf)
+    score[0] = log_probs[0, ext[0]]
+    if n_states > 1:
+        score[1] = log_probs[0, ext[1]]
+    back = np.zeros((n_frames, n_states), dtype=np.int8)
+    for t in range(1, n_frames):
+        step = np.concatenate(([-np.inf], score[:-1]))
+        skip = np.where(can_skip, np.concatenate(([-np.inf, -np.inf], score[:-2])), -np.inf)
+        options = np.stack([score, step, skip])
+        back[t] = np.argmax(options, axis=0)
+        score = options[back[t], np.arange(n_states)] + log_probs[t, ext]
+    state = n_states - 1
+    if n_states > 1 and score[n_states - 2] > score[state]:
+        state = n_states - 2
+    if not np.isfinite(score[state]):
+        raise ValueError(f"{n_frames} frames of audio is too short for {len(targets)} letters")
+    states = np.empty(n_frames, dtype=int)
+    for t in range(n_frames - 1, -1, -1):
+        states[t] = state
+        state -= int(back[t, state])
+    out = []
+    for i in range(len(targets)):
+        frames = np.flatnonzero(states == 2 * i + 1)
+        out.append(range(int(frames[0]), int(frames[-1]) + 1))
+    return out
+
+
+def letter_tokens(text: str, vocab: dict[str, int]) -> list[int]:
+    """The recognizer's tokens for a word's letters; characters it has no token for are left out.
+
+    A word with digits gets none, since "3pm" is said as "three p m" but spelled with two letters.
+    """
+    if any(ch.isdigit() for ch in text):
+        return []
+    return [vocab[ch] for ch in text.upper() if ch in vocab and ch != WORD_GAP]
+
+
+def word_timings(
+    words: Sequence[Word], log_probs: np.ndarray, vocab: dict[str, int], seconds: float
+) -> list[WordTiming]:
+    """When each word is said. Words with no letters (such as "45") fill the gap around them."""
+    targets: list[int] = []
+    spans: list[tuple[int, int] | None] = []
+    for i, word in enumerate(words):
+        letters = letter_tokens(word.text, vocab)
+        if not letters:
+            spans.append(None)
+            continue
+        if targets and not words[i - 1].joined:
+            targets.append(vocab[WORD_GAP])
+        spans.append((len(targets), len(targets) + len(letters) - 1))
+        targets += letters
+    if not targets:
+        raise ValueError("no letters to align")
+    frames = ctc_frames(log_probs, targets, blank=vocab.get("<pad>", 0))
+    frame_s = seconds / len(log_probs)
+    times: list[tuple[float, float] | None] = [
+        None if span is None else (frames[span[0]].start * frame_s, frames[span[1]].stop * frame_s)
+        for span in spans
+    ]
+    out: list[WordTiming] = []
+    for i, (word, t) in enumerate(zip(words, times, strict=True)):
+        if t is None:
+            start = out[-1].end if out else 0.0
+            later = next((u for u in times[i + 1 :] if u is not None), None)
+            t = (start, max(start, later[0] if later else seconds))
+        out.append(WordTiming(word.text, round(t[0], 3), round(t[1], 3)))
+    return widened(out, seconds)
+
+
+def widened(timings: Sequence[WordTiming], seconds: float) -> list[WordTiming]:
+    """Each word ends END_PAD_S later, but no later than the next word's start or the clip."""
+    out: list[WordTiming] = []
+    for i, w in enumerate(timings):
+        limit = timings[i + 1].start if i + 1 < len(timings) else seconds
+        out.append(WordTiming(w.word, w.start, round(max(w.end, min(w.end + END_PAD_S, limit)), 3)))
+    return out
+
+
+def word_sounds(phonemes: str, start: float, end: float) -> list[SoundTiming]:
+    """A word's sounds share out its time equally (weighting vowels longer matched worse)."""
+    phonemes = phonemes.lstrip("".join(HOLDS))
+    if not phonemes:
+        return [SoundTiming("ə", start, end)] if end > start else []
+    weights = [0.0 if ch in HOLDS else 1.0 for ch in phonemes]
+    total = sum(weights)
+    return sound_timings(phonemes, [(end - start) * w / total for w in weights], start)
+
+
+def sound_timings_for(
+    words: Sequence[Word], timings: Sequence[WordTiming], seconds: float
+) -> list[SoundTiming]:
+    """Every sound in the clip, with the mouth at rest (".") between words and at both ends."""
+    out: list[SoundTiming] = []
+    t = 0.0
+    for word, timing in zip(words, timings, strict=True):
+        if timing.start > t:
+            out.append(SoundTiming(".", round(t, 3), timing.start))
+        out += word_sounds(word.phonemes, max(t, timing.start), timing.end)
+        t = max(t, timing.end)
+    if seconds > t:
+        out.append(SoundTiming(".", round(t, 3), round(seconds, 3)))
+    return out
+
+
+def to_rate(samples: np.ndarray, rate: int, target: int) -> np.ndarray:
+    """Resample by linear interpolation; plenty for a recognizer that works in 20 ms frames."""
+    if rate == target:
+        return samples
+    n = round(len(samples) * target / rate)
+    out: np.ndarray = np.interp(np.arange(n) * rate / target, np.arange(len(samples)), samples)
+    return out.astype(np.float32)
+
+
+class Aligner:
+    """Finds the word and sound timings of speech whose text is known."""
+
+    def __init__(
+        self,
+        load: Callable[[], tuple[Emissions, dict[str, int]]] | None = None,
+        g2p: Callable[[], G2P] | None = None,
+    ) -> None:
+        self._load = load or _load_recognizer
+        self._load_g2p = g2p or _load_g2p
+        self._model: tuple[Emissions, dict[str, int]] | None = None
+        self._g2p: G2P | None = None
+
+    def align(
+        self, samples: np.ndarray, rate: int, text: str
+    ) -> tuple[list[WordTiming], list[SoundTiming]]:
+        emissions, vocab = self._get_model()
+        g2p = self._get_g2p()
+        start = time.perf_counter()
+        seconds = len(samples) / rate
+        words = g2p(text)
+        if not words:
+            raise VoiceError(f"no words to align in {text!r}")
+        try:
+            log_probs = emissions(to_rate(samples, rate, ALIGNER_RATE))
+            timings = word_timings(words, log_probs, vocab, seconds)
+        except ValueError as e:
+            raise VoiceError(f"could not find the words in the audio: {e}") from e
+        sounds = sound_timings_for(words, timings, seconds)
+        logger.info(
+            "Aligned words",
+            extra={
+                "words": len(timings),
+                "sounds": len(sounds),
+                "audio_s": round(seconds, 2),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return timings, sounds
+
+    def _get_model(self) -> tuple[Emissions, dict[str, int]]:
+        if self._model is None:
+            start = time.perf_counter()
+            try:
+                self._model = self._load()
+            except ImportError as e:
+                raise VoiceError(f"the aligner could not be loaded: {e}; {CLONE_HINT}") from e
+            except Exception as e:  # download or model load failure
+                raise VoiceError(f"could not load the aligner {ALIGNER_REPO}: {e}") from e
+            logger.info(
+                "Loaded aligner",
+                extra={
+                    "repo_id": ALIGNER_REPO,
+                    "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+                },
+            )
+        return self._model
+
+    def _get_g2p(self) -> G2P:
+        if self._g2p is None:
+            try:
+                self._g2p = self._load_g2p()
+            except ImportError as e:
+                raise VoiceError(f"{KOKORO_HINT} ({e})") from e
+        return self._g2p
+
+
+def _load_recognizer() -> tuple[Emissions, dict[str, int]]:  # pragma: no cover - needs the model
+    # Hugging Face's Xet transfer crawled on Larry's Windows laptop (GitHub PR #8); plain HTTP
+    # downloads were steady. Only takes effect before huggingface_hub is first imported.
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    import torch
+    from huggingface_hub import snapshot_download
+    from transformers import Wav2Vec2ForCTC
+
+    folder = snapshot_download(
+        ALIGNER_REPO,
+        revision=ALIGNER_REVISION,
+        allow_patterns=["config.json", "vocab.json", "model.safetensors"],
+    )
+    vocab: dict[str, int] = json.loads((Path(folder) / "vocab.json").read_text(encoding="utf-8"))
+    model = Wav2Vec2ForCTC.from_pretrained(folder)
+    model.eval()  # type: ignore[no-untyped-call,unused-ignore]
+
+    def emissions(samples: np.ndarray) -> np.ndarray:
+        # The model expects each clip scaled to zero mean and unit variance.
+        x = (samples - samples.mean()) / (samples.std() + 1e-7)
+        with torch.inference_mode():
+            logits = model(torch.from_numpy(x.astype(np.float32))[None]).logits[0]
+            out: np.ndarray = torch.log_softmax(logits, dim=-1).numpy()
+        return out
+
+    return emissions, vocab
+
+
+def words_from_tokens(tokens: Sequence[Any]) -> list[Word]:
+    """Misaki's tokens (text, phonemes, whitespace after) as words, punctuation left out."""
+    out: list[Word] = []
+    for t, after in zip(tokens, [*tokens[1:], None], strict=True):
+        if not any(ch.isalnum() for ch in t.text):
+            continue
+        joined = after is not None and not t.whitespace and any(ch.isalnum() for ch in after.text)
+        out.append(Word(t.text, t.phonemes or "", joined))
+    return out
+
+
+def _load_g2p() -> G2P:  # pragma: no cover - needs Kokoro
+    from kokoro import KPipeline
+
+    from imageskin.kokoro_engine import LANG_CODE, REPO_ID
+
+    pipeline = KPipeline(lang_code=LANG_CODE, repo_id=REPO_ID, model=False)
+
+    def g2p(text: str) -> list[Word]:
+        _, tokens = pipeline.g2p(text)
+        return words_from_tokens(tokens)
+
+    return g2p
