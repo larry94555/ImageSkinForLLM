@@ -105,14 +105,18 @@ Added by Larry on 2026-10-08. The app becomes a question and answer app over a s
 ### History
 
 34. **Interaction history.** Every question and answer is kept, with its date and time and whether it came from an anonymous visitor or from which signed-up user.
-35. **My history.** A signed-in student sees their own history and can clear it. Clearing is soft: it disappears from what the student sees but stays available to the administrator.
+35. **My history.** A signed-in student sees their own history and can clear it, under the save rule in item 37. Clearing is soft: it disappears from what the student sees but stays available to the administrator.
 36. **User history page.** The administrator has a page with every prompt and every answer, organized by date and time, by signed-in user, or as anonymous, to review everything that has happened.
+37. **Save before clear, and load.** Larry, 2026-10-08:
+   - **Save.** The conversation can be saved to a file.
+   - **Clear only what was saved.** Clearing a conversation (item 8's "Clear conversation" and item 35's clear) needs the conversation to be saved first. Only the parts that were saved successfully can be cleared; anything not saved successfully cannot be cleared and stays.
+   - **Load.** A saved file can be loaded back into the conversation history. Loading adds to the existing history and never replaces it, and it is idempotent: loading the same file again, or a file whose turns are already in the history, adds nothing twice.
 
 ### How this changes earlier items
 
 These are noted here and applied when the PRs for these items are built; the earlier items keep their wording until then.
 
-- **Item 8 (Settings):** the Settings link shows only to the signed-in administrator, not on every screen.
+- **Item 8 (Settings):** the Settings link shows only to the signed-in administrator, not on every screen. Its "Clear conversation" follows item 37: save first, and only saved turns are cleared.
 - **Deployment ("single user"):** the hosted app now has one administrator, student accounts and anonymous visitors.
 - **Items 9 to 15 (Chat):** the chat becomes the question and answer screen; conversation history is kept per visitor.
 - **Item 16 (LLM interface):** item 29 adds Grok, OpenRouter and subscriptions to the Claude and OpenAI keys planned there.
