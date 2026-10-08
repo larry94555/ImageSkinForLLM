@@ -2,7 +2,7 @@
 
 A web app that puts a talking video of a real person on top of an LLM. The user types or speaks a prompt; the reply is shown as text and spoken by a video of the person, in their cloned voice, lip-synced to the text.
 
-Items 1 to 16 match the original feature list. Items 17 onward were added after review. Items marked *(default)* are choices made pending Larry's confirmation.
+Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08). Items marked *(default)* are choices made pending Larry's confirmation.
 
 ## Deployment
 
@@ -78,3 +78,42 @@ Items 1 to 16 match the original feature list. Items 17 onward were added after 
 21. **Volume and mute** controls.
 22. **Consent.** Before setup, the user confirms the person in the photos and recordings agreed to be cloned.
 23. **Delete my data.** One action deletes the uploaded files, prepared face and voice, and history.
+
+## Question and answer over PDF content
+
+Added by Larry on 2026-10-08. The app becomes a question and answer app over a set of PDFs. An administrator manages the photos, voice, content and settings; students and anonymous visitors ask questions, and the person in the photo speaks the answers as in items 11 and 12.
+
+### Content
+
+24. **Manage Content page.** A single "Manage Content" link opens a separate page where the administrator adds, removes or replaces PDFs at any time. PDFs are kept apart from the image and sound files.
+25. **Kinds of PDF.** Each PDF holds text, slides or data tables, and each kind is processed so its content can be used for answers.
+26. **Knowledge wiki.** Because the PDFs can be large, processing builds a wiki that represents the knowledge in them. The wiki makes it easy for the administrator to review what was processed and to correct it. Adding, removing or replacing a PDF updates the wiki; a page the administrator corrected is not silently overwritten when its PDF is processed again *(default)*.
+27. **Answers from the content.** A question is looked up in the wiki and the PDFs, and the chosen LLM (item 29) answers from what it finds.
+28. **Question scope setting.** A setting chooses whether general prompts are allowed, or whether prompts must be questions about the content of the PDFs. When they must be, an off-topic prompt gets a short, polite message saying so *(default)*.
+
+### LLM choice
+
+29. **LLM setting.** Settings choose the LLM that answers. By default it is a local open-source model run with llama.cpp. Instead, the administrator can enter a subscription (Claude, OpenAI or Grok) or an API key for Claude, OpenAI, Grok or OpenRouter. Keys stay on the server (item 16).
+
+### Users and sign-on
+
+30. **Administrator sign-on.** A sign-on page gives the administrator the picture, voice, content and settings pages. Only the administrator can reach them.
+31. **Anonymous questions.** Without signing on, the app is question and answer only: a visitor asks a question, it is looked up in the wiki and PDFs with the chosen LLM, and the answer is returned.
+32. **Student accounts.** A sign-up page creates a student account. A student is identified by logging in through the login link, or by a cookie that remembers them *(default: the cookie keeps a student logged in on that browser)*. Students have no access to settings.
+33. **Require sign-up setting.** A setting disallows anonymous use, so a visitor must sign up or log in before asking.
+
+### History
+
+34. **Interaction history.** Every question and answer is kept, with its date and time and whether it came from an anonymous visitor or from which signed-up user.
+35. **My history.** A signed-in student sees their own history and can clear it. Clearing is soft: it disappears from what the student sees but stays available to the administrator.
+36. **User history page.** The administrator has a page with every prompt and every answer, organized by date and time, by signed-in user, or as anonymous, to review everything that has happened.
+
+### How this changes earlier items
+
+These are noted here and applied when the PRs for these items are built; the earlier items keep their wording until then.
+
+- **Item 8 (Settings):** the Settings link shows only to the signed-in administrator, not on every screen.
+- **Deployment ("single user"):** the hosted app now has one administrator, student accounts and anonymous visitors.
+- **Items 9 to 15 (Chat):** the chat becomes the question and answer screen; conversation history is kept per visitor.
+- **Item 16 (LLM interface):** item 29 adds Grok, OpenRouter and subscriptions to the Claude and OpenAI keys planned there.
+- **Item 23 (Delete my data):** an administrator action, since only the administrator has the photos and recordings.

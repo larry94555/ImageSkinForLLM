@@ -1,8 +1,8 @@
 # ImageSkinForLLM: Roadmap
 
-Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it.
+Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 9 to 13, added on 2026-10-08, come last and turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 36).
 
-PRs are numbered R1 to R33 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), and R25a and R25b for the voice, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R50 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), and R25a and R25b for the voice, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -10,17 +10,22 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 18.4% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 23.7% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice (Americanized or their own accent), and setup ends with accept or reject. | R25a, R25, R25b, R26, R14 | 5 | 13.2% | 0 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 13.2% | 0 |
-| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 10.5% | 0 |
-| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 2.6% | 0 |
-| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 13.2% | 0 |
-| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 5.3% | 0 |
-| | **Total** | | **38** | **100%** | **16 of 38** |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 12.7% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 16.4% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice (Americanized or their own accent), and setup ends with accept or reject. | R25a, R25, R25b, R26, R14 | 5 | 9.1% | 0 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 9.1% | 0 |
+| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 7.3% | 0 |
+| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.8% | 0 |
+| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 9.1% | 0 |
+| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 3.6% | 0 |
+| 9 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 9.1% | 0 |
+| 10 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 5.5% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.6% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 7.3% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it. | R48 to R50 | 3 | 5.5% | 0 |
+| | **Total** | | **55** | **100%** | **16 of 55** |
 
-Sizes: 10 Simple, 28 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 14 Simple, 41 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -41,7 +46,11 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. **Picked in R10:** at least 30 seconds of speech in the voice sample, and at least 15 in each recording (pauses not counted); constants in `sound_checks.py`. |
 | R21 | The latency target. Larry: a reply video that takes more than a few seconds to generate is unacceptable (2026-10-04). The photoreal test built a 2.5-second reply clip in 0.5 to 1.5 seconds on a 4-core CPU, so per-sentence clips should fit. Measured in R4c with the real voice on a 4-core CPU: the video for 6.9 seconds of speech renders in 2.2 seconds (about a third of real time), after Kokoro's 2 seconds to speak it. |
 | R25 | The voice tool that makes the person's voice: a CPU voice-conversion tool that turns Kokoro's output into the person's voice (for example OpenVoice's tone-color converter or Seed-VC), and, for keeping the person's own accent (item 4), possibly a cloning TTS. It must be free per use, run on CPU and allow hosted use. **Picked from R25a's listening test**, by Larry. |
-| R32 | How the hosted site restricts access to its one user. features.md says single-user and HTTPS but names no mechanism. The simplest option is one password checked at the HTTPS proxy, with no accounts. |
+| R32 | How the hosted site restricts access to its one user. features.md says single-user and HTTPS but names no mechanism. The simplest option is one password checked at the HTTPS proxy, with no accounts. R44 later replaces this with the administrator sign-on. |
+| R36 | The PDF tool that reads text, slides and tables. It must be free, run on CPU and allow hosted use. Scanned PDFs (pictures of pages) would also need OCR; whether they must be supported is open. |
+| R39 | How questions are looked up: keyword search over the wiki and PDF text, or a local embedding model. The simplest option is keyword search first, adding embeddings only if answers miss. |
+| R43 | Whether a Claude, OpenAI or Grok subscription can be used by a separate app at all. Not checked yet: these subscriptions are mainly for the providers' own apps, and an API key may be the only supported route. If a subscription can't be used, R43 is dropped and features.md updated. |
+| R44 | How the administrator account is created. The simplest option is that the first run asks for an administrator password, stored hashed on the server. |
 
 ## After the engine decision
 
@@ -266,7 +275,85 @@ The PRs below are written for either kind of video engine, but these are the one
 - OpenAI by config, and a small Claude adapter; the user enters an API key in Settings, stored on the server only.
 - **Can show:** the same conversation answered by Claude or OpenAI instead of local llama.cpp.
 
-After R33, every item in features.md is covered by a PR. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
+## Milestone 9: Content and the wiki
+
+### R34. PDF storage and content API (Medium) · item 24
+- Server API to add, remove and replace PDFs, stored apart from the image and sound files, with the same safe-storage rules as R6 (size limit, type check, safe names).
+- **Can show:** add, replace and remove a PDF with API calls, and the logs and folder showing each change.
+
+### R35. Manage Content page (Medium) · item 24
+- A "Manage Content" link opens a separate page listing the PDFs, with add, remove and replace.
+- **Can show:** in the browser, upload two PDFs, replace one and remove the other.
+
+### R36. Reading text, slides and tables (Medium) · item 25
+- Extracts each PDF by kind: text as paragraphs, slides page by page, tables as rows and columns, with the page number kept for each piece. Runs when a PDF is added or replaced, as a job with progress like R12.
+- **Can show:** one PDF of each kind, and the extracted text and tables it produced.
+
+### R37. Building the wiki (Medium) · item 26
+- The LLM turns the extracted content into wiki pages (one per topic, linking back to the PDF pages it came from). Adding, replacing or removing a PDF rebuilds only the pages that PDF affects.
+- **Can show:** the wiki pages built from a sample PDF, and the logs showing how long the build took.
+
+### R38. Wiki review and corrections (Medium) · item 26
+- A wiki page in Manage Content to browse the pages, see the PDF pages each came from, and edit a page. A corrected page is marked so a rebuild doesn't overwrite it silently.
+- **Can show:** correct a wiki page, replace its PDF, and see the correction kept and flagged for review.
+
+## Milestone 10: Answers from the content
+
+### R39. Looking up questions in the wiki and PDFs (Medium) · item 27
+- Finds the wiki pages and PDF passages that match a question, using the method decided before this PR.
+- **Can show:** a command that prints the passages found for a few sample questions, with the time the lookup took.
+
+### R40. Answering from the content (Medium) · item 27
+- The chat sends the passages found by R39 with the question, and the LLM answers from them; the answer is shown and spoken as in Milestones 4 and 5.
+- **Can show:** ask a question about a sample PDF and hear the person answer it correctly.
+
+### R41. Question scope setting (Simple) · item 28
+- A setting for whether general prompts are allowed. When they aren't, an off-topic prompt gets a short, polite message instead of an answer.
+- **Can show:** the same off-topic question answered with the setting on and politely declined with it off.
+
+## Milestone 11: Choice of LLM
+
+### R42. LLM setting with API keys (Medium) · item 29
+- A setting that picks the LLM: local llama.cpp (the default), or Claude, OpenAI, Grok or OpenRouter with an API key, building on R33's Claude and OpenAI support. Keys stay on the server.
+- **Can show:** the same question answered by the local model and by each provider with a key.
+
+### R43. LLM by subscription (Medium) · item 29
+- Use a Claude, OpenAI or Grok subscription instead of an API key, if the decision before this PR finds a supported way to do it.
+- **Can show:** a question answered through a subscription.
+
+## Milestone 12: Sign-on and accounts
+
+### R44. Administrator sign-on (Medium) · item 30
+- A sign-on page for the administrator. The picture, voice, content and settings pages, and their API calls, only work after sign-on.
+- **Can show:** the setup and Manage Content pages refuse a visitor and open after the administrator signs on.
+
+### R45. Question and answer screen for visitors (Simple) · item 31
+- Without sign-on, the app shows only the question box and the person's spoken answers, with no links to setup, content or settings.
+- **Can show:** an anonymous visitor asks a question and gets a spoken answer, with nothing else reachable.
+
+### R46. Student sign-up and login (Medium) · item 32
+- A sign-up page and the login link for students; a cookie keeps a student logged in on that browser. Students never see settings.
+- **Can show:** sign up, close the browser, come back still logged in, and see no settings.
+
+### R47. Require sign-up setting (Simple) · item 33
+- A setting that disallows anonymous use; visitors are sent to sign up or log in before asking.
+- **Can show:** with the setting on, an anonymous visitor is sent to the login page.
+
+## Milestone 13: Interaction history
+
+### R48. Saving every interaction (Simple) · item 34
+- Every question and answer is saved with its date and time, and the student's account or "anonymous".
+- **Can show:** ask questions anonymously and as a student, and see both saved in the logs and the store.
+
+### R49. My history with soft clear (Medium) · item 35
+- A signed-in student sees their own questions and answers and can clear them. Clearing hides them from the student but keeps them for the administrator.
+- **Can show:** clear a student's history, see it gone for the student and still in the store.
+
+### R50. User history page (Medium) · item 36
+- An administrator page with every prompt and answer, including cleared ones, viewable by date and time, by student, or anonymous only.
+- **Can show:** the administrator reviews a day's questions, then one student's, then the anonymous ones.
+
+After R50, every item in features.md is covered by a PR. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
 
 ## Optional, not counted
 
