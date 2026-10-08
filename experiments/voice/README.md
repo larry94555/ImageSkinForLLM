@@ -45,9 +45,10 @@ Uses the app's own virtual environment (`.venv`, already set up with the `voice`
 extras), Python 3.11 or 3.12, and ffmpeg. Chatterbox pins old versions of torch, numpy and other
 packages that would downgrade the app's, so it is installed without its pins (`--no-deps`) and
 `requirements.txt` lists what it really needs; that leaves torch, numpy and OpenCV unchanged
-(checked on a fresh Python 3.11 setup with torch 2.14 and numpy 2.4). The models (about 2 GB for
-Chatterbox) are downloaded from Hugging Face on first use; if downloads stall, set
-`HF_HUB_DISABLE_XET=1`.
+(checked on a fresh Python 3.11 setup with torch 2.14 and numpy 2.4). The first run downloads about 2.8 GB of Chatterbox models from Hugging Face (plus Kokoro's and
+the similarity model's if not already there), which dominates its time on a slow connection; they
+are cached for later runs. The script turns off Hugging Face's Xet transfer, which crawled on a
+Windows laptop, and skips a 1 GB file Chatterbox Turbo never loads.
 
 ```
 pip install --retries 10 -r experiments/voice/requirements.txt

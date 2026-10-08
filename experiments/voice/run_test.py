@@ -11,6 +11,7 @@ photoreal video (the photo is prepared first if needed, about 17 minutes on a 4-
 import argparse
 import json
 import logging
+import os
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
@@ -156,6 +157,9 @@ def photoreal_render(photo: Path) -> Render:  # pragma: no cover - needs the mod
 
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs the real models
+    # Hugging Face's Xet transfer crawled on Larry's Windows laptop (GitHub PR #8); plain HTTP
+    # downloads were steady. Set before huggingface_hub is imported.
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
     from voice_tools import ChatterboxCloner, ChatterboxConverter
 
     from imageskin.kokoro_engine import KokoroEngine

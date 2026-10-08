@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 24000  # Kokoro's and Chatterbox's output rate
 REFERENCE_S = 10.0  # Chatterbox uses about this much of the voice sample
+TURBO_REVISION = "749d1c1a46eb10492095d68fbcf55691ccf137cd"  # tested Chatterbox Turbo weights
 
 
 def pcm16_to_float(pcm: bytes) -> np.ndarray:
@@ -106,9 +107,17 @@ class ChatterboxCloner:  # pragma: no cover - needs the models; see the function
 
     def __init__(self) -> None:
         start = time.perf_counter()
-        from chatterbox.tts_turbo import ChatterboxTurboTTS
+        from chatterbox.tts_turbo import REPO_ID, ChatterboxTurboTTS
+        from huggingface_hub import snapshot_download
 
-        self.tts = ChatterboxTurboTTS.from_pretrained("cpu")
+        # The repository also holds the ten-step decoder (1 GB) that Turbo never loads; skipping
+        # it cuts the first download from 3.8 GB to 2.8 GB.
+        folder = snapshot_download(
+            REPO_ID, revision=TURBO_REVISION, ignore_patterns=["s3gen.safetensors"]
+        )
+        _timed("Downloaded Chatterbox Turbo (cached after the first run)", start)
+        start = time.perf_counter()
+        self.tts = ChatterboxTurboTTS.from_local(folder, "cpu")
         _timed("Loaded Chatterbox Turbo", start)
 
     def set_voice(self, reference: np.ndarray) -> None:
