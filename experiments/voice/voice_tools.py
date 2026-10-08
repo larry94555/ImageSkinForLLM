@@ -111,9 +111,20 @@ class ChatterboxCloner:  # pragma: no cover - needs the models; see the function
         self.tts = ChatterboxTurboTTS.from_pretrained("cpu")
         _timed("Loaded Chatterbox Turbo", start)
 
-    def set_voice(self, reference_wav: str) -> None:
+    def set_voice(self, reference: np.ndarray) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import soundfile
+
         start = time.perf_counter()
-        self.tts.prepare_conditionals(reference_wav, exaggeration=0.0)
+        # Chatterbox's own loudness step turns the audio into float64 under NumPy 2, which its
+        # model then rejects, so the reference is levelled here and kept float32.
+        levelled = self.tts.norm_loudness(reference, SAMPLE_RATE).astype(np.float32)
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / "reference.wav"
+            soundfile.write(wav, levelled, SAMPLE_RATE, subtype="FLOAT")
+            self.tts.prepare_conditionals(str(wav), exaggeration=0.0, norm_loudness=False)
         _timed("Learned voice for cloning", start)
 
     def __call__(self, text: str) -> np.ndarray:

@@ -180,7 +180,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
 
     start = time.perf_counter()
     cloner = ChatterboxCloner()
-    cloner.set_voice(str(recording))
+    cloner.set_voice(reference)
     converter = ChatterboxConverter(cloner.tts.s3gen)
     converter.set_voice(reference)
     kokoro = KokoroEngine()

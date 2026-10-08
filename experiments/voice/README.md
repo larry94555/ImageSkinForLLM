@@ -41,13 +41,17 @@ both tools takes about 22 seconds once; learning a voice takes under 2 seconds.
 
 ## Run it
 
-Needs Python 3.11 or 3.12 and ffmpeg. The models (about 2 GB for Chatterbox) are downloaded from
-Hugging Face on first use; if downloads stall, set `HF_HUB_DISABLE_XET=1`.
+Uses the app's own virtual environment (`.venv`, already set up with the `voice` and `photoreal`
+extras), Python 3.11 or 3.12, and ffmpeg. Chatterbox pins old versions of torch, numpy and other
+packages that would downgrade the app's, so it is installed without its pins (`--no-deps`) and
+`requirements.txt` lists what it really needs; that leaves torch, numpy and OpenCV unchanged
+(checked on a fresh Python 3.11 setup with torch 2.14 and numpy 2.4). The models (about 2 GB for
+Chatterbox) are downloaded from Hugging Face on first use; if downloads stall, set
+`HF_HUB_DISABLE_XET=1`.
 
 ```
-python -m venv .venv-voice
-. .venv-voice/bin/activate            (Windows: .venv-voice\Scripts\activate)
-pip install -e ".[voice,photoreal]" -r experiments/voice/requirements.txt
+pip install --retries 10 -r experiments/voice/requirements.txt
+pip install --no-deps chatterbox-tts==0.1.7
 imageskin voice-sample rec1.m4a rec2.m4a -o voice-sample.wav
 python experiments/voice/run_test.py --sample voice-sample.wav --photo me.jpg -o voice-test
 ```
