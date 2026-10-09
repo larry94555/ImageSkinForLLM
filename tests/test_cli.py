@@ -263,3 +263,40 @@ def test_sample_with_a_bad_voice_sample_fails_before_the_photo(
         assert main(args) == 1
     make.assert_not_called()
     assert "could not read the voice sample" in capsys.readouterr().err
+
+
+def test_spoken_text_prints_what_the_voice_says(
+    capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    with patch("imageskin.cli.setup_logging"), caplog.at_level(logging.INFO, "imageskin.cli"):
+        assert main(["spoken-text", "**Hi** 👋 see https://a.io"]) == 0
+    assert capsys.readouterr().out == "Hi see\n"
+    record = next(r for r in caplog.records if r.getMessage() == "Cleaned reply for speech")
+    assert vars(record)["shown_chars"] == 25
+    assert vars(record)["spoken_chars"] == 6
+    assert "duration_ms" in vars(record)
+
+
+def test_spoken_text_reads_a_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    reply = tmp_path / "reply.md"
+    reply.write_text("Try:\n\n```\nx = 1\n```\n- `a` is _one_ ✅", encoding="utf-8")
+    assert main(["spoken-text", "--file", str(reply)]) == 0
+    assert capsys.readouterr().out == "Try: is one\n"
+
+
+@pytest.mark.parametrize("args", [["spoken-text"], ["spoken-text", "hi", "--file", "r.md"]])
+def test_spoken_text_needs_text_or_a_file(
+    args: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(args) == 2
+    entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert entry["message"] == "Give the reply as text or with --file, not both"
+
+
+def test_spoken_text_logs_an_unreadable_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["spoken-text", "--file", str(tmp_path / "missing.md")]) == 1
+    entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert entry["level"] == "ERROR"
+    assert entry["path"].endswith("missing.md")

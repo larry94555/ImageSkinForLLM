@@ -206,6 +206,17 @@ Play the result to check it:
 - macOS: `afplay voice-sample.wav`
 - Linux: `aplay voice-sample.wav`
 
+## What the voice says for a reply
+
+A chat reply is shown as written, but Markdown markers, code, URLs and emoji are not spoken (feature 11). `imageskin spoken-text` prints what the voice will say for a reply, with nothing to install beyond the base package. Pass the reply in quotes, or, for a reply with several lines or code blocks, save it in a UTF-8 text file and pass `--file`:
+
+```
+imageskin spoken-text "**Hi** Larry 👋, see https://example.com."
+imageskin spoken-text --file reply.md
+```
+
+The first prints `Hi Larry, see.`: link text is kept, a URL on its own is dropped, and a line without punctuation at its end (a heading or a list item) gets a full stop so the voice pauses. A log line `Cleaned reply for speech` gives the reply's length, the spoken length and the time taken.
+
 ## Speaking text (Kokoro, on the CPU)
 
 `imageskin say` speaks text with [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a free open-source voice model (Apache 2.0) that runs on the CPU, with no account and no per-use cost. It writes the audio as WAV and, next to it, a JSON file with when each word starts and ends (in seconds), when each sound (phoneme) starts and ends with the mouth shape it needs, and the mouth shapes over time, which the photoreal video engine (R4c) renders from. Kokoro uses ready-made voices; for the person's own voice, see [Your own voice](#your-own-voice-chatterbox-turbo-on-the-cpu). With Kokoro, use Python 3.11 or 3.12. Setup, voices and troubleshooting: [docs/guides/Local-Voice-Setup-Guide.pdf](docs/guides/Local-Voice-Setup-Guide.pdf).

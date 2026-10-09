@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
 from imageskin.sample import SAMPLE_SCRIPT, SampleResult, make_sample
+from imageskin.speech_text import spoken_text
 from imageskin.video import INSTALL_HINT, VideoEngine, VideoError, find_ffmpeg
 from imageskin.voice import VoiceEngine, VoiceError, write_speech
 
@@ -73,6 +75,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("speech.wav"),
         help="WAV file to write; word and sound timings go next to it as .json",
     )
+    spoken = commands.add_parser(
+        "spoken-text",
+        help="print what the voice will say for a reply: Markdown, code, URLs and emoji left out",
+    )
+    spoken.add_argument("text", nargs="?", help="the reply, as shown in the chat")
+    spoken.add_argument("--file", type=Path, help="read the reply from this UTF-8 text file")
     prepare = commands.add_parser(
         "prepare",
         help="one-time photoreal setup for a photo: render its frames (minutes on a CPU) and "
@@ -160,6 +168,31 @@ def say(text: str, voice: str, output: Path, voice_sample: Path | None = None) -
         raise VoiceError(f"could not write {output}: {e}") from e
 
 
+def print_spoken_text(text: str | None, file: Path | None) -> int:
+    if (text is None) == (file is None):
+        logger.error("Give the reply as text or with --file, not both")
+        return 2
+    if file is not None:
+        try:
+            text = file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            logger.error("Could not read reply", extra={"path": str(file), "error": str(e)})
+            return 1
+    assert text is not None
+    started = time.perf_counter()
+    spoken = spoken_text(text)
+    logger.info(
+        "Cleaned reply for speech",
+        extra={
+            "shown_chars": len(text),
+            "spoken_chars": len(spoken.text),
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+        },
+    )
+    print(spoken.text)
+    return 0
+
+
 def serve(settings: Settings) -> None:
     import uvicorn
 
@@ -214,6 +247,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         timings = wav.with_suffix(".json")
         print(f"Wrote {wav} ({seconds:.1f} seconds) and word and sound timings to {timings}")
         return 0
+    if args.command == "spoken-text":
+        return print_spoken_text(args.text, args.file)
     if args.command == "prepare":
         try:
             folder, seconds = prepare(args.photo, args.output)
