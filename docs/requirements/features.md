@@ -121,3 +121,35 @@ These are noted here and applied when the PRs for these items are built; the ear
 - **Items 9 to 15 (Chat):** the chat becomes the question and answer screen; conversation history is kept per visitor.
 - **Item 16 (LLM interface):** item 29 adds Grok, OpenRouter and subscriptions to the Claude and OpenAI keys planned there.
 - **Item 23 (Delete my data):** an administrator action, since only the administrator has the photos and recordings.
+
+## Student insights
+
+Added by Larry on 2026-10-09. These build on the history in items 34 to 37 and change none of the items above. They are for the administrator, except item 46, which students see.
+
+### Topics and understanding
+
+38. **Topics.** The topics are the knowledge wiki's topic pages (item 26), so they follow the content as PDFs are added, removed or replaced *(default)*.
+39. **Topic of each question.** A question's topics are the wiki pages the lookup in item 27 found for it, kept with the question; there is no second classification. A question can have no topic (for example a general prompt allowed by item 28), one, or several. Questions already in the history when this is added, and history loaded later from a file (item 37), are tagged the same way. Tags are not rewritten when the wiki changes; a topic whose page was removed is shown as removed.
+40. **Understanding shown by each question.** Every question from a signed-in student is rated for each of its topics, so one question can be strong for one topic and unrated or weak for another:
+   - **strong:** the question itself shows correct use or connection of the topic's concepts.
+   - **weak:** the question contains a clear misconception about the topic.
+   - **unrated:** the question gives no clear evidence either way, including ordinary fact-seeking questions. A basic but reasonable question is unrated, not weak.
+
+   Each rating keeps a one-line reason. The administrator can correct a rating; the correction is kept with it and is never silently overwritten. Ratings are seen only by the administrator, never by students *(default)*.
+41. **Student profile.** For each student: each topic they asked about, with their strong, weak and unrated questions on it (item 40). There is no score: topics are broad and made of subtopics, so a student can be strong on some subtopics and weak on others, and a topic with both strong and weak questions shows both. The questions listed under the topic show which subtopics they were about. It is worked out from items 39 and 40 whenever it is needed, not kept separately, and shown on the student summary page (item 45).
+
+### Search
+
+42. **Search one student's history.** On the user history page (item 36), the administrator searches the conversation history of a chosen student, by words in the questions and answers, and can narrow by date and topic.
+43. **Search all histories.** The same search on the same page across the conversation histories of all students. Anonymous questions are included and marked as anonymous *(default)*.
+
+Search covers turns a student has cleared, since clearing only hides them from the student (item 35).
+
+### Statistics and summaries
+
+44. **Topic statistics page.** For each topic: how many questions were asked about it, which topics were not asked about at all, and how many strong, weak and unrated questions it drew (item 40), as counts by question type rather than a single score. Topic counts include anonymous questions; strong and weak come from signed-in students only.
+45. **Student summary page.** One page per student showing their profile (item 41): each topic they asked about, with the counts of their strong, weak and unrated questions on it and the questions themselves.
+
+### Clearing history
+
+46. **Heads-up before clearing.** When a student clears their history, the confirmation in the existing save-then-clear flow (items 35 and 37) says: "Clearing hides this conversation from your view. It remains available to the administrator." The clear goes ahead only after they confirm; there is no separate way to clear.
