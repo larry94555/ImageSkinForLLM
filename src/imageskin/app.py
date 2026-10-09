@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from imageskin import __version__
 from imageskin.accent import Accent, load_accent, save_accent
+from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.prepare_job import (
@@ -62,6 +63,13 @@ class PhotoChoiceRequest(BaseModel):
 
 class AccentRequest(BaseModel):
     accent: Accent
+
+
+class ChatRequest(BaseModel):
+    prompt: str
+
+
+CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
 
 
 class ReviewRequest(BaseModel):
@@ -113,6 +121,8 @@ def create_app(
     prepare_voice: PrepareVoice | None = None,
     prepare_face: PrepareFace | None = None,
     render_clip: RenderClip | None = None,
+    llm: LlmSettings | None = None,
+    ask_llm: AskLlm | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -301,6 +311,27 @@ def create_app(
             return asdict(accept(data_home, job.status()))
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
+
+    llm = llm or LlmSettings()
+    logger.info(
+        "Chat LLM", extra={"url": llm.url, "model": llm.model, "context_tokens": llm.context_tokens}
+    )
+    conversation = Conversation(ask_llm or LlmClient(llm).ask, llm.context_tokens)
+
+    @app.get("/api/chat", dependencies=needs_consent)
+    def get_chat() -> dict[str, object]:
+        return {"turns": [asdict(t) for t in conversation.turns()]}
+
+    @app.post("/api/chat", dependencies=needs_consent)
+    def post_chat(body: ChatRequest) -> dict[str, str]:
+        if not load_review(data_home, job.status()).accepted:
+            raise HTTPException(status_code=403, detail=CHAT_LOCKED)
+        try:
+            return asdict(conversation.send(body.prompt))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except LlmError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from e
 
     # Last, so /health and /api routes win over the static files.
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

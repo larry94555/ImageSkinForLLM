@@ -10,7 +10,7 @@ from typing import Any
 
 from imageskin import __version__
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
-from imageskin.config import ConfigError, default_home, load_settings
+from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
 from imageskin.sample import SAMPLE_SCRIPT, SampleResult, make_sample
@@ -160,16 +160,20 @@ def say(text: str, voice: str, output: Path, voice_sample: Path | None = None) -
         raise VoiceError(f"could not write {output}: {e}") from e
 
 
-def serve(host: str, port: int) -> None:
+def serve(settings: Settings) -> None:
     import uvicorn
 
     from imageskin.app import create_app
+    from imageskin.chat import LlmSettings
+
+    host, port = settings.host, settings.port
 
     logger.info("Starting server", extra={"host": host, "port": port, "version": __version__})
     # Consent and uploads are kept here; set IMAGESKIN_HOME to use another folder.
     logger.info("App data folder", extra={"path": str(default_home().resolve())})
     # access_log=False: the app's own middleware logs each request with its duration.
-    uvicorn.run(create_app(), host=host, port=port, log_config=None, access_log=False)
+    llm = LlmSettings(settings.llm_url, settings.llm_model, settings.llm_context_tokens)
+    uvicorn.run(create_app(llm=llm), host=host, port=port, log_config=None, access_log=False)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -189,7 +193,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     setup_logging(settings.log_level)
 
     if args.command == "serve":
-        serve(settings.host, settings.port)
+        serve(settings)
         return 0
     if args.command == "voice-sample":
         try:

@@ -205,3 +205,25 @@ export async function review(decision: Decision): Promise<Review> {
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Review;
 }
+
+// One turn of the chat with the LLM (roadmap R15): the user's prompt or the LLM's reply.
+export interface Turn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+// The conversation so far. The server keeps it until it stops.
+export async function getChat(): Promise<Turn[]> {
+  return (await json<{ turns: Turn[] }>(await fetch("/api/chat"))).turns;
+}
+
+// Sends a prompt and returns the LLM's reply. Throws an Error saying why when it fails.
+export async function sendPrompt(prompt: string): Promise<Turn> {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as Turn;
+}

@@ -9,7 +9,7 @@ import {
 } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import type { PrepareStatus, Upload, VoiceSample } from "./api";
+import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
 import { duration, minutes } from "./pages";
 
@@ -1007,6 +1007,7 @@ function reviewServer(accepted: boolean, answer?: Response) {
     if (url === "/api/voice-sample") return Response.json(NO_VOICE);
     if (url === "/api/accent") return Response.json({ accent: "own", available: true });
     if (url === "/api/prepare") return Response.json(DONE);
+    if (url === "/api/chat") return Response.json({ turns: [] });
     if (url === "/api/review") {
       if (init?.method === "POST") {
         if (answer) return answer;
@@ -1033,7 +1034,7 @@ test("accepting the sample video unlocks the chat", async () => {
     expect.objectContaining({ method: "POST", body: JSON.stringify({ decision: "accept" }) }),
   );
   await waitFor(() => expect(window.location.hash).toBe("#/chat"));
-  expect(await screen.findByText("The sample video is accepted, so the chat is unlocked.")).toBeTruthy();
+  expect(await screen.findByText("Say hello to start the conversation.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Chat" }).className).toBe("current");
 });
 
@@ -1095,4 +1096,109 @@ test("a choice that can't be saved says why", async () => {
     await screen.findByText("Could not save your choice: There is no sample video to accept yet."),
   ).toBeTruthy();
   expect(window.location.hash).toBe("#/setup");
+});
+
+// --- Chat (R15) ---
+
+// A fake server with the sample accepted, the conversation `turns`, and POST /api/chat
+// answering with `answer`.
+function chatServer(turns: Turn[], answer: () => Response) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/review") return Response.json({ accepted: true, accepted_at: null });
+    if (url === "/api/chat") {
+      return init?.method === "POST" ? answer() : Response.json({ turns });
+    }
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function promptBox() {
+  return screen.getByRole("textbox", { name: "Your message" }) as HTMLTextAreaElement;
+}
+
+test("the chat shows the conversation so far", async () => {
+  chatServer(
+    [
+      { role: "user", content: "My name is Larry." },
+      { role: "assistant", content: "Nice to meet you, Larry!" },
+    ],
+    () => Response.json({}),
+  );
+  await openAt("#/chat");
+  expect(await screen.findByText("Nice to meet you, Larry!")).toBeTruthy();
+  expect(screen.getByText("My name is Larry.").className).toBe("user");
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("sending a prompt shows it and then the reply", async () => {
+  let reply: (r: Response) => void = () => {};
+  const fetchMock = chatServer([], () => Response.json({}));
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fetchMock.mockImplementationOnce(
+    () => new Promise<Response>((resolve) => (reply = resolve)),
+  );
+  fireEvent.input(promptBox(), { target: { value: "  Hello!  " } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByText("Hello!")).toBeTruthy();
+  expect(screen.getByText("Thinking…")).toBeTruthy();
+  expect(promptBox().value).toBe("");
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "/api/chat",
+    expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Hello!" }) }),
+  );
+  await act(async () => {
+    reply(Response.json({ role: "assistant", content: "Hi there, how are you?" }));
+  });
+  expect(await screen.findByText("Hi there, how are you?")).toBeTruthy();
+  expect(screen.queryByText("Thinking…")).toBeNull();
+});
+
+test("Enter sends and Shift+Enter does not", async () => {
+  const fetchMock = chatServer([], () =>
+    Response.json({ role: "assistant", content: "Got it." }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Line one" } });
+  fireEvent.keyDown(promptBox(), { key: "Enter", shiftKey: true });
+  expect(fetchMock).not.toHaveBeenCalledWith("/api/chat", expect.anything());
+  await act(async () => {
+    fireEvent.keyDown(promptBox(), { key: "Enter" });
+  });
+  expect(await screen.findByText("Got it.")).toBeTruthy();
+});
+
+test("when the LLM fails, the message says so and the prompt goes back in the box", async () => {
+  chatServer([], () =>
+    Response.json(
+      { detail: "Could not reach the LLM at http://127.0.0.1:8080/v1. Is llama-server running?" },
+      { status: 502 },
+    ),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  expect(await screen.findByText(/Is llama-server running\?/)).toBeTruthy();
+  expect(promptBox().value).toBe("Hello?");
+  expect(screen.queryByText("Hello?", { selector: "li" })).toBeNull();
+});
+
+test("if the conversation can't be loaded, the chat says so", async () => {
+  chatServer([], () => Response.json({}));
+  const fetchMock = vi.mocked(fetch);
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input, init) =>
+    input === "/api/chat" ? new Response("", { status: 500 }) : original(input, init),
+  );
+  await openAt("#/chat");
+  expect(
+    await screen.findByText("Could not load the conversation. Reload the page to try again."),
+  ).toBeTruthy();
 });

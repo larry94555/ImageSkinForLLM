@@ -36,6 +36,10 @@ def test_example_config_loads() -> None:
         ("port = true", "port"),
         ("port = false", "port"),
         ('log_level = "LOUD"', "log_level"),
+        ('llm_url = "127.0.0.1:8080"', "llm_url"),
+        ("llm_model = 3", "llm_model"),
+        ("llm_context_tokens = 512", "llm_context_tokens"),
+        ('llm_context_tokens = "4096"', "llm_context_tokens"),
     ],
 )
 def test_invalid_files_are_rejected(tmp_path: Path, text: str, message: str) -> None:

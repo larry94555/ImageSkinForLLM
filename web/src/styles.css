@@ -163,3 +163,23 @@ button.secondary {
   border-left: 4px solid var(--accent);
   background: var(--card);
 }
+
+.chat { display: grid; gap: 12px; }
+ol.turns { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+ol.turns li {
+  display: grid;
+  gap: 2px;
+  max-width: 85%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+ol.turns li.user { justify-self: end; border-color: var(--accent); }
+ol.turns .who { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.chat form { justify-items: stretch; }
+.chat form button { justify-self: start; }
+.chat .prompt { display: grid; gap: 4px; width: 100%; }
+.chat textarea { font: inherit; padding: 8px; width: 100%; resize: vertical; }

@@ -165,6 +165,28 @@ When it is done the sample video plays under **Prepare**.
 
 The page shows a progress bar, each step with how far it has got and about how long is left, and how long each finished step took. You can close the page meanwhile. If the server is stopped, the next `imageskin serve` carries on where it stopped (`Resuming prepare job` in the log); frames already rendered are kept. A photo prepared before reuses its frames, so preparing it again takes about a minute, mostly for the clips. The job's state is in `prepare.json` in the app data folder and the frames under `photoreal`. The log has `Prepare job started`, `Prepare step finished` with each step's `duration_s`, `Rendered idle loop frame N of 50` every 10 frames, `Filled in idle loop frames`, `Rendered clip` with each clip's `duration_s`, and `Prepare job finished` or `Prepare job failed` with the reason. With the cloned voice, the log also has `Prepare speaks in the person's own voice, cloned with Chatterbox Turbo` at start, `Learned voice` and `Voice ready: the person's own` with its `duration_s`, and a `Spoke text in cloned voice` line for each clip. Choosing another photo, adding or removing a recording, or installing Chatterbox after preparing with Kokoro, afterwards shows **Prepare** again: the clips were spoken in another voice. A job resumed after the recordings changed renders all its clips again (`Voice changed; rendering the clips again` in the log).
 
+## Chat with the LLM
+
+Once the sample video is accepted at the end of setup, the **Chat** page (roadmap R15) is a text chat with an LLM: type a message and press Enter or **Send** (Shift+Enter starts a new line). Replies are text only for now; the person speaks them from roadmap R17. The server keeps the conversation in memory, until it stops, and sends it with each prompt so the LLM remembers earlier turns; when it would overflow the model's context window, the oldest turns are left out. A system prompt asks for short, conversational replies.
+
+The app talks to [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server` through its OpenAI-compatible API, at `http://127.0.0.1:8080/v1` unless `llm_url` in the config file says otherwise (see `config.example.toml`; `llm_context_tokens` should match llama-server's `--ctx-size`). Install llama.cpp once:
+
+- Windows (Command Prompt or PowerShell): `winget install llama.cpp`, then open a new terminal
+- macOS (or Linux with Homebrew): `brew install llama.cpp`
+
+Then start it in its own terminal and leave it running. The first time, it downloads the model (Gemma 3 1B, about 800 MB):
+
+```
+llama-server -hf ggml-org/gemma-3-1b-it-GGUF --port 8080 --ctx-size 4096
+```
+
+The log has `Chat LLM` at start with the address, `Chat prompt sent` with how many turns were sent and dropped, and `Chat reply received` with `duration_ms`. If the LLM can't be reached, the chat shows why, the prompt stays in the box to send again, and the log has `Chat reply failed`.
+
+| Request | What it does |
+|---|---|
+| `GET /api/chat` | The conversation so far |
+| `POST /api/chat` | Send a prompt (JSON body `{"prompt": "…"}`) and get the reply; refused (403) until a sample is accepted, 502 when the LLM fails |
+
 ## Making a voice sample
 
 Join the recordings from the recording guide (M4A, MP3 or WAV) into one WAV file, in the order given. Each recording is converted to 24 kHz mono WAV; `--timeout` sets how many seconds each conversion may take (default 60).
