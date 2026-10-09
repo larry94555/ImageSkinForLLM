@@ -208,14 +208,14 @@ Play the result to check it:
 
 ## What the voice says for a reply
 
-A chat reply is shown as written, but Markdown markers, code, URLs and emoji are not spoken (feature 11). `imageskin spoken-text` prints what the voice will say for a reply, with nothing to install beyond the base package. Pass the reply in quotes, or, for a reply with several lines or code blocks, save it in a UTF-8 text file and pass `--file`:
+A chat reply is shown as written, but the voice leaves out what reads badly aloud (feature 11). Markdown markers, HTML tags and decorative emoji are silent. A link, a picture, a table, a code block or inline code of more than two words is replaced by a short phrase that points to the text, such as "the link in the text below" or "See the code shown below.", so no sentence breaks off. Shorter inline code, such as `main()`, is spoken as is, and a heart between two words ("I ❤️ it") is said as "love". `imageskin spoken-text` prints what the voice will say for a reply, with nothing to install beyond the base package. Pass the reply in quotes, or, for a reply with several lines or code blocks, save it in a UTF-8 text file and pass `--file`:
 
 ```
 imageskin spoken-text "**Hi** Larry 👋, see https://example.com."
 imageskin spoken-text --file reply.md
 ```
 
-The first prints `Hi Larry, see.`: link text is kept, a URL on its own is dropped, and a line without punctuation at its end (a heading or a list item) gets a full stop so the voice pauses. A log line `Cleaned reply for speech` gives the reply's length, the spoken length and the time taken.
+The first prints `Hi Larry, see the link in the text below.`: link text is kept, a URL on its own is replaced by the phrase, and a line without punctuation at its end (a heading or a list item) gets a full stop so the voice pauses. A log line `Cleaned reply for speech` gives the reply's length, the spoken length and the time taken.
 
 ## Speaking text (Kokoro, on the CPU)
 

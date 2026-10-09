@@ -270,10 +270,10 @@ def test_spoken_text_prints_what_the_voice_says(
 ) -> None:
     with patch("imageskin.cli.setup_logging"), caplog.at_level(logging.INFO, "imageskin.cli"):
         assert main(["spoken-text", "**Hi** 👋 see https://a.io"]) == 0
-    assert capsys.readouterr().out == "Hi see\n"
+    assert capsys.readouterr().out == "Hi see the link in the text below\n"
     record = next(r for r in caplog.records if r.getMessage() == "Cleaned reply for speech")
     assert vars(record)["shown_chars"] == 25
-    assert vars(record)["spoken_chars"] == 6
+    assert vars(record)["spoken_chars"] == 33
     assert "duration_ms" in vars(record)
 
 
@@ -281,7 +281,7 @@ def test_spoken_text_reads_a_file(tmp_path: Path, capsys: pytest.CaptureFixture[
     reply = tmp_path / "reply.md"
     reply.write_text("Try:\n\n```\nx = 1\n```\n- `a` is _one_ ✅", encoding="utf-8")
     assert main(["spoken-text", "--file", str(reply)]) == 0
-    assert capsys.readouterr().out == "Try: is one\n"
+    assert capsys.readouterr().out == "Try: See the code shown below. a is one\n"
 
 
 @pytest.mark.parametrize("args", [["spoken-text"], ["spoken-text", "hi", "--file", "r.md"]])

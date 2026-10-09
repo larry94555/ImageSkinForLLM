@@ -1,6 +1,6 @@
 import pytest
 
-from imageskin.speech_text import spoken_text
+from imageskin.speech_text import CODE, CODE_BLOCK, LINK, LINKS, PICTURE, TABLE, spoken_text
 
 
 def spoken(display: str) -> str:
@@ -11,10 +11,9 @@ def test_plain_text_is_spoken_as_is() -> None:
     assert spoken("Hello, Larry. How are you?") == "Hello, Larry. How are you?"
 
 
-def test_empty_and_unspeakable_replies_say_nothing() -> None:
+def test_empty_and_decorative_replies_say_nothing() -> None:
     assert spoken("") == ""
-    assert spoken("```\nprint(1)\n```") == ""
-    assert spoken("👍 https://example.com") == ""
+    assert spoken("👍 <br> 🎉") == ""
 
 
 @pytest.mark.parametrize(
@@ -24,7 +23,6 @@ def test_empty_and_unspeakable_replies_say_nothing() -> None:
         ("It was _really_ ~~cheap~~ good.", "It was really cheap good."),
         ("Keep snake_case and 2 * 3 as they are.", "Keep snake_case and 2 * 3 as they are."),
         ("See [the guide](https://x.io/guide) first.", "See the guide first."),
-        ("Look ![a cat](cat.png) here.", "Look here."),
         ("One<br>two", "One two"),
     ],
 )
@@ -32,41 +30,68 @@ def test_markdown_markers_are_dropped_and_words_kept(display: str, said: str) ->
     assert spoken(display) == said
 
 
-def test_code_is_not_spoken() -> None:
-    reply = "Run this:\n\n```python\nprint('hi')\n```\n\nThen call `main()` again."
-    assert spoken(reply) == "Run this: Then call again."
+def test_a_code_block_is_a_sentence_pointing_to_the_text() -> None:
+    reply = "Run this:\n\n```python\nprint('hi')\n```\n\nThen call it again."
+    assert spoken(reply) == f"Run this: {CODE_BLOCK} Then call it again."
+    assert spoken("Run this\n~~~\nx\n~~~\nDone") == f"Run this. {CODE_BLOCK} Done"
+    assert spoken("```\nprint(1)\n```") == CODE_BLOCK
 
 
 def test_a_longer_fence_can_hold_a_shorter_one() -> None:
     reply = "Like this:\n````md\n```py\nx = 1\n```\n````\nDone."
-    assert spoken(reply) == "Like this: Done."
-
-
-def test_inline_code_ends_at_the_same_number_of_backticks() -> None:
-    assert spoken("Use ``code`` now.") == "Use now."
-    assert spoken("Type `` a`b `` here.") == "Type here."
-    assert spoken("Inline ```x``` too.") == "Inline too."
+    assert spoken(reply) == f"Like this: {CODE_BLOCK} Done."
 
 
 def test_an_unclosed_code_block_runs_to_the_end() -> None:
-    assert spoken("Try:\n```\nx = 1\ny = 2") == "Try:"
+    assert spoken("Try:\n```\nx = 1\ny = `2`") == f"Try: {CODE_BLOCK}"
 
 
 @pytest.mark.parametrize(
     ("display", "said"),
     [
-        ("Go to https://example.com/a?b=1.", "Go to."),
-        ("Or www.example.org, today.", "Or, today."),
-        ("Docs (http://a.io/x) help.", "Docs help."),
+        ("Then call `main()` again.", "Then call main() again."),
+        ("Use `__init__` and `**kwargs`.", "Use init and kwargs."),
+        ("Use ``code`` now.", "Use code now."),
+        ("Type `` a`b `` here.", "Type a`b here."),
+        ("Inline ```x y``` too.", "Inline x y too."),
+        ("Run `pip install -e .` first.", f"Run {CODE} first."),
     ],
 )
-def test_urls_are_not_spoken_but_punctuation_after_them_is(display: str, said: str) -> None:
+def test_short_inline_code_is_spoken_and_longer_code_is_pointed_to(display: str, said: str) -> None:
     assert spoken(display) == said
 
 
-def test_emoji_are_not_spoken() -> None:
+@pytest.mark.parametrize(
+    ("display", "said"),
+    [
+        ("Go to https://example.com/a?b=1.", f"Go to {LINK}."),
+        ("Or www.example.org, today.", f"Or {LINK}, today."),
+        ("See [the guide](https://x.io) or https://x.io.", f"See the guide or {LINK}."),
+        ("Read https://a.io, https://b.io and https://c.io now.", f"Read {LINKS} now."),
+        ("Read https://a.io https://b.io.", f"Read {LINKS}."),
+        ("Try https://a.io or https://b.io.", f"Try {LINK} or {LINK}."),
+        ("https://x.io has it.", "The link in the text below has it."),
+        ("Done.\n\n- https://x.io", "Done. The link in the text below"),
+        ("Docs (http://a.io/x) help.", "Docs help."),
+    ],
+)
+def test_a_url_is_replaced_by_a_phrase(display: str, said: str) -> None:
+    assert spoken(display) == said
+
+
+def test_a_picture_is_replaced_by_a_phrase() -> None:
+    assert spoken("Look at ![a cat](cat.png) here.") == f"Look at {PICTURE} here."
+
+
+def test_decorative_emoji_are_not_spoken() -> None:
     assert spoken("Great 👍🏽 job 🎉!") == "Great job!"
-    assert spoken("Family 👨‍👩‍👧 and flag 🇺🇸 and ❤️ love") == "Family and flag and love"
+    assert spoken("Family 👨‍👩‍👧 and flag 🇺🇸 here") == "Family and flag here"
+
+
+def test_an_emoji_standing_for_a_word_is_spoken() -> None:
+    assert spoken("I ❤️ it, and I ♥ that.") == "I love it, and I love that."
+    assert spoken("❤️ it. Thanks ❤️") == "it. Thanks"  # no word on one side: decoration
+    assert spoken("See https://x.io ❤️ it") == f"See {LINK} it"  # the word before is not said
 
 
 def test_lines_without_punctuation_end_a_sentence() -> None:
@@ -80,6 +105,12 @@ def test_a_line_break_inside_a_paragraph_is_only_a_space() -> None:
     assert spoken(reply) == said
 
 
-def test_tables_are_read_cell_by_cell() -> None:
-    reply = "| Name | Age |\n|---|:---:|\n| Ann | 30 |"
-    assert spoken(reply) == "Name Age. Ann 30"
+def test_a_table_is_a_sentence_pointing_to_the_text() -> None:
+    rows = "| Name | Age |\n|---|:---:|\n| Ann | `30 years old` |\n| [Bo](https://b.io) | 4 |"
+    reply = f"Ages\n\n{rows}\n\nDone."
+    assert spoken(reply) == f"Ages. {TABLE} Done."
+    assert spoken("Name | Age\n--- | ---\nAnn | 30") == TABLE
+
+
+def test_horizontal_rules_and_stray_borders_are_not_spoken() -> None:
+    assert spoken("Text\n\n---\n\nMore | less") == "Text. More less"
