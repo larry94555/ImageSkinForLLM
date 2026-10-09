@@ -12,7 +12,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 12.3% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 15.8% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice (Americanized or their own accent), and setup ends with accept or reject. | R25a, R25, R25b, R26, R14 | 5 | 8.8% | 1 of 5 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice (Americanized or their own accent), and setup ends with accept or reject. | R25a, R25, R25b, R26, R14 | 5 | 8.8% | 3 of 5 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 8.8% | 0 |
 | 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 7.0% | 0 |
 | 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.8% | 0 |
@@ -23,7 +23,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.5% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 7.0% | 0 |
 | 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 8.8% | 0 |
-| | **Total** | | **57** | **100%** | **17 of 57** |
+| | **Total** | | **57** | **100%** | **19 of 57** |
 
 Sizes: 15 Simple, 42 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -171,16 +171,17 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Acceptance:** Larry listens and says whether a tool sounds like him, and picks one (the R25 decision). If none does, the work stops here and Larry decides what to relax (GPU, a paid service, longer recordings, a fine-tuned voice) before anything else is built.
 - **Result (PR #30, 2026-10-08):** `experiments/voice/run_test.py` made the lines in three voices on the CPU: Kokoro, Kokoro converted with Chatterbox's voice converter, and Chatterbox Turbo cloning. Larry picked the clone: it sounds like him, the others do not. On a 4-core cloud CPU the clone took 1.5 to 2 seconds per second of speech (conversion added about 0.5), and a speaker-recognition model scored it closest to the recording. The first run downloads about 2.8 GB of models.
 
-### R25. The person's voice by cloning (Medium) · items 3, 4
+### R25. The person's voice by cloning (Medium) · items 3, 4 · Done in [PR #31](https://github.com/larry94555/ImageSkinForLLM/pull/31)
 - Cloning adapter behind R3's `VoiceEngine` interface: Chatterbox Turbo (picked in R25a) speaks the text in the person's voice, learned from the R2 voice sample, on the CPU.
 - Chatterbox reports no word or sound timings, which the mouth (R4b) and word highlighting (R18) need, so the adapter also finds them in its audio, for example by forced alignment of the known text; the tool is chosen when R25 starts (free, CPU, hosted use allowed).
 - Commands: `imageskin say --voice-sample voice-sample.wav "Hello there"` and `imageskin sample --photo me.jpg --voice-sample voice-sample.wav`.
 - **Can show:** the same sentence in the ready-made voice and in the person's voice, side by side, with the time cloning and alignment take per sentence in the logs, and the mouth in sync on the sample video.
 - **Built:** `ChatterboxEngine` in `chatterbox_engine.py` speaks in a voice cloned from 10 seconds of the voice sample, and `--voice-sample` on `say` and `sample` uses it. The timings come from forced alignment in `alignment.py`: wav2vec2 (facebook/wav2vec2-base-960h, Apache 2.0, 360 MB) hears when each word's letters are said, each word runs on into the next (or up to 0.2 seconds into a pause), and Kokoro's pronunciation step splits each word into sounds that share its time equally. On Kokoro's own audio, where the true sound timings are known, the mouth shapes matched them 62% to 65% of the time (a copy of Kokoro's own shapes moved 40 ms later matches 68% to 73%). On a 4-core cloud CPU, cloning took 2.5 to 2.8 seconds per second of speech and alignment added 0.2 to 0.26 seconds per sentence. Chatterbox is installed from `clone-requirements.txt` with `--no-deps` under a constraint of the app's own packages, so nothing in the app changes (checked on a fresh Python 3.11 environment).
 
-### R25b. The person's voice in prepare and the sample video (Medium) · items 5, 6
+### R25b. The person's voice in prepare and the sample video (Medium) · items 5, 6 · Done in [PR #34](https://github.com/larry94555/ImageSkinForLLM/pull/34)
 - The prepare job gets a voice step that prepares the person's voice from the voice sample with R25's tool, and the sample video, "Goodbye." and "Welcome back." are rendered in that voice instead of the Kokoro voice. Changing the recordings means preparing again.
 - **Can show:** in the browser, after Prepare, the sample video plays in the person's own voice, lip-synced, with the voice step's time in the logs.
+- **Built:** when Chatterbox is installed, Prepare's voice step loads it and learns the voice from the voice sample afresh (`ChatterboxEngine.learn_voice`), and the same engine speaks the three clips; without it, Prepare falls back to Kokoro and logs a warning at start. The job saves which voice spoke the clips, clone or Kokoro, with a fingerprint of the voice sample (`voice_id` in `prepare.json`), so adding or removing a recording, or installing Chatterbox after a Kokoro prepare, shows Prepare again, as choosing another photo does; a job saved before R25b needs preparing again too. A job resumed after a restart in another voice renders all its clips again rather than mixing voices.
 
 ### R26. Accent choice in setup (Simple) · item 4
 - Accent question in setup (Americanize or keep as is), saved with the setup; changing it reruns the sample. If R25a found no tool that keeps the accent, the question is left out and noted in features.md. R25a's clone keeps the accent, but its Americanizing option (Kokoro converted to the person's voice) did not sound like Larry, so R26 starts by deciding with him whether the question stays.

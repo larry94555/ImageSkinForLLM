@@ -128,13 +128,19 @@ class ChatterboxEngine:
         if voice != self._voice and (self._reference is None or self._reference[0] != voice):
             self._reference = (voice, reference_clip(read_voice_sample(Path(voice))))
 
+    def learn_voice(self, voice: str) -> None:
+        """Load the models and learn the voice afresh, even one learned before from the same
+        path: the voice sample is joined again whenever the recordings change (roadmap R25b)."""
+        self._voice = None
+        self._reference = None
+        self.check_voice_sample(voice)
+        self._learn_voice(self._loaded(), voice)
+
     def speak(self, voice: str, text: str) -> Speech:
         if not text.strip():
             raise VoiceError("no text to speak")
         self.check_voice_sample(voice)
-        cloner = self._get_cloner()
-        # The aligner too, so a download or install problem shows before the slow clone.
-        self._aligner.load()
+        cloner = self._loaded()
         if voice != self._voice:
             self._learn_voice(cloner, voice)
         start = time.perf_counter()
@@ -179,6 +185,12 @@ class ChatterboxEngine:
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
+
+    def _loaded(self) -> Cloner:
+        cloner = self._get_cloner()
+        # The aligner too, so a download or install problem shows before the slow clone.
+        self._aligner.load()
+        return cloner
 
     def _get_cloner(self) -> Cloner:
         if self._cloner is None:

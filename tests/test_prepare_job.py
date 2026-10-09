@@ -18,14 +18,18 @@ from imageskin.prepare_job import (
     PrepareStatus,
     Progress,
     Step,
+    clip_voice,
+    cloned_voice,
     fresh_steps,
     kokoro_voice,
     percent,
     photoreal_clip,
     photoreal_face,
+    voice_fingerprint,
 )
 from imageskin.uploads import PhotoChoice, PhotoResult, UploadStore, VoiceSample
 from imageskin.video import VideoError
+from imageskin.voice import VoiceError
 
 PHOTO_ID = "a" * 32
 
@@ -38,6 +42,8 @@ class FakeStore:
         self.photo.write_bytes(b"photo")
         self.chosen: str | None = PHOTO_ID
         self.problem: str | None = None
+        self.voice_sample_file = folder / "voice-sample.wav"
+        self.voice_sample_file.write_bytes(b"first recordings")
 
     def photo_choice(self) -> PhotoChoice:
         return PhotoChoice(self.chosen)
@@ -69,10 +75,18 @@ def make_job(
     face: object = face_in_steps,
     voice: object = lambda: None,
     clip: object = write_clip,
+    kind: str = "kokoro",
 ) -> tuple[PrepareJob, FakeStore]:
     store = FakeStore(tmp_path)
-    job = PrepareJob(tmp_path, cast(UploadStore, store), voice, face, clip)  # type: ignore[arg-type]
+    job = PrepareJob(tmp_path, cast(UploadStore, store), voice, face, clip, kind)  # type: ignore[arg-type]
     return job, store
+
+
+def first_voice_id(tmp_path: Path, kind: str = "kokoro") -> str:
+    """The voice_id of FakeStore's voice sample, as a job saved before a restart has it."""
+    sample = tmp_path / "voice-sample.wav"
+    sample.write_bytes(b"first recordings")
+    return f"{kind}:{voice_fingerprint(sample)}"
 
 
 def test_prepares_the_voice_then_the_face_and_saves_the_result(
@@ -214,6 +228,36 @@ def test_too_little_speech_after_preparing_needs_preparing_again(tmp_path: Path)
     assert job.status().state == "done"
 
 
+def test_new_recordings_need_preparing_again(tmp_path: Path) -> None:
+    job, store = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    assert job.status().voice_id == f"kokoro:{voice_fingerprint(store.voice_sample_file)}"
+    assert job.status().state == "done" and job.clip("sample") is not None
+    # A recording added or removed: the clips spoke in the voice learned from the old ones.
+    store.voice_sample_file.write_bytes(b"other recordings")
+    assert job.status().state == "idle" and job.clip("sample") is None
+    store.voice_sample_file.write_bytes(b"first recordings")  # back as they were
+    assert job.status().state == "done"
+
+
+def test_a_job_saved_before_the_voice_was_tracked_needs_preparing_again(tmp_path: Path) -> None:
+    steps = [{**asdict(s), "done": 1} for s in fresh_steps()]
+    saved = {"state": "done", "photo_id": PHOTO_ID, "percent": 100, "steps": steps}
+    (tmp_path / "prepare.json").write_text(json.dumps(saved))  # its clips are in Kokoro's voice
+    job, _ = make_job(tmp_path)
+    assert job.status().state == "idle"
+
+
+def test_voice_fingerprint(tmp_path: Path) -> None:
+    sample = tmp_path / "voice-sample.wav"
+    assert voice_fingerprint(sample) is None
+    sample.write_bytes(b"one")
+    first = voice_fingerprint(sample)
+    sample.write_bytes(b"two")
+    assert first and len(first) == 16 and voice_fingerprint(sample) != first
+
+
 def test_a_state_file_from_other_steps_loads_consistently(tmp_path: Path) -> None:
     old_steps = [{"key": "face", "label": "Old step", "done": 1, "total": 1}]
     saved = {"state": "done", "photo_id": PHOTO_ID, "percent": 100, "steps": old_steps}
@@ -246,14 +290,58 @@ def test_percent_is_weighted_by_how_long_each_step_takes() -> None:
     assert percent(steps) == 0
     voice_done = [Step("voice", "", 1, 1)] + steps[1:]
     loop_half = steps[:3] + [Step("loop", "", 100, 200)] + steps[4:]
-    # Of the 440 weighted seconds, the voice is 10 and the idle video 250.
-    assert (percent(voice_done), percent(loop_half)) == (2, 28)
+    # Of the 510 weighted seconds, the voice is 40 and the idle video 250.
+    assert (percent(voice_done), percent(loop_half)) == (7, 24)
 
 
 def test_default_voice_step_says_a_word() -> None:
     engine = MagicMock()
     kokoro_voice(engine)()
     engine.speak.assert_called_once_with("af_heart", "Hello.")
+
+
+def test_cloned_voice_step_learns_the_voice_from_the_sample(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    engine = MagicMock()
+    with caplog.at_level(logging.INFO):
+        cloned_voice(engine, tmp_path / "voice-sample.wav")()
+    engine.learn_voice.assert_called_once_with(str(tmp_path / "voice-sample.wav"))
+    assert "Voice ready: the person's own" in caplog.text
+
+
+def test_clips_speak_in_the_cloned_voice_when_chatterbox_is_installed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from imageskin.chatterbox_engine import ChatterboxEngine
+
+    sample = tmp_path / "voice-sample.wav"
+    with (
+        caplog.at_level(logging.INFO),
+        patch("imageskin.chatterbox_engine.check_installed"),
+        patch.object(ChatterboxEngine, "learn_voice") as learn,
+    ):
+        step, engine, voice, kind = clip_voice(sample)
+        step()
+    assert isinstance(engine, ChatterboxEngine) and (voice, kind) == (str(sample), "clone")
+    learn.assert_called_once_with(str(sample))
+    assert "the person's own voice, cloned with Chatterbox Turbo" in caplog.text
+
+
+def test_clips_speak_in_kokoro_when_chatterbox_is_missing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from imageskin.kokoro_engine import KokoroEngine
+
+    missing = VoiceError("chatterbox not installed; see 'Your own voice' in the README")
+    with (
+        caplog.at_level(logging.WARNING),
+        patch("imageskin.chatterbox_engine.check_installed", side_effect=missing),
+    ):
+        _, engine, voice, kind = clip_voice(tmp_path / "voice-sample.wav")
+    assert isinstance(engine, KokoroEngine) and (voice, kind) == ("af_heart", "kokoro")
+    record = next(r for r in caplog.records if r.levelname == "WARNING")
+    assert "Kokoro voice" in record.getMessage() and "README" in vars(record)["reason"]
 
 
 def test_default_face_step_builds_the_photoreal_library(tmp_path: Path) -> None:
@@ -341,7 +429,13 @@ def test_a_restart_keeps_the_clips_already_rendered(tmp_path: Path) -> None:
     steps = [asdict(s) for s in fresh_steps()]
     for s in steps[:5]:
         s["done"] = s["total"]
-    saved = {"state": "running", "photo_id": PHOTO_ID, "percent": 95, "steps": steps}
+    saved = {
+        "state": "running",
+        "photo_id": PHOTO_ID,
+        "voice_id": first_voice_id(tmp_path),
+        "percent": 95,
+        "steps": steps,
+    }
     (tmp_path / "prepare.json").write_text(json.dumps(saved))
     (tmp_path / "clips").mkdir()
     (tmp_path / "clips" / "goodbye.mp4").write_text("kept")
@@ -358,6 +452,37 @@ def test_a_restart_keeps_the_clips_already_rendered(tmp_path: Path) -> None:
     assert said[0] == "Welcome back." and len(said) == 2
     assert (tmp_path / "clips" / "goodbye.mp4").read_text() == "kept"
     assert job.status().state == "done"
+
+
+@pytest.mark.parametrize("saved_voice", ["kokoro:0123456789abcdef", None])
+def test_a_restart_in_another_voice_renders_every_clip_again(
+    tmp_path: Path, saved_voice: str | None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Stopped mid-way, then the recordings changed (or saved before voices were tracked).
+    steps = [asdict(s) for s in fresh_steps()]
+    saved = {"state": "running", "photo_id": PHOTO_ID, "voice_id": saved_voice, "steps": steps}
+    (tmp_path / "prepare.json").write_text(json.dumps(saved))
+    (tmp_path / "clips").mkdir()
+    (tmp_path / "clips" / "goodbye.mp4").write_text("old voice")
+    job, store = make_job(tmp_path)
+    with caplog.at_level(logging.INFO):
+        job.resume()
+        job.wait(5)
+    assert (tmp_path / "clips" / "goodbye.mp4").read_text() == "Goodbye."
+    assert job.status().state == "done"
+    assert job.status().voice_id == f"kokoro:{voice_fingerprint(store.voice_sample_file)}"
+    assert "Voice changed; rendering the clips again" in caplog.text
+
+
+def test_a_kokoro_prepare_needs_preparing_again_once_the_clone_is_installed(
+    tmp_path: Path,
+) -> None:
+    job, _ = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    assert job.status().state == "done"
+    later, _ = make_job(tmp_path, kind="clone")  # the server restarted with Chatterbox
+    assert later.status().state == "idle" and later.clip("sample") is None
 
 
 def test_a_clip_that_fails_fails_the_job_and_is_not_served(tmp_path: Path) -> None:
@@ -396,6 +521,18 @@ def test_default_clip_speaks_and_renders_photoreal_with_the_shared_voice(
     assert lib is video.prepare.return_value and output == tmp_path / "welcome.mp4"
 
 
+def test_clips_can_speak_in_another_voice(tmp_path: Path) -> None:
+    from imageskin.voice import Speech
+
+    voice = MagicMock()
+    voice.speak.return_value = Speech(b"\0\0" * 2400, 24000, [])
+    with patch("imageskin.photoreal.PhotorealEngine"):
+        photoreal_clip(tmp_path, voice, "voice-sample.wav")(
+            tmp_path / "me.jpg", "Goodbye.", tmp_path / "goodbye.mp4"
+        )
+    voice.speak.assert_called_once_with("voice-sample.wav", "Goodbye.")
+
+
 def test_the_voice_check_and_the_clips_share_one_voice_engine(tmp_path: Path) -> None:
     speaks: list[object] = []
 
@@ -403,7 +540,8 @@ def test_the_voice_check_and_the_clips_share_one_voice_engine(tmp_path: Path) ->
         speaks.append(self)
         raise RuntimeError("stop here")
 
-    with patch("imageskin.kokoro_engine.KokoroEngine.speak", speak):
+    no_clone = patch("imageskin.chatterbox_engine.check_installed", side_effect=VoiceError("no"))
+    with patch("imageskin.kokoro_engine.KokoroEngine.speak", speak), no_clone:
         job = create_app(tmp_path, check_photo=lambda p: PhotoResult([], 80)).state.prepare_job
         with pytest.raises(RuntimeError):
             job._prepare_voice()
