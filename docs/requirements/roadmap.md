@@ -203,7 +203,7 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 4: Talking chat
 
-### R15. Text chat with the LLM (Medium) · items 10, 15, 16 · Done in [PR #PRNUM](https://github.com/larry94555/ImageSkinForLLM/pull/PRNUM)
+### R15. Text chat with the LLM (Medium) · items 10, 15, 16 · Done in [PR #39](https://github.com/larry94555/ImageSkinForLLM/pull/39)
 - OpenAI-compatible client pointed at local llama.cpp, with the short-reply system prompt.
 - Conversation history sent with each prompt; the oldest turns are dropped when it would overflow the context window.
 - Chat screen with a text box, unlocked after acceptance. Replies are text only for now.
