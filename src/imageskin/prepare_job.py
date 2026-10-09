@@ -31,6 +31,7 @@ from imageskin.voice import VoiceEngine, VoiceError
 
 if TYPE_CHECKING:
     from imageskin.chatterbox_engine import ChatterboxEngine
+    from imageskin.speaker_checks import SpeakerChecker
 
 logger = logging.getLogger(__name__)
 
@@ -384,7 +385,7 @@ def cloned_voice(
 
 
 def clip_voice(
-    home: Path, voice_sample: Path, accent: Callable[[], Accent]
+    voice_sample: Path, accent: Callable[[], Accent], speakers: "SpeakerChecker"
 ) -> tuple[PrepareVoice, VoiceEngine, str, str]:
     """The voice step, the engine, the voice the clips are spoken in and its kind ("clone" or
     "kokoro"): the person's own, cloned from the voice sample with the chosen accent, when
@@ -399,22 +400,20 @@ def clip_voice(
         kokoro = KokoroEngine()
         return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE, "kokoro"
     logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
-    engine = accent_engine(home, ChatterboxEngine())
+    engine = accent_engine(ChatterboxEngine(), speakers)
     return cloned_voice(engine, voice_sample, accent), engine, str(voice_sample), "clone"
 
 
-def accent_engine(home: Path, clone: "ChatterboxEngine") -> AccentEngine:
-    """The clone, with Kokoro, Chatterbox's converter and the speaker model for other accents.
-    Each is loaded only when another accent is first used."""
+def accent_engine(clone: "ChatterboxEngine", speakers: "SpeakerChecker") -> AccentEngine:
+    """The clone, with Kokoro, Chatterbox's converter and the app's speaker model (shared with the
+    one-speaker check) for other accents. Each is loaded only when another accent is first used."""
     from imageskin.chatterbox_engine import SAMPLE_RATE, TurboConverter
     from imageskin.kokoro_engine import kokoro_for
-    from imageskin.speaker_checks import SpeakerChecker
 
-    speakers = SpeakerChecker(home / "models" / "speakers")
     return AccentEngine(
         clone,
         kokoro_for,
-        lambda: TurboConverter(clone.cloner()),
+        lambda: TurboConverter(clone.cloner().tts.s3gen),  # type: ignore[attr-defined]
         lambda samples: speakers.voice_print(samples, SAMPLE_RATE),
     )
 

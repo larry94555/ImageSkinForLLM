@@ -23,25 +23,17 @@ from pathlib import Path
 import numpy as np
 from page import Clip, Line, build_page
 from run_test import CHAT_REPLIES, write_wav
-from voice_tools import fit_length, reference_clip
+from voice_tools import reference_clip
+
+from imageskin.accent import KOKORO_VOICES, PROBE, convert_fitted
 
 logger = logging.getLogger("accent_test")
 
-# Kokoro's English voices by accent (lang code, voices). Women and men, so any person has a match.
+# Kokoro's English voices by accent (lang code, voices), the app's lists (R26).
 KOKORO_ACCENTS: dict[str, tuple[str, list[str]]] = {
-    "American": (
-        "a",
-        ["am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx"]
-        + ["am_puck", "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore"]
-        + ["af_nicole", "af_nova", "af_river", "af_sarah", "af_sky"],
-    ),
-    "British": (
-        "b",
-        ["bm_daniel", "bm_fable", "bm_george", "bm_lewis"]
-        + ["bf_alice", "bf_emma", "bf_isabella", "bf_lily"],
-    ),
+    "American": KOKORO_VOICES["american"],
+    "British": KOKORO_VOICES["british"],
 }
-PROBE = "Hello, it's good to see you. What would you like to talk about today?"
 FINALISTS = 3  # base voices converted and compared after conversion
 CLONE = "Your accent"
 
@@ -52,11 +44,6 @@ Similarity = Callable[[Path], float]
 
 def _ms(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
-
-
-def convert_fitted(samples: np.ndarray, convert: Convert) -> np.ndarray:
-    """The same speech in the person's voice, the same length (so timings would still hold)."""
-    return fit_length(convert(samples).astype(np.float32), len(samples))
 
 
 def pick_base(

@@ -20,7 +20,7 @@ import warnings
 import wave
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -136,8 +136,12 @@ class ChatterboxEngine:
         self.check_voice_sample(voice)
         self._learn_voice(self._loaded(), voice)
 
-    def reference(self, voice: str) -> np.ndarray:
-        """The stretch of the voice sample the voice is learned from."""
+    def reference(self, voice: str, fresh: bool = False) -> np.ndarray:
+        """The stretch of the voice sample the voice is learned from; fresh reads it again, as the
+        voice sample is joined again whenever the recordings change."""
+        if fresh:
+            self._voice = None
+            self._reference = None
         self.check_voice_sample(voice)
         assert self._reference is not None
         return self._reference[1]
@@ -253,14 +257,15 @@ class TurboCloner:  # pragma: no cover - needs the models; see the functional ru
 class TurboConverter:  # pragma: no cover - needs the models; see the functional run in the PR
     """Changes speech in another voice into the person's, keeping its words, timing and accent.
 
-    Chatterbox's voice converter, run with Turbo's own one-step decoder (already loaded for the
-    clone), which is about five times faster on the CPU than the converter's ten-step one.
+    Chatterbox's voice converter, run with Turbo's own one-step decoder (`s3gen`, already loaded
+    for the clone), which is about five times faster on the CPU than the converter's ten-step one.
     """
 
-    def __init__(self, cloner: Cloner) -> None:
+    def __init__(self, s3gen: Any) -> None:
+        provide_pkg_resources()
         from chatterbox.vc import ChatterboxVC
 
-        self._vc = ChatterboxVC(cloner.tts.s3gen, "cpu")  # type: ignore[attr-defined]
+        self._vc = ChatterboxVC(s3gen, "cpu")
 
     def set_voice(self, reference: np.ndarray) -> None:
         self._vc.ref_dict = self._vc.s3gen.embed_ref(reference, SAMPLE_RATE, device="cpu")

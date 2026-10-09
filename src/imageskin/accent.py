@@ -144,11 +144,13 @@ class AccentEngine:
 
     def prepare(self, voice: str, accent: Accent) -> None:
         start = time.perf_counter()
-        self._clone.learn_voice(voice)
         self.accent, self.base = accent, None
         if accent == OWN:
+            self._clone.learn_voice(voice)
             return
-        reference = self._clone.reference(voice)
+        # Kokoro's timings are kept, so neither the aligner nor the clone's voice is needed: only
+        # the voice sample, read afresh since the recordings may have changed.
+        reference = self._clone.reference(voice, fresh=True)
         converter = self._get_converter()
         try:
             converter.set_voice(reference)

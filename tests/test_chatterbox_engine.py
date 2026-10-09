@@ -285,3 +285,7 @@ def test_reference_and_cloner_are_shared_with_the_accent_converter(voice_sample:
     expected = reference_clip(read_voice_sample(voice_sample))
     assert np.array_equal(eng.reference(str(voice_sample)), expected)
     assert eng.cloner() is cloner and eng.cloner() is cloner and len(loads) == 1
+    # The recordings changed: the sample is joined again under the same name, so read it afresh.
+    write_wav(voice_sample, np.full(SAMPLE_RATE * 12, 0.3, dtype=np.float32))
+    assert eng.reference(str(voice_sample))[0] == expected[0]  # kept from before
+    assert eng.reference(str(voice_sample), fresh=True)[0] == pytest.approx(0.3, abs=1e-3)

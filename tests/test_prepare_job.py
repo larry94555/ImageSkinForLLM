@@ -334,7 +334,7 @@ def test_clips_speak_in_the_cloned_voice_when_chatterbox_is_installed(
         patch("imageskin.chatterbox_engine.check_installed"),
         patch.object(ChatterboxEngine, "learn_voice") as learn,
     ):
-        step, engine, voice, kind = clip_voice(tmp_path, sample, lambda: "own")
+        step, engine, voice, kind = clip_voice(sample, lambda: "own", MagicMock())
         step()
     assert isinstance(engine, AccentEngine) and (voice, kind) == (str(sample), "clone")
     learn.assert_called_once_with(str(sample))
@@ -351,7 +351,9 @@ def test_clips_speak_in_kokoro_when_chatterbox_is_missing(
         caplog.at_level(logging.WARNING),
         patch("imageskin.chatterbox_engine.check_installed", side_effect=missing),
     ):
-        _, engine, voice, kind = clip_voice(tmp_path, tmp_path / "voice-sample.wav", lambda: "own")
+        _, engine, voice, kind = clip_voice(
+            tmp_path / "voice-sample.wav", lambda: "own", MagicMock()
+        )
     assert isinstance(engine, KokoroEngine) and (voice, kind) == ("af_heart", "kokoro")
     record = next(r for r in caplog.records if r.levelname == "WARNING")
     assert "Kokoro voice" in record.getMessage() and "README" in vars(record)["reason"]
@@ -630,20 +632,30 @@ def test_choosing_another_accent_prepares_the_sample_again(
     assert TestClient(create_app(tmp_path)).get("/api/accent").json()["accent"] == "own"
 
 
-def test_the_accent_engine_shares_the_clone_and_the_speaker_model(tmp_path: Path) -> None:
+def test_the_accent_engine_shares_the_clone_and_the_speaker_model() -> None:
     from imageskin.prepare_job import accent_engine
 
-    clone = MagicMock()
-    with (
-        patch("imageskin.chatterbox_engine.TurboConverter") as converter,
-        patch("imageskin.speaker_checks.SpeakerChecker.voice_print") as voice_print,
-    ):
-        engine = accent_engine(tmp_path, clone)
+    clone, speakers = MagicMock(), MagicMock()
+    with patch("imageskin.chatterbox_engine.TurboConverter") as converter:
+        engine = accent_engine(clone, speakers)
         engine._make_converter()
         engine._voice_print(np.zeros(3))
-    converter.assert_called_once_with(clone.cloner.return_value)
-    assert voice_print.call_args.args[1] == 24000
-    assert engine._kokoro("b")._load.args == ("b",)  # type: ignore[attr-defined]
+    converter.assert_called_once_with(clone.cloner.return_value.tts.s3gen)
+    assert speakers.voice_print.call_args.args[1] == 24000
+
+
+def test_the_app_shares_one_speaker_model(tmp_path: Path) -> None:
+    from imageskin.speaker_checks import SpeakerChecker
+
+    with (
+        patch(
+            "imageskin.app.clip_voice", return_value=(lambda: None, MagicMock(), "v", "clone")
+        ) as voice,
+        patch.object(SpeakerChecker, "prepare"),
+        patch("imageskin.app.sound_checker") as sounds,
+    ):
+        create_app(tmp_path, check_photo=lambda p: PhotoResult([], 80))
+    assert sounds.call_args.args[0] is voice.call_args.args[2]
 
 
 def test_the_accent_cannot_change_while_preparing(tmp_path: Path) -> None:

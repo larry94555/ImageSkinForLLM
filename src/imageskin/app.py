@@ -31,6 +31,7 @@ from imageskin.prepare_job import (
     photoreal_clip,
     photoreal_face,
 )
+from imageskin.speaker_checks import SpeakerChecker
 from imageskin.uploads import (
     MEDIA_TYPE,
     Kind,
@@ -89,12 +90,10 @@ def face_checker(home: Path) -> PhotoCheck | None:
     return checker.check
 
 
-def sound_checker(home: Path) -> SoundCheck:
+def sound_checker(speakers: SpeakerChecker) -> SoundCheck:
     """The sound checks, with the check for a second voice (roadmap R11)."""
     from imageskin import sound_checks
-    from imageskin.speaker_checks import SpeakerChecker
 
-    speakers = SpeakerChecker(home / "models" / "speakers")
     # Download the model now, so the first recording isn't held up by it.
     threading.Thread(target=speakers.prepare, name="speaker-model", daemon=True).start()
     return functools.partial(sound_checks.check, voices=speakers.check)
@@ -161,10 +160,12 @@ def create_app(
                 " (/#/consent), tick the box, then try again.",
             )
 
+    # One speaker model for the one-speaker check and for picking an accent's base voice.
+    speakers = SpeakerChecker(data_home / "models" / "speakers")
     store = UploadStore(
         data_home,
         check_photo or face_checker(data_home),
-        check_sound or sound_checker(data_home),
+        check_sound or sound_checker(speakers),
     )
     uploads_api = "/api/uploads/{kind}"
     needs_consent = [Depends(require_consent)]
@@ -232,7 +233,7 @@ def create_app(
         return load_accent(data_home)
 
     voice_step, voice_engine, voice, voice_kind = clip_voice(
-        data_home, store.voice_sample_file, accent
+        store.voice_sample_file, accent, speakers
     )
     job = PrepareJob(
         data_home,

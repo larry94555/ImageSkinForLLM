@@ -88,7 +88,8 @@ class FakeClone:
     def learn_voice(self, voice: str) -> None:
         self.learned.append(voice)
 
-    def reference(self, voice: str) -> np.ndarray:
+    def reference(self, voice: str, fresh: bool = False) -> np.ndarray:
+        self.learned.append(f"read {voice} afresh" if fresh else f"read {voice}")
         return tone(0.5)
 
     def speak(self, voice: str, text: str) -> Speech:
@@ -163,7 +164,8 @@ def test_another_accent_picks_a_base_voice_and_converts_it(
     with caplog.at_level(logging.INFO):
         engine.prepare("voice-sample.wav", "british")
         speech = engine.speak("voice-sample.wav", "Hi")
-    assert engine.base == "bm_lewis" and clone.learned == ["voice-sample.wav"]
+    # Kokoro's timings are kept: the clone's voice and aligner are not loaded, only the sample read.
+    assert engine.base == "bm_lewis" and clone.learned == ["read voice-sample.wav afresh"]
     assert converter.voice is not None and converter.voice[0] == 0.5
     british = kokoros["b"]
     assert len([t for v, t in british.said if t == PROBE]) == len(KOKORO_VOICES["british"][1])
