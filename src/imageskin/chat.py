@@ -35,10 +35,9 @@ REPLY_TOKENS = 300
 # now and then mix up facts it was given, such as calling the user's name a good one for a dog.
 TEMPERATURE = 0.3
 # Tokens are counted by llama-server's own tokenizer (POST /tokenize). With a server that can't,
-# they are estimated: English runs about 4 characters to a token, so 3 errs high; any other
-# character counts one token per byte of UTF-8, the most a byte-level tokenizer can use, so
-# Chinese, emoji and the like can't be undercounted.
-CHARS_PER_TOKEN = 3
+# each byte of UTF-8 counts as a token, the most a byte-level tokenizer can use, so no text
+# (minified code, hashes, Chinese, emoji) can be undercounted. English runs about 4 characters to
+# a token, so this fallback leaves the history about a quarter of the room a real count would.
 # The chat template's framing around each message (Gemma's is 5 tokens, Qwen's 5).
 TOKENS_PER_MESSAGE = 8
 # The history (summary and turns) may use at most this share of the context window; the rest is
@@ -84,9 +83,7 @@ class LlmError(Exception):
 
 def estimate(text: str) -> int:
     """A count that never falls short of a real tokenizer's, for when the server can't count."""
-    ascii_chars = sum(1 for c in text if c.isascii())
-    other_bytes = len(text.encode()) - ascii_chars
-    return -(-ascii_chars // CHARS_PER_TOKEN) + other_bytes
+    return len(text.encode())
 
 
 def tokens(message: Message, count: Count = estimate) -> int:
