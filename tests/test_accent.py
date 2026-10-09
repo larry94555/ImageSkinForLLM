@@ -60,21 +60,20 @@ def test_convert_fitted_keeps_the_length() -> None:
     assert shorter[-1] == 0 and longer[0] == pytest.approx(0.4)
 
 
-def test_pick_base_ranks_then_converts_only_the_finalists() -> None:
+def test_pick_base_converts_every_voice_and_picks_the_closest_after() -> None:
     levels = {"a": 0.1, "b": 0.5, "c": 0.4, "d": 0.3}
     converted: list[float] = []
 
     def convert(samples: np.ndarray) -> np.ndarray:
         converted.append(float(samples[0]))
-        # After conversion the ranking flips: the third-closest base converts best.
-        return tone(0.9 if samples[0] == pytest.approx(0.3) else 0.2)
+        # After conversion the ranking flips: the base furthest from the person converts best.
+        return tone(0.9 if samples[0] == pytest.approx(0.1) else 0.2)
 
     best, scores = pick_base(
         list(levels), lambda v: tone(levels[v]), convert, lambda s: float(s[0])
     )
-    assert best == "d" and len(converted) == 3
-    assert [s["voice"] for s in scores] == ["b", "c", "d"]
-    assert scores[2] == {"voice": "d", "base": 0.3, "converted": 0.9}
+    assert best == "a" and len(converted) == 4
+    assert scores == [("a", 0.9), ("b", 0.2), ("c", 0.2)]
 
 
 class FakeClone:

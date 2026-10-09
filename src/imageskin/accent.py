@@ -4,8 +4,8 @@ With their own accent, the clone speaks each line (Chatterbox Turbo, R25). With 
 one of Kokoro's ready-made voices of that accent speaks the line, and Chatterbox's converter
 changes it into the person's voice, keeping the accent and the timing, so Kokoro's word and sound
 timings still drive the mouth. The Kokoro voice is picked to suit the person, as the accent test
-(R26a) does: every voice of that accent says a probe line, the three that sound most like the
-person are converted to their voice, and the closest after conversion is used.
+(R26a) does: every voice of that accent says a probe line and is converted to their voice, and
+the closest after conversion is used.
 
 The choice is saved as accent.json in the app's home folder, so it survives a restart.
 """
@@ -49,7 +49,6 @@ KOKORO_VOICES: dict[Accent, tuple[str, list[str]]] = {
     ),
 }
 PROBE = "Hello, it's good to see you. What would you like to talk about today?"
-FINALISTS = 3  # base voices converted and compared after conversion
 
 Samples = np.ndarray  # 24 kHz float samples
 Convert = Callable[[Samples], Samples]
@@ -109,19 +108,15 @@ def pick_base(
     speak: Callable[[str], Samples],
     convert: Convert,
     alike: Callable[[Samples], float],
-    finalists: int = FINALISTS,
-) -> tuple[str, list[dict[str, object]]]:
-    """The base voice that sounds most like the person once converted, with the scores: each
-    voice says the probe; the finalists closest to the person are converted and compared."""
-    probes = {voice: speak(voice) for voice in voices}
-    scores: list[dict[str, object]] = [
-        {"voice": voice, "base": round(alike(samples), 3)} for voice, samples in probes.items()
-    ]
-    scores.sort(key=lambda s: -float(s["base"]))  # type: ignore[arg-type]
-    for score in scores[:finalists]:
-        score["converted"] = round(alike(convert_fitted(probes[str(score["voice"])], convert)), 3)
-    best = max(scores[:finalists], key=lambda s: float(s["converted"]))  # type: ignore[arg-type]
-    return str(best["voice"]), scores[:finalists]
+) -> tuple[str, list[tuple[str, float]]]:
+    """The base voice that sounds most like the person once converted, and the three closest with
+    their scores. Every voice is converted: conversion changes which voice is closest, so a
+    ranking before it would not do."""
+    scores = sorted(
+        ((voice, round(alike(convert_fitted(speak(voice), convert)), 3)) for voice in voices),
+        key=lambda score: -score[1],
+    )
+    return scores[0][0], scores[:3]
 
 
 class AccentEngine:
