@@ -131,7 +131,7 @@ Added by Larry on 2026-10-09. These build on the history in items 34 to 37 and c
 38. **Topics.** The topics are the knowledge wiki's topic pages (item 26), so they follow the content as PDFs are added, removed or replaced *(default)*.
 39. **Topic of each question.** Every question in the history is tagged with the topic or topics it asks about. Questions already in the history when this is added are tagged too.
 40. **Understanding shown by each question.** Every question from a signed-in student is also rated for the understanding it shows: **strong** (a solid question that shows a good level of understanding) or **weak** (a weak or uninformed question). A question that shows neither is left unrated *(default)*. Ratings are seen only by the administrator, never by students *(default)*.
-41. **Student profile.** For each student, the app keeps a profile of the topics they asked about, the topics where they show strong knowledge and the topics where they show weak knowledge, built from items 39 and 40 and updated as they ask more.
+41. **Student profile.** For each student: the topics they asked about, the topics where they show strong knowledge and the topics where they show weak knowledge. It is worked out from items 39 and 40 whenever it is needed, not kept separately, and shown on the student summary page (item 45).
 
 ### Search
 
