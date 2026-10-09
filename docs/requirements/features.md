@@ -63,7 +63,7 @@ Items 1 to 16 match the original feature list. Items 17 to 23 were added after r
 
 ## Conversation history
 
-15. The app keeps the conversation history and sends it with each prompt so the LLM keeps context. When history exceeds the model's context window, the oldest turns are dropped.
+15. The app keeps the conversation history and sends it with each prompt so the LLM keeps context. The history never uses more than half of the model's context window, leaving room for the prompt and the reply; when it grows past that, the LLM summarizes the older turns after a reply, and the summary is sent in their place (Larry, 2026-10-09). If summarizing fails, the oldest turns are dropped.
 
 ## LLM interface
 
