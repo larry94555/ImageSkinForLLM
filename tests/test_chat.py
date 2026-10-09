@@ -17,12 +17,14 @@ from imageskin.chat import (
     SUMMARY_PROMPT,
     SYSTEM_PROMPT,
     TEMPERATURE,
+    TOKENS_PER_MESSAGE,
     Conversation,
     LlmClient,
     LlmError,
     LlmSettings,
     Message,
     Turn,
+    estimate,
     latest,
     system_message,
     tokens,
@@ -52,6 +54,55 @@ def test_only_the_latest_turns_that_fit_are_kept() -> None:
 def test_kept_turns_never_start_on_a_reply() -> None:
     turns = [Turn("user", "a" * 300), Turn("assistant", "b" * 300), Turn("user", "c" * 30)]
     assert latest(turns, 120) == [Turn("user", "c" * 30)]
+
+
+# --- Counting tokens ---
+
+
+@pytest.mark.parametrize(
+    ("text", "at_least"),
+    [
+        ("Hello there", 4),  # 11 characters of English
+        ("你好，我叫拉里。", 24),  # 8 Chinese characters, 3 bytes each
+        ("🐶🐶🐶", 12),  # emoji, 4 bytes each
+        ("Biscuit 🐶", 7),  # 8 ASCII characters and one emoji
+    ],
+)
+def test_the_estimate_never_counts_fewer_tokens_than_bytes_allow(text: str, at_least: int) -> None:
+    assert estimate(text) >= at_least
+    # A byte-level tokenizer uses at most one token per byte; the estimate covers that for all
+    # but plain ASCII, where 3 characters to a token is already generous.
+    other = len(text.encode()) - sum(c.isascii() for c in text)
+    assert estimate(text) >= other
+
+
+def utf8_bytes(text: str) -> int:
+    """The worst a real tokenizer can do: one token per byte."""
+    return len(text.encode())
+
+
+def test_token_dense_turns_stay_within_half_the_window() -> None:
+    llm = FakeLlm2()
+    conversation = Conversation(llm, lambda: 2048, count=utf8_bytes)
+    for i in range(10):
+        conversation.send(f"{i} " + "你好🐶" * 20)  # 202 bytes: about 210 tokens at worst
+    for sent in llm.sent:
+        if sent[0]["content"] == SUMMARY_PROMPT:
+            continue
+        history = sent[1:-1]
+        assert (
+            sum(utf8_bytes(m["content"]) + TOKENS_PER_MESSAGE for m in history)
+            + (utf8_bytes(sent[0]["content"]) - utf8_bytes(SYSTEM_PROMPT))
+            <= 2048 * HISTORY_SHARE
+        )
+
+
+def test_a_token_dense_prompt_too_long_is_refused_by_its_real_count() -> None:
+    # 300 characters would pass at 3 characters a token; at 4 bytes each it can't fit.
+    with pytest.raises(ValueError, match="too long"):
+        Conversation(FakeLlm2(), lambda: 2048, count=utf8_bytes).send("🐶" * 300)
+    with pytest.raises(ValueError, match="too long"):
+        Conversation(FakeLlm2(), lambda: 2048).send("🐶" * 300)
 
 
 # --- The conversation ---
@@ -86,19 +137,6 @@ def test_a_conversation_remembers_earlier_turns(caplog: pytest.LogCaptureFixture
     ]
     assert conversation.turns()[-1] == Turn("assistant", "Reply 2")
     assert "Chat prompt sent" in caplog.text and "Chat reply received" in caplog.text
-
-
-def test_the_window_is_looked_up_once() -> None:
-    lookups: list[int] = []
-
-    def window() -> int:
-        lookups.append(1)
-        return 4096
-
-    conversation = Conversation(FakeLlm2(), window)
-    conversation.send("a")
-    conversation.send("b")
-    assert len(lookups) == 1
 
 
 def test_older_turns_are_summarized_when_the_history_passes_half_the_window(
@@ -182,6 +220,7 @@ def test_a_failed_reply_leaves_the_conversation_as_it_was(caplog: pytest.LogCapt
 class FakeLlm(BaseHTTPRequestHandler):
     answer: tuple[int, bytes] = (200, b"")
     props: tuple[int, bytes] = (404, b"")
+    tokenize: tuple[int, bytes] = (404, b"")
     received: list[dict[str, object]] = []
 
     def do_GET(self) -> None:  # noqa: N802 (the name http.server calls)
@@ -194,7 +233,7 @@ class FakeLlm(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 (the name http.server calls)
         length = int(self.headers["Content-Length"])
         FakeLlm.received.append({"path": self.path, **json.loads(self.rfile.read(length))})
-        status, body = FakeLlm.answer
+        status, body = FakeLlm.tokenize if self.path == "/tokenize" else FakeLlm.answer
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -285,6 +324,52 @@ def test_the_context_window_comes_from_the_server_when_it_says(
     assert FakeLlm.received == [{"path": "/props"}]
     source = "server" if expected != 4096 else "config"
     assert f"LLM context window from the {source}" in caplog.text
+
+
+def test_the_window_is_asked_for_until_the_server_answers(fake_llm: str) -> None:
+    port = fake_llm.split(":")[2].split("/")[0]
+    down = LlmClient(LlmSettings(url="http://127.0.0.1:1/v1", context_tokens=4096, timeout_s=5))
+    assert down.context_tokens() == 4096
+    assert down._window is None  # asked again next time
+    FakeLlm.props = (200, b'{"n_ctx": 8192}')
+    client = LlmClient(LlmSettings(url=f"http://127.0.0.1:{port}/v1"))
+    assert client.context_tokens() == client.context_tokens() == 8192
+    assert len(FakeLlm.received) == 1  # then remembered
+
+
+def test_tokens_are_estimated_while_the_server_is_down() -> None:
+    client = LlmClient(LlmSettings(url="http://127.0.0.1:1/v1", timeout_s=5))
+    assert client.count("Hello") == estimate("Hello")
+    assert client._can_count  # asked again once it is up
+
+
+def test_tokens_are_counted_by_the_server(fake_llm: str) -> None:
+    FakeLlm.tokenize = (200, b'{"tokens": [1, 2, 3, 4, 5]}')
+    client = LlmClient(LlmSettings(url=fake_llm))
+    assert client.count("Hello there") == 5
+    assert client.count("Hello there") == 5  # counted once, then remembered
+    assert FakeLlm.received == [{"path": "/tokenize", "content": "Hello there"}]
+
+
+def test_tokens_are_estimated_when_the_server_cant_count(
+    fake_llm: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    FakeLlm.tokenize = (404, b"")
+    client = LlmClient(LlmSettings(url=fake_llm))
+    with caplog.at_level(logging.WARNING):
+        assert client.count("🐶🐶") == estimate("🐶🐶")
+        assert client.count("Hello") == estimate("Hello")
+    assert len(FakeLlm.received) == 1  # not asked again
+    assert "can't count tokens" in caplog.text
+
+
+def test_the_counting_cache_is_kept_small(fake_llm: str) -> None:
+    FakeLlm.tokenize = (200, b'{"tokens": [1]}')
+    client = LlmClient(LlmSettings(url=fake_llm))
+    for i in range(1002):
+        client.count(str(i))
+    assert client.count("1001") == 1
+    assert len(FakeLlm.received) == 1002
 
 
 # --- The API ---

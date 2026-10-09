@@ -34,10 +34,13 @@ REPLY_TOKENS = 300
 # How much randomness the LLM picks words with. llama-server's default (0.8) made a small model
 # now and then mix up facts it was given, such as calling the user's name a good one for a dog.
 TEMPERATURE = 0.3
-# A rough count: English runs about 4 characters to a token, and each message adds a few for
-# its framing. Erring high (3 characters) keeps the conversation inside the window.
+# Tokens are counted by llama-server's own tokenizer (POST /tokenize). With a server that can't,
+# they are estimated: English runs about 4 characters to a token, so 3 errs high; any other
+# character counts one token per byte of UTF-8, the most a byte-level tokenizer can use, so
+# Chinese, emoji and the like can't be undercounted.
 CHARS_PER_TOKEN = 3
-TOKENS_PER_MESSAGE = 4
+# The chat template's framing around each message (Gemma's is 5 tokens, Qwen's 5).
+TOKENS_PER_MESSAGE = 8
 # The history (summary and turns) may use at most this share of the context window; the rest is
 # for the system prompt, the new prompt and the reply.
 HISTORY_SHARE = 0.5
@@ -71,14 +74,23 @@ class Turn:
 Message = dict[str, str]
 # Sends the messages to the LLM and returns its reply. LlmError when that fails.
 AskLlm = Callable[[list[Message]], str]
+# The number of tokens in a text.
+Count = Callable[[str], int]
 
 
 class LlmError(Exception):
     """The LLM could not be reached or gave no reply; the message says so in plain words."""
 
 
-def tokens(message: Message) -> int:
-    return len(message["content"]) // CHARS_PER_TOKEN + TOKENS_PER_MESSAGE
+def estimate(text: str) -> int:
+    """A count that never falls short of a real tokenizer's, for when the server can't count."""
+    ascii_chars = sum(1 for c in text if c.isascii())
+    other_bytes = len(text.encode()) - ascii_chars
+    return -(-ascii_chars // CHARS_PER_TOKEN) + other_bytes
+
+
+def tokens(message: Message, count: Count = estimate) -> int:
+    return count(message["content"]) + TOKENS_PER_MESSAGE
 
 
 def as_message(turn: Turn) -> Message:
@@ -90,17 +102,17 @@ def system_message(summary: str | None) -> Message:
     return {"role": "system", "content": content}
 
 
-def history_tokens(summary: str | None, turns: list[Turn]) -> int:
+def history_tokens(summary: str | None, turns: list[Turn], count: Count = estimate) -> int:
     """What the history costs: the summary (in the system message) and the turns."""
-    extra = tokens(system_message(summary)) - tokens(system_message(None))
-    return extra + sum(tokens(as_message(t)) for t in turns)
+    extra = 0 if summary is None else count(f"\n\n{EARLIER}\n{summary}")
+    return extra + sum(tokens(as_message(t), count) for t in turns)
 
 
-def latest(turns: list[Turn], budget: int) -> list[Turn]:
+def latest(turns: list[Turn], budget: int, count: Count = estimate) -> list[Turn]:
     """The latest turns that fit the budget, never starting on a reply whose prompt is left out."""
     kept: list[Turn] = []
     for turn in reversed(turns):
-        budget -= tokens(as_message(turn))
+        budget -= tokens(as_message(turn), count)
         if budget < 0:
             break
         kept.append(turn)
@@ -109,15 +121,60 @@ def latest(turns: list[Turn], budget: int) -> list[Turn]:
     return list(reversed(kept))
 
 
+def unreachable(e: Exception) -> bool:
+    """The server didn't answer at all (not started yet, say), as opposed to answering no."""
+    if isinstance(e, urllib.error.HTTPError):
+        return False
+    return isinstance(e, urllib.error.URLError | TimeoutError | ConnectionError)
+
+
 class LlmClient:
     """Asks an OpenAI-compatible chat API, such as llama-server's, for a reply."""
 
     def __init__(self, settings: LlmSettings) -> None:
         self.settings = settings
+        self._root = settings.url.rstrip("/").removesuffix("/v1")
+        self._counted: dict[str, int] = {}  # each turn is counted again with every prompt
+        self._can_count = True
+        self._window: int | None = None  # once the server has answered
+
+    def count(self, text: str) -> int:
+        """Tokens in the text by llama-server's tokenizer, or estimated if it can't count."""
+        if not self._can_count:
+            return estimate(text)
+        if text in self._counted:
+            return self._counted[text]
+        request = urllib.request.Request(
+            self._root + "/tokenize",
+            data=json.dumps({"content": text}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.settings.timeout_s) as response:
+                n = len(json.loads(response.read())["tokens"])
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            if unreachable(e):
+                return estimate(text)  # the reply will say the server is down
+            self._can_count = False
+            logger.warning(
+                "The LLM server can't count tokens; estimating them instead",
+                extra={"error": str(e)},
+            )
+            return estimate(text)
+        if len(self._counted) > 1000:
+            self._counted.clear()
+        self._counted[text] = n
+        return n
 
     def context_tokens(self) -> int:
-        """The context window llama-server was started with, or the configured one."""
-        url = self.settings.url.rstrip("/").removesuffix("/v1") + "/props"
+        """The context window llama-server was started with, or the configured one.
+
+        Asked again until the server answers, so starting the app before llama-server works.
+        """
+        if self._window is not None:
+            return self._window
+        url = self._root + "/props"
         try:
             with urllib.request.urlopen(url, timeout=10) as response:
                 props = json.loads(response.read())
@@ -129,8 +186,11 @@ class LlmClient:
                 "LLM context window from the config",
                 extra={"context_tokens": self.settings.context_tokens, "props_error": str(e)},
             )
+            if not unreachable(e):
+                self._window = self.settings.context_tokens
             return self.settings.context_tokens
         logger.info("LLM context window from the server", extra={"context_tokens": n_ctx})
+        self._window = n_ctx
         return n_ctx
 
     def ask(self, messages: list[Message]) -> str:
@@ -172,10 +232,12 @@ class LlmClient:
 class Conversation:
     """The one conversation with the LLM, kept in memory until the server stops."""
 
-    def __init__(self, ask: AskLlm, context_tokens: Callable[[], int]) -> None:
+    def __init__(
+        self, ask: AskLlm, context_tokens: Callable[[], int], count: Count = estimate
+    ) -> None:
         self._ask = ask
         self._context_tokens = context_tokens
-        self._window: int | None = None  # looked up at the first prompt
+        self._count = count
         self._transcript: list[Turn] = []  # everything said, as shown in the chat
         self._summary: str | None = None  # of the turns no longer sent word for word
         self._turns: list[Turn] = []  # sent word for word after the summary
@@ -192,18 +254,18 @@ class Conversation:
         if not prompt:
             raise ValueError("Type something to send.")
         with self._lock:
-            if self._window is None:
-                self._window = self._context_tokens()
-            budget = int(self._window * HISTORY_SHARE)
-            room = self._window - budget - REPLY_TOKENS - tokens(system_message(None))
-            if tokens({"role": "user", "content": prompt}) > room:
+            window = self._context_tokens()
+            budget = int(window * HISTORY_SHARE)
+            count = self._count
+            room = window - budget - REPLY_TOKENS - tokens(system_message(None), count)
+            if tokens({"role": "user", "content": prompt}, count) > room:
                 logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
                 raise ValueError(
                     "That message is too long for the LLM. Shorten it or split it in two."
                 )
-            if history_tokens(self._summary, self._turns) > budget:
+            if history_tokens(self._summary, self._turns, count) > budget:
                 self._summarize(budget)
-            turns = latest(self._turns, budget - history_tokens(self._summary, []))
+            turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
             messages = [
                 system_message(self._summary),
                 *map(as_message, turns),
@@ -216,8 +278,8 @@ class Conversation:
                     "turns_sent": len(turns),
                     "turns_dropped": len(self._turns) - len(turns),
                     "summary": self._summary is not None,
-                    "history_tokens": history_tokens(self._summary, turns),
-                    "context_tokens": self._window,
+                    "history_tokens": history_tokens(self._summary, turns, count),
+                    "context_tokens": window,
                 },
             )
             start = time.perf_counter()
@@ -275,7 +337,7 @@ class Conversation:
             extra={
                 "turns_summarized": len(older),
                 "summary_chars": len(summary),
-                "history_tokens": history_tokens(summary, recent),
+                "history_tokens": history_tokens(summary, recent, self._count),
                 "budget_tokens": budget,
                 "duration_ms": round((time.perf_counter() - start) * 1000),
             },

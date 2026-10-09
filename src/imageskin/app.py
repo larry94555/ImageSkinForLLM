@@ -318,7 +318,7 @@ def create_app(
     )
     if ask_llm is None:
         client = LlmClient(llm)
-        conversation = Conversation(client.ask, client.context_tokens)
+        conversation = Conversation(client.ask, client.context_tokens, client.count)
     else:
         conversation = Conversation(ask_llm, lambda: llm.context_tokens)
 
