@@ -185,11 +185,11 @@ def print_spoken_text(text: str | None, file: Path | None) -> int:
         "Cleaned reply for speech",
         extra={
             "shown_chars": len(text),
-            "spoken_chars": len(spoken.text),
+            "spoken_chars": len(spoken),
             "duration_ms": round((time.perf_counter() - started) * 1000, 1),
         },
     )
-    print(spoken.text)
+    print(spoken)
     return 0
 
 

@@ -1,18 +1,21 @@
 """The spoken version of a reply: what is shown as text but not voiced is left out (item 11).
 
-Markdown markers, code, URLs and emoji are removed, and every spoken character keeps the
-index of the displayed character it came from, so a spoken word can be highlighted in the
-displayed reply (R18). Pure Python, no logging: the callers log.
+Markdown markers, code, URLs and emoji are removed. Pure Python, no logging: the callers log.
 """
 
 import re
 import unicodedata
-from dataclasses import dataclass
 
 # Each pattern's groups name the parts to drop; the rest of the match is spoken.
 _DROPS = (
-    re.compile(r"(```|~~~).*?(?:\1|\Z)", re.S),  # fenced code block, even if never closed
-    re.compile(r"`[^`\n]+`"),  # inline code
+    # Fenced code block: it ends at a line with a fence as long or longer of the same character,
+    # so a ```` block can hold ```; a block that is never closed runs to the end.
+    re.compile(
+        r"^[ \t]*(?P<fence>(?P<c>[`~])(?P=c){2,}).*?(?:^[ \t]*(?P=fence)(?P=c)*[ \t]*$|\Z)",
+        re.S | re.M,
+    ),
+    # Inline code ends at the same number of backticks it starts with, so ``a`b`` is one span.
+    re.compile(r"(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)"),
     re.compile(r"!\[[^\]\n]*\]\([^)\n]*\)"),  # image
     re.compile(r"<[a-zA-Z/][^>\n]*>"),  # HTML tag, such as <br>
     re.compile(r"\((?:https?://|www\.)[^)\s]*\)"),  # URL in brackets, brackets and all
@@ -37,18 +40,6 @@ _EMOJI_PARTS = {"\u200d", "\ufe0e", "\ufe0f", "\u20e3"}  # joiner, presentation,
 _SENTENCE_END = set(".!?:;,")
 
 
-@dataclass(frozen=True)
-class SpokenText:
-    text: str  # what the voice says
-    source: tuple[int, ...]  # for each character of text, its index in the displayed reply
-
-    def display_span(self, start: int, end: int) -> tuple[int, int]:
-        """The displayed characters that spoken characters start to end (exclusive) came from."""
-        if not 0 <= start < end <= len(self.text):
-            raise ValueError(f"no spoken characters {start} to {end} in {len(self.text)}")
-        return self.source[start], self.source[end - 1] + 1
-
-
 def _is_emoji(ch: str) -> bool:
     # So covers pictographs and flags' regional letters; Sk covers the skin-tone modifiers.
     if ch in _EMOJI_PARTS:
@@ -56,8 +47,8 @@ def _is_emoji(ch: str) -> bool:
     return unicodedata.category(ch) == "So" or "\U0001f3fb" <= ch <= "\U0001f3ff"
 
 
-def spoken_text(display: str) -> SpokenText:
-    """The words of a displayed reply that should be voiced, mapped back to the reply."""
+def spoken_text(display: str) -> str:
+    """The words of a displayed reply that should be voiced."""
     keep = [True] * len(display)
     for pattern in _DROPS:
         for m in pattern.finditer(display):
@@ -76,29 +67,26 @@ def spoken_text(display: str) -> SpokenText:
         start += len(line)
 
     chars: list[str] = []
-    source: list[int] = []
+    last = 0  # index in display of the last character spoken
     gap = False  # whether whitespace or dropped text waits between the last word and the next
-    gap_at = 0
     line_breaks = 0
     for i, ch in enumerate(display):
         if _is_emoji(ch):
             continue
         if not keep[i] or ch.isspace():  # dropped text still separates words, as in "a<br>b"
             if not gap:
-                gap, gap_at, line_breaks = True, i, 0
+                gap, line_breaks = True, 0
             line_breaks += ch == "\n"
             continue
         if gap and chars and not (line_breaks == 0 and ch in _SENTENCE_END):
             # A paragraph, or a heading, list item, quote or table row, that ends without
             # punctuation ends a sentence, so the voice pauses instead of running them
             # together. A single line break inside a paragraph is only a space.
-            ends_block = line_breaks >= 2 or structural[source[-1]] or structural[i]
+            ends_block = line_breaks >= 2 or structural[last] or structural[i]
             if line_breaks and ends_block and chars[-1] not in _SENTENCE_END:
                 chars.append(".")
-                source.append(gap_at)
             chars.append(" ")
-            source.append(gap_at)
         gap = False
         chars.append(ch)
-        source.append(i)
-    return SpokenText("".join(chars), tuple(source))
+        last = i
+    return "".join(chars)

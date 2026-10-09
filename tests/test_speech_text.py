@@ -4,7 +4,7 @@ from imageskin.speech_text import spoken_text
 
 
 def spoken(display: str) -> str:
-    return spoken_text(display).text
+    return spoken_text(display)
 
 
 def test_plain_text_is_spoken_as_is() -> None:
@@ -35,6 +35,17 @@ def test_markdown_markers_are_dropped_and_words_kept(display: str, said: str) ->
 def test_code_is_not_spoken() -> None:
     reply = "Run this:\n\n```python\nprint('hi')\n```\n\nThen call `main()` again."
     assert spoken(reply) == "Run this: Then call again."
+
+
+def test_a_longer_fence_can_hold_a_shorter_one() -> None:
+    reply = "Like this:\n````md\n```py\nx = 1\n```\n````\nDone."
+    assert spoken(reply) == "Like this: Done."
+
+
+def test_inline_code_ends_at_the_same_number_of_backticks() -> None:
+    assert spoken("Use ``code`` now.") == "Use now."
+    assert spoken("Type `` a`b `` here.") == "Type here."
+    assert spoken("Inline ```x``` too.") == "Inline too."
 
 
 def test_an_unclosed_code_block_runs_to_the_end() -> None:
@@ -72,29 +83,3 @@ def test_a_line_break_inside_a_paragraph_is_only_a_space() -> None:
 def test_tables_are_read_cell_by_cell() -> None:
     reply = "| Name | Age |\n|---|:---:|\n| Ann | 30 |"
     assert spoken(reply) == "Name Age. Ann 30"
-
-
-def test_each_spoken_character_maps_to_its_displayed_character() -> None:
-    display = "Say **hi** to [Ann](https://a.io) 👋\n- now"
-    result = spoken_text(display)
-    assert result.text == "Say hi to Ann. now"
-    assert len(result.source) == len(result.text)
-    for ch, i in zip(result.text, result.source, strict=True):
-        if ch not in ". ":  # added pauses and spaces map to the gap they replace
-            assert display[i] == ch
-
-
-def test_display_span_finds_a_spoken_word_in_the_reply() -> None:
-    display = "Say **hi** to [Ann](https://a.io)."
-    result = spoken_text(display)
-    start = result.text.index("Ann")
-    begin, end = result.display_span(start, start + 3)
-    assert display[begin:end] == "Ann"
-    begin, end = result.display_span(0, len(result.text))
-    assert display[begin:end] == "Say **hi** to [Ann](https://a.io)."
-
-
-@pytest.mark.parametrize(("start", "end"), [(0, 0), (-1, 2), (2, 99), (3, 2)])
-def test_display_span_refuses_ranges_outside_the_spoken_text(start: int, end: int) -> None:
-    with pytest.raises(ValueError, match="no spoken characters"):
-        spoken_text("Hello there").display_span(start, end)
