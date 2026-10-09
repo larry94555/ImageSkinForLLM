@@ -63,6 +63,12 @@ def test_lines_without_punctuation_end_a_sentence() -> None:
     assert spoken(reply) == "Shopping list. Eggs. Milk. Bread. Quoted line. Done"
 
 
+def test_a_line_break_inside_a_paragraph_is_only_a_space() -> None:
+    reply = "This is one sentence\ncontinued here.\nAnd\n\nNew paragraph\n\n1. First\n2) Second"
+    said = "This is one sentence continued here. And. New paragraph. 1. First. 2) Second"
+    assert spoken(reply) == said
+
+
 def test_tables_are_read_cell_by_cell() -> None:
     reply = "| Name | Age |\n|---|:---:|\n| Ann | 30 |"
     assert spoken(reply) == "Name Age. Ann 30"

@@ -31,7 +31,9 @@ _PARTS = (
     re.compile(r"(?<![^\W_])(_+)|(_+)(?![^\W_])"),
     re.compile(r"(\|)"),  # table cell border
 )
-_EMOJI_PARTS = {"‍", "︎", "️", "⃣"}  # joiner, presentation, keycap
+# A line the voice should end with a pause: a heading, list item, quote or table row.
+_STRUCTURAL_LINE = re.compile(r"^[ \t]*(?:#{1,6}[ \t]|[-*+][ \t]|\d+[.)][ \t]|>|\|)")
+_EMOJI_PARTS = {"\u200d", "\ufe0e", "\ufe0f", "\u20e3"}  # joiner, presentation, keycap
 _SENTENCE_END = set(".!?:;,")
 
 
@@ -66,28 +68,37 @@ def spoken_text(display: str) -> SpokenText:
                 if m.start(group) >= 0:
                     keep[m.start(group) : m.end(group)] = [False] * (m.end(group) - m.start(group))
 
+    structural = [False] * len(display)  # whether each character is on a structural line
+    start = 0
+    for line in display.splitlines(keepends=True):
+        if _STRUCTURAL_LINE.match(line):
+            structural[start : start + len(line)] = [True] * len(line)
+        start += len(line)
+
     chars: list[str] = []
     source: list[int] = []
-    gap = ""  # whitespace waiting to be spoken: "" none, " " a space, "\n" a line break
+    gap = False  # whether whitespace or dropped text waits between the last word and the next
     gap_at = 0
+    line_breaks = 0
     for i, ch in enumerate(display):
         if _is_emoji(ch):
             continue
         if not keep[i] or ch.isspace():  # dropped text still separates words, as in "a<br>b"
             if not gap:
-                gap_at = i
-            if ch == "\n" or not gap:  # a line break wins over spaces
-                gap = "\n" if ch == "\n" else " "
+                gap, gap_at, line_breaks = True, i, 0
+            line_breaks += ch == "\n"
             continue
-        if gap and chars and not (gap == " " and ch in _SENTENCE_END):
-            # A line that ends without punctuation (a heading, a list item) ends a sentence,
-            # so the voice pauses instead of running the lines together.
-            if gap == "\n" and chars[-1] not in _SENTENCE_END:
+        if gap and chars and not (line_breaks == 0 and ch in _SENTENCE_END):
+            # A paragraph, or a heading, list item, quote or table row, that ends without
+            # punctuation ends a sentence, so the voice pauses instead of running them
+            # together. A single line break inside a paragraph is only a space.
+            ends_block = line_breaks >= 2 or structural[source[-1]] or structural[i]
+            if line_breaks and ends_block and chars[-1] not in _SENTENCE_END:
                 chars.append(".")
                 source.append(gap_at)
             chars.append(" ")
             source.append(gap_at)
-        gap = ""
+        gap = False
         chars.append(ch)
         source.append(i)
     return SpokenText("".join(chars), tuple(source))
