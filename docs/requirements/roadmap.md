@@ -23,10 +23,10 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.1% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 6.3% | 0 |
 | 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 7.8% | 0 |
-| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong or weak. | R53 to R54 | 2 | 3.1% | 0 |
-| 15 | **Search.** The administrator searches one student's history or everyone's. | R55 | 1 | 1.6% | 0 |
+| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 3.1% | 0 |
+| 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.6% | 0 |
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 3.1% | 0 |
-| 17 | **Heads-up before clearing.** Students are told their history is kept before they clear it. | R58 | 1 | 1.6% | 0 |
+| 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.6% | 0 |
 | | **Total** | | **64** | **100%** | **22 of 64** |
 
 Sizes: 14 Simple, 50 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
@@ -55,8 +55,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | R39 | How questions are looked up: keyword search over the wiki and PDF text, or a local embedding model. The simplest option is keyword search first, adding embeddings only if answers miss. |
 | R43 | Whether a Claude, OpenAI or Grok subscription can be used by a separate app at all. Not checked yet: these subscriptions are mainly for the providers' own apps, and an API key may be the only supported route. If a subscription can't be used, R43 is dropped and features.md updated. |
 | R44 | How the administrator account is created. The simplest option is that the first run asks for an administrator password, stored hashed on the server. |
-| R53 | When questions are tagged: as each question is saved, or in a background job. The simplest option is to tag as each answer is given, since the R39 lookup already finds the matching wiki pages, plus a one-off job for the existing history. |
-| R54 | How a question is rated strong or weak. The simplest option is to ask the chosen LLM (item 29) with the question, the topic's wiki page and a short rubric, and to keep its one-line reason with the rating so the administrator can check it. |
+| R54 | How a question is rated for each topic, using the definitions in item 40. The simplest option is to ask the chosen LLM (item 29) with the question, each topic's wiki page and those definitions, and to keep its one-line reason with each rating. |
 
 ## After the engine decision
 
@@ -382,17 +381,17 @@ The PRs below are written for either kind of video engine, but these are the one
 ## Milestone 14: Topics and understanding
 
 ### R53. Tagging questions with topics (Medium) · items 38, 39
-- Each saved question is tagged with the wiki topics it asks about, and a job tags the questions already in the history, with progress like R12. When the wiki is rebuilt, tags pointing at a removed topic are flagged rather than dropped.
-- **Can show:** ask questions about two different topics and see each tagged correctly in the store, and the tagging job's run time in the logs.
+- Each new question keeps the wiki page ids the R39 lookup already found for it as its topics (none, one or several); there is no second classification. A one-off job runs the R39 lookup over the existing history, with progress like R12, and history loaded through R52 is tagged the same way. Tags are never rewritten when the wiki changes; a removed topic is shown as removed.
+- **Can show:** ask a question on one topic, one spanning two topics and a general one, and see one, two and no topics in the store; then the backfill job's run time in the logs.
 
 ### R54. Rating the understanding a question shows (Medium) · item 40
-- Each question from a signed-in student is rated strong, weak or unrated, using the method decided before this PR, with the reason kept. Existing questions are rated by the same job as R53.
-- **Can show:** a well-informed question rated strong and an uninformed one rated weak, each with its reason.
+- Each question from a signed-in student is rated strong, weak or unrated for each of its topics, as defined in item 40 and using the method decided before this PR, with the reason kept. Existing questions are rated by the same job as R53. On the user history page (R50) the administrator can correct a rating; the correction is stored with the rating and reason, and is never overwritten by a re-rating.
+- **Can show:** a question with a clear misconception rated weak, a plain fact-seeking question left unrated, and a two-topic question rated differently for each topic; then correct one rating and see it kept after the job runs again.
 
 ## Milestone 15: Search
 
-### R55. Searching conversation histories (Medium) · items 42, 43
-- An administrator search page over every question and answer, including cleared turns: words to find, and optional filters for one student (or anonymous only), date range and topic. Results link to the turn in the user history page (R50).
+### R55. Search on the user history page (Medium) · items 42, 43
+- Adds search to the R50 user history page rather than a second page: words to find in questions and answers, plus filters for topic and date range alongside R50's existing student and anonymous views. Covers cleared turns too.
 - **Can show:** find a phrase across all students, then narrow it to one student and one topic, with the search time in the logs.
 
 ## Milestone 16: Statistics and summaries
@@ -408,7 +407,7 @@ The PRs below are written for either kind of video engine, but these are the one
 ## Milestone 17: Heads-up before clearing
 
 ### R58. Heads-up before clearing history (Simple) · item 46
-- Before a student's clear runs (R49, R51), a notice says the conversation leaves their view but all history is kept and not truly deleted; the clear happens only after they confirm.
+- The confirmation step inside R51's save-then-clear flow says "Clearing hides this conversation from your view. It remains available to the administrator." The clear runs only after the student confirms. No new way to clear is added.
 - **Can show:** a student clicks clear, reads the notice, cancels and keeps their history, then confirms and sees it cleared from their view and still in the store.
 
 After R58, every item in features.md is covered by a PR. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.

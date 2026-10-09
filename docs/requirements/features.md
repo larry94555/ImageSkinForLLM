@@ -129,22 +129,27 @@ Added by Larry on 2026-10-09. These build on the history in items 34 to 37 and c
 ### Topics and understanding
 
 38. **Topics.** The topics are the knowledge wiki's topic pages (item 26), so they follow the content as PDFs are added, removed or replaced *(default)*.
-39. **Topic of each question.** Every question in the history is tagged with the topic or topics it asks about. Questions already in the history when this is added are tagged too.
-40. **Understanding shown by each question.** Every question from a signed-in student is also rated for the understanding it shows: **strong** (a solid question that shows a good level of understanding) or **weak** (a weak or uninformed question). A question that shows neither is left unrated *(default)*. Ratings are seen only by the administrator, never by students *(default)*.
+39. **Topic of each question.** A question's topics are the wiki pages the lookup in item 27 found for it, kept with the question; there is no second classification. A question can have no topic (for example a general prompt allowed by item 28), one, or several. Questions already in the history when this is added, and history loaded later from a file (item 37), are tagged the same way. Tags are not rewritten when the wiki changes; a topic whose page was removed is shown as removed.
+40. **Understanding shown by each question.** Every question from a signed-in student is rated for each of its topics, so one question can be strong for one topic and unrated or weak for another:
+   - **strong:** the question itself shows correct use or connection of the topic's concepts.
+   - **weak:** the question contains a clear misconception about the topic.
+   - **unrated:** the question gives no clear evidence either way, including ordinary fact-seeking questions. A basic but reasonable question is unrated, not weak.
+
+   Each rating keeps a one-line reason. The administrator can correct a rating; the correction is kept with it and is never silently overwritten. Ratings are seen only by the administrator, never by students *(default)*.
 41. **Student profile.** For each student: the topics they asked about, the topics where they show strong knowledge and the topics where they show weak knowledge. It is worked out from items 39 and 40 whenever it is needed, not kept separately, and shown on the student summary page (item 45).
 
 ### Search
 
-42. **Search one student's history.** The administrator searches the conversation history of a chosen student, by words in the questions and answers, and can narrow by date and topic.
-43. **Search all histories.** The same search across the conversation histories of all students. Anonymous questions are included and marked as anonymous *(default)*.
+42. **Search one student's history.** On the user history page (item 36), the administrator searches the conversation history of a chosen student, by words in the questions and answers, and can narrow by date and topic.
+43. **Search all histories.** The same search on the same page across the conversation histories of all students. Anonymous questions are included and marked as anonymous *(default)*.
 
 Search covers turns a student has cleared, since clearing only hides them from the student (item 35).
 
 ### Statistics and summaries
 
-44. **Topic statistics page.** For each topic: how many questions were asked about it, which topics were not asked about at all, and which topics drew strong questions and which drew weak ones. Topic counts include anonymous questions; strong and weak come from signed-in students only (item 40).
+44. **Topic statistics page.** For each topic: how many questions were asked about it, which topics were not asked about at all, and how many strong and weak ratings it drew (item 40). Topic counts include anonymous questions; strong and weak come from signed-in students only.
 45. **Student summary page.** One page per student: the topics they asked about, the topics where they asked good questions, and the topics where they asked weak or uninformed questions, with the questions behind each.
 
 ### Clearing history
 
-46. **Heads-up before clearing.** When a student clears their history (items 35 and 37), they first see a short notice: clearing removes the conversation from their own view, but all conversation history is kept and is not truly deleted. The student confirms before the clear goes ahead.
+46. **Heads-up before clearing.** When a student clears their history, the confirmation in the existing save-then-clear flow (items 35 and 37) says: "Clearing hides this conversation from your view. It remains available to the administrator." The clear goes ahead only after they confirm; there is no separate way to clear.
