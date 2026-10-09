@@ -165,6 +165,32 @@ When it is done the sample video plays under **Prepare**.
 
 The page shows a progress bar, each step with how far it has got and about how long is left, and how long each finished step took. You can close the page meanwhile. If the server is stopped, the next `imageskin serve` carries on where it stopped (`Resuming prepare job` in the log); frames already rendered are kept. A photo prepared before reuses its frames, so preparing it again takes about a minute, mostly for the clips. The job's state is in `prepare.json` in the app data folder and the frames under `photoreal`. The log has `Prepare job started`, `Prepare step finished` with each step's `duration_s`, `Rendered idle loop frame N of 50` every 10 frames, `Filled in idle loop frames`, `Rendered clip` with each clip's `duration_s`, and `Prepare job finished` or `Prepare job failed` with the reason. With the cloned voice, the log also has `Prepare speaks in the person's own voice, cloned with Chatterbox Turbo` at start, `Learned voice` and `Voice ready: the person's own` with its `duration_s`, and a `Spoke text in cloned voice` line for each clip. Choosing another photo, adding or removing a recording, or installing Chatterbox after preparing with Kokoro, afterwards shows **Prepare** again: the clips were spoken in another voice. A job resumed after the recordings changed renders all its clips again (`Voice changed; rendering the clips again` in the log).
 
+## Chat with the LLM
+
+Once the sample video is accepted at the end of setup, the **Chat** page (roadmap R15) is a text chat with an LLM: type a message and press Enter or **Send** (Shift+Enter starts a new line). Replies are text only for now; the person speaks them from roadmap R17. A system prompt asks for short, conversational replies, and asks that everything the LLM says agrees with what was said earlier (who said what, every name and fact), replying only with the words it would say out loud. Replies are asked for with a temperature of 0.3 (llama-server's default is 0.8), so a small model mixes up facts less often.
+
+The server keeps the conversation in memory, until it stops, and sends it with each prompt so the LLM remembers earlier turns. The history never takes more than half of the model's context window, so the rest is free for the new prompt and the reply. When it passes that, the LLM summarizes the older turns (keeping names, facts and preferences) right after the reply is shown, so the reply doesn't wait for it, and the summary is sent in their place with the latest two prompts and replies word for word. A message sent while a summary is still being made waits for it. The chat still shows everything. A message too long for the other half of the window is refused with a message saying to shorten it. The context window is read from llama-server when the first message is sent (its `--ctx-size`); with a server that doesn't report it, `llm_context_tokens` in the config file is used (default 4096). Tokens are counted by llama-server's own tokenizer; with a server that can't count them, they are estimated on the safe side, one token per byte of text (so code, hashes, Chinese and emoji can't be undercounted, though plain English then gets about a quarter of the history it would with a real count), and the log says `The LLM server can't count tokens; estimating them instead`.
+
+The app talks to [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server` through its OpenAI-compatible API, at `http://127.0.0.1:8080/v1` unless `llm_url` in the config file says otherwise (see `config.example.toml`). Install llama.cpp once:
+
+- Windows (Command Prompt or PowerShell): `winget install llama.cpp`, then open a new terminal
+- macOS (or Linux with Homebrew): `brew install llama.cpp`
+
+Then start it in its own terminal and leave it running. The first time, it downloads the model (Gemma 3 4B, about 2.5 GB):
+
+```
+llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 4096
+```
+
+Use a model of about 4B parameters or more: Gemma 3 1B is given the earlier turns but often ignores them (asked "What is my name?" right after "Hi, my name is Larry", it answers "Sarah").
+
+The log has `LLM context window from the server` (or `from the config`) at the first message, `Chat prompt sent` with how many turns were sent, whether a summary was, and `history_tokens`, `Conversation summarized` with how many turns it replaced, and `Chat reply received` with `duration_ms`. If the LLM can't be reached, the chat shows why, the prompt stays in the box to send again, and the log has `Chat reply failed`; if only summarizing fails, the oldest turns are left out instead and the log says `Could not summarize the conversation`.
+
+| Request | What it does |
+|---|---|
+| `GET /api/chat` | The conversation so far |
+| `POST /api/chat` | Send a prompt (JSON body `{"prompt": "…"}`) and get the reply; refused (403) until a sample is accepted, 502 when the LLM fails |
+
 ## Making a voice sample
 
 Join the recordings from the recording guide (M4A, MP3 or WAV) into one WAV file, in the order given. Each recording is converted to 24 kHz mono WAV; `--timeout` sets how many seconds each conversion may take (default 60).

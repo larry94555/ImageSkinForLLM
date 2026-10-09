@@ -11,6 +11,7 @@ import {
   confirmConsent,
   type Decision,
   getAccent,
+  getChat,
   getPhotoChoice,
   clipUrl,
   getPrepare,
@@ -24,7 +25,9 @@ import {
   removeUpload,
   type Review,
   review,
+  sendPrompt,
   startPrepare,
+  type Turn,
   type Upload,
   uploadFile,
   uploadUrl,
@@ -705,7 +708,7 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
   );
 }
 
-// Chat (roadmap R14): locked until a sample video is accepted. The chat itself comes in R15.
+// Chat (roadmap R14): locked until a sample video is accepted.
 export function ChatPage() {
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
@@ -733,9 +736,93 @@ export function ChatPage() {
   return (
     <>
       <h1>Chat</h1>
-      <p className="done">The sample video is accepted, so the chat is unlocked.</p>
-      <p className="muted">Typing to the person is the next part to be built.</p>
+      <Chat />
     </>
+  );
+}
+
+// Text chat with the LLM (roadmap R15). Replies are text only for now; the person speaks them
+// from R17.
+function Chat() {
+  const [turns, setTurns] = useState<Turn[] | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const end = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    getChat()
+      .then(setTurns)
+      .catch((e: unknown) => {
+        console.error("Could not load the conversation", e);
+        setTurns([]);
+        setFailed("Could not load the conversation. Reload the page to try again.");
+      });
+  }, []);
+  useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending]);
+
+  async function send() {
+    const text = prompt.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setFailed(null);
+    setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
+    setPrompt("");
+    try {
+      const reply = await sendPrompt(text);
+      setTurns((t) => [...(t ?? []), reply]);
+    } catch (e) {
+      console.error("Could not get a reply", e);
+      // The server forgets a prompt that got no reply, so it goes back in the box.
+      setTurns((t) => (t ?? []).slice(0, -1));
+      setPrompt(text);
+      setFailed(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (turns === null) return <p className="muted busy">Loading…</p>;
+  return (
+    <div className="chat">
+      {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
+      <ol className="turns">
+        {turns.map((turn, i) => (
+          <li key={i} className={turn.role}>
+            <span className="who">{turn.role === "user" ? "You" : "Reply"}</span>
+            {turn.content}
+          </li>
+        ))}
+      </ol>
+      {sending && <p className="muted busy">Thinking…</p>}
+      {failed && <p className="error">{failed}</p>}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send();
+        }}
+      >
+        <label className="prompt">
+          <span>Your message</span>
+          <textarea
+            rows={3}
+            value={prompt}
+            onInput={(e) => setPrompt(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              // Enter sends; Shift+Enter starts a new line.
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+          />
+        </label>
+        <button type="submit" disabled={sending || !prompt.trim()}>
+          Send
+        </button>
+      </form>
+      <div ref={end} />
+    </div>
   );
 }
 

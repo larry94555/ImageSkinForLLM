@@ -25,6 +25,10 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: str = "INFO"
+    # The LLM the chat talks to: llama-server's OpenAI-compatible API (roadmap R15).
+    llm_url: str = "http://127.0.0.1:8080/v1"
+    llm_model: str = "local"
+    llm_context_tokens: int = 4096
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -50,6 +54,14 @@ def load_settings(path: Path | None) -> Settings:
     # type() rather than isinstance(): bool is a subclass of int, so `port = true` must fail here.
     if type(settings.port) is not int or not 1 <= settings.port <= 65535:
         raise ConfigError(f"port in {path} must be a number from 1 to 65535")
+    if not isinstance(settings.llm_url, str) or not settings.llm_url.startswith(
+        ("http://", "https://")
+    ):
+        raise ConfigError(f"llm_url in {path} must start with http:// or https://")
+    if not isinstance(settings.llm_model, str):
+        raise ConfigError(f"llm_model in {path} must be a string")
+    if type(settings.llm_context_tokens) is not int or settings.llm_context_tokens < 1024:
+        raise ConfigError(f"llm_context_tokens in {path} must be a number of at least 1024")
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
     logger.info("Loaded config", extra={"path": str(path)})

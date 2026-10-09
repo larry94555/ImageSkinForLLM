@@ -97,6 +97,18 @@ async function review(decision) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function getChat() {
+	return (await json(await fetch("/api/chat"))).turns;
+}
+async function sendPrompt(prompt) {
+	const response = await fetch("/api/chat", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ prompt })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 //#endregion
 //#region src/pages.tsx
 function HomePage({ consented }) {
@@ -796,17 +808,100 @@ function ChatPage() {
 			children: "Go to setup"
 		})
 	] });
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("h1", { children: "Chat" }),
-		/* @__PURE__ */ u("p", {
-			className: "done",
-			children: "The sample video is accepted, so the chat is unlocked."
-		}),
-		/* @__PURE__ */ u("p", {
-			className: "muted",
-			children: "Typing to the person is the next part to be built."
-		})
-	] });
+	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u(Chat, {})] });
+}
+function Chat() {
+	const [turns, setTurns] = d(null);
+	const [prompt, setPrompt] = d("");
+	const [sending, setSending] = d(false);
+	const [failed, setFailed] = d(null);
+	const end = A(null);
+	h(() => {
+		getChat().then(setTurns).catch((e) => {
+			console.error("Could not load the conversation", e);
+			setTurns([]);
+			setFailed("Could not load the conversation. Reload the page to try again.");
+		});
+	}, []);
+	h(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending]);
+	async function send() {
+		const text = prompt.trim();
+		if (!text || sending) return;
+		setSending(true);
+		setFailed(null);
+		setTurns((t) => [...t ?? [], {
+			role: "user",
+			content: text
+		}]);
+		setPrompt("");
+		try {
+			const reply = await sendPrompt(text);
+			setTurns((t) => [...t ?? [], reply]);
+		} catch (e) {
+			console.error("Could not get a reply", e);
+			setTurns((t) => (t ?? []).slice(0, -1));
+			setPrompt(text);
+			setFailed(e instanceof Error ? e.message : String(e));
+		} finally {
+			setSending(false);
+		}
+	}
+	if (turns === null) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Loading…"
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "chat",
+		children: [
+			turns.length === 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Say hello to start the conversation."
+			}),
+			/* @__PURE__ */ u("ol", {
+				className: "turns",
+				children: turns.map((turn, i) => /* @__PURE__ */ u("li", {
+					className: turn.role,
+					children: [/* @__PURE__ */ u("span", {
+						className: "who",
+						children: turn.role === "user" ? "You" : "Reply"
+					}), turn.content]
+				}, i))
+			}),
+			sending && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Thinking…"
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			}),
+			/* @__PURE__ */ u("form", {
+				onSubmit: (e) => {
+					e.preventDefault();
+					send();
+				},
+				children: [/* @__PURE__ */ u("label", {
+					className: "prompt",
+					children: [/* @__PURE__ */ u("span", { children: "Your message" }), /* @__PURE__ */ u("textarea", {
+						rows: 3,
+						value: prompt,
+						onInput: (e) => setPrompt(e.currentTarget.value),
+						onKeyDown: (e) => {
+							if (e.key === "Enter" && !e.shiftKey) {
+								e.preventDefault();
+								send();
+							}
+						}
+					})]
+				}), /* @__PURE__ */ u("button", {
+					type: "submit",
+					disabled: sending || !prompt.trim(),
+					children: "Send"
+				})]
+			}),
+			/* @__PURE__ */ u("div", { ref: end })
+		]
+	});
 }
 function StepState(props) {
 	const { step, status } = props;
