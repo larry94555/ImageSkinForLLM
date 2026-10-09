@@ -380,3 +380,62 @@ After R52, every item in features.md is covered by a PR. The PRs marked in [Afte
 - **Second video engine** (the other of local or hosted), added behind R4's interface. Medium, 1 PR. features.md calls for it "later"; the app is complete without it.
 - **Fine-tuned voice** from all the recordings, for a closer likeness. 2 or more Medium PRs.
 - **whisper.cpp speech-to-text** on the server, if browser speech recognition isn't good enough. Medium, 1 PR.
+
+## Added on 2026-10-09: Student insights
+
+Added by Larry on 2026-10-09, after everything above, for features.md items 38 to 46. Nothing above changes: the milestone table, totals and percentages at the top still cover R1 to R52, and these PRs are built after R52. They follow the same rules (Simple or Medium under the pr-rules skill, each one showing something new).
+
+| # | Milestone (what can be demonstrated) | PRs | Count |
+|---|---|---|---|
+| 14 | **Topics and understanding.** Every question tagged with its topics and rated strong or weak; each student has a profile. | R53 to R55 | 3 |
+| 15 | **Search.** The administrator searches one student's history or everyone's. | R56 | 1 |
+| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R57 to R58 | 2 |
+| 17 | **Heads-up before clearing.** Students are told their history is kept before they clear it. | R59 | 1 |
+| | **Total** | | **7** |
+
+Sizes: 2 Simple, 5 Medium, no Large or Very large.
+
+Decisions to make before a PR starts:
+
+| Before | Decision |
+|---|---|
+| R53 | When questions are tagged: as each question is saved, or in a background job. The simplest option is to tag as each answer is given, since the R39 lookup already finds the matching wiki pages, plus a one-off job for the existing history. |
+| R54 | How a question is rated strong or weak. The simplest option is to ask the chosen LLM (item 29) with the question, the topic's wiki page and a short rubric, and to keep its one-line reason with the rating so the administrator can check it. |
+
+## Milestone 14: Topics and understanding
+
+### R53. Tagging questions with topics (Medium) · items 38, 39
+- Each saved question is tagged with the wiki topics it asks about, and a job tags the questions already in the history, with progress like R12. When the wiki is rebuilt, tags pointing at a removed topic are flagged rather than dropped.
+- **Can show:** ask questions about two different topics and see each tagged correctly in the store, and the tagging job's run time in the logs.
+
+### R54. Rating the understanding a question shows (Medium) · item 40
+- Each question from a signed-in student is rated strong, weak or unrated, using the method decided before this PR, with the reason kept. Existing questions are rated by the same job as R53.
+- **Can show:** a well-informed question rated strong and an uninformed one rated weak, each with its reason.
+
+### R55. Student profiles (Simple) · item 41
+- Builds each student's profile from the tags and ratings: topics asked about, topics with strong questions, topics with weak ones. Updated after each new question.
+- **Can show:** a student asks a strong and a weak question on different topics, and their profile lists each topic in the right place.
+
+## Milestone 15: Search
+
+### R56. Searching conversation histories (Medium) · items 42, 43
+- An administrator search page over every question and answer, including cleared turns: words to find, and optional filters for one student (or anonymous only), date range and topic. Results link to the turn in the user history page (R50).
+- **Can show:** find a phrase across all students, then narrow it to one student and one topic, with the search time in the logs.
+
+## Milestone 16: Statistics and summaries
+
+### R57. Topic statistics page (Medium) · item 44
+- An administrator page listing every topic with its question count and its strong and weak counts, with topics nobody asked about listed separately.
+- **Can show:** after a few questions on some topics, the page shows their counts and lists the untouched topics as not asked about.
+
+### R58. Student summary page (Medium) · item 45
+- One page per student from their profile (R55): topics asked about, topics with good questions and topics with weak or uninformed ones, each opening the questions behind it.
+- **Can show:** open a student's summary and follow a weak topic to the questions that put it there.
+
+## Milestone 17: Heads-up before clearing
+
+### R59. Heads-up before clearing history (Simple) · item 46
+- Before a student's clear runs (R49, R51), a notice says the conversation leaves their view but all history is kept and not truly deleted; the clear happens only after they confirm.
+- **Can show:** a student clicks clear, reads the notice, cancels and keeps their history, then confirms and sees it cleared from their view and still in the store.
+
+After R59, items 38 to 46 are covered by a PR as well.

@@ -121,3 +121,30 @@ These are noted here and applied when the PRs for these items are built; the ear
 - **Items 9 to 15 (Chat):** the chat becomes the question and answer screen; conversation history is kept per visitor.
 - **Item 16 (LLM interface):** item 29 adds Grok, OpenRouter and subscriptions to the Claude and OpenAI keys planned there.
 - **Item 23 (Delete my data):** an administrator action, since only the administrator has the photos and recordings.
+
+## Student insights
+
+Added by Larry on 2026-10-09. These build on the history in items 34 to 37 and change none of the items above. They are for the administrator, except item 46, which students see.
+
+### Topics and understanding
+
+38. **Topics.** The topics are the knowledge wiki's topic pages (item 26), so they follow the content as PDFs are added, removed or replaced *(default)*.
+39. **Topic of each question.** Every question in the history is tagged with the topic or topics it asks about. Questions already in the history when this is added are tagged too.
+40. **Understanding shown by each question.** Every question from a signed-in student is also rated for the understanding it shows: **strong** (a solid question that shows a good level of understanding) or **weak** (a weak or uninformed question). A question that shows neither is left unrated *(default)*. Ratings are seen only by the administrator, never by students *(default)*.
+41. **Student profile.** For each student, the app keeps a profile of the topics they asked about, the topics where they show strong knowledge and the topics where they show weak knowledge, built from items 39 and 40 and updated as they ask more.
+
+### Search
+
+42. **Search one student's history.** The administrator searches the conversation history of a chosen student, by words in the questions and answers, and can narrow by date and topic.
+43. **Search all histories.** The same search across the conversation histories of all students. Anonymous questions are included and marked as anonymous *(default)*.
+
+Search covers turns a student has cleared, since clearing only hides them from the student (item 35).
+
+### Statistics and summaries
+
+44. **Topic statistics page.** For each topic: how many questions were asked about it, which topics were not asked about at all, and which topics drew strong questions and which drew weak ones. Topic counts include anonymous questions; strong and weak come from signed-in students only (item 40).
+45. **Student summary page.** One page per student: the topics they asked about, the topics where they asked good questions, and the topics where they asked weak or uninformed questions, with the questions behind each.
+
+### Clearing history
+
+46. **Heads-up before clearing.** When a student clears their history (items 35 and 37), they first see a short notice: clearing removes the conversation from their own view, but all conversation history is kept and is not truly deleted. The student confirms before the clear goes ahead.
