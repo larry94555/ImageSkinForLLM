@@ -108,9 +108,9 @@ three chat replies four ways, all in the person's voice:
 | A donor (`--donor NAME=recording.wav`) | a recording of someone with that accent: the clone speaks in their voice, then it is converted | Chatterbox Turbo, Chatterbox's converter |
 
 The Kokoro voice is picked to suit the person, because conversion keeps more of the base voice
-when it starts far from the person: every voice of the accent says a probe line, the three
-closest to the person's recording are converted, and the closest after conversion wins (about 40
-seconds for American, 20 for British, logged as `Picked base voice`). R25a converted only
+when it starts far from the person: every voice of the accent says a probe line and is
+converted, and the closest to the person's recording after conversion wins (about 95 seconds for
+American, 40 for British, logged as `Picked base voice`). R25a converted only
 `am_michael`, which Larry said did not sound like him.
 
 The page shows each clip's speaker similarity to the recording (SpeechBrain ECAPA, as in R25a)
@@ -126,14 +126,21 @@ Donor: a Bulgarian man from the [EdAcc](https://groups.inf.ed.ac.uk/edacc/) acce
 
 | Column | Base voice picked | Similarity to Larry | Seconds per second of speech | Accent heard |
 |---|---|---|---|---|
-| Your accent | | 0.76 | 2.12 | American, 3 of 3 |
-| American | `am_liam` | 0.73 | 0.82 | American 2, British 1 |
-| British | `bm_lewis` | 0.63 | 0.75 | British, 3 of 3 |
-| Slavic donor | | 0.66 | 2.77 | American, New Zealand, British (no Slavic class) |
+| Your accent | | 0.76 | 2.67 | Canadian, American, South Atlantic |
+| American | `am_onyx` | 0.76 | 1.06 | American, 3 of 3 |
+| British | `bm_lewis` | 0.66 | 1.04 | British, 3 of 3 |
+| Slavic donor | | 0.65 | 3.00 | American, New Zealand 2 (no Slavic class) |
 
-So British comes through clearly in Larry's voice, faster than real time, at a lower similarity
-than his clone (0.63 against 0.76; above about 0.5 usually means the same speaker). Converted
-American scores almost as close as the clone. Whether the Slavic donor's accent survives the
+A changed accent's seconds per second of speech count the base voice speaking and the conversion,
+since every reply pays both. Every Kokoro voice of the accent is converted before picking:
+conversion reorders them. `am_onyx` was not among the three closest before conversion, so an
+earlier version that converted only those three never tried it and picked `am_liam` (0.73). The
+accent classifier is pinned to the revision these results were heard with. Timings vary with the
+machine's load: an earlier run of the same lines measured 2.12 for the clone and 0.75 for British.
+
+So British comes through clearly in Larry's voice, at about real time, at a lower similarity than
+his clone (0.66 against 0.76; above about 0.5 usually means the same speaker). Converted American
+scores as close as the clone. Whether the Slavic donor's accent survives the
 conversion needs ears: the classifier has no Slavic accent to hear.
 
 A second run added real American and British speakers as donors (`donors/american-male.wav` and

@@ -38,7 +38,7 @@ def test_convert_fitted_keeps_the_length() -> None:
     assert out[0] == pytest.approx(0.4)
 
 
-def test_pick_base_ranks_then_converts_only_the_finalists(
+def test_pick_base_converts_every_voice_and_picks_the_closest_after(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     levels = {"a": 0.1, "b": 0.5, "c": 0.4, "d": 0.3}
@@ -46,20 +46,18 @@ def test_pick_base_ranks_then_converts_only_the_finalists(
 
     def convert(samples: np.ndarray) -> np.ndarray:
         converted.append(float(samples[0]))
-        # After conversion the ranking flips: the third-closest base converts best.
-        return tone(0.9 if samples[0] == pytest.approx(0.3) else 0.2)
+        # After conversion the ranking flips: the base furthest from the person converts best.
+        return tone(0.9 if samples[0] == pytest.approx(0.1) else 0.2)
 
     caplog.set_level(logging.INFO, logger="accent_test")
     best, scores = pick_base(
         list(levels), lambda v, text: tone(levels[v]), convert, level_of, tmp_path
     )
-    assert best == "d"
-    assert [s["voice"] for s in scores] == ["b", "c", "d", "a"]
-    assert "converted" not in scores[3]  # only the three finalists are converted
-    assert len(converted) == 3
+    assert best == "a" and len(converted) == 4
+    assert scores[0] == {"voice": "a", "base": 0.1, "converted": 0.9}
     assert (tmp_path / "a.wav").exists() and (tmp_path / "d_converted.wav").exists()
     record = next(r for r in caplog.records if r.getMessage() == "Picked base voice")
-    assert record.voice == "d" and record.duration_ms >= 0  # type: ignore[attr-defined]
+    assert record.voice == "a" and record.duration_ms >= 0  # type: ignore[attr-defined]
 
 
 def test_run_makes_clone_bases_and_conversions(
@@ -81,6 +79,8 @@ def test_run_makes_clone_bases_and_conversions(
     assert list(clips) == [CLONE, "British base", "British", "Slavic donor base", "Slavic donor"]
     assert clips["Slavic donor base"].wav == "line1_slavic-donor_base.wav"
     assert clips["British"].similarity == 0.7 and clips["British base"].similarity == 0.3
+    # A changed accent's time counts the base voice speaking too, not only the conversion.
+    assert clips["British"].added_ms >= clips["British base"].added_ms
     assert clips[CLONE].speech_s == 0.5 and clips[CLONE].heard_as == "us 0.90"
     assert (tmp_path / "line2_british.wav").exists()
     made = [r for r in caplog.records if r.getMessage() == "Made line"]
