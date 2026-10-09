@@ -12,7 +12,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 12.3% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 15.8% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice (Americanized or their own accent), and setup ends with accept or reject. | R25a, R25, R25b, R26, R14 | 5 | 8.8% | 3 of 5 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice (in their own accent), and setup ends with accept or reject. | R25a, R25, R25b, R26, R14 | 5 | 8.8% | 4 of 5 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 8.8% | 0 |
 | 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 7.0% | 0 |
 | 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.8% | 0 |
@@ -23,7 +23,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.5% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 7.0% | 0 |
 | 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 8.8% | 0 |
-| | **Total** | | **57** | **100%** | **19 of 57** |
+| | **Total** | | **57** | **100%** | **20 of 57** |
 
 Sizes: 15 Simple, 42 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -183,12 +183,13 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** in the browser, after Prepare, the sample video plays in the person's own voice, lip-synced, with the voice step's time in the logs.
 - **Built:** when Chatterbox is installed, Prepare's voice step loads it and learns the voice from the voice sample afresh (`ChatterboxEngine.learn_voice`), and the same engine speaks the three clips; without it, Prepare falls back to Kokoro and logs a warning at start. The job saves which voice spoke the clips, clone or Kokoro, with a fingerprint of the voice sample (`voice_id` in `prepare.json`), so adding or removing a recording, or installing Chatterbox after a Kokoro prepare, shows Prepare again, as choosing another photo does; a job saved before R25b needs preparing again too. A job resumed after a restart in another voice renders all its clips again rather than mixing voices.
 
-### R26. Accent choice in setup (Simple) · item 4
+### R26. Accent choice in setup (Simple) · item 4 · Dropped in [PR #35](https://github.com/larry94555/ImageSkinForLLM/pull/35)
 - Accent question in setup (Americanize or keep as is), saved with the setup; changing it reruns the sample. If R25a found no tool that keeps the accent, the question is left out and noted in features.md. R25a's clone keeps the accent, but its Americanizing option (Kokoro converted to the person's voice) did not sound like Larry, so R26 starts by deciding with him whether the question stays.
 - **Can show:** choose Americanize in setup and see the sample rerun in that accent.
+- **Decided (2026-10-09):** the question is dropped, so nothing is built. The voice always keeps the person's own accent, features.md item 4 says so, and R14 and R28 no longer offer an accent change.
 
 ### R14. Review screen (Simple) · item 7
-- Accept, Reject image (back to image upload), Reject voice (back to sound upload), and Change accent, which toggles R26's choice and reruns the sample.
+- Accept, Reject image (back to image upload) and Reject voice (back to sound upload). (Change accent was dropped with R26.)
 - Chat stays locked until a sample is accepted.
 - **Can show:** the full setup flow from upload to an accepted sample, with both reject paths working.
 
@@ -250,8 +251,8 @@ The PRs below are written for either kind of video engine, but these are the one
 - The options that don't change the setup: play the sound files, view the image files, revalidate images, revalidate sound, run the video test again, clear conversation, return to the app.
 - **Can show:** open Settings from any screen, replay the recordings, rerun the sample, clear the conversation and return.
 
-### R28. Changing photos, voice or accent (Medium) · item 8 (part 2)
-- Change image files, change sound files, and switch accent from Settings.
+### R28. Changing photos or voice (Medium) · item 8 (part 2)
+- Change image files and change sound files from Settings.
 - Any of these requires revalidation and a newly accepted sample before chat resumes; "Goodbye" and "Welcome back" are re-rendered on each new acceptance.
 - **Can show:** swap a photo from Settings, get sent through validation and a new sample, then return to the chat.
 

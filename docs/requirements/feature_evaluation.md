@@ -30,7 +30,7 @@
 | # | Issue | Suggested fix |
 |---|---|---|
 | 3 | "Long enough" has no number. | At least 30 seconds of usable speech in total; 1 to 2 minutes recommended. |
-| 5, 8 | Pre-rendered "Goodbye" and "Welcome back" go stale when images, voice or accent change. | Re-render them whenever a new sample is accepted. |
+| 5, 8 | Pre-rendered "Goodbye" and "Welcome back" go stale when images or voice change. | Re-render them whenever a new sample is accepted. |
 | 8, 23 | "Delete my data" isn't reachable from Settings. | Add it to the Settings list. |
 | 15, 19 | Saved setup survives a return visit, but it's unclear whether chat history does. | Save history with the setup, cleared by "Clear conversation" or "Delete my data." |
 | 12 | Sentence-by-sentence clips can show a visible jump where one clip ends and the next starts. | Return to the idle pose between clips (17) and crossfade the joins. |
