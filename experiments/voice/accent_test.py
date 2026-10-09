@@ -5,12 +5,13 @@
 
 Voice conversion keeps the person's timbre and takes the accent from whatever voice speaks first:
 - American and British: one of Kokoro's ready-made voices speaks the line. The voice is picked to
-  suit the person: every Kokoro voice of that accent says a probe line, the three that sound most
-  like the person are converted to their voice, and the closest after conversion wins.
+  suit the person: every Kokoro voice of that accent says a probe line, each is converted to their
+  voice, and the closest after conversion wins.
 - A donor accent (for example Russian-English): Chatterbox Turbo speaks the line in a voice cloned
   from a recording of someone with that accent, then it is converted to the person's voice.
 The person's own clone (their own accent, as the app speaks today) is made too, for comparison.
-Writes each clip, the time it took, how much it sounds like the person, and index.html.
+Writes each clip, the time it took, how much it sounds like the person, and index.html. A changed
+accent's time is the base voice's plus the conversion's, since every reply pays both.
 """
 
 import argparse
@@ -34,8 +35,10 @@ KOKORO_ACCENTS: dict[str, tuple[str, list[str]]] = {
     "American": KOKORO_VOICES["american"],
     "British": KOKORO_VOICES["british"],
 }
-FINALISTS = 3  # base voices converted and compared after conversion
 CLONE = "Your accent"
+# The accent classifier and the exact weights the R26a results were heard with.
+ACCENT_MODEL = "Jzuluaga/accent-id-commonaccent_ecapa"
+ACCENT_MODEL_REVISION = "14bebf44b7e7a34204d0acc2c897935945fb5c51"
 
 Audio = Callable[[str], np.ndarray]  # text in, 24 kHz float samples out
 Convert = Callable[[np.ndarray], np.ndarray]
@@ -52,9 +55,10 @@ def pick_base(
     convert: Convert,
     similarity: Similarity,
     out: Path,
-    finalists: int = FINALISTS,
 ) -> tuple[str, list[dict[str, object]]]:
-    """The base voice that sounds most like the person once converted, with every score."""
+    """The base voice that sounds most like the person once converted, with every score. Every
+    voice is converted: conversion changes which voice is closest, so a ranking before it would
+    not do."""
     start = time.perf_counter()
     out.mkdir(parents=True, exist_ok=True)
     scores: list[dict[str, object]] = []
@@ -63,17 +67,20 @@ def pick_base(
         probes[voice] = speak(voice, PROBE)
         wav = out / f"{voice}.wav"
         write_wav(probes[voice], wav)
-        scores.append({"voice": voice, "base": round(similarity(wav), 3)})
-    scores.sort(key=lambda s: -float(s["base"]))  # type: ignore[arg-type]
-    for score in scores[:finalists]:
-        voice = str(score["voice"])
-        wav = out / f"{voice}_converted.wav"
-        write_wav(convert_fitted(probes[voice], convert), wav)
-        score["converted"] = round(similarity(wav), 3)
-    best = max(scores[:finalists], key=lambda s: float(s["converted"]))  # type: ignore[arg-type]
+        converted = out / f"{voice}_converted.wav"
+        write_wav(convert_fitted(probes[voice], convert), converted)
+        scores.append(
+            {
+                "voice": voice,
+                "base": round(similarity(wav), 3),
+                "converted": round(similarity(converted), 3),
+            }
+        )
+    scores.sort(key=lambda s: -float(s["converted"]))  # type: ignore[arg-type]
+    best = scores[0]
     logger.info(
         "Picked base voice",
-        extra={"voice": best["voice"], "scores": scores[:finalists], "duration_ms": _ms(start)},
+        extra={"voice": best["voice"], "scores": scores[:3], "duration_ms": _ms(start)},
     )
     return str(best["voice"]), scores
 
@@ -100,7 +107,8 @@ def run(
             line.clips[f"{accent} base"] = _clip(base, out / f"line{i}_{slug}_base.wav", _ms(start))
             start = time.perf_counter()
             voiced = convert_fitted(base, convert)
-            ms = _ms(start)  # on top of the base voice's time; every reply would pay both
+            # Every reply pays for both the base voice and the conversion.
+            ms = round(line.clips[f"{accent} base"].added_ms + _ms(start), 1)
             line.clips[accent] = _clip(voiced, out / f"line{i}_{slug}.wav", ms)
         for name, clip in line.clips.items():
             if similarity is not None:
@@ -131,7 +139,7 @@ def voice_descriptions(bases: dict[str, str]) -> dict[str, str]:
     columns = {CLONE: "your clone (Chatterbox Turbo), as the app speaks today"}
     for accent, base in bases.items():
         columns[f"{accent} base"] = f"{base}: where the accent comes from"
-        columns[accent] = f"{base} converted to your voice"
+        columns[accent] = f"{base} converted to your voice (time: speaking and converting)"
     return columns
 
 
@@ -139,9 +147,12 @@ def accent_classifier() -> Callable[[Path], str]:  # pragma: no cover - needs th
     """The English accent a classifier hears (CommonAccent ECAPA, MIT) and its score."""
     import librosa
     import torch
+    from huggingface_hub import snapshot_download
     from speechbrain.inference.classifiers import EncoderClassifier
 
-    model = EncoderClassifier.from_hparams(source="Jzuluaga/accent-id-commonaccent_ecapa")
+    # Downloaded at the pinned revision first: SpeechBrain's loader takes no revision.
+    folder = snapshot_download(ACCENT_MODEL, revision=ACCENT_MODEL_REVISION)
+    model = EncoderClassifier.from_hparams(source=folder)
 
     def heard(path: Path) -> str:
         samples, _ = librosa.load(str(path), sr=16000)
