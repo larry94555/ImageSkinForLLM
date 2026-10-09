@@ -626,7 +626,7 @@ def test_choosing_another_accent_prepares_the_sample_again(
         assert "Accent changed; preparing the sample again" in caplog.text
         job.wait(5)
         assert job.status().state == "done" and "clone-british" in str(job.status().voice_id)
-        with patch.object(PrepareJob, "start", side_effect=PrepareError(NO_PHOTO)):
+        with patch.object(PrepareJob, "_start", side_effect=PrepareError(NO_PHOTO)):
             client.put("/api/accent", json={"accent": "own"})
     assert "Could not prepare again" in caplog.text
     assert TestClient(create_app(tmp_path)).get("/api/accent").json()["accent"] == "own"
@@ -687,6 +687,55 @@ def test_the_accent_cannot_change_while_preparing(tmp_path: Path) -> None:
         assert job.status().state == "done"
     assert refused.status_code == 409 and refused.json()["detail"] == WAIT_FOR_PREPARE
     assert client.get("/api/accent").json()["accent"] == "own"  # not saved
+
+
+def test_a_prepare_started_while_the_accent_is_saved_runs_with_the_new_accent(
+    tmp_path: Path,
+) -> None:
+    from imageskin.accent import load_accent, save_accent
+
+    saving, release = threading.Event(), threading.Event()
+    heard: list[str] = []
+
+    def slow_save(home: Path, accent: Accent) -> None:
+        save_accent(home, accent)
+        saving.set()
+        release.wait(5)
+
+    clone = (lambda: heard.append(load_accent(tmp_path)), MagicMock(), "v", "clone")
+    with patch("imageskin.app.clip_voice", return_value=clone):
+        app = create_app(
+            tmp_path, check_photo=lambda p: PhotoResult([], 80), render_clip=write_clip
+        )
+    client = TestClient(app)
+    job = cast(PrepareJob, app.state.prepare_job)
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    replies: dict[str, int] = {}
+
+    def put() -> None:
+        replies["accent"] = client.put("/api/accent", json={"accent": "british"}).status_code
+
+    def prepare() -> None:
+        replies["prepare"] = client.post("/api/prepare").status_code
+
+    with (
+        patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)),
+        patch("imageskin.app.save_accent", slow_save),
+    ):
+        changing = threading.Thread(target=put)
+        changing.start()
+        assert saving.wait(5)  # the accent is being saved
+        starting = threading.Thread(target=prepare)
+        starting.start()
+        starting.join(0.3)
+        assert starting.is_alive()  # Prepare waits for the accent to be saved
+        release.set()
+        changing.join(5)
+        starting.join(5)
+        job.wait(5)
+    assert replies == {"accent": 200, "prepare": 200}
+    assert heard == ["british"]  # the job ran with the accent the page shows
 
 
 def test_without_the_clone_only_the_persons_own_accent_is_offered(tmp_path: Path) -> None:

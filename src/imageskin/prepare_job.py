@@ -174,6 +174,9 @@ class PrepareJob:
         learned from them) or another accent is chosen."""
         with self._lock:
             status = self._status
+        return self._current(status)
+
+    def _current(self, status: PrepareStatus) -> PrepareStatus:
         if status.state in ("done", "failed"):
             if status.photo_id != self._store.photo_choice().id:
                 return PrepareStatus("idle")
@@ -182,6 +185,26 @@ class PrepareJob:
             if status.voice_id != self._voice_id():
                 return PrepareStatus("idle")
         return status
+
+    def change_accent(self, change: Callable[[], None]) -> bool:
+        """Change the accent with `change`, unless a job is running: it would
+        finish in the voice from before. When the clips were ready, prepare again at once (the
+        face is kept, so only the voice and the clips are redone). Whether it was changed.
+
+        Done under the job's lock, so a Prepare started at the same time either runs with the
+        change or makes it wait: never a job that finishes in a voice the page no longer shows."""
+        with self._lock:
+            if self._status.state == "running":
+                return False
+            prepared = self._current(self._status).state == "done"
+            change()
+            if prepared and self._current(self._status).state == "idle":
+                logger.info("Accent changed; preparing the sample again")
+                try:
+                    self._start()
+                except PrepareError as e:  # the uploads changed meanwhile; Prepare says what to do
+                    logger.warning("Could not prepare again", extra={"error": str(e)})
+            return True
 
     def clip(self, name: ClipName) -> Path | None:
         """The rendered clip, once the job has finished for what is uploaded now."""
@@ -193,23 +216,24 @@ class PrepareJob:
     def start(self) -> PrepareStatus:
         """Start preparing the chosen photo and the voice; while it runs, just report on it."""
         with self._lock:
-            if self._status.state == "running":
-                return self._status
-            photo_id = self._store.photo_choice().id
-            if photo_id is None:
-                raise PrepareError(NO_PHOTO)
-            problem = self._store.voice_sample().problem
-            if problem:
-                raise PrepareError(problem)
-            # Clips from before were made from other uploads; the face's frames are kept per
-            # photo by the library, so only the clips are removed.
-            self._remove_clips()
-            self._status = PrepareStatus(
-                "running", photo_id, steps=fresh_steps(), started_at=now_iso()
-            )
-            self._save()
-            self._run_in_background()
+            return self._start()
+
+    def _start(self) -> PrepareStatus:
+        if self._status.state == "running":
             return self._status
+        photo_id = self._store.photo_choice().id
+        if photo_id is None:
+            raise PrepareError(NO_PHOTO)
+        problem = self._store.voice_sample().problem
+        if problem:
+            raise PrepareError(problem)
+        # Clips from before were made from other uploads; the face's frames are kept per
+        # photo by the library, so only the clips are removed.
+        self._remove_clips()
+        self._status = PrepareStatus("running", photo_id, steps=fresh_steps(), started_at=now_iso())
+        self._save()
+        self._run_in_background()
+        return self._status
 
     def _voice_id(self) -> str | None:
         """The voice clips are spoken in now: who speaks them, with which accent, and the sample

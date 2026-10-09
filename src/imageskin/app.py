@@ -268,20 +268,9 @@ def create_app(
     def put_accent(body: AccentRequest) -> AccentChoice:
         if body.accent != "own" and voice_kind != "clone":
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
-        state = job.status().state
-        if state == "running":
+        if not job.change_accent(lambda: save_accent(data_home, body.accent)):
             # The running job would finish in the old accent; it is chosen before or after it.
             raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE)
-        prepared = state == "done"
-        save_accent(data_home, body.accent)
-        if prepared and job.status().state == "idle":
-            # The sample was made in another accent: make it again (the face is kept, so only
-            # the voice and the clips are redone).
-            logger.info("Accent changed; preparing the sample again")
-            try:
-                job.start()
-            except PrepareError as e:  # the uploads changed meanwhile; Prepare says what to do
-                logger.warning("Could not prepare again", extra={"error": str(e)})
         return get_accent()
 
     @app.get("/api/prepare/clips/{name}", dependencies=needs_consent)
