@@ -1,8 +1,8 @@
 # ImageSkinForLLM: Roadmap
 
-Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 9 to 13, added on 2026-10-08, come last and turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37).
+Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 9 to 13, added on 2026-10-08, come last and turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46).
 
-PRs are numbered R1 to R52 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, and R26a for the accent, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R58 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, and R26a for the accent, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -10,22 +10,26 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 12.1% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 15.5% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 10.3% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 8.6% | 0 |
-| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.9% | 0 |
-| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.7% | 0 |
-| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 8.6% | 0 |
-| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 3.4% | 0 |
-| 9 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 8.6% | 0 |
-| 10 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 5.2% | 0 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.4% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 6.9% | 0 |
-| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 8.6% | 0 |
-| | **Total** | | **58** | **100%** | **22 of 58** |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 10.9% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 14.1% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 9.4% | 6 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 7.8% | 0 |
+| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.3% | 0 |
+| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.6% | 0 |
+| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.8% | 0 |
+| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 3.1% | 0 |
+| 9 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 7.8% | 0 |
+| 10 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.7% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.1% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 6.3% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 7.8% | 0 |
+| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 3.1% | 0 |
+| 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.6% | 0 |
+| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 3.1% | 0 |
+| 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.6% | 0 |
+| | **Total** | | **64** | **100%** | **22 of 64** |
 
-Sizes: 13 Simple, 45 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 14 Simple, 50 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -51,6 +55,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | R39 | How questions are looked up: keyword search over the wiki and PDF text, or a local embedding model. The simplest option is keyword search first, adding embeddings only if answers miss. |
 | R43 | Whether a Claude, OpenAI or Grok subscription can be used by a separate app at all. Not checked yet: these subscriptions are mainly for the providers' own apps, and an API key may be the only supported route. If a subscription can't be used, R43 is dropped and features.md updated. |
 | R44 | How the administrator account is created. The simplest option is that the first run asks for an administrator password, stored hashed on the server. |
+| R54 | How a question is rated for each topic, using the definitions in item 40. The simplest option is to ask the chosen LLM (item 29) with the question, each topic's wiki page and those definitions, and to keep its one-line reason with each rating. |
 
 ## After the engine decision
 
@@ -373,7 +378,39 @@ The PRs below are written for either kind of video engine, but these are the one
 - Loads a saved file into the conversation history, adding only the turns not already there (matched by their ids), so loading the same file twice changes nothing.
 - **Can show:** load a file twice and see its turns added once, after the existing history, with the count of turns added in the logs.
 
-After R52, every item in features.md is covered by a PR. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
+## Milestone 14: Topics and understanding
+
+### R53. Tagging questions with topics (Medium) · items 38, 39
+- Each new question keeps the wiki page ids the R39 lookup already found for it as its topics (none, one or several); there is no second classification. A one-off job runs the R39 lookup over the existing history, with progress like R12, and history loaded through R52 is tagged the same way. Tags are never rewritten when the wiki changes; a removed topic is shown as removed.
+- **Can show:** ask a question on one topic, one spanning two topics and a general one, and see one, two and no topics in the store; then the backfill job's run time in the logs.
+
+### R54. Rating the understanding a question shows (Medium) · item 40
+- Each question from a signed-in student is rated strong, weak or unrated for each of its topics, as defined in item 40 and using the method decided before this PR, with the reason kept. Existing questions are rated by the same job as R53. On the user history page (R50) the administrator can correct a rating; the correction is stored with the rating and reason, and is never overwritten by a re-rating.
+- **Can show:** a question with a clear misconception rated weak, a plain fact-seeking question left unrated, and a two-topic question rated differently for each topic; then correct one rating and see it kept after the job runs again.
+
+## Milestone 15: Search
+
+### R55. Search on the user history page (Medium) · items 42, 43
+- Adds search to the R50 user history page rather than a second page: words to find in questions and answers, plus filters for topic and date range alongside R50's existing student and anonymous views. Covers cleared turns too.
+- **Can show:** find a phrase across all students, then narrow it to one student and one topic, with the search time in the logs.
+
+## Milestone 16: Statistics and summaries
+
+### R56. Topic statistics page (Medium) · item 44
+- An administrator page listing every topic with its question count and its counts of strong, weak and unrated questions (no single score), with topics nobody asked about listed separately.
+- **Can show:** after a few questions on some topics, the page shows their counts and lists the untouched topics as not asked about.
+
+### R57. Student summary page (Medium) · items 41, 45
+- One page per student, worked out from the stored topic tags and ratings when it is opened (no separate profile is kept): each topic the student asked about, with counts of their strong, weak and unrated questions on it and the questions themselves. No score or overall judgment per topic; mixed evidence stays mixed.
+- **Can show:** a student asks a strong and a weak question on the same topic and an unrated one on another; their summary shows the first topic with one strong and one weak question, the second with one unrated, and each question can be opened.
+
+## Milestone 17: Heads-up before clearing
+
+### R58. Heads-up before clearing history (Simple) · item 46
+- The confirmation step inside R51's save-then-clear flow says "Clearing hides this conversation from your view. It remains available to the administrator." The clear runs only after the student confirms. No new way to clear is added.
+- **Can show:** a student clicks clear, reads the notice, cancels and keeps their history, then confirms and sees it cleared from their view and still in the store.
+
+After R58, every item in features.md is covered by a PR. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
 
 ## Optional, not counted
 
