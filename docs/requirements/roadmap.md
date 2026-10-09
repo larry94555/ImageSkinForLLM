@@ -13,7 +13,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 10.8% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 13.8% | 9 of 9 |
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 9.2% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 9.2% | 2 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 9.2% | 3 of 6 |
 | 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.2% | 0 |
 | 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.5% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.7% | 0 |
@@ -27,7 +27,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.5% | 0 |
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 3.1% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.5% | 0 |
-| | **Total** | | **65** | **100%** | **24 of 65** |
+| | **Total** | | **65** | **100%** | **25 of 65** |
 
 Sizes: 15 Simple, 50 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -220,10 +220,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** unit tests on sample replies; a command prints the spoken version of a reply.
 - **Built:** `speech_text.spoken_text()` leaves out code blocks (even unclosed ones, and a longer fence holding a shorter one), inline code (with any number of backticks), images, HTML tags, URLs (bare or in brackets; punctuation after a URL is kept), emoji (with skin tones, joiners and flags) and the Markdown markers for headings, quotes, bullets, list numbers, bold, italic, strikethrough, links and tables; underscores inside a word (snake_case) and a star between spaces (2 * 3) stay. A heading, list item, quote, table row or paragraph that ends without punctuation gets a full stop so the voice pauses; a single line break inside a paragraph is only a space. `imageskin spoken-text "reply"` or `--file reply.md` prints the spoken version.
 
-### R16a. Saying what was left out (Simple) · item 11
+### R16a. Saying what was left out (Simple) · item 11 · Done in [PR #43](https://github.com/larry94555/ImageSkinForLLM/pull/43)
 - Added after Larry's review of R16 (2026-10-09): R16 drops URLs, code and emoji, which can leave a sentence that breaks off ("Hi Larry, see the guide or."). The spoken sentence must still make sense, so each left-out part is replaced by a short phrase that says what it is and points to the reply text panel (R18), for example "see the guide or the links in the text below".
 - Proposed phrases (to be checked by ear with Larry when it is built): a bare URL says "the link in the text below", several in a row "the links in the text below"; a code block says "the code shown below"; inline code of a word or two is spoken as is, and longer inline code says "the code shown below"; an image says "the picture in the text below"; a table says "the table in the text below" instead of reading its cells. Emoji on their own (decoration) stay silent; an emoji that stands for a word ("I ❤️ it") is spoken by its short name. Link text is still spoken as is.
 - **Can show:** `imageskin spoken-text` prints whole sentences for replies with links, code, pictures and tables.
+- Built as proposed, with these choices to check by ear: a code block or table is a sentence of its own ("See the code shown below.", "See the table in the text below."); bare URLs separated only by commas, spaces or "and" are one "the links in the text below"; a URL in brackets or angle brackets also says "the link in the text below", while a Markdown link speaks its text; inline code of up to two words is spoken exactly as written, without its backticks (stars and underscores kept), unless it holds a URL; only ❤️ and ♥ between two words count as a word ("love"), every other emoji stays silent.
 
 ### R17. Spoken video replies (Medium) · items 11, 20
 - Each cleaned reply is voiced in the person's voice (R25) and animated with R4c, then played in the chat.
