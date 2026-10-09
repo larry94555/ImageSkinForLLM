@@ -16,6 +16,7 @@ from imageskin.chat import (
     REPLY_TOKENS,
     SUMMARY_PROMPT,
     SYSTEM_PROMPT,
+    TEMPERATURE,
     Conversation,
     LlmClient,
     LlmError,
@@ -231,6 +232,7 @@ def test_the_client_asks_the_chat_api(fake_llm: str) -> None:
             "model": "qwen",
             "messages": messages,
             "max_tokens": REPLY_TOKENS,
+            "temperature": TEMPERATURE,
         }
     ]
 

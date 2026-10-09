@@ -23,9 +23,15 @@ SYSTEM_PROMPT = (
     "You are talking with someone face to face, and your replies are spoken aloud. Keep each"
     " reply short and conversational: one to three sentences in plain words, without lists,"
     " headings or code unless you are asked for them."
+    " Before you reply, work out your answer. Then check it against everything said earlier in"
+    " this conversation: who said what, and every name and fact. Then check it once more."
+    " Do this checking silently: say only your final reply."
 )
 # The longest reply asked for. A short reply needs far less; this is room in the context window.
 REPLY_TOKENS = 300
+# How much randomness the LLM picks words with. llama-server's default (0.8) made a small model
+# now and then mix up facts it was given, such as calling the user's name a good one for a dog.
+TEMPERATURE = 0.3
 # A rough count: English runs about 4 characters to a token, and each message adds a few for
 # its framing. Erring high (3 characters) keeps the conversation inside the window.
 CHARS_PER_TOKEN = 3
@@ -127,7 +133,12 @@ class LlmClient:
 
     def ask(self, messages: list[Message]) -> str:
         url = self.settings.url.rstrip("/") + "/chat/completions"
-        body = {"model": self.settings.model, "messages": messages, "max_tokens": REPLY_TOKENS}
+        body = {
+            "model": self.settings.model,
+            "messages": messages,
+            "max_tokens": REPLY_TOKENS,
+            "temperature": TEMPERATURE,
+        }
         request = urllib.request.Request(
             url,
             data=json.dumps(body).encode(),
