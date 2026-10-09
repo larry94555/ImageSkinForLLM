@@ -12,7 +12,7 @@ Items 1 to 16 match the original feature list. Items 17 to 23 were added after r
 
 ## Setup flow
 
-1. **Upload.** Upload sound files (WAV, M4A, MP3; converted to WAV internally) and images (JPG, PNG, HEIC). At least 1 valid photo is required. The recording guide asks for 5 photos so the app can pick the best, and 3 voice recordings plus an optional 4th. Play any uploaded sound file and view any uploaded image.
+1. **Upload.** Upload sound files (WAV, M4A, MP3; converted to WAV internally) and images (JPG, PNG, HEIC). At least 1 valid photo is required. The recording guide asks for 5 photos so the app can pick the best, and 7 voice recordings (about 15 minutes; the first 3 are enough for today's voice, the rest are kept for a trained voice later) plus an optional 8th. Play any uploaded sound file and view any uploaded image.
 2. **Validate images.** Check each image and report problems in short, plain language a nontechnical person can act on, so they can retake the photo. Checks, each with a fixed message:
    - exactly one face found
    - face large enough for the video engine: at least 180 px from mid-forehead to chin once the photo is shrunk to 1280 px on its longest side (changed in R8, 2026-10-07, from a ~512 px guess made before the engine existed; Larry's 1080p webcam photos measure 200 to 216)

@@ -1,6 +1,6 @@
 # ImageSkinForLLM inputs: the voice sample
 
-**Short answer:** yes. About 4 minutes of clean recordings of the person, reading a prepared script and then talking freely, is enough to clone their voice with today's tools. The recording guide splits this into 3 short recordings, and the app combines them into one voice sample. The guide now asks for 4 more (about 15 minutes in all), so there is enough of the person to train a model of their voice for a changed accent (R26a). The voice sample is not played back in the video. It is a *reference* the voice model learns from. For each LLM reply, the voice model generates brand-new audio of that reply in the person's voice, and that new audio drives the lip sync.
+**Short answer:** yes. About 4 minutes of clean recordings of the person, reading a prepared script and then talking freely, is enough to clone their voice with today's tools. The recording guide splits this into 3 short recordings, and the app combines them into one voice sample. Since 2026-10-09 the guide asks for 4 more (7 in all, about 15 minutes of talking). Today's clone and accent conversion still learn from only 10 seconds of the sample, so the extra recordings are not used yet: they are recorded once now so that a fine-tuned voice (see below) can be trained later without asking the person to record again. Larry asked for them after R26a's converted accents did not sound enough like him; training is not on the roadmap yet. The voice sample is not played back in the video. It is a *reference* the voice model learns from. For each LLM reply, the voice model generates brand-new audio of that reply in the person's voice, and that new audio drives the lip sync.
 
 **Not yet verified.** Tool facts here (inputs, streaming, timestamps, GPU needs, consent, latency) describe the tools as of mid-2026 and have not been checked against their documentation. Vendors change these often. Before choosing an engine, check each fact that affects the choice against the vendor or project documentation, and record the link and a "verified on YYYY-MM-DD" date next to it.
 
@@ -21,7 +21,7 @@
 
 **More audio is not always better for instant clones.** Most instant engines use only the first 10 to 60 seconds of what you give them, so the *best* minute matters more than the total. Extra minutes pay off only if we later move to a fine-tuned or professional clone.
 
-**Recommendation:** record about 4 minutes once (the 3 recordings in the guide). Use the best 1 to 2 minutes for an instant clone now, and keep all the recordings so we can upgrade to a fine-tuned voice later without asking the person to record again.
+**Recommendation:** record once, the 7 recordings in the guide (about 15 minutes; Recordings 1 to 3, about 4 minutes, are enough for the instant clone). Use the best 1 to 2 minutes for an instant clone now, and keep all the recordings so we can upgrade to a fine-tuned voice later without asking the person to record again.
 
 ## Read script vs. free talking
 
@@ -29,7 +29,7 @@ A read script is a good idea: it guarantees the sample covers all the sounds of 
 
 ## One file or several?
 
-The tools need one voice sample, but the person does not have to record it in one take. The recording guide asks for 3 separate recordings, one per section, so a mistake means redoing one short section, not the whole script. The app checks each file and combines the valid ones into one voice sample. Practical notes:
+The tools need one voice sample, but the person does not have to record it in one take. The recording guide asks for 7 separate recordings, one per section, so a mistake means redoing one short section, not the whole script. The app checks each file and combines the valid ones into one voice sample. Practical notes:
 
 - Keep the mic, room and distance the same for all recordings.
 - Trim long silences, coughs and restarts before uploading.
@@ -47,7 +47,7 @@ The tools need one voice sample, but the person does not have to record it in on
 
 ## The recording script
 
-Reading time is about 3 minutes at a relaxed pace, then about 1 minute of free talking. Lines are short so the person can pause naturally between them. In the recording guide, lines 1 to 10 are Recording 1, lines 11 to 19 are Recording 2, and the free talking is Recording 3. The script keeps the guide's spelling.
+Reading time is about 3 minutes at a relaxed pace, then about 1 minute of free talking. Lines are short so the person can pause naturally between them. In the recording guide, lines 1 to 10 are Recording 1, lines 11 to 19 are Recording 2, and the free talking is Recording 3. Recordings 4 to 7 (a story, script lines 20 to 39, an explanation and more free talking) are only in the guide. The script keeps the guide's spelling.
 
 ### Part 1: read aloud (Recordings 1 and 2)
 
