@@ -121,8 +121,8 @@ scored on its own, so the scores don't add up to 1).
 ## Results on Larry's voice (cloud, 4-core CPU, 2026-10-09)
 
 Donor: a Bulgarian man from the [EdAcc](https://groups.inf.ed.ac.uk/edacc/) accent corpus
-(CC BY-SA 4.0, 76 seconds of conversation), standing in for Russian-English until a recording is
-found. Means over the three replies:
+(CC BY-SA 4.0), standing in for Russian-English until a recording is found. It is in
+[`donors/`](donors/README.md) with a Polish woman from the same corpus. Means over the three replies:
 
 | Column | Base voice picked | Similarity to Larry | Seconds per second of speech | Accent heard |
 |---|---|---|---|---|
@@ -140,8 +140,9 @@ conversion needs ears: the classifier has no Slavic accent to hear.
 
 Set up as for the voice cloning test above, then (Windows: `experiments\voice\accent_test.py`):
 ```
-python experiments/voice/accent_test.py --sample voice-sample.wav --donor Slavic=donor.wav -o accent-test
+python experiments/voice/accent_test.py --sample voice-sample.wav --donor Slavic=experiments/voice/donors/slavic-bulgarian-male.wav -o accent-test
 ```
-The donor recording must be a 24 kHz mono WAV like the voice sample; make it with
+Pick the donor that matches the person (`slavic-polish-female.wav` for a woman). Your own donor
+recording must be a 24 kHz mono WAV like the voice sample; make it with
 `imageskin voice-sample donor.m4a -o donor.wav`. The first run also downloads Kokoro's British
 voices and the accent classifier (about 100 MB). Open `accent-test/index.html` in a browser.

@@ -115,3 +115,13 @@ def test_every_accent_has_men_and_women() -> None:
     for lang, voices in KOKORO_ACCENTS.values():
         assert lang in ("a", "b")
         assert any(v[1] == "m" for v in voices) and any(v[1] == "f" for v in voices)
+
+
+@pytest.mark.parametrize("name", ["slavic-bulgarian-male.wav", "slavic-polish-female.wav"])
+def test_donor_recordings_are_voice_samples(name: str) -> None:
+    from voice_tools import reference_clip
+
+    from imageskin.chatterbox_engine import REFERENCE_S, read_voice_sample
+
+    samples = read_voice_sample(Path(__file__).parent / "donors" / name)
+    assert len(reference_clip(samples)) == int(REFERENCE_S * SAMPLE_RATE)  # 10 s to learn from
