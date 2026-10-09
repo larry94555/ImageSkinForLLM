@@ -25,7 +25,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 8.6% | 0 |
 | | **Total** | | **58** | **100%** | **22 of 58** |
 
-Sizes: 14 Simple, 44 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 13 Simple, 45 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -195,7 +195,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** choose British in setup and see the sample rerun in the person's voice with a British accent.
 - **Built:** an Accent section in setup (own, American, British), saved in `accent.json`; Larry chose to build it before training a model of his voice (2026-10-09). With American or British, Prepare's voice step picks the base voice (`accent.py`), comparing voices with the one-speaker check's CAM++ model instead of R26a's ECAPA, so no new package is needed, and the clips are spoken by Kokoro and converted with Chatterbox's converter, sharing Turbo's loaded model. The accent is part of the job's `voice_id`, so changing it shows Prepare again, and when a sample was ready the server starts Prepare at once; the face is kept. The donor accent (Russian-English) is left out until a Russian-English recording is found. On Larry's voice sample (4-core cloud CPU), every base voice converted, the picks were `bm_daniel` and `af_river`, each just ahead of R26a's ECAPA picks (`bm_lewis`, `am_onyx`); picking took about 1 to 1.5 minutes, and the sample script about 0.9 to 1.1 seconds per second of speech, against 2.3 for his clone. Size grew from Simple to Medium: the conversion engine moved from the experiment into the app.
 
-### R14. Review screen (Simple) · item 7
+### R14. Review screen (Medium) · item 7 · Done in [PR #38](https://github.com/larry94555/ImageSkinForLLM/pull/38)
 - Accept, Reject image (back to image upload), Reject voice (back to sound upload), and Change accent, which goes back to R26's choice and reruns the sample.
 - Chat stays locked until a sample is accepted.
 - **Can show:** the full setup flow from upload to an accepted sample, with both reject paths working.
