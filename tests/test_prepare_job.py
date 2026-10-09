@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from imageskin.accent import Accent, AccentEngine
 from imageskin.app import create_app
 from imageskin.prepare_job import (
     CLIPS,
@@ -76,9 +78,19 @@ def make_job(
     voice: object = lambda: None,
     clip: object = write_clip,
     kind: str = "kokoro",
+    accent: list[Accent] | None = None,  # a one-item list, so a test can change it
 ) -> tuple[PrepareJob, FakeStore]:
     store = FakeStore(tmp_path)
-    job = PrepareJob(tmp_path, cast(UploadStore, store), voice, face, clip, kind)  # type: ignore[arg-type]
+    chosen = accent or ["own"]
+    job = PrepareJob(
+        tmp_path,
+        cast(UploadStore, store),
+        voice,  # type: ignore[arg-type]
+        face,  # type: ignore[arg-type]
+        clip,  # type: ignore[arg-type]
+        kind,
+        lambda: chosen[0],
+    )
     return job, store
 
 
@@ -303,11 +315,12 @@ def test_default_voice_step_says_a_word() -> None:
 def test_cloned_voice_step_learns_the_voice_from_the_sample(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    engine = MagicMock()
+    engine = MagicMock(base="bm_lewis")
     with caplog.at_level(logging.INFO):
-        cloned_voice(engine, tmp_path / "voice-sample.wav")()
-    engine.learn_voice.assert_called_once_with(str(tmp_path / "voice-sample.wav"))
-    assert "Voice ready: the person's own" in caplog.text
+        cloned_voice(engine, tmp_path / "voice-sample.wav", lambda: "british")()
+    engine.prepare.assert_called_once_with(str(tmp_path / "voice-sample.wav"), "british")
+    record = next(r for r in caplog.records if r.getMessage() == "Voice ready: the person's own")
+    assert vars(record)["accent"] == "british" and vars(record)["base"] == "bm_lewis"
 
 
 def test_clips_speak_in_the_cloned_voice_when_chatterbox_is_installed(
@@ -321,9 +334,9 @@ def test_clips_speak_in_the_cloned_voice_when_chatterbox_is_installed(
         patch("imageskin.chatterbox_engine.check_installed"),
         patch.object(ChatterboxEngine, "learn_voice") as learn,
     ):
-        step, engine, voice, kind = clip_voice(sample)
+        step, engine, voice, kind = clip_voice(tmp_path, sample, lambda: "own")
         step()
-    assert isinstance(engine, ChatterboxEngine) and (voice, kind) == (str(sample), "clone")
+    assert isinstance(engine, AccentEngine) and (voice, kind) == (str(sample), "clone")
     learn.assert_called_once_with(str(sample))
     assert "the person's own voice, cloned with Chatterbox Turbo" in caplog.text
 
@@ -338,7 +351,7 @@ def test_clips_speak_in_kokoro_when_chatterbox_is_missing(
         caplog.at_level(logging.WARNING),
         patch("imageskin.chatterbox_engine.check_installed", side_effect=missing),
     ):
-        _, engine, voice, kind = clip_voice(tmp_path / "voice-sample.wav")
+        _, engine, voice, kind = clip_voice(tmp_path, tmp_path / "voice-sample.wav", lambda: "own")
     assert isinstance(engine, KokoroEngine) and (voice, kind) == ("af_heart", "kokoro")
     record = next(r for r in caplog.records if r.levelname == "WARNING")
     assert "Kokoro voice" in record.getMessage() and "README" in vars(record)["reason"]
@@ -485,6 +498,31 @@ def test_a_kokoro_prepare_needs_preparing_again_once_the_clone_is_installed(
     assert later.status().state == "idle" and later.clip("sample") is None
 
 
+def test_another_accent_needs_preparing_again(tmp_path: Path) -> None:
+    accent: list[Accent] = ["own"]
+    job, store = make_job(tmp_path, kind="clone", accent=accent)
+    job.start()
+    job.wait(5)
+    fingerprint = voice_fingerprint(store.voice_sample_file)
+    assert job.status().voice_id == f"clone:{fingerprint}"  # as saved before accents (R25b)
+    accent[0] = "british"
+    assert job.status().state == "idle" and job.clip("sample") is None
+    job.start()
+    job.wait(5)
+    assert job.status().state == "done" and job.status().voice_id == f"clone-british:{fingerprint}"
+    accent[0] = "own"
+    assert job.status().state == "idle"
+
+
+def test_kokoro_ignores_the_accent(tmp_path: Path) -> None:
+    accent: list[Accent] = ["own"]
+    job, _ = make_job(tmp_path, accent=accent)
+    job.start()
+    job.wait(5)
+    accent[0] = "american"
+    assert job.status().state == "done"
+
+
 def test_a_clip_that_fails_fails_the_job_and_is_not_served(tmp_path: Path) -> None:
     def broken(photo: Path, text: str, output: Path) -> None:
         output.write_text("half")
@@ -548,3 +586,61 @@ def test_the_voice_check_and_the_clips_share_one_voice_engine(tmp_path: Path) ->
         with pytest.raises(RuntimeError), patch("imageskin.photoreal.PhotorealEngine"):
             job._render_clip(tmp_path / "me.jpg", "Goodbye.", tmp_path / "goodbye.mp4")
     assert len(speaks) == 2 and speaks[0] is speaks[1]
+
+
+def test_choosing_another_accent_prepares_the_sample_again(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    clone = (lambda: None, MagicMock(), "voice-sample.wav", "clone")
+    with patch("imageskin.app.clip_voice", return_value=clone):
+        app = create_app(
+            tmp_path,
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_face=face_in_steps,
+            render_clip=write_clip,
+        )
+    client = TestClient(app)
+    job = cast(PrepareJob, app.state.prepare_job)
+    assert client.get("/api/accent").status_code == 403  # consent first
+    client.post("/api/consent", json={"agreed": True})
+    assert client.get("/api/accent").json() == {"accent": "own", "available": True}
+    assert client.put("/api/accent", json={"accent": "martian"}).status_code == 422
+    # Before anything is prepared, the choice is only saved.
+    assert client.put("/api/accent", json={"accent": "american"}).json()["accent"] == "american"
+    assert job.status().state == "idle"
+
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    store = UploadStore(tmp_path)
+    store.voice_sample_file.parent.mkdir(parents=True, exist_ok=True)
+    store.voice_sample_file.write_bytes(b"recordings")
+    with patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)):
+        client.post("/api/prepare")
+        job.wait(5)
+        assert "clone-american" in str(job.status().voice_id)
+        with caplog.at_level(logging.INFO):
+            again = client.put("/api/accent", json={"accent": "british"})
+        assert again.json() == {"accent": "british", "available": True}
+        assert job.status().state == "running"  # the sample is made again, in the new accent
+        assert "Accent changed; preparing the sample again" in caplog.text
+        job.wait(5)
+        assert job.status().state == "done" and "clone-british" in str(job.status().voice_id)
+        with patch.object(PrepareJob, "start", side_effect=PrepareError(NO_PHOTO)):
+            client.put("/api/accent", json={"accent": "own"})
+    assert "Could not prepare again" in caplog.text
+    assert TestClient(create_app(tmp_path)).get("/api/accent").json()["accent"] == "own"
+
+
+def test_the_accent_engine_shares_the_clone_and_the_speaker_model(tmp_path: Path) -> None:
+    from imageskin.prepare_job import accent_engine
+
+    clone = MagicMock()
+    with (
+        patch("imageskin.chatterbox_engine.TurboConverter") as converter,
+        patch("imageskin.speaker_checks.SpeakerChecker.voice_print") as voice_print,
+    ):
+        engine = accent_engine(tmp_path, clone)
+        engine._make_converter()
+        engine._voice_print(np.zeros(3))
+    converter.assert_called_once_with(clone.cloner.return_value)
+    assert voice_print.call_args.args[1] == 24000
+    assert engine._kokoro("b")._load.args == ("b",)  # type: ignore[attr-defined]

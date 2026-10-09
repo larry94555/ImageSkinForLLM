@@ -62,6 +62,18 @@ async function removeUpload(kind, id) {
 	const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function getAccent() {
+	return json(await fetch("/api/accent"));
+}
+async function chooseAccent(accent) {
+	const response = await fetch("/api/accent", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ accent })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 function clipUrl(name, status) {
 	return `/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`;
 }
@@ -157,6 +169,7 @@ function SetupPage() {
 			accept: "audio/*,.m4a,.wav,.mp3",
 			onChange: changed
 		}),
+		/* @__PURE__ */ u(AccentSection, { onChange: changed }),
 		/* @__PURE__ */ u(PrepareSection, { changes })
 	] });
 }
@@ -435,6 +448,78 @@ function VoiceSampleView({ changes }) {
 			}) : /* @__PURE__ */ u("p", {
 				className: sample.recordings > 0 ? "error" : "muted",
 				children: sample.problem
+			})
+		]
+	});
+}
+var ACCENTS = [
+	{
+		accent: "own",
+		label: "Their own accent, as in the recordings"
+	},
+	{
+		accent: "american",
+		label: "American"
+	},
+	{
+		accent: "british",
+		label: "British"
+	}
+];
+function AccentSection({ onChange }) {
+	const [choice, setChoice] = d(null);
+	const [saving, setSaving] = d(null);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		getAccent().then(setChoice).catch((e) => {
+			console.error("Could not get the accent", e);
+			setFailed("Could not load the accent. Reload the page to try again.");
+		});
+	}, []);
+	async function choose(accent) {
+		setSaving(accent);
+		setFailed(null);
+		try {
+			setChoice(await chooseAccent(accent));
+			onChange();
+		} catch (e) {
+			console.error(`Could not choose the ${accent} accent`, e);
+			setFailed(`Could not save the accent: ${e.message}`);
+		}
+		setSaving(null);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "accent",
+		children: [
+			/* @__PURE__ */ u("h2", { children: "Accent" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The person's voice can keep their own accent or speak with another one. Changing it makes the sample video again."
+			}),
+			/* @__PURE__ */ u("fieldset", {
+				disabled: choice === null || saving !== null,
+				children: [/* @__PURE__ */ u("legend", { children: "Speak with" }), ACCENTS.map(({ accent, label }) => /* @__PURE__ */ u("label", {
+					className: saving === accent ? "busy" : void 0,
+					children: [
+						/* @__PURE__ */ u("input", {
+							type: "radio",
+							name: "accent",
+							value: accent,
+							checked: (saving ?? choice?.accent) === accent,
+							onChange: () => void choose(accent)
+						}),
+						" ",
+						label
+					]
+				}, accent))]
+			}),
+			choice?.available === false && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Another accent needs the person's own voice installed (see \"Your own voice\" in the README). Until then a ready-made voice speaks, with its own accent."
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
 			})
 		]
 	});

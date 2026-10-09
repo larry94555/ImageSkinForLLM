@@ -12,7 +12,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 12.1% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 15.5% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 10.3% | 4 of 6 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 10.3% | 5 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 8.6% | 0 |
 | 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.9% | 0 |
 | 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.7% | 0 |
@@ -23,9 +23,9 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.4% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 6.9% | 0 |
 | 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 8.6% | 0 |
-| | **Total** | | **58** | **100%** | **20 of 58** |
+| | **Total** | | **58** | **100%** | **21 of 58** |
 
-Sizes: 15 Simple, 43 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 14 Simple, 44 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -190,9 +190,10 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Acceptance:** Larry listens and says which accents sound like him with the new accent; R26 offers those.
 - **Result (PR #36, 2026-10-09):** on Larry's voice, British came through in his voice (an accent classifier heard British in all 3 replies; similarity to him 0.63, against 0.76 for his clone) and faster than real time (0.75 seconds per second of speech on a 4-core CPU). Converted American scored 0.73. The Slavic donor scored 0.66 but took 2.8 seconds per second of speech, and whether its accent survives needs Larry's ears (the classifier has no Slavic accent). Base voices picked for Larry: `am_liam` and `bm_lewis`. Waiting on Larry's listening.
 
-### R26. Accent choice in setup (Simple) · item 4
+### R26. Accent choice in setup (Medium) · item 4 · Done in [PR #37](https://github.com/larry94555/ImageSkinForLLM/pull/37)
 - Accent question in setup: keep the person's own accent (the clone), or change it to one that R26a showed works (American, British, and a donor accent once a recording is found), saved with the setup; changing it reruns the sample. With a changed accent, prepare picks the base voice as R26a does, and each line is spoken by the base voice and converted to the person's voice.
 - **Can show:** choose British in setup and see the sample rerun in the person's voice with a British accent.
+- **Built:** an Accent section in setup (own, American, British), saved in `accent.json`; Larry chose to build it before training a model of his voice (2026-10-09). With American or British, Prepare's voice step picks the base voice (`accent.py`), comparing voices with the one-speaker check's CAM++ model instead of R26a's ECAPA, so no new package is needed, and the clips are spoken by Kokoro and converted with Chatterbox's converter, sharing Turbo's loaded model. The accent is part of the job's `voice_id`, so changing it shows Prepare again, and when a sample was ready the server starts Prepare at once; the face is kept. The donor accent (Russian-English) is left out until a Russian-English recording is found. On Larry's voice sample (4-core cloud CPU), the British pick was `bm_lewis`, as in R26a, and the sample script took 0.55 to 0.75 seconds per second of speech, against 2.3 for his clone. Size grew from Simple to Medium: the conversion engine moved from the experiment into the app.
 
 ### R14. Review screen (Simple) · item 7
 - Accept, Reject image (back to image upload), Reject voice (back to sound upload), and Change accent, which goes back to R26's choice and reruns the sample.

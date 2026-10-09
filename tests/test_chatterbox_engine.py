@@ -271,3 +271,17 @@ def test_provide_pkg_resources_keeps_the_real_module(monkeypatch: pytest.MonkeyP
     monkeypatch.setitem(sys.modules, "pkg_resources", real)
     provide_pkg_resources()
     assert sys.modules["pkg_resources"] is real
+
+
+def test_reference_and_cloner_are_shared_with_the_accent_converter(voice_sample: Path) -> None:
+    cloner = FakeCloner()
+    loads: list[int] = []
+
+    def load() -> FakeCloner:
+        loads.append(1)
+        return cloner
+
+    eng = engine_with(load)
+    expected = reference_clip(read_voice_sample(voice_sample))
+    assert np.array_equal(eng.reference(str(voice_sample)), expected)
+    assert eng.cloner() is cloner and eng.cloner() is cloner and len(loads) == 1

@@ -3,9 +3,13 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
+  type Accent,
+  type AccentChoice,
   checkUpload,
+  chooseAccent,
   choosePhoto,
   confirmConsent,
+  getAccent,
   getPhotoChoice,
   clipUrl,
   getPrepare,
@@ -81,8 +85,8 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   );
 }
 
-// Setup: upload photos and recordings, see them and play them back (roadmap R7), then prepare
-// the voice and the face (R12).
+// Setup: upload photos and recordings, see them and play them back (roadmap R7), choose the
+// accent (R26), then prepare the voice and the face (R12).
 export function SetupPage() {
   // Counts changes to the photos, the chosen photo and the recordings, so Prepare asks again
   // whether what it prepared is still current.
@@ -106,6 +110,7 @@ export function SetupPage() {
         accept="audio/*,.m4a,.wav,.mp3"
         onChange={changed}
       />
+      <AccentSection onChange={changed} />
       <PrepareSection changes={changes} />
     </>
   );
@@ -393,6 +398,75 @@ function VoiceSampleView({ changes }: { changes: number }) {
         <p className={sample.recordings > 0 ? "error" : "muted"}>{sample.problem}</p>
       )}
     </div>
+  );
+}
+
+const ACCENTS: { accent: Accent; label: string }[] = [
+  { accent: "own", label: "Their own accent, as in the recordings" },
+  { accent: "american", label: "American" },
+  { accent: "british", label: "British" },
+];
+
+// Setup (roadmap R26): the person's voice keeps their own accent or speaks with another one.
+// Changing it after the sample is ready makes the sample again in the new accent.
+function AccentSection({ onChange }: { onChange: () => void }) {
+  // null until the server has answered.
+  const [choice, setChoice] = useState<AccentChoice | null>(null);
+  const [saving, setSaving] = useState<Accent | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAccent()
+      .then(setChoice)
+      .catch((e: unknown) => {
+        console.error("Could not get the accent", e);
+        setFailed("Could not load the accent. Reload the page to try again.");
+      });
+  }, []);
+
+  async function choose(accent: Accent) {
+    setSaving(accent);
+    setFailed(null);
+    try {
+      setChoice(await chooseAccent(accent));
+      onChange();
+    } catch (e) {
+      console.error(`Could not choose the ${accent} accent`, e);
+      setFailed(`Could not save the accent: ${(e as Error).message}`);
+    }
+    setSaving(null);
+  }
+
+  return (
+    <section className="accent">
+      <h2>Accent</h2>
+      <p className="muted">
+        The person&apos;s voice can keep their own accent or speak with another one. Changing it
+        makes the sample video again.
+      </p>
+      <fieldset disabled={choice === null || saving !== null}>
+        <legend>Speak with</legend>
+        {ACCENTS.map(({ accent, label }) => (
+          <label key={accent} className={saving === accent ? "busy" : undefined}>
+            <input
+              type="radio"
+              name="accent"
+              value={accent}
+              checked={(saving ?? choice?.accent) === accent}
+              onChange={() => void choose(accent)}
+            />{" "}
+            {label}
+          </label>
+        ))}
+      </fieldset>
+      {choice?.available === false && (
+        <p className="muted">
+          Another accent needs the person&apos;s own voice installed (see &quot;Your own
+          voice&quot; in the README). Until then a ready-made voice speaks, with its own accent.
+        </p>
+      )}
+      {failed && <p className="error">{failed}</p>}
+    </section>
   );
 }
 

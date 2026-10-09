@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from imageskin import __version__
+from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.prepare_job import (
@@ -54,6 +55,16 @@ class ConsentRequest(BaseModel):
 
 class PhotoChoiceRequest(BaseModel):
     id: str
+
+
+class AccentRequest(BaseModel):
+    accent: Accent
+
+
+class AccentChoice(BaseModel):
+    accent: Accent
+    # False when the person's own voice is not installed: Kokoro then speaks, in its own accent.
+    available: bool
 
 
 def face_checker(home: Path) -> PhotoCheck | None:
@@ -211,7 +222,12 @@ def create_app(
         return {"removed": True}
 
     # One voice engine for the job, so Prepare loads the voice model once.
-    voice_step, voice_engine, voice, voice_kind = clip_voice(store.voice_sample_file)
+    def accent() -> Accent:
+        return load_accent(data_home)
+
+    voice_step, voice_engine, voice, voice_kind = clip_voice(
+        data_home, store.voice_sample_file, accent
+    )
     job = PrepareJob(
         data_home,
         store,
@@ -219,6 +235,7 @@ def create_app(
         prepare_face or photoreal_face(data_home),
         render_clip or photoreal_clip(data_home, voice_engine, voice),
         voice_kind,
+        accent,
     )
     app.state.prepare_job = job
     job.resume()  # a job the server was stopped in the middle of carries on
@@ -233,6 +250,24 @@ def create_app(
             return job.start()
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
+
+    @app.get("/api/accent", dependencies=needs_consent)
+    def get_accent() -> AccentChoice:
+        return AccentChoice(accent=accent(), available=voice_kind == "clone")
+
+    @app.put("/api/accent", dependencies=needs_consent)
+    def put_accent(body: AccentRequest) -> AccentChoice:
+        prepared = job.status().state == "done"
+        save_accent(data_home, body.accent)
+        if prepared and job.status().state == "idle":
+            # The sample was made in another accent: make it again (the face is kept, so only
+            # the voice and the clips are redone).
+            logger.info("Accent changed; preparing the sample again")
+            try:
+                job.start()
+            except PrepareError as e:  # the uploads changed meanwhile; Prepare says what to do
+                logger.warning("Could not prepare again", extra={"error": str(e)})
+        return get_accent()
 
     @app.get("/api/prepare/clips/{name}", dependencies=needs_consent)
     def get_clip(name: ClipName) -> FileResponse:

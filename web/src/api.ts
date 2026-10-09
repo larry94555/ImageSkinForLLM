@@ -120,6 +120,30 @@ export async function removeUpload(kind: Kind, id: string): Promise<void> {
   if (!response.ok) throw new Error(await refusal(response));
 }
 
+// The accent the person's voice speaks with (roadmap R26). available is false when the person's
+// own voice is not installed: a ready-made voice then speaks, in its own accent.
+export type Accent = "own" | "american" | "british";
+
+export interface AccentChoice {
+  accent: Accent;
+  available: boolean;
+}
+
+export async function getAccent(): Promise<AccentChoice> {
+  return json<AccentChoice>(await fetch("/api/accent"));
+}
+
+// Saves the accent. When a sample was ready, the server starts making it again in this accent.
+export async function chooseAccent(accent: Accent): Promise<AccentChoice> {
+  const response = await fetch("/api/accent", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accent }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as AccentChoice;
+}
+
 // One step of the prepare job (roadmap R12), such as rendering the idle video.
 export interface PrepareStep {
   key: string;

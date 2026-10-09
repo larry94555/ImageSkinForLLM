@@ -904,3 +904,87 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
   fireEvent.click(within(recording).getByRole("button", { name: "Remove" }));
   expect(await screen.findByRole("button", { name: "Prepare" })).toBeTruthy();
 });
+
+// --- Accent (R26) ---
+
+// A fake server with consent given, nothing uploaded, the accent `saved`, and the prepare job
+// answering with each of `reads` in turn (the last one repeats). PUT /api/accent answers with
+// `put` when given, and otherwise saves the accent.
+function accentServer(
+  saved: { accent: string; available: boolean } | Response,
+  reads: PrepareStatus[] = [IDLE],
+  put?: Response,
+) {
+  let choice = saved;
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen") return Response.json({ id: null, chosen_by: "app" });
+    if (url === "/api/voice-sample") return Response.json(NO_VOICE);
+    if (url === "/api/accent") {
+      if (init?.method === "PUT") {
+        if (put) return put;
+        const { accent } = JSON.parse(init.body as string) as { accent: string };
+        choice = { accent, available: true };
+      }
+      return choice instanceof Response ? choice : Response.json(choice);
+    }
+    if (url === "/api/prepare") return Response.json(reads.length > 1 ? reads.shift() : reads[0]);
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function accentOption(name: RegExp | string) {
+  return screen.getByRole("radio", { name }) as HTMLInputElement;
+}
+
+test("the accent starts as the person's own and another can be chosen", async () => {
+  const fetchMock = accentServer({ accent: "own", available: true }, [DONE, RUNNING]);
+  await openAt("#/setup");
+  expect(await screen.findByText("Ready. Here is the sample video:")).toBeTruthy();
+  await waitFor(() => expect(accentOption(/Their own accent/).checked).toBe(true));
+  expect(accentOption("British").checked).toBe(false);
+  expect(screen.queryByText(/needs the person's own voice installed/)).toBeNull();
+
+  await act(async () => {
+    fireEvent.click(accentOption("British"));
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/accent",
+    expect.objectContaining({ method: "PUT", body: JSON.stringify({ accent: "british" }) }),
+  );
+  await waitFor(() => expect(accentOption("British").checked).toBe(true));
+  // The server makes the sample again in the new accent; the page shows it running.
+  expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
+});
+
+test("without the person's own voice installed, the accent says it can't change yet", async () => {
+  accentServer({ accent: "own", available: false });
+  await openAt("#/setup");
+  expect(await screen.findByText(/needs the person's own voice installed/)).toBeTruthy();
+});
+
+test("an accent that can't be saved says why and keeps the old one", async () => {
+  accentServer(
+    { accent: "american", available: true },
+    [IDLE],
+    Response.json({ detail: "Input should be 'own', 'american' or 'british'" }, { status: 422 }),
+  );
+  await openAt("#/setup");
+  await waitFor(() => expect(accentOption("American").checked).toBe(true));
+  await act(async () => {
+    fireEvent.click(accentOption("British"));
+  });
+  expect(await screen.findByText(/Could not save the accent: Input should be/)).toBeTruthy();
+  expect(accentOption("American").checked).toBe(true);
+});
+
+test("if the accent can't be loaded the page says so", async () => {
+  accentServer(new Response("", { status: 500 }));
+  await openAt("#/setup");
+  expect(
+    await screen.findByText("Could not load the accent. Reload the page to try again."),
+  ).toBeTruthy();
+  expect(accentOption("British").matches(":disabled")).toBe(true);
+});

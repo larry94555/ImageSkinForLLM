@@ -16,6 +16,7 @@ from imageskin import sound_checks, speaker_checks
 from imageskin.download import DownloadError
 from imageskin.speaker_checks import (
     MODEL_RATE,
+    PRINT_SIZE,
     TWO_VOICES,
     SpeakerChecker,
     SpeakerCheckError,
@@ -208,3 +209,15 @@ def test_sound_checks_add_the_voice_check(tmp_path: Path) -> None:
     result = sound_checks.check(path, voices)
     assert result.problems == [TWO_VOICES] and seen == [RATE]
     assert sound_checks.check(path).problems == []
+
+
+def test_a_voice_print_is_alike_for_the_same_voice(tmp_path: Path) -> None:
+    checker = SpeakerChecker(tmp_path / "models")
+    with patch.dict(sys.modules, fake_onnxruntime()), patch.object(speaker_checks, "download"):
+        low = checker.voice_print(speechlike(5).astype(np.float32), RATE)
+        again = checker.voice_print(speechlike(5, seed=2), RATE)
+        high = checker.voice_print(speechlike(5, pitch=1000, seed=1), RATE)
+        silent = checker.voice_print(np.zeros(RATE), RATE)
+    assert np.linalg.norm(low) == pytest.approx(1.0)
+    assert low @ again > low @ high
+    assert not silent.any() and len(silent) == PRINT_SIZE
