@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from imageskin.accent import Accent, AccentEngine
-from imageskin.app import create_app
+from imageskin.app import NEEDS_CLONE, WAIT_FOR_PREPARE, create_app
 from imageskin.prepare_job import (
     CLIPS,
     NO_PHOTO,
@@ -644,3 +644,47 @@ def test_the_accent_engine_shares_the_clone_and_the_speaker_model(tmp_path: Path
     converter.assert_called_once_with(clone.cloner.return_value)
     assert voice_print.call_args.args[1] == 24000
     assert engine._kokoro("b")._load.args == ("b",)  # type: ignore[attr-defined]
+
+
+def test_the_accent_cannot_change_while_preparing(tmp_path: Path) -> None:
+    started, release = threading.Event(), threading.Event()
+
+    def slow_face(photo: Path, progress: Progress) -> None:
+        started.set()
+        release.wait(5)
+        face_in_steps(photo, progress)
+
+    clone = (lambda: None, MagicMock(), "voice-sample.wav", "clone")
+    with patch("imageskin.app.clip_voice", return_value=clone):
+        app = create_app(
+            tmp_path,
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_face=slow_face,
+            render_clip=write_clip,
+        )
+    client = TestClient(app)
+    job = cast(PrepareJob, app.state.prepare_job)
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    with patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)):
+        client.post("/api/prepare")
+        started.wait(5)
+        refused = client.put("/api/accent", json={"accent": "british"})
+        release.set()
+        job.wait(5)
+        assert job.status().state == "done"
+    assert refused.status_code == 409 and refused.json()["detail"] == WAIT_FOR_PREPARE
+    assert client.get("/api/accent").json()["accent"] == "own"  # not saved
+
+
+def test_without_the_clone_only_the_persons_own_accent_is_offered(tmp_path: Path) -> None:
+    kokoro = (lambda: None, MagicMock(), "af_heart", "kokoro")
+    with patch("imageskin.app.clip_voice", return_value=kokoro):
+        client = TestClient(create_app(tmp_path, check_photo=lambda p: PhotoResult([], 80)))
+    client.post("/api/consent", json={"agreed": True})
+    refused = client.put("/api/accent", json={"accent": "british"})
+    assert refused.status_code == 409 and refused.json()["detail"] == NEEDS_CLONE
+    assert client.put("/api/accent", json={"accent": "own"}).status_code == 200
+    # One saved while the clone was installed shows as the accent actually used: Kokoro's own.
+    (tmp_path / "accent.json").write_text('{"accent": "british"}')
+    assert client.get("/api/accent").json() == {"accent": "own", "available": False}

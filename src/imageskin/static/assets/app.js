@@ -149,6 +149,7 @@ function ConsentPage({ onConfirmed }) {
 function SetupPage() {
 	const [changes, setChanges] = d(0);
 	const changed = () => setChanges((n) => n + 1);
+	const [preparing, setPreparing] = d(false);
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("h1", { children: "Setup" }),
 		/* @__PURE__ */ u("p", {
@@ -169,8 +170,14 @@ function SetupPage() {
 			accept: "audio/*,.m4a,.wav,.mp3",
 			onChange: changed
 		}),
-		/* @__PURE__ */ u(AccentSection, { onChange: changed }),
-		/* @__PURE__ */ u(PrepareSection, { changes })
+		/* @__PURE__ */ u(AccentSection, {
+			onChange: changed,
+			preparing
+		}),
+		/* @__PURE__ */ u(PrepareSection, {
+			changes,
+			onRunning: setPreparing
+		})
 	] });
 }
 function UploadSection(props) {
@@ -466,7 +473,8 @@ var ACCENTS = [
 		label: "British"
 	}
 ];
-function AccentSection({ onChange }) {
+function AccentSection(props) {
+	const { onChange, preparing } = props;
 	const [choice, setChoice] = d(null);
 	const [saving, setSaving] = d(null);
 	const [failed, setFailed] = d(null);
@@ -497,7 +505,7 @@ function AccentSection({ onChange }) {
 				children: "The person's voice can keep their own accent or speak with another one. Changing it makes the sample video again."
 			}),
 			/* @__PURE__ */ u("fieldset", {
-				disabled: choice === null || saving !== null,
+				disabled: choice === null || saving !== null || preparing,
 				children: [/* @__PURE__ */ u("legend", { children: "Speak with" }), ACCENTS.map(({ accent, label }) => /* @__PURE__ */ u("label", {
 					className: saving === accent ? "busy" : void 0,
 					children: [
@@ -506,12 +514,17 @@ function AccentSection({ onChange }) {
 							name: "accent",
 							value: accent,
 							checked: (saving ?? choice?.accent) === accent,
+							disabled: accent !== "own" && choice?.available === false,
 							onChange: () => void choose(accent)
 						}),
 						" ",
 						label
 					]
 				}, accent))]
+			}),
+			preparing && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "You can change the accent once Prepare has finished."
 			}),
 			choice?.available === false && /* @__PURE__ */ u("p", {
 				className: "muted",
@@ -525,7 +538,8 @@ function AccentSection({ onChange }) {
 	});
 }
 var PREPARE_POLL_MS = 1e3;
-function PrepareSection({ changes }) {
+function PrepareSection(props) {
+	const { changes, onRunning } = props;
 	const [status, setStatus] = d(null);
 	const [loadFailed, setLoadFailed] = d(false);
 	const [starting, setStarting] = d(false);
@@ -559,6 +573,7 @@ function PrepareSection({ changes }) {
 		read();
 	}, [changes]);
 	const running = status?.state === "running";
+	h(() => onRunning(running), [running]);
 	h(() => {
 		if (!running) return;
 		const timer = window.setInterval(() => void read(), PREPARE_POLL_MS);

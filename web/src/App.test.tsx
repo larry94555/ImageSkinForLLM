@@ -955,14 +955,20 @@ test("the accent starts as the person's own and another can be chosen", async ()
     expect.objectContaining({ method: "PUT", body: JSON.stringify({ accent: "british" }) }),
   );
   await waitFor(() => expect(accentOption("British").checked).toBe(true));
-  // The server makes the sample again in the new accent; the page shows it running.
+  // The server makes the sample again in the new accent; the page shows it running, and the
+  // accent can't change again until it has finished.
   expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
+  expect(await screen.findByText("You can change the accent once Prepare has finished.")).toBeTruthy();
+  expect(accentOption("American").matches(":disabled")).toBe(true);
 });
 
 test("without the person's own voice installed, the accent says it can't change yet", async () => {
   accentServer({ accent: "own", available: false });
   await openAt("#/setup");
   expect(await screen.findByText(/needs the person's own voice installed/)).toBeTruthy();
+  expect(accentOption("British").matches(":disabled")).toBe(true);
+  expect(accentOption("American").matches(":disabled")).toBe(true);
+  expect(accentOption(/Their own accent/).matches(":disabled")).toBe(false);
 });
 
 test("an accent that can't be saved says why and keeps the old one", async () => {

@@ -61,6 +61,12 @@ class AccentRequest(BaseModel):
     accent: Accent
 
 
+NEEDS_CLONE = (
+    "Another accent needs the person's own voice installed; see 'Your own voice' in the README."
+)
+WAIT_FOR_PREPARE = "Wait until Prepare finishes, then choose the accent."
+
+
 class AccentChoice(BaseModel):
     accent: Accent
     # False when the person's own voice is not installed: Kokoro then speaks, in its own accent.
@@ -253,11 +259,19 @@ def create_app(
 
     @app.get("/api/accent", dependencies=needs_consent)
     def get_accent() -> AccentChoice:
-        return AccentChoice(accent=accent(), available=voice_kind == "clone")
+        # Without the person's own voice, Kokoro speaks in its own accent, so that is the one shown.
+        available = voice_kind == "clone"
+        return AccentChoice(accent=accent() if available else "own", available=available)
 
     @app.put("/api/accent", dependencies=needs_consent)
     def put_accent(body: AccentRequest) -> AccentChoice:
-        prepared = job.status().state == "done"
+        if body.accent != "own" and voice_kind != "clone":
+            raise HTTPException(status_code=409, detail=NEEDS_CLONE)
+        state = job.status().state
+        if state == "running":
+            # The running job would finish in the old accent; it is chosen before or after it.
+            raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE)
+        prepared = state == "done"
         save_accent(data_home, body.accent)
         if prepared and job.status().state == "idle":
             # The sample was made in another accent: make it again (the face is kept, so only
