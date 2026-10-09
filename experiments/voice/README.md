@@ -93,3 +93,69 @@ Add `--photo me.jpg` to the last command to also get videos.
 Open `voice-test/index.html` in a browser (double-click it; no server needed). With `--photo`, the photo is prepared first if it has not been (about 17 minutes on a 4-core CPU), then
 the Kokoro and conversion clips are rendered on the photoreal video. Each line is logged as a
 `Made line` JSON line with `duration_ms`, `seconds_per_speech_second` and `similarity`.
+
+# Accent test (R26a)
+
+Can the app speak in the person's own voice with a different accent? Voice conversion keeps the
+person's timbre and takes the accent from whatever voice speaks first, so `accent_test.py` makes
+three chat replies four ways, all in the person's voice:
+
+| Column | Where the accent comes from | Tools |
+|---|---|---|
+| Your accent | the person's own clone, as the app speaks today | Chatterbox Turbo |
+| American | one of Kokoro's 19 American voices, converted | Kokoro, Chatterbox's converter |
+| British | one of Kokoro's 8 British voices, converted | Kokoro, Chatterbox's converter |
+| A donor (`--donor NAME=recording.wav`) | a recording of someone with that accent: the clone speaks in their voice, then it is converted | Chatterbox Turbo, Chatterbox's converter |
+
+The Kokoro voice is picked to suit the person, because conversion keeps more of the base voice
+when it starts far from the person: every voice of the accent says a probe line and is
+converted, and the closest to the person's recording after conversion wins (about 95 seconds for
+American, 40 for British, logged as `Picked base voice`). R25a converted only
+`am_michael`, which Larry said did not sound like him.
+
+The page shows each clip's speaker similarity to the recording (SpeechBrain ECAPA, as in R25a)
+and the English accent a classifier hears ([CommonAccent ECAPA](https://huggingface.co/Jzuluaga/accent-id-commonaccent_ecapa),
+MIT, 16 accents such as `us` and `england`, none of them Slavic), with its score (each accent is
+scored on its own, so the scores don't add up to 1).
+
+## Results on Larry's voice (cloud, 4-core CPU, 2026-10-09)
+
+Donor: a Bulgarian man from the [EdAcc](https://groups.inf.ed.ac.uk/edacc/) accent corpus
+(CC BY-SA 4.0), standing in for Russian-English until a recording is found. It is in
+[`donors/`](donors/README.md) with a Polish woman from the same corpus. Means over the three replies:
+
+| Column | Base voice picked | Similarity to Larry | Seconds per second of speech | Accent heard |
+|---|---|---|---|---|
+| Your accent | | 0.76 | 2.67 | Canadian, American, South Atlantic |
+| American | `am_onyx` | 0.76 | 1.06 | American, 3 of 3 |
+| British | `bm_lewis` | 0.66 | 1.04 | British, 3 of 3 |
+| Slavic donor | | 0.65 | 3.00 | American, New Zealand 2 (no Slavic class) |
+
+A changed accent's seconds per second of speech count the base voice speaking and the conversion,
+since every reply pays both. Every Kokoro voice of the accent is converted before picking:
+conversion reorders them. `am_onyx` was not among the three closest before conversion, so an
+earlier version that converted only those three never tried it and picked `am_liam` (0.73). The
+accent classifier is pinned to the revision these results were heard with. Timings vary with the
+machine's load: an earlier run of the same lines measured 2.12 for the clone and 0.75 for British.
+
+So British comes through clearly in Larry's voice, at about real time, at a lower similarity than
+his clone (0.66 against 0.76; above about 0.5 usually means the same speaker). Converted American
+scores as close as the clone. Whether the Slavic donor's accent survives the
+conversion needs ears: the classifier has no Slavic accent to hear.
+
+A second run added real American and British speakers as donors (`donors/american-male.wav` and
+`donors/british-male.wav`, from EdAcc) to compare with Kokoro's voices. They sounded about as much
+like Larry (American 0.71 against 0.70, British 0.67 against 0.64), but the British donor's accent
+came through less (heard as British in 1 of 3 replies, against 3 of 3 for Kokoro's), and a donor
+takes about three times as long (2.9 against 0.8 seconds per second of speech).
+
+## Run it
+
+Set up as for the voice cloning test above, then (Windows: `experiments\voice\accent_test.py`):
+```
+python experiments/voice/accent_test.py --sample voice-sample.wav --donor Slavic=experiments/voice/donors/slavic-bulgarian-male.wav -o accent-test
+```
+Pick the donor that matches the person (`slavic-polish-female.wav` for a woman). Your own donor
+recording must be a 24 kHz mono WAV like the voice sample; make it with
+`imageskin voice-sample donor.m4a -o donor.wav`. The first run also downloads Kokoro's British
+voices and the accent classifier (about 100 MB). Open `accent-test/index.html` in a browser.

@@ -12,7 +12,7 @@ Items 1 to 16 match the original feature list. Items 17 to 23 were added after r
 
 ## Setup flow
 
-1. **Upload.** Upload sound files (WAV, M4A, MP3; converted to WAV internally) and images (JPG, PNG, HEIC). At least 1 valid photo is required. The recording guide asks for 5 photos so the app can pick the best, and 3 voice recordings plus an optional 4th. Play any uploaded sound file and view any uploaded image.
+1. **Upload.** Upload sound files (WAV, M4A, MP3; converted to WAV internally) and images (JPG, PNG, HEIC). At least 1 valid photo is required. The recording guide asks for 5 photos so the app can pick the best, and 7 voice recordings (about 15 minutes; the first 3 are enough for today's voice, the rest are kept for a trained voice later) plus an optional 8th. Play any uploaded sound file and view any uploaded image.
 2. **Validate images.** Check each image and report problems in short, plain language a nontechnical person can act on, so they can retake the photo. Checks, each with a fixed message:
    - exactly one face found
    - face large enough for the video engine: at least 180 px from mid-forehead to chin once the photo is shrunk to 1280 px on its longest side (changed in R8, 2026-10-07, from a ~512 px guess made before the engine existed; Larry's 1080p webcam photos measure 200 to 216)
@@ -23,7 +23,7 @@ Items 1 to 16 match the original feature list. Items 17 to 23 were added after r
 
    The app picks the best photo for the video; the user can choose a different one.
 3. **Validate sound files.** Same plain-language feedback. Checks: long enough, not clipped (too loud), low background noise, one speaker. Valid files are combined into one voice sample.
-4. **Accent choice.** Ask whether to Americanize the voice or keep it as is.
+4. **Accent choice.** Ask whether to keep the person's own accent or change it, for example to American, British or Russian-English. (Widened by Larry, 2026-10-09: he already sounds American, so Americanizing alone could not be tested on him, and other accents are wanted too.)
 5. **Prepare.** Process images and sound into what video and voice generation need, with a progress indicator. A one-time delay is acceptable. Also pre-render the fixed lines "Goodbye." and "Welcome back."
 6. **Sample video.** A ~30-second video, with progress shown while it renders, of the person saying:
    > This is a test. How do I sound? I'm speaking in my own voice, or as close to it as a computer can get. Let me try a few things. Numbers: one, two, three, forty-five, and nine hundred ninety-nine. A question: did you see that coming? And a little excitement: wow, that's great news! She sells seashells by the seashore. If anything looks or sounds wrong, tell me now so we can fix it.
@@ -31,14 +31,14 @@ Items 1 to 16 match the original feature list. Items 17 to 23 were added after r
    - **Accept** and go to the chat.
    - **Reject image** and upload new images.
    - **Reject voice** and upload new sound files.
-   - **Change accent**, which toggles item 4 and reruns the sample.
+   - **Change accent**, which goes back to item 4's choice and reruns the sample.
 
 ## Settings
 
 8. A **Settings** link is visible on every screen. It offers:
    - Change image files
    - Change sound files
-   - Americanize voice or keep it as is
+   - Keep the voice's own accent or change it
    - Play the sound files
    - View the image files
    - Revalidate image files
