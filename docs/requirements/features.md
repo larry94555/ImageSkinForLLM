@@ -154,3 +154,13 @@ Search covers turns a student has cleared, since clearing only hides them from t
 ### Clearing history
 
 46. **Heads-up before clearing.** When a student clears their history, the confirmation in the existing save-then-clear flow (items 35 and 37) says: "Clearing hides this conversation from your view. It remains available to the administrator." The clear goes ahead only after they confirm; there is no separate way to clear.
+
+## Interests and personality
+
+Added by Larry on 2026-10-09, after the student insights above. It builds on the history (items 34 to 37) and the student profile (item 41) and changes none of the items above.
+
+47. **Interests and personality profile.** For each signed-in student, a short profile that tries to characterize their interests and personality from the questions they ask and how they respond to the answers:
+   - **Interests:** what they keep coming back to, inside the content and outside it, and the kind of question they like to ask (for example real-world examples, the reasons behind something, or its history).
+   - **How they respond to answers:** from their next message after each answer, such as asking follow-ups and how deep they go, asking for examples or a simpler explanation, questioning or pushing back on an answer, moving straight on, or showing frustration or enthusiasm.
+
+   Each line of the profile gives its evidence in one line and links to the questions it came from, and it is worded as an impression from their questions, not a fact or a judgment of the student. Anonymous questions are not used, and a student with too few questions has no profile yet. The administrator can edit or remove a line, and the change is never silently overwritten. The profile is seen only by the administrator, never by students, and is shown on the student summary page (item 45) *(default)*.
