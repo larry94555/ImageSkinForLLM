@@ -241,8 +241,11 @@ class Conversation:
         self._transcript: list[Turn] = []  # everything said, as shown in the chat
         self._summary: str | None = None  # of the turns no longer sent word for word
         self._turns: list[Turn] = []  # sent word for word after the summary
-        # One prompt at a time, so replies stay in order.
+        # Guards the turns. Held only briefly, so the chat can be read while a reply is made.
         self._lock = threading.Lock()
+        # One prompt at a time, so replies stay in order.
+        self._busy = threading.Lock()
+        self._summarizer: threading.Thread | None = None
 
     def turns(self) -> list[Turn]:
         with self._lock:
@@ -253,48 +256,50 @@ class Conversation:
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("Type something to send.")
-        with self._lock:
-            window = self._context_tokens()
-            budget = int(window * HISTORY_SHARE)
-            count = self._count
-            room = window - budget - REPLY_TOKENS - tokens(system_message(None), count)
-            if tokens({"role": "user", "content": prompt}, count) > room:
-                logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
-                raise ValueError(
-                    "That message is too long for the LLM. Shorten it or split it in two."
-                )
-            if history_tokens(self._summary, self._turns, count) > budget:
-                self._summarize(budget)
-            turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
-            messages = [
-                system_message(self._summary),
-                *map(as_message, turns),
-                {"role": "user", "content": prompt},
-            ]
-            logger.info(
-                "Chat prompt sent",
-                extra={
-                    "prompt_chars": len(prompt),
-                    "turns_sent": len(turns),
-                    "turns_dropped": len(self._turns) - len(turns),
-                    "summary": self._summary is not None,
-                    "history_tokens": history_tokens(self._summary, turns, count),
-                    "context_tokens": window,
-                },
+        with self._busy:
+            self.wait()  # for a summary still being made after the last reply
+            return self._send(prompt)
+
+    def _send(self, prompt: str) -> Turn:
+        # Only this send (holding _busy, with no summary running) changes the turns or summary,
+        # so reading them here is safe; changes are made under _lock for turns().
+        window = self._context_tokens()
+        budget = int(window * HISTORY_SHARE)
+        count = self._count
+        room = window - budget - REPLY_TOKENS - tokens(system_message(None), count)
+        if tokens({"role": "user", "content": prompt}, count) > room:
+            logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
+            raise ValueError("That message is too long for the LLM. Shorten it or split it in two.")
+        # Normally the summary made after the last reply keeps this within budget; if it
+        # couldn't be made, the oldest turns are left out.
+        turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
+        messages = [
+            system_message(self._summary),
+            *map(as_message, turns),
+            {"role": "user", "content": prompt},
+        ]
+        logger.info(
+            "Chat prompt sent",
+            extra={
+                "prompt_chars": len(prompt),
+                "turns_sent": len(turns),
+                "turns_dropped": len(self._turns) - len(turns),
+                "summary": self._summary is not None,
+                "history_tokens": history_tokens(self._summary, turns, count),
+                "context_tokens": window,
+            },
+        )
+        start = time.perf_counter()
+        try:
+            reply = Turn("assistant", self._ask(messages))
+        except LlmError as e:
+            logger.error(
+                "Chat reply failed",
+                extra={"error": str(e), "duration_ms": round((time.perf_counter() - start) * 1000)},
             )
-            start = time.perf_counter()
-            try:
-                reply = Turn("assistant", self._ask(messages))
-            except LlmError as e:
-                logger.error(
-                    "Chat reply failed",
-                    extra={
-                        "error": str(e),
-                        "duration_ms": round((time.perf_counter() - start) * 1000),
-                    },
-                )
-                raise
-            said = [Turn("user", prompt), reply]
+            raise
+        said = [Turn("user", prompt), reply]
+        with self._lock:
             self._turns = [*turns, *said]
             self._transcript += said
         logger.info(
@@ -304,13 +309,25 @@ class Conversation:
                 "duration_ms": round((time.perf_counter() - start) * 1000),
             },
         )
+        if history_tokens(self._summary, self._turns, count) > budget:
+            # After the reply rather than before the next prompt, so the reply doesn't wait for
+            # it; the next prompt waits for it instead (see send).
+            self._summarizer = threading.Thread(
+                target=self._summarize, args=(budget,), name="chat-summary", daemon=True
+            )
+            self._summarizer.start()
         return reply
+
+    def wait(self) -> None:
+        """Wait for a summary being made, if any."""
+        if self._summarizer is not None:
+            self._summarizer.join()
 
     def _summarize(self, budget: int) -> None:
         """Fold the older turns into the summary, keeping the latest ones word for word.
 
-        If the LLM can't summarize, the older turns are dropped instead (send() keeps only the
-        latest turns that fit).
+        Runs after a reply, while send() holds off the next prompt. If the LLM can't summarize,
+        the older turns are dropped instead (send() keeps only the latest turns that fit).
         """
         older, recent = self._turns[:-KEEP_RECENT], self._turns[-KEEP_RECENT:]
         if not older:
@@ -331,7 +348,8 @@ class Conversation:
                 extra={"error": str(e)},
             )
             return
-        self._summary, self._turns = summary, recent
+        with self._lock:
+            self._summary, self._turns = summary, recent
         logger.info(
             "Conversation summarized",
             extra={

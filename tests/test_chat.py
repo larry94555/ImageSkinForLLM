@@ -86,6 +86,7 @@ def test_token_dense_turns_stay_within_half_the_window() -> None:
     conversation = Conversation(llm, lambda: 2048, count=utf8_bytes)
     for i in range(10):
         conversation.send(f"{i} " + "你好🐶" * 20)  # 202 bytes: about 210 tokens at worst
+        conversation.wait()
     for sent in llm.sent:
         if sent[0]["content"] == SUMMARY_PROMPT:
             continue
@@ -147,6 +148,7 @@ def test_older_turns_are_summarized_when_the_history_passes_half_the_window(
     with caplog.at_level(logging.INFO):
         for i in range(5):
             conversation.send(f"Prompt {i} " + "x" * 900)  # about 300 tokens each
+            conversation.wait()
     summaries = [m for m in llm.sent if m[0]["content"] == SUMMARY_PROMPT]
     assert len(summaries) == 1
     # Prompts 0 and 1 were summarized; 2 and 3 are still sent word for word, then 4.
@@ -165,11 +167,36 @@ def test_older_turns_are_summarized_when_the_history_passes_half_the_window(
     assert len(conversation.turns()) == 10
 
 
+def test_the_reply_does_not_wait_for_the_summary() -> None:
+    release = threading.Event()
+    llm = FakeLlm2()
+
+    def slow_summaries(messages: list[Message]) -> str:
+        if messages[0]["content"] == SUMMARY_PROMPT:
+            assert release.wait(5)
+        return llm(messages)
+
+    conversation = Conversation(slow_summaries, lambda: 2048)
+    for i in range(4):
+        conversation.send(f"Prompt {i} " + "x" * 900)
+    # The 4th reply came back while its summary is still being made.
+    assert conversation.turns()[-1].content.startswith("Reply")
+    assert not any(m[0]["content"] == SUMMARY_PROMPT for m in llm.sent)
+    release.set()
+    conversation.send("Prompt 4")  # waits for the summary, then is sent with it
+    assert llm.sent[-1][0]["content"].endswith(f"{EARLIER}\nSUMMARY 5")
+
+
+def test_waiting_without_a_summary_returns_at_once() -> None:
+    Conversation(FakeLlm2(), lambda: 4096).wait()
+
+
 def test_a_summary_is_summarized_again_with_the_next_turns() -> None:
     llm = FakeLlm2()
     conversation = Conversation(llm, lambda: 2048)
     for i in range(9):
         conversation.send(f"Prompt {i} " + "x" * 900)
+        conversation.wait()
     summaries = [m for m in llm.sent if m[0]["content"] == SUMMARY_PROMPT]
     assert len(summaries) >= 2
     assert summaries[1][1]["content"].startswith("Summary of what came before: SUMMARY")
@@ -184,7 +211,8 @@ def test_if_summarizing_fails_the_oldest_turns_are_dropped(
     with caplog.at_level(logging.WARNING):
         for i in range(5):
             assert conversation.send(f"Prompt {i} " + "x" * 900).content.startswith("Reply")
-    last = llm.sent[-1]
+            conversation.wait()
+    last = [m for m in llm.sent if m[0]["content"] != SUMMARY_PROMPT][-1]
     assert last[0] == system_message(None)
     assert sum(tokens(m) for m in last[:-1]) - tokens(system_message(None)) <= 1024
     assert "Could not summarize the conversation" in caplog.text
