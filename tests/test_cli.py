@@ -284,6 +284,25 @@ def test_spoken_text_reads_a_file(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert capsys.readouterr().out == "Try: See the code shown below. a is one\n"
 
 
+def test_spoken_text_reads_a_file_with_a_byte_order_mark(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reply = tmp_path / "reply.md"
+    reply.write_text("# Hi", encoding="utf-8-sig")
+    assert main(["spoken-text", "--file", str(reply)]) == 0
+    assert capsys.readouterr().out == "Hi\n"
+
+
+def test_the_sample_reply_is_spoken_in_whole_sentences(capsys: pytest.CaptureFixture[str]) -> None:
+    sample = Path(__file__).parent.parent / "docs" / "examples" / "sample-reply.md"
+    assert main(["spoken-text", "--file", str(sample)]) == 0
+    assert capsys.readouterr().out == (
+        "Plan. Eggs and milk. Bread. See the guide or the link in the text below. "
+        "See the code shown below. Then run main() again. I love it. "
+        "See the table in the text below.\n"
+    )
+
+
 @pytest.mark.parametrize("args", [["spoken-text"], ["spoken-text", "hi", "--file", "r.md"]])
 def test_spoken_text_needs_text_or_a_file(
     args: list[str], capsys: pytest.CaptureFixture[str]

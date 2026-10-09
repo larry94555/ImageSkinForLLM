@@ -212,10 +212,10 @@ A chat reply is shown as written, but the voice leaves out what reads badly alou
 
 ```
 imageskin spoken-text "**Hi** Larry 👋, see https://example.com."
-imageskin spoken-text --file reply.md
+imageskin spoken-text --file docs/examples/sample-reply.md
 ```
 
-The first prints `Hi Larry, see the link in the text below.`: link text is kept, a URL on its own is replaced by the phrase, and a line without punctuation at its end (a heading or a list item) gets a full stop so the voice pauses. A log line `Cleaned reply for speech` gives the reply's length, the spoken length and the time taken.
+The first prints `Hi Larry, see the link in the text below.`: link text is kept, a URL on its own is replaced by the phrase, and a line without punctuation at its end (a heading or a list item) gets a full stop so the voice pauses. The second reads a sample reply with a list, a link, code, an emoji and a table. A log line `Cleaned reply for speech` gives the reply's length, the spoken length and the time taken.
 
 ## Speaking text (Kokoro, on the CPU)
 
