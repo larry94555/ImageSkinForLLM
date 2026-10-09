@@ -50,7 +50,9 @@ def test_an_unclosed_code_block_runs_to_the_end() -> None:
     ("display", "said"),
     [
         ("Then call `main()` again.", "Then call main() again."),
-        ("Use `__init__` and `**kwargs`.", "Use init and kwargs."),
+        ("Use `__init__` and `**kwargs`.", "Use __init__ and **kwargs."),
+        ("So `x*y` and `x**2` stay.", "So x*y and x**2 stay."),
+        ("Open `https://x.io` now.", f"Open {LINK} now."),
         ("Use ``code`` now.", "Use code now."),
         ("Type `` a`b `` here.", "Type a`b here."),
         ("Inline ```x y``` too.", "Inline x y too."),
@@ -72,7 +74,9 @@ def test_short_inline_code_is_spoken_and_longer_code_is_pointed_to(display: str,
         ("Try https://a.io or https://b.io.", f"Try {LINK} or {LINK}."),
         ("https://x.io has it.", "The link in the text below has it."),
         ("Done.\n\n- https://x.io", "Done. The link in the text below"),
-        ("Docs (http://a.io/x) help.", "Docs help."),
+        ("Choose (https://a.io) or (https://b.io).", f"Choose {LINK} or {LINK}."),
+        ("See <https://a.io>.", f"See {LINK}."),
+        ("See [docs](https://a.io/x) and <b>more</b>.", "See docs and more."),
     ],
 )
 def test_a_url_is_replaced_by_a_phrase(display: str, said: str) -> None:

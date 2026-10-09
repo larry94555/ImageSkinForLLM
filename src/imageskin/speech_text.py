@@ -35,9 +35,10 @@ _REPLACE = (
         CODE_BLOCK,
     ),
     (re.compile(r"!\[[^\]\n]*\]\([^)\n]*\)"), PICTURE),
+    (re.compile(r"<(?:https?://|www\.)[^>\s]*>"), LINK),  # autolink, such as <https://a.io>
     (re.compile(r"<[a-zA-Z/][^>\n]*>"), ""),  # HTML tag, such as <br>
-    # URL in brackets, brackets and all: the words before it say what it is.
-    (re.compile(r"\((?:https?://|www\.)[^)\s]*\)"), ""),
+    (re.compile(r"(?<=\])\([^)\n]*\)"), ""),  # where a link goes: its text is spoken instead
+    (re.compile(r"\((?:https?://|www\.)[^)\s]*\)"), LINK),  # URL in brackets, brackets and all
     # Table: a header row, the row of dashes under it, and the rows after it.
     (
         re.compile(
@@ -123,11 +124,14 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
     for m in _INLINE_CODE.finditer(display):
         if done[m.start()]:
             continue
-        if len(m.group(2).split()) > _SHORT_CODE_WORDS:
+        if _URL_ONLY.search(m.group(2)):
+            drop(m.start(), m.end(), LINK)
+        elif len(m.group(2).split()) > _SHORT_CODE_WORDS:
             drop(m.start(), m.end(), CODE)
-        else:
+        else:  # the code itself is kept as it is, stars and underscores too
             drop(m.start(1), m.end(1))
             drop(m.end(2), m.end())
+            done[m.start(2) : m.end(2)] = [True] * (m.end(2) - m.start(2))
     for pattern, phrase in _REPLACE[1:]:
         for m in pattern.finditer(display):
             if done[m.start()]:
