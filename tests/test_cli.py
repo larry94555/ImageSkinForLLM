@@ -270,10 +270,10 @@ def test_spoken_text_prints_what_the_voice_says(
 ) -> None:
     with patch("imageskin.cli.setup_logging"), caplog.at_level(logging.INFO, "imageskin.cli"):
         assert main(["spoken-text", "**Hi** 👋 see https://a.io"]) == 0
-    assert capsys.readouterr().out == "Hi see\n"
+    assert capsys.readouterr().out == "Hi see the link in the text below\n"
     record = next(r for r in caplog.records if r.getMessage() == "Cleaned reply for speech")
     assert vars(record)["shown_chars"] == 25
-    assert vars(record)["spoken_chars"] == 6
+    assert vars(record)["spoken_chars"] == 33
     assert "duration_ms" in vars(record)
 
 
@@ -281,7 +281,26 @@ def test_spoken_text_reads_a_file(tmp_path: Path, capsys: pytest.CaptureFixture[
     reply = tmp_path / "reply.md"
     reply.write_text("Try:\n\n```\nx = 1\n```\n- `a` is _one_ ✅", encoding="utf-8")
     assert main(["spoken-text", "--file", str(reply)]) == 0
-    assert capsys.readouterr().out == "Try: is one\n"
+    assert capsys.readouterr().out == "Try: See the code shown below. a is one\n"
+
+
+def test_spoken_text_reads_a_file_with_a_byte_order_mark(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reply = tmp_path / "reply.md"
+    reply.write_text("# Hi", encoding="utf-8-sig")
+    assert main(["spoken-text", "--file", str(reply)]) == 0
+    assert capsys.readouterr().out == "Hi\n"
+
+
+def test_the_sample_reply_is_spoken_in_whole_sentences(capsys: pytest.CaptureFixture[str]) -> None:
+    sample = Path(__file__).parent.parent / "docs" / "examples" / "sample-reply.md"
+    assert main(["spoken-text", "--file", str(sample)]) == 0
+    assert capsys.readouterr().out == (
+        "Plan. Eggs and milk. Bread. See the guide or the link in the text below. "
+        "See the code shown below. Then run main() again. I love it. "
+        "See the table in the text below.\n"
+    )
 
 
 @pytest.mark.parametrize("args", [["spoken-text"], ["spoken-text", "hi", "--file", "r.md"]])

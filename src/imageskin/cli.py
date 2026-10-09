@@ -174,7 +174,7 @@ def print_spoken_text(text: str | None, file: Path | None) -> int:
         return 2
     if file is not None:
         try:
-            text = file.read_text(encoding="utf-8")
+            text = file.read_text(encoding="utf-8-sig")  # Notepad may add a byte-order mark
         except (OSError, UnicodeDecodeError) as e:
             logger.error("Could not read reply", extra={"path": str(file), "error": str(e)})
             return 1
