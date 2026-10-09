@@ -2,7 +2,7 @@
 
 Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 9 to 13, added on 2026-10-08, come last and turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46).
 
-PRs are numbered R1 to R58 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, and R26a for the accent, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R58 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, and R16a for saying what a reply leaves out, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -10,26 +10,26 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 10.9% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 14.1% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 9.4% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 7.8% | 2 of 5 |
-| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.3% | 0 |
-| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.6% | 0 |
-| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.8% | 0 |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 10.8% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 13.8% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 9.2% | 6 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 9.2% | 2 of 6 |
+| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.2% | 0 |
+| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.5% | 0 |
+| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.7% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 3.1% | 0 |
-| 9 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 7.8% | 0 |
-| 10 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.7% | 0 |
+| 9 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 7.7% | 0 |
+| 10 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.6% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.1% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 6.3% | 0 |
-| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 7.8% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 6.2% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 7.7% | 0 |
 | 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 3.1% | 0 |
-| 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.6% | 0 |
+| 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.5% | 0 |
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 3.1% | 0 |
-| 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.6% | 0 |
-| | **Total** | | **64** | **100%** | **24 of 64** |
+| 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.5% | 0 |
+| | **Total** | | **65** | **100%** | **24 of 65** |
 
-Sizes: 14 Simple, 50 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 15 Simple, 50 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -45,7 +45,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 
 | Before | Decision |
 |---|---|
-| R3 | The first voice (TTS) engine. It must return word timings (needed for highlighting in R18), be free per use and run on CPU (Larry, 2026-10-04). **Picked in R3: Kokoro-82M** (Apache 2.0, runs on CPU on Windows and on a Linux server, reports word timings). It uses ready-made voices and cannot clone, so the person's own voice moves to R25. Rejected: ElevenLabs (per-use cost), XTTS-v2 and F5-TTS (non-commercial model licenses), MeloTTS plus OpenVoice v2 (install pins packages too old for Python 3.11), Chatterbox (reported slower than real time on CPU). |
+| R3 | The first voice (TTS) engine. It must return word timings (planned for highlighting in R18, dropped on 2026-10-09; still used for the mouth), be free per use and run on CPU (Larry, 2026-10-04). **Picked in R3: Kokoro-82M** (Apache 2.0, runs on CPU on Windows and on a Linux server, reports word timings). It uses ready-made voices and cannot clone, so the person's own voice moves to R25. Rejected: ElevenLabs (per-use cost), XTTS-v2 and F5-TTS (non-commercial model licenses), MeloTTS plus OpenVoice v2 (install pins packages too old for Python 3.11), Chatterbox (reported slower than real time on CPU). |
 | R4 | The first video engine, local or hosted, and which tool. It must be free per use, run on CPU, allow hosted use and work on Python 3.11 and 3.12 (Larry, 2026-10-04). **Picked in R4: our own mouth animation with OpenCV** (Apache 2.0): OpenCV's bundled face detector finds the face, and the mouth opens with the loudness of the speech. No model download, renders faster than real time on a CPU; it looks like a puppet mouth rather than a photoreal talking head. Rejected: Wav2Lip (non-commercial weights), SadTalker (non-commercial Basel Face Model, pins Python 3.8, minutes per clip on CPU), MuseTalk (needs a base video, no Python 3.12, GPU-bound), LivePortrait (video-driven, non-commercial InsightFace models), diffusion models such as Hallo and LatentSync (GPU only), hosted avatars (per-use cost). **Changed after R4:** LivePortrait turned out usable (its weights are MIT, and MediaPipe replaces the non-commercial InsightFace), and pre-rendering its frames once makes each reply fast on the CPU (GitHub PR #8). Larry chose it for photoreal quality (2026-10-05); R4b and R4c build it. |
 | R10 | The minimum length of speech for sound validation. features.md says only "long enough"; feature_evaluation.md suggests 30 seconds. **Picked in R10:** at least 30 seconds of speech in the voice sample, and at least 15 in each recording (pauses not counted); constants in `sound_checks.py`. |
 | R21 | The latency target. Larry: a reply video that takes more than a few seconds to generate is unacceptable (2026-10-04). The photoreal test built a 2.5-second reply clip in 0.5 to 1.5 seconds on a 4-core CPU, so per-sentence clips should fit. Measured in R4c with the real voice on a 4-core CPU: the video for 6.9 seconds of speech renders in 2.2 seconds (about a third of real time), after Kokoro's 2 seconds to speak it. |
@@ -220,14 +220,21 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** unit tests on sample replies; a command prints the spoken version of a reply.
 - **Built:** `speech_text.spoken_text()` leaves out code blocks (even unclosed ones), inline code, images, HTML tags, URLs (bare or in brackets; punctuation after a URL is kept), emoji (with skin tones, joiners and flags) and the Markdown markers for headings, quotes, bullets, bold, italic, strikethrough, links and tables; underscores inside a word (snake_case) and a star between spaces (2 * 3) stay. A line that ends without punctuation gets a full stop so the voice pauses. Each spoken character keeps the index of the displayed character it came from, and `display_span()` turns a spoken word's position into its place in the reply for R18. `imageskin spoken-text "reply"` or `--file reply.md` prints the spoken version.
 
+### R16a. Saying what was left out (Simple) · item 11
+- Added after Larry's review of R16 (2026-10-09): R16 drops URLs, code and emoji, which can leave a sentence that breaks off ("Hi Larry, see the guide or."). The spoken sentence must still make sense, so each left-out part is replaced by a short phrase that says what it is and points to the reply text panel (R18), for example "see the guide or the links in the text below".
+- Proposed phrases (to be checked by ear with Larry when it is built): a bare URL says "the link in the text below", several in a row "the links in the text below"; a code block says "the code shown below"; inline code of a word or two is spoken as is, and longer inline code says "the code shown below"; an image says "the picture in the text below"; a table says "the table in the text below" instead of reading its cells. Emoji on their own (decoration) stay silent; an emoji that stands for a word ("I ❤️ it") is spoken by its short name. Link text is still spoken as is.
+- The map back to the displayed text and `display_span()` are removed, since words are no longer highlighted.
+- **Can show:** `imageskin spoken-text` prints whole sentences for replies with links, code, pictures and tables.
+
 ### R17. Spoken video replies (Medium) · items 11, 20
 - Each cleaned reply is voiced in the person's voice (R25) and animated with R4c, then played in the chat.
-- If voice or video fails, the text still shows with a short friendly note; if the LLM fails, a plain message says so.
+- If voice or video fails, the reply text panel (R18, until then the reply text) opens with the reply and a short friendly note; if the LLM fails, a plain message says so.
 - **Can show:** the person speaks each LLM reply in their voice. This is the app's core experience, though slower than the target until Milestone 5.
 
-### R18. Word highlighting (Medium) · item 11
-- Highlights each word as it is spoken, using the word timings from R3 and the map from R16.
-- **Can show:** words light up in sync with the lips.
+### R18. Reply text panel (Medium) · item 11
+- Changed from word highlighting after Larry's review of R16 (2026-10-09): reading along with the words being spoken is distracting, and a highlight kept in sync would complicate the screen and could slow replies. Words are not highlighted.
+- The written replies, with URLs, code and emoji in full, go in a text panel that is closed by default. A button opens it; it scrolls through the conversation, has a search box that finds and steps through matches, and closes again.
+- **Can show:** a reply is spoken with the panel closed; opening it shows the full text, a search finds a word in an earlier reply, and the panel closes.
 
 ### R19. Stop, volume and mute (Simple) · items 18, 21
 - Stop button ends playback and cancels any rendering still in progress; volume and mute controls.
@@ -245,7 +252,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** in the logs, the first sentence's video is ready before the LLM has finished the reply, with the measured time.
 
 ### R22. Ordered playback in the browser (Medium) · item 12
-- The browser receives sentence clips as they are ready and plays them in order, with highlighting following along.
+- The browser receives sentence clips as they are ready and plays them in order.
 - **Can show:** the video starts on the first sentence instead of waiting for the whole reply.
 
 ### R23. Idle video and smooth joins (Medium) · item 17
