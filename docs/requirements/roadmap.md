@@ -2,7 +2,7 @@
 
 Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 9 to 13, added on 2026-10-08, come last and turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37).
 
-PRs are numbered R1 to R52 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), and R25a and R25b for the voice, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R52 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, and R26a for the accent, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -10,22 +10,22 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 12.3% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 15.8% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice (Americanized or their own accent), and setup ends with accept or reject. | R25a, R25, R25b, R26, R14 | 5 | 8.8% | 3 of 5 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 8.8% | 0 |
-| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 7.0% | 0 |
-| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.8% | 0 |
-| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 8.8% | 0 |
-| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 3.5% | 0 |
-| 9 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 8.8% | 0 |
-| 10 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 5.3% | 0 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.5% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 7.0% | 0 |
-| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 8.8% | 0 |
-| | **Total** | | **57** | **100%** | **19 of 57** |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 12.1% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 15.5% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 10.3% | 4 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 8.6% | 0 |
+| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.9% | 0 |
+| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.7% | 0 |
+| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 8.6% | 0 |
+| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 3.4% | 0 |
+| 9 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 8.6% | 0 |
+| 10 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 5.2% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.4% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 6.9% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 8.6% | 0 |
+| | **Total** | | **58** | **100%** | **20 of 58** |
 
-Sizes: 15 Simple, 42 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 15 Simple, 43 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -183,12 +183,19 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** in the browser, after Prepare, the sample video plays in the person's own voice, lip-synced, with the voice step's time in the logs.
 - **Built:** when Chatterbox is installed, Prepare's voice step loads it and learns the voice from the voice sample afresh (`ChatterboxEngine.learn_voice`), and the same engine speaks the three clips; without it, Prepare falls back to Kokoro and logs a warning at start. The job saves which voice spoke the clips, clone or Kokoro, with a fingerprint of the voice sample (`voice_id` in `prepare.json`), so adding or removing a recording, or installing Chatterbox after a Kokoro prepare, shows Prepare again, as choosing another photo does; a job saved before R25b needs preparing again too. A job resumed after a restart in another voice renders all its clips again rather than mixing voices.
 
+### R26a. Accent test (Medium) · item 4 · Done in [PR #36](https://github.com/larry94555/ImageSkinForLLM/pull/36)
+- **Why:** R25a's only Americanizing option (Kokoro's `am_michael` converted to the person's voice) did not sound like Larry, so dropping the accent question was proposed. Larry kept it and widened it (2026-10-09): he already sounds American, so the choice should be to change the accent, for example to British or to Russian-English.
+- An experiment, `experiments/voice/accent_test.py`, on Larry's voice sample: the person's clone (their own accent), then each accent's base voice converted to the person's voice with Chatterbox's converter. American and British use Kokoro's ready-made voices of that accent, picked to suit the person: every one says a probe line, the three closest to the person are converted, and the closest after conversion wins. An accent Kokoro doesn't have (Russian-English) uses a donor: the clone speaks in the voice of a recording of someone with that accent, then it is converted to the person's voice. A Bulgarian speaker from the EdAcc accent corpus (CC BY-SA 4.0) stands in until a Russian-English recording is found.
+- **Can show:** a page of clips side by side, with how much each sounds like the person, the accent a classifier hears, and the time each takes.
+- **Acceptance:** Larry listens and says which accents sound like him with the new accent; R26 offers those.
+- **Result (PR #36, 2026-10-09):** on Larry's voice, British came through in his voice (an accent classifier heard British in all 3 replies; similarity to him 0.63, against 0.76 for his clone) and faster than real time (0.75 seconds per second of speech on a 4-core CPU). Converted American scored 0.73. The Slavic donor scored 0.66 but took 2.8 seconds per second of speech, and whether its accent survives needs Larry's ears (the classifier has no Slavic accent). Base voices picked for Larry: `am_liam` and `bm_lewis`. Waiting on Larry's listening.
+
 ### R26. Accent choice in setup (Simple) · item 4
-- Accent question in setup (Americanize or keep as is), saved with the setup; changing it reruns the sample. If R25a found no tool that keeps the accent, the question is left out and noted in features.md. R25a's clone keeps the accent, but its Americanizing option (Kokoro converted to the person's voice) did not sound like Larry, so R26 starts by deciding with him whether the question stays.
-- **Can show:** choose Americanize in setup and see the sample rerun in that accent.
+- Accent question in setup: keep the person's own accent (the clone), or change it to one that R26a showed works (American, British, and a donor accent once a recording is found), saved with the setup; changing it reruns the sample. With a changed accent, prepare picks the base voice as R26a does, and each line is spoken by the base voice and converted to the person's voice.
+- **Can show:** choose British in setup and see the sample rerun in the person's voice with a British accent.
 
 ### R14. Review screen (Simple) · item 7
-- Accept, Reject image (back to image upload), Reject voice (back to sound upload), and Change accent, which toggles R26's choice and reruns the sample.
+- Accept, Reject image (back to image upload), Reject voice (back to sound upload), and Change accent, which goes back to R26's choice and reruns the sample.
 - Chat stays locked until a sample is accepted.
 - **Can show:** the full setup flow from upload to an accepted sample, with both reject paths working.
 

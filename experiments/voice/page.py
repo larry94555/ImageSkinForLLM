@@ -11,6 +11,7 @@ class Clip:
     added_ms: float = 0.0  # time the tool took on top of Kokoro (or Kokoro's own time)
     similarity: float | None = None  # to the person's recording, -1 to 1
     video: str = ""
+    heard_as: str = ""  # the accent an accent classifier hears, with its confidence
 
 
 @dataclass
@@ -29,6 +30,8 @@ def _cell(clip: Clip | None) -> str:
     notes = [f"{clip.speech_s:.1f} s of speech, made in {clip.added_ms / 1000:.1f} s"]
     if clip.similarity is not None:
         notes.append(f"similarity {clip.similarity:.2f}")
+    if clip.heard_as:
+        notes.append(f"heard as {clip.heard_as}")
     video = ""
     if clip.video:
         video = f'<video controls preload="none" src="{escape(clip.video)}"></video>'
@@ -44,7 +47,9 @@ def summary(lines: list[Line], voice: str) -> tuple[float, float | None]:
     return (taken / speech if speech else 0.0), (sum(sims) / len(sims) if sims else None)
 
 
-def build_page(recording: str, voices: dict[str, str], lines: list[Line]) -> str:
+def build_page(
+    recording: str, voices: dict[str, str], lines: list[Line], title: str = "Voice cloning test"
+) -> str:
     """HTML for the page. voices maps each voice name to a description shown over its column."""
     head = "".join(f"<th>{escape(n)}<br><small>{escape(d)}</small></th>" for n, d in voices.items())
     rows = []
@@ -59,14 +64,14 @@ def build_page(recording: str, voices: dict[str, str], lines: list[Line]) -> str
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voice cloning test</title>
+<title>{escape(title)}</title>
 <style>
 body {{ font-family: system-ui, sans-serif; margin: 16px; color: #1d1d1f; background: #fff; }}
 table {{ border-collapse: collapse; }}
 td, th {{ border: 1px solid #ccc; padding: 8px; vertical-align: top; }}
 td:first-child {{ max-width: 280px; }} video {{ width: 240px; display: block; margin-top: 6px; }}
 </style></head><body>
-<h1>Voice cloning test</h1>
+<h1>{escape(title)}</h1>
 <p>Your own recording: {_audio(recording)}</p>
 <p>Similarity compares each clip's voice with your recording (a speaker-recognition model; above
 about 0.5 usually means the same speaker, 1.0 is identical). Your ears decide.</p>
