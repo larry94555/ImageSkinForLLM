@@ -136,6 +136,12 @@ than his clone (0.63 against 0.76; above about 0.5 usually means the same speake
 American scores almost as close as the clone. Whether the Slavic donor's accent survives the
 conversion needs ears: the classifier has no Slavic accent to hear.
 
+A second run added real American and British speakers as donors (`donors/american-male.wav` and
+`donors/british-male.wav`, from EdAcc) to compare with Kokoro's voices. They sounded about as much
+like Larry (American 0.71 against 0.70, British 0.67 against 0.64), but the British donor's accent
+came through less (heard as British in 1 of 3 replies, against 3 of 3 for Kokoro's), and a donor
+takes about three times as long (2.9 against 0.8 seconds per second of speech).
+
 ## Run it
 
 Set up as for the voice cloning test above, then (Windows: `experiments\voice\accent_test.py`):
