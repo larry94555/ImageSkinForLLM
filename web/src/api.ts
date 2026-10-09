@@ -181,3 +181,27 @@ export async function startPrepare(): Promise<PrepareStatus> {
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as PrepareStatus;
 }
+
+// The user's review of the sample video (roadmap R14). Chat stays locked until it is accepted;
+// a sample made again needs accepting again.
+export interface Review {
+  accepted: boolean;
+  accepted_at: string | null;
+}
+
+export type Decision = "accept" | "reject-image" | "reject-voice" | "change-accent";
+
+export async function getReview(): Promise<Review> {
+  return json<Review>(await fetch("/api/review"));
+}
+
+// Accept the sample, or withdraw an acceptance. Throws an Error saying why when refused.
+export async function review(decision: Decision): Promise<Review> {
+  const response = await fetch("/api/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as Review;
+}

@@ -85,6 +85,18 @@ async function startPrepare() {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function getReview() {
+	return json(await fetch("/api/review"));
+}
+async function review(decision) {
+	const response = await fetch("/api/review", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ decision })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 //#endregion
 //#region src/pages.tsx
 function HomePage({ consented }) {
@@ -146,10 +158,21 @@ function ConsentPage({ onConfirmed }) {
 		})
 	] });
 }
+var BACK_NOTICE = {
+	photos: "You rejected the image. Add new photos and remove the ones you don't want, then Prepare again.",
+	sounds: "You rejected the voice. Add new recordings and remove the ones you don't want, then Prepare again.",
+	accent: "Choose another accent. The sample video is then made again."
+};
 function SetupPage() {
 	const [changes, setChanges] = d(0);
 	const changed = () => setChanges((n) => n + 1);
 	const [preparing, setPreparing] = d(false);
+	const [back, setBack] = d(null);
+	function goBack(to) {
+		setBack(to);
+		window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
+	}
+	const notice = (to) => back === to ? BACK_NOTICE[to] : null;
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("h1", { children: "Setup" }),
 		/* @__PURE__ */ u("p", {
@@ -161,6 +184,7 @@ function SetupPage() {
 			title: "Photos",
 			hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
 			accept: "image/jpeg,image/png,image/heic,.heic",
+			notice: notice("photos"),
 			onChange: changed
 		}),
 		/* @__PURE__ */ u(UploadSection, {
@@ -168,15 +192,18 @@ function SetupPage() {
 			title: "Recordings",
 			hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
 			accept: "audio/*,.m4a,.wav,.mp3",
+			notice: notice("sounds"),
 			onChange: changed
 		}),
 		/* @__PURE__ */ u(AccentSection, {
 			onChange: changed,
-			preparing
+			preparing,
+			notice: notice("accent")
 		}),
 		/* @__PURE__ */ u(PrepareSection, {
 			changes,
-			onRunning: setPreparing
+			onRunning: setPreparing,
+			onBack: goBack
 		})
 	] });
 }
@@ -296,94 +323,101 @@ function UploadSection(props) {
 	}
 	const ready = sending === null && (items !== null || loadFailed);
 	const loading = items === null && !loadFailed;
-	return /* @__PURE__ */ u("section", { children: [
-		/* @__PURE__ */ u("h2", { children: props.title }),
-		/* @__PURE__ */ u("p", {
-			className: "muted",
-			children: props.hint
-		}),
-		/* @__PURE__ */ u("label", {
-			className: ready ? "button" : "button busy",
-			children: [sending ? `Uploading and checking ${sending}…` : loading ? "Loading…" : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
-				type: "file",
-				multiple: true,
-				accept: props.accept,
-				disabled: !ready,
-				onChange: add,
-				className: "file"
-			})]
-		}),
-		refused.map((r) => /* @__PURE__ */ u("p", {
-			className: "error",
-			children: [
-				r.name,
-				": ",
-				r.reason
-			]
-		}, r.name)),
-		loadFailed && /* @__PURE__ */ u("p", {
-			className: "error",
-			children: "Could not load the list. Reload the page to try again."
-		}),
-		loading && /* @__PURE__ */ u("p", {
-			className: "muted busy",
-			children: [
-				"Loading your ",
-				props.title.toLowerCase(),
-				"…"
-			]
-		}),
-		items?.length === 0 && /* @__PURE__ */ u("p", {
-			className: "muted",
-			children: "None yet."
-		}),
-		/* @__PURE__ */ u("ul", {
-			className: kind,
-			children: items?.map((item) => /* @__PURE__ */ u("li", {
-				className: item.id === choice?.id ? "chosen" : void 0,
+	return /* @__PURE__ */ u("section", {
+		id: kind,
+		children: [
+			/* @__PURE__ */ u("h2", { children: props.title }),
+			props.notice && /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: props.notice
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: props.hint
+			}),
+			/* @__PURE__ */ u("label", {
+				className: ready ? "button" : "button busy",
+				children: [sending ? `Uploading and checking ${sending}…` : loading ? "Loading…" : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
+					type: "file",
+					multiple: true,
+					accept: props.accept,
+					disabled: !ready,
+					onChange: add,
+					className: "file"
+				})]
+			}),
+			refused.map((r) => /* @__PURE__ */ u("p", {
+				className: "error",
 				children: [
-					kind === "photos" ? /* @__PURE__ */ u("a", {
-						href: uploadUrl(kind, item.id),
-						target: "_blank",
-						rel: "noreferrer",
-						children: /* @__PURE__ */ u("img", {
-							src: uploadUrl(kind, item.id),
-							alt: item.name
-						})
-					}) : /* @__PURE__ */ u("audio", {
-						controls: true,
-						preload: "none",
-						src: uploadUrl(kind, item.id)
-					}),
-					/* @__PURE__ */ u("span", {
-						className: "name",
-						children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
-					}),
-					/* @__PURE__ */ u(Checks, {
-						item,
-						queue: toCheck.indexOf(item.id)
-					}),
-					kind === "photos" && item.id === choice?.id && /* @__PURE__ */ u("span", {
-						className: "chosen-note",
-						children: ["Used for the video", choice.chosen_by === "app" ? " (best score)" : " (your choice)"]
-					}),
-					kind === "photos" && item.problems?.length === 0 && item.id !== choice?.id && /* @__PURE__ */ u("button", {
-						type: "button",
-						className: choosing === item.id ? "use busy" : "use",
-						onClick: () => choose(item),
-						children: choosing === item.id ? "Saving…" : "Use this photo"
-					}),
-					/* @__PURE__ */ u("button", {
-						type: "button",
-						className: "remove",
-						onClick: () => remove(item),
-						children: "Remove"
-					})
+					r.name,
+					": ",
+					r.reason
 				]
-			}, item.id))
-		}),
-		kind === "sounds" && /* @__PURE__ */ u(VoiceSampleView, { changes: soundChanges })
-	] });
+			}, r.name)),
+			loadFailed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "Could not load the list. Reload the page to try again."
+			}),
+			loading && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: [
+					"Loading your ",
+					props.title.toLowerCase(),
+					"…"
+				]
+			}),
+			items?.length === 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "None yet."
+			}),
+			/* @__PURE__ */ u("ul", {
+				className: kind,
+				children: items?.map((item) => /* @__PURE__ */ u("li", {
+					className: item.id === choice?.id ? "chosen" : void 0,
+					children: [
+						kind === "photos" ? /* @__PURE__ */ u("a", {
+							href: uploadUrl(kind, item.id),
+							target: "_blank",
+							rel: "noreferrer",
+							children: /* @__PURE__ */ u("img", {
+								src: uploadUrl(kind, item.id),
+								alt: item.name
+							})
+						}) : /* @__PURE__ */ u("audio", {
+							controls: true,
+							preload: "none",
+							src: uploadUrl(kind, item.id)
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "name",
+							children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
+						}),
+						/* @__PURE__ */ u(Checks, {
+							item,
+							queue: toCheck.indexOf(item.id)
+						}),
+						kind === "photos" && item.id === choice?.id && /* @__PURE__ */ u("span", {
+							className: "chosen-note",
+							children: ["Used for the video", choice.chosen_by === "app" ? " (best score)" : " (your choice)"]
+						}),
+						kind === "photos" && item.problems?.length === 0 && item.id !== choice?.id && /* @__PURE__ */ u("button", {
+							type: "button",
+							className: choosing === item.id ? "use busy" : "use",
+							onClick: () => choose(item),
+							children: choosing === item.id ? "Saving…" : "Use this photo"
+						}),
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "remove",
+							onClick: () => remove(item),
+							children: "Remove"
+						})
+					]
+				}, item.id))
+			}),
+			kind === "sounds" && /* @__PURE__ */ u(VoiceSampleView, { changes: soundChanges })
+		]
+	});
 }
 function Checks({ item, queue }) {
 	const { problems, score, speech } = item;
@@ -498,8 +532,13 @@ function AccentSection(props) {
 	}
 	return /* @__PURE__ */ u("section", {
 		className: "accent",
+		id: "accent",
 		children: [
 			/* @__PURE__ */ u("h2", { children: "Accent" }),
+			props.notice && /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: props.notice
+			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
 				children: "The person's voice can keep their own accent or speak with another one. Changing it makes the sample video again."
@@ -638,15 +677,22 @@ function PrepareSection(props) {
 			})] }),
 			status?.state === "done" && /* @__PURE__ */ u("div", {
 				className: "sample-video",
-				children: [/* @__PURE__ */ u("p", {
-					className: "done",
-					children: "Ready. Here is the sample video:"
-				}), /* @__PURE__ */ u("video", {
-					controls: true,
-					preload: "metadata",
-					src: clipUrl("sample", status),
-					"aria-label": "Sample video"
-				})]
+				children: [
+					/* @__PURE__ */ u("p", {
+						className: "done",
+						children: "Ready. Here is the sample video:"
+					}),
+					/* @__PURE__ */ u("video", {
+						controls: true,
+						preload: "metadata",
+						src: clipUrl("sample", status),
+						"aria-label": "Sample video"
+					}),
+					/* @__PURE__ */ u(ReviewChoices, {
+						sample: status.finished_at,
+						onBack: props.onBack
+					})
+				]
 			}),
 			status?.state === "failed" && /* @__PURE__ */ u("p", {
 				className: "error",
@@ -654,6 +700,113 @@ function PrepareSection(props) {
 			})
 		]
 	});
+}
+var REJECTS = [
+	{
+		decision: "reject-image",
+		label: "Reject image",
+		back: "photos"
+	},
+	{
+		decision: "reject-voice",
+		label: "Reject voice",
+		back: "sounds"
+	},
+	{
+		decision: "change-accent",
+		label: "Change accent",
+		back: "accent"
+	}
+];
+function ReviewChoices(props) {
+	const [current, setCurrent] = d(null);
+	const [saving, setSaving] = d(null);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		getReview().then(setCurrent).catch((e) => console.error("Could not get the review", e));
+	}, [props.sample]);
+	async function decide(decision, back) {
+		setSaving(decision);
+		setFailed(null);
+		try {
+			setCurrent(await review(decision));
+			if (back) props.onBack(back);
+			else window.location.hash = "#/chat";
+		} catch (e) {
+			console.error(`Could not save the review (${decision})`, e);
+			setFailed(`Could not save your choice: ${e.message}`);
+		}
+		setSaving(null);
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "review",
+		children: [
+			/* @__PURE__ */ u("h3", { children: "Is this right?" }),
+			current?.accepted ? /* @__PURE__ */ u("p", {
+				className: "done",
+				children: ["You accepted this sample. ", /* @__PURE__ */ u("a", {
+					href: "#/chat",
+					children: "Go to the chat"
+				})]
+			}) : /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Accept it to unlock the chat, or go back and change what is wrong."
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "choices",
+				children: [!current?.accepted && /* @__PURE__ */ u("button", {
+					type: "button",
+					className: saving === "accept" ? "busy" : void 0,
+					disabled: saving !== null,
+					onClick: () => void decide("accept"),
+					children: "Accept"
+				}), REJECTS.map(({ decision, label, back }) => /* @__PURE__ */ u("button", {
+					type: "button",
+					className: saving === decision ? "secondary busy" : "secondary",
+					disabled: saving !== null,
+					onClick: () => void decide(decision, back),
+					children: label
+				}, decision))]
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			})
+		]
+	});
+}
+function ChatPage() {
+	const [accepted, setAccepted] = d(null);
+	h(() => {
+		getReview().then((r) => setAccepted(r.accepted)).catch((e) => {
+			console.error("Could not get the review", e);
+			setAccepted(false);
+		});
+	}, []);
+	if (accepted === null) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Loading…"
+	});
+	if (!accepted) return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("h1", { children: "Chat" }),
+		/* @__PURE__ */ u("p", { children: "The chat is locked until you accept a sample video at the end of setup." }),
+		/* @__PURE__ */ u("a", {
+			className: "button",
+			href: "#/setup",
+			children: "Go to setup"
+		})
+	] });
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("h1", { children: "Chat" }),
+		/* @__PURE__ */ u("p", {
+			className: "done",
+			children: "The sample video is accepted, so the chat is unlocked."
+		}),
+		/* @__PURE__ */ u("p", {
+			className: "muted",
+			children: "Typing to the person is the next part to be built."
+		})
+	] });
 }
 function StepState(props) {
 	const { step, status } = props;
@@ -696,7 +849,8 @@ function NotFoundPage() {
 var PAGES = {
 	"/": "home",
 	"/consent": "consent",
-	"/setup": "setup"
+	"/setup": "setup",
+	"/chat": "chat"
 };
 function pageFor(hash) {
 	return PAGES[hash.replace(/^#/, "").replace(/\/+$/, "") || "/"] ?? "not-found";
@@ -720,15 +874,23 @@ function useHash() {
 }
 //#endregion
 //#region src/App.tsx
-var NAV = [{
-	page: "home",
-	href: "#/",
-	label: "Home"
-}, {
-	page: "setup",
-	href: "#/setup",
-	label: "Setup"
-}];
+var NAV = [
+	{
+		page: "home",
+		href: "#/",
+		label: "Home"
+	},
+	{
+		page: "setup",
+		href: "#/setup",
+		label: "Setup"
+	},
+	{
+		page: "chat",
+		href: "#/chat",
+		label: "Chat"
+	}
+];
 function App() {
 	const hash = useHash();
 	const [consented, setConsented] = d(null);
@@ -750,6 +912,7 @@ function App() {
 			window.location.hash = "#/setup";
 		} }),
 		setup: /* @__PURE__ */ u(SetupPage, {}),
+		chat: /* @__PURE__ */ u(ChatPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [

@@ -994,3 +994,105 @@ test("if the accent can't be loaded the page says so", async () => {
   ).toBeTruthy();
   expect(accentOption("British").matches(":disabled")).toBe(true);
 });
+
+// --- Review (R14) ---
+
+// A fake server with a sample ready and the review saved as `accepted`; POST /api/review
+// answers with `answer` when given, or saves the decision.
+function reviewServer(accepted: boolean, answer?: Response) {
+  let current = accepted;
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen") return Response.json({ id: null, chosen_by: "app" });
+    if (url === "/api/voice-sample") return Response.json(NO_VOICE);
+    if (url === "/api/accent") return Response.json({ accent: "own", available: true });
+    if (url === "/api/prepare") return Response.json(DONE);
+    if (url === "/api/review") {
+      if (init?.method === "POST") {
+        if (answer) return answer;
+        const { decision } = JSON.parse(init.body as string) as { decision: string };
+        current = decision === "accept";
+      }
+      return Response.json({ accepted: current, accepted_at: current ? "2026-10-09T15:00:00" : null });
+    }
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("accepting the sample video unlocks the chat", async () => {
+  const fetchMock = reviewServer(false);
+  await openAt("#/setup");
+  expect(await screen.findByText(/Accept it to unlock the chat/)).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/review",
+    expect.objectContaining({ method: "POST", body: JSON.stringify({ decision: "accept" }) }),
+  );
+  await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  expect(await screen.findByText("The sample video is accepted, so the chat is unlocked.")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Chat" }).className).toBe("current");
+});
+
+test("the chat is locked until a sample is accepted", async () => {
+  reviewServer(false);
+  await openAt("#/chat");
+  expect(await screen.findByText(/The chat is locked until you accept a sample video/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Go to setup" }).getAttribute("href")).toBe("#/setup");
+});
+
+test("if the review can't be read, the chat stays locked", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+    url === "/api/consent"
+      ? Response.json({ agreed: true, agreed_at: null })
+      : new Response("", { status: 500 }),
+  ));
+  await openAt("#/chat");
+  expect(await screen.findByText(/The chat is locked/)).toBeTruthy();
+});
+
+test.each([
+  ["Reject image", "reject-image", "photos", /You rejected the image/],
+  ["Reject voice", "reject-voice", "sounds", /You rejected the voice/],
+  ["Change accent", "change-accent", "accent", /Choose another accent/],
+])("%s goes back to that part of setup", async (label, decision, section, notice) => {
+  const fetchMock = reviewServer(true);
+  const scrolled = vi.fn();
+  Element.prototype.scrollIntoView = scrolled;
+  await openAt("#/setup");
+  expect(await screen.findByText("You accepted this sample.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Accept" })).toBeNull(); // already accepted
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: label }));
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/review",
+    expect.objectContaining({ body: JSON.stringify({ decision }) }),
+  );
+  const target = document.getElementById(section) as HTMLElement;
+  expect(await within(target).findByText(notice)).toBeTruthy();
+  await waitFor(() => expect(scrolled).toHaveBeenCalled());
+  expect(scrolled.mock.contexts[0]).toBe(target);
+  // No longer accepted: Accept is offered again.
+  expect(await screen.findByRole("button", { name: "Accept" })).toBeTruthy();
+  expect(window.location.hash).toBe("#/setup");
+});
+
+test("a choice that can't be saved says why", async () => {
+  reviewServer(
+    false,
+    Response.json({ detail: "There is no sample video to accept yet." }, { status: 409 }),
+  );
+  await openAt("#/setup");
+  const accept = await screen.findByRole("button", { name: "Accept" });
+  await act(async () => {
+    fireEvent.click(accept);
+  });
+  expect(
+    await screen.findByText("Could not save your choice: There is no sample video to accept yet."),
+  ).toBeTruthy();
+  expect(window.location.hash).toBe("#/setup");
+});
