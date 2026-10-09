@@ -53,7 +53,8 @@ Items 1 to 16 match the original feature list. Items 17 to 23 were added after r
 
 9. **Prompt input.** Unlocked after the sample is accepted: a text box plus a microphone button. Speech is transcribed to text (e.g. whisper.cpp or browser speech recognition), push-to-talk *(default)*. The transcribed prompt is shown as sent.
 10. **LLM.** The prompt goes to the LLM (a local llama.cpp model for testing). A system prompt asks for short, conversational replies.
-11. **Response.** The reply is shown as text and spoken by the video, with each word highlighted as it is spoken. Markdown, code, URLs and emoji are shown as text but not voiced.
+11. **Response.** The reply is spoken by the video. Markdown markers, code, URLs, emoji and other parts that read badly aloud are not voiced in full, but the spoken sentence must still make sense: a left-out part is replaced by a short phrase that says what it is and points to the text, such as "the links in the text below" or "the code shown below", never dropped so that the sentence breaks off (for example "see the guide or examples referenced", not "see the guide or"). The words are not highlighted as they are spoken: reading along with the same words is distracting, and keeping a highlight in sync would complicate the screen and could slow replies (Larry, 2026-10-09).
+    - **Reply text panel.** The written reply, with its URLs, code and emoji in full, is in a text panel that is closed by default. The user can open it to read the conversation, scroll through it and search it, and close it again.
 12. **Latency.** The target number is set once the first video engine is chosen. With a streaming-capable engine, the proposed target is that the video starts speaking within 2 seconds of the LLM's first words. To get there, LLM text is streamed, split into sentences, and each sentence is voiced and animated while later ones are still generating.
 
 ## Exit and return
