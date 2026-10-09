@@ -2,8 +2,9 @@
 
 The LLM is reached through the OpenAI-compatible chat API that llama.cpp's llama-server offers,
 so OpenAI is later a change of settings. The conversation is kept on the server, in memory, and
-sent with each prompt so the LLM keeps context; when it would overflow the model's context
-window, the oldest turns are left out.
+sent with each prompt so the LLM keeps context. The history it sends never takes more than half
+of the model's context window, which leaves room for the prompt and the reply: when it would,
+the older turns are summarized by the LLM, and the summary is sent in their place.
 """
 
 import json
@@ -29,6 +30,17 @@ REPLY_TOKENS = 300
 # its framing. Erring high (3 characters) keeps the conversation inside the window.
 CHARS_PER_TOKEN = 3
 TOKENS_PER_MESSAGE = 4
+# The history (summary and turns) may use at most this share of the context window; the rest is
+# for the system prompt, the new prompt and the reply.
+HISTORY_SHARE = 0.5
+# When summarizing, the latest messages (two prompts and their replies) are kept word for word.
+KEEP_RECENT = 4
+SUMMARY_PROMPT = (
+    "Summarize the conversation below between a user and an assistant in at most 120 words."
+    " Keep every name, fact, preference and decision the user mentioned, and what was agreed."
+    " Write only the summary."
+)
+EARLIER = "Earlier in this conversation (summarized):"
 
 
 @dataclass(frozen=True)
@@ -61,25 +73,32 @@ def tokens(message: Message) -> int:
     return len(message["content"]) // CHARS_PER_TOKEN + TOKENS_PER_MESSAGE
 
 
-def fit(turns: list[Turn], context_tokens: int) -> list[Message]:
-    """The system prompt and as many of the latest turns as fit, leaving room for the reply.
+def as_message(turn: Turn) -> Message:
+    return {"role": turn.role, "content": turn.content}
 
-    Turns are dropped from the oldest, a prompt and its reply together, and the newest prompt
-    is always sent, even when it alone is too long (the LLM then says so).
-    """
-    system = {"role": "system", "content": SYSTEM_PROMPT}
-    room = context_tokens - REPLY_TOKENS - tokens(system)
-    kept: list[Message] = []
+
+def system_message(summary: str | None) -> Message:
+    content = SYSTEM_PROMPT if summary is None else f"{SYSTEM_PROMPT}\n\n{EARLIER}\n{summary}"
+    return {"role": "system", "content": content}
+
+
+def history_tokens(summary: str | None, turns: list[Turn]) -> int:
+    """What the history costs: the summary (in the system message) and the turns."""
+    extra = tokens(system_message(summary)) - tokens(system_message(None))
+    return extra + sum(tokens(as_message(t)) for t in turns)
+
+
+def latest(turns: list[Turn], budget: int) -> list[Turn]:
+    """The latest turns that fit the budget, never starting on a reply whose prompt is left out."""
+    kept: list[Turn] = []
     for turn in reversed(turns):
-        message = {"role": turn.role, "content": turn.content}
-        if kept and tokens(message) > room:
+        budget -= tokens(as_message(turn))
+        if budget < 0:
             break
-        room -= tokens(message)
-        kept.append(message)
-    # Never start on a reply whose prompt was dropped.
-    if kept and kept[-1]["role"] == "assistant":
+        kept.append(turn)
+    if kept and kept[-1].role == "assistant":
         kept.pop()
-    return [system, *reversed(kept)]
+    return list(reversed(kept))
 
 
 class LlmClient:
@@ -87,6 +106,24 @@ class LlmClient:
 
     def __init__(self, settings: LlmSettings) -> None:
         self.settings = settings
+
+    def context_tokens(self) -> int:
+        """The context window llama-server was started with, or the configured one."""
+        url = self.settings.url.rstrip("/").removesuffix("/v1") + "/props"
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                props = json.loads(response.read())
+            n_ctx = props.get("default_generation_settings", {}).get("n_ctx") or props["n_ctx"]
+            if type(n_ctx) is not int or n_ctx < 1024:
+                raise ValueError(f"n_ctx is {n_ctx!r}")
+        except (OSError, ValueError, KeyError, AttributeError) as e:
+            logger.info(
+                "LLM context window from the config",
+                extra={"context_tokens": self.settings.context_tokens, "props_error": str(e)},
+            )
+            return self.settings.context_tokens
+        logger.info("LLM context window from the server", extra={"context_tokens": n_ctx})
+        return n_ctx
 
     def ask(self, messages: list[Message]) -> str:
         url = self.settings.url.rstrip("/") + "/chat/completions"
@@ -122,16 +159,19 @@ class LlmClient:
 class Conversation:
     """The one conversation with the LLM, kept in memory until the server stops."""
 
-    def __init__(self, ask: AskLlm, context_tokens: int) -> None:
+    def __init__(self, ask: AskLlm, context_tokens: Callable[[], int]) -> None:
         self._ask = ask
         self._context_tokens = context_tokens
-        self._turns: list[Turn] = []
+        self._window: int | None = None  # looked up at the first prompt
+        self._transcript: list[Turn] = []  # everything said, as shown in the chat
+        self._summary: str | None = None  # of the turns no longer sent word for word
+        self._turns: list[Turn] = []  # sent word for word after the summary
         # One prompt at a time, so replies stay in order.
         self._lock = threading.Lock()
 
     def turns(self) -> list[Turn]:
         with self._lock:
-            return list(self._turns)
+            return list(self._transcript)
 
     def send(self, prompt: str) -> Turn:
         """Send the prompt with the conversation so far; the reply is kept with it."""
@@ -139,15 +179,32 @@ class Conversation:
         if not prompt:
             raise ValueError("Type something to send.")
         with self._lock:
-            turns = [*self._turns, Turn("user", prompt)]
-            messages = fit(turns, self._context_tokens)
-            sent = len(messages) - 1
+            if self._window is None:
+                self._window = self._context_tokens()
+            budget = int(self._window * HISTORY_SHARE)
+            room = self._window - budget - REPLY_TOKENS - tokens(system_message(None))
+            if tokens({"role": "user", "content": prompt}) > room:
+                logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
+                raise ValueError(
+                    "That message is too long for the LLM. Shorten it or split it in two."
+                )
+            if history_tokens(self._summary, self._turns) > budget:
+                self._summarize(budget)
+            turns = latest(self._turns, budget - history_tokens(self._summary, []))
+            messages = [
+                system_message(self._summary),
+                *map(as_message, turns),
+                {"role": "user", "content": prompt},
+            ]
             logger.info(
                 "Chat prompt sent",
                 extra={
                     "prompt_chars": len(prompt),
-                    "turns_sent": sent,
-                    "turns_dropped": len(turns) - sent,
+                    "turns_sent": len(turns),
+                    "turns_dropped": len(self._turns) - len(turns),
+                    "summary": self._summary is not None,
+                    "history_tokens": history_tokens(self._summary, turns),
+                    "context_tokens": self._window,
                 },
             )
             start = time.perf_counter()
@@ -162,7 +219,9 @@ class Conversation:
                     },
                 )
                 raise
-            self._turns = [*turns, reply]
+            said = [Turn("user", prompt), reply]
+            self._turns = [*turns, *said]
+            self._transcript += said
         logger.info(
             "Chat reply received",
             extra={
@@ -171,3 +230,40 @@ class Conversation:
             },
         )
         return reply
+
+    def _summarize(self, budget: int) -> None:
+        """Fold the older turns into the summary, keeping the latest ones word for word.
+
+        If the LLM can't summarize, the older turns are dropped instead (send() keeps only the
+        latest turns that fit).
+        """
+        older, recent = self._turns[:-KEEP_RECENT], self._turns[-KEEP_RECENT:]
+        if not older:
+            return
+        lines = [f"{'User' if t.role == 'user' else 'Assistant'}: {t.content}" for t in older]
+        if self._summary:
+            lines.insert(0, f"Summary of what came before: {self._summary}")
+        messages = [
+            {"role": "system", "content": SUMMARY_PROMPT},
+            {"role": "user", "content": "\n".join(lines)},
+        ]
+        start = time.perf_counter()
+        try:
+            summary = self._ask(messages)
+        except LlmError as e:
+            logger.warning(
+                "Could not summarize the conversation; dropping the oldest turns instead",
+                extra={"error": str(e)},
+            )
+            return
+        self._summary, self._turns = summary, recent
+        logger.info(
+            "Conversation summarized",
+            extra={
+                "turns_summarized": len(older),
+                "summary_chars": len(summary),
+                "history_tokens": history_tokens(summary, recent),
+                "budget_tokens": budget,
+                "duration_ms": round((time.perf_counter() - start) * 1000),
+            },
+        )

@@ -167,20 +167,24 @@ The page shows a progress bar, each step with how far it has got and about how l
 
 ## Chat with the LLM
 
-Once the sample video is accepted at the end of setup, the **Chat** page (roadmap R15) is a text chat with an LLM: type a message and press Enter or **Send** (Shift+Enter starts a new line). Replies are text only for now; the person speaks them from roadmap R17. The server keeps the conversation in memory, until it stops, and sends it with each prompt so the LLM remembers earlier turns; when it would overflow the model's context window, the oldest turns are left out. A system prompt asks for short, conversational replies.
+Once the sample video is accepted at the end of setup, the **Chat** page (roadmap R15) is a text chat with an LLM: type a message and press Enter or **Send** (Shift+Enter starts a new line). Replies are text only for now; the person speaks them from roadmap R17. A system prompt asks for short, conversational replies.
 
-The app talks to [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server` through its OpenAI-compatible API, at `http://127.0.0.1:8080/v1` unless `llm_url` in the config file says otherwise (see `config.example.toml`; `llm_context_tokens` should match llama-server's `--ctx-size`). Install llama.cpp once:
+The server keeps the conversation in memory, until it stops, and sends it with each prompt so the LLM remembers earlier turns. The history never takes more than half of the model's context window, so the rest is free for the new prompt and the reply. When it would, the LLM summarizes the older turns (keeping names, facts and preferences), and the summary is sent in their place along with the latest two prompts and replies word for word. The chat still shows everything. A message too long for the other half of the window is refused with a message saying to shorten it. The context window is read from llama-server when the first message is sent (its `--ctx-size`); with a server that doesn't report it, `llm_context_tokens` in the config file is used (default 4096).
+
+The app talks to [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server` through its OpenAI-compatible API, at `http://127.0.0.1:8080/v1` unless `llm_url` in the config file says otherwise (see `config.example.toml`). Install llama.cpp once:
 
 - Windows (Command Prompt or PowerShell): `winget install llama.cpp`, then open a new terminal
 - macOS (or Linux with Homebrew): `brew install llama.cpp`
 
-Then start it in its own terminal and leave it running. The first time, it downloads the model (Gemma 3 1B, about 800 MB):
+Then start it in its own terminal and leave it running. The first time, it downloads the model (Gemma 3 4B, about 2.5 GB):
 
 ```
-llama-server -hf ggml-org/gemma-3-1b-it-GGUF --port 8080 --ctx-size 4096
+llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 4096
 ```
 
-The log has `Chat LLM` at start with the address, `Chat prompt sent` with how many turns were sent and dropped, and `Chat reply received` with `duration_ms`. If the LLM can't be reached, the chat shows why, the prompt stays in the box to send again, and the log has `Chat reply failed`.
+Use a model of about 4B parameters or more: Gemma 3 1B is given the earlier turns but often ignores them (asked "What is my name?" right after "Hi, my name is Larry", it answers "Sarah").
+
+The log has `LLM context window from the server` (or `from the config`) at the first message, `Chat prompt sent` with how many turns were sent, whether a summary was, and `history_tokens`, `Conversation summarized` with how many turns it replaced, and `Chat reply received` with `duration_ms`. If the LLM can't be reached, the chat shows why, the prompt stays in the box to send again, and the log has `Chat reply failed`; if only summarizing fails, the oldest turns are left out instead and the log says `Could not summarize the conversation`.
 
 | Request | What it does |
 |---|---|

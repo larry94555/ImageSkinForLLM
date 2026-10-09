@@ -316,7 +316,11 @@ def create_app(
     logger.info(
         "Chat LLM", extra={"url": llm.url, "model": llm.model, "context_tokens": llm.context_tokens}
     )
-    conversation = Conversation(ask_llm or LlmClient(llm).ask, llm.context_tokens)
+    if ask_llm is None:
+        client = LlmClient(llm)
+        conversation = Conversation(client.ask, client.context_tokens)
+    else:
+        conversation = Conversation(ask_llm, lambda: llm.context_tokens)
 
     @app.get("/api/chat", dependencies=needs_consent)
     def get_chat() -> dict[str, object]:

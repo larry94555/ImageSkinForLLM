@@ -3,9 +3,9 @@ host = "127.0.0.1"
 port = 8000
 log_level = "INFO"
 
-# The LLM the chat talks to: llama-server's OpenAI-compatible API, and its context window in
-# tokens (llama-server's --ctx-size). llama-server answers with the model it loaded, whatever
-# llm_model says.
+# The LLM the chat talks to: llama-server's OpenAI-compatible API. llama-server answers with the
+# model it loaded, whatever llm_model says. The context window in tokens is read from llama-server
+# (its --ctx-size); llm_context_tokens is used for a server that doesn't report it.
 llm_url = "http://127.0.0.1:8080/v1"
 llm_model = "local"
 llm_context_tokens = 4096
