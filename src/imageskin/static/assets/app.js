@@ -62,6 +62,18 @@ async function removeUpload(kind, id) {
 	const response = await fetch(uploadUrl(kind, id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function getAccent() {
+	return json(await fetch("/api/accent"));
+}
+async function chooseAccent(accent) {
+	const response = await fetch("/api/accent", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ accent })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 function clipUrl(name, status) {
 	return `/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`;
 }
@@ -137,6 +149,7 @@ function ConsentPage({ onConfirmed }) {
 function SetupPage() {
 	const [changes, setChanges] = d(0);
 	const changed = () => setChanges((n) => n + 1);
+	const [preparing, setPreparing] = d(false);
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("h1", { children: "Setup" }),
 		/* @__PURE__ */ u("p", {
@@ -157,7 +170,14 @@ function SetupPage() {
 			accept: "audio/*,.m4a,.wav,.mp3",
 			onChange: changed
 		}),
-		/* @__PURE__ */ u(PrepareSection, { changes })
+		/* @__PURE__ */ u(AccentSection, {
+			onChange: changed,
+			preparing
+		}),
+		/* @__PURE__ */ u(PrepareSection, {
+			changes,
+			onRunning: setPreparing
+		})
 	] });
 }
 function UploadSection(props) {
@@ -439,8 +459,87 @@ function VoiceSampleView({ changes }) {
 		]
 	});
 }
+var ACCENTS = [
+	{
+		accent: "own",
+		label: "Their own accent, as in the recordings"
+	},
+	{
+		accent: "american",
+		label: "American"
+	},
+	{
+		accent: "british",
+		label: "British"
+	}
+];
+function AccentSection(props) {
+	const { onChange, preparing } = props;
+	const [choice, setChoice] = d(null);
+	const [saving, setSaving] = d(null);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		getAccent().then(setChoice).catch((e) => {
+			console.error("Could not get the accent", e);
+			setFailed("Could not load the accent. Reload the page to try again.");
+		});
+	}, []);
+	async function choose(accent) {
+		setSaving(accent);
+		setFailed(null);
+		try {
+			setChoice(await chooseAccent(accent));
+			onChange();
+		} catch (e) {
+			console.error(`Could not choose the ${accent} accent`, e);
+			setFailed(`Could not save the accent: ${e.message}`);
+		}
+		setSaving(null);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "accent",
+		children: [
+			/* @__PURE__ */ u("h2", { children: "Accent" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The person's voice can keep their own accent or speak with another one. Changing it makes the sample video again."
+			}),
+			/* @__PURE__ */ u("fieldset", {
+				disabled: choice === null || saving !== null || preparing,
+				children: [/* @__PURE__ */ u("legend", { children: "Speak with" }), ACCENTS.map(({ accent, label }) => /* @__PURE__ */ u("label", {
+					className: saving === accent ? "busy" : void 0,
+					children: [
+						/* @__PURE__ */ u("input", {
+							type: "radio",
+							name: "accent",
+							value: accent,
+							checked: (saving ?? choice?.accent) === accent,
+							disabled: accent !== "own" && choice?.available === false,
+							onChange: () => void choose(accent)
+						}),
+						" ",
+						label
+					]
+				}, accent))]
+			}),
+			preparing && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "You can change the accent once Prepare has finished."
+			}),
+			choice?.available === false && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Another accent needs the person's own voice installed (see \"Your own voice\" in the README). Until then a ready-made voice speaks, with its own accent."
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
+			})
+		]
+	});
+}
 var PREPARE_POLL_MS = 1e3;
-function PrepareSection({ changes }) {
+function PrepareSection(props) {
+	const { changes, onRunning } = props;
 	const [status, setStatus] = d(null);
 	const [loadFailed, setLoadFailed] = d(false);
 	const [starting, setStarting] = d(false);
@@ -474,6 +573,7 @@ function PrepareSection({ changes }) {
 		read();
 	}, [changes]);
 	const running = status?.state === "running";
+	h(() => onRunning(running), [running]);
 	h(() => {
 		if (!running) return;
 		const timer = window.setInterval(() => void read(), PREPARE_POLL_MS);

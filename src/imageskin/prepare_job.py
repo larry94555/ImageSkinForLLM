@@ -1,7 +1,8 @@
 """The prepare job (roadmaps R12, R13 and R25b): gets the voice and the face ready for the video,
 renders the sample video and the fixed lines, in the background, and reports how far it has got.
 The clips are spoken in the person's own voice, cloned from the voice sample, when Chatterbox is
-installed (R25), and in a ready-made Kokoro voice otherwise.
+installed (R25), with their own accent or the one chosen in setup (R26), and in a ready-made Kokoro
+voice otherwise.
 
 The face step renders the photoreal frame library (`photoreal_library`), which takes tens of
 minutes or more on a laptop CPU. The job's state is saved in <data folder>/prepare.json, so
@@ -20,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from imageskin.accent import OWN, Accent, AccentEngine
 from imageskin.download import sha256_of
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.sample import SAMPLE_SCRIPT, speak_and_render
@@ -29,6 +31,7 @@ from imageskin.voice import VoiceEngine, VoiceError
 
 if TYPE_CHECKING:
     from imageskin.chatterbox_engine import ChatterboxEngine
+    from imageskin.speaker_checks import SpeakerChecker
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +83,9 @@ class Step:
 class PrepareStatus:
     state: State
     photo_id: str | None = None  # the photo being, or last, prepared
-    voice_id: str | None = None  # the voice the clips are spoken in: "<kind>:<voice_fingerprint>"
+    # The voice the clips are spoken in: "<kind>:<voice_fingerprint>", with "-<accent>" after the
+    # kind when the clone speaks with another accent than the person's own.
+    voice_id: str | None = None
     percent: int = 0
     steps: list[Step] | None = None
     error: str | None = None  # why it failed
@@ -122,6 +127,7 @@ class PrepareJob:
         prepare_face: PrepareFace,
         render_clip: RenderClip,
         voice_kind: str = "kokoro",  # what speaks the clips: "clone" or "kokoro"
+        accent: Callable[[], Accent] = lambda: OWN,  # the accent chosen in setup
     ) -> None:
         self._file = home / "prepare.json"
         self.clips_folder = home / "clips"
@@ -130,6 +136,7 @@ class PrepareJob:
         self._prepare_face = prepare_face
         self._render_clip = render_clip
         self._voice_kind = voice_kind
+        self._accent = accent
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         # Per running step: when it started and how much was done then, for the time left.
@@ -163,10 +170,13 @@ class PrepareJob:
 
     def status(self) -> PrepareStatus:
         """How far the job has got. A finished job shows as idle once what it was made from
-        changed: another photo is chosen, or the recordings changed (the clips speak in the voice
-        learned from them)."""
+        changed: another photo is chosen, the recordings changed (the clips speak in the voice
+        learned from them) or another accent is chosen."""
         with self._lock:
             status = self._status
+        return self._current(status)
+
+    def _current(self, status: PrepareStatus) -> PrepareStatus:
         if status.state in ("done", "failed"):
             if status.photo_id != self._store.photo_choice().id:
                 return PrepareStatus("idle")
@@ -175,6 +185,26 @@ class PrepareJob:
             if status.voice_id != self._voice_id():
                 return PrepareStatus("idle")
         return status
+
+    def change_accent(self, change: Callable[[], None]) -> bool:
+        """Change the accent with `change`, unless a job is running: it would
+        finish in the voice from before. When the clips were ready, prepare again at once (the
+        face is kept, so only the voice and the clips are redone). Whether it was changed.
+
+        Done under the job's lock, so a Prepare started at the same time either runs with the
+        change or makes it wait: never a job that finishes in a voice the page no longer shows."""
+        with self._lock:
+            if self._status.state == "running":
+                return False
+            prepared = self._current(self._status).state == "done"
+            change()
+            if prepared and self._current(self._status).state == "idle":
+                logger.info("Accent changed; preparing the sample again")
+                try:
+                    self._start()
+                except PrepareError as e:  # the uploads changed meanwhile; Prepare says what to do
+                    logger.warning("Could not prepare again", extra={"error": str(e)})
+            return True
 
     def clip(self, name: ClipName) -> Path | None:
         """The rendered clip, once the job has finished for what is uploaded now."""
@@ -186,29 +216,37 @@ class PrepareJob:
     def start(self) -> PrepareStatus:
         """Start preparing the chosen photo and the voice; while it runs, just report on it."""
         with self._lock:
-            if self._status.state == "running":
-                return self._status
-            photo_id = self._store.photo_choice().id
-            if photo_id is None:
-                raise PrepareError(NO_PHOTO)
-            problem = self._store.voice_sample().problem
-            if problem:
-                raise PrepareError(problem)
-            # Clips from before were made from other uploads; the face's frames are kept per
-            # photo by the library, so only the clips are removed.
-            self._remove_clips()
-            self._status = PrepareStatus(
-                "running", photo_id, steps=fresh_steps(), started_at=now_iso()
-            )
-            self._save()
-            self._run_in_background()
+            return self._start()
+
+    def _start(self) -> PrepareStatus:
+        if self._status.state == "running":
             return self._status
+        photo_id = self._store.photo_choice().id
+        if photo_id is None:
+            raise PrepareError(NO_PHOTO)
+        problem = self._store.voice_sample().problem
+        if problem:
+            raise PrepareError(problem)
+        # Clips from before were made from other uploads; the face's frames are kept per
+        # photo by the library, so only the clips are removed.
+        self._remove_clips()
+        self._status = PrepareStatus("running", photo_id, steps=fresh_steps(), started_at=now_iso())
+        self._save()
+        self._run_in_background()
+        return self._status
 
     def _voice_id(self) -> str | None:
-        """The voice clips are spoken in now: who speaks them and the sample they learned from.
-        Installing Chatterbox after a Kokoro prepare changes it too."""
+        """The voice clips are spoken in now: who speaks them, with which accent, and the sample
+        they learned from. Installing Chatterbox after a Kokoro prepare changes it too. Kokoro
+        speaks with its own accent, whichever is chosen."""
         fingerprint = voice_fingerprint(self._store.voice_sample_file)
-        return f"{self._voice_kind}:{fingerprint}" if fingerprint else None
+        if not fingerprint:
+            return None
+        accent = self._accent()
+        kind = self._voice_kind
+        if kind == "clone" and accent != OWN:
+            kind = f"clone-{accent}"
+        return f"{kind}:{fingerprint}"
 
     def _remove_clips(self) -> int:
         old = list(self.clips_folder.glob("*.mp4"))
@@ -347,25 +385,35 @@ def kokoro_voice(engine: VoiceEngine) -> PrepareVoice:
     return prepare
 
 
-def cloned_voice(engine: "ChatterboxEngine", voice_sample: Path) -> PrepareVoice:
+def cloned_voice(
+    engine: AccentEngine, voice_sample: Path, accent: Callable[[], Accent]
+) -> PrepareVoice:
     """Load the clone's models (downloaded the first time, about 3 GB) and learn the person's
-    voice from the voice sample. The same engine then speaks the clips in that voice."""
+    voice from the voice sample, with the accent chosen now. The same engine then speaks the clips
+    in that voice."""
 
     def prepare() -> None:
         start = time.perf_counter()
-        engine.learn_voice(str(voice_sample))
+        chosen = accent()
+        engine.prepare(str(voice_sample), chosen)
         logger.info(
             "Voice ready: the person's own",
-            extra={"duration_s": round(time.perf_counter() - start, 1)},
+            extra={
+                "accent": chosen,
+                "base": engine.base,
+                "duration_s": round(time.perf_counter() - start, 1),
+            },
         )
 
     return prepare
 
 
-def clip_voice(voice_sample: Path) -> tuple[PrepareVoice, VoiceEngine, str, str]:
+def clip_voice(
+    voice_sample: Path, accent: Callable[[], Accent], speakers: "SpeakerChecker"
+) -> tuple[PrepareVoice, VoiceEngine, str, str]:
     """The voice step, the engine, the voice the clips are spoken in and its kind ("clone" or
-    "kokoro"): the person's own, cloned from the voice sample, when Chatterbox is installed (see
-    the README); otherwise Kokoro's."""
+    "kokoro"): the person's own, cloned from the voice sample with the chosen accent, when
+    Chatterbox is installed (see the README); otherwise Kokoro's."""
     from imageskin.chatterbox_engine import ChatterboxEngine, check_installed
 
     try:
@@ -376,8 +424,22 @@ def clip_voice(voice_sample: Path) -> tuple[PrepareVoice, VoiceEngine, str, str]
         kokoro = KokoroEngine()
         return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE, "kokoro"
     logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
-    engine = ChatterboxEngine()
-    return cloned_voice(engine, voice_sample), engine, str(voice_sample), "clone"
+    engine = accent_engine(ChatterboxEngine(), speakers)
+    return cloned_voice(engine, voice_sample, accent), engine, str(voice_sample), "clone"
+
+
+def accent_engine(clone: "ChatterboxEngine", speakers: "SpeakerChecker") -> AccentEngine:
+    """The clone, with Kokoro, Chatterbox's converter and the app's speaker model (shared with the
+    one-speaker check) for other accents. Each is loaded only when another accent is first used."""
+    from imageskin.chatterbox_engine import SAMPLE_RATE, TurboConverter
+    from imageskin.kokoro_engine import kokoro_for
+
+    return AccentEngine(
+        clone,
+        kokoro_for,
+        lambda: TurboConverter(clone.cloner().tts.s3gen),  # type: ignore[attr-defined]
+        lambda samples: speakers.voice_print(samples, SAMPLE_RATE),
+    )
 
 
 def photoreal_face(home: Path) -> PrepareFace:

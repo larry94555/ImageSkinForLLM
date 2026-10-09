@@ -20,7 +20,7 @@ import warnings
 import wave
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -136,6 +136,20 @@ class ChatterboxEngine:
         self.check_voice_sample(voice)
         self._learn_voice(self._loaded(), voice)
 
+    def reference(self, voice: str, fresh: bool = False) -> np.ndarray:
+        """The stretch of the voice sample the voice is learned from; fresh reads it again, as the
+        voice sample is joined again whenever the recordings change."""
+        if fresh:
+            self._voice = None
+            self._reference = None
+        self.check_voice_sample(voice)
+        assert self._reference is not None
+        return self._reference[1]
+
+    def cloner(self) -> Cloner:
+        """The loaded clone model, which the accent converter shares (roadmap R26)."""
+        return self._get_cloner()
+
     def speak(self, voice: str, text: str) -> Speech:
         if not text.strip():
             raise VoiceError("no text to speak")
@@ -238,6 +252,36 @@ class TurboCloner:  # pragma: no cover - needs the models; see the functional ru
         with quiet_library_warnings():
             out: np.ndarray = self.tts.generate(text).squeeze(0).cpu().numpy()
         return out
+
+
+class TurboConverter:  # pragma: no cover - needs the models; see the functional run in the PR
+    """Changes speech in another voice into the person's, keeping its words, timing and accent.
+
+    Chatterbox's voice converter, run with Turbo's own one-step decoder (`s3gen`, already loaded
+    for the clone), which is about five times faster on the CPU than the converter's ten-step one.
+    """
+
+    def __init__(self, s3gen: Any) -> None:
+        provide_pkg_resources()
+        from chatterbox.vc import ChatterboxVC
+
+        self._vc = ChatterboxVC(s3gen, "cpu")
+
+    def set_voice(self, reference: np.ndarray) -> None:
+        self._vc.ref_dict = self._vc.s3gen.embed_ref(reference, SAMPLE_RATE, device="cpu")
+
+    def __call__(self, samples: np.ndarray) -> np.ndarray:
+        import librosa
+        import torch
+        from chatterbox.models.s3tokenizer import S3_SR
+
+        with torch.inference_mode(), quiet_library_warnings():
+            audio_16 = librosa.resample(samples, orig_sr=SAMPLE_RATE, target_sr=S3_SR)
+            tokens, _ = self._vc.s3gen.tokenizer(torch.from_numpy(audio_16).float()[None,])
+            wav, _ = self._vc.s3gen.inference(speech_tokens=tokens, ref_dict=self._vc.ref_dict)
+            out = wav.squeeze(0).cpu().numpy()
+        marked: np.ndarray = self._vc.watermarker.apply_watermark(out, sample_rate=SAMPLE_RATE)
+        return marked
 
 
 def _load_cloner() -> Cloner:  # pragma: no cover - needs the models

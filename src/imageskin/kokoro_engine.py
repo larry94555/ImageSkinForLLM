@@ -6,6 +6,7 @@ to the audio's length, so the mouth shapes line up with the voice.
 The model (about 330 MB) is downloaded from Hugging Face on first use and cached.
 """
 
+import functools
 import logging
 import sys
 import time
@@ -19,7 +20,7 @@ from imageskin.voice import Speech, VoiceError, WordTiming
 logger = logging.getLogger(__name__)
 
 REPO_ID = "hexgrad/Kokoro-82M"
-LANG_CODE = "a"  # American English
+LANG_CODE = "a"  # American English; "b" is British English
 SAMPLE_RATE = 24000
 DEFAULT_VOICE = "af_heart"
 STEP_S = 600 / SAMPLE_RATE  # one step of Kokoro's sound durations: 25 ms
@@ -86,7 +87,7 @@ def speech_from_results(results: Iterable[Any], vocab: Container[str] | None = N
     return Speech(pcm=bytes(pcm), sample_rate=SAMPLE_RATE, words=words, sounds=sounds)
 
 
-def _load_pipeline() -> Callable[..., Iterable[Any]]:
+def _load_pipeline(lang_code: str = LANG_CODE) -> Callable[..., Iterable[Any]]:
     try:
         from kokoro import KPipeline
     except ImportError as e:
@@ -96,7 +97,7 @@ def _load_pipeline() -> Callable[..., Iterable[Any]]:
         logger.exception("Could not import Kokoro")
         raise VoiceError(f"Kokoro is installed but could not be loaded: {e}") from e
     pipeline: Callable[..., Iterable[Any]] = KPipeline(
-        lang_code=LANG_CODE, repo_id=REPO_ID, device="cpu"
+        lang_code=lang_code, repo_id=REPO_ID, device="cpu"
     )
     return pipeline
 
@@ -150,3 +151,8 @@ class KokoroEngine:
                 },
             )
         return self._pipeline
+
+
+def kokoro_for(lang_code: str) -> KokoroEngine:
+    """Kokoro speaking with the accent of a language code, such as "b" for British English."""
+    return KokoroEngine(functools.partial(_load_pipeline, lang_code))

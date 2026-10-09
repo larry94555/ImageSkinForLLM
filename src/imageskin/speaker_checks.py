@@ -31,6 +31,7 @@ MODEL_URL = (
 MODEL_SIZE = 29596978
 MODEL_SHA256 = "357a834f702b80161e5b981182c038e18553c1f2ca752ed6cec2052365d4129b"
 MODEL_RATE = 16000
+PRINT_SIZE = 512  # numbers in a voice print
 MEL_BANDS = 80
 
 # Stretches of 1.5 s every 0.75 s; a stretch counts when at least half of it is speech.
@@ -207,6 +208,18 @@ class SpeakerChecker:
         ).astype(np.float64)
         normalized: NDArray[np.float64] = prints / np.linalg.norm(prints, axis=1, keepdims=True)
         return normalized
+
+    def voice_print(self, samples: NDArray[Any], rate: int) -> NDArray[np.float64]:
+        """One unit-length voice print for a clip, the average of its stretches' prints; all
+        zeros, alike to nothing, when it has no stretch of speech. Used to pick the voice that
+        sounds most like the person for another accent (roadmap R26)."""
+        with self._lock:
+            stretches = speech_stretches(to_model_rate(samples.astype(np.float64), rate))
+            if not len(stretches):
+                return np.zeros(PRINT_SIZE)
+            average = self.voice_prints(stretches).mean(axis=0)
+        unit: NDArray[np.float64] = average / np.linalg.norm(average)
+        return unit
 
     def check(self, samples: NDArray[np.float64], rate: int) -> list[str]:
         """The problem when someone else is talking in the recording; [] when not."""

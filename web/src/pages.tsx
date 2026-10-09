@@ -3,9 +3,13 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
+  type Accent,
+  type AccentChoice,
   checkUpload,
+  chooseAccent,
   choosePhoto,
   confirmConsent,
+  getAccent,
   getPhotoChoice,
   clipUrl,
   getPrepare,
@@ -81,13 +85,15 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   );
 }
 
-// Setup: upload photos and recordings, see them and play them back (roadmap R7), then prepare
-// the voice and the face (R12).
+// Setup: upload photos and recordings, see them and play them back (roadmap R7), choose the
+// accent (R26), then prepare the voice and the face (R12).
 export function SetupPage() {
   // Counts changes to the photos, the chosen photo and the recordings, so Prepare asks again
   // whether what it prepared is still current.
   const [changes, setChanges] = useState(0);
   const changed = () => setChanges((n) => n + 1);
+  // While Prepare runs, the accent can't change: the running job would finish in the old one.
+  const [preparing, setPreparing] = useState(false);
   return (
     <>
       <h1>Setup</h1>
@@ -106,7 +112,8 @@ export function SetupPage() {
         accept="audio/*,.m4a,.wav,.mp3"
         onChange={changed}
       />
-      <PrepareSection changes={changes} />
+      <AccentSection onChange={changed} preparing={preparing} />
+      <PrepareSection changes={changes} onRunning={setPreparing} />
     </>
   );
 }
@@ -396,13 +403,89 @@ function VoiceSampleView({ changes }: { changes: number }) {
   );
 }
 
+const ACCENTS: { accent: Accent; label: string }[] = [
+  { accent: "own", label: "Their own accent, as in the recordings" },
+  { accent: "american", label: "American" },
+  { accent: "british", label: "British" },
+];
+
+// Setup (roadmap R26): the person's voice keeps their own accent or speaks with another one.
+// Changing it after the sample is ready makes the sample again in the new accent.
+function AccentSection(props: { onChange: () => void; preparing: boolean }) {
+  const { onChange, preparing } = props;
+  // null until the server has answered.
+  const [choice, setChoice] = useState<AccentChoice | null>(null);
+  const [saving, setSaving] = useState<Accent | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAccent()
+      .then(setChoice)
+      .catch((e: unknown) => {
+        console.error("Could not get the accent", e);
+        setFailed("Could not load the accent. Reload the page to try again.");
+      });
+  }, []);
+
+  async function choose(accent: Accent) {
+    setSaving(accent);
+    setFailed(null);
+    try {
+      setChoice(await chooseAccent(accent));
+      onChange();
+    } catch (e) {
+      console.error(`Could not choose the ${accent} accent`, e);
+      setFailed(`Could not save the accent: ${(e as Error).message}`);
+    }
+    setSaving(null);
+  }
+
+  return (
+    <section className="accent">
+      <h2>Accent</h2>
+      <p className="muted">
+        The person&apos;s voice can keep their own accent or speak with another one. Changing it
+        makes the sample video again.
+      </p>
+      <fieldset disabled={choice === null || saving !== null || preparing}>
+        <legend>Speak with</legend>
+        {ACCENTS.map(({ accent, label }) => (
+          <label key={accent} className={saving === accent ? "busy" : undefined}>
+            <input
+              type="radio"
+              name="accent"
+              value={accent}
+              checked={(saving ?? choice?.accent) === accent}
+              // Another accent needs the person's own voice installed.
+              disabled={accent !== "own" && choice?.available === false}
+              onChange={() => void choose(accent)}
+            />{" "}
+            {label}
+          </label>
+        ))}
+      </fieldset>
+      {preparing && (
+        <p className="muted">You can change the accent once Prepare has finished.</p>
+      )}
+      {choice?.available === false && (
+        <p className="muted">
+          Another accent needs the person&apos;s own voice installed (see &quot;Your own
+          voice&quot; in the README). Until then a ready-made voice speaks, with its own accent.
+        </p>
+      )}
+      {failed && <p className="error">{failed}</p>}
+    </section>
+  );
+}
+
 // How often the page asks how far the prepare job has got, while it runs.
 export const PREPARE_POLL_MS = 1000;
 
 // Setup step 2 (roadmap R12): get the voice and the face ready for the video, with a progress
 // bar, then play the sample video it renders (R13). The job runs on the server, so the page can
 // be closed or reloaded meanwhile.
-function PrepareSection({ changes }: { changes: number }) {
+function PrepareSection(props: { changes: number; onRunning: (running: boolean) => void }) {
+  const { changes, onRunning } = props;
   // null until the server has answered.
   const [status, setStatus] = useState<PrepareStatus | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -445,6 +528,7 @@ function PrepareSection({ changes }: { changes: number }) {
 
   // While it runs, ask every second how far it has got.
   const running = status?.state === "running";
+  useEffect(() => onRunning(running), [running]);
   useEffect(() => {
     if (!running) return;
     const timer = window.setInterval(() => void read(), PREPARE_POLL_MS);

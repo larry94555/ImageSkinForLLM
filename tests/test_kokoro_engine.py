@@ -1,4 +1,5 @@
 import builtins
+import functools
 import struct
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -185,3 +186,11 @@ def test_broken_dependency_reports_the_real_error(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(builtins, "__import__", broken_torch)
     with pytest.raises(VoiceError, match="installed but could not be loaded: DLL load failed"):
         _load_pipeline()
+
+
+def test_kokoro_for_loads_the_language_asked_for() -> None:
+    from imageskin.kokoro_engine import _load_pipeline, kokoro_for
+
+    load = kokoro_for("b")._load
+    assert isinstance(load, functools.partial) and load.func is _load_pipeline
+    assert load.args == ("b",)
