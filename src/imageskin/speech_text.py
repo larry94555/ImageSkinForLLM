@@ -28,7 +28,7 @@ _PARTS = (
     re.compile(r"(\[)[^\]\n]+(\]\([^)\n]*\))"),
     re.compile(r"^[ \t]*(#{1,6}[ \t]+)", re.M),  # heading marker
     re.compile(r"^[ \t]*((?:>[ \t]?)+)", re.M),  # quote marker
-    re.compile(r"^[ \t]*([-*+][ \t]+)", re.M),  # list bullet
+    re.compile(r"^[ \t]*([-*+][ \t]+|\d+[.)][ \t]+)", re.M),  # list bullet or number
     # Emphasis hugs a word on one side; "2 * 3" keeps its star. Underscores inside a word stay.
     re.compile(r"(?<=\S)(\*+|~~)|(\*+|~~)(?=\S)"),
     re.compile(r"(?<![^\W_])(_+)|(_+)(?![^\W_])"),

@@ -76,7 +76,7 @@ def test_lines_without_punctuation_end_a_sentence() -> None:
 
 def test_a_line_break_inside_a_paragraph_is_only_a_space() -> None:
     reply = "This is one sentence\ncontinued here.\nAnd\n\nNew paragraph\n\n1. First\n2) Second"
-    said = "This is one sentence continued here. And. New paragraph. 1. First. 2) Second"
+    said = "This is one sentence continued here. And. New paragraph. First. Second"
     assert spoken(reply) == said
 
 
