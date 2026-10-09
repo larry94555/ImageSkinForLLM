@@ -397,7 +397,7 @@ The PRs below are written for either kind of video engine, but these are the one
 ## Milestone 16: Statistics and summaries
 
 ### R56. Topic statistics page (Medium) · item 44
-- An administrator page listing every topic with its question count and its strong and weak counts, with topics nobody asked about listed separately.
+- An administrator page listing every topic with its question count and its counts of strong, weak and unrated questions (no single score), with topics nobody asked about listed separately.
 - **Can show:** after a few questions on some topics, the page shows their counts and lists the untouched topics as not asked about.
 
 ### R57. Student summary page (Medium) · items 41, 45
