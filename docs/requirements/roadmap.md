@@ -401,8 +401,8 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** after a few questions on some topics, the page shows their counts and lists the untouched topics as not asked about.
 
 ### R57. Student summary page (Medium) · items 41, 45
-- One page per student, worked out from the stored topic tags and ratings when it is opened (no separate profile is kept): topics asked about, topics with good questions and topics with weak or uninformed ones, each opening the questions behind it.
-- **Can show:** a student asks a strong and a weak question on different topics; their summary lists each topic in the right place, and the weak topic opens the question that put it there.
+- One page per student, worked out from the stored topic tags and ratings when it is opened (no separate profile is kept): each topic the student asked about, with counts of their strong, weak and unrated questions on it and the questions themselves. No score or overall judgment per topic; mixed evidence stays mixed.
+- **Can show:** a student asks a strong and a weak question on the same topic and an unrated one on another; their summary shows the first topic with one strong and one weak question, the second with one unrated, and each question can be opened.
 
 ## Milestone 17: Heads-up before clearing
 

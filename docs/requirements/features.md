@@ -136,7 +136,7 @@ Added by Larry on 2026-10-09. These build on the history in items 34 to 37 and c
    - **unrated:** the question gives no clear evidence either way, including ordinary fact-seeking questions. A basic but reasonable question is unrated, not weak.
 
    Each rating keeps a one-line reason. The administrator can correct a rating; the correction is kept with it and is never silently overwritten. Ratings are seen only by the administrator, never by students *(default)*.
-41. **Student profile.** For each student: the topics they asked about, the topics where they show strong knowledge and the topics where they show weak knowledge. It is worked out from items 39 and 40 whenever it is needed, not kept separately, and shown on the student summary page (item 45).
+41. **Student profile.** For each student: each topic they asked about, with their strong, weak and unrated questions on it (item 40). There is no score: a topic with both strong and weak questions shows both. It is worked out from items 39 and 40 whenever it is needed, not kept separately, and shown on the student summary page (item 45).
 
 ### Search
 
@@ -148,7 +148,7 @@ Search covers turns a student has cleared, since clearing only hides them from t
 ### Statistics and summaries
 
 44. **Topic statistics page.** For each topic: how many questions were asked about it, which topics were not asked about at all, and how many strong and weak ratings it drew (item 40). Topic counts include anonymous questions; strong and weak come from signed-in students only.
-45. **Student summary page.** One page per student: the topics they asked about, the topics where they asked good questions, and the topics where they asked weak or uninformed questions, with the questions behind each.
+45. **Student summary page.** One page per student showing their profile (item 41): each topic they asked about, with the counts of their strong, weak and unrated questions on it and the questions themselves.
 
 ### Clearing history
 
