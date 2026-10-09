@@ -12,7 +12,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 |---|---|---|---|---|---|
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 12.1% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 15.5% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 10.3% | 5 of 6 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 10.3% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, with words highlighted. | R15 to R19 | 5 | 8.6% | 0 |
 | 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.9% | 0 |
 | 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.7% | 0 |
@@ -23,7 +23,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 3.4% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 6.9% | 0 |
 | 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 8.6% | 0 |
-| | **Total** | | **58** | **100%** | **21 of 58** |
+| | **Total** | | **58** | **100%** | **22 of 58** |
 
 Sizes: 14 Simple, 44 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -199,6 +199,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - Accept, Reject image (back to image upload), Reject voice (back to sound upload), and Change accent, which goes back to R26's choice and reruns the sample.
 - Chat stays locked until a sample is accepted.
 - **Can show:** the full setup flow from upload to an accepted sample, with both reject paths working.
+- **Built:** four buttons under the sample video. Accept saves `review.json` with the sample it was given for (the photo, the voice and when the sample was made), so a sample made again, for any reason, needs accepting again; it then opens the new Chat page. Reject image, Reject voice and Change accent withdraw an acceptance and scroll back to the photos, the recordings or the accent, which show what to do there. Uploads are kept: the user removes the ones they don't want. The Chat page says it is locked until a sample is accepted (`GET /api/review`); the chat itself comes in R15.
 
 ## Milestone 4: Talking chat
 

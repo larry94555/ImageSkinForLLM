@@ -9,10 +9,12 @@ import {
   chooseAccent,
   choosePhoto,
   confirmConsent,
+  type Decision,
   getAccent,
   getPhotoChoice,
   clipUrl,
   getPrepare,
+  getReview,
   getVoiceSample,
   type Kind,
   listUploads,
@@ -20,6 +22,8 @@ import {
   type PrepareStatus,
   type PrepareStep,
   removeUpload,
+  type Review,
+  review,
   startPrepare,
   type Upload,
   uploadFile,
@@ -85,8 +89,17 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   );
 }
 
+// Where a choice under the sample video sends the user back to (roadmap R14).
+type Back = "photos" | "sounds" | "accent";
+
+const BACK_NOTICE: Record<Back, string> = {
+  photos: "You rejected the image. Add new photos and remove the ones you don't want, then Prepare again.",
+  sounds: "You rejected the voice. Add new recordings and remove the ones you don't want, then Prepare again.",
+  accent: "Choose another accent. The sample video is then made again.",
+};
+
 // Setup: upload photos and recordings, see them and play them back (roadmap R7), choose the
-// accent (R26), then prepare the voice and the face (R12).
+// accent (R26), prepare the voice and the face (R12), then review the sample video (R14).
 export function SetupPage() {
   // Counts changes to the photos, the chosen photo and the recordings, so Prepare asks again
   // whether what it prepared is still current.
@@ -94,6 +107,14 @@ export function SetupPage() {
   const changed = () => setChanges((n) => n + 1);
   // While Prepare runs, the accent can't change: the running job would finish in the old one.
   const [preparing, setPreparing] = useState(false);
+  // Set when the user rejected the sample: the section to go back to shows what to do there.
+  const [back, setBack] = useState<Back | null>(null);
+  function goBack(to: Back) {
+    setBack(to);
+    // After the notice shows, so the page scrolls to where it ends up.
+    window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
+  }
+  const notice = (to: Back) => (back === to ? BACK_NOTICE[to] : null);
   return (
     <>
       <h1>Setup</h1>
@@ -103,6 +124,7 @@ export function SetupPage() {
         title="Photos"
         hint="Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best."
         accept="image/jpeg,image/png,image/heic,.heic"
+        notice={notice("photos")}
         onChange={changed}
       />
       <UploadSection
@@ -110,10 +132,11 @@ export function SetupPage() {
         title="Recordings"
         hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
         accept="audio/*,.m4a,.wav,.mp3"
+        notice={notice("sounds")}
         onChange={changed}
       />
-      <AccentSection onChange={changed} preparing={preparing} />
-      <PrepareSection changes={changes} onRunning={setPreparing} />
+      <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
+      <PrepareSection changes={changes} onRunning={setPreparing} onBack={goBack} />
     </>
   );
 }
@@ -128,6 +151,7 @@ function UploadSection(props: {
   title: string;
   hint: string;
   accept: string;
+  notice: string | null; // what to do after rejecting the sample (roadmap R14)
   onChange: () => void; // a file was added, passed its checks or removed, or a photo chosen
 }) {
   const { kind } = props;
@@ -265,8 +289,9 @@ function UploadSection(props: {
   const loading = items === null && !loadFailed;
 
   return (
-    <section>
+    <section id={kind}>
       <h2>{props.title}</h2>
+      {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">{props.hint}</p>
       <label className={ready ? "button" : "button busy"}>
         {sending
@@ -411,7 +436,11 @@ const ACCENTS: { accent: Accent; label: string }[] = [
 
 // Setup (roadmap R26): the person's voice keeps their own accent or speaks with another one.
 // Changing it after the sample is ready makes the sample again in the new accent.
-function AccentSection(props: { onChange: () => void; preparing: boolean }) {
+function AccentSection(props: {
+  onChange: () => void;
+  preparing: boolean;
+  notice: string | null;
+}) {
   const { onChange, preparing } = props;
   // null until the server has answered.
   const [choice, setChoice] = useState<AccentChoice | null>(null);
@@ -441,8 +470,9 @@ function AccentSection(props: { onChange: () => void; preparing: boolean }) {
   }
 
   return (
-    <section className="accent">
+    <section className="accent" id="accent">
       <h2>Accent</h2>
+      {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">
         The person&apos;s voice can keep their own accent or speak with another one. Changing it
         makes the sample video again.
@@ -484,7 +514,11 @@ export const PREPARE_POLL_MS = 1000;
 // Setup step 2 (roadmap R12): get the voice and the face ready for the video, with a progress
 // bar, then play the sample video it renders (R13). The job runs on the server, so the page can
 // be closed or reloaded meanwhile.
-function PrepareSection(props: { changes: number; onRunning: (running: boolean) => void }) {
+function PrepareSection(props: {
+  changes: number;
+  onRunning: (running: boolean) => void;
+  onBack: (to: Back) => void;
+}) {
   const { changes, onRunning } = props;
   // null until the server has answered.
   const [status, setStatus] = useState<PrepareStatus | null>(null);
@@ -591,10 +625,117 @@ function PrepareSection(props: { changes: number; onRunning: (running: boolean) 
             src={clipUrl("sample", status)}
             aria-label="Sample video"
           />
+          <ReviewChoices sample={status.finished_at} onBack={props.onBack} />
         </div>
       )}
       {status?.state === "failed" && <p className="error">{status.error}</p>}
     </section>
+  );
+}
+
+const REJECTS: { decision: Decision; label: string; back: Back }[] = [
+  { decision: "reject-image", label: "Reject image", back: "photos" },
+  { decision: "reject-voice", label: "Reject voice", back: "sounds" },
+  { decision: "change-accent", label: "Change accent", back: "accent" },
+];
+
+// Under the sample video (roadmap R14): accept it and go to the chat, or go back to the photos,
+// the recordings or the accent. sample tells samples apart, so a new one is read afresh.
+function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => void }) {
+  // null until the server has answered.
+  const [current, setCurrent] = useState<Review | null>(null);
+  const [saving, setSaving] = useState<Decision | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    getReview()
+      .then(setCurrent)
+      .catch((e: unknown) => console.error("Could not get the review", e));
+  }, [props.sample]);
+
+  async function decide(decision: Decision, back?: Back) {
+    setSaving(decision);
+    setFailed(null);
+    try {
+      setCurrent(await review(decision));
+      if (back) props.onBack(back);
+      else window.location.hash = "#/chat";
+    } catch (e) {
+      console.error(`Could not save the review (${decision})`, e);
+      setFailed(`Could not save your choice: ${(e as Error).message}`);
+    }
+    setSaving(null);
+  }
+
+  return (
+    <div className="review">
+      <h3>Is this right?</h3>
+      {current?.accepted ? (
+        <p className="done">
+          You accepted this sample. <a href="#/chat">Go to the chat</a>
+        </p>
+      ) : (
+        <p className="muted">Accept it to unlock the chat, or go back and change what is wrong.</p>
+      )}
+      <div className="choices">
+        {!current?.accepted && (
+          <button
+            type="button"
+            className={saving === "accept" ? "busy" : undefined}
+            disabled={saving !== null}
+            onClick={() => void decide("accept")}
+          >
+            Accept
+          </button>
+        )}
+        {REJECTS.map(({ decision, label, back }) => (
+          <button
+            key={decision}
+            type="button"
+            className={saving === decision ? "secondary busy" : "secondary"}
+            disabled={saving !== null}
+            onClick={() => void decide(decision, back)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {failed && <p className="error">{failed}</p>}
+    </div>
+  );
+}
+
+// Chat (roadmap R14): locked until a sample video is accepted. The chat itself comes in R15.
+export function ChatPage() {
+  // null until the server has answered.
+  const [accepted, setAccepted] = useState<boolean | null>(null);
+  useEffect(() => {
+    getReview()
+      .then((r) => setAccepted(r.accepted))
+      .catch((e: unknown) => {
+        console.error("Could not get the review", e);
+        setAccepted(false);
+      });
+  }, []);
+
+  if (accepted === null) return <p className="muted busy">Loading…</p>;
+  if (!accepted) {
+    return (
+      <>
+        <h1>Chat</h1>
+        <p>The chat is locked until you accept a sample video at the end of setup.</p>
+        <a className="button" href="#/setup">
+          Go to setup
+        </a>
+      </>
+    );
+  }
+  return (
+    <>
+      <h1>Chat</h1>
+      <p className="done">The sample video is accepted, so the chat is unlocked.</p>
+      <p className="muted">Typing to the person is the next part to be built.</p>
+    </>
   );
 }
 

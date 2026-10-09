@@ -8,6 +8,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
@@ -31,6 +32,7 @@ from imageskin.prepare_job import (
     photoreal_clip,
     photoreal_face,
 )
+from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.uploads import (
     MEDIA_TYPE,
@@ -60,6 +62,11 @@ class PhotoChoiceRequest(BaseModel):
 
 class AccentRequest(BaseModel):
     accent: Accent
+
+
+class ReviewRequest(BaseModel):
+    # The four choices under the sample video (feature item 7).
+    decision: Literal["accept", "reject-image", "reject-voice", "change-accent"]
 
 
 NEEDS_CLONE = (
@@ -281,6 +288,19 @@ def create_app(
         # no-cache: preparing again replaces it under the same address.
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
         return FileResponse(path, media_type="video/mp4", headers=headers)
+
+    @app.get("/api/review", dependencies=needs_consent)
+    def get_review() -> dict[str, object]:
+        return asdict(load_review(data_home, job.status()))
+
+    @app.post("/api/review", dependencies=needs_consent)
+    def post_review(body: ReviewRequest) -> dict[str, object]:
+        if body.decision != "accept":
+            return asdict(withdraw(data_home, body.decision))
+        try:
+            return asdict(accept(data_home, job.status()))
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
 
     # Last, so /health and /api routes win over the static files.
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
