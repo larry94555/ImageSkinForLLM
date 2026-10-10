@@ -2,7 +2,7 @@
 
 Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 9 to 13, added on 2026-10-08, come last and turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46). Milestone 18, added later on 2026-10-09, comes last and adds a profile of each student's interests and personality (item 47).
 
-PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, and R16a for saying what a reply leaves out, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, and R16a for saying what a reply leaves out, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -14,7 +14,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 13.4% | 9 of 9 |
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 9.0% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 9.0% | 4 of 6 |
-| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.0% | 0 |
+| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.0% | 1 of 4 |
 | 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.5% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.5% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 3.0% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 3.0% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.5% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 3.0% | 0 |
-| | **Total** | | **67** | **100%** | **26 of 67** |
+| | **Total** | | **67** | **100%** | **27 of 67** |
 
 Sizes: 16 Simple, 51 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -245,9 +245,10 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 5: Real-time replies
 
-### R20. Streaming LLM text and sentence splitting (Simple) · item 12
+### R20. Streaming LLM text and sentence splitting (Simple) · item 12 · Done in [PR #46](https://github.com/larry94555/ImageSkinForLLM/pull/46)
 - The LLM client streams text; a splitter turns it into sentences as they complete, handling abbreviations, numbers and decimals.
 - **Can show:** in the logs, sentences arriving one at a time while the LLM is still writing.
+- **Built:** `LlmClient.stream()` asks with `"stream": true` and reads the server-sent events; `sentences.SentenceSplitter` hands back each sentence once the next one starts. A sentence ends at ".", "!", "?" or an ellipsis followed by a space, at a blank line, and at the end of a heading or list item. It doesn't end after an abbreviation (Dr., e.g.), an initial (J.), a list number (1.), a dotted abbreviation (U.S.) or a full stop followed by a lowercase word or a digit; code blocks stay whole. The log shows `Reply started` and `Reply sentence ready` with the time since the prompt. The summary is still asked for in one piece.
 
 ### R21. Sentence-by-sentence rendering on the server (Medium) · item 12
 - Voices and animates each sentence while later ones are still generating, keeping them in order.
