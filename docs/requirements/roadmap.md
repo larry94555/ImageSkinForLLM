@@ -13,7 +13,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 10.4% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 13.4% | 9 of 9 |
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 9.0% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 9.0% | 3 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 9.0% | 4 of 6 |
 | 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.0% | 0 |
 | 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.5% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.5% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 3.0% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.5% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 3.0% | 0 |
-| | **Total** | | **67** | **100%** | **25 of 67** |
+| | **Total** | | **67** | **100%** | **26 of 67** |
 
 Sizes: 16 Simple, 51 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -228,10 +228,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** `imageskin spoken-text` prints whole sentences for replies with links, code, pictures and tables.
 - Built as proposed, with these choices to check by ear: a code block or table is a sentence of its own ("See the code shown below.", "See the table in the text below."); bare URLs separated only by commas, spaces or "and" are one "the links in the text below"; a URL in brackets or angle brackets also says "the link in the text below", while a Markdown link speaks its text; inline code of up to two words is spoken exactly as written, without its backticks (stars and underscores kept), unless it holds a URL; only ❤️ and ♥ between two words count as a word ("love"), every other emoji stays silent.
 
-### R17. Spoken video replies (Medium) · items 11, 20
+### R17. Spoken video replies (Medium) · items 11, 20 · Done in [PR #45](https://github.com/larry94555/ImageSkinForLLM/pull/45)
 - Each cleaned reply is voiced in the person's voice (R25) and animated with R4c, then played in the chat.
 - If voice or video fails, the reply text panel (R18, until then the reply text) opens with the reply and a short friendly note; if the LLM fails, a plain message says so.
 - **Can show:** the person speaks each LLM reply in their voice. This is the app's core experience, though slower than the target until Milestone 5.
+- **Built:** `reply_video.py` speaks each reply's cleaned text (R16, R16a) and renders it with the prepare job's voice and photoreal engines, one reply at a time; only the latest reply's video is kept, in `<data folder>/replies`. The reply text shows at once and the video follows from a second request (`POST /api/chat/video`), since the cloned voice takes 1.5 to 2 seconds per second of speech; it plays above the conversation. After a server restart the first reply makes the voice ready again with the chosen accent. If the voice or video fails, the reply stays as text with a short note and the reason.
 
 ### R18. Reply text panel (Medium) · item 11
 - Changed from word highlighting after Larry's review of R16 (2026-10-09): reading along with the words being spoken is distracting, and a highlight kept in sync would complicate the screen and could slow replies. Words are not highlighted.
