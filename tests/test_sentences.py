@@ -150,6 +150,30 @@ FIRST_CLAUSE_CASES = [
     ),
     ("He was – the of old house now. Next.", ["He was – the of old", "house now.", "Next."]),
     ("Steps:\n1. First, do this\n2. Then, that", ["Steps:", "1. First, do this", "2. Then, that"]),
+    # Nor is a picture, link or HTML tag, which speech_text replaces whole: the clause ends
+    # after it instead (a review finding on R22b), or the sentence stays whole when that would
+    # pass eight words.
+    (
+        "Please see ![a detailed diagram of it](d.png) before we go on. Next.",
+        ["Please see ![a detailed diagram of it](d.png)", "before we go on.", "Next."],
+    ),
+    (
+        "Read [the long guide to it](https://a.io/g) first and then go. Next.",
+        ["Read [the long guide to it](https://a.io/g)", "first and then go.", "Next."],
+    ),
+    (
+        'One two <span class="a b c"> three four five six. Next.',
+        ['One two <span class="a b c">', "three four five six.", "Next."],
+    ),
+    (
+        "Please see ![a very detailed diagram showing the entire architecture clearly]"
+        "(diagram.png) before continuing. Next.",
+        [
+            "Please see ![a very detailed diagram showing the entire architecture clearly]"
+            "(diagram.png) before continuing.",
+            "Next.",
+        ],
+    ),
     ("```\nx = f(a, b, c)\n```\nSo, that is it.", ["```\nx = f(a, b, c)\n```", "So, that is it."]),
 ]
 
