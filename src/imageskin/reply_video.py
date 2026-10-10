@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from imageskin.prepare_job import PrepareVoice, RenderClip
@@ -55,6 +56,15 @@ def ms_since(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
+@dataclass(frozen=True)
+class ClipTime:
+    """When a sentence arrived from the LLM and when its clip was ready, as time.perf_counter()
+    seconds, for the chat page's timing readout (roadmap R22a)."""
+
+    sentence_at: float
+    ready_at: float
+
+
 class SentenceClips:
     """One reply's clips, rendered a sentence at a time on a background thread, in order, while
     the LLM writes the next ones. Give it to Conversation.send as `on_sentence`."""
@@ -64,14 +74,16 @@ class SentenceClips:
         self._photo = photo
         self.folder = videos.folder / f"clips-{reply_id}"
         self.clips: list[Path] = []
+        self.times: list[ClipTime] = []  # one per clip
         self.sentences = 0  # given so far
-        self._queue: queue.Queue[str | None] = queue.Queue()
+        self._queue: queue.Queue[tuple[str, float] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._first_words: float | None = None
         self._error: Exception | None = None
         self._cancelled = False
         self._closed = False
         self.done = False  # every clip is rendered, or rendering stopped
+        self._changed = threading.Condition()  # a clip was added, a clip failed or it is done
 
     def __call__(self, sentence: str | None) -> None:
         if sentence is None:  # the LLM has started writing
@@ -81,7 +93,7 @@ class SentenceClips:
         if self._thread is None:
             self._thread = threading.Thread(target=self._run, name="sentence-clips", daemon=True)
             self._thread.start()
-        self._queue.put(sentence)
+        self._queue.put((sentence, time.perf_counter()))
 
     def close(self) -> None:
         """The reply is complete: the clips' thread ends after the last sentence, so it never
@@ -90,7 +102,20 @@ class SentenceClips:
             self._closed = True
             self._queue.put(None)
             if self._thread is None:
-                self.done = True
+                self._finish()
+
+    def _finish(self) -> None:
+        with self._changed:
+            self.done = True
+            self._changed.notify_all()
+
+    def wait_for_change(self, known: int, timeout: float) -> None:
+        """Wait, at most `timeout` seconds, until there are more than `known` clips, a clip
+        has failed or the reply is done, so the browser needn't ask again and again."""
+        with self._changed:
+            self._changed.wait_for(
+                lambda: len(self.clips) > known or self.done or self._error is not None, timeout
+            )
 
     @property
     def error(self) -> str | None:
@@ -113,15 +138,18 @@ class SentenceClips:
     def _run(self) -> None:
         with self._videos._lock:
             n = 0
-            while (sentence := self._queue.get()) is not None:
+            while (item := self._queue.get()) is not None:
+                sentence, sentence_at = item
                 n += 1
                 if self._error is not None or self._cancelled:
                     continue  # let the rest go by
                 start = time.perf_counter()
                 try:
-                    rendered = self._render(sentence)
+                    rendered = self._render(sentence, sentence_at)
                 except Exception as e:
-                    self._error = e
+                    with self._changed:
+                        self._error = e
+                        self._changed.notify_all()
                     logger.error("Sentence clip failed", extra={"sentence": n, "error": str(e)})
                     continue
                 if rendered:
@@ -130,15 +158,18 @@ class SentenceClips:
                         extra={
                             "sentence": n,
                             "render_ms": ms_since(start),
+                            # The chat page's measure (roadmap R22a): from the sentence
+                            # arriving from the LLM to its clip.
+                            "since_sentence_ms": ms_since(sentence_at),
                             # The roadmap's measure: from the LLM's first words to this clip.
                             "since_first_words_ms": (
                                 None if self._first_words is None else ms_since(self._first_words)
                             ),
                         },
                     )
-        self.done = True
+        self._finish()
 
-    def _render(self, sentence: str) -> bool:
+    def _render(self, sentence: str, sentence_at: float) -> bool:
         """Render the sentence's clip; False when there is nothing in it to say aloud."""
         text = spoken_text(sentence)
         if not text:
@@ -147,7 +178,10 @@ class SentenceClips:
         self.folder.mkdir(parents=True, exist_ok=True)
         path = self.folder / f"{len(self.clips) + 1}.mp4"
         self._videos._render_clip(self._photo, text, path)
-        self.clips.append(path)
+        with self._changed:
+            self.times.append(ClipTime(sentence_at, time.perf_counter()))
+            self.clips.append(path)
+            self._changed.notify_all()
         return True
 
 

@@ -247,17 +247,31 @@ export async function speakReply(turn: number): Promise<string | null> {
   return ((await response.json()) as { video: string | null }).video;
 }
 
-// A reply's clips so far, one per sentence, in order (roadmap R22). done: no more will come;
-// error: why a clip failed. null when the server has none for it: not yet, or the reply wasn't
-// streamed (then speakReply makes its whole video).
-export interface Clips {
-  clips: string[];
-  done: boolean;
-  error: string | null;
+// One sentence's clip (roadmap R22), with when its sentence arrived from the LLM and when the
+// clip was ready, in seconds on the server's clock (the clock `Clips.now` reads), for the
+// timing readout (roadmap R22a).
+export interface Clip {
+  url: string;
+  sentence_at: number;
+  ready_at: number;
 }
 
-export async function getClips(replyId: string): Promise<Clips | null> {
-  const response = await fetch(`/api/chat/clips/${replyId}`);
+// A reply's clips so far, one per sentence, in order (roadmap R22). done: no more will come;
+// error: why a clip failed; now: the server's clock when it answered. null when the server has
+// none for it: not yet, or the reply wasn't streamed (then speakReply makes its whole video).
+export interface Clips {
+  clips: Clip[];
+  done: boolean;
+  error: string | null;
+  now: number;
+}
+
+// With `known`, the clips this page has so far: the server answers as soon as there is more to
+// tell (a new clip, a failure or the end), or after 10 seconds, so a clip is known the moment
+// it is ready.
+export async function getClips(replyId: string, known?: number): Promise<Clips | null> {
+  const query = known === undefined ? "" : `?known=${known}&wait=10`;
+  const response = await fetch(`/api/chat/clips/${replyId}${query}`);
   if (response.status === 404) return null;
   return json<Clips>(response);
 }

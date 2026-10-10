@@ -757,6 +757,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// When a sentence's clip went through, in milliseconds on this page's clock (performance.now()):
+// its text arrived from the LLM, its clip was ready, it started playing and it ended (roadmap
+// R22a). The server's times are moved onto this clock from the `now` it answers with.
+export interface ClipTime {
+  text: number;
+  ready: number;
+  started: number | null;
+  ended: number | null;
+}
+
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
 // (roadmap R22); if that fails, the reply stays as text with a short note.
@@ -766,6 +776,8 @@ function Chat() {
   const [sending, setSending] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [clips, setClips] = useState<string[]>([]);
+  const [times, setTimes] = useState<ClipTime[]>([]); // one per clip of the latest reply
+  const [whole, setWhole] = useState(false); // the latest reply is one video, not clips
   // Why the latest reply could not be spoken, by its place in the turns shown.
   const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -789,22 +801,42 @@ function Chat() {
   }, []);
   useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending, speaking]);
 
-  // Follow the reply's clips until the last one is made. False when the server has none:
-  // the reply wasn't streamed, or it failed.
+  // Follow the reply's clips until the last one is made: the server answers each request as
+  // soon as it has more to tell. False when the server has none: the reply wasn't streamed, or
+  // it failed.
   async function followClips(replyId: string, replied: () => boolean): Promise<boolean> {
+    let known = 0;
     while (!gone.current) {
       const answered = replied(); // read first: the clips may be dropped once it has replied
-      const got = await getClips(replyId);
+      const got = await getClips(replyId, known);
       if (got === null) {
         if (answered) return false;
-      } else {
-        setClips(got.clips);
-        if (got.error !== null) throw new Error(got.error);
-        if (got.done) return true;
+        await sleep(CLIP_POLL_MS);
+        continue;
       }
-      await sleep(CLIP_POLL_MS);
+      const offset = performance.now() - got.now * 1000; // the server's clock to this page's
+      const made = got.clips.slice(known).map((c) => ({
+        text: c.sentence_at * 1000 + offset,
+        ready: c.ready_at * 1000 + offset,
+        started: null,
+        ended: null,
+      }));
+      if (made.length) setTimes((t) => [...t, ...made]);
+      setClips(got.clips.map((c) => c.url));
+      if (got.error !== null) throw new Error(got.error);
+      if (got.done) return true;
+      if (got.clips.length === known) await sleep(CLIP_POLL_MS); // its wait ran out
+      known = got.clips.length;
     }
     return true; // nothing more to do here
+  }
+
+  // The player says when each clip starts and ends, for the timing readout.
+  function started(clip: number, at: number) {
+    setTimes((t) => t.map((c, i) => (i === clip && c.started === null ? { ...c, started: at } : c)));
+  }
+  function ended(clip: number, at: number) {
+    setTimes((t) => t.map((c, i) => (i === clip && c.ended === null ? { ...c, ended: at } : c)));
   }
 
   async function send() {
@@ -818,12 +850,16 @@ function Chat() {
     setFailed(null);
     setUnspoken(null);
     setClips([]); // the server replaces the last reply's clips or video with this one's
+    setTimes([]);
+    setWhole(false);
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
     setPrompt("");
     const following = followClips(replyId, () => replied);
     let reply: Reply;
+    let repliedAt = 0;
     try {
       reply = await sendPrompt(text, replyId);
+      repliedAt = performance.now();
       const { role, content } = reply;
       setTurns((t) => [...(t ?? []), { role, content }]);
     } catch (e) {
@@ -848,6 +884,10 @@ function Chat() {
         const url = await speakReply(reply.turn);
         // A new address each time, so the same reply number after a restart plays afresh.
         setClips(url ? [`${url}?t=${Date.now()}`] : []);
+        if (url) {
+          setWhole(true);
+          setTimes([{ text: repliedAt, ready: performance.now(), started: null, ended: null }]);
+        }
       }
     } catch (e) {
       console.error("Could not speak the reply", e);
@@ -860,7 +900,8 @@ function Chat() {
   if (turns === null) return <p className="muted busy">Loading…</p>;
   return (
     <div className="chat">
-      {clips.length > 0 && <ClipPlayer clips={clips} />}
+      {clips.length > 0 && <ClipPlayer clips={clips} onStarted={started} onEnded={ended} />}
+      {times.length > 0 && <ClipTimes times={times} whole={whole} />}
       {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
       <ol className="turns">
         {turns.map((turn, i) => (
@@ -909,22 +950,112 @@ function Chat() {
 }
 
 // Plays a reply's clips one after another, as they arrive (roadmap R22). When it reaches the
-// end of the clips so far, it waits on the last frame for the next one.
-export function ClipPlayer(props: { clips: string[] }) {
-  const { clips } = props;
-  const [playing, setPlaying] = useState(0);
+// end of the clips so far, it waits on the last frame for the next one. Two players take turns:
+// while one plays a clip, the other loads the next, so the switch between sentences costs no
+// time (roadmap R22a). `onStarted` and `onEnded` are told when each clip starts and ends.
+export function ClipPlayer(props: {
+  clips: string[];
+  onStarted?: (clip: number, at: number) => void;
+  onEnded?: (clip: number, at: number) => void;
+}) {
+  const { clips, onStarted, onEnded } = props;
+  const [playing, setPlaying] = useState(0); // the clip to play; clips.length once all have
+  const [active, setActive] = useState(0); // which of the two players is showing
+  const players = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
+  const begun = useRef(new Set<number>()); // clips that have started, told of once each
   const first = clips[0];
-  useEffect(() => setPlaying(0), [first]); // a new reply starts from its first clip
-  const shown = clips[Math.min(playing, clips.length - 1)];
+  useEffect(() => {
+    // A new reply starts from its first clip.
+    setPlaying(0);
+    setActive(0);
+    begun.current = new Set();
+  }, [first]);
+  useEffect(() => {
+    // The other player took over with the next clip loaded: it only has to start.
+    const player = players[active].current;
+    if (active === 0 && playing === 0) return; // the first clip plays by itself (autoplay)
+    try {
+      void player?.play()?.catch(() => undefined); // refused: the controls still play it
+    } catch {
+      // Not every browser (or test) can play.
+    }
+  }, [active]);
+
+  const current = Math.min(playing, clips.length - 1);
+  const next = clips[current + 1];
+
+  function begins(at: number) {
+    if (playing < clips.length && !begun.current.has(playing)) {
+      begun.current.add(playing);
+      onStarted?.(playing, at);
+    }
+  }
+
+  function ends(at: number) {
+    if (playing >= clips.length) return; // played again by hand, after the last clip so far
+    onEnded?.(playing, at);
+    if (next !== undefined) setActive((a) => 1 - a); // the next clip is loaded there already
+    setPlaying(playing + 1);
+  }
+
   return (
-    <video
-      className="reply-video"
-      src={shown}
-      autoPlay
-      controls
-      playsInline
-      onEnded={() => setPlaying((p) => Math.min(p + 1, clips.length))}
-    />
+    <>
+      {[0, 1].map((n) =>
+        n === active ? (
+          <video
+            key={n}
+            ref={players[n]}
+            className="reply-video"
+            src={clips[current]}
+            autoPlay
+            controls
+            playsInline
+            onPlaying={() => begins(performance.now())}
+            onEnded={() => ends(performance.now())}
+          />
+        ) : (
+          next !== undefined && (
+            <video key={n} ref={players[n]} src={next} preload="auto" playsInline hidden />
+          )
+        ),
+      )}
+    </>
+  );
+}
+
+// 1.26 -> "1.3 s"
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+// How long each sentence took to be spoken, against the 1 to 2 second target (roadmap R22a):
+// from its text arriving from the LLM to its clip playing, and the pause after the sentence
+// before it. The first sentence is late when its wait after the text passes the target; the
+// others when the pause does, since a sentence whose text arrived while the one before it was
+// still playing is on time if it follows straight on. A reply spoken in one video has one line.
+export function ClipTimes(props: { times: ClipTime[]; whole?: boolean }) {
+  const { times, whole } = props;
+  const limit = 2000;
+  return (
+    <div className="timing">
+      <span>Timing (target 1 to 2 s)</span>
+      <ol>
+        {times.map((t, i) => {
+          const name = whole ? "Reply" : `Sentence ${i + 1}`;
+          if (t.started === null) return <li key={i}>{name}: not spoken yet</li>;
+          const after = t.started - t.text;
+          const before = times[i - 1];
+          const pause = before?.ended === null || before === undefined ? null : Math.max(0, t.started - before.ended);
+          const late = (pause === null ? after : pause) > limit;
+          return (
+            <li key={i} className={late ? "late" : undefined}>
+              {name}: spoken {seconds(after)} after its text arrived
+              {pause !== null && `, ${seconds(pause)} after sentence ${i} ended`}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 

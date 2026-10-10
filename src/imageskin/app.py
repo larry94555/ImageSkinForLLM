@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +21,7 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings, StreamLlm
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
+from imageskin.cores import CoreShare
 from imageskin.prepare_job import (
     ClipName,
     PrepareError,
@@ -79,6 +80,8 @@ class ReplyVideoRequest(BaseModel):
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
+# The longest the clips request waits for the next clip before answering with none new.
+CLIPS_WAIT_S = 10.0
 
 
 class ReviewRequest(BaseModel):
@@ -331,7 +334,9 @@ def create_app(
     )
     if ask_llm is None:
         client = LlmClient(llm)
-        conversation = Conversation(client.ask, client.context_tokens, client.count, client.stream)
+        conversation = Conversation(
+            client.ask, client.context_tokens, client.count, client.stream, client.warm_up
+        )
     else:
         conversation = Conversation(ask_llm, lambda: llm.context_tokens, stream=stream_llm)
 
@@ -350,6 +355,9 @@ def create_app(
     # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
     # prompt waiting on another always drops that one's clips.
     chat_lock = threading.Lock()
+    # The engines leave the LLM half the cores while it writes (roadmap R22a).
+    core_share = CoreShare()
+    core_share.llm_done()
 
     def chosen_photo() -> Path | None:
         return store.path("photos", job.status().photo_id or "")
@@ -358,7 +366,11 @@ def create_app(
     def post_chat(body: ChatRequest) -> dict[str, str | int]:
         """The reply, with its place in the conversation to ask for its video by."""
         with chat_lock:
-            return chat(body)
+            core_share.llm_writing()
+            try:
+                return chat(body)
+            finally:
+                core_share.llm_done()
 
     def chat(body: ChatRequest) -> dict[str, str | int]:
         with clips_lock:
@@ -389,14 +401,36 @@ def create_app(
         return {**asdict(reply), "turn": turn}
 
     @app.get("/api/chat/clips/{reply_id}", dependencies=needs_consent)
-    def get_clips(reply_id: str) -> dict[str, object]:
-        """The reply's clips so far, in order; done once there will be no more."""
+    def get_clips(
+        reply_id: str,
+        # With `known`, the browser's count so far: the answer waits (up to `wait` seconds)
+        # until there is more to tell, so each clip is known the moment it is ready (R22a).
+        known: int | None = Query(default=None, ge=0),
+        wait: float = Query(default=CLIPS_WAIT_S, ge=0, le=CLIPS_WAIT_S),
+    ) -> dict[str, object]:
+        """The reply's clips so far, in order, each with when its sentence arrived from the LLM
+        and when the clip was ready (seconds on the server's clock, like `now`); done once
+        there will be no more."""
         with clips_lock:
             clips = sentence_clips.get(reply_id)
         if clips is None:
             raise HTTPException(status_code=404, detail="No clips for that reply.")
-        urls = [f"/api/chat/clips/{reply_id}/{n}" for n in range(1, len(clips.clips) + 1)]
-        return {"clips": urls, "done": clips.done, "error": clips.error}
+        if known is not None:
+            clips.wait_for_change(known, wait)
+        made = [
+            {
+                "url": f"/api/chat/clips/{reply_id}/{n}",
+                "sentence_at": t.sentence_at,
+                "ready_at": t.ready_at,
+            }
+            for n, t in enumerate(clips.times[: len(clips.clips)], 1)
+        ]
+        return {
+            "clips": made,
+            "done": clips.done,
+            "error": clips.error,
+            "now": time.perf_counter(),
+        }
 
     @app.get("/api/chat/clips/{reply_id}/{n}", dependencies=needs_consent)
     def get_clip_file(reply_id: str, n: int) -> FileResponse:
@@ -413,6 +447,7 @@ def create_app(
         photo = store.path("photos", status.photo_id or "")
         if photo is not None and load_review(data_home, status).accepted:
             logger.info("Warming up replies")
+            conversation.warm_up()  # quick, so a prompt sent meanwhile still gains from it
             replies.warm_up(photo)
 
     app.state.reply_warm_up = threading.Thread(

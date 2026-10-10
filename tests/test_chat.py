@@ -408,6 +408,32 @@ class Stalled:
         raise TimeoutError("timed out")
 
 
+def test_warming_up_has_the_server_read_the_system_prompt(
+    fake_llm: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    FakeLlm.answer = (200, reply("Hi"))
+    client = LlmClient(LlmSettings(url=fake_llm, model="qwen"))
+    caplog.set_level(logging.INFO)
+    Conversation(client.ask, lambda: 4096, warm_up=client.warm_up).warm_up()
+    assert FakeLlm.received == [
+        {
+            "path": "/v1/chat/completions",
+            "model": "qwen",
+            "messages": [system_message(None), {"role": "user", "content": "Hello."}],
+            "max_tokens": 1,
+            "temperature": TEMPERATURE,
+        }
+    ]
+    assert "LLM warmed up" in caplog.messages
+
+
+def test_a_failed_warm_up_is_logged_only(caplog: pytest.LogCaptureFixture) -> None:
+    client = LlmClient(LlmSettings(url="http://127.0.0.1:9/v1"))
+    client.warm_up()
+    assert "Could not warm up the LLM" in caplog.messages
+    Conversation(client.ask, lambda: 4096).warm_up()  # nothing to warm up with: fine
+
+
 def test_a_stream_cut_off_cleanly_is_an_error_and_not_kept(fake_llm: str) -> None:
     FakeLlm.answer = (200, b'data: {"choices": [{"delta": {"content": "Hello. I am"}}]}\n\n')
     client = LlmClient(LlmSettings(url=fake_llm))
