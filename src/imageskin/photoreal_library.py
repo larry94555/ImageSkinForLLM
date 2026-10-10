@@ -431,7 +431,9 @@ class Paster:
             raise VideoError("the face crop falls outside the photo")
         self.box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
         x0, y0, x1, y1 = self.box
-        self.weight = (paste[y0:y1, x0:x1].astype(np.float32) / 255.0)[..., None]
+        # The blend's weights, for the face and for the photo under it, made once.
+        self.weight = np.ascontiguousarray(paste[y0:y1, x0:x1].astype(np.float32) / 255.0)
+        self.under = np.ascontiguousarray(1.0 - self.weight)
         # The crop-to-photo transform, shifted so the crop lands in the box. Only the box is
         # warped and blended, which keeps each frame fast.
         self.to_box = lib.crop_to_photo - np.array([[0, 0, x0], [0, 0, y0]], np.float64)
@@ -441,8 +443,9 @@ class Paster:
         x0, y0, x1, y1 = self.box
         moved = cv2.warpAffine(face, self.to_box, (x1 - x0, y1 - y0))
         out = self.photo.copy()
-        region = out[y0:y1, x0:x1]
-        out[y0:y1, x0:x1] = (region * (1.0 - self.weight) + moved * self.weight).astype(np.uint8)
+        # Blended in 8-bit by OpenCV in one pass: in floating point over the box, as before, the
+        # blend was most of a frame's time (roadmap R22c).
+        out[y0:y1, x0:x1] = cv2.blendLinear(out[y0:y1, x0:x1], moved, self.under, self.weight)
         return out
 
 

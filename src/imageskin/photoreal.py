@@ -126,6 +126,20 @@ class Compositor:
         self.head = head_weight(lm)
         self.crop_grid = pixel_grid(lib.shapes["rest"])
         self.pivot = (float(lm[8, 0]), float(lm[8, 1]) + 40)  # below the chin, at the neck
+        # The head's move is a turn about the pivot plus a shift, faded by `head`: the parts
+        # that don't change from frame to frame are made once (roadmap R22c).
+        px, py = self.pivot
+        self._x = np.ascontiguousarray(self.crop_grid[..., 0])
+        self._y = np.ascontiguousarray(self.crop_grid[..., 1])
+        self._hx = np.ascontiguousarray((self._x - px) * self.head, np.float32)
+        self._hy = np.ascontiguousarray((self._y - py) * self.head, np.float32)
+        self._map_x = np.empty_like(self._x)
+        self._map_y = np.empty_like(self._y)
+        # The still head around each window, which only the window's part changes in.
+        self._stills = {
+            box: self.lib.shapes["rest"][box[1] : box[3], box[0] : box[2]].copy()
+            for box in self.boxes
+        }
 
     def face(
         self,
@@ -160,14 +174,21 @@ class Compositor:
         return face
 
     def _move_head(self, face: Image, move: FrameMotion) -> Image:
-        """Turn the head about the neck by `move.tilt` and shift it by the nod and sway."""
+        """Turn the head about the neck by `move.tilt` and shift it by the nod and sway: each
+        output pixel takes the colour from where it came, as `expression.push` does, with the
+        maps made in place by OpenCV."""
         a = math.radians(move.tilt)
-        px, py = self.pivot
-        gx = self.crop_grid[..., 0] - px
-        gy = self.crop_grid[..., 1] - py
-        dx = (math.cos(a) - 1) * gx - math.sin(a) * gy + move.sway
-        dy = math.sin(a) * gx + (math.cos(a) - 1) * gy + move.nod
-        return push(face, self.crop_grid, dx * self.head, dy * self.head)
+        turn, lean = math.cos(a) - 1.0, math.sin(a)
+        # map_x = x - head * ((cos a - 1) * gx - sin a * gy + sway), and likewise for y.
+        map_x, map_y = self._map_x, self._map_y
+        cv2.addWeighted(self._hx, -turn, self._hy, lean, 0.0, dst=map_x)
+        cv2.scaleAdd(self.head, -move.sway, map_x, dst=map_x)
+        cv2.add(map_x, self._x, dst=map_x)
+        cv2.addWeighted(self._hx, -lean, self._hy, -turn, 0.0, dst=map_y)
+        cv2.scaleAdd(self.head, -move.nod, map_y, dst=map_y)
+        cv2.add(map_y, self._y, dst=map_y)
+        out = cv2.remap(face, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+        return np.asarray(out, np.uint8)
 
     def _put(
         self,
@@ -181,15 +202,16 @@ class Compositor:
         """Blend `part`, the still head inside `window`, into `face`: moved by `to_loop` and
         through the moved `mask`. Only `box`, where the moved window can land, is touched."""
         (x0, y0, x1, y1), (bx0, by0, bx1, by1) = window, box
-        still = self.lib.shapes["rest"][by0:by1, bx0:bx1].copy()
+        still = self._stills[box]  # kept from the last frame: only the window's part changes
         still[y0 - by0 : y1 - by0, x0 - bx0 : x1 - bx0] = part
         origin = np.array([bx0, by0], np.float64)
         move = to_loop.copy()
         move[:, 2] += to_loop[:, :2] @ origin - origin  # the same move, in the box's pixels
         size = (bx1 - bx0, by1 - by0)
-        soft = cv2.warpAffine(mask[by0:by1, bx0:bx1], move, size)[..., None]
+        soft = cv2.warpAffine(mask[by0:by1, bx0:bx1], move, size)
         moved = cv2.warpAffine(still, move, size, borderMode=cv2.BORDER_REFLECT)
-        face[by0:by1, bx0:bx1] = face[by0:by1, bx0:bx1] * (1.0 - soft) + moved * soft
+        # Blended in 8-bit by OpenCV in one pass (roadmap R22c).
+        face[by0:by1, bx0:bx1] = cv2.blendLinear(face[by0:by1, bx0:bx1], moved, 1.0 - soft, soft)
 
     def frame(
         self,
