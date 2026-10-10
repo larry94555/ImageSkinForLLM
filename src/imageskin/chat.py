@@ -13,9 +13,11 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
+
+from imageskin.sentences import SentenceSplitter
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,8 @@ class Turn:
 Message = dict[str, str]
 # Sends the messages to the LLM and returns its reply. LlmError when that fails.
 AskLlm = Callable[[list[Message]], str]
+# The same, handing back the reply's text in pieces as the LLM writes it (roadmap R20).
+StreamLlm = Callable[[list[Message]], Iterator[str]]
 # The number of tokens in a text.
 Count = Callable[[str], int]
 
@@ -116,6 +120,10 @@ def latest(turns: list[Turn], budget: int, count: Count = estimate) -> list[Turn
     if kept and kept[-1].role == "assistant":
         kept.pop()
     return list(reversed(kept))
+
+
+def ms_since(start: float) -> float:
+    return round((time.perf_counter() - start) * 1000, 1)
 
 
 def unreachable(e: Exception) -> bool:
@@ -190,23 +198,27 @@ class LlmClient:
         self._window = n_ctx
         return n_ctx
 
-    def ask(self, messages: list[Message]) -> str:
+    def _post(self, messages: list[Message], stream: bool) -> tuple[str, urllib.request.Request]:
         url = self.settings.url.rstrip("/") + "/chat/completions"
-        body = {
+        body: dict[str, object] = {
             "model": self.settings.model,
             "messages": messages,
             "max_tokens": REPLY_TOKENS,
             "temperature": TEMPERATURE,
         }
+        if stream:
+            body["stream"] = True
         request = urllib.request.Request(
             url,
             data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        return url, request
+
+    def _open(self, url: str, request: urllib.request.Request) -> Any:
         try:
-            with urllib.request.urlopen(request, timeout=self.settings.timeout_s) as response:
-                data = json.loads(response.read())
+            return urllib.request.urlopen(request, timeout=self.settings.timeout_s)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:300]
             raise LlmError(f"The LLM at {url} refused the prompt ({e.code}): {detail}") from e
@@ -214,6 +226,16 @@ class LlmClient:
             reason = getattr(e, "reason", e)
             raise LlmError(
                 f"Could not reach the LLM at {url} ({reason}). Is llama-server running?"
+            ) from e
+
+    def ask(self, messages: list[Message]) -> str:
+        url, request = self._post(messages, stream=False)
+        try:
+            with self._open(url, request) as response:
+                data = json.loads(response.read())
+        except (TimeoutError, OSError) as e:
+            raise LlmError(
+                f"Could not reach the LLM at {url} ({e}). Is llama-server running?"
             ) from e
         except ValueError as e:
             raise LlmError(f"The LLM at {url} sent an answer that is not JSON.") from e
@@ -225,14 +247,41 @@ class LlmClient:
             raise LlmError("The LLM sent an empty reply. Try asking again.")
         return content.strip()
 
+    def stream(self, messages: list[Message]) -> Iterator[str]:
+        """The reply in pieces as the LLM writes it, read from the API's server-sent events."""
+        url, request = self._post(messages, stream=True)
+        with self._open(url, request) as response:
+            try:
+                for raw in response:
+                    line = raw.decode(errors="replace").strip()
+                    # Only "data:" lines carry the reply; others are comments (": ping") or
+                    # event names, and blank lines separate events.
+                    if not line.startswith("data:"):
+                        continue
+                    data = line.removeprefix("data:").strip()
+                    if data == "[DONE]":
+                        return
+                    piece = json.loads(data)["choices"][0].get("delta", {}).get("content")
+                    if isinstance(piece, str) and piece:
+                        yield piece
+            except (TimeoutError, OSError) as e:
+                raise LlmError(f"The LLM at {url} stopped answering ({e}). Try again.") from e
+            except (ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
+                raise LlmError(f"The LLM at {url} sent a reply that could not be read.") from e
+
 
 class Conversation:
     """The one conversation with the LLM, kept in memory until the server stops."""
 
     def __init__(
-        self, ask: AskLlm, context_tokens: Callable[[], int], count: Count = estimate
+        self,
+        ask: AskLlm,
+        context_tokens: Callable[[], int],
+        count: Count = estimate,
+        stream: StreamLlm | None = None,  # replies are streamed and split into sentences
     ) -> None:
         self._ask = ask
+        self._stream = stream
         self._context_tokens = context_tokens
         self._count = count
         self._transcript: list[Turn] = []  # everything said, as shown in the chat
@@ -288,7 +337,8 @@ class Conversation:
         )
         start = time.perf_counter()
         try:
-            reply = Turn("assistant", self._ask(messages))
+            content = self._ask(messages) if self._stream is None else self._stream_reply(messages)
+            reply = Turn("assistant", content)
         except LlmError as e:
             logger.error(
                 "Chat reply failed",
@@ -314,6 +364,37 @@ class Conversation:
             )
             self._summarizer.start()
         return reply
+
+    def _stream_reply(self, messages: list[Message]) -> str:
+        """Stream the reply, logging each sentence as soon as it is complete (roadmap R20)."""
+        assert self._stream is not None
+        start = time.perf_counter()
+        splitter = SentenceSplitter()
+        pieces: list[str] = []
+        ready_at: list[float] = []  # when each sentence was complete
+
+        def ready(sentences: list[str]) -> None:
+            for sentence in sentences:
+                logger.info(
+                    "Reply sentence ready",
+                    extra={
+                        "sentence": len(ready_at) + 1,
+                        "chars": len(sentence),
+                        "since_prompt_ms": ms_since(start),
+                    },
+                )
+                ready_at.append(ms_since(start))
+
+        for piece in self._stream(messages):
+            if not pieces:
+                logger.info("Reply started", extra={"since_prompt_ms": ms_since(start)})
+            pieces.append(piece)
+            ready(splitter.feed(piece))
+        ready(splitter.flush())
+        content = "".join(pieces).strip()
+        if not content:
+            raise LlmError("The LLM sent an empty reply. Try asking again.")
+        return content
 
     def wait(self) -> None:
         """Wait for a summary being made, if any."""

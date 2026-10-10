@@ -153,6 +153,25 @@ def test_a_conversation_remembers_earlier_turns(caplog: pytest.LogCaptureFixture
     assert "Chat prompt sent" in caplog.text and "Chat reply received" in caplog.text
 
 
+def test_a_streamed_reply_is_logged_sentence_by_sentence(caplog: pytest.LogCaptureFixture) -> None:
+    def stream(messages: list[Message]) -> Iterator[str]:
+        yield from ["Hi Lar", "ry. Dr. Smith", " says hi", "! Bye"]
+
+    conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream)
+    with caplog.at_level(logging.INFO):
+        assert conversation.send("Hi") == Turn("assistant", "Hi Larry. Dr. Smith says hi! Bye")
+    ready = [r for r in caplog.records if r.message == "Reply sentence ready"]
+    assert [(r.sentence, r.chars) for r in ready] == [(1, 9), (2, 18), (3, 3)]  # type: ignore[attr-defined]
+    assert "Reply started" in caplog.messages
+
+
+def test_an_empty_streamed_reply_is_an_error(caplog: pytest.LogCaptureFixture) -> None:
+    conversation = Conversation(FakeLlm2(), lambda: 4096, stream=lambda messages: iter([" "]))
+    with pytest.raises(LlmError, match="empty reply"):
+        conversation.send("Hi")
+    assert conversation.turns() == []
+
+
 def test_older_turns_are_summarized_when_the_history_passes_half_the_window(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -333,6 +352,70 @@ def test_bad_answers_say_what_went_wrong(
     FakeLlm.answer = answer
     with pytest.raises(LlmError, match=message):
         LlmClient(LlmSettings(url=fake_llm)).ask([{"role": "user", "content": "Hi"}])
+
+
+def events(*pieces: object) -> bytes:
+    """A streamed answer: server-sent events, as llama-server and OpenAI send them."""
+    lines = [
+        "data: " + json.dumps({"choices": [{"delta": {"content": piece}}]}) + "\n\n"
+        for piece in pieces
+    ]
+    return ("".join(lines) + "data: [DONE]\n\n").encode()
+
+
+def test_the_client_streams_the_reply(fake_llm: str) -> None:
+    # llama-cpp-python's server sends ": ping" comments between events.
+    answer = b": ping - 2026-10-10 01:31:50\n\nevent: message\n" + events(
+        "Hello", None, " there.", ""
+    )
+    FakeLlm.answer = (200, answer.replace(b"[DONE]", b'{"choices": [{}]}\n\ndata: [DONE]'))
+    client = LlmClient(LlmSettings(url=fake_llm, model="qwen"))
+    assert list(client.stream([{"role": "user", "content": "Hi"}])) == ["Hello", " there."]
+    assert FakeLlm.received[0]["stream"] is True
+
+
+@pytest.mark.parametrize(
+    ("answer", "message"),
+    [
+        ((500, b"model not loaded"), r"refused the prompt \(500\)"),
+        ((200, b"data: <html>\n\n"), "could not be read"),
+        ((200, b'data: {"choices": []}\n\n'), "could not be read"),
+    ],
+)
+def test_bad_streams_say_what_went_wrong(
+    fake_llm: str, answer: tuple[int, bytes], message: str
+) -> None:
+    FakeLlm.answer = answer
+    with pytest.raises(LlmError, match=message):
+        list(LlmClient(LlmSettings(url=fake_llm)).stream([]))
+
+
+class Stalled:
+    """A response the LLM stops sending part way through."""
+
+    def __enter__(self) -> "Stalled":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+    def read(self) -> bytes:
+        raise TimeoutError("timed out")
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n'
+        raise TimeoutError("timed out")
+
+
+def test_an_llm_that_stops_answering_is_named() -> None:
+    client = LlmClient(LlmSettings(url="http://x/v1"))
+    with patch("urllib.request.urlopen", return_value=Stalled()):
+        with pytest.raises(LlmError, match="Could not reach the LLM"):
+            client.ask([])
+        pieces = client.stream([])
+        assert next(pieces) == "Hello"
+        with pytest.raises(LlmError, match="stopped answering"):
+            next(pieces)
 
 
 def test_an_llm_that_is_not_running_is_named() -> None:
