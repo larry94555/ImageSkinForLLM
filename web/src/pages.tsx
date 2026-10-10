@@ -801,16 +801,16 @@ function Chat() {
   }, []);
   useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending, speaking]);
 
-  // Follow the reply's clips until the last one is made: the server answers each request as
-  // soon as it has more to tell. False when the server has none: the reply wasn't streamed, or
-  // it failed.
-  async function followClips(replyId: string, replied: () => boolean): Promise<boolean> {
+  // Follow the reply's clips until the last one is made, or until the server has none to tell
+  // of once the reply is in: it wasn't streamed, or a newer prompt (from another tab, say) took
+  // its clips. Throws when a clip failed.
+  async function followClips(replyId: string, replied: () => boolean): Promise<void> {
     let known = 0;
     while (!gone.current) {
       const answered = replied(); // read first: the clips may be dropped once it has replied
       const got = await getClips(replyId, known);
       if (got === null) {
-        if (answered) return false;
+        if (answered) return;
         await sleep(CLIP_POLL_MS);
         continue;
       }
@@ -824,14 +824,10 @@ function Chat() {
       if (made.length) setTimes((t) => [...t, ...made]);
       setClips(got.clips.map((c) => c.url));
       if (got.error !== null) throw new Error(got.error);
-      // Done with no clips: the reply wasn't streamed (the server says so for a moment
-      // before it forgets the request), or nothing in it is said aloud; either way the whole
-      // reply is asked for next, as before R22.
-      if (got.done) return got.clips.length > 0;
+      if (got.done) return;
       if (got.clips.length === known) await sleep(CLIP_POLL_MS); // its wait ran out
       known = got.clips.length;
     }
-    return true; // nothing more to do here
   }
 
   // The player says when each clip starts and ends, for the timing readout.
@@ -857,7 +853,12 @@ function Chat() {
     setWhole(false);
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
     setPrompt("");
-    const following = followClips(replyId, () => replied);
+    // Why the clips failed, if they did, kept until the reply is in: a clip can fail long
+    // before, and a rejection with nothing waiting on it would be reported as unhandled.
+    const following: Promise<Error | null> = followClips(replyId, () => replied).then(
+      () => null,
+      (e: unknown) => (e instanceof Error ? e : new Error(String(e))),
+    );
     let reply: Reply;
     let repliedAt = 0;
     try {
@@ -872,7 +873,7 @@ function Chat() {
       setPrompt(text);
       setFailed(e instanceof Error ? e.message : String(e));
       replied = true;
-      await following.catch(() => false);
+      await following;
       setClips([]); // with any clip made before the LLM failed, and its timing row
       setTimes([]);
       setWhole(false);
@@ -883,7 +884,10 @@ function Chat() {
       setSending(false);
     }
     try {
-      if (!(await following)) {
+      const clipsFailed = await following;
+      if (gone.current) return; // the page was left meanwhile
+      if (clipsFailed !== null) throw clipsFailed;
+      if (!reply.streamed) {
         // Not streamed: the whole reply is spoken in one video (roadmap R17), asked for by the
         // server's count, which another tab's replies may have moved on from this tab's.
         const url = await speakReply(reply.turn);

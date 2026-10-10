@@ -1212,7 +1212,8 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
       { role: "user", content: "Hi" },
       { role: "assistant", content: "Hello!" },
     ],
-    () => Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3 }),
+    () =>
+      Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3, streamed: false }),
     speak,
   );
   await openAt("#/chat");
@@ -1303,7 +1304,7 @@ test("a reply done with no clips is spoken in one video", async () => {
   // The server says so for a moment before it forgets a reply that wasn't streamed (R22a).
   const fetchMock = chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "Hi again.", turn: 1 }),
+    () => Response.json({ role: "assistant", content: "Hi again.", turn: 1, streamed: false }),
     () => Response.json({ video: "/api/chat/videos/1" }),
     () => Response.json(clipsMade([], true)),
   );
@@ -1363,7 +1364,9 @@ test("a streamed reply starts playing on its first clip, before the reply text",
   const asked = fetchMock.mock.calls.map(([url]) => url).filter((u) => u.includes("/clips/"));
   expect(asked[0]).toMatch(/^\/api\/chat\/clips\/[0-9a-f]{32}\?known=0&wait=10$/);
   await act(async () => {
-    reply(Response.json({ role: "assistant", content: "Once upon a time. The end." }));
+    reply(
+      Response.json({ role: "assistant", content: "Once upon a time. The end.", streamed: true }),
+    );
   });
   await screen.findByText("Once upon a time. The end.");
   fireEvent.ended(video); // the first clip ends before the second is made: wait on it
@@ -1381,6 +1384,66 @@ test("a streamed reply starts playing on its first clip, before the reply text",
     .map((u) => u.split("known=")[1]);
   expect(counts[0]).toBe("0&wait=10");
   expect(counts.at(-1)).toBe("1&wait=10");
+});
+
+test("a reply whose clips a newer prompt took is not spoken again as one video", async () => {
+  const [answer, reply] = later();
+  let clipsNow: Answer = () => Response.json(clipsMade(["/api/chat/clips/x/1"], false));
+  const fetchMock = chatServer([], answer, undefined, () => clipsNow());
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  const video = await waitFor(() => {
+    const found = document.querySelector("video.reply-video") as HTMLVideoElement | null;
+    expect(found?.getAttribute("src")).toBe("/api/chat/clips/x/1");
+    return found!;
+  });
+  // Another tab sends a prompt as this reply comes in, so the server drops this one's clips:
+  // the reply was streamed all the same, and is not to be spoken again as one video.
+  clipsNow = () => Response.json({ detail: "No clips" }, { status: 404 });
+  await act(async () => {
+    reply(
+      Response.json({ role: "assistant", content: "Once upon a time.", turn: 3, streamed: true }),
+    );
+  });
+  await screen.findByText("Once upon a time.");
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  expect(fetchMock).not.toHaveBeenCalledWith("/api/chat/video", expect.anything());
+  expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
+});
+
+// Node, which the tests run in, says when a promise was rejected with nothing waiting on it.
+declare const process: {
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+};
+
+test("a clip that fails before the reply is in is reported with the reply", async () => {
+  const [answer, reply] = later();
+  chatServer([], answer, undefined, () =>
+    Response.json(clipsMade([], true, "ffmpeg is not installed")),
+  );
+  const unhandled = vi.fn();
+  process.on("unhandledRejection", unhandled);
+  try {
+    await openAt("#/chat");
+    await screen.findByText("Say hello to start the conversation.");
+    fireEvent.input(promptBox(), { target: { value: "Count" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("Thinking…");
+    // The clips have failed; the reply is still being written.
+    await act(() => new Promise((done) => setTimeout(done, 50)));
+    expect(unhandled).not.toHaveBeenCalled();
+    await act(async () => {
+      reply(Response.json({ role: "assistant", content: "One. Two.", turn: 1, streamed: true }));
+    });
+    const note = await screen.findByText(/I couldn.t say this one aloud/);
+    expect(note.textContent).toContain("ffmpeg is not installed");
+    expect(unhandled).not.toHaveBeenCalled();
+  } finally {
+    process.off("unhandledRejection", unhandled);
+  }
 });
 
 test("clips play in order when they arrive faster than they play", () => {
@@ -1464,7 +1527,7 @@ test("the chat shows how long each sentence took once it plays", async () => {
   const made = clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true, null, 5);
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "One. Two." }),
+    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
     undefined,
     () => Response.json(made),
   );
@@ -1489,7 +1552,7 @@ test("the chat shows how long each sentence took once it plays", async () => {
 test("when a clip fails, the clips so far stay and the note says why", async () => {
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "One. Two." }),
+    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
     undefined,
     () => Response.json(clipsMade(["/api/chat/clips/x/1"], true, "ffmpeg is not installed")),
   );
