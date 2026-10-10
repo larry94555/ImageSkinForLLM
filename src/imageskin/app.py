@@ -33,6 +33,7 @@ from imageskin.prepare_job import (
     photoreal_clip,
     photoreal_face,
 )
+from imageskin.reply_video import ReplyVideos, VoiceReady
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.uploads import (
@@ -69,7 +70,12 @@ class ChatRequest(BaseModel):
     prompt: str
 
 
+class ReplyVideoRequest(BaseModel):
+    turn: int  # the reply's place in the conversation, from 0
+
+
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
+NO_SUCH_REPLY = "There is no such reply in the conversation."
 
 
 class ReviewRequest(BaseModel):
@@ -252,12 +258,15 @@ def create_app(
     voice_step, voice_engine, voice, voice_kind = clip_voice(
         store.voice_sample_file, accent, speakers
     )
+    # The voice is prepared again for replies after the server restarts (roadmap R17).
+    voice_ready = VoiceReady(prepare_voice or voice_step, lambda: job.voice_id())
+    render = render_clip or photoreal_clip(data_home, voice_engine, voice)
     job = PrepareJob(
         data_home,
         store,
-        prepare_voice or voice_step,
+        voice_ready,
         prepare_face or photoreal_face(data_home),
-        render_clip or photoreal_clip(data_home, voice_engine, voice),
+        render,
         voice_kind,
         accent,
     )
@@ -326,16 +335,60 @@ def create_app(
     def get_chat() -> dict[str, object]:
         return {"turns": [asdict(t) for t in conversation.turns()]}
 
-    @app.post("/api/chat", dependencies=needs_consent)
-    def post_chat(body: ChatRequest) -> dict[str, str]:
+    def require_accepted() -> None:
         if not load_review(data_home, job.status()).accepted:
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
+
+    @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
+    def post_chat(body: ChatRequest) -> dict[str, str | int]:
+        """The reply, with its place in the conversation to ask for its video by."""
         try:
-            return asdict(conversation.send(body.prompt))
+            reply, turn = conversation.send(body.prompt)
+            return {**asdict(reply), "turn": turn}
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         except LlmError as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
+
+    replies = ReplyVideos(data_home, render, voice_ready)
+
+    def warm_up_replies() -> None:
+        # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
+        status = job.status()
+        photo = store.path("photos", status.photo_id or "")
+        if photo is not None and load_review(data_home, status).accepted:
+            logger.info("Warming up replies")
+            replies.warm_up(photo)
+
+    app.state.reply_warm_up = threading.Thread(
+        target=warm_up_replies, name="reply-warm-up", daemon=True
+    )
+    app.state.reply_warm_up.start()
+
+    @app.post("/api/chat/video", dependencies=[*needs_consent, Depends(require_accepted)])
+    def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:
+        """Speak a reply in the person's voice and render it on their photo. The video's
+        address, or null when the reply has nothing to say aloud."""
+        turns = conversation.turns()
+        if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
+            raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
+        photo = store.path("photos", job.status().photo_id or "")
+        if photo is None:
+            raise HTTPException(status_code=409, detail="The photo was removed. Choose another.")
+        try:
+            path = replies.render(photo, body.turn, turns[body.turn].content)
+        except Exception as e:
+            # The voice and video engines' errors say what went wrong; the reply is still shown.
+            raise HTTPException(status_code=502, detail=str(e)) from e
+        return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
+
+    @app.get("/api/chat/videos/{turn}", dependencies=needs_consent)
+    def get_reply_video(turn: int) -> FileResponse:
+        path = replies.path(turn)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="No video for that reply.")
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
+        return FileResponse(path, media_type="video/mp4", headers=headers)
 
     # Last, so /health and /api routes win over the static files.
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

@@ -182,7 +182,7 @@ class PrepareJob:
                 return PrepareStatus("idle")
             if self._store.voice_sample().problem:
                 return PrepareStatus("idle")
-            if status.voice_id != self._voice_id():
+            if status.voice_id != self.voice_id():
                 return PrepareStatus("idle")
         return status
 
@@ -235,7 +235,7 @@ class PrepareJob:
         self._run_in_background()
         return self._status
 
-    def _voice_id(self) -> str | None:
+    def voice_id(self) -> str | None:
         """The voice clips are spoken in now: who speaks them, with which accent, and the sample
         they learned from. Installing Chatterbox after a Kokoro prepare changes it too. Kokoro
         speaks with its own accent, whichever is chosen."""
@@ -303,7 +303,7 @@ class PrepareJob:
             # The voice is learned from the sample as it is now. A job resumed after the
             # recordings changed, or saved before voices were tracked, may have clips in another
             # voice; they are rendered again rather than mixed with new ones.
-            voice_id = self._voice_id()
+            voice_id = self.voice_id()
             if self._status.voice_id != voice_id:
                 removed = self._remove_clips()
                 if removed:
