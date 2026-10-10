@@ -297,8 +297,9 @@ class Conversation:
         with self._lock:
             return list(self._transcript)
 
-    def send(self, prompt: str) -> Turn:
-        """Send the prompt with the conversation so far; the reply is kept with it."""
+    def send(self, prompt: str) -> tuple[Turn, int]:
+        """Send the prompt with the conversation so far; the reply is kept with it. Returns the
+        reply and its place in the conversation (from 0), which other requests can't change."""
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("Type something to send.")
@@ -306,7 +307,7 @@ class Conversation:
             self.wait()  # for a summary still being made after the last reply
             return self._send(prompt)
 
-    def _send(self, prompt: str) -> Turn:
+    def _send(self, prompt: str) -> tuple[Turn, int]:
         # Only this send (holding _busy, with no summary running) changes the turns or summary,
         # so reading them here is safe; changes are made under _lock for turns().
         window = self._context_tokens()
@@ -349,6 +350,7 @@ class Conversation:
         with self._lock:
             self._turns = [*turns, *said]
             self._transcript += said
+            place = len(self._transcript) - 1
         logger.info(
             "Chat reply received",
             extra={
@@ -363,7 +365,7 @@ class Conversation:
                 target=self._summarize, args=(budget,), name="chat-summary", daemon=True
             )
             self._summarizer.start()
-        return reply
+        return reply, place
 
     def _stream_reply(self, messages: list[Message]) -> str:
         """Stream the reply, logging each sentence as soon as it is complete (roadmap R20)."""

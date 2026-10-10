@@ -217,13 +217,31 @@ export async function getChat(): Promise<Turn[]> {
   return (await json<{ turns: Turn[] }>(await fetch("/api/chat"))).turns;
 }
 
+// A reply, with its place in the conversation (from 0) as the server counted it.
+export interface Reply extends Turn {
+  turn: number;
+}
+
 // Sends a prompt and returns the LLM's reply. Throws an Error saying why when it fails.
-export async function sendPrompt(prompt: string): Promise<Turn> {
+export async function sendPrompt(prompt: string): Promise<Reply> {
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt }),
   });
   if (!response.ok) throw new Error(await refusal(response));
-  return (await response.json()) as Turn;
+  return (await response.json()) as Reply;
+}
+
+// Speaks a reply in the person's voice on their photo (roadmap R17); turn is its place in the
+// conversation. Returns the video's address, or null when the reply has nothing to say aloud.
+// Throws an Error saying why when the voice or the video fails.
+export async function speakReply(turn: number): Promise<string | null> {
+  const response = await fetch("/api/chat/video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ turn }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return ((await response.json()) as { video: string | null }).video;
 }
