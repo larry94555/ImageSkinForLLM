@@ -351,7 +351,8 @@ def create_app(
         return store.path("photos", job.status().photo_id or "")
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
-    def post_chat(body: ChatRequest) -> dict[str, str]:
+    def post_chat(body: ChatRequest) -> dict[str, str | int]:
+        """The reply, with its place in the conversation to ask for its video by."""
         for old in sentence_clips.values():  # only the latest reply is played
             old.cancel()
         sentence_clips.clear()
@@ -361,7 +362,7 @@ def create_app(
             clips = replies.sentence_clips(photo, body.reply_id)
             sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
-            reply = conversation.send(body.prompt, clips)
+            reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError) as e:
             if clips is not None:
                 sentence_clips.pop(body.reply_id or "", None)
@@ -372,7 +373,7 @@ def create_app(
             clips.close()
             if not clips.sentences:  # not streamed: the browser asks for the whole video
                 sentence_clips.pop(body.reply_id or "", None)
-        return asdict(reply)
+        return {**asdict(reply), "turn": turn}
 
     @app.get("/api/chat/clips/{reply_id}", dependencies=needs_consent)
     def get_clips(reply_id: str) -> dict[str, object]:

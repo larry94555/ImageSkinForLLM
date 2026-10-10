@@ -1212,7 +1212,7 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
       { role: "user", content: "Hi" },
       { role: "assistant", content: "Hello!" },
     ],
-    () => Response.json({ role: "assistant", content: "I'm well, thanks." }),
+    () => Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3 }),
     speak,
   );
   await openAt("#/chat");
@@ -1244,6 +1244,40 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
   expect(screen.queryByText("Getting ready to say it…")).toBeNull();
   const asked = fetchMock.mock.calls.filter(([url]) => url === "/api/chat/video");
   expect(asked).toHaveLength(1);
+
+  // The next prompt takes the old video away: the server replaces it with the new reply's.
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url, init) =>
+    url === "/api/chat" && init?.method === "POST"
+      ? new Promise<Response>(() => {})
+      : original(url, init),
+  );
+  fireEvent.input(promptBox(), { target: { value: "Good." } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  expect(screen.getByText("Thinking…")).toBeTruthy();
+  expect(document.querySelector("video")).toBeNull();
+});
+
+test("a reply's video is asked for by the server's count, not this page's", async () => {
+  // Another tab added two turns since this page loaded the conversation.
+  const fetchMock = chatServer([], () =>
+    Response.json({ role: "assistant", content: "Hi again.", turn: 3 }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Hi again.");
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat/video",
+      expect.objectContaining({ body: JSON.stringify({ turn: 3 }) }),
+    ),
+  );
 });
 
 // --- Ordered playback (R22) ---
@@ -1317,7 +1351,7 @@ test("when a clip fails, the clips so far stay and the note says why", async () 
 test("when the voice or video fails, the reply stays as text with a note", async () => {
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "Hi there." }),
+    () => Response.json({ role: "assistant", content: "Hi there.", turn: 1 }),
     () => Response.json({ detail: "ffmpeg is not installed" }, { status: 502 }),
   );
   await openAt("#/chat");

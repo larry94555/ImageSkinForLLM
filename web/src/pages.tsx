@@ -23,6 +23,7 @@ import {
   type PhotoChoice,
   type PrepareStatus,
   type PrepareStep,
+  type Reply,
   removeUpload,
   type Review,
   review,
@@ -765,7 +766,7 @@ function Chat() {
   const [sending, setSending] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [clips, setClips] = useState<string[]>([]);
-  // Why the latest reply could not be spoken, by its place in the conversation.
+  // Why the latest reply could not be spoken, by its place in the turns shown.
   const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -809,20 +810,22 @@ function Chat() {
   async function send() {
     const text = prompt.trim();
     if (!text || sending || speaking) return;
-    const turn = (turns ?? []).length + 1; // the reply's place, after the prompt
+    const shownAt = (turns ?? []).length + 1; // where the reply shows, after the prompt
     const replyId = newReplyId();
     let replied = false;
     setSending(true);
     setSpeaking(true);
     setFailed(null);
     setUnspoken(null);
-    setClips([]);
+    setClips([]); // the server replaces the last reply's clips or video with this one's
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
     setPrompt("");
     const following = followClips(replyId, () => replied);
+    let reply: Reply;
     try {
-      const reply = await sendPrompt(text, replyId);
-      setTurns((t) => [...(t ?? []), reply]);
+      reply = await sendPrompt(text, replyId);
+      const { role, content } = reply;
+      setTurns((t) => [...(t ?? []), { role, content }]);
     } catch (e) {
       console.error("Could not get a reply", e);
       // The server forgets a prompt that got no reply, so it goes back in the box.
@@ -840,14 +843,15 @@ function Chat() {
     }
     try {
       if (!(await following)) {
-        // Not streamed: the whole reply is spoken in one video (roadmap R17).
-        const url = await speakReply(turn);
+        // Not streamed: the whole reply is spoken in one video (roadmap R17), asked for by the
+        // server's count, which another tab's replies may have moved on from this tab's.
+        const url = await speakReply(reply.turn);
         // A new address each time, so the same reply number after a restart plays afresh.
         setClips(url ? [`${url}?t=${Date.now()}`] : []);
       }
     } catch (e) {
       console.error("Could not speak the reply", e);
-      setUnspoken({ turn, why: e instanceof Error ? e.message : String(e) });
+      setUnspoken({ turn: shownAt, why: e instanceof Error ? e.message : String(e) });
     } finally {
       setSpeaking(false);
     }
