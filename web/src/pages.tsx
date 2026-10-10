@@ -824,7 +824,10 @@ function Chat() {
       if (made.length) setTimes((t) => [...t, ...made]);
       setClips(got.clips.map((c) => c.url));
       if (got.error !== null) throw new Error(got.error);
-      if (got.done) return true;
+      // Done with no clips: the reply wasn't streamed (the server says so for a moment
+      // before it forgets the request), or nothing in it is said aloud; either way the whole
+      // reply is asked for next, as before R22.
+      if (got.done) return got.clips.length > 0;
       if (got.clips.length === known) await sleep(CLIP_POLL_MS); // its wait ran out
       known = got.clips.length;
     }
@@ -870,7 +873,9 @@ function Chat() {
       setFailed(e instanceof Error ? e.message : String(e));
       replied = true;
       await following.catch(() => false);
-      setClips([]);
+      setClips([]); // with any clip made before the LLM failed, and its timing row
+      setTimes([]);
+      setWhole(false);
       setSpeaking(false);
       return;
     } finally {

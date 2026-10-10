@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -244,7 +245,7 @@ class LlmClient:
         try:
             with self._open(url, request) as response:
                 response.read()
-        except (LlmError, OSError) as e:
+        except Exception as e:  # log only: an answer cut short, a refused connection...
             logger.warning("Could not warm up the LLM", extra={"url": url, "error": str(e)})
             return
         logger.info("LLM warmed up", extra={"url": url, "duration_ms": ms_since(start)})
@@ -306,10 +307,14 @@ class Conversation:
         count: Count = estimate,
         stream: StreamLlm | None = None,  # replies are streamed and split into sentences
         warm_up: Callable[[], None] | None = None,  # readies the LLM before the first prompt
+        # Entered while the summary after a reply is asked for, so the engines leave the LLM
+        # its share of the cores then too (roadmap R22a); send() is wrapped by its caller.
+        llm_busy: Callable[[], AbstractContextManager[object]] | None = None,
     ) -> None:
         self._ask = ask
         self._stream = stream
         self._warm_up = warm_up
+        self._llm_busy = llm_busy or nullcontext
         self._context_tokens = context_tokens
         self._count = count
         self._transcript: list[Turn] = []  # everything said, as shown in the chat
@@ -467,7 +472,8 @@ class Conversation:
         ]
         start = time.perf_counter()
         try:
-            summary = self._ask(messages)
+            with self._llm_busy():
+                summary = self._ask(messages)
         except LlmError as e:
             logger.warning(
                 "Could not summarize the conversation; dropping the oldest turns instead",

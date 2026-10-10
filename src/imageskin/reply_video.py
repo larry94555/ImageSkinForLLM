@@ -214,6 +214,7 @@ class SentenceClips:
         if not text:
             return None
         start = time.perf_counter()
+        self._videos._before_engines()
         self._videos._voice.ensure()
         self.folder.mkdir(parents=True, exist_ok=True)
         wav = self.folder / f"{n}.wav"
@@ -250,8 +251,12 @@ class ReplyVideos:
         render_clip: RenderClip,
         voice: VoiceReady,
         steps: ClipSteps | None = None,  # the clip's two steps apart, for the sentence clips
+        # Called on the thread about to use the engines, before each clip: PyTorch's thread
+        # count is per thread (roadmap R22a, imageskin.cores).
+        before_engines: Callable[[], None] | None = None,
     ) -> None:
         self.folder = home / "replies"
+        self._before_engines = before_engines or (lambda: None)
         # Left by a reply cut short when the server last stopped.
         for old in self.folder.glob("clips-*"):
             shutil.rmtree(old, ignore_errors=True)
@@ -272,6 +277,7 @@ class ReplyVideos:
         with self._voice_lock, self._video_lock:
             start = time.perf_counter()
             try:
+                self._before_engines()
                 self._voice.ensure()
                 with tempfile.TemporaryDirectory() as tmp:
                     self._render_clip(photo, "Hello.", Path(tmp) / "warm-up.mp4")
@@ -300,6 +306,7 @@ class ReplyVideos:
             return None
         with self._voice_lock, self._video_lock:
             start = time.perf_counter()
+            self._before_engines()
             self._voice.ensure()
             self.folder.mkdir(parents=True, exist_ok=True)
             path = self.path(turn)
