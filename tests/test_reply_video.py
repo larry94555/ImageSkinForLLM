@@ -643,6 +643,8 @@ def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) 
     prompt.start()
     time.sleep(0.3)
     assert order == ["rendered Hello."] and answers == []  # the prompt waits for the LLM's
+    time.sleep(0.7)
+    assert order == ["rendered Hello."] and answers == []  # ...however long it takes (no cap)
     finish.set()
     prompt.join(5)
     assert answers == [200]

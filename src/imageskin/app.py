@@ -401,20 +401,16 @@ def create_app(
         with chat_lock, core_share.llm():
             return chat(body)
 
-    WARM_UP_WAIT_S = 60.0  # at most, for a prompt sent while replies are still being warmed up
-
     def wait_for_warm_up() -> None:
         """A prompt sent right after the sample was accepted waits for the warm-up to finish,
         so it doesn't reach the LLM while the LLM is still reading the system prompt, or the
-        engines while they render their first word (a review finding on R22a)."""
+        engines while they render their first word (a review finding on R22a). The wait has
+        no cap of its own: the LLM's timeout and ffmpeg's bound the warm-up's steps."""
         thread = app.state.reply_warm_up
         if thread.is_alive():
             start = time.perf_counter()
-            thread.join(WARM_UP_WAIT_S)
-            logger.info(
-                "Prompt waited for the warm-up",
-                extra={"wait_ms": ms_since(start), "finished": not thread.is_alive()},
-            )
+            thread.join()
+            logger.info("Prompt waited for the warm-up", extra={"wait_ms": ms_since(start)})
 
     def chat(body: ChatRequest) -> dict[str, str | int | bool]:
         with clips_lock:
