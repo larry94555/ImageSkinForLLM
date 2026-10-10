@@ -1,8 +1,8 @@
 # ImageSkinForLLM: Roadmap
 
-Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 9 to 13, added on 2026-10-08, come last and turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46). Milestone 18, added later on 2026-10-09, comes last and adds a profile of each student's interests and personality (item 47).
+Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7 and 11 to 13, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46). Milestone 18, added later on 2026-10-09, comes last and adds a profile of each student's interests and personality (item 47).
 
-PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, and R22a to R22b for replies within 1 to 2 seconds after Larry's test of R22, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, and R22a to R22b for replies within 1 to 2 seconds after Larry's test of R22, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R24 and R27 onward. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -15,11 +15,11 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.8% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 8.8% | 4 of 6 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 6 | 8.7% | 5 of 6 |
-| 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.5% | 0 |
-| 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.4% | 0 |
-| 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.9% | 0 |
-| 9 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 7.4% | 0 |
-| 10 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.4% | 0 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 7.4% | 0 |
+| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.4% | 0 |
+| 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.5% | 0 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.4% | 0 |
+| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.9% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.9% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 5.9% | 0 |
 | 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 7.4% | 0 |
@@ -284,48 +284,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - Returns to the idle pose between sentence clips and crossfades the joins.
 - **Can show:** the person looks alive while waiting, and multi-sentence replies play without visible jumps.
 
-## Milestone 6: Spoken prompts
-
-### R24. Push-to-talk microphone (Medium) · item 9
-- Microphone button, push-to-talk, transcribed with browser speech recognition (whisper.cpp can be added later as a separate PR if needed); the transcribed prompt is shown as sent.
-- **Can show:** hold the button, ask a question out loud, and the person answers on video.
-
-## Milestone 7: Settings, exit and return
-
-### R27. Settings page (Medium) · item 8 (part 1)
-- A Settings link on every screen.
-- The options that don't change the setup: play the sound files, view the image files, revalidate images, revalidate sound, run the video test again, clear conversation, return to the app.
-- **Can show:** open Settings from any screen, replay the recordings, rerun the sample, clear the conversation and return.
-
-### R28. Changing photos, voice or accent (Medium) · item 8 (part 2)
-- Change image files, change sound files, and switch accent from Settings.
-- Any of these requires revalidation and a newly accepted sample before chat resumes; "Goodbye" and "Welcome back" are re-rendered on each new acceptance.
-- **Can show:** swap a photo from Settings, get sent through validation and a new sample, then return to the chat.
-
-### R29. Exit and Start again (Simple) · items 13, 14
-- Exit plays "Goodbye." and shows the exit screen; Start again plays "Welcome back." and keeps history.
-- **Can show:** exit, then start again with the conversation still there.
-
-### R30. Saved setup and history (Medium) · item 19
-- The prepared face, voice and chat history are saved after acceptance and restored on a return visit, so setup is skipped.
-- **Can show:** close the browser, come back, and go straight to the chat with history intact.
-
-### R31. Delete my data (Simple) · item 23
-- One action in Settings deletes uploads, the prepared face and voice, and history, then returns to the start of setup.
-- **Can show:** delete everything and confirm in the logs and on disk that nothing remains.
-
-## Milestone 8: Hosted, with cloud LLMs
-
-### R32. Hosted deployment (Medium) · Deployment
-- Container image and deployment guide for an HTTPS host, with secrets kept on the server.
-- Access restricted to the one user by the mechanism decided before this PR.
-- **Can show:** the full app running on a hosted HTTPS URL, with the microphone working.
-
-### R33. Cloud LLMs with the user's key (Medium) · item 16 (later)
-- OpenAI by config, and a small Claude adapter; the user enters an API key in Settings, stored on the server only.
-- **Can show:** the same conversation answered by Claude or OpenAI instead of local llama.cpp.
-
-## Milestone 9: Content and the wiki
+## Milestone 6: Content and the wiki
 
 ### R34. PDF storage and content API (Medium) · item 24
 - Server API to add, remove and replace PDFs, stored apart from the image and sound files, with the same safe-storage rules as R6 (size limit, type check, safe names).
@@ -347,7 +306,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - A wiki page in Manage Content to browse the pages, see the PDF pages each came from, and edit a page. A corrected page is marked so a rebuild doesn't overwrite it silently.
 - **Can show:** correct a wiki page, replace its PDF, and see the correction kept and flagged for review.
 
-## Milestone 10: Answers from the content
+## Milestone 7: Answers from the content
 
 ### R39. Looking up questions in the wiki and PDFs (Medium) · item 27
 - Finds the wiki pages and PDF passages that match a question, using the method decided before this PR.
@@ -358,8 +317,49 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** ask a question about a sample PDF and hear the person answer it correctly.
 
 ### R41. Question scope setting (Simple) · item 28
-- A setting for whether general prompts are allowed. When they aren't, an off-topic prompt gets a short, polite message instead of an answer.
+- A setting for whether general prompts are allowed. When they aren't, an off-topic prompt gets a short, polite message instead of an answer. The Settings page comes later (R27), so for now the setting is in the config file.
 - **Can show:** the same off-topic question answered with the setting on and politely declined with it off.
+
+## Milestone 8: Spoken prompts
+
+### R24. Push-to-talk microphone (Medium) · item 9
+- Microphone button, push-to-talk, transcribed with browser speech recognition (whisper.cpp can be added later as a separate PR if needed); the transcribed prompt is shown as sent.
+- **Can show:** hold the button, ask a question out loud, and the person answers on video.
+
+## Milestone 9: Settings, exit and return
+
+### R27. Settings page (Medium) · item 8 (part 1)
+- A Settings link on every screen.
+- The options that don't change the setup: play the sound files, view the image files, revalidate images, revalidate sound, run the video test again, clear conversation, return to the app, and the question scope setting from R41.
+- **Can show:** open Settings from any screen, replay the recordings, rerun the sample, clear the conversation and return.
+
+### R28. Changing photos, voice or accent (Medium) · item 8 (part 2)
+- Change image files, change sound files, and switch accent from Settings.
+- Any of these requires revalidation and a newly accepted sample before chat resumes; "Goodbye" and "Welcome back" are re-rendered on each new acceptance.
+- **Can show:** swap a photo from Settings, get sent through validation and a new sample, then return to the chat.
+
+### R29. Exit and Start again (Simple) · items 13, 14
+- Exit plays "Goodbye." and shows the exit screen; Start again plays "Welcome back." and keeps history.
+- **Can show:** exit, then start again with the conversation still there.
+
+### R30. Saved setup and history (Medium) · item 19
+- The prepared face, voice and chat history are saved after acceptance and restored on a return visit, so setup is skipped.
+- **Can show:** close the browser, come back, and go straight to the chat with history intact.
+
+### R31. Delete my data (Simple) · item 23
+- One action in Settings deletes uploads, the prepared face and voice, and history, then returns to the start of setup.
+- **Can show:** delete everything and confirm in the logs and on disk that nothing remains.
+
+## Milestone 10: Hosted, with cloud LLMs
+
+### R32. Hosted deployment (Medium) · Deployment
+- Container image and deployment guide for an HTTPS host, with secrets kept on the server.
+- Access restricted to the one user by the mechanism decided before this PR.
+- **Can show:** the full app running on a hosted HTTPS URL, with the microphone working.
+
+### R33. Cloud LLMs with the user's key (Medium) · item 16 (later)
+- OpenAI by config, and a small Claude adapter; the user enters an API key in Settings, stored on the server only.
+- **Can show:** the same conversation answered by Claude or OpenAI instead of local llama.cpp.
 
 ## Milestone 11: Choice of LLM
 
