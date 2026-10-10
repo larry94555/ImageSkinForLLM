@@ -249,7 +249,8 @@ class PhotorealEngine:
         self._home = home or default_home()
         self._make_portrait = make_portrait or liveportrait_factory(self._home)
         self._timeout_s = timeout_s
-        self._compositors: dict[Path, Compositor] = {}
+        # By library and photo size: a library may be scaled down for reply clips (R22c).
+        self._compositors: dict[tuple[Path, tuple[int, ...]], Compositor] = {}
 
     def prepare(self, photo: Path) -> Library:
         find_ffmpeg()  # fail now, not after a long setup
@@ -263,8 +264,9 @@ class PhotorealEngine:
         weights = frame_weights(read_shapes(wav.with_suffix(".json")), n_frames, FPS)
         eyes = eye_track(n_frames, FPS, seed=audio_seed(samples))
         moves = motion(np.asarray(samples, np.float32) / 32768.0, rate, n_frames, FPS)
-        compositor = self._compositors.get(lib.folder) or Compositor(lib)
-        self._compositors[lib.folder] = compositor
+        key = (lib.folder, lib.photo.shape[:2])
+        compositor = self._compositors.get(key) or Compositor(lib)
+        self._compositors[key] = compositor
 
         def frames() -> Iterator[bytes]:
             for i, w in enumerate(weights):
