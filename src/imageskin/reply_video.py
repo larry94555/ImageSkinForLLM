@@ -3,7 +3,10 @@ speech, spoken in the person's voice and rendered on their photo, with the same 
 engines as the sample video. Only the latest reply's video is kept, in <data folder>/replies.
 
 A streamed reply is rendered sentence by sentence while the LLM is still writing (roadmap R21,
-item 12), and the browser plays each sentence's clip as soon as it is ready (roadmap R22).
+item 12), and the browser plays each sentence's clip as soon as it is ready (roadmap R22). Each
+clip is two steps, the voice and then the video (roadmap R22b), one after the other: on a 4-core
+CPU, speaking one sentence while the one before it is rendered made both steps about twice as
+slow, so nothing was gained.
 """
 
 import logging
@@ -16,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from imageskin.prepare_job import PrepareVoice, RenderClip
+from imageskin.prepare_job import ClipSteps, PrepareVoice, RenderClip
 from imageskin.speech_text import spoken_text
 
 logger = logging.getLogger(__name__)
@@ -64,9 +67,31 @@ class ClipTime:
     ready_at: float
 
 
+@dataclass(frozen=True)
+class Spoken:
+    """A sentence spoken, waiting for its video."""
+
+    n: int  # the sentence's number in the reply
+    wav: Path
+    sentence_at: float
+
+
+def text_steps(render_clip: RenderClip) -> ClipSteps:
+    """The steps for an engine given as one `render_clip`: the voice step keeps the text and
+    the video step does the whole clip."""
+
+    def speak(text: str, wav: Path) -> None:
+        wav.write_text(text, encoding="utf-8")
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        render_clip(photo, wav.read_text(encoding="utf-8"), output)
+
+    return ClipSteps(speak, render)
+
+
 class SentenceClips:
-    """One reply's clips, rendered a sentence at a time on a background thread, in order, while
-    the LLM writes the next ones. Give it to Conversation.send as `on_sentence`."""
+    """One reply's clips, spoken and rendered a sentence at a time on a background thread, in
+    order, while the LLM writes the next ones. Give it to Conversation.send as `on_sentence`."""
 
     def __init__(self, videos: "ReplyVideos", photo: Path, reply_id: str) -> None:
         self._videos = videos
@@ -127,66 +152,101 @@ class SentenceClips:
             self._thread.join(timeout)
 
     def cancel(self) -> None:
-        """The reply failed: stop after the clip being rendered and remove the clips."""
+        """The reply failed: stop after the step being done and remove the clips."""
         self._cancelled = True
         self.close()
-        if self._thread is not None:
-            self._thread.join()
+        self.wait()
         self._videos.remove_clips(self.folder)
 
+    def _stopped(self) -> bool:
+        return self._error is not None or self._cancelled
+
+    def _fail(self, n: int, step: str, error: Exception) -> None:
+        with self._changed:
+            self._error = error
+            self._changed.notify_all()
+        logger.error(
+            "Sentence clip failed", extra={"sentence": n, "step": step, "error": str(error)}
+        )
+
     def _run(self) -> None:
-        with self._videos._lock:
+        with self._videos._voice_lock, self._videos._video_lock:
             n = 0
             while (item := self._queue.get()) is not None:
                 sentence, sentence_at = item
                 n += 1
-                if self._error is not None or self._cancelled:
+                if self._stopped():
                     continue  # let the rest go by
                 start = time.perf_counter()
                 try:
-                    rendered = self._render(sentence, sentence_at)
+                    spoken = self._speak(n, sentence, sentence_at)
                 except Exception as e:
-                    with self._changed:
-                        self._error = e
-                        self._changed.notify_all()
-                    logger.error("Sentence clip failed", extra={"sentence": n, "error": str(e)})
+                    self._fail(n, "voice", e)
                     continue
-                if rendered:
-                    logger.info(
-                        "Sentence clip ready",
-                        extra={
-                            "sentence": n,
-                            "render_ms": ms_since(start),
-                            # The chat page's measure (roadmap R22a): from the sentence
-                            # arriving from the LLM to its clip.
-                            "since_sentence_ms": ms_since(sentence_at),
-                            # The roadmap's measure: from the LLM's first words to this clip.
-                            "since_first_words_ms": (
-                                None if self._first_words is None else ms_since(self._first_words)
-                            ),
-                        },
-                    )
+                if spoken is None:
+                    continue
+                if self._stopped():  # cancelled while it was spoken: no video for it
+                    spoken.wav.unlink(missing_ok=True)
+                    spoken.wav.with_suffix(".json").unlink(missing_ok=True)
+                    continue
+                try:
+                    self._render(spoken)
+                except Exception as e:
+                    self._fail(n, "video", e)
+                    continue
+                logger.info(
+                    "Sentence clip ready",
+                    extra={
+                        "sentence": n,
+                        "render_ms": ms_since(start),
+                        # The chat page's measure (roadmap R22a): from the sentence
+                        # arriving from the LLM to its clip.
+                        "since_sentence_ms": ms_since(sentence_at),
+                        # The roadmap's measure: from the LLM's first words to this clip.
+                        "since_first_words_ms": (
+                            None if self._first_words is None else ms_since(self._first_words)
+                        ),
+                    },
+                )
         self._finish()
 
-    def _render(self, sentence: str, sentence_at: float) -> bool:
-        """Render the sentence's clip; False when there is nothing in it to say aloud."""
+    def _speak(self, n: int, sentence: str, sentence_at: float) -> Spoken | None:
+        """Speak the sentence to a WAV; None when there is nothing in it to say aloud."""
         text = spoken_text(sentence)
         if not text:
-            return False
+            return None
+        start = time.perf_counter()
         self._videos._before_engines()
         self._videos._voice.ensure()
         self.folder.mkdir(parents=True, exist_ok=True)
+        wav = self.folder / f"{n}.wav"
+        self._videos._steps.speak(text, wav)
+        logger.info(
+            "Sentence spoken",
+            extra={
+                "sentence": n,
+                "chars": len(text),
+                "speak_ms": ms_since(start),
+                "since_sentence_ms": ms_since(sentence_at),
+            },
+        )
+        return Spoken(n, wav, sentence_at)
+
+    def _render(self, spoken: Spoken) -> None:
+        """Render the spoken sentence's clip, and remove the speech once it is in."""
         path = self.folder / f"{len(self.clips) + 1}.mp4"
         try:
-            self._videos._render_clip(self._photo, text, path)
+            self._videos._steps.render(self._photo, spoken.wav, path)
         except Exception:
             path.unlink(missing_ok=True)  # a clip cut short is never left behind
             raise
+        finally:
+            spoken.wav.unlink(missing_ok=True)
+            spoken.wav.with_suffix(".json").unlink(missing_ok=True)
         with self._changed:
-            self.times.append(ClipTime(sentence_at, time.perf_counter()))
+            self.times.append(ClipTime(spoken.sentence_at, time.perf_counter()))
             self.clips.append(path)
             self._changed.notify_all()
-        return True
 
 
 class ReplyVideos:
@@ -197,6 +257,7 @@ class ReplyVideos:
         home: Path,
         render_clip: RenderClip,
         voice: VoiceReady,
+        steps: ClipSteps | None = None,  # the clip's two steps apart, for the sentence clips
         # Called on the thread about to use the engines, before each clip: PyTorch's thread
         # count is per thread (roadmap R22a, imageskin.cores).
         before_engines: Callable[[], None] | None = None,
@@ -209,15 +270,18 @@ class ReplyVideos:
         for old in self.folder.glob("*.rendering.mp4"):
             old.unlink(missing_ok=True)
         self._render_clip = render_clip
+        self._steps = steps or text_steps(render_clip)
         self._voice = voice
-        self._lock = threading.Lock()
+        # Each engine is used by one thread at a time; a reply holds both for its clips.
+        self._voice_lock = threading.Lock()
+        self._video_lock = threading.Lock()
 
     def warm_up(self, photo: Path) -> None:
         """Load the voice and video models and make the voice ready, by rendering a word that is
         thrown away, so the first reply is as quick as the next ones. Run in the background when
         the server starts; a reply sent meanwhile waits for it. Failures are logged only: the
         reply that follows says what went wrong."""
-        with self._lock:
+        with self._voice_lock, self._video_lock:
             start = time.perf_counter()
             try:
                 self._before_engines()
@@ -277,7 +341,7 @@ class ReplyVideos:
         if not text:
             logger.info("Reply has nothing to speak", extra={"turn": turn})
             return None
-        with self._lock:
+        with self._voice_lock, self._video_lock:
             start = time.perf_counter()
             self._before_engines()
             self._voice.ensure()

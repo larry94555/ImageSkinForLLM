@@ -60,6 +60,11 @@ def closing_fence(fence: str) -> re.Pattern[str]:
 
 
 _URL = r"(?:https?://|www\.)\S*[^\s.,!?;:'\")\]]"  # punctuation after it is not part of it
+_PICTURE = re.compile(r"!\[[^\]\n]*\]\([^)\n]*\)")
+_AUTOLINK = re.compile(r"<(?:https?://|www\.)[^>\s]*>")  # such as <https://a.io>
+_HTML_TAG = re.compile(r"<[a-zA-Z/][^>\n]*>")  # such as <br>
+_BRACKETED_URL = re.compile(r"\((?:https?://|www\.)[^)\s]*\)")  # brackets and all
+_LINK = re.compile(r"\[[^\]\n]+\]\([^)\n]*\)")  # its text is spoken, without the rest
 # Each pattern replaces what it matches with the phrase, or with nothing when there is none.
 # They run in order, and a match that starts inside text an earlier one handled is skipped.
 _REPLACE = (
@@ -72,11 +77,11 @@ _REPLACE = (
         ),
         CODE_BLOCK,
     ),
-    (re.compile(r"!\[[^\]\n]*\]\([^)\n]*\)"), PICTURE),
-    (re.compile(r"<(?:https?://|www\.)[^>\s]*>"), LINK),  # autolink, such as <https://a.io>
-    (re.compile(r"<[a-zA-Z/][^>\n]*>"), ""),  # HTML tag, such as <br>
+    (_PICTURE, PICTURE),
+    (_AUTOLINK, LINK),
+    (_HTML_TAG, ""),
     (re.compile(r"(?<=\])\([^)\n]*\)"), ""),  # where a link goes: its text is spoken instead
-    (re.compile(r"\((?:https?://|www\.)[^)\s]*\)"), LINK),  # URL in brackets, brackets and all
+    (_BRACKETED_URL, LINK),
     # Table: a header row, the row of dashes under it, and the rows after it.
     (
         re.compile(
@@ -91,6 +96,35 @@ _REPLACE = (
     (re.compile(rf"{_URL}(?:(?:[ \t]*,[ \t]*|[ \t]+)(?:and[ \t]+)?{_URL})*"), LINK),
 )
 _URL_ONLY = re.compile(_URL)
+# What is spoken (or left out) whole, on one line: a picture, an autolink, an HTML tag, a link
+# with where it goes, or a URL in brackets. Cut in two, neither part would match its rule.
+_WHOLE = (_PICTURE, _AUTOLINK, _HTML_TAG, _BRACKETED_URL, _LINK)
+# The start of one of those, not yet closed on a line still being written.
+_OPENED = re.compile(
+    r"(?:!?\[[^\]\n]*|\]\([^)\n]*|<[a-zA-Z/][^>\n]*|\((?:https?://|www\.)[^)\s]*)$"
+)
+
+
+def inside_whole(text: str, at: int) -> bool:
+    """Whether cutting `text` at `at` would split a picture, link, autolink, HTML tag or
+    bracketed URL, which speech_text replaces whole; or one that has been opened and may yet
+    be closed, while the line is still being written (roadmap R22b). A line with a `|` may be
+    a table's row, and a table is replaced whole too, so no cut falls on it."""
+    start = text.rfind("\n", 0, at) + 1
+    end = text.find("\n", at)
+    line = text[start:] if end < 0 else text[start:end]
+    if "|" in line:
+        return True
+    at -= start
+    spans = [m.span() for pattern in _WHOLE for m in pattern.finditer(line)]
+    if any(a < at < b for a, b in spans):
+        return True
+    if end >= 0:
+        return False
+    outside = "".join(" " if any(a <= i < b for a, b in spans) else c for i, c in enumerate(line))
+    return _OPENED.search(outside[:at]) is not None
+
+
 _PARTS = (
     # A link speaks its text: drop "[" and "](url)".
     re.compile(r"(\[)[^\]\n]+(\]\([^)\n]*\))"),

@@ -168,6 +168,31 @@ def test_a_streamed_reply_is_logged_sentence_by_sentence(caplog: pytest.LogCaptu
     assert "Reply started" in caplog.messages
 
 
+def test_a_spoken_replys_first_clause_is_handed_over_on_its_own(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The first clip is short (R22b): the first sentence's first clause goes to the clips as
+    soon as the next word starts, while the LLM is still writing the rest of the sentence."""
+    given: list[str | None] = []
+
+    def stream(messages: list[Message]) -> Iterator[str]:
+        yield from ["Well now Larry, how", " are you today?", " I am fine."]
+
+    conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream)
+    with caplog.at_level(logging.INFO):
+        reply, _ = conversation.send("Hi", given.append)
+    assert reply == Turn("assistant", "Well now Larry, how are you today? I am fine.")
+    assert given == [None, "Well now Larry,", "how are you today?", "I am fine."]
+    ready = [r for r in caplog.records if r.message == "Reply sentence ready"]
+    assert [r.sentence for r in ready] == [1, 2, 3]  # type: ignore[attr-defined]
+    # With nothing to speak, the sentences are logged whole.
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        conversation.send("Again")
+    ready = [r for r in caplog.records if r.message == "Reply sentence ready"]
+    assert [r.chars for r in ready] == [len("Well now Larry, how are you today?"), 10]  # type: ignore[attr-defined]
+
+
 def test_an_empty_streamed_reply_is_an_error(caplog: pytest.LogCaptureFixture) -> None:
     conversation = Conversation(FakeLlm2(), lambda: 4096, stream=lambda messages: iter([" "]))
     with pytest.raises(LlmError, match="empty reply"):

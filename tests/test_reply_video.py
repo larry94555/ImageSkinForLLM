@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from imageskin.app import CHAT_LOCKED, NO_SUCH_REPLY, create_app
 from imageskin.chat import LlmError
-from imageskin.prepare_job import PrepareJob, PrepareStatus
+from imageskin.prepare_job import ClipSteps, PrepareJob, PrepareStatus, steps_clip
 from imageskin.reply_video import ReplyVideos, VoiceReady
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult, UploadStore, VoiceSample
@@ -328,12 +328,122 @@ def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
     videos.sentence_clips(Path("me.jpg"), "abc123ef").cancel()  # nothing to stop
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
-    with videos._lock:  # the engines are busy, so the sentences wait
+    with videos._voice_lock:  # the voice engine is busy, so the sentences wait
         clips("One.")
         clips("Two.")
         clips._cancelled = True
     clips.cancel()
     assert said == [] and not clips.folder.exists()
+
+
+def test_a_reply_cancelled_while_it_is_spoken_renders_no_video(tmp_path: Path) -> None:
+    """The regression for a review finding: a reply cancelled while its sentence was being
+    spoken went on to render that sentence's video before the newer prompt could start."""
+    speaking, go = threading.Event(), threading.Event()
+    rendered: list[str] = []
+    wavs: list[Path] = []
+
+    def speak(text: str, wav: Path) -> None:
+        speaking.set()
+        go.wait(5)
+        wav.write_text(text)
+        wav.with_suffix(".json").write_text("{}")
+        wavs.append(wav)
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        rendered.append(wav.read_text())
+
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), ClipSteps(speak, render)
+    )
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    assert speaking.wait(5)
+    cancelling = threading.Thread(target=clips.cancel)
+    cancelling.start()
+    time.sleep(0.1)
+    assert cancelling.is_alive()  # waiting for the voice step
+    go.set()
+    cancelling.join(5)
+    assert not cancelling.is_alive() and rendered == [] and clips.clips == []
+    assert wavs and not any(w.exists() or w.with_suffix(".json").exists() for w in wavs)
+
+
+def test_each_clip_is_spoken_and_then_rendered(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The two steps (R22b) run in turn: on a 4-core CPU, speaking a sentence while the one
+    before it is rendered slowed both down, so there is one thread."""
+    steps_done: list[tuple[str, str]] = []
+
+    def speak(text: str, wav: Path) -> None:
+        wav.write_text(text)
+        wav.with_suffix(".json").write_text("{}")
+        steps_done.append(("voice", text))
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        output.write_bytes(wav.read_bytes())
+        steps_done.append(("video", wav.read_text()))
+
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), ClipSteps(speak, render)
+    )
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    caplog.set_level(logging.INFO)
+    for sentence in ["One.", "🎉", "Two."]:
+        clips(sentence)
+    clips.close()
+    clips.wait(10)
+    assert clips.done and clips.error is None
+    assert steps_done == [
+        ("voice", "One."),
+        ("video", "One."),
+        ("voice", "Two."),
+        ("video", "Two."),
+    ]
+    assert [p.read_bytes() for p in clips.clips] == [b"One.", b"Two."]
+    assert not list(clips.folder.glob("*.wav")) and not list(clips.folder.glob("*.json"))
+    spoken = [r for r in caplog.records if r.message == "Sentence spoken"]
+    assert [(r.sentence, r.chars) for r in spoken] == [(1, 4), (3, 4)]  # type: ignore[attr-defined]
+    ready = [r for r in caplog.records if r.message == "Sentence clip ready"]
+    assert [r.sentence for r in ready] == [1, 3]  # type: ignore[attr-defined]
+
+
+def test_a_failed_voice_step_stops_the_clips_and_says_why(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    rendered: list[str] = []
+
+    def speak(text: str, wav: Path) -> None:
+        raise VideoError("the voice model is missing")
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        rendered.append(wav.read_text())
+
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), ClipSteps(speak, render)
+    )
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips("Two.")
+    clips.close()
+    clips.wait(10)
+    assert clips.done and clips.error == "the voice model is missing" and rendered == []
+    failed = [r for r in caplog.records if r.message == "Sentence clip failed"]
+    assert [(r.sentence, r.step) for r in failed] == [(1, "voice")]  # type: ignore[attr-defined]
+
+
+def test_the_two_steps_make_one_clip_for_the_prepare_job(tmp_path: Path) -> None:
+    def speak(text: str, wav: Path) -> None:
+        wav.write_text(text)
+        wav.with_suffix(".json").write_text("{}")
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        assert wav.with_suffix(".json").is_file()
+        output.write_text(f"{photo.name}: {wav.read_text()}")
+
+    steps_clip(ClipSteps(speak, render))(Path("me.jpg"), "Hello.", tmp_path / "hello.mp4")
+    assert (tmp_path / "hello.mp4").read_text() == "me.jpg: Hello."
 
 
 def test_the_thread_that_runs_the_engines_is_told_first(tmp_path: Path) -> None:
@@ -344,7 +454,7 @@ def test_the_thread_that_runs_the_engines_is_told_first(tmp_path: Path) -> None:
         told.append(threading.current_thread().name)
 
     videos = ReplyVideos(
-        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), before_engines
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), before_engines=before_engines
     )
     videos.warm_up(Path("me.jpg"))
     videos.render(Path("me.jpg"), 1, "Hello.")

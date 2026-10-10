@@ -146,3 +146,22 @@ def test_horizontal_rules_and_stray_borders_are_not_spoken() -> None:
 )
 def test_short_forms_are_said_as_words(display: str, said: str) -> None:
     assert spoken_text(display) == said
+
+
+def test_a_cut_inside_what_is_replaced_whole_is_known() -> None:
+    from imageskin.speech_text import inside_whole
+
+    line = "see ![a b c](x.png) and [d e](https://a.io) or <b class='x y'> now"
+    inside = [line.index(w) + 1 for w in ("b c]", "e]", "class")]
+    assert all(inside_whole(line, at) for at in inside)
+    after = [line.index(w) + len(w) for w in ("png)", "a.io)", "y'>")]
+    assert not any(inside_whole(line, at) for at in after)
+    # Opened and not closed yet: only while the line is still being written.
+    assert inside_whole("see ![a very", 9) and inside_whole("a <span class", 7)
+    assert inside_whole("go [here and", 8) and inside_whole("at (https://a.io/x y", 18)
+    assert not inside_whole("see [a very\nmore", 9)
+    assert not inside_whole("one two three", 7)
+    # A line that may be a table's row, before its separator row has arrived or after it.
+    assert inside_whole("| Name of the person | Age", 12)
+    assert inside_whole("| a | b |\n|---|---|\n| one two | three", 30)
+    assert not inside_whole("| a | b |\nThen more words", 20)

@@ -24,6 +24,7 @@ from imageskin.consent import load_consent, save_consent
 from imageskin.cores import CoreShare
 from imageskin.prepare_job import (
     ClipName,
+    ClipSteps,
     PrepareError,
     PrepareFace,
     PrepareJob,
@@ -31,8 +32,9 @@ from imageskin.prepare_job import (
     PrepareVoice,
     RenderClip,
     clip_voice,
-    photoreal_clip,
     photoreal_face,
+    photoreal_steps,
+    steps_clip,
 )
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
@@ -133,6 +135,7 @@ def create_app(
     prepare_voice: PrepareVoice | None = None,
     prepare_face: PrepareFace | None = None,
     render_clip: RenderClip | None = None,
+    clip_steps: ClipSteps | None = None,  # or the clip's two steps, for pipelined clips
     llm: LlmSettings | None = None,
     ask_llm: AskLlm | None = None,
     stream_llm: StreamLlm | None = None,
@@ -268,7 +271,8 @@ def create_app(
     )
     # The voice is prepared again for replies after the server restarts (roadmap R17).
     voice_ready = VoiceReady(prepare_voice or voice_step, lambda: job.voice_id())
-    render = render_clip or photoreal_clip(data_home, voice_engine, voice)
+    steps = clip_steps or photoreal_steps(data_home, voice_engine, voice)
+    render = render_clip or steps_clip(steps)
     job = PrepareJob(
         data_home,
         store,
@@ -365,7 +369,15 @@ def create_app(
         if not load_review(data_home, job.status()).accepted:
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
 
-    replies = ReplyVideos(data_home, render, voice_ready, before_engines=core_share.apply_here)
+    # The reply clips use the two steps apart (R22b); an engine given as one `render_clip`
+    # does both in its video step.
+    replies = ReplyVideos(
+        data_home,
+        render,
+        voice_ready,
+        clip_steps or (None if render_clip else steps),
+        before_engines=core_share.apply_here,
+    )
     # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by its id.
     sentence_clips: dict[str, SentenceClips] = {}
     clips_lock = threading.Lock()  # guards sentence_clips, used by several request threads
