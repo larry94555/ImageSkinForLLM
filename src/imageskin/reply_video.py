@@ -191,11 +191,10 @@ class ReplyVideos:
                 logger.info("Reply has nothing to speak", extra={"turn": turn})
                 return None
             path = self.path(turn)
-            for old in self.folder.glob("*.mp4"):  # only the latest reply is played
-                old.unlink()
             rendering = path.with_name(f"{turn}.rendering.mp4")
             concat(parts, rendering)
             os.replace(rendering, path)
+            self._remove_old(keep=path)
         except Exception as e:
             logger.error(
                 "Reply video failed",
@@ -225,8 +224,6 @@ class ReplyVideos:
             start = time.perf_counter()
             self._voice.ensure()
             self.folder.mkdir(parents=True, exist_ok=True)
-            for old in self.folder.glob("*.mp4"):  # only the latest reply is played
-                old.unlink()
             path = self.path(turn)
             # Written aside then moved, so a video cut short is never played.
             rendering = path.with_name(f"{turn}.rendering.mp4")
@@ -244,6 +241,7 @@ class ReplyVideos:
                     },
                 )
                 raise
+            self._remove_old(keep=path)
             logger.info(
                 "Rendered reply video",
                 extra={
@@ -254,6 +252,21 @@ class ReplyVideos:
                 },
             )
             return path
+
+    def _remove_old(self, keep: Path) -> None:
+        """Only the latest reply is played. Older videos are removed once the new one is in
+        place; one the browser still has open may not be removable (on Windows), so it is left
+        for the next reply to remove."""
+        for old in self.folder.glob("*.mp4"):
+            if old == keep:
+                continue
+            try:
+                old.unlink()
+            except OSError as e:
+                logger.warning(
+                    "Could not remove an old reply video",
+                    extra={"video": old.name, "error": str(e)},
+                )
 
 
 def concat(clips: list[Path], output: Path) -> None:

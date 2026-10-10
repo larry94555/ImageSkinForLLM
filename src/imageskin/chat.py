@@ -299,10 +299,11 @@ class Conversation:
         with self._lock:
             return list(self._transcript)
 
-    def send(self, prompt: str, on_sentence: OnSentence | None = None) -> Turn:
-        """Send the prompt with the conversation so far; the reply is kept with it. When the
-        reply is streamed, `on_sentence` is told when the LLM starts writing (None) and is
-        then given each sentence as soon as it is complete (roadmap R21)."""
+    def send(self, prompt: str, on_sentence: OnSentence | None = None) -> tuple[Turn, int]:
+        """Send the prompt with the conversation so far; the reply is kept with it. Returns the
+        reply and its place in the conversation (from 0), which other requests can't change.
+        When the reply is streamed, `on_sentence` is told when the LLM starts writing (None)
+        and is then given each sentence as soon as it is complete (roadmap R21)."""
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("Type something to send.")
@@ -310,7 +311,7 @@ class Conversation:
             self.wait()  # for a summary still being made after the last reply
             return self._send(prompt, on_sentence or (lambda sentence: None))
 
-    def _send(self, prompt: str, on_sentence: OnSentence) -> Turn:
+    def _send(self, prompt: str, on_sentence: OnSentence) -> tuple[Turn, int]:
         # Only this send (holding _busy, with no summary running) changes the turns or summary,
         # so reading them here is safe; changes are made under _lock for turns().
         window = self._context_tokens()
@@ -357,6 +358,7 @@ class Conversation:
         with self._lock:
             self._turns = [*turns, *said]
             self._transcript += said
+            place = len(self._transcript) - 1
         logger.info(
             "Chat reply received",
             extra={
@@ -371,7 +373,7 @@ class Conversation:
                 target=self._summarize, args=(budget,), name="chat-summary", daemon=True
             )
             self._summarizer.start()
-        return reply
+        return reply, place
 
     def _stream_reply(self, messages: list[Message], on_sentence: OnSentence) -> str:
         """Stream the reply, logging each sentence as soon as it is complete (roadmap R20)."""

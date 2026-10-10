@@ -1204,13 +1204,13 @@ test("the person speaks each reply in a video", async () => {
       { role: "user", content: "Hi" },
       { role: "assistant", content: "Hello!" },
     ],
-    () => Response.json({ role: "assistant", content: "I'm well, thanks." }),
+    () => Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3 }),
   );
   await openAt("#/chat");
   await screen.findByText("Hello!");
   expect(document.querySelector("video")).toBeNull();
   fetchMock.mockImplementationOnce(async () =>
-    Response.json({ role: "assistant", content: "I'm well, thanks." }),
+    Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3 }),
   );
   fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (spoken = resolve)));
   fireEvent.input(promptBox(), { target: { value: "How are you?" } });
@@ -1235,12 +1235,41 @@ test("the person speaks each reply in a video", async () => {
   expect(video.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/3\?t=\d+$/);
   expect(video.autoplay).toBe(true);
   expect(screen.queryByText("Getting ready to say it…")).toBeNull();
+
+  // The next prompt takes the old video away: the server replaces it with the new reply's.
+  fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+  fireEvent.input(promptBox(), { target: { value: "Good." } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  expect(screen.getByText("Thinking…")).toBeTruthy();
+  expect(document.querySelector("video")).toBeNull();
+});
+
+test("a reply's video is asked for by the server's count, not this page's", async () => {
+  // Another tab added two turns since this page loaded the conversation.
+  const fetchMock = chatServer([], () =>
+    Response.json({ role: "assistant", content: "Hi again.", turn: 3 }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Hi again.");
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat/video",
+      expect.objectContaining({ body: JSON.stringify({ turn: 3 }) }),
+    ),
+  );
 });
 
 test("when the voice or video fails, the reply stays as text with a note", async () => {
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "Hi there." }),
+    () => Response.json({ role: "assistant", content: "Hi there.", turn: 1 }),
     () => Response.json({ detail: "ffmpeg is not installed" }, { status: 502 }),
   );
   await openAt("#/chat");

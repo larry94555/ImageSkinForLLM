@@ -142,8 +142,8 @@ def test_a_conversation_remembers_earlier_turns(caplog: pytest.LogCaptureFixture
     llm = FakeLlm2()
     conversation = Conversation(llm, lambda: 4096)
     with caplog.at_level(logging.INFO):
-        assert conversation.send("  My name is Larry. ") == Turn("assistant", "Reply 1")
-        conversation.send("What is my name?")
+        assert conversation.send("  My name is Larry. ") == (Turn("assistant", "Reply 1"), 1)
+        assert conversation.send("What is my name?") == (Turn("assistant", "Reply 2"), 3)
     assert llm.sent[1][1:] == [
         {"role": "user", "content": "My name is Larry."},
         {"role": "assistant", "content": "Reply 1"},
@@ -159,7 +159,8 @@ def test_a_streamed_reply_is_logged_sentence_by_sentence(caplog: pytest.LogCaptu
 
     conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream)
     with caplog.at_level(logging.INFO):
-        assert conversation.send("Hi") == Turn("assistant", "Hi Larry. Dr. Smith says hi! Bye")
+        reply, _ = conversation.send("Hi")
+        assert reply == Turn("assistant", "Hi Larry. Dr. Smith says hi! Bye")
     ready = [r for r in caplog.records if r.message == "Reply sentence ready"]
     assert [(r.sentence, r.chars) for r in ready] == [(1, 9), (2, 18), (3, 3)]  # type: ignore[attr-defined]
     assert "Reply started" in caplog.messages
@@ -242,7 +243,7 @@ def test_if_summarizing_fails_the_oldest_turns_are_dropped(
     conversation = Conversation(llm, lambda: 4096)
     with caplog.at_level(logging.WARNING):
         for i in range(5):
-            assert conversation.send(f"Prompt {i} " + "x" * 590).content.startswith("Reply")
+            assert conversation.send(f"Prompt {i} " + "x" * 590)[0].content.startswith("Reply")
             conversation.wait()
     last = [m for m in llm.sent if m[0]["content"] != SUMMARY_PROMPT][-1]
     assert last[0] == system_message(None)
@@ -523,7 +524,7 @@ def test_the_api_chats_once_the_sample_is_accepted(tmp_path: Path) -> None:
 
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         answer = client.post("/api/chat", json={"prompt": "Hi"})
-        assert answer.json() == {"role": "assistant", "content": "You said Hi"}
+        assert answer.json() == {"role": "assistant", "content": "You said Hi", "turn": 1}
         assert client.post("/api/chat", json={"prompt": " "}).status_code == 400
     assert client.get("/api/chat").json()["turns"] == [
         {"role": "user", "content": "Hi"},

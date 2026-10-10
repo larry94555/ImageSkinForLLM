@@ -348,14 +348,15 @@ def create_app(
         return store.path("photos", job.status().photo_id or "")
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
-    def post_chat(body: ChatRequest) -> dict[str, str]:
+    def post_chat(body: ChatRequest) -> dict[str, str | int]:
+        """The reply, with its place in the conversation to ask for its video by."""
         for old in sentence_clips.values():  # a reply whose video was never asked for
             old.cancel()
         sentence_clips.clear()
         photo = chosen_photo()
         clips = None if photo is None else replies.sentence_clips(photo)
         try:
-            reply = conversation.send(body.prompt, clips)
+            reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError) as e:
             if clips is not None:
                 clips.cancel()
@@ -364,8 +365,8 @@ def create_app(
         if clips is not None:
             clips.close()
             if clips.sentences:  # streamed: the video is joined from the clips
-                sentence_clips[len(conversation.turns()) - 1] = clips
-        return asdict(reply)
+                sentence_clips[turn] = clips
+        return {**asdict(reply), "turn": turn}
 
     def warm_up_replies() -> None:
         # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
