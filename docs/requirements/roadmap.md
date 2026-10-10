@@ -254,6 +254,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - Voices and animates each sentence while later ones are still generating, keeping them in order.
 - Logs time from the LLM's first words to the first sentence being ready.
 - **Can show:** in the logs, the first sentence's video is ready before the LLM has finished the reply, with the measured time.
+- **Built:** each streamed sentence goes to `SentenceClips`, which cleans it for speech and renders its clip on a background thread, in order, while the LLM writes the next one; the engines render one clip at a time. Until R22 the browser still plays one video per reply, now joined from the clips with ffmpeg (no video encoding again) instead of being rendered again. A reply that fails drops its clips. The log shows `Sentence clip ready` with `render_ms` and `since_first_words_ms`. Measured with Gemma 3 4B, Kokoro and the photoreal engine on a 4-core cloud CPU: the first sentence's clip was ready 6.5 s after the LLM's first words, while the LLM was still writing (its reply took 11.8 s); the LLM and the rendering share the CPU, so each slows the other.
 
 ### R22. Ordered playback in the browser (Medium) · item 12
 - The browser receives sentence clips as they are ready and plays them in order.
