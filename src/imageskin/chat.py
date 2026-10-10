@@ -77,6 +77,8 @@ Message = dict[str, str]
 AskLlm = Callable[[list[Message]], str]
 # The same, handing back the reply's text in pieces as the LLM writes it (roadmap R20).
 StreamLlm = Callable[[list[Message]], Iterator[str]]
+# Told when a streamed reply starts (None), then given each sentence of it (roadmap R21).
+OnSentence = Callable[[str | None], None]
 # The number of tokens in a text.
 Count = Callable[[str], int]
 
@@ -302,17 +304,19 @@ class Conversation:
         with self._lock:
             return list(self._transcript)
 
-    def send(self, prompt: str) -> tuple[Turn, int]:
+    def send(self, prompt: str, on_sentence: OnSentence | None = None) -> tuple[Turn, int]:
         """Send the prompt with the conversation so far; the reply is kept with it. Returns the
-        reply and its place in the conversation (from 0), which other requests can't change."""
+        reply and its place in the conversation (from 0), which other requests can't change.
+        When the reply is streamed, `on_sentence` is told when the LLM starts writing (None)
+        and is then given each sentence as soon as it is complete (roadmap R21)."""
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("Type something to send.")
         with self._busy:
             self.wait()  # for a summary still being made after the last reply
-            return self._send(prompt)
+            return self._send(prompt, on_sentence or (lambda sentence: None))
 
-    def _send(self, prompt: str) -> tuple[Turn, int]:
+    def _send(self, prompt: str, on_sentence: OnSentence) -> tuple[Turn, int]:
         # Only this send (holding _busy, with no summary running) changes the turns or summary,
         # so reading them here is safe; changes are made under _lock for turns().
         window = self._context_tokens()
@@ -343,7 +347,11 @@ class Conversation:
         )
         start = time.perf_counter()
         try:
-            content = self._ask(messages) if self._stream is None else self._stream_reply(messages)
+            content = (
+                self._ask(messages)
+                if self._stream is None
+                else self._stream_reply(messages, on_sentence)
+            )
             reply = Turn("assistant", content)
         except LlmError as e:
             logger.error(
@@ -372,7 +380,7 @@ class Conversation:
             self._summarizer.start()
         return reply, place
 
-    def _stream_reply(self, messages: list[Message]) -> str:
+    def _stream_reply(self, messages: list[Message], on_sentence: OnSentence) -> str:
         """Stream the reply, logging each sentence as soon as it is complete (roadmap R20)."""
         assert self._stream is not None
         start = time.perf_counter()
@@ -392,10 +400,12 @@ class Conversation:
                         "since_prompt_ms": ms_since(start),
                     },
                 )
+                on_sentence(sentence)
 
         for piece in self._stream(messages):
             if not pieces:
                 logger.info("Reply started", extra={"since_prompt_ms": ms_since(start)})
+                on_sentence(None)
             pieces.append(piece)
             ready(splitter.feed(piece))
         ready(splitter.flush())

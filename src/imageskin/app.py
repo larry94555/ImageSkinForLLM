@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from imageskin import __version__
 from imageskin.accent import Accent, load_accent, save_accent
-from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings
+from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings, StreamLlm
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.prepare_job import (
@@ -33,7 +33,7 @@ from imageskin.prepare_job import (
     photoreal_clip,
     photoreal_face,
 )
-from imageskin.reply_video import ReplyVideos, VoiceReady
+from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.uploads import (
@@ -129,6 +129,7 @@ def create_app(
     render_clip: RenderClip | None = None,
     llm: LlmSettings | None = None,
     ask_llm: AskLlm | None = None,
+    stream_llm: StreamLlm | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -329,7 +330,7 @@ def create_app(
         client = LlmClient(llm)
         conversation = Conversation(client.ask, client.context_tokens, client.count, client.stream)
     else:
-        conversation = Conversation(ask_llm, lambda: llm.context_tokens)
+        conversation = Conversation(ask_llm, lambda: llm.context_tokens, stream=stream_llm)
 
     @app.get("/api/chat", dependencies=needs_consent)
     def get_chat() -> dict[str, object]:
@@ -339,18 +340,44 @@ def create_app(
         if not load_review(data_home, job.status()).accepted:
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
 
+    replies = ReplyVideos(data_home, render, voice_ready)
+    # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by turn.
+    sentence_clips: dict[int, SentenceClips] = {}
+    clips_lock = threading.Lock()  # guards sentence_clips, used by several request threads
+    # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
+    # prompt waiting on another always drops that one's clips.
+    chat_lock = threading.Lock()
+
+    def chosen_photo() -> Path | None:
+        return store.path("photos", job.status().photo_id or "")
+
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_chat(body: ChatRequest) -> dict[str, str | int]:
         """The reply, with its place in the conversation to ask for its video by."""
-        try:
-            reply, turn = conversation.send(body.prompt)
-            return {**asdict(reply), "turn": turn}
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-        except LlmError as e:
-            raise HTTPException(status_code=502, detail=str(e)) from e
+        with chat_lock:
+            return chat(body)
 
-    replies = ReplyVideos(data_home, render, voice_ready)
+    def chat(body: ChatRequest) -> dict[str, str | int]:
+        with clips_lock:
+            unasked = list(sentence_clips.values())  # replies whose video was never asked for
+            sentence_clips.clear()
+        for old in unasked:
+            old.cancel()
+        photo = chosen_photo()
+        clips = None if photo is None else replies.sentence_clips(photo)
+        try:
+            reply, turn = conversation.send(body.prompt, clips)
+        except (ValueError, LlmError) as e:
+            if clips is not None:
+                clips.cancel()
+            status = 400 if isinstance(e, ValueError) else 502
+            raise HTTPException(status_code=status, detail=str(e)) from e
+        if clips is not None:
+            clips.close()
+            if clips.sentences:  # streamed: the video is joined from the clips
+                with clips_lock:
+                    sentence_clips[turn] = clips
+        return {**asdict(reply), "turn": turn}
 
     def warm_up_replies() -> None:
         # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
@@ -372,11 +399,16 @@ def create_app(
         turns = conversation.turns()
         if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
             raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
-        photo = store.path("photos", job.status().photo_id or "")
+        photo = chosen_photo()
         if photo is None:
             raise HTTPException(status_code=409, detail="The photo was removed. Choose another.")
+        with clips_lock:
+            clips = sentence_clips.pop(body.turn, None)
         try:
-            path = replies.render(photo, body.turn, turns[body.turn].content)
+            if clips is not None:  # rendered while the LLM was writing
+                path = replies.join(body.turn, clips)
+            else:
+                path = replies.render(photo, body.turn, turns[body.turn].content)
         except Exception as e:
             # The voice and video engines' errors say what went wrong; the reply is still shown.
             raise HTTPException(status_code=502, detail=str(e)) from e

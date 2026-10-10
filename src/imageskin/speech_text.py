@@ -21,6 +21,31 @@ _EMOJI_WORDS = {"❤": "love", "♥": "love"}
 # Inline code of up to this many words is spoken as is, such as `main()`.
 _SHORT_CODE_WORDS = 2
 
+# Short forms the voice would spell out ("Jr." as "J R"), said as the words they stand for. "St."
+# is left as it is: it is "Saint" or "Street" depending on the sentence.
+_SHORT_FORMS = {
+    "jr": "Junior",
+    "sr": "Senior",
+    "dr": "Doctor",
+    "mr": "Mister",
+    "mrs": "Missus",
+    "prof": "Professor",
+    "vs": "versus",
+    "etc": "et cetera",
+    "e.g": "for example",
+    "i.e": "that is",
+    "approx": "approximately",
+}
+_SHORT_FORM = re.compile(
+    r"(?<![\w.])(" + "|".join(re.escape(k) for k in _SHORT_FORMS) + r")\.(?![\w.])", re.I
+)
+# These go on to more of the sentence, often a name ("Dr. Smith", "Python vs. Java"), so a capital
+# after them doesn't end it.
+_GO_ON = {"dr", "mr", "mrs", "prof", "vs", "e.g", "i.e", "approx"}
+# After a short form, what shows its full stop also ends the sentence.
+_SENTENCE_AFTER = re.compile(r"[ \t]*(?:$|\n|[ \t][\"'“‘(\[]*[A-Z])")
+
+
 # The Markdown code rules, shared with the sentence splitter (sentences.py) so both agree on
 # where code starts and ends. A code fence is three or more of the same character, ` or ~.
 CODE_FENCE = re.compile(r"^[ \t]*(?P<fence>(?P<c>[`~])(?P=c){2,})", re.M)
@@ -154,6 +179,13 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
             for group in range(1, (pattern.groups or 0) + 1):
                 if m.start(group) >= 0 and not done[m.start(group)]:
                     keep[m.start(group) : m.end(group)] = [False] * (m.end(group) - m.start(group))
+    # Short forms in what is still spoken as written (not in code) are said as words.
+    for m in _SHORT_FORM.finditer(display):
+        if any(done[m.start() : m.end()]) or not all(keep[m.start() : m.end()]):
+            continue
+        short = m.group(1).lower()
+        ends = short not in _GO_ON and _SENTENCE_AFTER.match(display, m.end())
+        drop(m.start(), m.end() - 1 if ends else m.end(), _SHORT_FORMS[short])
     say.update(_emoji_words(display, keep))
     return keep, say
 
