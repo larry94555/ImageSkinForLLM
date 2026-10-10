@@ -14,7 +14,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 13.4% | 9 of 9 |
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 9.0% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 9.0% | 4 of 6 |
-| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.0% | 0 |
+| 5 | **Real-time replies.** The video starts on the first sentence and idles naturally between replies. | R20 to R23 | 4 | 6.0% | 2 of 4 |
 | 6 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.5% | 0 |
 | 7 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 7.5% | 0 |
 | 8 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 3.0% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 3.0% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.5% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 3.0% | 0 |
-| | **Total** | | **67** | **100%** | **26 of 67** |
+| | **Total** | | **67** | **100%** | **28 of 67** |
 
 Sizes: 16 Simple, 51 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
