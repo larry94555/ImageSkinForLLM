@@ -250,7 +250,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** in the logs, sentences arriving one at a time while the LLM is still writing.
 - **Built:** `LlmClient.stream()` asks with `"stream": true` and reads the server-sent events; `sentences.SentenceSplitter` hands back each sentence once the next one starts. A sentence ends at ".", "!", "?" or an ellipsis followed by a space, at a blank line, and at the end of a heading or list item. It doesn't end after an abbreviation (Dr., e.g.), an initial (J.), a list number (1.), a dotted abbreviation (U.S.) or a full stop followed by a lowercase word or a digit; code blocks stay whole. The log shows `Reply started` and `Reply sentence ready` with the time since the prompt. The summary is still asked for in one piece.
 
-### R21. Sentence-by-sentence rendering on the server (Medium) · item 12
+### R21. Sentence-by-sentence rendering on the server (Medium) · item 12 · Done in [PR #47](https://github.com/larry94555/ImageSkinForLLM/pull/47)
 - Voices and animates each sentence while later ones are still generating, keeping them in order.
 - Logs time from the LLM's first words to the first sentence being ready.
 - **Can show:** in the logs, the first sentence's video is ready before the LLM has finished the reply, with the measured time.
