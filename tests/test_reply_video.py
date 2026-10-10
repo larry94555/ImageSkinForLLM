@@ -537,6 +537,55 @@ def test_replies_are_warmed_up_when_the_sample_is_accepted(tmp_path: Path) -> No
     assert rendered == ["Hello."]
 
 
+def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) -> None:
+    """The regression for a review finding: a prompt sent as soon as the sample is accepted
+    used to reach the LLM while its warm-up was still reading the system prompt, and the
+    engines while they rendered their first word."""
+    order: list[str] = []
+    warming, finish = threading.Event(), threading.Event()
+
+    def warm_up_llm() -> None:
+        warming.set()
+        finish.wait(5)
+        order.append("LLM warmed up")
+
+    def ask(messages: list[dict[str, str]]) -> str:
+        order.append("asked")
+        return "Hi."
+
+    client = TestClient(
+        create_app(
+            tmp_path,
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=lambda photo, text, output: order.append(f"rendered {text}"),
+            ask_llm=ask,
+            warm_up_llm=warm_up_llm,
+        )
+    )
+    client.app.state.reply_warm_up.join(5)  # type: ignore[attr-defined]
+    client.post("/api/consent", json={"agreed": True})
+    photo = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()
+    done = PrepareStatus("done", photo_id=photo["id"])
+    patch.object(PrepareJob, "status", return_value=done).start()
+    patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)).start()
+    assert order == []
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    assert warming.wait(5)  # the warm-up is under way when the prompt comes
+    answers: list[int] = []
+    prompt = threading.Thread(
+        target=lambda: answers.append(client.post("/api/chat", json={"prompt": "Hi"}).status_code)
+    )
+    prompt.start()
+    time.sleep(0.3)
+    assert order == ["rendered Hello."] and answers == []  # the prompt waits for the LLM's
+    finish.set()
+    prompt.join(5)
+    assert answers == [200]
+    assert order == ["rendered Hello.", "LLM warmed up", "asked"]
+
+
 REPLY_ID = "0123456789abcdef0123456789abcdef"
 
 

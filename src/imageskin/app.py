@@ -37,7 +37,7 @@ from imageskin.prepare_job import (
     photoreal_steps,
     steps_clip,
 )
-from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady
+from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.uploads import (
@@ -140,6 +140,7 @@ def create_app(
     llm: LlmSettings | None = None,
     ask_llm: AskLlm | None = None,
     stream_llm: StreamLlm | None = None,
+    warm_up_llm: Callable[[], None] | None = None,  # with ask_llm: readies the LLM (tests)
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -354,7 +355,11 @@ def create_app(
         )
     else:
         conversation = Conversation(
-            ask_llm, lambda: llm.context_tokens, stream=stream_llm, llm_busy=core_share.llm
+            ask_llm,
+            lambda: llm.context_tokens,
+            stream=stream_llm,
+            warm_up=warm_up_llm,
+            llm_busy=core_share.llm,
         )
 
     @app.get("/api/chat", dependencies=needs_consent)
@@ -390,8 +395,24 @@ def create_app(
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
+        wait_for_warm_up()
         with chat_lock, core_share.llm():
             return chat(body)
+
+    WARM_UP_WAIT_S = 60.0  # at most, for a prompt sent while replies are still being warmed up
+
+    def wait_for_warm_up() -> None:
+        """A prompt sent right after the sample was accepted waits for the warm-up to finish,
+        so it doesn't reach the LLM while the LLM is still reading the system prompt, or the
+        engines while they render their first word (a review finding on R22a)."""
+        thread = app.state.reply_warm_up
+        if thread.is_alive():
+            start = time.perf_counter()
+            thread.join(WARM_UP_WAIT_S)
+            logger.info(
+                "Prompt waited for the warm-up",
+                extra={"wait_ms": ms_since(start), "finished": not thread.is_alive()},
+            )
 
     def chat(body: ChatRequest) -> dict[str, str | int | bool]:
         with clips_lock:
