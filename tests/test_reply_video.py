@@ -34,6 +34,14 @@ def test_the_voice_is_prepared_once_per_voice(caplog: pytest.LogCaptureFixture) 
     assert prepared == ["clone:abc", "clone-british:abc"]
 
 
+def test_a_voice_without_an_id_is_prepared_once_too() -> None:
+    prepared: list[int] = []
+    ready = VoiceReady(lambda: prepared.append(1), lambda: None)
+    ready.ensure()
+    ready.ensure()
+    assert prepared == [1]
+
+
 def test_the_prepare_jobs_voice_step_counts_as_ready() -> None:
     prepared: list[int] = []
     ready = VoiceReady(lambda: prepared.append(1), lambda: "kokoro:abc")
