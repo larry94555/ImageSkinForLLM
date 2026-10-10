@@ -73,7 +73,6 @@ class Spoken:
     """A sentence spoken, waiting for its video."""
 
     n: int  # the sentence's number in the reply
-    text: str
     wav: Path
     sentence_at: float
 
@@ -235,7 +234,7 @@ class SentenceClips:
                 "since_sentence_ms": ms_since(sentence_at),
             },
         )
-        return Spoken(n, text, wav, sentence_at)
+        return Spoken(n, wav, sentence_at)
 
     def _render(self, spoken: Spoken) -> float:
         """Render the spoken sentence's clip, listed as soon as the video step starts so the
