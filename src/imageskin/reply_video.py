@@ -174,6 +174,7 @@ class SentenceClips:
         text = spoken_text(sentence)
         if not text:
             return False
+        self._videos._before_engines()
         self._videos._voice.ensure()
         self.folder.mkdir(parents=True, exist_ok=True)
         path = self.folder / f"{len(self.clips) + 1}.mp4"
@@ -188,8 +189,17 @@ class SentenceClips:
 class ReplyVideos:
     """Renders one reply at a time, as the voice and video engines are not shared safely."""
 
-    def __init__(self, home: Path, render_clip: RenderClip, voice: VoiceReady) -> None:
+    def __init__(
+        self,
+        home: Path,
+        render_clip: RenderClip,
+        voice: VoiceReady,
+        # Called on the thread about to use the engines, before each clip: PyTorch's thread
+        # count is per thread (roadmap R22a, imageskin.cores).
+        before_engines: Callable[[], None] | None = None,
+    ) -> None:
         self.folder = home / "replies"
+        self._before_engines = before_engines or (lambda: None)
         # Left by a reply cut short when the server last stopped.
         for old in self.folder.glob("clips-*"):
             shutil.rmtree(old, ignore_errors=True)
@@ -207,6 +217,7 @@ class ReplyVideos:
         with self._lock:
             start = time.perf_counter()
             try:
+                self._before_engines()
                 self._voice.ensure()
                 with tempfile.TemporaryDirectory() as tmp:
                     self._render_clip(photo, "Hello.", Path(tmp) / "warm-up.mp4")
@@ -235,6 +246,7 @@ class ReplyVideos:
             return None
         with self._lock:
             start = time.perf_counter()
+            self._before_engines()
             self._voice.ensure()
             self.folder.mkdir(parents=True, exist_ok=True)
             path = self.path(turn)

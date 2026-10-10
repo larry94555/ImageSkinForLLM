@@ -332,13 +332,23 @@ def create_app(
     logger.info(
         "Chat LLM", extra={"url": llm.url, "model": llm.model, "context_tokens": llm.context_tokens}
     )
+    # While the LLM is busy, the voice and video engines leave it half the cores (R22a).
+    core_share = CoreShare()
+    core_share.llm_done()
     if ask_llm is None:
         client = LlmClient(llm)
         conversation = Conversation(
-            client.ask, client.context_tokens, client.count, client.stream, client.warm_up
+            client.ask,
+            client.context_tokens,
+            client.count,
+            client.stream,
+            client.warm_up,
+            llm_busy=core_share.llm,
         )
     else:
-        conversation = Conversation(ask_llm, lambda: llm.context_tokens, stream=stream_llm)
+        conversation = Conversation(
+            ask_llm, lambda: llm.context_tokens, stream=stream_llm, llm_busy=core_share.llm
+        )
 
     @app.get("/api/chat", dependencies=needs_consent)
     def get_chat() -> dict[str, object]:
@@ -348,16 +358,13 @@ def create_app(
         if not load_review(data_home, job.status()).accepted:
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
 
-    replies = ReplyVideos(data_home, render, voice_ready)
+    replies = ReplyVideos(data_home, render, voice_ready, before_engines=core_share.apply_here)
     # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by its id.
     sentence_clips: dict[str, SentenceClips] = {}
     clips_lock = threading.Lock()  # guards sentence_clips, used by several request threads
     # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
     # prompt waiting on another always drops that one's clips.
     chat_lock = threading.Lock()
-    # The engines leave the LLM half the cores while it writes (roadmap R22a).
-    core_share = CoreShare()
-    core_share.llm_done()
 
     def chosen_photo() -> Path | None:
         return store.path("photos", job.status().photo_id or "")
@@ -365,12 +372,8 @@ def create_app(
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_chat(body: ChatRequest) -> dict[str, str | int]:
         """The reply, with its place in the conversation to ask for its video by."""
-        with chat_lock:
-            core_share.llm_writing()
-            try:
-                return chat(body)
-            finally:
-                core_share.llm_done()
+        with chat_lock, core_share.llm():
+            return chat(body)
 
     def chat(body: ChatRequest) -> dict[str, str | int]:
         with clips_lock:
@@ -447,8 +450,12 @@ def create_app(
         photo = store.path("photos", status.photo_id or "")
         if photo is not None and load_review(data_home, status).accepted:
             logger.info("Warming up replies")
-            conversation.warm_up()  # quick, so a prompt sent meanwhile still gains from it
+            # On its own thread: an LLM that accepts the request but doesn't answer would
+            # otherwise hold the engines' warm-up back for its whole timeout.
+            llm = threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True)
+            llm.start()
             replies.warm_up(photo)
+            llm.join()
 
     app.state.reply_warm_up = threading.Thread(
         target=warm_up_replies, name="reply-warm-up", daemon=True

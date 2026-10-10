@@ -881,7 +881,7 @@ function Chat() {
 			if (made.length) setTimes((t) => [...t, ...made]);
 			setClips(got.clips.map((c) => c.url));
 			if (got.error !== null) throw new Error(got.error);
-			if (got.done) return true;
+			if (got.done) return got.clips.length > 0;
 			if (got.clips.length === known) await sleep(300);
 			known = got.clips.length;
 		}
@@ -936,6 +936,8 @@ function Chat() {
 			replied = true;
 			await following.catch(() => false);
 			setClips([]);
+			setTimes([]);
+			setWhole(false);
 			setSpeaking(false);
 			return;
 		} finally {

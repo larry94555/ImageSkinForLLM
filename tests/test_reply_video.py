@@ -295,6 +295,28 @@ def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     assert said == [] and not clips.folder.exists()
 
 
+def test_the_thread_that_runs_the_engines_is_told_first(tmp_path: Path) -> None:
+    """Before each clip, on the thread that renders it (R22a: PyTorch's count is per thread)."""
+    told: list[str] = []
+
+    def before_engines() -> None:
+        told.append(threading.current_thread().name)
+
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), before_engines
+    )
+    videos.warm_up(Path("me.jpg"))
+    videos.render(Path("me.jpg"), 1, "Hello.")
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips("🎉")  # nothing to say: the engines aren't used
+    clips("Two.")
+    clips.close()
+    clips.wait(10)
+    main = threading.current_thread().name
+    assert told == [main, main, "sentence-clips", "sentence-clips"]
+
+
 def test_files_left_from_before_a_restart_are_removed(tmp_path: Path) -> None:
     old = tmp_path / "replies" / "clips-abc123ef"
     old.mkdir(parents=True)

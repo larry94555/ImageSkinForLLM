@@ -1299,6 +1299,50 @@ function shownVideo(): HTMLVideoElement {
   return document.querySelector("video.reply-video") as HTMLVideoElement;
 }
 
+test("a reply done with no clips is spoken in one video", async () => {
+  // The server says so for a moment before it forgets a reply that wasn't streamed (R22a).
+  const fetchMock = chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "Hi again.", turn: 1 }),
+    () => Response.json({ video: "/api/chat/videos/1" }),
+    () => Response.json(clipsMade([], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Hi again.");
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat/video",
+      expect.objectContaining({ body: JSON.stringify({ turn: 1 }) }),
+    ),
+  );
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/1/));
+});
+
+test("a reply that fails takes its clips and timing rows away", async () => {
+  const [answer, reply] = later();
+  // The first clip is made while the LLM writes; once the LLM fails, the server drops the clips.
+  let clips: Answer = () => Response.json(clipsMade(["/api/chat/clips/x/1"], false));
+  chatServer([], answer, undefined, () => clips());
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  expect(screen.getByText("Sentence 1: not spoken yet")).toBeTruthy();
+  clips = () => Response.json({ detail: "No clips" }, { status: 404 });
+  await act(async () => {
+    reply(Response.json({ detail: "The LLM stopped." }, { status: 502 }));
+  });
+  await screen.findByText("The LLM stopped.");
+  await waitFor(() => expect(document.querySelector("video")).toBeNull());
+  expect(screen.queryByText(/^Sentence 1:/)).toBeNull();
+});
+
 test("a streamed reply starts playing on its first clip, before the reply text", async () => {
   const [answer, reply] = later();
   let made = clipsMade([], false);
