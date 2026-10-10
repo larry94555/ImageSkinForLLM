@@ -85,6 +85,32 @@ def test_a_failed_video_is_logged_and_left_no_file(
     assert "Reply video failed" in caplog.messages
 
 
+def test_warming_up_makes_the_voice_ready_and_renders_a_word(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    prepared: list[int] = []
+    rendered: list[str] = []
+    videos = ReplyVideos(
+        tmp_path,
+        lambda photo, text, output: rendered.append(text),
+        VoiceReady(lambda: prepared.append(1), lambda: "v"),
+    )
+    caplog.set_level(logging.INFO)
+    videos.warm_up(Path("me.jpg"))
+    assert prepared == [1] and rendered == ["Hello."]
+    assert "Replies warmed up" in caplog.messages
+    assert not (tmp_path / "replies").exists()  # the word is thrown away
+
+
+def test_a_failed_warm_up_is_logged_only(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    def fail(photo: Path, text: str, output: Path) -> None:
+        raise VideoError("ffmpeg is not installed")
+
+    videos = ReplyVideos(tmp_path, fail, VoiceReady(lambda: None, lambda: "v"))
+    videos.warm_up(Path("me.jpg"))
+    assert "Could not warm up replies" in caplog.messages
+
+
 # --- The API ---
 
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
@@ -101,6 +127,7 @@ def video_app(tmp_path: Path, render: object) -> TestClient:
             ask_llm=lambda messages: f"You said **{messages[-1]['content']}**",
         )
     )
+    client.app.state.reply_warm_up.join(5)  # type: ignore[attr-defined]
     client.post("/api/consent", json={"agreed": True})
     photo = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()
     done = PrepareStatus("done", photo_id=photo["id"])
@@ -138,6 +165,24 @@ def test_the_api_speaks_a_reply_and_serves_its_video(tmp_path: Path) -> None:
     with patch("imageskin.app.load_review", return_value=Review(accepted=False)):
         locked = client.post("/api/chat/video", json={"turn": 1})
     assert locked.status_code == 403 and locked.json()["detail"] == CHAT_LOCKED
+
+
+def test_replies_are_warmed_up_at_start_once_a_sample_is_accepted(tmp_path: Path) -> None:
+    first = video_app(tmp_path, write_text)  # makes the photo; nothing accepted at its start
+    assert not (tmp_path / "replies").exists()
+    rendered: list[str] = []
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        app = create_app(
+            tmp_path,
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=lambda photo, text, output: rendered.append(text),
+            ask_llm=lambda messages: "",
+        )
+        app.state.reply_warm_up.join(5)
+    assert rendered == ["Hello."]
+    first.close()
 
 
 def test_the_api_says_why_a_video_failed(tmp_path: Path) -> None:

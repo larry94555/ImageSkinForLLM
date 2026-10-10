@@ -5,6 +5,7 @@ engines as the sample video. Only the latest reply's video is kept, in <data fol
 
 import logging
 import os
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -51,6 +52,25 @@ class ReplyVideos:
         self._render_clip = render_clip
         self._voice = voice
         self._lock = threading.Lock()
+
+    def warm_up(self, photo: Path) -> None:
+        """Load the voice and video models and make the voice ready, by rendering a word that is
+        thrown away, so the first reply is as quick as the next ones. Run in the background when
+        the server starts; a reply sent meanwhile waits for it. Failures are logged only: the
+        reply that follows says what went wrong."""
+        with self._lock:
+            start = time.perf_counter()
+            try:
+                self._voice.ensure()
+                with tempfile.TemporaryDirectory() as tmp:
+                    self._render_clip(photo, "Hello.", Path(tmp) / "warm-up.mp4")
+            except Exception as e:
+                logger.error("Could not warm up replies", extra={"error": str(e)})
+                return
+            logger.info(
+                "Replies warmed up",
+                extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
+            )
 
     def path(self, turn: int) -> Path:
         return self.folder / f"{turn}.mp4"

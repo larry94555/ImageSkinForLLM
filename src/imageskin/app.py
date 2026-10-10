@@ -350,6 +350,19 @@ def create_app(
 
     replies = ReplyVideos(data_home, render, voice_ready)
 
+    def warm_up_replies() -> None:
+        # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
+        status = job.status()
+        photo = store.path("photos", status.photo_id or "")
+        if photo is not None and load_review(data_home, status).accepted:
+            logger.info("Warming up replies")
+            replies.warm_up(photo)
+
+    app.state.reply_warm_up = threading.Thread(
+        target=warm_up_replies, name="reply-warm-up", daemon=True
+    )
+    app.state.reply_warm_up.start()
+
     @app.post("/api/chat/video", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:
         """Speak a reply in the person's voice and render it on their photo. The video's
