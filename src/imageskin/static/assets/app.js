@@ -867,7 +867,7 @@ function Chat() {
 			const answered = replied();
 			const got = await getClips(replyId, known);
 			if (got === null) {
-				if (answered) return false;
+				if (answered) return;
 				await sleep(300);
 				continue;
 			}
@@ -881,11 +881,10 @@ function Chat() {
 			if (made.length) setTimes((t) => [...t, ...made]);
 			setClips(got.clips.map((c) => c.url));
 			if (got.error !== null) throw new Error(got.error);
-			if (got.done) return got.clips.length > 0;
+			if (got.done) return;
 			if (got.clips.length === known) await sleep(300);
 			known = got.clips.length;
 		}
-		return true;
 	}
 	function started(clip, at) {
 		setTimes((t) => t.map((c, i) => i === clip && c.started === null ? {
@@ -917,7 +916,7 @@ function Chat() {
 			content: text
 		}]);
 		setPrompt("");
-		const following = followClips(replyId, () => replied);
+		const following = followClips(replyId, () => replied).then(() => null, (e) => e instanceof Error ? e : new Error(String(e)));
 		let reply;
 		let repliedAt = 0;
 		try {
@@ -934,7 +933,7 @@ function Chat() {
 			setPrompt(text);
 			setFailed(e instanceof Error ? e.message : String(e));
 			replied = true;
-			await following.catch(() => false);
+			await following;
 			setClips([]);
 			setTimes([]);
 			setWhole(false);
@@ -945,7 +944,10 @@ function Chat() {
 			setSending(false);
 		}
 		try {
-			if (!await following) {
+			const clipsFailed = await following;
+			if (gone.current) return;
+			if (clipsFailed !== null) throw clipsFailed;
+			if (!reply.streamed) {
 				const url = await speakReply(reply.turn);
 				setClips(url ? [`${url}?t=${Date.now()}`] : []);
 				if (url) {

@@ -282,6 +282,47 @@ def test_a_failed_sentence_stops_the_clips_and_says_why(
     assert [r.message for r in caplog.records].count("Sentence clip failed") == 1
 
 
+def test_a_failed_clip_leaves_no_file(tmp_path: Path) -> None:
+    def half_then_fail(photo: Path, text: str, output: Path) -> None:
+        output.write_bytes(b"half")
+        raise VideoError("ffmpeg stopped")
+
+    videos = ReplyVideos(tmp_path, half_then_fail, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips.close()
+    clips.wait(10)
+    assert clips.error == "ffmpeg stopped" and clips.clips == []
+    assert list(clips.folder.iterdir()) == []
+
+
+def test_clips_that_cant_be_removed_are_logged_and_removed_with_the_next_reply(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips("Two.")
+    clips.close()
+    clips.wait(10)
+    first, second = clips.clips
+    real_unlink = Path.unlink
+
+    def in_use(path: Path, missing_ok: bool = False) -> None:
+        if path == first:  # as on Windows, while the browser has it open
+            raise PermissionError("The file is being used by another process")
+        real_unlink(path, missing_ok)
+
+    with patch.object(Path, "unlink", in_use):
+        clips.cancel()
+    assert first.exists() and not second.exists()
+    [left] = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert left.message == "Could not remove a reply's clip"
+    assert left.clip == "clips-abc123ef/1.mp4"  # type: ignore[attr-defined]
+    videos.sentence_clips(Path("me.jpg"), "0123abcd")  # removed with the next reply instead
+    assert not clips.folder.exists()
+
+
 def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     said: list[str] = []
     videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
@@ -369,7 +410,12 @@ def test_the_api_speaks_a_reply_and_serves_its_video(tmp_path: Path) -> None:
     client = video_app(tmp_path, render)
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         reply = client.post("/api/chat", json={"prompt": "Hi"}).json()
-        assert reply == {"role": "assistant", "content": "You said **Hi**", "turn": 1}
+        assert reply == {
+            "role": "assistant",
+            "content": "You said **Hi**",
+            "turn": 1,
+            "streamed": False,
+        }
         made = client.post("/api/chat/video", json={"turn": reply["turn"]})
         assert made.json() == {"video": "/api/chat/videos/1"}
         assert spoken == ["You said Hi"]
@@ -422,6 +468,7 @@ def test_the_api_serves_a_streamed_replys_clips_as_they_are_made(tmp_path: Path)
         assert client.get(clips_api).status_code == 404  # not asked for yet
         sent = client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
         assert sent.json()["content"] == "Hi Larry. How are you?"
+        assert sent.json()["streamed"] is True
         status = client.get(clips_api).json()
         while not status["done"]:
             status = client.get(clips_api).json()
@@ -488,7 +535,8 @@ def test_the_engines_leave_the_llm_half_the_cores_while_it_writes(
 def test_a_reply_that_isnt_streamed_has_no_clips(tmp_path: Path) -> None:
     client = video_app(tmp_path, write_text)
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
-        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        sent = client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        assert sent.json()["streamed"] is False
         assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 404
         assert client.post("/api/chat/video", json={"turn": 1}).status_code == 200
 
@@ -519,6 +567,40 @@ def test_a_prompt_waiting_on_another_drops_that_ones_clips(tmp_path: Path) -> No
         first.join(5)
         second.join(5)
         assert client.get(f"/api/chat/clips/{'a' * 8}").status_code == 404
+        assert client.get(f"/api/chat/clips/{'b' * 8}").status_code == 200
+    assert not (tmp_path / "replies" / f"clips-{'a' * 8}").exists()
+
+
+def test_a_newer_prompt_takes_the_clips_of_a_reply_still_being_rendered(tmp_path: Path) -> None:
+    """As when another tab sends a prompt: the first reply's clips go, and its browser knows
+    from `streamed` not to ask for the whole reply as one video instead."""
+    rendering, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        if text == "One.":
+            rendering.set()
+            go.wait(5)
+        write_text(photo, text, output)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield "One. Two." if messages[-1]["content"] == "First" else "Hi."
+
+    answers: dict[str, dict[str, object]] = {}
+
+    def post(prompt: str, reply_id: str) -> None:
+        sent = client.post("/api/chat", json={"prompt": prompt, "reply_id": reply_id})
+        answers[prompt] = sent.json()
+
+    client = video_app(tmp_path, render, stream)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        post("First", "a" * 8)  # answered while its first clip is still being rendered
+        assert rendering.wait(5) and answers["First"]["streamed"] is True
+        second = threading.Thread(target=post, args=("Second", "b" * 8))
+        second.start()
+        time.sleep(0.2)  # the second prompt is now waiting on the first reply's clip
+        assert client.get(f"/api/chat/clips/{'a' * 8}").status_code == 404
+        go.set()
+        second.join(5)
         assert client.get(f"/api/chat/clips/{'b' * 8}").status_code == 200
     assert not (tmp_path / "replies" / f"clips-{'a' * 8}").exists()
 
