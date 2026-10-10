@@ -343,6 +343,10 @@ def create_app(
     replies = ReplyVideos(data_home, render, voice_ready)
     # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by turn.
     sentence_clips: dict[int, SentenceClips] = {}
+    clips_lock = threading.Lock()  # guards sentence_clips, used by several request threads
+    # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
+    # prompt waiting on another always drops that one's clips.
+    chat_lock = threading.Lock()
 
     def chosen_photo() -> Path | None:
         return store.path("photos", job.status().photo_id or "")
@@ -350,9 +354,15 @@ def create_app(
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_chat(body: ChatRequest) -> dict[str, str | int]:
         """The reply, with its place in the conversation to ask for its video by."""
-        for old in sentence_clips.values():  # a reply whose video was never asked for
+        with chat_lock:
+            return chat(body)
+
+    def chat(body: ChatRequest) -> dict[str, str | int]:
+        with clips_lock:
+            unasked = list(sentence_clips.values())  # replies whose video was never asked for
+            sentence_clips.clear()
+        for old in unasked:
             old.cancel()
-        sentence_clips.clear()
         photo = chosen_photo()
         clips = None if photo is None else replies.sentence_clips(photo)
         try:
@@ -365,7 +375,8 @@ def create_app(
         if clips is not None:
             clips.close()
             if clips.sentences:  # streamed: the video is joined from the clips
-                sentence_clips[turn] = clips
+                with clips_lock:
+                    sentence_clips[turn] = clips
         return {**asdict(reply), "turn": turn}
 
     def warm_up_replies() -> None:
@@ -391,7 +402,8 @@ def create_app(
         photo = chosen_photo()
         if photo is None:
             raise HTTPException(status_code=409, detail="The photo was removed. Choose another.")
-        clips = sentence_clips.pop(body.turn, None)
+        with clips_lock:
+            clips = sentence_clips.pop(body.turn, None)
         try:
             if clips is not None:  # rendered while the LLM was writing
                 path = replies.join(body.turn, clips)

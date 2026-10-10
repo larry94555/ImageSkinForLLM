@@ -1,5 +1,7 @@
 import logging
 import subprocess
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
@@ -238,6 +240,42 @@ def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     assert said == [] and not clips.folder.exists()
 
 
+def test_clips_in_a_folder_with_an_apostrophe_are_joined(tmp_path: Path) -> None:
+    home = tmp_path / "O'Neil"
+    videos = ReplyVideos(
+        home, lambda p, t, o: tone_clip(0.5, o), VoiceReady(lambda: None, lambda: "v")
+    )
+    clips = videos.sentence_clips(Path("me.jpg"))
+    clips("One.")
+    clips("Two.")
+    video = videos.join(1, clips)
+    assert video is not None and seconds_of(video) == pytest.approx(1.0, abs=0.1)
+
+
+def test_a_join_that_times_out_leaves_nothing_behind(tmp_path: Path) -> None:
+    def slow(cmd: list[str], **kwargs: object) -> None:
+        Path(cmd[-1]).write_bytes(b"half")  # ffmpeg had started writing
+        raise subprocess.TimeoutExpired(cmd, 60)
+
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"))
+    clips("One.")
+    with patch("imageskin.reply_video.subprocess.run", slow):
+        with pytest.raises(VideoError, match="longer than 60 seconds"):
+            videos.join(1, clips)
+    assert list((tmp_path / "replies").iterdir()) == []
+
+
+def test_files_left_by_a_reply_cut_short_are_removed_at_start(tmp_path: Path) -> None:
+    replies = tmp_path / "replies"
+    (replies / "rendering-abc").mkdir(parents=True)
+    (replies / "rendering-abc" / "1.mp4").write_bytes(b"clip")
+    (replies / "3.rendering.mp4").write_bytes(b"half")
+    (replies / "1.mp4").write_bytes(b"video")
+    ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    assert [p.name for p in replies.iterdir()] == ["1.mp4"]
+
+
 def test_clips_that_cant_be_joined_say_why(tmp_path: Path) -> None:
     broken = tmp_path / "broken.mp4"
     broken.write_text("not a video")
@@ -347,6 +385,43 @@ def test_the_api_joins_a_streamed_replys_sentence_clips(tmp_path: Path) -> None:
         assert said[-2:] == ["Hi Larry.", "How are you?"]
         # The unasked-for reply's clips were dropped, and only the latest video is kept.
         assert [p.name for p in (tmp_path / "replies").iterdir()] == ["5.mp4"]
+
+
+def test_a_prompt_waiting_on_another_drops_that_ones_clips(tmp_path: Path) -> None:
+    said: list[str] = []
+    started, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        said.append(text)
+        output.write_text(text)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        if messages[-1]["content"] == "First":
+            started.set()
+            go.wait(5)
+            yield "One. Two."
+        else:
+            yield "Hi."
+
+    client = video_app(tmp_path, render, stream)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        first = threading.Thread(
+            target=client.post, args=("/api/chat",), kwargs={"json": {"prompt": "First"}}
+        )
+        first.start()
+        assert started.wait(5)
+        second = threading.Thread(
+            target=client.post, args=("/api/chat",), kwargs={"json": {"prompt": "Second"}}
+        )
+        second.start()
+        time.sleep(0.2)  # the second prompt is now waiting on the first
+        go.set()
+        first.join(5)
+        second.join(5)
+        # The first reply's clips were dropped when the second prompt went ahead, so asking for
+        # its video renders it whole.
+        assert client.post("/api/chat/video", json={"turn": 1}).status_code == 200
+    assert said[-1] == "One. Two."
 
 
 def test_the_api_drops_the_clips_of_a_failed_streamed_reply(tmp_path: Path) -> None:

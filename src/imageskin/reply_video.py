@@ -154,6 +154,11 @@ class ReplyVideos:
 
     def __init__(self, home: Path, render_clip: RenderClip, voice: VoiceReady) -> None:
         self.folder = home / "replies"
+        # Left by a reply cut short when the server last stopped.
+        for old in self.folder.glob("rendering-*"):
+            shutil.rmtree(old, ignore_errors=True)
+        for old in self.folder.glob("*.rendering.mp4"):
+            old.unlink(missing_ok=True)
         self._render_clip = render_clip
         self._voice = voice
         self._lock = threading.Lock()
@@ -192,8 +197,11 @@ class ReplyVideos:
                 return None
             path = self.path(turn)
             rendering = path.with_name(f"{turn}.rendering.mp4")
-            concat(parts, rendering)
-            os.replace(rendering, path)
+            try:
+                concat(parts, rendering)
+                os.replace(rendering, path)
+            finally:
+                rendering.unlink(missing_ok=True)
             self._remove_old(keep=path)
         except Exception as e:
             logger.error(
@@ -272,12 +280,15 @@ class ReplyVideos:
 def concat(clips: list[Path], output: Path) -> None:
     """Join MP4 clips made by the same engine into one, without encoding the video again."""
     listing = output.with_suffix(".txt")
-    listing.write_text("".join(f"file '{c.as_posix()}'\n" for c in clips), encoding="utf-8")
+    # Quoted for the concat list, where a ' in a path (as in /Users/O'Neil) is written '\''.
+    quoted = (c.as_posix().replace("'", "'\\''") for c in clips)
+    listing.write_text("".join(f"file '{q}'\n" for q in quoted), encoding="utf-8")
     cmd = [find_ffmpeg(), "-nostdin", "-y", "-v", "error", "-f", "concat", "-safe", "0"]
     cmd += ["-i", str(listing), "-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart"]
     try:
         done = subprocess.run([*cmd, str(output)], capture_output=True, timeout=60)
     except subprocess.TimeoutExpired as e:
+        output.unlink(missing_ok=True)
         raise VideoError("ffmpeg took longer than 60 seconds to join the clips") from e
     finally:
         listing.unlink(missing_ok=True)
