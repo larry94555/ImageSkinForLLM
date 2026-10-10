@@ -186,6 +186,10 @@ class SentenceClips:
                     continue
                 if spoken is None:
                     continue
+                if self._stopped():  # cancelled while it was spoken: no video for it
+                    spoken.wav.unlink(missing_ok=True)
+                    spoken.wav.with_suffix(".json").unlink(missing_ok=True)
+                    continue
                 try:
                     self._render(spoken)
                 except Exception as e:

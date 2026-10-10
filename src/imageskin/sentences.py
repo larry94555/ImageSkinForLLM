@@ -16,7 +16,7 @@ FIRST_CLAUSE_LIMIT so the clause doesn't end on a word that leads into the next)
 
 import re
 
-from imageskin.speech_text import CODE_FENCE, INLINE_CODE, closing_fence
+from imageskin.speech_text import CODE_FENCE, INLINE_CODE, closing_fence, inside_whole
 
 # Words that end with a full stop but don't end a sentence.
 ABBREVIATIONS = frozenset(
@@ -94,14 +94,20 @@ def first_clause_cut(text: str) -> int | None:
         word = last.rstrip("\"'”’)]").lower()
         following = words[i].group().lstrip("\"'“‘([").lower()
         dash = max(last.find("—"), last.find("–"))
+        cut = None
         if dash > 0:  # a dash joined to the word before it, as in "a leader—a great one"
-            return words[i - 1].start() + dash
-        if (
+            cut = words[i - 1].start() + dash
+        elif (
             word.endswith((",", ";", ":")) or following in JOINING or following in _DASHES
         ) and last not in _DASHES:
-            return words[i - 1].end()
-        if i >= FIRST_CLAUSE_MAX and (word.strip(".!?") not in LEADING or i == FIRST_CLAUSE_LIMIT):
-            return words[i - 1].end()
+            cut = words[i - 1].end()
+        elif i >= FIRST_CLAUSE_MAX and (
+            word.strip(".!?") not in LEADING or i == FIRST_CLAUSE_LIMIT
+        ):
+            cut = words[i - 1].end()
+        # Not inside a picture, link or HTML tag, which are spoken (or left out) whole.
+        if cut is not None and not inside_whole(text, cut):
+            return cut
     return None
 
 
