@@ -118,3 +118,23 @@ def test_a_table_is_a_sentence_pointing_to_the_text() -> None:
 
 def test_horizontal_rules_and_stray_borders_are_not_spoken() -> None:
     assert spoken("Text\n\n---\n\nMore | less") == "Text. More less"
+
+
+@pytest.mark.parametrize(
+    ("display", "said"),
+    [
+        ("Martin Luther King Jr. was a leader.", "Martin Luther King Junior was a leader."),
+        ("He met Martin Luther King Jr.", "He met Martin Luther King Junior."),
+        ("Ask Dr. Smith or Mrs. Jones.", "Ask Doctor Smith or Missus Jones."),
+        (
+            "Cats vs. dogs, fruit (e.g. apples), etc.",
+            "Cats versus dogs, fruit (for example apples), et cetera.",
+        ),
+        ("It weighs approx. 3 kg, i.e. a lot.", "It weighs approximately 3 kg, that is a lot."),
+        ("Mr. Sr. and Prof. Lee", "Mister Senior and Professor Lee"),
+        ("Visit St. Louis.", "Visit St. Louis."),  # Saint or Street: left as written
+        ("The DRY rule and JR.EXE stay.", "The DRY rule and JR.EXE stay."),  # not short forms
+    ],
+)
+def test_short_forms_are_said_as_words(display: str, said: str) -> None:
+    assert spoken_text(display) == said

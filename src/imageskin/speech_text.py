@@ -21,6 +21,34 @@ _EMOJI_WORDS = {"❤": "love", "♥": "love"}
 # Inline code of up to this many words is spoken as is, such as `main()`.
 _SHORT_CODE_WORDS = 2
 
+# Short forms the voice would spell out ("Jr." as "J R"), said as the words they stand for. "St."
+# is left as it is: it is "Saint" or "Street" depending on the sentence.
+_SHORT_FORMS = {
+    "jr": "Junior",
+    "sr": "Senior",
+    "dr": "Doctor",
+    "mr": "Mister",
+    "mrs": "Missus",
+    "prof": "Professor",
+    "vs": "versus",
+    "etc": "et cetera",
+    "e.g": "for example",
+    "i.e": "that is",
+    "approx": "approximately",
+}
+_SHORT_FORM = re.compile(
+    r"(?<![\w.])(" + "|".join(re.escape(k) for k in _SHORT_FORMS) + r")\.(?![\w.])", re.I
+)
+
+
+def _say_short_forms(text: str) -> str:
+    def word(m: re.Match[str]) -> str:
+        said = _SHORT_FORMS[m.group(1).lower()]
+        return said + "." if m.end() == len(text) else said  # it ended the sentence too
+
+    return _SHORT_FORM.sub(word, text)
+
+
 # The Markdown code rules, shared with the sentence splitter (sentences.py) so both agree on
 # where code starts and ends. A code fence is three or more of the same character, ` or ~.
 CODE_FENCE = re.compile(r"^[ \t]*(?P<fence>(?P<c>[`~])(?P=c){2,})", re.M)
@@ -199,4 +227,4 @@ def spoken_text(display: str) -> str:
         gap = False
         chars.append(word)
         last = i
-    return "".join(chars)
+    return _say_short_forms("".join(chars))
