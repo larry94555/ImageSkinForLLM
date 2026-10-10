@@ -100,11 +100,14 @@ async function review(decision) {
 async function getChat() {
 	return (await json(await fetch("/api/chat"))).turns;
 }
-async function sendPrompt(prompt) {
+async function sendPrompt(prompt, replyId) {
 	const response = await fetch("/api/chat", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ prompt })
+		body: JSON.stringify(replyId ? {
+			prompt,
+			reply_id: replyId
+		} : { prompt })
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
@@ -117,6 +120,11 @@ async function speakReply(turn) {
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 	return (await response.json()).video;
+}
+async function getClips(replyId) {
+	const response = await fetch(`/api/chat/clips/${replyId}`);
+	if (response.status === 404) return null;
+	return json(response);
 }
 //#endregion
 //#region src/pages.tsx
@@ -819,15 +827,25 @@ function ChatPage() {
 	] });
 	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u(Chat, {})] });
 }
+function newReplyId() {
+	return Array.from(crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+function sleep(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
 function Chat() {
 	const [turns, setTurns] = d(null);
 	const [prompt, setPrompt] = d("");
 	const [sending, setSending] = d(false);
 	const [speaking, setSpeaking] = d(false);
-	const [video, setVideo] = d(null);
+	const [clips, setClips] = d([]);
 	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
 	const end = A(null);
+	const gone = A(false);
+	h(() => () => {
+		gone.current = true;
+	}, []);
 	h(() => {
 		getChat().then(setTurns).catch((e) => {
 			console.error("Could not load the conversation", e);
@@ -840,22 +858,40 @@ function Chat() {
 		sending,
 		speaking
 	]);
+	async function followClips(replyId, replied) {
+		while (!gone.current) {
+			const answered = replied();
+			const got = await getClips(replyId);
+			if (got === null) {
+				if (answered) return;
+			} else {
+				setClips(got.clips);
+				if (got.error !== null) throw new Error(got.error);
+				if (got.done) return;
+			}
+			await sleep(300);
+		}
+	}
 	async function send() {
 		const text = prompt.trim();
 		if (!text || sending || speaking) return;
 		const shownAt = (turns ?? []).length + 1;
+		const replyId = newReplyId();
+		let replied = false;
 		setSending(true);
+		setSpeaking(true);
 		setFailed(null);
 		setUnspoken(null);
-		setVideo(null);
+		setClips([]);
 		setTurns((t) => [...t ?? [], {
 			role: "user",
 			content: text
 		}]);
 		setPrompt("");
+		const following = followClips(replyId, () => replied).then(() => null, (e) => e instanceof Error ? e : new Error(String(e)));
 		let reply;
 		try {
-			reply = await sendPrompt(text);
+			reply = await sendPrompt(text, replyId);
 			const { role, content } = reply;
 			setTurns((t) => [...t ?? [], {
 				role,
@@ -866,17 +902,25 @@ function Chat() {
 			setTurns((t) => (t ?? []).slice(0, -1));
 			setPrompt(text);
 			setFailed(e instanceof Error ? e.message : String(e));
+			replied = true;
+			await following;
+			setClips([]);
+			setSpeaking(false);
 			return;
 		} finally {
+			replied = true;
 			setSending(false);
 		}
-		setSpeaking(true);
 		try {
-			const url = await speakReply(reply.turn);
-			setVideo(url && `${url}?t=${Date.now()}`);
+			const clipsFailed = await following;
+			if (gone.current) return;
+			if (clipsFailed !== null) throw clipsFailed;
+			if (!reply.streamed) {
+				const url = await speakReply(reply.turn);
+				setClips(url ? [`${url}?t=${Date.now()}`] : []);
+			}
 		} catch (e) {
 			console.error("Could not speak the reply", e);
-			setVideo(null);
 			setUnspoken({
 				turn: shownAt,
 				why: e instanceof Error ? e.message : String(e)
@@ -892,13 +936,7 @@ function Chat() {
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [
-			video && /* @__PURE__ */ u("video", {
-				className: "reply-video",
-				src: video,
-				autoPlay: true,
-				controls: true,
-				playsInline: true
-			}),
+			clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, { clips }),
 			turns.length === 0 && /* @__PURE__ */ u("p", {
 				className: "muted",
 				children: "Say hello to start the conversation."
@@ -958,6 +996,21 @@ function Chat() {
 			}),
 			/* @__PURE__ */ u("div", { ref: end })
 		]
+	});
+}
+function ClipPlayer(props) {
+	const { clips } = props;
+	const [playing, setPlaying] = d(0);
+	const first = clips[0];
+	h(() => setPlaying(0), [first]);
+	const shown = clips[Math.min(playing, clips.length - 1)];
+	return /* @__PURE__ */ u("video", {
+		className: "reply-video",
+		src: shown,
+		autoPlay: true,
+		controls: true,
+		playsInline: true,
+		onEnded: () => setPlaying((p) => Math.min(p + 1, clips.length))
 	});
 }
 function StepState(props) {

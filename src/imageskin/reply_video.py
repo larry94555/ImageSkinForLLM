@@ -3,24 +3,20 @@ speech, spoken in the person's voice and rendered on their photo, with the same 
 engines as the sample video. Only the latest reply's video is kept, in <data folder>/replies.
 
 A streamed reply is rendered sentence by sentence while the LLM is still writing (roadmap R21,
-item 12), and the sentences' clips are then joined into the reply's video.
+item 12), and the browser plays each sentence's clip as soon as it is ready (roadmap R22).
 """
 
 import logging
 import os
 import queue
-import shutil
-import subprocess
 import tempfile
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from uuid import uuid4
 
 from imageskin.prepare_job import PrepareVoice, RenderClip
 from imageskin.speech_text import spoken_text
-from imageskin.video import VideoError, find_ffmpeg
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +58,10 @@ class SentenceClips:
     """One reply's clips, rendered a sentence at a time on a background thread, in order, while
     the LLM writes the next ones. Give it to Conversation.send as `on_sentence`."""
 
-    def __init__(self, videos: "ReplyVideos", photo: Path) -> None:
+    def __init__(self, videos: "ReplyVideos", photo: Path, reply_id: str) -> None:
         self._videos = videos
         self._photo = photo
-        self.folder = videos.folder / f"rendering-{uuid4().hex}"
+        self.folder = videos.folder / f"clips-{reply_id}"
         self.clips: list[Path] = []
         self.sentences = 0  # given so far
         self._queue: queue.Queue[str | None] = queue.Queue()
@@ -74,6 +70,7 @@ class SentenceClips:
         self._error: Exception | None = None
         self._cancelled = False
         self._closed = False
+        self.done = False  # every clip is rendered, or rendering stopped
 
     def __call__(self, sentence: str | None) -> None:
         if sentence is None:  # the LLM has started writing
@@ -91,15 +88,18 @@ class SentenceClips:
         if not self._closed:
             self._closed = True
             self._queue.put(None)
+            if self._thread is None:
+                self.done = True
 
-    def finish(self) -> list[Path]:
-        """Wait for the last clip; the clips in order. The first engine error is passed on."""
-        self.close()
+    @property
+    def error(self) -> str | None:
+        """Why a clip failed, if one did."""
+        return None if self._error is None else str(self._error)
+
+    def wait(self, timeout: float | None = None) -> None:
+        """For tests: wait for the clips' thread to end (after close())."""
         if self._thread is not None:
-            self._thread.join()
-        if self._error is not None:
-            raise self._error
-        return self.clips
+            self._thread.join(timeout)
 
     def cancel(self) -> None:
         """The reply failed: stop after the clip being rendered and remove the clips."""
@@ -107,7 +107,7 @@ class SentenceClips:
         self.close()
         if self._thread is not None:
             self._thread.join()
-        shutil.rmtree(self.folder, ignore_errors=True)
+        self._videos.remove_clips(self.folder)
 
     def _run(self) -> None:
         with self._videos._lock:
@@ -135,6 +135,7 @@ class SentenceClips:
                             ),
                         },
                     )
+        self.done = True
 
     def _render(self, sentence: str) -> bool:
         """Render the sentence's clip; False when there is nothing in it to say aloud."""
@@ -144,7 +145,11 @@ class SentenceClips:
         self._videos._voice.ensure()
         self.folder.mkdir(parents=True, exist_ok=True)
         path = self.folder / f"{len(self.clips) + 1}.mp4"
-        self._videos._render_clip(self._photo, text, path)
+        try:
+            self._videos._render_clip(self._photo, text, path)
+        except Exception:
+            path.unlink(missing_ok=True)  # a clip cut short is never left behind
+            raise
         self.clips.append(path)
         return True
 
@@ -155,8 +160,8 @@ class ReplyVideos:
     def __init__(self, home: Path, render_clip: RenderClip, voice: VoiceReady) -> None:
         self.folder = home / "replies"
         # Left by a reply cut short when the server last stopped.
-        for old in self.folder.glob("rendering-*"):
-            shutil.rmtree(old, ignore_errors=True)
+        for old in self.folder.glob("clips-*"):
+            self.remove_clips(old)
         for old in self.folder.glob("*.rendering.mp4"):
             old.unlink(missing_ok=True)
         self._render_clip = render_clip
@@ -182,43 +187,39 @@ class ReplyVideos:
                 extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
             )
 
-    def sentence_clips(self, photo: Path) -> SentenceClips:
-        """Render a streamed reply sentence by sentence; see join()."""
-        return SentenceClips(self, photo)
+    def sentence_clips(self, photo: Path, reply_id: str) -> SentenceClips:
+        """Render a streamed reply sentence by sentence into <folder>/clips-<reply_id>."""
+        clips = SentenceClips(self, photo, reply_id)
+        # Clips of an earlier reply that could not be removed are removed with this one.
+        for old in self.folder.glob("clips-*"):
+            if old != clips.folder:
+                self.remove_clips(old)
+        return clips
 
-    def join(self, turn: int, clips: SentenceClips) -> Path | None:
-        """Wait for the reply's clips and join them into its video. None when nothing in it was
-        spoken. The engines' and ffmpeg's errors are passed on."""
-        start = time.perf_counter()
-        try:
-            parts = clips.finish()
-            if not parts:
-                logger.info("Reply has nothing to speak", extra={"turn": turn})
-                return None
-            path = self.path(turn)
-            rendering = path.with_name(f"{turn}.rendering.mp4")
-            # Not while another reply is rendered, which writes and removes files here too. The
-            # clips are waited for first, as their thread holds the lock while it renders.
-            with self._lock:
-                try:
-                    concat(parts, rendering)
-                    os.replace(rendering, path)
-                finally:
-                    rendering.unlink(missing_ok=True)
-                self._remove_old(keep=path)
-        except Exception as e:
-            logger.error(
-                "Reply video failed",
-                extra={"turn": turn, "error": str(e), "wait_ms": ms_since(start)},
-            )
-            raise
-        finally:
-            shutil.rmtree(clips.folder, ignore_errors=True)
-        logger.info(
-            "Joined reply video",
-            extra={"turn": turn, "clips": len(parts), "wait_ms": ms_since(start)},
-        )
-        return path
+    def remove_clips(self, folder: Path) -> None:
+        """Remove a reply's clips and their folder. A clip that can't be removed (as on Windows
+        while the browser still has it open) is logged and left for the next reply to remove,
+        like an old reply video."""
+        left = 0
+        for clip in folder.glob("*"):
+            try:
+                clip.unlink()
+            except OSError as e:
+                left += 1
+                logger.warning(
+                    "Could not remove a reply's clip",
+                    extra={"clip": f"{folder.name}/{clip.name}", "error": str(e)},
+                )
+        if not left:
+            try:
+                folder.rmdir()
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                logger.warning(
+                    "Could not remove a reply's clips",
+                    extra={"clips": folder.name, "error": str(e)},
+                )
 
     def path(self, turn: int) -> Path:
         return self.folder / f"{turn}.mp4"
@@ -278,24 +279,3 @@ class ReplyVideos:
                     "Could not remove an old reply video",
                     extra={"video": old.name, "error": str(e)},
                 )
-
-
-def concat(clips: list[Path], output: Path) -> None:
-    """Join MP4 clips made by the same engine into one, without encoding the video again."""
-    listing = output.with_suffix(".txt")
-    # Quoted for the concat list, where a ' in a path (as in /Users/O'Neil) is written '\''.
-    quoted = (c.as_posix().replace("'", "'\\''") for c in clips)
-    listing.write_text("".join(f"file '{q}'\n" for q in quoted), encoding="utf-8")
-    cmd = [find_ffmpeg(), "-nostdin", "-y", "-v", "error", "-f", "concat", "-safe", "0"]
-    cmd += ["-i", str(listing), "-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart"]
-    try:
-        done = subprocess.run([*cmd, str(output)], capture_output=True, timeout=60)
-    except subprocess.TimeoutExpired as e:
-        output.unlink(missing_ok=True)
-        raise VideoError("ffmpeg took longer than 60 seconds to join the clips") from e
-    finally:
-        listing.unlink(missing_ok=True)
-    if done.returncode != 0:
-        output.unlink(missing_ok=True)
-        detail = done.stderr.decode(errors="replace").strip().splitlines()[-1:] or ["no output"]
-        raise VideoError(f"ffmpeg could not join the clips ({detail[0]})")

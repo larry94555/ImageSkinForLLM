@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFi
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from imageskin import __version__
 from imageskin.accent import Accent, load_accent, save_accent
@@ -68,6 +68,9 @@ class AccentRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     prompt: str
+    # Chosen by the browser, so it can ask for the reply's clips while the LLM is still writing
+    # (roadmap R22).
+    reply_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{8,64}$")
 
 
 class ReplyVideoRequest(BaseModel):
@@ -341,8 +344,8 @@ def create_app(
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
 
     replies = ReplyVideos(data_home, render, voice_ready)
-    # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by turn.
-    sentence_clips: dict[int, SentenceClips] = {}
+    # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by its id.
+    sentence_clips: dict[str, SentenceClips] = {}
     clips_lock = threading.Lock()  # guards sentence_clips, used by several request threads
     # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
     # prompt waiting on another always drops that one's clips.
@@ -352,32 +355,61 @@ def create_app(
         return store.path("photos", job.status().photo_id or "")
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
-    def post_chat(body: ChatRequest) -> dict[str, str | int]:
-        """The reply, with its place in the conversation to ask for its video by."""
+    def post_chat(body: ChatRequest) -> dict[str, str | int | bool]:
+        """The reply, with its place in the conversation to ask for its video by, and whether it
+        was streamed: then its clips are made sentence by sentence (roadmap R22) and the
+        browser follows those, even once a newer prompt has taken them, rather than asking for
+        the whole video."""
         with chat_lock:
             return chat(body)
 
-    def chat(body: ChatRequest) -> dict[str, str | int]:
+    def chat(body: ChatRequest) -> dict[str, str | int | bool]:
         with clips_lock:
-            unasked = list(sentence_clips.values())  # replies whose video was never asked for
+            unasked = list(sentence_clips.values())  # only the latest reply is played
             sentence_clips.clear()
         for old in unasked:
             old.cancel()
         photo = chosen_photo()
-        clips = None if photo is None else replies.sentence_clips(photo)
+        clips = None
+        if photo is not None and body.reply_id is not None:
+            clips = replies.sentence_clips(photo, body.reply_id)
+            with clips_lock:
+                sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
             reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError) as e:
             if clips is not None:
+                with clips_lock:
+                    sentence_clips.pop(body.reply_id or "", None)
                 clips.cancel()
             status = 400 if isinstance(e, ValueError) else 502
             raise HTTPException(status_code=status, detail=str(e)) from e
         if clips is not None:
             clips.close()
-            if clips.sentences:  # streamed: the video is joined from the clips
+            if not clips.sentences:  # not streamed: the browser asks for the whole video
                 with clips_lock:
-                    sentence_clips[turn] = clips
-        return {**asdict(reply), "turn": turn}
+                    sentence_clips.pop(body.reply_id or "", None)
+        streamed = clips is not None and clips.sentences > 0
+        return {**asdict(reply), "turn": turn, "streamed": streamed}
+
+    @app.get("/api/chat/clips/{reply_id}", dependencies=needs_consent)
+    def get_clips(reply_id: str) -> dict[str, object]:
+        """The reply's clips so far, in order; done once there will be no more."""
+        with clips_lock:
+            clips = sentence_clips.get(reply_id)
+        if clips is None:
+            raise HTTPException(status_code=404, detail="No clips for that reply.")
+        urls = [f"/api/chat/clips/{reply_id}/{n}" for n in range(1, len(clips.clips) + 1)]
+        return {"clips": urls, "done": clips.done, "error": clips.error}
+
+    @app.get("/api/chat/clips/{reply_id}/{n}", dependencies=needs_consent)
+    def get_clip_file(reply_id: str, n: int) -> FileResponse:
+        with clips_lock:
+            clips = sentence_clips.get(reply_id)
+        if clips is None or not 1 <= n <= len(clips.clips):
+            raise HTTPException(status_code=404, detail="No such clip.")
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
+        return FileResponse(clips.clips[n - 1], media_type="video/mp4", headers=headers)
 
     def warm_up_replies() -> None:
         # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
@@ -394,21 +426,16 @@ def create_app(
 
     @app.post("/api/chat/video", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:
-        """Speak a reply in the person's voice and render it on their photo. The video's
-        address, or null when the reply has nothing to say aloud."""
+        """Speak a reply in the person's voice and render it on their photo, for an LLM that
+        doesn't stream. The video's address, or null when the reply has nothing to say aloud."""
         turns = conversation.turns()
         if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
             raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
         photo = chosen_photo()
         if photo is None:
             raise HTTPException(status_code=409, detail="The photo was removed. Choose another.")
-        with clips_lock:
-            clips = sentence_clips.pop(body.turn, None)
         try:
-            if clips is not None:  # rendered while the LLM was writing
-                path = replies.join(body.turn, clips)
-            else:
-                path = replies.render(photo, body.turn, turns[body.turn].content)
+            path = replies.render(photo, body.turn, turns[body.turn].content)
         except Exception as e:
             # The voice and video engines' errors say what went wrong; the reply is still shown.
             raise HTTPException(status_code=502, detail=str(e)) from e

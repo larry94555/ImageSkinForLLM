@@ -11,7 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
-import { duration, minutes } from "./pages";
+import { ClipPlayer, duration, minutes } from "./pages";
 
 const IDLE: PrepareStatus = {
   state: "idle",
@@ -1101,11 +1101,14 @@ test("a choice that can't be saved says why", async () => {
 // --- Chat (R15) ---
 
 // A fake server with the sample accepted, the conversation `turns`, POST /api/chat answering
-// with `answer` and POST /api/chat/video with `speak` (R17; by default nothing to say aloud).
+// with `answer`, POST /api/chat/video with `speak` (R17; by default nothing to say aloud) and
+// GET /api/chat/clips/<reply id> with `clips` (R22; by default none: the reply wasn't streamed).
+type Answer = () => Response | Promise<Response>;
 function chatServer(
   turns: Turn[],
-  answer: () => Response,
-  speak: () => Response = () => Response.json({ video: null }),
+  answer: Answer,
+  speak: Answer = () => Response.json({ video: null }),
+  clips: Answer = () => Response.json({ detail: "No clips" }, { status: 404 }),
 ) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
@@ -1114,10 +1117,18 @@ function chatServer(
       return init?.method === "POST" ? answer() : Response.json({ turns });
     }
     if (url === "/api/chat/video") return speak();
+    if (url.startsWith("/api/chat/clips/")) return clips();
     return Response.json([]);
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+// A response the test sends when it chooses, and a function to send it.
+function later(): [Answer, (r: Response) => void] {
+  let send: (r: Response) => void = () => {};
+  const pending = new Promise<Response>((resolve) => (send = resolve));
+  return [() => pending, (r) => send(r)];
 }
 
 function promptBox() {
@@ -1139,22 +1150,19 @@ test("the chat shows the conversation so far", async () => {
 });
 
 test("sending a prompt shows it and then the reply", async () => {
-  let reply: (r: Response) => void = () => {};
-  const fetchMock = chatServer([], () => Response.json({}));
+  const [answer, reply] = later();
+  const fetchMock = chatServer([], answer);
   await openAt("#/chat");
   await screen.findByText("Say hello to start the conversation.");
-  fetchMock.mockImplementationOnce(
-    () => new Promise<Response>((resolve) => (reply = resolve)),
-  );
   fireEvent.input(promptBox(), { target: { value: "  Hello!  " } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByText("Hello!")).toBeTruthy();
   expect(screen.getByText("Thinking…")).toBeTruthy();
   expect(promptBox().value).toBe("");
-  expect(fetchMock).toHaveBeenLastCalledWith(
-    "/api/chat",
-    expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "Hello!" }) }),
-  );
+  const sent = fetchMock.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
+  const body = JSON.parse(sent![1]!.body as string) as { prompt: string; reply_id: string };
+  expect(body.prompt).toBe("Hello!");
+  expect(body.reply_id).toMatch(/^[0-9a-f]{32}$/);
   await act(async () => {
     reply(Response.json({ role: "assistant", content: "Hi there, how are you?" }));
   });
@@ -1197,33 +1205,33 @@ test("when the LLM fails, the message says so and the prompt goes back in the bo
 
 // --- Spoken video replies (R17) ---
 
-test("the person speaks each reply in a video", async () => {
-  let spoken: (r: Response) => void = () => {};
+test("a reply that wasn't streamed is spoken in one video", async () => {
+  const [speak, spoken] = later();
   const fetchMock = chatServer(
     [
       { role: "user", content: "Hi" },
       { role: "assistant", content: "Hello!" },
     ],
-    () => Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3 }),
+    () =>
+      Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3, streamed: false }),
+    speak,
   );
   await openAt("#/chat");
   await screen.findByText("Hello!");
   expect(document.querySelector("video")).toBeNull();
-  fetchMock.mockImplementationOnce(async () =>
-    Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3 }),
-  );
-  fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (spoken = resolve)));
   fireEvent.input(promptBox(), { target: { value: "How are you?" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   expect(await screen.findByText("I'm well, thanks.")).toBeTruthy();
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/chat/video",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ turn: 3 }) }),
+    ),
+  );
   expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
   expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
-  expect(fetchMock).toHaveBeenLastCalledWith(
-    "/api/chat/video",
-    expect.objectContaining({ method: "POST", body: JSON.stringify({ turn: 3 }) }),
-  );
   await act(async () => {
     spoken(Response.json({ video: "/api/chat/videos/3" }));
   });
@@ -1235,9 +1243,16 @@ test("the person speaks each reply in a video", async () => {
   expect(video.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/3\?t=\d+$/);
   expect(video.autoplay).toBe(true);
   expect(screen.queryByText("Getting ready to say it…")).toBeNull();
+  const asked = fetchMock.mock.calls.filter(([url]) => url === "/api/chat/video");
+  expect(asked).toHaveLength(1);
 
   // The next prompt takes the old video away: the server replaces it with the new reply's.
-  fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url, init) =>
+    url === "/api/chat" && init?.method === "POST"
+      ? new Promise<Response>(() => {})
+      : original(url, init),
+  );
   fireEvent.input(promptBox(), { target: { value: "Good." } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -1264,6 +1279,137 @@ test("a reply's video is asked for by the server's count, not this page's", asyn
       expect.objectContaining({ body: JSON.stringify({ turn: 3 }) }),
     ),
   );
+});
+
+// --- Ordered playback (R22) ---
+
+test("a streamed reply starts playing on its first clip, before the reply text", async () => {
+  const [answer, reply] = later();
+  let made: { clips: string[]; done: boolean; error: string | null } = {
+    clips: [],
+    done: false,
+    error: null,
+  };
+  const fetchMock = chatServer([], answer, undefined, () => Response.json(made));
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Thinking…");
+  made = { clips: ["/api/chat/clips/x/1"], done: false, error: null };
+  const video = await waitFor(() => {
+    const found = document.querySelector("video.reply-video") as HTMLVideoElement | null;
+    expect(found?.getAttribute("src")).toBe("/api/chat/clips/x/1");
+    return found!;
+  });
+  expect(screen.getByText("Thinking…")).toBeTruthy(); // the reply text hasn't come yet
+  await act(async () => {
+    reply(
+      Response.json({ role: "assistant", content: "Once upon a time. The end.", streamed: true }),
+    );
+  });
+  await screen.findByText("Once upon a time. The end.");
+  fireEvent.ended(video); // the first clip ends before the second is made: wait on it
+  expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
+  made = { clips: ["/api/chat/clips/x/1", "/api/chat/clips/x/2"], done: true, error: null };
+  await waitFor(() => expect(video.getAttribute("src")).toBe("/api/chat/clips/x/2"));
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  fireEvent.ended(video);
+  expect(video.getAttribute("src")).toBe("/api/chat/clips/x/2"); // stays on the last frame
+  expect(fetchMock).not.toHaveBeenCalledWith("/api/chat/video", expect.anything());
+});
+
+test("a reply whose clips a newer prompt took is not spoken again as one video", async () => {
+  const [answer, reply] = later();
+  let clipsNow: Answer = () =>
+    Response.json({ clips: ["/api/chat/clips/x/1"], done: false, error: null });
+  const fetchMock = chatServer([], answer, undefined, () => clipsNow());
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  const video = await waitFor(() => {
+    const found = document.querySelector("video.reply-video") as HTMLVideoElement | null;
+    expect(found?.getAttribute("src")).toBe("/api/chat/clips/x/1");
+    return found!;
+  });
+  // Another tab sends a prompt as this reply comes in, so the server drops this one's clips:
+  // the reply was streamed all the same, and is not to be spoken again as one video.
+  clipsNow = () => Response.json({ detail: "No clips" }, { status: 404 });
+  await act(async () => {
+    reply(
+      Response.json({ role: "assistant", content: "Once upon a time.", turn: 3, streamed: true }),
+    );
+  });
+  await screen.findByText("Once upon a time.");
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  expect(fetchMock).not.toHaveBeenCalledWith("/api/chat/video", expect.anything());
+  expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
+});
+
+// Node, which the tests run in, says when a promise was rejected with nothing waiting on it.
+declare const process: {
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+};
+
+test("a clip that fails before the reply is in is reported with the reply", async () => {
+  const [answer, reply] = later();
+  chatServer([], answer, undefined, () =>
+    Response.json({ clips: [], done: true, error: "ffmpeg is not installed" }),
+  );
+  const unhandled = vi.fn();
+  process.on("unhandledRejection", unhandled);
+  try {
+    await openAt("#/chat");
+    await screen.findByText("Say hello to start the conversation.");
+    fireEvent.input(promptBox(), { target: { value: "Count" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("Thinking…");
+    // The clips have failed; the reply is still being written.
+    await act(() => new Promise((done) => setTimeout(done, 50)));
+    expect(unhandled).not.toHaveBeenCalled();
+    await act(async () => {
+      reply(Response.json({ role: "assistant", content: "One. Two.", turn: 1, streamed: true }));
+    });
+    const note = await screen.findByText(/I couldn.t say this one aloud/);
+    expect(note.textContent).toContain("ffmpeg is not installed");
+    expect(unhandled).not.toHaveBeenCalled();
+  } finally {
+    process.off("unhandledRejection", unhandled);
+  }
+});
+
+test("clips play in order when they arrive faster than they play", () => {
+  const { container, rerender } = render(<ClipPlayer clips={["/a"]} />);
+  const video = container.querySelector("video")!;
+  rerender(<ClipPlayer clips={["/a", "/b", "/c"]} />);
+  expect(video.getAttribute("src")).toBe("/a");
+  fireEvent.ended(video);
+  expect(video.getAttribute("src")).toBe("/b");
+  fireEvent.ended(video);
+  expect(video.getAttribute("src")).toBe("/c");
+  rerender(<ClipPlayer clips={["/d"]} />); // the next reply starts from its first clip
+  expect(video.getAttribute("src")).toBe("/d");
+});
+
+test("when a clip fails, the clips so far stay and the note says why", async () => {
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
+    undefined,
+    () =>
+      Response.json({ clips: ["/api/chat/clips/x/1"], done: true, error: "ffmpeg is not installed" }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  const note = await screen.findByText(/I couldn.t say this one aloud/);
+  expect(note.textContent).toContain("ffmpeg is not installed");
+  expect(document.querySelector("video")?.getAttribute("src")).toBe("/api/chat/clips/x/1");
 });
 
 test("when the voice or video fails, the reply stays as text with a note", async () => {
