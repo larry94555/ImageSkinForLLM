@@ -1391,7 +1391,7 @@ test("the player says when each clip starts and ends, once each", () => {
 test("the timing readout shows each sentence against the target", () => {
   const times: ClipTime[] = [
     { text: 1000, ready: 2000, started: 2260, ended: 5000 }, // 1.26 s after its text
-    { text: 1000, ready: 5100, started: 5300, ended: 8000 }, // 4.3 s, but 0.3 s after sentence 1
+    { text: 1000, ready: 5100, started: 5300, ended: 8000 }, // 4.3 s, but 0.3 s after clip 1
     { text: 7000, ready: 9500, started: 10400, ended: 12000 }, // 2.4 s pause: too long
     { text: 11000, ready: 11500, started: 14100, ended: null }, // 3.1 s after; 2.1 s pause: too long
     { text: 12000, ready: 13000, started: null, ended: null },
@@ -1399,13 +1399,13 @@ test("the timing readout shows each sentence against the target", () => {
   const { container } = render(<ClipTimes times={times} />);
   const rows = Array.from(container.querySelectorAll("li"));
   expect(rows.map((r) => r.textContent)).toEqual([
-    "Sentence 1: spoken 1.3 s after its text arrived",
-    "Sentence 2: spoken 4.3 s after its text arrived, 0.3 s after sentence 1 ended",
-    "Sentence 3: spoken 3.4 s after its text arrived, 2.4 s after sentence 2 ended",
-    "Sentence 4: spoken 3.1 s after its text arrived, 2.1 s after sentence 3 ended",
-    "Sentence 5: not spoken yet",
+    "Clip 1: spoken 1.3 s after its text arrived",
+    "Clip 2: spoken 4.3 s after its text arrived, 0.3 s after clip 1 ended",
+    "Clip 3: spoken 3.4 s after its text arrived, 2.4 s after clip 2 ended",
+    "Clip 4: spoken 3.1 s after its text arrived, 2.1 s after clip 3 ended",
+    "Clip 5: not spoken yet",
   ]);
-  // The first sentence is judged by its wait after the text, the others by the pause before them.
+  // The first clip is judged by its wait after the text, the others by the pause before them.
   expect(rows.map((r) => r.className)).toEqual(["", "", "late", "late", ""]);
   expect(container.textContent).toContain("Timing (target 1 to 2 s)");
   // A reply spoken in one video (not streamed) is one line.
@@ -1432,13 +1432,13 @@ test("the chat shows how long each sentence took once it plays", async () => {
   });
   await screen.findByText("One. Two.");
   await waitFor(() => expect(shownVideo().getAttribute("src")).toBe("/api/chat/clips/x/1"));
-  expect(screen.getByText("Sentence 1: not spoken yet")).toBeTruthy();
+  expect(screen.getByText("Clip 1: not spoken yet")).toBeTruthy();
   fireEvent.playing(shownVideo());
-  expect(await screen.findByText(/^Sentence 1: spoken 5\.[0-2] s after its text arrived$/)).toBeTruthy();
+  expect(await screen.findByText(/^Clip 1: spoken 5\.[0-2] s after its text arrived$/)).toBeTruthy();
   fireEvent.ended(shownVideo());
   fireEvent.playing(shownVideo());
   expect(
-    await screen.findByText(/^Sentence 2: spoken 5\.[0-2] s after its text arrived, 0\.[0-2] s after sentence 1 ended$/),
+    await screen.findByText(/^Clip 2: spoken 5\.[0-2] s after its text arrived, 0\.[0-2] s after clip 1 ended$/),
   ).toBeTruthy();
 });
 

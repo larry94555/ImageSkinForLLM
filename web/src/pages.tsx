@@ -1028,11 +1028,12 @@ function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-// How long each sentence took to be spoken, against the 1 to 2 second target (roadmap R22a):
-// from its text arriving from the LLM to its clip playing, and the pause after the sentence
-// before it. The first sentence is late when its wait after the text passes the target; the
-// others when the pause does, since a sentence whose text arrived while the one before it was
-// still playing is on time if it follows straight on. A reply spoken in one video has one line.
+// How long each clip took to be spoken, against the 1 to 2 second target (roadmap R22a): from
+// its text arriving from the LLM to it playing, and the pause after the clip before it. The
+// first clip is late when its wait after the text passes the target; the others when the pause
+// does, since a clip whose text arrived while the one before it was still playing is on time if
+// it follows straight on. A clip is a sentence, except the first, which is the first sentence's
+// first clause (R22b). A reply spoken in one video has one line.
 export function ClipTimes(props: { times: ClipTime[]; whole?: boolean }) {
   const { times, whole } = props;
   const limit = 2000;
@@ -1041,7 +1042,7 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean }) {
       <span>Timing (target 1 to 2 s)</span>
       <ol>
         {times.map((t, i) => {
-          const name = whole ? "Reply" : `Sentence ${i + 1}`;
+          const name = whole ? "Reply" : `Clip ${i + 1}`;
           if (t.started === null) return <li key={i}>{name}: not spoken yet</li>;
           const after = t.started - t.text;
           const before = times[i - 1];
@@ -1050,7 +1051,7 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean }) {
           return (
             <li key={i} className={late ? "late" : undefined}>
               {name}: spoken {seconds(after)} after its text arrived
-              {pause !== null && `, ${seconds(pause)} after sentence ${i} ended`}
+              {pause !== null && `, ${seconds(pause)} after clip ${i} ended`}
             </li>
           );
         })}

@@ -80,3 +80,75 @@ def test_a_sentence_waits_while_inline_code_may_still_close() -> None:
     splitter = SentenceSplitter()
     assert splitter.feed("Type `exit. Now") == []  # the ` may close later on this line
     assert splitter.feed("` to stop. Then") == ["Type `exit. Now` to stop."]
+
+
+# --- The first clause, cut short for the first clip (R22b) ---
+
+
+def clauses(text: str, step: int = 3) -> list[str]:
+    splitter = SentenceSplitter(first_clause=True)
+    sentences: list[str] = []
+    for i in range(0, len(text), step):
+        sentences += splitter.feed(text[i : i + step])
+    return sentences + splitter.flush()
+
+
+FIRST_CLAUSE_CASES = [
+    # At a comma, semicolon, colon or dash, once there are three words and the next has started.
+    ("Hi Larry, how are you today? Fine.", ["Hi Larry, how are you today?", "Fine."]),
+    ("Well now Larry, how are you? Fine.", ["Well now Larry,", "how are you?", "Fine."]),
+    ("He was a leader; he led. Next.", ["He was a leader;", "he led.", "Next."]),
+    ("Here is the thing: it works. Next.", ["Here is the thing:", "it works.", "Next."]),
+    ("He was a leader — a great one. Next.", ["He was a leader", "— a great one.", "Next."]),
+    ("He was a leader—a great one. Next.", ["He was a leader", "—a great one.", "Next."]),
+    # Before a joining word.
+    (
+        "He led the movement because he had to. Next.",
+        ["He led the movement", "because he had to.", "Next."],
+    ),
+    ('She said "yes, we can" and left. Next.', ['She said "yes,', 'we can" and left.', "Next."]),
+    # After eight words when there is no clause, but not on a word that leads into the next.
+    (
+        "Martin Luther King Jr. was a really important leader in the Civil Rights Movement. Next.",
+        [
+            "Martin Luther King Jr. was a really important",
+            "leader in the Civil Rights Movement.",
+            "Next.",
+        ],
+    ),
+    (
+        "One two three four five six seven of the big old house. Next.",
+        ["One two three four five six seven of the big", "old house.", "Next."],
+    ),
+    (  # twelve words at most, whatever the twelfth is
+        "One two three four five six seven of the in the of cat. Next.",
+        ["One two three four five six seven of the in the of", "cat.", "Next."],
+    ),
+    # A short first sentence, or one that ends before a clause, is kept whole.
+    ("Hello there, Larry.", ["Hello there, Larry."]),
+    ("I am fine. And you, Larry, how are you?", ["I am fine.", "And you, Larry, how are you?"]),
+    ("One two three four five six seven eight.", ["One two three four five six seven eight."]),
+    # Only the first sentence is cut; a comma inside inline code isn't a clause.
+    (
+        "Use `a, b, c` now, please. Then, go on, and stop.",
+        ["Use `a, b, c` now,", "please.", "Then, go on, and stop."],
+    ),
+    ("Steps:\n1. First, do this\n2. Then, that", ["Steps:", "1. First, do this", "2. Then, that"]),
+    ("```\nx = f(a, b, c)\n```\nSo, that is it.", ["```\nx = f(a, b, c)\n```", "So, that is it."]),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), FIRST_CLAUSE_CASES)
+@pytest.mark.parametrize("step", [1, 3, 1000])
+def test_the_first_sentences_first_clause_is_a_sentence_of_its_own(
+    text: str, expected: list[str], step: int
+) -> None:
+    assert clauses(text, step) == expected
+
+
+def test_the_first_clause_waits_for_the_next_word() -> None:
+    splitter = SentenceSplitter(first_clause=True)
+    assert splitter.feed("Well now Larry,") == []  # the sentence may end here
+    assert splitter.feed(" ") == []
+    assert splitter.feed("how") == ["Well now Larry,"]
+    assert splitter.flush() == ["how"]

@@ -340,9 +340,9 @@ class Conversation:
             raise ValueError("Type something to send.")
         with self._busy:
             self.wait()  # for a summary still being made after the last reply
-            return self._send(prompt, on_sentence or (lambda sentence: None))
+            return self._send(prompt, on_sentence)
 
-    def _send(self, prompt: str, on_sentence: OnSentence) -> tuple[Turn, int]:
+    def _send(self, prompt: str, on_sentence: OnSentence | None) -> tuple[Turn, int]:
         # Only this send (holding _busy, with no summary running) changes the turns or summary,
         # so reading them here is safe; changes are made under _lock for turns().
         window = self._context_tokens()
@@ -406,11 +406,13 @@ class Conversation:
             self._summarizer.start()
         return reply, place
 
-    def _stream_reply(self, messages: list[Message], on_sentence: OnSentence) -> str:
-        """Stream the reply, logging each sentence as soon as it is complete (roadmap R20)."""
+    def _stream_reply(self, messages: list[Message], on_sentence: OnSentence | None) -> str:
+        """Stream the reply, logging each sentence as soon as it is complete (roadmap R20).
+        When the sentences are spoken (`on_sentence`), the first one's first clause is handed
+        over as a sentence of its own, so the first clip is short (roadmap R22b)."""
         assert self._stream is not None
         start = time.perf_counter()
-        splitter = SentenceSplitter()
+        splitter = SentenceSplitter(first_clause=on_sentence is not None)
         pieces: list[str] = []
         count = 0  # sentences so far
 
@@ -426,12 +428,14 @@ class Conversation:
                         "since_prompt_ms": ms_since(start),
                     },
                 )
-                on_sentence(sentence)
+                if on_sentence is not None:
+                    on_sentence(sentence)
 
         for piece in self._stream(messages):
             if not pieces:
                 logger.info("Reply started", extra={"since_prompt_ms": ms_since(start)})
-                on_sentence(None)
+                if on_sentence is not None:
+                    on_sentence(None)
             pieces.append(piece)
             ready(splitter.feed(piece))
         ready(splitter.flush())

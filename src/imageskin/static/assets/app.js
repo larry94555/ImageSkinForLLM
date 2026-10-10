@@ -1102,7 +1102,7 @@ function ClipTimes(props) {
 	return /* @__PURE__ */ u("div", {
 		className: "timing",
 		children: [/* @__PURE__ */ u("span", { children: "Timing (target 1 to 2 s)" }), /* @__PURE__ */ u("ol", { children: times.map((t, i) => {
-			const name = whole ? "Reply" : `Sentence ${i + 1}`;
+			const name = whole ? "Reply" : `Clip ${i + 1}`;
 			if (t.started === null) return /* @__PURE__ */ u("li", { children: [name, ": not spoken yet"] }, i);
 			const after = t.started - t.text;
 			const before = times[i - 1];
@@ -1114,7 +1114,7 @@ function ClipTimes(props) {
 					": spoken ",
 					seconds(after),
 					" after its text arrived",
-					pause !== null && `, ${seconds(pause)} after sentence ${i} ended`
+					pause !== null && `, ${seconds(pause)} after clip ${i} ended`
 				]
 			}, i);
 		}) })]

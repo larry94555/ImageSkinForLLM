@@ -13,6 +13,7 @@ are kept. The clips are saved in <data folder>/clips/<name>.mp4.
 import json
 import logging
 import os
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -24,10 +25,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from imageskin.accent import OWN, Accent, AccentEngine
 from imageskin.download import sha256_of
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
-from imageskin.sample import SAMPLE_SCRIPT, speak_and_render
+from imageskin.sample import SAMPLE_SCRIPT
 from imageskin.uploads import UploadStore
 from imageskin.video import INSTALL_HINT, VideoError, find_ffmpeg
-from imageskin.voice import VoiceEngine, VoiceError
+from imageskin.voice import VoiceEngine, VoiceError, write_speech
 
 if TYPE_CHECKING:
     from imageskin.chatterbox_engine import ChatterboxEngine
@@ -40,6 +41,31 @@ Progress = Callable[[str, int, int], None]  # step key, done, total
 PrepareVoice = Callable[[], None]
 PrepareFace = Callable[[Path, Progress], None]
 RenderClip = Callable[[Path, str, Path], None]  # photo, what to say, MP4 to write
+SpeakClip = Callable[[str, Path], None]  # what to say, WAV to write (its timings JSON beside it)
+RenderVideo = Callable[[Path, Path, Path], None]  # photo, the WAV spoken, MP4 to write
+
+
+@dataclass(frozen=True)
+class ClipSteps:
+    """A clip's two steps apart, so one clip's video is rendered while the next is spoken
+    (roadmap R22b)."""
+
+    speak: SpeakClip
+    render: RenderVideo
+
+
+def steps_clip(steps: ClipSteps) -> RenderClip:
+    """The two steps as one clip, for the prepare job's clips and a reply spoken in one video."""
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = Path(tmp) / "speech.wav"
+            steps.speak(text, wav)
+            steps.render(photo, wav, output)
+
+    return render
+
+
 ClipName = Literal["sample", "goodbye", "welcome-back"]
 
 # The videos rendered after the face (features.md items 5 and 6): the sample video the user
@@ -458,18 +484,26 @@ def photoreal_face(home: Path) -> PrepareFace:
     return prepare
 
 
-def photoreal_clip(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_VOICE) -> RenderClip:
-    """Speak the text in the voice and render it from the photo's photoreal library."""
+def photoreal_steps(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_VOICE) -> ClipSteps:
+    """Speak the text in the voice; render the speech from the photo's photoreal library."""
     # The video engine and the loaded library, made on first use and kept for the next clip.
     kept: dict[str, Any] = {}
 
-    def render(photo: Path, text: str, output: Path) -> None:
+    def speak(text: str, wav: Path) -> None:
+        write_speech(voice_engine.speak(voice, text), wav, wav.with_suffix(".json"))
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
         from imageskin.photoreal import PhotorealEngine
 
         if kept.get("photo") != photo:
             video = PhotorealEngine(home)
             # Already rendered by the face step, so this only loads it.
             kept.update(photo=photo, video=video, lib=video.prepare(photo))
-        speak_and_render(kept["lib"], text, output, voice_engine, kept["video"], voice)
+        kept["video"].render(kept["lib"], wav, output)
 
-    return render
+    return ClipSteps(speak, render)
+
+
+def photoreal_clip(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_VOICE) -> RenderClip:
+    """Speak the text in the voice and render it from the photo's photoreal library."""
+    return steps_clip(photoreal_steps(home, voice_engine, voice))
