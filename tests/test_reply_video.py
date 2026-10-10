@@ -1,5 +1,7 @@
 import logging
 import subprocess
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
@@ -237,12 +239,14 @@ def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     assert said == [] and not clips.folder.exists()
 
 
-def test_clips_left_from_before_a_restart_are_removed(tmp_path: Path) -> None:
+def test_files_left_from_before_a_restart_are_removed(tmp_path: Path) -> None:
     old = tmp_path / "replies" / "clips-abc123ef"
     old.mkdir(parents=True)
     (old / "1.mp4").write_text("old")
+    (tmp_path / "replies" / "3.rendering.mp4").write_bytes(b"half")
+    (tmp_path / "replies" / "1.mp4").write_bytes(b"video")
     ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
-    assert not old.exists()
+    assert [p.name for p in (tmp_path / "replies").iterdir()] == ["1.mp4"]
 
 
 # --- The API ---
@@ -366,6 +370,36 @@ def test_a_reply_that_isnt_streamed_has_no_clips(tmp_path: Path) -> None:
         client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
         assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 404
         assert client.post("/api/chat/video", json={"turn": 1}).status_code == 200
+
+
+def test_a_prompt_waiting_on_another_drops_that_ones_clips(tmp_path: Path) -> None:
+    started, go = threading.Event(), threading.Event()
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        if messages[-1]["content"] == "First":
+            started.set()
+            go.wait(5)
+            yield "One. Two."
+        else:
+            yield "Hi."
+
+    def post(prompt: str, reply_id: str) -> None:
+        client.post("/api/chat", json={"prompt": prompt, "reply_id": reply_id})
+
+    client = video_app(tmp_path, write_text, stream)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        first = threading.Thread(target=post, args=("First", "a" * 8))
+        first.start()
+        assert started.wait(5)
+        second = threading.Thread(target=post, args=("Second", "b" * 8))
+        second.start()
+        time.sleep(0.2)  # the second prompt is now waiting on the first
+        go.set()
+        first.join(5)
+        second.join(5)
+        assert client.get(f"/api/chat/clips/{'a' * 8}").status_code == 404
+        assert client.get(f"/api/chat/clips/{'b' * 8}").status_code == 200
+    assert not (tmp_path / "replies" / f"clips-{'a' * 8}").exists()
 
 
 def test_the_api_drops_the_clips_of_a_failed_streamed_reply(tmp_path: Path) -> None:

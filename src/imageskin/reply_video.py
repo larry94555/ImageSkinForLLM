@@ -156,8 +156,11 @@ class ReplyVideos:
 
     def __init__(self, home: Path, render_clip: RenderClip, voice: VoiceReady) -> None:
         self.folder = home / "replies"
-        for old in self.folder.glob("clips-*"):  # from before the server last stopped
+        # Left by a reply cut short when the server last stopped.
+        for old in self.folder.glob("clips-*"):
             shutil.rmtree(old, ignore_errors=True)
+        for old in self.folder.glob("*.rendering.mp4"):
+            old.unlink(missing_ok=True)
         self._render_clip = render_clip
         self._voice = voice
         self._lock = threading.Lock()

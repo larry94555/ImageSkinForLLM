@@ -346,6 +346,10 @@ def create_app(
     replies = ReplyVideos(data_home, render, voice_ready)
     # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by its id.
     sentence_clips: dict[str, SentenceClips] = {}
+    clips_lock = threading.Lock()  # guards sentence_clips, used by several request threads
+    # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
+    # prompt waiting on another always drops that one's clips.
+    chat_lock = threading.Lock()
 
     def chosen_photo() -> Path | None:
         return store.path("photos", job.status().photo_id or "")
@@ -353,32 +357,42 @@ def create_app(
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_chat(body: ChatRequest) -> dict[str, str | int]:
         """The reply, with its place in the conversation to ask for its video by."""
-        for old in sentence_clips.values():  # only the latest reply is played
+        with chat_lock:
+            return chat(body)
+
+    def chat(body: ChatRequest) -> dict[str, str | int]:
+        with clips_lock:
+            unasked = list(sentence_clips.values())  # only the latest reply is played
+            sentence_clips.clear()
+        for old in unasked:
             old.cancel()
-        sentence_clips.clear()
         photo = chosen_photo()
         clips = None
         if photo is not None and body.reply_id is not None:
             clips = replies.sentence_clips(photo, body.reply_id)
-            sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
+            with clips_lock:
+                sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
             reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError) as e:
             if clips is not None:
-                sentence_clips.pop(body.reply_id or "", None)
+                with clips_lock:
+                    sentence_clips.pop(body.reply_id or "", None)
                 clips.cancel()
             status = 400 if isinstance(e, ValueError) else 502
             raise HTTPException(status_code=status, detail=str(e)) from e
         if clips is not None:
             clips.close()
             if not clips.sentences:  # not streamed: the browser asks for the whole video
-                sentence_clips.pop(body.reply_id or "", None)
+                with clips_lock:
+                    sentence_clips.pop(body.reply_id or "", None)
         return {**asdict(reply), "turn": turn}
 
     @app.get("/api/chat/clips/{reply_id}", dependencies=needs_consent)
     def get_clips(reply_id: str) -> dict[str, object]:
         """The reply's clips so far, in order; done once there will be no more."""
-        clips = sentence_clips.get(reply_id)
+        with clips_lock:
+            clips = sentence_clips.get(reply_id)
         if clips is None:
             raise HTTPException(status_code=404, detail="No clips for that reply.")
         urls = [f"/api/chat/clips/{reply_id}/{n}" for n in range(1, len(clips.clips) + 1)]
@@ -386,7 +400,8 @@ def create_app(
 
     @app.get("/api/chat/clips/{reply_id}/{n}", dependencies=needs_consent)
     def get_clip_file(reply_id: str, n: int) -> FileResponse:
-        clips = sentence_clips.get(reply_id)
+        with clips_lock:
+            clips = sentence_clips.get(reply_id)
         if clips is None or not 1 <= n <= len(clips.clips):
             raise HTTPException(status_code=404, detail="No such clip.")
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
