@@ -250,6 +250,7 @@ class LlmClient:
     def stream(self, messages: list[Message]) -> Iterator[str]:
         """The reply in pieces as the LLM writes it, read from the API's server-sent events."""
         url, request = self._post(messages, stream=True)
+        finished = False  # a server or proxy may close the stream cleanly partway through
         with self._open(url, request) as response:
             try:
                 for raw in response:
@@ -261,13 +262,17 @@ class LlmClient:
                     data = line.removeprefix("data:").strip()
                     if data == "[DONE]":
                         return
-                    piece = json.loads(data)["choices"][0].get("delta", {}).get("content")
+                    choice = json.loads(data)["choices"][0]
+                    finished = finished or choice.get("finish_reason") is not None
+                    piece = choice.get("delta", {}).get("content")
                     if isinstance(piece, str) and piece:
                         yield piece
             except (TimeoutError, OSError) as e:
                 raise LlmError(f"The LLM at {url} stopped answering ({e}). Try again.") from e
             except (ValueError, KeyError, IndexError, TypeError, AttributeError) as e:
                 raise LlmError(f"The LLM at {url} sent a reply that could not be read.") from e
+        if not finished:
+            raise LlmError(f"The LLM at {url} stopped before finishing its reply. Try again.")
 
 
 class Conversation:
@@ -373,19 +378,20 @@ class Conversation:
         start = time.perf_counter()
         splitter = SentenceSplitter()
         pieces: list[str] = []
-        ready_at: list[float] = []  # when each sentence was complete
+        count = 0  # sentences so far
 
         def ready(sentences: list[str]) -> None:
+            nonlocal count
             for sentence in sentences:
+                count += 1
                 logger.info(
                     "Reply sentence ready",
                     extra={
-                        "sentence": len(ready_at) + 1,
+                        "sentence": count,
                         "chars": len(sentence),
                         "since_prompt_ms": ms_since(start),
                     },
                 )
-                ready_at.append(ms_since(start))
 
         for piece in self._stream(messages):
             if not pieces:
