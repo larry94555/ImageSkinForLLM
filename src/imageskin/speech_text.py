@@ -108,10 +108,13 @@ _OPENED = re.compile(
 def inside_whole(text: str, at: int) -> bool:
     """Whether cutting `text` at `at` would split a picture, link, autolink, HTML tag or
     bracketed URL, which speech_text replaces whole; or one that has been opened and may yet
-    be closed, while the line is still being written (roadmap R22b)."""
+    be closed, while the line is still being written (roadmap R22b). A line with a `|` may be
+    a table's row, and a table is replaced whole too, so no cut falls on it."""
     start = text.rfind("\n", 0, at) + 1
     end = text.find("\n", at)
     line = text[start:] if end < 0 else text[start:end]
+    if "|" in line:
+        return True
     at -= start
     spans = [m.span() for pattern in _WHOLE for m in pattern.finditer(line)]
     if any(a < at < b for a, b in spans):

@@ -161,3 +161,7 @@ def test_a_cut_inside_what_is_replaced_whole_is_known() -> None:
     assert inside_whole("go [here and", 8) and inside_whole("at (https://a.io/x y", 18)
     assert not inside_whole("see [a very\nmore", 9)
     assert not inside_whole("one two three", 7)
+    # A line that may be a table's row, before its separator row has arrived or after it.
+    assert inside_whole("| Name of the person | Age", 12)
+    assert inside_whole("| a | b |\n|---|---|\n| one two | three", 30)
+    assert not inside_whole("| a | b |\nThen more words", 20)
