@@ -10,8 +10,9 @@ the same rules as speech_text.py, so each sentence can be cleaned for speech on 
 With `first_clause`, the reply's first sentence is cut at its first clause (roadmap R22b), so
 the first clip is short and can be spoken while the LLM is still writing the rest: at a comma,
 semicolon, colon or dash after at least FIRST_CLAUSE_MIN words, before a joining word such as
-"and" or "because", or failing those after FIRST_CLAUSE_MAX words (stretched up to
-FIRST_CLAUSE_LIMIT so the clause doesn't end on a word that leads into the next).
+"and" or "because", or failing those after FIRST_CLAUSE_MAX words: on the last of them that
+doesn't lead into the next (roadmap R22e), or else on the first after that doesn't, up to
+FIRST_CLAUSE_LIMIT words.
 """
 
 import re
@@ -26,8 +27,8 @@ ABBREVIATIONS = frozenset(
 _END = re.compile(r"([.!?…]+)([\"'”’)\]]*)\s+")
 _WORD = re.compile(r"\S+")
 FIRST_CLAUSE_MIN = 3  # words a first clause must have
-FIRST_CLAUSE_MAX = 8  # words after which the first clause is cut without a clause boundary...
-FIRST_CLAUSE_LIMIT = 12  # ...unless that would end it on a leading word, up to this many words
+FIRST_CLAUSE_MAX = 5  # words after which the first clause is cut without a clause boundary...
+FIRST_CLAUSE_LIMIT = 8  # ...unless that would end it on a leading word, up to this many words
 # Words that start a clause of their own, so the cut comes before them.
 JOINING = frozenset(
     "and but or nor so yet because which who whom whose while when where if although though as"
@@ -85,7 +86,8 @@ def _not_an_end(text: str, end: re.Match[str], following: str) -> bool:
 def first_clause_cut(text: str) -> int | None:
     """Where the first clause of `text`, an unfinished sentence, ends, or None while it has no
     clause yet. The cut is only made once the next word has started, so "Hi Larry," waits for
-    what follows (it may be the end of the sentence)."""
+    what follows (it may be the end of the sentence); a cut by word count waits for the word
+    after that too, so a sentence that ends on the next word stays whole."""
     words = list(_WORD.finditer(text))
     for i in range(FIRST_CLAUSE_MIN, min(len(words) - 1, FIRST_CLAUSE_LIMIT) + 1):
         last = words[i - 1].group()
@@ -100,8 +102,17 @@ def first_clause_cut(text: str) -> int | None:
             word.endswith((",", ";", ":")) or following in JOINING or following in _DASHES
         ) and last not in _DASHES:
             return words[i - 1].end()
-        if i >= FIRST_CLAUSE_MAX and (word.strip(".!?") not in LEADING or i == FIRST_CLAUSE_LIMIT):
+        if i < FIRST_CLAUSE_MAX or len(words) < i + 2:
+            continue
+        if word.strip(".!?") not in LEADING or i == FIRST_CLAUSE_LIMIT:
             return words[i - 1].end()
+        if i == FIRST_CLAUSE_MAX:  # ends on a leading word: cut after the last word that doesn't
+            for j in range(i - 1, FIRST_CLAUSE_MIN - 1, -1):
+                earlier = words[j - 1]
+                if _in_code(text, earlier.end() - 1) or earlier.group() in _DASHES:
+                    continue
+                if earlier.group().rstrip("\"'”’)]").lower().strip(".!?") not in LEADING:
+                    return earlier.end()
     return None
 
 

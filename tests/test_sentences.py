@@ -107,32 +107,48 @@ FIRST_CLAUSE_CASES = [
         ["He led the movement", "because he had to.", "Next."],
     ),
     ('She said "yes, we can" and left. Next.', ['She said "yes,', 'we can" and left.', "Next."]),
-    # After eight words when there is no clause, but not on a word that leads into the next.
+    # After five words when there is no clause (R22e), but not on a word that leads into the
+    # next: then on the last word before it that doesn't lead into the next...
+    (
+        "One two three four five six seven of the big old house. Next.",
+        ["One two three four five", "six seven of the big old house.", "Next."],
+    ),
     (
         "Martin Luther King Jr. was a really important leader in the Civil Rights Movement. Next.",
         [
-            "Martin Luther King Jr. was a really important",
-            "leader in the Civil Rights Movement.",
+            "Martin Luther King Jr.",
+            "was a really important leader in the Civil Rights Movement.",
             "Next.",
         ],
     ),
     (
-        "One two three four five six seven of the big old house. Next.",
-        ["One two three four five six seven of the big", "old house.", "Next."],
+        "He said yes (quickly) the big old house. Next.",
+        ["He said yes (quickly)", "the big old house.", "Next."],
     ),
-    (  # twelve words at most, whatever the twelfth is
-        "One two three four five six seven of the in the of cat. Next.",
-        ["One two three four five six seven of the in the of", "cat.", "Next."],
+    # ...or, when every word so far leads into the next, on the first after that doesn't.
+    ("The of the in the big old house. Next.", ["The of the in the big", "old house.", "Next."]),
+    (  # eight words at most, whatever the eighth is
+        "The of the in the of a the an cat. Next.",
+        ["The of the in the of a the", "an cat.", "Next."],
     ),
     # A short first sentence, or one that ends before a clause, is kept whole.
     ("Hello there, Larry.", ["Hello there, Larry."]),
     ("I am fine. And you, Larry, how are you?", ["I am fine.", "And you, Larry, how are you?"]),
-    ("One two three four five six seven eight.", ["One two three four five six seven eight."]),
+    ("One two three four five.", ["One two three four five."]),
+    ("One two three four five six.", ["One two three four five six."]),
+    ("The capital of France is Paris.", ["The capital of France is Paris."]),
+    ("One two three four five", ["One two three four five"]),
     # Only the first sentence is cut; a comma inside inline code isn't a clause.
     (
         "Use `a, b, c` now, please. Then, go on, and stop.",
         ["Use `a, b, c` now,", "please.", "Then, go on, and stop."],
     ),
+    # Looking back for a word to end on skips code and dashes too.
+    (
+        "Try `x, y` is the a big old house. Next.",
+        ["Try `x, y` is the a big", "old house.", "Next."],
+    ),
+    ("He was – the of old house now. Next.", ["He was – the of old", "house now.", "Next."]),
     ("Steps:\n1. First, do this\n2. Then, that", ["Steps:", "1. First, do this", "2. Then, that"]),
     ("```\nx = f(a, b, c)\n```\nSo, that is it.", ["```\nx = f(a, b, c)\n```", "So, that is it."]),
 ]
@@ -152,3 +168,10 @@ def test_the_first_clause_waits_for_the_next_word() -> None:
     assert splitter.feed(" ") == []
     assert splitter.feed("how") == ["Well now Larry,"]
     assert splitter.flush() == ["how"]
+
+
+def test_a_cut_by_word_count_waits_for_the_word_after_the_next() -> None:
+    splitter = SentenceSplitter(first_clause=True)
+    assert splitter.feed("One two three four five six") == []  # the sentence may end on "six"
+    assert splitter.feed(" s") == ["One two three four five"]
+    assert splitter.flush() == ["six s"]
