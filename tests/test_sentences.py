@@ -134,6 +134,34 @@ FIRST_CLAUSE_CASES = [
         ["Use `a, b, c` now,", "please.", "Then, go on, and stop."],
     ),
     ("Steps:\n1. First, do this\n2. Then, that", ["Steps:", "1. First, do this", "2. Then, that"]),
+    # Nor is a picture, link or HTML tag, which speech_text replaces whole: the clause ends
+    # after it instead (a review finding on R22b).
+    (
+        "Please see ![a very detailed diagram showing the entire architecture clearly]"
+        "(diagram.png) before continuing. Next.",
+        [
+            "Please see ![a very detailed diagram showing the entire architecture clearly]"
+            "(diagram.png)",
+            "before continuing.",
+            "Next.",
+        ],
+    ),
+    (
+        "Read [the long guide to the whole setup, step by step](https://a.io/guide) first. Next.",
+        [
+            "Read [the long guide to the whole setup, step by step](https://a.io/guide)",
+            "first.",
+            "Next.",
+        ],
+    ),
+    (
+        'One two <span class="note big" title="a b c d e f g"> three four five six. Next.',
+        [
+            'One two <span class="note big" title="a b c d e f g">',
+            "three four five six.",
+            "Next.",
+        ],
+    ),
     ("```\nx = f(a, b, c)\n```\nSo, that is it.", ["```\nx = f(a, b, c)\n```", "So, that is it."]),
 ]
 

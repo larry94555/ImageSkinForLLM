@@ -336,6 +336,39 @@ def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     assert said == [] and not clips.folder.exists()
 
 
+def test_a_reply_cancelled_while_it_is_spoken_renders_no_video(tmp_path: Path) -> None:
+    """The regression for a review finding: a reply cancelled while its sentence was being
+    spoken went on to render that sentence's video before the newer prompt could start."""
+    speaking, go = threading.Event(), threading.Event()
+    rendered: list[str] = []
+    wavs: list[Path] = []
+
+    def speak(text: str, wav: Path) -> None:
+        speaking.set()
+        go.wait(5)
+        wav.write_text(text)
+        wav.with_suffix(".json").write_text("{}")
+        wavs.append(wav)
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        rendered.append(wav.read_text())
+
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), ClipSteps(speak, render)
+    )
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    assert speaking.wait(5)
+    cancelling = threading.Thread(target=clips.cancel)
+    cancelling.start()
+    time.sleep(0.1)
+    assert cancelling.is_alive()  # waiting for the voice step
+    go.set()
+    cancelling.join(5)
+    assert not cancelling.is_alive() and rendered == [] and clips.clips == []
+    assert wavs and not any(w.exists() or w.with_suffix(".json").exists() for w in wavs)
+
+
 def test_each_clip_is_spoken_and_then_rendered(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
