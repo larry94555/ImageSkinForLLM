@@ -202,6 +202,62 @@ def test_sentences_are_rendered_in_order(tmp_path: Path, caplog: pytest.LogCaptu
     assert all(r.since_first_words_ms is not None for r in ready)  # type: ignore[attr-defined]
 
 
+def test_each_clip_records_when_its_sentence_arrived_and_when_it_was_ready(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    caplog.set_level(logging.INFO)
+    before = time.perf_counter()
+    clips("One.")
+    clips("🎉")  # nothing to say: no clip, no time
+    clips("Two.")
+    clips.close()
+    clips.wait(10)
+    assert len(clips.times) == len(clips.clips) == 2
+    for t in clips.times:
+        assert before <= t.sentence_at <= t.ready_at <= time.perf_counter()
+    ready = [r for r in caplog.records if r.message == "Sentence clip ready"]
+    assert all(r.since_sentence_ms >= 0 for r in ready)  # type: ignore[attr-defined]
+
+
+def test_waiting_for_a_change_ends_with_the_next_clip_or_the_end(tmp_path: Path) -> None:
+    go = threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        go.wait(5)
+        output.write_text(text)
+
+    videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    start = time.perf_counter()
+    clips.wait_for_change(known=0, timeout=0.2)  # nothing yet: waits the whole time
+    assert 0.2 <= time.perf_counter() - start < 2 and clips.clips == []
+
+    threading.Timer(0.2, go.set).start()
+    start = time.perf_counter()
+    clips.wait_for_change(known=0, timeout=5)  # the clip comes 0.2 s in
+    assert time.perf_counter() - start < 2 and len(clips.clips) == 1
+
+    clips.close()
+    clips.wait_for_change(known=1, timeout=5)  # done, with no more clips
+    assert clips.done
+    clips.wait_for_change(known=5, timeout=5)  # returns at once when done
+
+
+def test_waiting_for_a_change_ends_when_a_clip_fails(tmp_path: Path) -> None:
+    def fail(photo: Path, text: str, output: Path) -> None:
+        raise VideoError("ffmpeg is not installed")
+
+    videos = ReplyVideos(tmp_path, fail, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    start = time.perf_counter()
+    clips.wait_for_change(known=0, timeout=5)
+    assert time.perf_counter() - start < 2 and clips.error == "ffmpeg is not installed"
+
+
 def test_a_reply_with_no_sentences_is_done_at_once(tmp_path: Path) -> None:
     videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
@@ -278,6 +334,28 @@ def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
         clips._cancelled = True
     clips.cancel()
     assert said == [] and not clips.folder.exists()
+
+
+def test_the_thread_that_runs_the_engines_is_told_first(tmp_path: Path) -> None:
+    """Before each clip, on the thread that renders it (R22a: PyTorch's count is per thread)."""
+    told: list[str] = []
+
+    def before_engines() -> None:
+        told.append(threading.current_thread().name)
+
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), before_engines
+    )
+    videos.warm_up(Path("me.jpg"))
+    videos.render(Path("me.jpg"), 1, "Hello.")
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips("🎉")  # nothing to say: the engines aren't used
+    clips("Two.")
+    clips.close()
+    clips.wait(10)
+    main = threading.current_thread().name
+    assert told == [main, main, "sentence-clips", "sentence-clips"]
 
 
 def test_files_left_from_before_a_restart_are_removed(tmp_path: Path) -> None:
@@ -371,6 +449,71 @@ def test_replies_are_warmed_up_at_start_once_a_sample_is_accepted(tmp_path: Path
     first.close()
 
 
+def test_replies_are_warmed_up_when_the_sample_is_accepted(tmp_path: Path) -> None:
+    """A first-time setup accepts its sample without a restart: the warm-up runs then (a review
+    finding on R22a), so the first prompt is not cold."""
+    rendered: list[str] = []
+    client = video_app(tmp_path, lambda photo, text, output: rendered.append(text))
+    assert rendered == []  # nothing accepted when the app started
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    client.app.state.reply_warm_up.join(5)  # type: ignore[attr-defined]
+    assert rendered == ["Hello."]
+
+
+def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) -> None:
+    """The regression for a review finding: a prompt sent as soon as the sample is accepted
+    used to reach the LLM while its warm-up was still reading the system prompt, and the
+    engines while they rendered their first word."""
+    order: list[str] = []
+    warming, finish = threading.Event(), threading.Event()
+
+    def warm_up_llm() -> None:
+        warming.set()
+        finish.wait(5)
+        order.append("LLM warmed up")
+
+    def ask(messages: list[dict[str, str]]) -> str:
+        order.append("asked")
+        return "Hi."
+
+    client = TestClient(
+        create_app(
+            tmp_path,
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=lambda photo, text, output: order.append(f"rendered {text}"),
+            ask_llm=ask,
+            warm_up_llm=warm_up_llm,
+        )
+    )
+    client.app.state.reply_warm_up.join(5)  # type: ignore[attr-defined]
+    client.post("/api/consent", json={"agreed": True})
+    photo = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()
+    done = PrepareStatus("done", photo_id=photo["id"])
+    patch.object(PrepareJob, "status", return_value=done).start()
+    patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)).start()
+    assert order == []
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    assert warming.wait(5)  # the warm-up is under way when the prompt comes
+    # Accepting again meanwhile keeps the warm-up that is running as the one prompts wait
+    # for, rather than starting another that would do nothing (a review finding).
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    answers: list[int] = []
+    prompt = threading.Thread(
+        target=lambda: answers.append(client.post("/api/chat", json={"prompt": "Hi"}).status_code)
+    )
+    prompt.start()
+    time.sleep(0.3)
+    assert order == ["rendered Hello."] and answers == []  # the prompt waits for the LLM's
+    time.sleep(0.7)
+    assert order == ["rendered Hello."] and answers == []  # ...however long it takes (no cap)
+    finish.set()
+    prompt.join(5)
+    assert answers == [200]
+    assert order == ["rendered Hello.", "LLM warmed up", "asked"]  # and warmed up once
+
+
 REPLY_ID = "0123456789abcdef0123456789abcdef"
 
 
@@ -394,11 +537,11 @@ def test_the_api_serves_a_streamed_replys_clips_as_they_are_made(tmp_path: Path)
         status = client.get(clips_api).json()
         while not status["done"]:
             status = client.get(clips_api).json()
-        assert status == {
-            "clips": [f"{clips_api}/1", f"{clips_api}/2"],
-            "done": True,
-            "error": None,
-        }
+        assert [c["url"] for c in status["clips"]] == [f"{clips_api}/1", f"{clips_api}/2"]
+        assert status["done"] is True and status["error"] is None
+        # Each clip says when its sentence arrived and when it was ready, on the server's clock.
+        for clip in status["clips"]:
+            assert clip["sentence_at"] <= clip["ready_at"] <= status["now"]
         assert said == ["Hi Larry.", "How are you?"]
         clip = client.get(f"{clips_api}/2")
         assert clip.headers["content-type"] == "video/mp4" and clip.content[4:8] == b"ftyp"
@@ -409,6 +552,49 @@ def test_the_api_serves_a_streamed_replys_clips_as_they_are_made(tmp_path: Path)
         assert client.get(clips_api).status_code == 404  # only the latest reply's are kept
         assert not (tmp_path / "replies" / f"clips-{REPLY_ID}").exists()
         assert client.post("/api/chat", json={"prompt": "x", "reply_id": "../x"}).status_code == 422
+
+
+def test_the_api_answers_as_soon_as_there_is_a_new_clip(tmp_path: Path) -> None:
+    go = threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        go.wait(5)
+        output.write_bytes(b"mp4")
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield "One. Two."
+
+    client = video_app(tmp_path, render, stream)
+    clips_api = f"/api/chat/clips/{REPLY_ID}"
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        # Nothing rendered yet: a short wait ends with nothing new.
+        start = time.perf_counter()
+        none_yet = client.get(f"{clips_api}?known=0&wait=0.2").json()
+        assert 0.2 <= time.perf_counter() - start < 2 and none_yet["clips"] == []
+        assert none_yet["done"] is False
+        # Asked to wait for the first clip, the answer comes when it is ready, not later.
+        threading.Timer(0.2, go.set).start()
+        start = time.perf_counter()
+        first = client.get(f"{clips_api}?known=0&wait=10").json()
+        assert time.perf_counter() - start < 2 and len(first["clips"]) >= 1
+        # Waits longer than allowed, or a count below zero, are refused.
+        assert client.get(f"{clips_api}?known=0&wait=60").status_code == 422
+        assert client.get(f"{clips_api}?known=-1").status_code == 422
+        # Without `known`, the answer comes at once, as before.
+        assert client.get(clips_api).status_code == 200
+
+
+def test_the_engines_leave_the_llm_half_the_cores_while_it_writes(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="imageskin.cores")
+    with patch("imageskin.cores.cores", return_value=4), patch("imageskin.cores.set_threads"):
+        client = video_app(tmp_path, write_text)
+        with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+            client.post("/api/chat", json={"prompt": "Hi"})
+    threads = [r.threads for r in caplog.records if r.message == "Engine threads set"]  # type: ignore[attr-defined]
+    assert threads == [4, 2, 4]  # all at start, half while the LLM writes, then all again
 
 
 def test_a_reply_that_isnt_streamed_has_no_clips(tmp_path: Path) -> None:
@@ -482,6 +668,48 @@ def test_a_newer_prompt_takes_the_clips_of_a_reply_still_being_rendered(tmp_path
         second.join(5)
         assert client.get(f"/api/chat/clips/{'b' * 8}").status_code == 200
     assert not (tmp_path / "replies" / f"clips-{'a' * 8}").exists()
+
+
+def test_a_waiting_clips_request_does_not_answer_with_clips_a_newer_prompt_took(
+    tmp_path: Path,
+) -> None:
+    """The regression for a review finding: a request waiting for the next clip used to answer
+    with it when it was rendered, though a newer prompt had taken the reply's clips meanwhile,
+    so the browser was given a clip whose file was being removed."""
+    rendering, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        if text == "One.":
+            rendering.set()
+            go.wait(5)
+        write_text(photo, text, output)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield "One. Two." if messages[-1]["content"] == "First" else "Hi."
+
+    answers: dict[str, int] = {}
+
+    def post(prompt: str, reply_id: str) -> None:
+        answers[prompt] = client.post(
+            "/api/chat", json={"prompt": prompt, "reply_id": reply_id}
+        ).status_code
+
+    def wait_for_clips() -> None:
+        answers["waiting"] = client.get(f"/api/chat/clips/{'a' * 8}?known=0&wait=10").status_code
+
+    client = video_app(tmp_path, render, stream)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        post("First", "a" * 8)
+        assert rendering.wait(5)
+        waiting = threading.Thread(target=wait_for_clips)
+        waiting.start()  # waits for the first clip, still being rendered
+        second = threading.Thread(target=post, args=("Second", "b" * 8))
+        second.start()
+        time.sleep(0.2)  # the second prompt has taken the first reply's clips
+        go.set()  # the first clip is rendered now, and wakes the waiting request
+        waiting.join(5)
+        second.join(5)
+    assert answers == {"First": 200, "waiting": 404, "Second": 200}
 
 
 def test_the_api_drops_the_clips_of_a_failed_streamed_reply(tmp_path: Path) -> None:

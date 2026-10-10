@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +21,7 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings, StreamLlm
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
+from imageskin.cores import CoreShare
 from imageskin.prepare_job import (
     ClipName,
     PrepareError,
@@ -33,7 +34,7 @@ from imageskin.prepare_job import (
     photoreal_clip,
     photoreal_face,
 )
-from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady
+from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.uploads import (
@@ -79,6 +80,8 @@ class ReplyVideoRequest(BaseModel):
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
+# The longest the clips request waits for the next clip before answering with none new.
+CLIPS_WAIT_S = 10.0
 
 
 class ReviewRequest(BaseModel):
@@ -133,6 +136,7 @@ def create_app(
     llm: LlmSettings | None = None,
     ask_llm: AskLlm | None = None,
     stream_llm: StreamLlm | None = None,
+    warm_up_llm: Callable[[], None] | None = None,  # with ask_llm: readies the LLM (tests)
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -321,19 +325,37 @@ def create_app(
         if body.decision != "accept":
             return asdict(withdraw(data_home, body.decision))
         try:
-            return asdict(accept(data_home, job.status()))
+            review = accept(data_home, job.status())
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
+        start_reply_warm_up()  # the chat opens now: ready the LLM and the engines (R22a)
+        return asdict(review)
 
     llm = llm or LlmSettings()
     logger.info(
         "Chat LLM", extra={"url": llm.url, "model": llm.model, "context_tokens": llm.context_tokens}
     )
+    # While the LLM is busy, the voice and video engines leave it half the cores (R22a).
+    core_share = CoreShare()
+    core_share.llm_done()
     if ask_llm is None:
         client = LlmClient(llm)
-        conversation = Conversation(client.ask, client.context_tokens, client.count, client.stream)
+        conversation = Conversation(
+            client.ask,
+            client.context_tokens,
+            client.count,
+            client.stream,
+            client.warm_up,
+            llm_busy=core_share.llm,
+        )
     else:
-        conversation = Conversation(ask_llm, lambda: llm.context_tokens, stream=stream_llm)
+        conversation = Conversation(
+            ask_llm,
+            lambda: llm.context_tokens,
+            stream=stream_llm,
+            warm_up=warm_up_llm,
+            llm_busy=core_share.llm,
+        )
 
     @app.get("/api/chat", dependencies=needs_consent)
     def get_chat() -> dict[str, object]:
@@ -343,7 +365,7 @@ def create_app(
         if not load_review(data_home, job.status()).accepted:
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
 
-    replies = ReplyVideos(data_home, render, voice_ready)
+    replies = ReplyVideos(data_home, render, voice_ready, before_engines=core_share.apply_here)
     # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by its id.
     sentence_clips: dict[str, SentenceClips] = {}
     clips_lock = threading.Lock()  # guards sentence_clips, used by several request threads
@@ -360,8 +382,20 @@ def create_app(
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
-        with chat_lock:
+        wait_for_warm_up()
+        with chat_lock, core_share.llm():
             return chat(body)
+
+    def wait_for_warm_up() -> None:
+        """A prompt sent right after the sample was accepted waits for the warm-up to finish,
+        so it doesn't reach the LLM while the LLM is still reading the system prompt, or the
+        engines while they render their first word (a review finding on R22a). The wait has
+        no cap of its own: the LLM's timeout and ffmpeg's bound the warm-up's steps."""
+        thread = app.state.reply_warm_up
+        if thread.is_alive():
+            start = time.perf_counter()
+            thread.join()
+            logger.info("Prompt waited for the warm-up", extra={"wait_ms": ms_since(start)})
 
     def chat(body: ChatRequest) -> dict[str, str | int | bool]:
         with clips_lock:
@@ -393,14 +427,39 @@ def create_app(
         return {**asdict(reply), "turn": turn, "streamed": streamed}
 
     @app.get("/api/chat/clips/{reply_id}", dependencies=needs_consent)
-    def get_clips(reply_id: str) -> dict[str, object]:
-        """The reply's clips so far, in order; done once there will be no more."""
+    def get_clips(
+        reply_id: str,
+        # With `known`, the browser's count so far: the answer waits (up to `wait` seconds)
+        # until there is more to tell, so each clip is known the moment it is ready (R22a).
+        known: int | None = Query(default=None, ge=0),
+        wait: float = Query(default=CLIPS_WAIT_S, ge=0, le=CLIPS_WAIT_S),
+    ) -> dict[str, object]:
+        """The reply's clips so far, in order, each with when its sentence arrived from the LLM
+        and when the clip was ready (seconds on the server's clock, like `now`); done once
+        there will be no more."""
         with clips_lock:
             clips = sentence_clips.get(reply_id)
         if clips is None:
             raise HTTPException(status_code=404, detail="No clips for that reply.")
-        urls = [f"/api/chat/clips/{reply_id}/{n}" for n in range(1, len(clips.clips) + 1)]
-        return {"clips": urls, "done": clips.done, "error": clips.error}
+        if known is not None:
+            clips.wait_for_change(known, wait)
+            with clips_lock:
+                if sentence_clips.get(reply_id) is not clips:  # a newer prompt took them meanwhile
+                    raise HTTPException(status_code=404, detail="No clips for that reply.")
+        made = [
+            {
+                "url": f"/api/chat/clips/{reply_id}/{n}",
+                "sentence_at": t.sentence_at,
+                "ready_at": t.ready_at,
+            }
+            for n, t in enumerate(clips.times[: len(clips.clips)], 1)
+        ]
+        return {
+            "clips": made,
+            "done": clips.done,
+            "error": clips.error,
+            "now": time.perf_counter(),
+        }
 
     @app.get("/api/chat/clips/{reply_id}/{n}", dependencies=needs_consent)
     def get_clip_file(reply_id: str, n: int) -> FileResponse:
@@ -413,16 +472,34 @@ def create_app(
 
     def warm_up_replies() -> None:
         # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
+        # Run at the start, and again when a sample is accepted.
         status = job.status()
         photo = store.path("photos", status.photo_id or "")
         if photo is not None and load_review(data_home, status).accepted:
             logger.info("Warming up replies")
+            # On its own thread: an LLM that accepts the request but doesn't answer would
+            # otherwise hold the engines' warm-up back for its whole timeout.
+            llm = threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True)
+            llm.start()
             replies.warm_up(photo)
+            llm.join()
 
-    app.state.reply_warm_up = threading.Thread(
-        target=warm_up_replies, name="reply-warm-up", daemon=True
-    )
-    app.state.reply_warm_up.start()
+    warm_up_lock = threading.Lock()  # guards app.state.reply_warm_up, the warm-up's thread
+
+    def start_reply_warm_up() -> None:
+        """Warm up replies on a thread of their own, unless a warm-up is still under way: that
+        one is kept as the thread prompts wait for, so a second accept (or a reject and an
+        accept again) while it runs doesn't put a thread that does nothing in its place."""
+        with warm_up_lock:
+            current = getattr(app.state, "reply_warm_up", None)
+            if current is not None and current.is_alive():
+                return
+            app.state.reply_warm_up = threading.Thread(
+                target=warm_up_replies, name="reply-warm-up", daemon=True
+            )
+            app.state.reply_warm_up.start()
+
+    start_reply_warm_up()
 
     @app.post("/api/chat/video", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:

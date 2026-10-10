@@ -179,8 +179,10 @@ The app talks to [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-ser
 Then start it in its own terminal and leave it running. The first time, it downloads the model (Gemma 3 4B, about 2.5 GB):
 
 ```
-llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 4096
+llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 4096 --threads 2
 ```
+
+`--threads` gives the LLM half of the cores (2 of 4 here) and leaves the other half to the voice and the video while it writes (roadmap R22a). Without it, on a 4-core CPU, the two fight for the cores and both crawl: speaking a 3-second sentence took 14.5 s instead of 1.3 s, and the LLM fell from 8 to 0.3 tokens a second. On a graphics card, leave `--threads` out.
 
 Use a model of about 4B parameters or more: Gemma 3 1B is given the earlier turns but often ignores them (asked "What is my name?" right after "Hi, my name is Larry", it answers "Sarah").
 
@@ -189,7 +191,19 @@ The log has `LLM context window from the server` (or `from the config`) at the f
 | Request | What it does |
 |---|---|
 | `GET /api/chat` | The conversation so far |
-| `POST /api/chat` | Send a prompt (JSON body `{"prompt": "…"}`) and get the reply; refused (403) until a sample is accepted, 502 when the LLM fails |
+| `POST /api/chat` | Send a prompt (JSON body `{"prompt": "…", "reply_id": "…"}`, the id chosen by the browser for the reply's clips) and get the reply with its `turn`; refused (403) until a sample is accepted, 502 when the LLM fails |
+| `GET /api/chat/clips/{reply_id}?known=N&wait=S` | The reply's clips so far, each with `url`, `sentence_at` and `ready_at` (seconds on the server's clock, like `now`), `done` and `error`; with `known`, waits up to `wait` seconds (10 at most) for a clip beyond the N the browser has |
+| `GET /api/chat/clips/{reply_id}/{n}` | Clip `n` of the reply, an MP4 |
+| `POST /api/chat/video` | Speak a reply that wasn't streamed in one video (JSON body `{"turn": N}`); the video's address, or null when there is nothing to say aloud |
+| `GET /api/chat/videos/{turn}` | That video |
+
+### Spoken replies, sentence by sentence
+
+Each reply is spoken in the person's voice on their photo (roadmap R17), a sentence at a time as the LLM writes it (R20 to R22): the server cleans each sentence for speech, speaks it and renders its clip while the LLM writes the next, and the browser plays the clips one after another, starting before the whole reply has arrived. Two video players take turns, so the next clip is loaded while the current one plays and the switch costs nothing.
+
+Under the video, a timing readout says how long each sentence took from its text arriving to being spoken, and the pause after the sentence before (R22a). The first sentence is in red when its wait passes the 2-second target, the others when their pause does: a sentence whose text arrived while the one before was still playing is on time if it follows straight on. The log has `Reply sentence ready` with `since_prompt_ms` for each sentence, and `Sentence clip ready` with `render_ms` and `since_sentence_ms` (text arrived to clip ready) for each clip.
+
+For quick replies on a CPU, two things happen at startup once a sample has been accepted (`Warming up replies` in the log): the LLM reads the system prompt (`LLM warmed up`), so the first reply's words come about 2 s sooner, and the voice and video engines load and render a word (`Replies warmed up`), which takes a minute or two the first time. While the LLM is busy (writing the reply, or summarizing the conversation after one), the engines use half the cores and all of them once it has finished (`Engine threads set` with `threads` and `cores`); start llama-server with `--threads` set to the other half, as above. Leave `OMP_NUM_THREADS` unset: the app shares the cores itself, and a cap below the core count is logged as a warning (`OMP_NUM_THREADS caps the engines' cores`).
 
 ## Making a voice sample
 

@@ -1,7 +1,9 @@
+import http.client
 import json
 import logging
 import threading
 from collections.abc import Iterator
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -406,6 +408,56 @@ class Stalled:
     def __iter__(self) -> Iterator[bytes]:
         yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n'
         raise TimeoutError("timed out")
+
+
+def test_warming_up_has_the_server_read_the_system_prompt(
+    fake_llm: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    FakeLlm.answer = (200, reply("Hi"))
+    client = LlmClient(LlmSettings(url=fake_llm, model="qwen"))
+    caplog.set_level(logging.INFO)
+    Conversation(client.ask, lambda: 4096, warm_up=client.warm_up).warm_up()
+    assert FakeLlm.received == [
+        {
+            "path": "/v1/chat/completions",
+            "model": "qwen",
+            "messages": [system_message(None), {"role": "user", "content": "Hello."}],
+            "max_tokens": 1,
+            "temperature": TEMPERATURE,
+        }
+    ]
+    assert "LLM warmed up" in caplog.messages
+
+
+def test_a_failed_warm_up_is_logged_only(caplog: pytest.LogCaptureFixture) -> None:
+    client = LlmClient(LlmSettings(url="http://127.0.0.1:9/v1"))
+    client.warm_up()
+    assert "Could not warm up the LLM" in caplog.messages
+    Conversation(client.ask, lambda: 4096).warm_up()  # nothing to warm up with: fine
+    # An answer cut short (not an OSError) is logged the same way.
+    caplog.clear()
+    with patch.object(client, "_open", side_effect=http.client.IncompleteRead(b"")):
+        client.warm_up()
+    assert "Could not warm up the LLM" in caplog.messages
+
+
+def test_the_summary_counts_as_the_llm_being_busy(caplog: pytest.LogCaptureFixture) -> None:
+    """The engines leave the LLM its cores while it summarizes after a reply (R22a)."""
+    busy: list[str] = []
+
+    @contextmanager
+    def llm_busy() -> Iterator[None]:
+        busy.append("in")
+        yield
+        busy.append("out")
+
+    llm = FakeLlm2()
+    conversation = Conversation(llm, lambda: 4096, llm_busy=llm_busy)
+    for i in range(5):
+        conversation.send(f"Prompt {i} " + "x" * 590)
+        conversation.wait()
+    assert [m[0]["content"] for m in llm.sent].count(SUMMARY_PROMPT) == 1
+    assert busy == ["in", "out"]  # only the summary: send() is wrapped by its caller
 
 
 def test_a_stream_cut_off_cleanly_is_an_error_and_not_kept(fake_llm: str) -> None:

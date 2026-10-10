@@ -11,7 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
-import { ClipPlayer, duration, minutes } from "./pages";
+import { ClipPlayer, type ClipTime, ClipTimes, duration, minutes } from "./pages";
 
 const IDLE: PrepareStatus = {
   state: "idle",
@@ -1283,26 +1283,86 @@ test("a reply's video is asked for by the server's count, not this page's", asyn
 
 // --- Ordered playback (R22) ---
 
+// The server's answer about a reply's clips (R22), with each clip's times on the server's clock
+// (R22a): its sentence arrived `before` seconds before the answer, and it was ready 0.3 s later.
+function clipsMade(urls: string[], done: boolean, error: string | null = null, before = 5) {
+  const now = 1000;
+  return {
+    clips: urls.map((url) => ({ url, sentence_at: now - before, ready_at: now - before + 0.3 })),
+    done,
+    error,
+    now,
+  };
+}
+
+// The player showing the current clip; the other one, hidden, loads the next.
+function shownVideo(): HTMLVideoElement {
+  return document.querySelector("video.reply-video") as HTMLVideoElement;
+}
+
+test("a reply done with no clips is spoken in one video", async () => {
+  // The server says so for a moment before it forgets a reply that wasn't streamed (R22a).
+  const fetchMock = chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "Hi again.", turn: 1, streamed: false }),
+    () => Response.json({ video: "/api/chat/videos/1" }),
+    () => Response.json(clipsMade([], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Hi again.");
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chat/video",
+      expect.objectContaining({ body: JSON.stringify({ turn: 1 }) }),
+    ),
+  );
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/1/));
+});
+
+test("a reply that fails takes its clips and timing rows away", async () => {
+  const [answer, reply] = later();
+  // The first clip is made while the LLM writes; once the LLM fails, the server drops the clips.
+  let clips: Answer = () => Response.json(clipsMade(["/api/chat/clips/x/1"], false));
+  chatServer([], answer, undefined, () => clips());
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  expect(screen.getByText("Sentence 1: not spoken yet")).toBeTruthy();
+  clips = () => Response.json({ detail: "No clips" }, { status: 404 });
+  await act(async () => {
+    reply(Response.json({ detail: "The LLM stopped." }, { status: 502 }));
+  });
+  await screen.findByText("The LLM stopped.");
+  await waitFor(() => expect(document.querySelector("video")).toBeNull());
+  expect(screen.queryByText(/^Sentence 1:/)).toBeNull();
+});
+
 test("a streamed reply starts playing on its first clip, before the reply text", async () => {
   const [answer, reply] = later();
-  let made: { clips: string[]; done: boolean; error: string | null } = {
-    clips: [],
-    done: false,
-    error: null,
-  };
+  let made = clipsMade([], false);
   const fetchMock = chatServer([], answer, undefined, () => Response.json(made));
   await openAt("#/chat");
   await screen.findByText("Say hello to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await screen.findByText("Thinking…");
-  made = { clips: ["/api/chat/clips/x/1"], done: false, error: null };
+  made = clipsMade(["/api/chat/clips/x/1"], false);
   const video = await waitFor(() => {
     const found = document.querySelector("video.reply-video") as HTMLVideoElement | null;
     expect(found?.getAttribute("src")).toBe("/api/chat/clips/x/1");
     return found!;
   });
   expect(screen.getByText("Thinking…")).toBeTruthy(); // the reply text hasn't come yet
+  // Each request says how many clips the page has, so the server answers when there are more.
+  const asked = fetchMock.mock.calls.map(([url]) => url).filter((u) => u.includes("/clips/"));
+  expect(asked[0]).toMatch(/^\/api\/chat\/clips\/[0-9a-f]{32}\?known=0&wait=10$/);
   await act(async () => {
     reply(
       Response.json({ role: "assistant", content: "Once upon a time. The end.", streamed: true }),
@@ -1311,18 +1371,24 @@ test("a streamed reply starts playing on its first clip, before the reply text",
   await screen.findByText("Once upon a time. The end.");
   fireEvent.ended(video); // the first clip ends before the second is made: wait on it
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
-  made = { clips: ["/api/chat/clips/x/1", "/api/chat/clips/x/2"], done: true, error: null };
+  made = clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true);
   await waitFor(() => expect(video.getAttribute("src")).toBe("/api/chat/clips/x/2"));
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
   fireEvent.ended(video);
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/2"); // stays on the last frame
   expect(fetchMock).not.toHaveBeenCalledWith("/api/chat/video", expect.anything());
+  // Once it had one clip, every request said so, up to the answer that brought the end.
+  const counts = fetchMock.mock.calls
+    .map(([url]) => url)
+    .filter((u) => u.includes("/clips/"))
+    .map((u) => u.split("known=")[1]);
+  expect(counts[0]).toBe("0&wait=10");
+  expect(counts.at(-1)).toBe("1&wait=10");
 });
 
 test("a reply whose clips a newer prompt took is not spoken again as one video", async () => {
   const [answer, reply] = later();
-  let clipsNow: Answer = () =>
-    Response.json({ clips: ["/api/chat/clips/x/1"], done: false, error: null });
+  let clipsNow: Answer = () => Response.json(clipsMade(["/api/chat/clips/x/1"], false));
   const fetchMock = chatServer([], answer, undefined, () => clipsNow());
   await openAt("#/chat");
   await screen.findByText("Say hello to start the conversation.");
@@ -1356,7 +1422,7 @@ declare const process: {
 test("a clip that fails before the reply is in is reported with the reply", async () => {
   const [answer, reply] = later();
   chatServer([], answer, undefined, () =>
-    Response.json({ clips: [], done: true, error: "ffmpeg is not installed" }),
+    Response.json(clipsMade([], true, "ffmpeg is not installed")),
   );
   const unhandled = vi.fn();
   process.on("unhandledRejection", unhandled);
@@ -1381,16 +1447,106 @@ test("a clip that fails before the reply is in is reported with the reply", asyn
 });
 
 test("clips play in order when they arrive faster than they play", () => {
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   const { container, rerender } = render(<ClipPlayer clips={["/a"]} />);
-  const video = container.querySelector("video")!;
+  expect(container.querySelectorAll("video")).toHaveLength(1); // nothing to load yet
   rerender(<ClipPlayer clips={["/a", "/b", "/c"]} />);
-  expect(video.getAttribute("src")).toBe("/a");
-  fireEvent.ended(video);
-  expect(video.getAttribute("src")).toBe("/b");
-  fireEvent.ended(video);
-  expect(video.getAttribute("src")).toBe("/c");
+  const videos = container.querySelectorAll("video");
+  expect(videos).toHaveLength(2);
+  expect(shownVideo().getAttribute("src")).toBe("/a");
+  // The other player has the next clip loaded, out of sight.
+  expect(videos[1].getAttribute("src")).toBe("/b");
+  expect(videos[1].getAttribute("preload")).toBe("auto");
+  expect(videos[1].hidden).toBe(true);
+  expect(play).not.toHaveBeenCalled(); // the first clip plays by itself
+  fireEvent.ended(shownVideo());
+  expect(shownVideo()).toBe(videos[1]); // takes over, and the first loads the one after
+  expect(shownVideo().getAttribute("src")).toBe("/b");
+  expect(videos[0].getAttribute("src")).toBe("/c");
+  expect(videos[0].hidden).toBe(true);
+  expect(play).toHaveBeenCalledTimes(1);
+  fireEvent.ended(shownVideo());
+  expect(shownVideo()).toBe(videos[0]);
+  expect(shownVideo().getAttribute("src")).toBe("/c");
+  expect(container.querySelectorAll("video")).toHaveLength(1); // nothing more to load yet
   rerender(<ClipPlayer clips={["/d"]} />); // the next reply starts from its first clip
-  expect(video.getAttribute("src")).toBe("/d");
+  expect(shownVideo().getAttribute("src")).toBe("/d");
+});
+
+test("the player says when each clip starts and ends, once each", () => {
+  const started = vi.fn();
+  const ended = vi.fn();
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const { rerender } = render(<ClipPlayer clips={["/a", "/b"]} onStarted={started} onEnded={ended} />);
+  fireEvent.playing(shownVideo());
+  fireEvent.playing(shownVideo()); // after a stall: the same clip
+  expect(started).toHaveBeenCalledTimes(1);
+  expect(started).toHaveBeenLastCalledWith(0, expect.any(Number));
+  fireEvent.ended(shownVideo());
+  expect(ended).toHaveBeenCalledWith(0, expect.any(Number));
+  fireEvent.playing(shownVideo());
+  expect(started).toHaveBeenLastCalledWith(1, expect.any(Number));
+  fireEvent.ended(shownVideo());
+  expect(ended).toHaveBeenLastCalledWith(1, expect.any(Number));
+  fireEvent.ended(shownVideo()); // played again by hand: not another sentence
+  expect(ended).toHaveBeenCalledTimes(2);
+  rerender(<ClipPlayer clips={["/c"]} onStarted={started} onEnded={ended} />);
+  fireEvent.playing(shownVideo());
+  expect(started).toHaveBeenLastCalledWith(0, expect.any(Number)); // the next reply's first
+});
+
+test("the timing readout shows each sentence against the target", () => {
+  const times: ClipTime[] = [
+    { text: 1000, ready: 2000, started: 2260, ended: 5000 }, // 1.26 s after its text
+    { text: 1000, ready: 5100, started: 5300, ended: 8000 }, // 4.3 s, but 0.3 s after sentence 1
+    { text: 7000, ready: 9500, started: 10400, ended: 12000 }, // 2.4 s pause: too long
+    { text: 11000, ready: 11500, started: 14100, ended: null }, // 3.1 s after; 2.1 s pause: too long
+    { text: 12000, ready: 13000, started: null, ended: null },
+  ];
+  const { container } = render(<ClipTimes times={times} />);
+  const rows = Array.from(container.querySelectorAll("li"));
+  expect(rows.map((r) => r.textContent)).toEqual([
+    "Sentence 1: spoken 1.3 s after its text arrived",
+    "Sentence 2: spoken 4.3 s after its text arrived, 0.3 s after sentence 1 ended",
+    "Sentence 3: spoken 3.4 s after its text arrived, 2.4 s after sentence 2 ended",
+    "Sentence 4: spoken 3.1 s after its text arrived, 2.1 s after sentence 3 ended",
+    "Sentence 5: not spoken yet",
+  ]);
+  // The first sentence is judged by its wait after the text, the others by the pause before them.
+  expect(rows.map((r) => r.className)).toEqual(["", "", "late", "late", ""]);
+  expect(container.textContent).toContain("Timing (target 1 to 2 s)");
+  // A reply spoken in one video (not streamed) is one line.
+  const whole = render(
+    <ClipTimes times={[{ text: 0, ready: 6000, started: 7200, ended: null }]} whole />,
+  );
+  expect(whole.container.textContent).toContain("Reply: spoken 7.2 s after its text arrived");
+});
+
+test("the chat shows how long each sentence took once it plays", async () => {
+  // The first sentence's text came 5 s before the server answered; the clip plays right away.
+  const made = clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true, null, 5);
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
+    undefined,
+    () => Response.json(made),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("One. Two.");
+  await waitFor(() => expect(shownVideo().getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  expect(screen.getByText("Sentence 1: not spoken yet")).toBeTruthy();
+  fireEvent.playing(shownVideo());
+  expect(await screen.findByText(/^Sentence 1: spoken 5\.[0-2] s after its text arrived$/)).toBeTruthy();
+  fireEvent.ended(shownVideo());
+  fireEvent.playing(shownVideo());
+  expect(
+    await screen.findByText(/^Sentence 2: spoken 5\.[0-2] s after its text arrived, 0\.[0-2] s after sentence 1 ended$/),
+  ).toBeTruthy();
 });
 
 test("when a clip fails, the clips so far stay and the note says why", async () => {
@@ -1398,8 +1554,7 @@ test("when a clip fails, the clips so far stay and the note says why", async () 
     [],
     () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
     undefined,
-    () =>
-      Response.json({ clips: ["/api/chat/clips/x/1"], done: true, error: "ffmpeg is not installed" }),
+    () => Response.json(clipsMade(["/api/chat/clips/x/1"], true, "ffmpeg is not installed")),
   );
   await openAt("#/chat");
   await screen.findByText("Say hello to start the conversation.");

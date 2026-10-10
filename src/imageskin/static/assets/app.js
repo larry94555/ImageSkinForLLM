@@ -121,8 +121,9 @@ async function speakReply(turn) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return (await response.json()).video;
 }
-async function getClips(replyId) {
-	const response = await fetch(`/api/chat/clips/${replyId}`);
+async function getClips(replyId, known) {
+	const query = known === void 0 ? "" : `?known=${known}&wait=10`;
+	const response = await fetch(`/api/chat/clips/${replyId}${query}`);
 	if (response.status === 404) return null;
 	return json(response);
 }
@@ -839,6 +840,8 @@ function Chat() {
 	const [sending, setSending] = d(false);
 	const [speaking, setSpeaking] = d(false);
 	const [clips, setClips] = d([]);
+	const [times, setTimes] = d([]);
+	const [whole, setWhole] = d(false);
 	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
 	const end = A(null);
@@ -859,18 +862,41 @@ function Chat() {
 		speaking
 	]);
 	async function followClips(replyId, replied) {
+		let known = 0;
 		while (!gone.current) {
 			const answered = replied();
-			const got = await getClips(replyId);
+			const got = await getClips(replyId, known);
 			if (got === null) {
 				if (answered) return;
-			} else {
-				setClips(got.clips);
-				if (got.error !== null) throw new Error(got.error);
-				if (got.done) return;
+				await sleep(300);
+				continue;
 			}
-			await sleep(300);
+			const offset = performance.now() - got.now * 1e3;
+			const made = got.clips.slice(known).map((c) => ({
+				text: c.sentence_at * 1e3 + offset,
+				ready: c.ready_at * 1e3 + offset,
+				started: null,
+				ended: null
+			}));
+			if (made.length) setTimes((t) => [...t, ...made]);
+			setClips(got.clips.map((c) => c.url));
+			if (got.error !== null) throw new Error(got.error);
+			if (got.done) return;
+			if (got.clips.length === known) await sleep(300);
+			known = got.clips.length;
 		}
+	}
+	function started(clip, at) {
+		setTimes((t) => t.map((c, i) => i === clip && c.started === null ? {
+			...c,
+			started: at
+		} : c));
+	}
+	function ended(clip, at) {
+		setTimes((t) => t.map((c, i) => i === clip && c.ended === null ? {
+			...c,
+			ended: at
+		} : c));
 	}
 	async function send() {
 		const text = prompt.trim();
@@ -883,6 +909,8 @@ function Chat() {
 		setFailed(null);
 		setUnspoken(null);
 		setClips([]);
+		setTimes([]);
+		setWhole(false);
 		setTurns((t) => [...t ?? [], {
 			role: "user",
 			content: text
@@ -890,8 +918,10 @@ function Chat() {
 		setPrompt("");
 		const following = followClips(replyId, () => replied).then(() => null, (e) => e instanceof Error ? e : new Error(String(e)));
 		let reply;
+		let repliedAt = 0;
 		try {
 			reply = await sendPrompt(text, replyId);
+			repliedAt = performance.now();
 			const { role, content } = reply;
 			setTurns((t) => [...t ?? [], {
 				role,
@@ -905,6 +935,8 @@ function Chat() {
 			replied = true;
 			await following;
 			setClips([]);
+			setTimes([]);
+			setWhole(false);
 			setSpeaking(false);
 			return;
 		} finally {
@@ -918,6 +950,15 @@ function Chat() {
 			if (!reply.streamed) {
 				const url = await speakReply(reply.turn);
 				setClips(url ? [`${url}?t=${Date.now()}`] : []);
+				if (url) {
+					setWhole(true);
+					setTimes([{
+						text: repliedAt,
+						ready: performance.now(),
+						started: null,
+						ended: null
+					}]);
+				}
 			}
 		} catch (e) {
 			console.error("Could not speak the reply", e);
@@ -936,7 +977,15 @@ function Chat() {
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [
-			clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, { clips }),
+			clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
+				clips,
+				onStarted: started,
+				onEnded: ended
+			}),
+			times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
+				times,
+				whole
+			}),
 			turns.length === 0 && /* @__PURE__ */ u("p", {
 				className: "muted",
 				children: "Say hello to start the conversation."
@@ -999,18 +1048,80 @@ function Chat() {
 	});
 }
 function ClipPlayer(props) {
-	const { clips } = props;
+	const { clips, onStarted, onEnded } = props;
 	const [playing, setPlaying] = d(0);
+	const [active, setActive] = d(0);
+	const players = [A(null), A(null)];
+	const begun = A(/* @__PURE__ */ new Set());
 	const first = clips[0];
-	h(() => setPlaying(0), [first]);
-	const shown = clips[Math.min(playing, clips.length - 1)];
-	return /* @__PURE__ */ u("video", {
+	h(() => {
+		setPlaying(0);
+		setActive(0);
+		begun.current = /* @__PURE__ */ new Set();
+	}, [first]);
+	h(() => {
+		const player = players[active].current;
+		if (active === 0 && playing === 0) return;
+		try {
+			player?.play()?.catch(() => void 0);
+		} catch {}
+	}, [active]);
+	const current = Math.min(playing, clips.length - 1);
+	const next = clips[current + 1];
+	function begins(at) {
+		if (playing < clips.length && !begun.current.has(playing)) {
+			begun.current.add(playing);
+			onStarted?.(playing, at);
+		}
+	}
+	function ends(at) {
+		if (playing >= clips.length) return;
+		onEnded?.(playing, at);
+		if (next !== void 0) setActive((a) => 1 - a);
+		setPlaying(playing + 1);
+	}
+	return /* @__PURE__ */ u(S, { children: [0, 1].map((n) => n === active ? /* @__PURE__ */ u("video", {
+		ref: players[n],
 		className: "reply-video",
-		src: shown,
+		src: clips[current],
 		autoPlay: true,
 		controls: true,
 		playsInline: true,
-		onEnded: () => setPlaying((p) => Math.min(p + 1, clips.length))
+		onPlaying: () => begins(performance.now()),
+		onEnded: () => ends(performance.now())
+	}, n) : next !== void 0 && /* @__PURE__ */ u("video", {
+		ref: players[n],
+		src: next,
+		preload: "auto",
+		playsInline: true,
+		hidden: true
+	}, n)) });
+}
+function seconds(ms) {
+	return `${(ms / 1e3).toFixed(1)} s`;
+}
+function ClipTimes(props) {
+	const { times, whole } = props;
+	const limit = 2e3;
+	return /* @__PURE__ */ u("div", {
+		className: "timing",
+		children: [/* @__PURE__ */ u("span", { children: "Timing (target 1 to 2 s)" }), /* @__PURE__ */ u("ol", { children: times.map((t, i) => {
+			const name = whole ? "Reply" : `Sentence ${i + 1}`;
+			if (t.started === null) return /* @__PURE__ */ u("li", { children: [name, ": not spoken yet"] }, i);
+			const after = t.started - t.text;
+			const before = times[i - 1];
+			const pause = before?.ended === null || before === void 0 ? null : Math.max(0, t.started - before.ended);
+			return /* @__PURE__ */ u("li", {
+				className: (pause === null ? after : pause) > limit ? "late" : void 0,
+				children: [
+					name,
+					": spoken ",
+					seconds(after),
+					" after its text arrived",
+					pause !== null && `, ${seconds(pause)} after sentence ${i} ended`
+				]
+			}, i);
+		}) })]
 	});
 }
 function StepState(props) {
