@@ -340,9 +340,11 @@ def create_app(
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
-    def post_chat(body: ChatRequest) -> dict[str, str]:
+    def post_chat(body: ChatRequest) -> dict[str, str | int]:
+        """The reply, with its place in the conversation to ask for its video by."""
         try:
-            return asdict(conversation.send(body.prompt))
+            reply, turn = conversation.send(body.prompt)
+            return {**asdict(reply), "turn": turn}
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         except LlmError as e:

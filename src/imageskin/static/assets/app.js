@@ -843,18 +843,24 @@ function Chat() {
 	async function send() {
 		const text = prompt.trim();
 		if (!text || sending || speaking) return;
-		const turn = (turns ?? []).length + 1;
+		const shownAt = (turns ?? []).length + 1;
 		setSending(true);
 		setFailed(null);
 		setUnspoken(null);
+		setVideo(null);
 		setTurns((t) => [...t ?? [], {
 			role: "user",
 			content: text
 		}]);
 		setPrompt("");
+		let reply;
 		try {
-			const reply = await sendPrompt(text);
-			setTurns((t) => [...t ?? [], reply]);
+			reply = await sendPrompt(text);
+			const { role, content } = reply;
+			setTurns((t) => [...t ?? [], {
+				role,
+				content
+			}]);
 		} catch (e) {
 			console.error("Could not get a reply", e);
 			setTurns((t) => (t ?? []).slice(0, -1));
@@ -866,13 +872,13 @@ function Chat() {
 		}
 		setSpeaking(true);
 		try {
-			const url = await speakReply(turn);
+			const url = await speakReply(reply.turn);
 			setVideo(url && `${url}?t=${Date.now()}`);
 		} catch (e) {
 			console.error("Could not speak the reply", e);
 			setVideo(null);
 			setUnspoken({
-				turn,
+				turn: shownAt,
 				why: e instanceof Error ? e.message : String(e)
 			});
 		} finally {

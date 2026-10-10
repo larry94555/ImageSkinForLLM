@@ -70,6 +70,43 @@ def test_a_reply_is_spoken_without_markdown_and_only_the_latest_is_kept(
     assert "Rendered reply video" in caplog.messages
 
 
+def test_the_old_video_stays_until_the_new_one_is_in_place(tmp_path: Path) -> None:
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    first = videos.render(Path("me.jpg"), 1, "Hello")
+    assert first is not None
+    seen: list[bool] = []
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        seen.append(first.exists())  # the browser may still be playing it
+        output.write_text(text)
+
+    videos._render_clip = render
+    videos.render(Path("me.jpg"), 3, "Again")
+    assert seen == [True] and not first.exists()
+
+
+def test_an_old_video_that_cant_be_removed_doesnt_fail_the_new_one(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    first = videos.render(Path("me.jpg"), 1, "Hello")
+    assert first is not None
+    real_unlink = Path.unlink
+
+    def in_use(path: Path, missing_ok: bool = False) -> None:
+        if path == first:  # as on Windows, while the browser has it open
+            raise PermissionError("The file is being used by another process")
+        real_unlink(path, missing_ok)
+
+    with patch.object(Path, "unlink", in_use):
+        second = videos.render(Path("me.jpg"), 3, "Again")
+    assert second is not None and second.read_text() == "me.jpg: Again"
+    assert first.exists()
+    assert "Could not remove an old reply video" in caplog.messages
+    videos.render(Path("me.jpg"), 5, "Third")  # removed with the next reply instead
+    assert not first.exists()
+
+
 def test_a_reply_with_nothing_to_say_has_no_video(tmp_path: Path) -> None:
     rendered: list[str] = []
     videos = ReplyVideos(
@@ -159,8 +196,9 @@ def test_the_api_speaks_a_reply_and_serves_its_video(tmp_path: Path) -> None:
 
     client = video_app(tmp_path, render)
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
-        client.post("/api/chat", json={"prompt": "Hi"})
-        made = client.post("/api/chat/video", json={"turn": 1})
+        reply = client.post("/api/chat", json={"prompt": "Hi"}).json()
+        assert reply == {"role": "assistant", "content": "You said **Hi**", "turn": 1}
+        made = client.post("/api/chat/video", json={"turn": reply["turn"]})
         assert made.json() == {"video": "/api/chat/videos/1"}
         assert spoken == ["You said Hi"]
         video = client.get("/api/chat/videos/1")
