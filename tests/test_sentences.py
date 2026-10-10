@@ -37,6 +37,21 @@ CASES = [
         ["Here is code:", "```python\nx = 1. Then\nprint(x)\n```", "That is it.", "Done."],
     ),
     ("Unclosed:\n```\nx = 1. Y\n", ["Unclosed:", "```\nx = 1. Y"]),
+    (  # a ```` block holds ```, and only a fence of the same character closes a block
+        "Code:\n````md\n```\nA. B\n```\n````\nAfter. Done.",
+        ["Code:", "````md\n```\nA. B\n```\n````", "After.", "Done."],
+    ),
+    (
+        "Code:\n```\nA. B\n~~~\nC. D\n```\nAfter.",
+        ["Code:", "```\nA. B\n~~~\nC. D\n```", "After."],
+    ),
+    (
+        'Use `print("Hi. Bye")` here. Next.',
+        ['Use `print("Hi. Bye")` here.', "Next."],
+    ),
+    ("Run ``a`. b`` now. Then go.", ["Run ``a`. b`` now.", "Then go."]),
+    # A backtick that starts no code splits once its line is complete.
+    ("A stray ` mark. Then more.\nNew line.", ["A stray ` mark.", "Then more.", "New line."]),
     ("No full stop at the end", ["No full stop at the end"]),
     ("A stray . Then more", ["A stray .", "Then more"]),
     ("", []),
@@ -59,3 +74,9 @@ def test_a_sentence_is_handed_back_as_soon_as_the_next_one_starts() -> None:
     assert splitter.feed(" are you?") == []
     assert splitter.flush() == ["How are you?"]
     assert splitter.flush() == []
+
+
+def test_a_sentence_waits_while_inline_code_may_still_close() -> None:
+    splitter = SentenceSplitter()
+    assert splitter.feed("Type `exit. Now") == []  # the ` may close later on this line
+    assert splitter.feed("` to stop. Then") == ["Type `exit. Now` to stop."]

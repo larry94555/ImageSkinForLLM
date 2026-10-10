@@ -4,10 +4,13 @@ each sentence can be spoken as soon as it is complete. Pure Python, no logging: 
 A sentence ends at ".", "!", "?" or "…" (with any closing quotes or brackets after it) followed by
 a space, at a blank line, and at the end of a heading or list item. The end is only known once the
 next word starts, so "Dr. Smith", "e.g. this", "3.5", "1. First" and "the U.S. team" don't split
-(nor, as a cost of that, does "in the U.S. The"). Code blocks are kept whole.
+(nor, as a cost of that, does "in the U.S. The"). Code blocks and inline code are kept whole, by
+the same rules as speech_text.py, so each sentence can be cleaned for speech on its own.
 """
 
 import re
+
+from imageskin.speech_text import CODE_FENCE, INLINE_CODE, closing_fence
 
 # Words that end with a full stop but don't end a sentence.
 ABBREVIATIONS = frozenset(
@@ -18,7 +21,22 @@ _END = re.compile(r"([.!?…]+)([\"'”’)\]]*)\s+")
 # A blank line, or a line break before a list item or heading.
 _BREAK = re.compile(r"\n[ \t]*\n\s*|\n(?=[ \t]*(?:\d+[.)]|[-*+]|#{1,6})[ \t])")
 _HEADING = re.compile(r"^[ \t]*#{1,6}[ \t].*\n", re.M)  # a heading line is a sentence
-_FENCE = re.compile(r"^[ \t]*(```|~~~)", re.M)
+
+
+def _in_code(text: str, at: int) -> bool:
+    """Whether `at` is inside inline code, or after a backtick that may yet start some: inline
+    code doesn't run past its line, so that is only while the line is still being written."""
+    start = text.rfind("\n", 0, at) + 1
+    end = text.find("\n", at)
+    line = text[start:] if end < 0 else text[start:end]
+    at -= start
+    spans = [m.span() for m in INLINE_CODE.finditer(line)]
+    if any(a <= at < b for a, b in spans):
+        return True
+    if end >= 0:
+        return False
+    outside = "".join(" " if any(a <= i < b for a, b in spans) else c for i, c in enumerate(line))
+    return "`" in outside[:at]
 
 
 def _not_an_end(text: str, end: re.Match[str], following: str) -> bool:
@@ -65,14 +83,16 @@ class SentenceSplitter:
     def _next_cut(self) -> int | None:
         """Where the first complete sentence ends, or None if none is complete yet."""
         text = self._text
-        fences = list(_FENCE.finditer(text))
-        if fences and not text[: fences[0].start()].strip():
+        fence = CODE_FENCE.search(text)
+        if fence and not text[: fence.start()].strip():
             # A code block is a sentence of its own, once its closing fence line is complete.
-            if len(fences) < 2:
+            opened = text.find("\n", fence.end())
+            close = None if opened < 0 else closing_fence(fence["fence"]).search(text, opened + 1)
+            if close is None:
                 return None
-            close = text.find("\n", fences[1].end())
-            return None if close < 0 else close + 1
-        limit = fences[0].start() if fences else len(text)  # cut before a code block
+            done = text.find("\n", close.end())
+            return None if done < 0 else done + 1
+        limit = fence.start() if fence else len(text)  # cut before a code block
         head = text[:limit]
         ends = sorted(
             [*_END.finditer(head), *_BREAK.finditer(head), *_HEADING.finditer(head)],
@@ -83,7 +103,9 @@ class SentenceSplitter:
             if end.re is _END:
                 if not following.strip():
                     return None  # the next word hasn't started: it may be "Dr. Smith"
+                if _in_code(text, end.start(1)):
+                    continue
                 if _not_an_end(text, end, following):
                     continue
             return end.end()
-        return limit if fences else None
+        return limit if fence else None
