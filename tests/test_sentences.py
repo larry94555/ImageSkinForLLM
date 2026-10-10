@@ -1,6 +1,7 @@
 import pytest
 
 from imageskin.sentences import SentenceSplitter
+from imageskin.speech_text import TABLE, spoken_text
 
 
 def split(text: str, step: int) -> list[str]:
@@ -175,6 +176,17 @@ FIRST_CLAUSE_CASES = [
         ],
     ),
     ("```\nx = f(a, b, c)\n```\nSo, that is it.", ["```\nx = f(a, b, c)\n```", "So, that is it."]),
+    # Nor a line that may be a table's row, as a table is replaced whole (another finding).
+    (
+        "| Name of the person here | Age of them now | City |\n|---|---|---|\n| Ann | 3 | Rome |"
+        "\n\nAfter that. Next.",
+        [
+            "| Name of the person here | Age of them now | City |\n|---|---|---|"
+            "\n| Ann | 3 | Rome |",
+            "After that.",
+            "Next.",
+        ],
+    ),
 ]
 
 
@@ -184,6 +196,15 @@ def test_the_first_sentences_first_clause_is_a_sentence_of_its_own(
     text: str, expected: list[str], step: int
 ) -> None:
     assert clauses(text, step) == expected
+
+
+def test_a_table_whose_first_line_is_long_is_still_spoken_as_a_table() -> None:
+    table = (
+        "| Name of the person here | Age of them now | City |\n|---|---|---|\n| Ann | 3 | Rome |"
+    )
+    for step in (1, 3, 1000):
+        spoken = [spoken_text(s) for s in clauses(table + "\n\nAfter that.", step)]
+        assert spoken == [TABLE, "After that."]
 
 
 def test_the_first_clause_waits_for_the_next_word() -> None:
