@@ -12,6 +12,7 @@ import {
   type Decision,
   getAccent,
   getChat,
+  getClips,
   getPhotoChoice,
   clipUrl,
   getPrepare,
@@ -742,19 +743,40 @@ export function ChatPage() {
   );
 }
 
+// How often the chat asks for a reply's new clips while they are being made.
+export const CLIP_POLL_MS = 300;
+
+function newReplyId(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
-// photo (roadmap R17); if that fails, the reply stays as text with a short note.
+// photo (roadmap R17), starting on its first sentence while the rest is still being made
+// (roadmap R22); if that fails, the reply stays as text with a short note.
 function Chat() {
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [video, setVideo] = useState<string | null>(null);
+  const [clips, setClips] = useState<string[]>([]);
   // Why the latest reply could not be spoken, by its place in the conversation.
   const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const gone = useRef(false); // the page was left: stop following clips
 
+  useEffect(
+    () => () => {
+      gone.current = true;
+    },
+    [],
+  );
   useEffect(() => {
     getChat()
       .then(setTurns)
@@ -766,17 +788,40 @@ function Chat() {
   }, []);
   useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending, speaking]);
 
+  // Follow the reply's clips until the last one is made. False when the server has none:
+  // the reply wasn't streamed, or it failed.
+  async function followClips(replyId: string, replied: () => boolean): Promise<boolean> {
+    while (!gone.current) {
+      const answered = replied(); // read first: the clips may be dropped once it has replied
+      const got = await getClips(replyId);
+      if (got === null) {
+        if (answered) return false;
+      } else {
+        setClips(got.clips);
+        if (got.error !== null) throw new Error(got.error);
+        if (got.done) return true;
+      }
+      await sleep(CLIP_POLL_MS);
+    }
+    return true; // nothing more to do here
+  }
+
   async function send() {
     const text = prompt.trim();
     if (!text || sending || speaking) return;
     const turn = (turns ?? []).length + 1; // the reply's place, after the prompt
+    const replyId = newReplyId();
+    let replied = false;
     setSending(true);
+    setSpeaking(true);
     setFailed(null);
     setUnspoken(null);
+    setClips([]);
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
     setPrompt("");
+    const following = followClips(replyId, () => replied);
     try {
-      const reply = await sendPrompt(text);
+      const reply = await sendPrompt(text, replyId);
       setTurns((t) => [...(t ?? []), reply]);
     } catch (e) {
       console.error("Could not get a reply", e);
@@ -784,18 +829,24 @@ function Chat() {
       setTurns((t) => (t ?? []).slice(0, -1));
       setPrompt(text);
       setFailed(e instanceof Error ? e.message : String(e));
+      replied = true;
+      await following.catch(() => false);
+      setClips([]);
+      setSpeaking(false);
       return;
     } finally {
+      replied = true;
       setSending(false);
     }
-    setSpeaking(true);
     try {
-      const url = await speakReply(turn);
-      // A new address each time, so the same reply number after a restart plays afresh.
-      setVideo(url && `${url}?t=${Date.now()}`);
+      if (!(await following)) {
+        // Not streamed: the whole reply is spoken in one video (roadmap R17).
+        const url = await speakReply(turn);
+        // A new address each time, so the same reply number after a restart plays afresh.
+        setClips(url ? [`${url}?t=${Date.now()}`] : []);
+      }
     } catch (e) {
       console.error("Could not speak the reply", e);
-      setVideo(null);
       setUnspoken({ turn, why: e instanceof Error ? e.message : String(e) });
     } finally {
       setSpeaking(false);
@@ -805,7 +856,7 @@ function Chat() {
   if (turns === null) return <p className="muted busy">Loading…</p>;
   return (
     <div className="chat">
-      {video && <video className="reply-video" src={video} autoPlay controls playsInline />}
+      {clips.length > 0 && <ClipPlayer clips={clips} />}
       {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
       <ol className="turns">
         {turns.map((turn, i) => (
@@ -850,6 +901,26 @@ function Chat() {
       </form>
       <div ref={end} />
     </div>
+  );
+}
+
+// Plays a reply's clips one after another, as they arrive (roadmap R22). When it reaches the
+// end of the clips so far, it waits on the last frame for the next one.
+export function ClipPlayer(props: { clips: string[] }) {
+  const { clips } = props;
+  const [playing, setPlaying] = useState(0);
+  const first = clips[0];
+  useEffect(() => setPlaying(0), [first]); // a new reply starts from its first clip
+  const shown = clips[Math.min(playing, clips.length - 1)];
+  return (
+    <video
+      className="reply-video"
+      src={shown}
+      autoPlay
+      controls
+      playsInline
+      onEnded={() => setPlaying((p) => Math.min(p + 1, clips.length))}
+    />
   );
 }
 

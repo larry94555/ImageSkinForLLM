@@ -218,11 +218,12 @@ export async function getChat(): Promise<Turn[]> {
 }
 
 // Sends a prompt and returns the LLM's reply. Throws an Error saying why when it fails.
-export async function sendPrompt(prompt: string): Promise<Turn> {
+// `replyId` names the reply, so its clips can be asked for while the LLM writes (roadmap R22).
+export async function sendPrompt(prompt: string, replyId?: string): Promise<Turn> {
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify(replyId ? { prompt, reply_id: replyId } : { prompt }),
   });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Turn;
@@ -239,4 +240,19 @@ export async function speakReply(turn: number): Promise<string | null> {
   });
   if (!response.ok) throw new Error(await refusal(response));
   return ((await response.json()) as { video: string | null }).video;
+}
+
+// A reply's clips so far, one per sentence, in order (roadmap R22). done: no more will come;
+// error: why a clip failed. null when the server has none for it: not yet, or the reply wasn't
+// streamed (then speakReply makes its whole video).
+export interface Clips {
+  clips: string[];
+  done: boolean;
+  error: string | null;
+}
+
+export async function getClips(replyId: string): Promise<Clips | null> {
+  const response = await fetch(`/api/chat/clips/${replyId}`);
+  if (response.status === 404) return null;
+  return json<Clips>(response);
 }

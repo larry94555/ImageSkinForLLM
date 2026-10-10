@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from imageskin.app import CHAT_LOCKED, NO_SUCH_REPLY, create_app
 from imageskin.chat import LlmError
 from imageskin.prepare_job import PrepareJob, PrepareStatus
-from imageskin.reply_video import ReplyVideos, VoiceReady, concat
+from imageskin.reply_video import ReplyVideos, VoiceReady
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult, UploadStore, VoiceSample
 from imageskin.video import VideoError
@@ -137,62 +137,61 @@ def seconds_of(video: Path) -> float:
     return float(subprocess.run([*cmd, str(video)], capture_output=True, check=True).stdout)
 
 
-def test_sentences_are_rendered_in_order_and_joined(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_sentences_are_rendered_in_order(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     said: list[str] = []
 
     def render(photo: Path, text: str, output: Path) -> None:
         said.append(text)
-        tone_clip(0.5 * len(said), output)
+        tone_clip(0.5, output)
 
     videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
-    clips = videos.sentence_clips(Path("me.jpg"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
     caplog.set_level(logging.INFO)
     clips(None)  # the LLM starts writing
     for sentence in ["**Hello** there.", "🎉", "See https://example.com now."]:
         clips(sentence)
+    assert [clips.done] == [False]  # (a list, so mypy keeps checking what follows)
     clips.close()
-    video = videos.join(3, clips)
+    clips.wait(10)
+    assert clips.done and clips.error is None
     assert said == ["Hello there.", "See the link in the text below now."]
-    assert video == tmp_path / "replies" / "3.mp4"
-    assert seconds_of(video) == pytest.approx(1.5, abs=0.1)
-    assert list((tmp_path / "replies").iterdir()) == [video]  # the clips are removed
+    folder = tmp_path / "replies" / "clips-abc123ef"
+    assert clips.clips == [folder / "1.mp4", folder / "2.mp4"]
+    assert seconds_of(clips.clips[0]) == pytest.approx(0.5, abs=0.1)
     ready = [r for r in caplog.records if r.message == "Sentence clip ready"]
     assert [r.sentence for r in ready] == [1, 3]  # type: ignore[attr-defined]
     assert all(r.since_first_words_ms is not None for r in ready)  # type: ignore[attr-defined]
-    assert "Joined reply video" in caplog.messages
 
 
-def test_a_streamed_reply_with_nothing_to_say_has_no_video(tmp_path: Path) -> None:
+def test_a_reply_with_no_sentences_is_done_at_once(tmp_path: Path) -> None:
     videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
-    clips = videos.sentence_clips(Path("me.jpg"))
-    clips("🎉")
-    assert videos.join(1, clips) is None
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips.close()
+    clips.close()  # twice is fine
+    assert clips.done and clips.clips == []
 
 
-def test_a_failed_sentence_fails_the_reply_video(
+def test_a_failed_sentence_stops_the_clips_and_says_why(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     def fail(photo: Path, text: str, output: Path) -> None:
         raise VideoError("ffmpeg is not installed")
 
     videos = ReplyVideos(tmp_path, fail, VoiceReady(lambda: None, lambda: "v"))
-    clips = videos.sentence_clips(Path("me.jpg"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
     clips("One.")
     clips("Two.")
-    with pytest.raises(VideoError, match="not installed"):
-        videos.join(1, clips)
+    clips.close()
+    clips.wait(10)
+    assert clips.done and clips.error == "ffmpeg is not installed"
     assert [r.message for r in caplog.records].count("Sentence clip failed") == 1
-    assert "Reply video failed" in caplog.messages
 
 
 def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     said: list[str] = []
     videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
-    clips = videos.sentence_clips(Path("me.jpg"))
-    clips.cancel()  # before any sentence: nothing to stop
-    clips = videos.sentence_clips(Path("me.jpg"))
+    videos.sentence_clips(Path("me.jpg"), "abc123ef").cancel()  # nothing to stop
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
     with videos._lock:  # the engines are busy, so the sentences wait
         clips("One.")
         clips("Two.")
@@ -201,12 +200,12 @@ def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     assert said == [] and not clips.folder.exists()
 
 
-def test_clips_that_cant_be_joined_say_why(tmp_path: Path) -> None:
-    broken = tmp_path / "broken.mp4"
-    broken.write_text("not a video")
-    with pytest.raises(VideoError, match="could not join"):
-        concat([broken], tmp_path / "out.mp4")
-    assert not (tmp_path / "out.mp4").exists()
+def test_clips_left_from_before_a_restart_are_removed(tmp_path: Path) -> None:
+    old = tmp_path / "replies" / "clips-abc123ef"
+    old.mkdir(parents=True)
+    (old / "1.mp4").write_text("old")
+    ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    assert not old.exists()
 
 
 # --- The API ---
@@ -284,7 +283,10 @@ def test_replies_are_warmed_up_at_start_once_a_sample_is_accepted(tmp_path: Path
     first.close()
 
 
-def test_the_api_joins_a_streamed_replys_sentence_clips(tmp_path: Path) -> None:
+REPLY_ID = "0123456789abcdef0123456789abcdef"
+
+
+def test_the_api_serves_a_streamed_replys_clips_as_they_are_made(tmp_path: Path) -> None:
     said: list[str] = []
 
     def render(photo: Path, text: str, output: Path) -> None:
@@ -295,20 +297,37 @@ def test_the_api_joins_a_streamed_replys_sentence_clips(tmp_path: Path) -> None:
         yield from ["Hi Larry. ", "How are ", "you?"]
 
     client = video_app(tmp_path, render, stream)
+    clips_api = f"/api/chat/clips/{REPLY_ID}"
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
-        reply = client.post("/api/chat", json={"prompt": "Hi"}).json()
-        assert reply["content"] == "Hi Larry. How are you?"
-        made = client.post("/api/chat/video", json={"turn": 1})
-        assert made.json() == {"video": "/api/chat/videos/1"}
-        assert said == ["Hi Larry.", "How are you?"]  # never the whole reply again
-        assert seconds_of(tmp_path / "replies" / "1.mp4") == pytest.approx(1.0, abs=0.1)
+        assert client.get(clips_api).status_code == 404  # not asked for yet
+        sent = client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        assert sent.json()["content"] == "Hi Larry. How are you?"
+        status = client.get(clips_api).json()
+        while not status["done"]:
+            status = client.get(clips_api).json()
+        assert status == {
+            "clips": [f"{clips_api}/1", f"{clips_api}/2"],
+            "done": True,
+            "error": None,
+        }
+        assert said == ["Hi Larry.", "How are you?"]
+        clip = client.get(f"{clips_api}/2")
+        assert clip.headers["content-type"] == "video/mp4" and clip.content[4:8] == b"ftyp"
+        assert client.get(f"{clips_api}/3").status_code == 404
 
-        client.post("/api/chat", json={"prompt": "Again"})  # its video is never asked for
-        client.post("/api/chat", json={"prompt": "And again"})
-        assert client.post("/api/chat/video", json={"turn": 5}).status_code == 200
-        assert said[-2:] == ["Hi Larry.", "How are you?"]
-        # The unasked-for reply's clips were dropped, and only the latest video is kept.
-        assert [p.name for p in (tmp_path / "replies").iterdir()] == ["5.mp4"]
+        other = "f" * 32
+        client.post("/api/chat", json={"prompt": "Again", "reply_id": other})
+        assert client.get(clips_api).status_code == 404  # only the latest reply's are kept
+        assert not (tmp_path / "replies" / f"clips-{REPLY_ID}").exists()
+        assert client.post("/api/chat", json={"prompt": "x", "reply_id": "../x"}).status_code == 422
+
+
+def test_a_reply_that_isnt_streamed_has_no_clips(tmp_path: Path) -> None:
+    client = video_app(tmp_path, write_text)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 404
+        assert client.post("/api/chat/video", json={"turn": 1}).status_code == 200
 
 
 def test_the_api_drops_the_clips_of_a_failed_streamed_reply(tmp_path: Path) -> None:
@@ -318,9 +337,10 @@ def test_the_api_drops_the_clips_of_a_failed_streamed_reply(tmp_path: Path) -> N
 
     client = video_app(tmp_path, write_text, stream)
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
-        failed = client.post("/api/chat", json={"prompt": "Hi"})
-    assert failed.status_code == 502
-    assert not any((tmp_path / "replies").glob("rendering-*"))
+        failed = client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        assert failed.status_code == 502
+        assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 404
+    assert not any((tmp_path / "replies").glob("clips-*"))
 
 
 def test_the_api_says_why_a_video_failed(tmp_path: Path) -> None:
