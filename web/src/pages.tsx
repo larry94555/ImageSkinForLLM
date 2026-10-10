@@ -789,22 +789,22 @@ function Chat() {
   }, []);
   useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending, speaking]);
 
-  // Follow the reply's clips until the last one is made. False when the server has none:
-  // the reply wasn't streamed, or it failed.
-  async function followClips(replyId: string, replied: () => boolean): Promise<boolean> {
+  // Follow the reply's clips until the last one is made, or until the server has none to tell
+  // of once the reply is in: it wasn't streamed, or a newer prompt (from another tab, say) took
+  // its clips. Throws when a clip failed.
+  async function followClips(replyId: string, replied: () => boolean): Promise<void> {
     while (!gone.current) {
       const answered = replied(); // read first: the clips may be dropped once it has replied
       const got = await getClips(replyId);
       if (got === null) {
-        if (answered) return false;
+        if (answered) return;
       } else {
         setClips(got.clips);
         if (got.error !== null) throw new Error(got.error);
-        if (got.done) return true;
+        if (got.done) return;
       }
       await sleep(CLIP_POLL_MS);
     }
-    return true; // nothing more to do here
   }
 
   async function send() {
@@ -820,7 +820,12 @@ function Chat() {
     setClips([]); // the server replaces the last reply's clips or video with this one's
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
     setPrompt("");
-    const following = followClips(replyId, () => replied);
+    // Why the clips failed, if they did, kept until the reply is in: a clip can fail long
+    // before, and a rejection with nothing waiting on it would be reported as unhandled.
+    const following: Promise<Error | null> = followClips(replyId, () => replied).then(
+      () => null,
+      (e: unknown) => (e instanceof Error ? e : new Error(String(e))),
+    );
     let reply: Reply;
     try {
       reply = await sendPrompt(text, replyId);
@@ -833,7 +838,7 @@ function Chat() {
       setPrompt(text);
       setFailed(e instanceof Error ? e.message : String(e));
       replied = true;
-      await following.catch(() => false);
+      await following;
       setClips([]);
       setSpeaking(false);
       return;
@@ -842,7 +847,10 @@ function Chat() {
       setSending(false);
     }
     try {
-      if (!(await following)) {
+      const clipsFailed = await following;
+      if (gone.current) return; // the page was left meanwhile
+      if (clipsFailed !== null) throw clipsFailed;
+      if (!reply.streamed) {
         // Not streamed: the whole reply is spoken in one video (roadmap R17), asked for by the
         // server's count, which another tab's replies may have moved on from this tab's.
         const url = await speakReply(reply.turn);

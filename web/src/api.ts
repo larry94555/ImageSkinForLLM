@@ -220,6 +220,10 @@ export async function getChat(): Promise<Turn[]> {
 // A reply, with its place in the conversation (from 0) as the server counted it.
 export interface Reply extends Turn {
   turn: number;
+  // Its clips are made sentence by sentence (roadmap R22); otherwise speakReply makes its whole
+  // video. A streamed reply whose clips went away is not spoken again: a newer prompt, perhaps
+  // from another tab, took them, and that one is the reply to hear.
+  streamed: boolean;
 }
 
 // Sends a prompt and returns the LLM's reply. Throws an Error saying why when it fails.
@@ -248,8 +252,8 @@ export async function speakReply(turn: number): Promise<string | null> {
 }
 
 // A reply's clips so far, one per sentence, in order (roadmap R22). done: no more will come;
-// error: why a clip failed. null when the server has none for it: not yet, or the reply wasn't
-// streamed (then speakReply makes its whole video).
+// error: why a clip failed. null when the server has none for it: not yet, the reply wasn't
+// streamed, or a newer prompt took them.
 export interface Clips {
   clips: string[];
   done: boolean;

@@ -863,15 +863,14 @@ function Chat() {
 			const answered = replied();
 			const got = await getClips(replyId);
 			if (got === null) {
-				if (answered) return false;
+				if (answered) return;
 			} else {
 				setClips(got.clips);
 				if (got.error !== null) throw new Error(got.error);
-				if (got.done) return true;
+				if (got.done) return;
 			}
 			await sleep(300);
 		}
-		return true;
 	}
 	async function send() {
 		const text = prompt.trim();
@@ -889,7 +888,7 @@ function Chat() {
 			content: text
 		}]);
 		setPrompt("");
-		const following = followClips(replyId, () => replied);
+		const following = followClips(replyId, () => replied).then(() => null, (e) => e instanceof Error ? e : new Error(String(e)));
 		let reply;
 		try {
 			reply = await sendPrompt(text, replyId);
@@ -904,7 +903,7 @@ function Chat() {
 			setPrompt(text);
 			setFailed(e instanceof Error ? e.message : String(e));
 			replied = true;
-			await following.catch(() => false);
+			await following;
 			setClips([]);
 			setSpeaking(false);
 			return;
@@ -913,7 +912,10 @@ function Chat() {
 			setSending(false);
 		}
 		try {
-			if (!await following) {
+			const clipsFailed = await following;
+			if (gone.current) return;
+			if (clipsFailed !== null) throw clipsFailed;
+			if (!reply.streamed) {
 				const url = await speakReply(reply.turn);
 				setClips(url ? [`${url}?t=${Date.now()}`] : []);
 			}
