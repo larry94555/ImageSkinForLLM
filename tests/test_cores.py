@@ -42,20 +42,22 @@ def test_the_engines_get_half_the_cores_while_the_llm_is_busy(
     share.llm_writing()
     share.llm_writing()  # a second request (the summary after a reply): told only when it changes
     share.llm_done()  # one is still under way
-    assert told == [4, 2]
+    assert share.threads == 2
     with share.llm():
-        assert told == [4, 2]
-    assert told == [4, 2]
+        assert share.threads == 2
+    assert share.threads == 2
     share.llm_done()
     share.llm_done()  # once more than started: fine
-    assert told == [4, 2, 4]
+    assert share.threads == 4
     assert [r.threads for r in caplog.records] == [4, 2, 4]  # type: ignore[attr-defined]
     assert all(r.cores == 4 for r in caplog.records)  # type: ignore[attr-defined]
+    assert told == []  # the libraries are told by the thread that runs the engines (below)
 
 
 def test_each_thread_that_runs_the_engines_applies_the_count_itself() -> None:
-    """PyTorch keeps a thread count per thread, so the clips' thread applies the current one
-    before each step, and only when it changed for that thread."""
+    """PyTorch keeps a thread count per thread, and OpenCV's setter must not be called while
+    another thread is inside OpenCV, so only the clips' thread applies the current count, before
+    each step, and only when it changed for that thread."""
     told: list[tuple[str, int]] = []
     share = CoreShare(total=4, apply=lambda n: told.append((threading.current_thread().name, n)))
     share.apply_here()  # nothing told yet: nothing to apply
@@ -72,15 +74,40 @@ def test_each_thread_that_runs_the_engines_applies_the_count_itself() -> None:
     worker = threading.Thread(target=engines, name="clips-2")
     worker.start()
     worker.join()
-    main = threading.current_thread().name
-    assert told == [(main, 2), ("clips", 2), (main, 4), ("clips-2", 4)]
+    assert told == [("clips", 2), ("clips-2", 4)]
+
+
+def test_the_llm_finishing_does_not_touch_the_libraries_while_a_clip_is_rendered() -> None:
+    """The regression for a review finding: the LLM's request thread used to tell OpenCV its
+    thread count the moment the LLM finished, while the clips' thread could be inside OpenCV."""
+    told: list[tuple[str, int]] = []
+    inside, finished = threading.Event(), threading.Event()
+    share = CoreShare(total=4, apply=lambda n: told.append((threading.current_thread().name, n)))
+    share.llm_writing()
+
+    def engines() -> None:
+        share.apply_here()
+        inside.set()  # inside OpenCV, say
+        finished.wait(5)
+        share.apply_here()  # the next step applies the new count
+
+    worker = threading.Thread(target=engines, name="clips")
+    worker.start()
+    assert inside.wait(5)
+    share.llm_done()  # while the clip is rendered: recorded, not applied
+    assert told == [("clips", 2)] and share.threads == 4
+    finished.set()
+    worker.join(5)
+    assert told == [("clips", 2), ("clips", 4)]
 
 
 def test_one_core_is_never_split() -> None:
     told: list[int] = []
     share = CoreShare(total=1, apply=told.append)
     share.llm_writing()
+    share.apply_here()
     share.llm_done()
+    share.apply_here()
     assert told == [1]
 
 
@@ -89,7 +116,9 @@ def test_the_cores_are_counted_when_not_given() -> None:
         share = CoreShare(apply=lambda n: None)
     assert (share.total, share.shared) == (6, 3)
     with patch("imageskin.cores.set_threads") as fake:  # the libraries are told by default
-        CoreShare(total=2).llm_done()
+        share = CoreShare(total=2)
+        share.llm_done()
+        share.apply_here()
     fake.assert_called_once_with(2)
 
 
