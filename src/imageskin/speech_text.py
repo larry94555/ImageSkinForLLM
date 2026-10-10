@@ -21,6 +21,19 @@ _EMOJI_WORDS = {"❤": "love", "♥": "love"}
 # Inline code of up to this many words is spoken as is, such as `main()`.
 _SHORT_CODE_WORDS = 2
 
+# The Markdown code rules, shared with the sentence splitter (sentences.py) so both agree on
+# where code starts and ends. A code fence is three or more of the same character, ` or ~.
+CODE_FENCE = re.compile(r"^[ \t]*(?P<fence>(?P<c>[`~])(?P=c){2,})", re.M)
+# Inline code ends at the same number of backticks it starts with, so ``a`b`` is one span.
+INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+
+
+def closing_fence(fence: str) -> re.Pattern[str]:
+    """The line that closes a code block opened by `fence`: a fence as long or longer of the
+    same character, alone on its line, so a ```` block can hold ```."""
+    return re.compile(rf"^[ \t]*{re.escape(fence)}{re.escape(fence[0])}*[ \t]*$", re.M)
+
+
 _URL = r"(?:https?://|www\.)\S*[^\s.,!?;:'\")\]]"  # punctuation after it is not part of it
 # Each pattern replaces what it matches with the phrase, or with nothing when there is none.
 # They run in order, and a match that starts inside text an earlier one handled is skipped.
@@ -29,7 +42,7 @@ _REPLACE = (
     # so a ```` block can hold ```; a block that is never closed runs to the end.
     (
         re.compile(
-            r"^[ \t]*(?P<fence>(?P<c>[`~])(?P=c){2,}).*?(?:^[ \t]*(?P=fence)(?P=c)*[ \t]*$|\Z)",
+            CODE_FENCE.pattern + r".*?(?:^[ \t]*(?P=fence)(?P=c)*[ \t]*$|\Z)",
             re.S | re.M,
         ),
         CODE_BLOCK,
@@ -52,8 +65,6 @@ _REPLACE = (
     # Bare URLs; several in a row, as in "a, b and c", are one phrase.
     (re.compile(rf"{_URL}(?:(?:[ \t]*,[ \t]*|[ \t]+)(?:and[ \t]+)?{_URL})*"), LINK),
 )
-# Inline code ends at the same number of backticks it starts with, so ``a`b`` is one span.
-_INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
 _URL_ONLY = re.compile(_URL)
 _PARTS = (
     # A link speaks its text: drop "[" and "](url)".
@@ -121,7 +132,7 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
         for m in pattern.finditer(display):
             drop(m.start(), m.end(), phrase)
     # Short inline code is spoken without its backticks; longer code is replaced by a phrase.
-    for m in _INLINE_CODE.finditer(display):
+    for m in INLINE_CODE.finditer(display):
         if done[m.start()]:
             continue
         if _URL_ONLY.search(m.group(2)):

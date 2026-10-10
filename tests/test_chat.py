@@ -408,6 +408,23 @@ class Stalled:
         raise TimeoutError("timed out")
 
 
+def test_a_stream_cut_off_cleanly_is_an_error_and_not_kept(fake_llm: str) -> None:
+    FakeLlm.answer = (200, b'data: {"choices": [{"delta": {"content": "Hello. I am"}}]}\n\n')
+    client = LlmClient(LlmSettings(url=fake_llm))
+    conversation = Conversation(client.ask, lambda: 4096, stream=client.stream)
+    with pytest.raises(LlmError, match="stopped before finishing its reply"):
+        conversation.send("Hi")
+    assert conversation.turns() == []
+
+
+def test_a_stream_that_says_it_is_finished_needs_no_done_line(fake_llm: str) -> None:
+    finish = {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+    answer = events("Hello.").replace(b"data: [DONE]\n\n", b"")
+    FakeLlm.answer = (200, answer + b"data: " + json.dumps(finish).encode() + b"\n\n")
+    client = LlmClient(LlmSettings(url=fake_llm))
+    assert list(client.stream([])) == ["Hello."]
+
+
 def test_an_llm_that_stops_answering_is_named() -> None:
     client = LlmClient(LlmSettings(url="http://x/v1"))
     with patch("urllib.request.urlopen", return_value=Stalled()):
