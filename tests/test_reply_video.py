@@ -266,6 +266,38 @@ def test_a_join_that_times_out_leaves_nothing_behind(tmp_path: Path) -> None:
     assert list((tmp_path / "replies").iterdir()) == []
 
 
+def test_a_whole_reply_waits_for_a_join_in_progress(tmp_path: Path) -> None:
+    joining, release = threading.Event(), threading.Event()
+    rendered_while_joining: list[bool] = []
+
+    def slow_concat(clips: list[Path], output: Path) -> None:
+        joining.set()
+        release.wait(5)
+        output.write_text("joined")
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        rendered_while_joining.append(joining.is_set() and not release.is_set())
+        output.write_text(text)
+
+    videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"))
+    clips("One.")
+    clips.finish()
+    rendered_while_joining.clear()
+    with patch("imageskin.reply_video.concat", slow_concat):
+        join = threading.Thread(target=videos.join, args=(1, clips))
+        join.start()
+        assert joining.wait(5)
+        whole = threading.Thread(target=videos.render, args=(Path("me.jpg"), 3, "Again."))
+        whole.start()
+        time.sleep(0.2)  # the whole reply is now waiting for the join
+        release.set()
+        join.join(5)
+        whole.join(5)
+    assert rendered_while_joining == [False]
+    assert [p.name for p in (tmp_path / "replies").iterdir()] == ["3.mp4"]
+
+
 def test_files_left_by_a_reply_cut_short_are_removed_at_start(tmp_path: Path) -> None:
     replies = tmp_path / "replies"
     (replies / "rendering-abc").mkdir(parents=True)

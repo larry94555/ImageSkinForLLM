@@ -197,12 +197,15 @@ class ReplyVideos:
                 return None
             path = self.path(turn)
             rendering = path.with_name(f"{turn}.rendering.mp4")
-            try:
-                concat(parts, rendering)
-                os.replace(rendering, path)
-            finally:
-                rendering.unlink(missing_ok=True)
-            self._remove_old(keep=path)
+            # Not while another reply is rendered, which writes and removes files here too. The
+            # clips are waited for first, as their thread holds the lock while it renders.
+            with self._lock:
+                try:
+                    concat(parts, rendering)
+                    os.replace(rendering, path)
+                finally:
+                    rendering.unlink(missing_ok=True)
+                self._remove_old(keep=path)
         except Exception as e:
             logger.error(
                 "Reply video failed",

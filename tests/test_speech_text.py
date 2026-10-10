@@ -137,6 +137,9 @@ def test_horizontal_rules_and_stray_borders_are_not_spoken() -> None:
         ("Bring fruit, etc. Next topic.", "Bring fruit, et cetera. Next topic."),
         ("He is Jr.\nNext line", "He is Junior. Next line"),
         ("Ask Dr. Who.", "Ask Doctor Who."),  # a title never ends the sentence
+        ("Python vs. Java", "Python versus Java"),
+        ("Use e.g. Python, i.e. Django.", "Use for example Python, that is Django."),
+        ("It costs approx. Ten dollars.", "It costs approximately Ten dollars."),
         ("Run `dr.` now.", "Run dr. now."),  # short code is said as written
         ("See [Dr. Smith](https://a.io).", "See Doctor Smith."),
     ],
