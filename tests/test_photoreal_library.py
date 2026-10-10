@@ -18,6 +18,7 @@ from photoreal_fakes import (
 from imageskin.liveportrait_edits import EYE_STAGES
 from imageskin.photoreal_library import (
     CROP,
+    Library,
     Paster,
     align_loop,
     build_library,
@@ -30,9 +31,11 @@ from imageskin.photoreal_library import (
     optical_flow,
     pixel_grid,
     prepare_library,
+    scaled,
     to_gray,
     write_idle_preview,
 )
+from imageskin.prepare_job import photoreal_steps
 from imageskin.video import VideoError
 from imageskin.visemes import SHAPES
 
@@ -121,6 +124,46 @@ def test_prepare_library_builds_once_and_writes_preview(tmp_path: Path, short_lo
     assert frames == 10 and size == (200, 160)
     with pytest.raises(VideoError, match="file not found"):
         prepare_library(tmp_path / "missing.jpg", tmp_path / "home", make)
+
+
+def test_a_library_scaled_down_puts_the_face_in_place(tmp_path: Path, short_loop: object) -> None:
+    build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
+    lib = load_library(tmp_path / "lib")
+    assert scaled(lib, 200) is lib  # already no larger
+    small = scaled(lib, 100)
+    assert small.photo.shape == (80, 100, 3) and small.folder == lib.folder
+    assert small.loop is lib.loop and small.paste_template is lib.paste_template
+    frame = Paster(small)(np.zeros((CROP, CROP, 3), np.uint8))
+    assert frame.shape == (80, 100, 3)
+    assert frame[8 + 32, 18 + 32].max() == 0  # middle of the face, at half the place and size
+    assert np.array_equal(frame[:5], small.photo[:5])  # outside the face: all photo
+    odd = scaled(lib, 75)  # sides stay even, as the video's pixel format needs
+    assert odd.photo.shape == (60, 74, 3)
+
+
+def test_reply_clips_are_rendered_on_a_photo_no_larger_than_the_cap(
+    tmp_path: Path, short_loop: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
+    lib = load_library(tmp_path / "lib")
+    rendered: list[tuple[int, ...]] = []
+
+    class FakeEngine:
+        def __init__(self, home: Path) -> None:
+            pass
+
+        def prepare(self, photo: Path) -> Library:
+            return lib
+
+        def render(self, lib: Library, wav: Path, output: Path) -> None:
+            rendered.append(lib.photo.shape[:2])
+            output.write_bytes(b"mp4")
+
+    monkeypatch.setattr("imageskin.photoreal.PhotorealEngine", FakeEngine)
+    steps = photoreal_steps(tmp_path, None, max_side=100)  # type: ignore[arg-type]  # no voice here
+    steps.render(tmp_path / "me.png", tmp_path / "1.wav", tmp_path / "1.mp4")
+    steps.render(tmp_path / "me.png", tmp_path / "2.wav", tmp_path / "2.mp4")  # the kept one
+    assert rendered == [(80, 100), (80, 100)] and (tmp_path / "2.mp4").exists()
 
 
 def test_paster_puts_the_face_into_the_photo(tmp_path: Path, short_loop: object) -> None:

@@ -23,6 +23,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.cores import CoreShare
 from imageskin.prepare_job import (
+    REPLY_SIDE,
     ClipName,
     ClipSteps,
     PrepareError,
@@ -271,7 +272,7 @@ def create_app(
     )
     # The voice is prepared again for replies after the server restarts (roadmap R17).
     voice_ready = VoiceReady(prepare_voice or voice_step, lambda: job.voice_id())
-    steps = clip_steps or photoreal_steps(data_home, voice_engine, voice)
+    steps = clip_steps or photoreal_steps(data_home, voice_engine, voice, max_side=REPLY_SIDE)
     render = render_clip or steps_clip(steps)
     job = PrepareJob(
         data_home,

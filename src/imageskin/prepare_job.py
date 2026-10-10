@@ -484,7 +484,18 @@ def photoreal_face(home: Path) -> PrepareFace:
     return prepare
 
 
-def photoreal_steps(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_VOICE) -> ClipSteps:
+# The longest side of a reply clip, in pixels (roadmap R22c): the chat page shows it at most
+# 640 pixels wide, and a frame of a 1280-pixel photo took about 6 times longer to paste and
+# encode than a 512-pixel one. The sample video keeps the photo's own size.
+REPLY_SIDE = 720
+
+
+def photoreal_steps(
+    home: Path,
+    voice_engine: VoiceEngine,
+    voice: str = DEFAULT_VOICE,
+    max_side: int | None = None,  # the clip's longest side, when the photo is to be scaled down
+) -> ClipSteps:
     """Speak the text in the voice; render the speech from the photo's photoreal library."""
     # The video engine and the loaded library, made on first use and kept for the next clip.
     kept: dict[str, Any] = {}
@@ -494,11 +505,15 @@ def photoreal_steps(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_
 
     def render(photo: Path, wav: Path, output: Path) -> None:
         from imageskin.photoreal import PhotorealEngine
+        from imageskin.photoreal_library import scaled
 
         if kept.get("photo") != photo:
             video = PhotorealEngine(home)
             # Already rendered by the face step, so this only loads it.
-            kept.update(photo=photo, video=video, lib=video.prepare(photo))
+            lib = video.prepare(photo)
+            if max_side is not None:
+                lib = scaled(lib, max_side)
+            kept.update(photo=photo, video=video, lib=lib)
         kept["video"].render(kept["lib"], wav, output)
 
     return ClipSteps(speak, render)

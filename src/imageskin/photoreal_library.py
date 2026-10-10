@@ -19,7 +19,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -94,6 +94,22 @@ class Library:
     eye_align: NDArray[np.float64]  # like align, for the eyes and brows
     eye_mask: Mask
     eye_window: Window
+
+
+def scaled(lib: Library, max_side: int) -> Library:
+    """The library with its photo no larger than `max_side` on its longest side, for a video
+    that is shown small, such as a reply clip (roadmap R22c). The face is still made at CROP
+    pixels and only put onto a smaller photo, so each frame costs that much less to paste and
+    encode; a library already that small is returned as it is. Nothing on disk changes."""
+    h, w = lib.photo.shape[:2]
+    if max(h, w) <= max_side:
+        return lib
+    factor = max_side / max(h, w)
+    # Even sides, as the video's pixel format needs; the exact factors are taken from them.
+    size = (max(2, int(w * factor / 2) * 2), max(2, int(h * factor / 2) * 2))
+    photo = np.asarray(cv2.resize(lib.photo, size, interpolation=cv2.INTER_AREA), np.uint8)
+    to_photo = lib.crop_to_photo * np.array([[size[0] / w], [size[1] / h]], np.float64)
+    return replace(lib, photo=photo, crop_to_photo=to_photo)
 
 
 def optical_flow(a: NDArray[np.uint8], b: NDArray[np.uint8]) -> NDArray[np.float32]:
@@ -431,7 +447,9 @@ class Paster:
             raise VideoError("the face crop falls outside the photo")
         self.box = (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
         x0, y0, x1, y1 = self.box
-        self.weight = (paste[y0:y1, x0:x1].astype(np.float32) / 255.0)[..., None]
+        # The blend's weights, for the face and for the photo under it, made once.
+        self.weight = np.ascontiguousarray(paste[y0:y1, x0:x1].astype(np.float32) / 255.0)
+        self.under = np.ascontiguousarray(1.0 - self.weight)
         # The crop-to-photo transform, shifted so the crop lands in the box. Only the box is
         # warped and blended, which keeps each frame fast.
         self.to_box = lib.crop_to_photo - np.array([[0, 0, x0], [0, 0, y0]], np.float64)
@@ -441,8 +459,9 @@ class Paster:
         x0, y0, x1, y1 = self.box
         moved = cv2.warpAffine(face, self.to_box, (x1 - x0, y1 - y0))
         out = self.photo.copy()
-        region = out[y0:y1, x0:x1]
-        out[y0:y1, x0:x1] = (region * (1.0 - self.weight) + moved * self.weight).astype(np.uint8)
+        # Blended in 8-bit by OpenCV in one pass: in floating point over the box, as before, the
+        # blend was most of a frame's time (roadmap R22c).
+        out[y0:y1, x0:x1] = cv2.blendLinear(out[y0:y1, x0:x1], moved, self.under, self.weight)
         return out
 
 
