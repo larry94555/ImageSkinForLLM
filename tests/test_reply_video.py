@@ -526,6 +526,17 @@ def test_replies_are_warmed_up_at_start_once_a_sample_is_accepted(tmp_path: Path
     first.close()
 
 
+def test_replies_are_warmed_up_when_the_sample_is_accepted(tmp_path: Path) -> None:
+    """A first-time setup accepts its sample without a restart: the warm-up runs then (a review
+    finding on R22a), so the first prompt is not cold."""
+    rendered: list[str] = []
+    client = video_app(tmp_path, lambda photo, text, output: rendered.append(text))
+    assert rendered == []  # nothing accepted when the app started
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    client.app.state.reply_warm_up.join(5)  # type: ignore[attr-defined]
+    assert rendered == ["Hello."]
+
+
 REPLY_ID = "0123456789abcdef0123456789abcdef"
 
 
@@ -680,6 +691,48 @@ def test_a_newer_prompt_takes_the_clips_of_a_reply_still_being_rendered(tmp_path
         second.join(5)
         assert client.get(f"/api/chat/clips/{'b' * 8}").status_code == 200
     assert not (tmp_path / "replies" / f"clips-{'a' * 8}").exists()
+
+
+def test_a_waiting_clips_request_does_not_answer_with_clips_a_newer_prompt_took(
+    tmp_path: Path,
+) -> None:
+    """The regression for a review finding: a request waiting for the next clip used to answer
+    with it when it was rendered, though a newer prompt had taken the reply's clips meanwhile,
+    so the browser was given a clip whose file was being removed."""
+    rendering, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        if text == "One.":
+            rendering.set()
+            go.wait(5)
+        write_text(photo, text, output)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield "One. Two." if messages[-1]["content"] == "First" else "Hi."
+
+    answers: dict[str, int] = {}
+
+    def post(prompt: str, reply_id: str) -> None:
+        answers[prompt] = client.post(
+            "/api/chat", json={"prompt": prompt, "reply_id": reply_id}
+        ).status_code
+
+    def wait_for_clips() -> None:
+        answers["waiting"] = client.get(f"/api/chat/clips/{'a' * 8}?known=0&wait=10").status_code
+
+    client = video_app(tmp_path, render, stream)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        post("First", "a" * 8)
+        assert rendering.wait(5)
+        waiting = threading.Thread(target=wait_for_clips)
+        waiting.start()  # waits for the first clip, still being rendered
+        second = threading.Thread(target=post, args=("Second", "b" * 8))
+        second.start()
+        time.sleep(0.2)  # the second prompt has taken the first reply's clips
+        go.set()  # the first clip is rendered now, and wakes the waiting request
+        waiting.join(5)
+        second.join(5)
+    assert answers == {"First": 200, "waiting": 404, "Second": 200}
 
 
 def test_the_api_drops_the_clips_of_a_failed_streamed_reply(tmp_path: Path) -> None:

@@ -8,8 +8,10 @@ tokens a second. So while the LLM is busy (writing a reply, or summarizing the c
 after one), the engines use half the cores, and all of them once it has finished. llama-server
 is started with --threads set to the other half (see the README).
 
-PyTorch's thread count is per thread once a thread has used it, so the thread that runs the
-engines applies the count itself (`apply_here`) before each step.
+PyTorch's thread count is per thread once a thread has used it, and OpenCV's setter is not safe
+to call while another thread is inside OpenCV, so an LLM request starting or ending only records
+the count, and the thread that runs the engines applies it itself (`apply_here`) before each
+step, between engine operations.
 """
 
 import logging
@@ -69,9 +71,10 @@ class CoreShare:
         self._local = threading.local()  # what this thread was last told
 
     def _set(self, threads: int) -> None:
+        """Record the count for the engines' thread to apply before its next step: not applied
+        here, since it may be inside the engines right now."""
         if threads != self.threads:
             self.threads = threads
-            self._apply_here(threads)
             logger.info("Engine threads set", extra={"threads": threads, "cores": self.total})
 
     def _apply_here(self, threads: int) -> None:
@@ -81,7 +84,8 @@ class CoreShare:
     def apply_here(self) -> None:
         """Apply the current count on this thread, when it hasn't got it yet. The thread that
         runs the engines calls this before each step, as PyTorch keeps a count per thread."""
-        threads = self.threads
+        with self._lock:
+            threads = self.threads
         if threads is not None and getattr(self._local, "threads", None) != threads:
             self._apply_here(threads)
 
