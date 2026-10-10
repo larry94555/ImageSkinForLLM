@@ -324,9 +324,11 @@ def create_app(
         if body.decision != "accept":
             return asdict(withdraw(data_home, body.decision))
         try:
-            return asdict(accept(data_home, job.status()))
+            review = accept(data_home, job.status())
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
+        start_reply_warm_up()  # the chat opens now: ready the LLM and the engines (R22a)
+        return asdict(review)
 
     llm = llm or LlmSettings()
     logger.info(
@@ -424,6 +426,9 @@ def create_app(
             raise HTTPException(status_code=404, detail="No clips for that reply.")
         if known is not None:
             clips.wait_for_change(known, wait)
+            with clips_lock:
+                if sentence_clips.get(reply_id) is not clips:  # a newer prompt took them meanwhile
+                    raise HTTPException(status_code=404, detail="No clips for that reply.")
         made = [
             {
                 "url": f"/api/chat/clips/{reply_id}/{n}",
@@ -448,23 +453,34 @@ def create_app(
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
         return FileResponse(clips.clips[n - 1], media_type="video/mp4", headers=headers)
 
+    warming_up = threading.Lock()  # held while replies are being warmed up
+
     def warm_up_replies() -> None:
         # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
-        status = job.status()
-        photo = store.path("photos", status.photo_id or "")
-        if photo is not None and load_review(data_home, status).accepted:
-            logger.info("Warming up replies")
-            # On its own thread: an LLM that accepts the request but doesn't answer would
-            # otherwise hold the engines' warm-up back for its whole timeout.
-            llm = threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True)
-            llm.start()
-            replies.warm_up(photo)
-            llm.join()
+        # Run at the start, and again when a sample is accepted.
+        if not warming_up.acquire(blocking=False):
+            return  # under way already
+        try:
+            status = job.status()
+            photo = store.path("photos", status.photo_id or "")
+            if photo is not None and load_review(data_home, status).accepted:
+                logger.info("Warming up replies")
+                # On its own thread: an LLM that accepts the request but doesn't answer would
+                # otherwise hold the engines' warm-up back for its whole timeout.
+                llm = threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True)
+                llm.start()
+                replies.warm_up(photo)
+                llm.join()
+        finally:
+            warming_up.release()
 
-    app.state.reply_warm_up = threading.Thread(
-        target=warm_up_replies, name="reply-warm-up", daemon=True
-    )
-    app.state.reply_warm_up.start()
+    def start_reply_warm_up() -> None:
+        app.state.reply_warm_up = threading.Thread(
+            target=warm_up_replies, name="reply-warm-up", daemon=True
+        )
+        app.state.reply_warm_up.start()
+
+    start_reply_warm_up()
 
     @app.post("/api/chat/video", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:
