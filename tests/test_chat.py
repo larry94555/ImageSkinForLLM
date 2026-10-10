@@ -159,7 +159,8 @@ def test_a_streamed_reply_is_logged_sentence_by_sentence(caplog: pytest.LogCaptu
 
     conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream)
     with caplog.at_level(logging.INFO):
-        assert conversation.send("Hi") == Turn("assistant", "Hi Larry. Dr. Smith says hi! Bye")
+        reply, _ = conversation.send("Hi")
+        assert reply == Turn("assistant", "Hi Larry. Dr. Smith says hi! Bye")
     ready = [r for r in caplog.records if r.message == "Reply sentence ready"]
     assert [(r.sentence, r.chars) for r in ready] == [(1, 9), (2, 18), (3, 3)]  # type: ignore[attr-defined]
     assert "Reply started" in caplog.messages
