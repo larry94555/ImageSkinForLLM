@@ -256,7 +256,9 @@ class PhotorealEngine:
         find_ffmpeg()  # fail now, not after a long setup
         return prepare_library(photo, self._home, self._make_portrait)
 
-    def render(self, lib: Library, wav: Path, output: Path) -> float:
+    def render(self, lib: Library, wav: Path, output: Path, progressive: bool = False) -> float:
+        """Render the speech in `wav` on the library's photo into `output`; `progressive` for an
+        MP4 that can be played while it is written (roadmap R22d). Returns the video's seconds."""
         start = time.perf_counter()
         samples, rate = read_pcm16(wav)
         seconds = len(samples) / rate
@@ -273,7 +275,9 @@ class PhotorealEngine:
                 yield compositor.frame(w, i, eyes[i], moves.at(i)).tobytes()
 
         h, w = lib.photo.shape[:2]
-        write_mp4(frames(), (w, h), wav, output, self._timeout_s, pix_fmt="rgb24")
+        write_mp4(
+            frames(), (w, h), wav, output, self._timeout_s, pix_fmt="rgb24", progressive=progressive
+        )
         elapsed = time.perf_counter() - start
         logger.info(
             "Rendered video",

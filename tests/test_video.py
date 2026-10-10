@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import math
+import shutil
 import wave
 from array import array
 from pathlib import Path
 
 import pytest
 
-from imageskin.video import VideoError, mouth_openness, read_pcm16
+from imageskin.video import VideoError, mouth_openness, read_pcm16, write_mp4
 
 
 def tone(seconds: float, amplitude: int, rate: int = 24000) -> array[int]:
@@ -73,3 +74,59 @@ def test_mouth_eases_open_over_several_frames() -> None:
     between = [o for o in openness[15:35] if 0.05 < o < 0.95]
     assert len(between) >= 3  # not a jump from closed to open
     assert openness == sorted(openness)  # and it never shuts again on the way up
+
+
+def ffmpeg_cmd(monkeypatch: pytest.MonkeyPatch, output: Path, **kwargs: object) -> list[str]:
+    """The ffmpeg command write_mp4 runs for two frames, without running it."""
+    import subprocess
+
+    cmds: list[list[str]] = []
+
+    class Done:
+        stdin = __import__("io").BytesIO()
+        returncode = 0
+
+        def communicate(self, timeout: float | None = None) -> tuple[bytes, bytes]:
+            return b"", b""
+
+    def popen(cmd: list[str], **_: object) -> Done:
+        cmds.append(cmd)
+        return Done()
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr("imageskin.video.find_ffmpeg", lambda: "ffmpeg")
+    write_mp4([b"\0" * 12] * 2, (2, 2), None, output, 10, **kwargs)  # type: ignore[arg-type]
+    return cmds[0]
+
+
+def test_an_mp4_is_written_whole_with_its_index_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cmd = ffmpeg_cmd(monkeypatch, tmp_path / "a.mp4")
+    assert cmd[cmd.index("-movflags") + 1] == "+faststart"
+    assert "-frag_duration" not in cmd and "zerolatency" not in cmd
+
+
+def test_a_progressive_mp4_is_fragmented_and_flushed_as_it_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cmd = ffmpeg_cmd(monkeypatch, tmp_path / "a.mp4", progressive=True)
+    assert cmd[cmd.index("-movflags") + 1] == "frag_keyframe+empty_moov+default_base_moof"
+    assert cmd[cmd.index("-frag_duration") + 1] == "500000"
+    assert cmd[cmd.index("-flush_packets") + 1] == "1"
+    assert cmd[cmd.index("-tune") + 1] == "zerolatency"
+    assert "+faststart" not in cmd
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_a_progressive_mp4_can_be_played_from_its_start(tmp_path: Path) -> None:
+    # A whole MP4 keeps its index (moov) at the front and one mdat; a progressive one has an
+    # empty moov then a movie fragment (moof) per half second, each playable as it lands.
+    frames = [bytes([i, 0, 0]) * 16 * 16 for i in range(0, 250, 5)]  # 2 s of a changing frame
+    whole, progressive = tmp_path / "whole.mp4", tmp_path / "progressive.mp4"
+    write_mp4(frames, (16, 16), None, whole, 30)
+    write_mp4(frames, (16, 16), None, progressive, 30, progressive=True)
+    assert whole.read_bytes().count(b"moof") == 0
+    data = progressive.read_bytes()
+    assert data.index(b"moov") < data.index(b"moof") < data.index(b"mdat")
+    assert data.count(b"moof") >= 3  # 2 s in fragments of at most half a second

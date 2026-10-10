@@ -232,17 +232,22 @@ def test_waiting_for_a_change_ends_with_the_next_clip_or_the_end(tmp_path: Path)
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
     clips("One.")
     start = time.perf_counter()
-    clips.wait_for_change(known=0, timeout=0.2)  # nothing yet: waits the whole time
-    assert 0.2 <= time.perf_counter() - start < 2 and clips.clips == []
+    clips.wait_for_change(known=0, timeout=5)  # listed as soon as it is being written (R22d)
+    assert time.perf_counter() - start < 2 and len(clips.clips) == 1 and clips.rendered == 0
 
+    start = time.perf_counter()
+    clips.wait_for_change(known=1, timeout=0.2)  # nothing more yet: waits the whole time
+    assert 0.2 <= time.perf_counter() - start < 2 and len(clips.clips) == 1
+
+    clips("Two.")
     threading.Timer(0.2, go.set).start()
     start = time.perf_counter()
-    clips.wait_for_change(known=0, timeout=5)  # the clip comes 0.2 s in
-    assert time.perf_counter() - start < 2 and len(clips.clips) == 1
+    clips.wait_for_change(known=1, timeout=5)  # the second comes once the first is whole
+    assert time.perf_counter() - start < 2 and len(clips.clips) == 2 and clips.rendered >= 1
 
     clips.close()
-    clips.wait_for_change(known=1, timeout=5)  # done, with no more clips
-    assert clips.done
+    clips.wait_for_change(known=2, timeout=5)  # done, with no more clips
+    assert clips.done and clips.rendered == 2
     clips.wait_for_change(known=5, timeout=5)  # returns at once when done
 
 
@@ -254,8 +259,66 @@ def test_waiting_for_a_change_ends_when_a_clip_fails(tmp_path: Path) -> None:
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
     clips("One.")
     start = time.perf_counter()
-    clips.wait_for_change(known=0, timeout=5)
+    clips.wait_for_change(known=0, timeout=5)  # the clip is listed while it is written...
+    clips.wait_for_change(known=1, timeout=5)  # ...and gone once it has failed
     assert time.perf_counter() - start < 2 and clips.error == "ffmpeg is not installed"
+    assert clips.clips == [] and clips.times == [] and clips.rendered == 0
+
+
+def test_a_clip_is_listed_while_it_is_written_and_followed_as_it_grows(tmp_path: Path) -> None:
+    half_written = threading.Event()
+    go = threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        output.write_bytes(b"first half ")
+        half_written.set()
+        go.wait(5)
+        with output.open("ab") as f:
+            f.write(b"second half")
+
+    videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips.close()
+    assert half_written.wait(5)
+    assert len(clips.clips) == 1 and clips.rendered == 0
+    before, after = time.perf_counter(), clips.times[0].ready_at
+    assert clips.times[0].sentence_at <= after <= before  # playable: when writing began
+
+    chunks: list[bytes] = []
+    follower = clips.follow(1, every=0.01)
+    chunks.append(next(follower))  # what there is so far, before the clip is whole
+    assert chunks == [b"first half "]
+    threading.Timer(0.1, go.set).start()
+    chunks.extend(follower)  # the rest as it is written, then the stream ends
+    assert b"".join(chunks) == b"first half second half"
+    clips.wait(5)
+    assert clips.rendered == 1 and clips.done
+    assert list(clips.follow(1, every=0.01)) == [b"first half second half"]  # whole: at once
+
+
+def test_following_a_clip_that_fails_ends_with_what_there_was(tmp_path: Path) -> None:
+    some_written = threading.Event()
+    go = threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        output.write_bytes(b"some")
+        some_written.set()
+        go.wait(5)
+        raise VideoError("ffmpeg stopped")
+
+    videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips.close()
+    assert some_written.wait(5)
+    follower = clips.follow(1, every=0.01)
+    assert next(follower) == b"some"
+    go.set()
+    assert list(follower) == []  # dropped: the stream ends
+    clips.wait(5)
+    assert clips.error == "ffmpeg stopped" and clips.clips == []
+    assert not (tmp_path / "clips-abc123ef" / "1.mp4").exists()
 
 
 def test_a_reply_with_no_sentences_is_done_at_once(tmp_path: Path) -> None:
@@ -580,21 +643,58 @@ def test_the_api_answers_as_soon_as_there_is_a_new_clip(tmp_path: Path) -> None:
     clips_api = f"/api/chat/clips/{REPLY_ID}"
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
-        # Nothing rendered yet: a short wait ends with nothing new.
+        # The first clip is listed as soon as it is being written (R22d), so the answer
+        # comes at once; its second is not yet, so a short wait for it ends with nothing new.
         start = time.perf_counter()
-        none_yet = client.get(f"{clips_api}?known=0&wait=0.2").json()
-        assert 0.2 <= time.perf_counter() - start < 2 and none_yet["clips"] == []
+        first = client.get(f"{clips_api}?known=0&wait=5").json()
+        assert time.perf_counter() - start < 2 and len(first["clips"]) == 1
+        start = time.perf_counter()
+        none_yet = client.get(f"{clips_api}?known=1&wait=0.2").json()
+        assert 0.2 <= time.perf_counter() - start < 2 and len(none_yet["clips"]) == 1
         assert none_yet["done"] is False
-        # Asked to wait for the first clip, the answer comes when it is ready, not later.
+        # Asked to wait for the second clip, the answer comes when it is listed, not later.
         threading.Timer(0.2, go.set).start()
         start = time.perf_counter()
-        first = client.get(f"{clips_api}?known=0&wait=10").json()
-        assert time.perf_counter() - start < 2 and len(first["clips"]) >= 1
+        second = client.get(f"{clips_api}?known=1&wait=10").json()
+        assert time.perf_counter() - start < 2 and len(second["clips"]) == 2
         # Waits longer than allowed, or a count below zero, are refused.
         assert client.get(f"{clips_api}?known=0&wait=60").status_code == 422
         assert client.get(f"{clips_api}?known=-1").status_code == 422
         # Without `known`, the answer comes at once, as before.
         assert client.get(clips_api).status_code == 200
+
+
+def test_the_api_streams_a_clip_while_it_is_still_being_written(tmp_path: Path) -> None:
+    half_written = threading.Event()
+    go = threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        output.write_bytes(b"first half ")
+        half_written.set()
+        go.wait(5)
+        with output.open("ab") as f:
+            f.write(b"second half")
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield "One."
+
+    client = video_app(tmp_path, render, stream)
+    clips_api = f"/api/chat/clips/{REPLY_ID}"
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        assert half_written.wait(5)
+        assert len(client.get(clips_api).json()["clips"]) == 1
+        threading.Timer(0.3, go.set).start()
+        start = time.perf_counter()
+        with client.stream("GET", f"{clips_api}/1") as r:
+            assert r.status_code == 200 and r.headers["content-type"] == "video/mp4"
+            assert "content-length" not in r.headers  # as much as there is, then the rest
+            body = b"".join(r.iter_bytes())  # (the test client gathers the chunks)
+        assert body == b"first half second half"  # the rest followed once it was written
+        assert 0.3 <= time.perf_counter() - start < 2
+        # Whole, the clip is served as a file, with its length.
+        whole = client.get(f"{clips_api}/1")
+        assert whole.content == b"first half second half" and "content-length" in whole.headers
 
 
 def test_the_engines_leave_the_llm_half_the_cores_while_it_writes(

@@ -495,6 +495,7 @@ def photoreal_steps(
     voice_engine: VoiceEngine,
     voice: str = DEFAULT_VOICE,
     max_side: int | None = None,  # the clip's longest side, when the photo is to be scaled down
+    progressive: bool = False,  # an MP4 that can be played while it is written (roadmap R22d)
 ) -> ClipSteps:
     """Speak the text in the voice; render the speech from the photo's photoreal library."""
     # The video engine and the loaded library, made on first use and kept for the next clip.
@@ -514,7 +515,7 @@ def photoreal_steps(
             if max_side is not None:
                 lib = scaled(lib, max_side)
             kept.update(photo=photo, video=video, lib=lib)
-        kept["video"].render(kept["lib"], wav, output)
+        kept["video"].render(kept["lib"], wav, output, progressive=progressive)
 
     return ClipSteps(speak, render)
 
