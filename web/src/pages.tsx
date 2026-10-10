@@ -26,6 +26,7 @@ import {
   type Review,
   review,
   sendPrompt,
+  speakReply,
   startPrepare,
   type Turn,
   type Upload,
@@ -741,12 +742,16 @@ export function ChatPage() {
   );
 }
 
-// Text chat with the LLM (roadmap R15). Replies are text only for now; the person speaks them
-// from R17.
+// Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
+// photo (roadmap R17); if that fails, the reply stays as text with a short note.
 function Chat() {
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [video, setVideo] = useState<string | null>(null);
+  // Why the latest reply could not be spoken, by its place in the conversation.
+  const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
 
@@ -759,13 +764,15 @@ function Chat() {
         setFailed("Could not load the conversation. Reload the page to try again.");
       });
   }, []);
-  useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending]);
+  useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending, speaking]);
 
   async function send() {
     const text = prompt.trim();
-    if (!text || sending) return;
+    if (!text || sending || speaking) return;
+    const turn = (turns ?? []).length + 1; // the reply's place, after the prompt
     setSending(true);
     setFailed(null);
+    setUnspoken(null);
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
     setPrompt("");
     try {
@@ -777,24 +784,44 @@ function Chat() {
       setTurns((t) => (t ?? []).slice(0, -1));
       setPrompt(text);
       setFailed(e instanceof Error ? e.message : String(e));
+      return;
     } finally {
       setSending(false);
+    }
+    setSpeaking(true);
+    try {
+      const url = await speakReply(turn);
+      // A new address each time, so the same reply number after a restart plays afresh.
+      setVideo(url && `${url}?t=${Date.now()}`);
+    } catch (e) {
+      console.error("Could not speak the reply", e);
+      setVideo(null);
+      setUnspoken({ turn, why: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSpeaking(false);
     }
   }
 
   if (turns === null) return <p className="muted busy">Loading…</p>;
   return (
     <div className="chat">
+      {video && <video className="reply-video" src={video} autoPlay controls playsInline />}
       {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
       <ol className="turns">
         {turns.map((turn, i) => (
           <li key={i} className={turn.role}>
             <span className="who">{turn.role === "user" ? "You" : "Reply"}</span>
             {turn.content}
+            {unspoken?.turn === i && (
+              <span className="note">
+                I couldn&apos;t say this one aloud, so here it is as text. {unspoken.why}
+              </span>
+            )}
           </li>
         ))}
       </ol>
       {sending && <p className="muted busy">Thinking…</p>}
+      {speaking && <p className="muted busy">Getting ready to say it…</p>}
       {failed && <p className="error">{failed}</p>}
       <form
         onSubmit={(e) => {
@@ -817,7 +844,7 @@ function Chat() {
             }}
           />
         </label>
-        <button type="submit" disabled={sending || !prompt.trim()}>
+        <button type="submit" disabled={sending || speaking || !prompt.trim()}>
           Send
         </button>
       </form>

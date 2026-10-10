@@ -1100,15 +1100,20 @@ test("a choice that can't be saved says why", async () => {
 
 // --- Chat (R15) ---
 
-// A fake server with the sample accepted, the conversation `turns`, and POST /api/chat
-// answering with `answer`.
-function chatServer(turns: Turn[], answer: () => Response) {
+// A fake server with the sample accepted, the conversation `turns`, POST /api/chat answering
+// with `answer` and POST /api/chat/video with `speak` (R17; by default nothing to say aloud).
+function chatServer(
+  turns: Turn[],
+  answer: () => Response,
+  speak: () => Response = () => Response.json({ video: null }),
+) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
     if (url === "/api/review") return Response.json({ accepted: true, accepted_at: null });
     if (url === "/api/chat") {
       return init?.method === "POST" ? answer() : Response.json({ turns });
     }
+    if (url === "/api/chat/video") return speak();
     return Response.json([]);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -1188,6 +1193,69 @@ test("when the LLM fails, the message says so and the prompt goes back in the bo
   expect(await screen.findByText(/Is llama-server running\?/)).toBeTruthy();
   expect(promptBox().value).toBe("Hello?");
   expect(screen.queryByText("Hello?", { selector: "li" })).toBeNull();
+});
+
+// --- Spoken video replies (R17) ---
+
+test("the person speaks each reply in a video", async () => {
+  let spoken: (r: Response) => void = () => {};
+  const fetchMock = chatServer(
+    [
+      { role: "user", content: "Hi" },
+      { role: "assistant", content: "Hello!" },
+    ],
+    () => Response.json({ role: "assistant", content: "I'm well, thanks." }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Hello!");
+  expect(document.querySelector("video")).toBeNull();
+  fetchMock.mockImplementationOnce(async () =>
+    Response.json({ role: "assistant", content: "I'm well, thanks." }),
+  );
+  fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (spoken = resolve)));
+  fireEvent.input(promptBox(), { target: { value: "How are you?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  expect(await screen.findByText("I'm well, thanks.")).toBeTruthy();
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "/api/chat/video",
+    expect.objectContaining({ method: "POST", body: JSON.stringify({ turn: 3 }) }),
+  );
+  await act(async () => {
+    spoken(Response.json({ video: "/api/chat/videos/3" }));
+  });
+  const video = await waitFor(() => {
+    const found = document.querySelector("video.reply-video") as HTMLVideoElement | null;
+    expect(found).not.toBeNull();
+    return found!;
+  });
+  expect(video.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/3\?t=\d+$/);
+  expect(video.autoplay).toBe(true);
+  expect(screen.queryByText("Getting ready to say it…")).toBeNull();
+});
+
+test("when the voice or video fails, the reply stays as text with a note", async () => {
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "Hi there." }),
+    () => Response.json({ detail: "ffmpeg is not installed" }, { status: 502 }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  const note = await screen.findByText(/I couldn.t say this one aloud/);
+  expect(note.textContent).toContain("ffmpeg is not installed");
+  expect(note.closest("li")?.textContent).toContain("Hi there.");
+  expect(document.querySelector("video")).toBeNull();
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.input(promptBox(), { target: { value: "Again" } });
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
 test("if the conversation can't be loaded, the chat says so", async () => {

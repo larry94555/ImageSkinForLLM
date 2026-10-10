@@ -227,3 +227,16 @@ export async function sendPrompt(prompt: string): Promise<Turn> {
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Turn;
 }
+
+// Speaks a reply in the person's voice on their photo (roadmap R17); turn is its place in the
+// conversation. Returns the video's address, or null when the reply has nothing to say aloud.
+// Throws an Error saying why when the voice or the video fails.
+export async function speakReply(turn: number): Promise<string | null> {
+  const response = await fetch("/api/chat/video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ turn }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return ((await response.json()) as { video: string | null }).video;
+}

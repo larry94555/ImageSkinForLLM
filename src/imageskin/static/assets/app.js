@@ -109,6 +109,15 @@ async function sendPrompt(prompt) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function speakReply(turn) {
+	const response = await fetch("/api/chat/video", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ turn })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return (await response.json()).video;
+}
 //#endregion
 //#region src/pages.tsx
 function HomePage({ consented }) {
@@ -814,6 +823,9 @@ function Chat() {
 	const [turns, setTurns] = d(null);
 	const [prompt, setPrompt] = d("");
 	const [sending, setSending] = d(false);
+	const [speaking, setSpeaking] = d(false);
+	const [video, setVideo] = d(null);
+	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
 	const end = A(null);
 	h(() => {
@@ -823,12 +835,18 @@ function Chat() {
 			setFailed("Could not load the conversation. Reload the page to try again.");
 		});
 	}, []);
-	h(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending]);
+	h(() => end.current?.scrollIntoView?.({ block: "end" }), [
+		turns,
+		sending,
+		speaking
+	]);
 	async function send() {
 		const text = prompt.trim();
-		if (!text || sending) return;
+		if (!text || sending || speaking) return;
+		const turn = (turns ?? []).length + 1;
 		setSending(true);
 		setFailed(null);
+		setUnspoken(null);
 		setTurns((t) => [...t ?? [], {
 			role: "user",
 			content: text
@@ -842,8 +860,23 @@ function Chat() {
 			setTurns((t) => (t ?? []).slice(0, -1));
 			setPrompt(text);
 			setFailed(e instanceof Error ? e.message : String(e));
+			return;
 		} finally {
 			setSending(false);
+		}
+		setSpeaking(true);
+		try {
+			const url = await speakReply(turn);
+			setVideo(url && `${url}?t=${Date.now()}`);
+		} catch (e) {
+			console.error("Could not speak the reply", e);
+			setVideo(null);
+			setUnspoken({
+				turn,
+				why: e instanceof Error ? e.message : String(e)
+			});
+		} finally {
+			setSpeaking(false);
 		}
 	}
 	if (turns === null) return /* @__PURE__ */ u("p", {
@@ -853,6 +886,13 @@ function Chat() {
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [
+			video && /* @__PURE__ */ u("video", {
+				className: "reply-video",
+				src: video,
+				autoPlay: true,
+				controls: true,
+				playsInline: true
+			}),
 			turns.length === 0 && /* @__PURE__ */ u("p", {
 				className: "muted",
 				children: "Say hello to start the conversation."
@@ -861,15 +901,26 @@ function Chat() {
 				className: "turns",
 				children: turns.map((turn, i) => /* @__PURE__ */ u("li", {
 					className: turn.role,
-					children: [/* @__PURE__ */ u("span", {
-						className: "who",
-						children: turn.role === "user" ? "You" : "Reply"
-					}), turn.content]
+					children: [
+						/* @__PURE__ */ u("span", {
+							className: "who",
+							children: turn.role === "user" ? "You" : "Reply"
+						}),
+						turn.content,
+						unspoken?.turn === i && /* @__PURE__ */ u("span", {
+							className: "note",
+							children: ["I couldn't say this one aloud, so here it is as text. ", unspoken.why]
+						})
+					]
 				}, i))
 			}),
 			sending && /* @__PURE__ */ u("p", {
 				className: "muted busy",
 				children: "Thinking…"
+			}),
+			speaking && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Getting ready to say it…"
 			}),
 			failed && /* @__PURE__ */ u("p", {
 				className: "error",
@@ -895,7 +946,7 @@ function Chat() {
 					})]
 				}), /* @__PURE__ */ u("button", {
 					type: "submit",
-					disabled: sending || !prompt.trim(),
+					disabled: sending || speaking || !prompt.trim(),
 					children: "Send"
 				})]
 			}),
