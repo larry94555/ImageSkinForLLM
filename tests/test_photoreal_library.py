@@ -155,15 +155,15 @@ def test_reply_clips_are_rendered_on_a_photo_no_larger_than_the_cap(
         def prepare(self, photo: Path) -> Library:
             return lib
 
-        def render(self, lib: Library, wav: Path, output: Path) -> None:
-            rendered.append(lib.photo.shape[:2])
+        def render(self, lib: Library, wav: Path, output: Path, progressive: bool) -> None:
+            rendered.append((*lib.photo.shape[:2], progressive))
             output.write_bytes(b"mp4")
 
     monkeypatch.setattr("imageskin.photoreal.PhotorealEngine", FakeEngine)
-    steps = photoreal_steps(tmp_path, None, max_side=100)  # type: ignore[arg-type]  # no voice here
+    steps = photoreal_steps(tmp_path, None, max_side=100, progressive=True)  # type: ignore[arg-type]
     steps.render(tmp_path / "me.png", tmp_path / "1.wav", tmp_path / "1.mp4")
     steps.render(tmp_path / "me.png", tmp_path / "2.wav", tmp_path / "2.mp4")  # the kept one
-    assert rendered == [(80, 100), (80, 100)] and (tmp_path / "2.mp4").exists()
+    assert rendered == [(80, 100, True), (80, 100, True)] and (tmp_path / "2.mp4").exists()
 
 
 def test_paster_puts_the_face_into_the_photo(tmp_path: Path, short_loop: object) -> None:

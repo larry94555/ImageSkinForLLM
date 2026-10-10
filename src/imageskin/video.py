@@ -63,6 +63,9 @@ def find_ffmpeg() -> str:
     return ffmpeg
 
 
+PROGRESSIVE_FRAGMENT_US = 500_000  # a progressive MP4's fragments, in microseconds
+
+
 def write_mp4(
     frames: Iterable[bytes],
     size: tuple[int, int],
@@ -70,9 +73,13 @@ def write_mp4(
     output: Path,
     timeout_s: float,
     pix_fmt: str = "bgr24",
+    progressive: bool = False,
 ) -> None:
     """Pipe raw frames (width x height, `pix_fmt`) to ffmpeg, which adds the WAV as AAC
-    (when given) and writes an H.264 MP4 at FPS frames per second."""
+    (when given) and writes an H.264 MP4 at FPS frames per second. A `progressive` MP4 is
+    fragmented and written as the frames come, half a second at a time, so a browser can play
+    it while it is still being written (roadmap R22d); the others are written whole, with the
+    index first."""
     width, height = size
     cmd = [find_ffmpeg(), "-nostdin", "-y", "-v", "error"]
     cmd += ["-f", "rawvideo", "-pix_fmt", pix_fmt, "-s", f"{width}x{height}"]
@@ -80,7 +87,12 @@ def write_mp4(
     if wav is not None:
         cmd += ["-i", str(wav), "-c:a", "aac", "-shortest"]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
-    cmd += ["-movflags", "+faststart", str(output)]
+    if progressive:
+        # No look-ahead in the encoder, so each fragment is out as soon as its frames are in.
+        cmd += ["-tune", "zerolatency", "-movflags", "frag_keyframe+empty_moov+default_base_moof"]
+        cmd += ["-frag_duration", str(PROGRESSIVE_FRAGMENT_US), "-flush_packets", "1", str(output)]
+    else:
+        cmd += ["-movflags", "+faststart", str(output)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     assert proc.stdin is not None
     try:
