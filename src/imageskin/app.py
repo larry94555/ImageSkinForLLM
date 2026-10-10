@@ -470,32 +470,34 @@ def create_app(
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
         return FileResponse(clips.clips[n - 1], media_type="video/mp4", headers=headers)
 
-    warming_up = threading.Lock()  # held while replies are being warmed up
-
     def warm_up_replies() -> None:
         # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
         # Run at the start, and again when a sample is accepted.
-        if not warming_up.acquire(blocking=False):
-            return  # under way already
-        try:
-            status = job.status()
-            photo = store.path("photos", status.photo_id or "")
-            if photo is not None and load_review(data_home, status).accepted:
-                logger.info("Warming up replies")
-                # On its own thread: an LLM that accepts the request but doesn't answer would
-                # otherwise hold the engines' warm-up back for its whole timeout.
-                llm = threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True)
-                llm.start()
-                replies.warm_up(photo)
-                llm.join()
-        finally:
-            warming_up.release()
+        status = job.status()
+        photo = store.path("photos", status.photo_id or "")
+        if photo is not None and load_review(data_home, status).accepted:
+            logger.info("Warming up replies")
+            # On its own thread: an LLM that accepts the request but doesn't answer would
+            # otherwise hold the engines' warm-up back for its whole timeout.
+            llm = threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True)
+            llm.start()
+            replies.warm_up(photo)
+            llm.join()
+
+    warm_up_lock = threading.Lock()  # guards app.state.reply_warm_up, the warm-up's thread
 
     def start_reply_warm_up() -> None:
-        app.state.reply_warm_up = threading.Thread(
-            target=warm_up_replies, name="reply-warm-up", daemon=True
-        )
-        app.state.reply_warm_up.start()
+        """Warm up replies on a thread of their own, unless a warm-up is still under way: that
+        one is kept as the thread prompts wait for, so a second accept (or a reject and an
+        accept again) while it runs doesn't put a thread that does nothing in its place."""
+        with warm_up_lock:
+            current = getattr(app.state, "reply_warm_up", None)
+            if current is not None and current.is_alive():
+                return
+            app.state.reply_warm_up = threading.Thread(
+                target=warm_up_replies, name="reply-warm-up", daemon=True
+            )
+            app.state.reply_warm_up.start()
 
     start_reply_warm_up()
 

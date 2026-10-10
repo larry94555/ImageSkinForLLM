@@ -496,6 +496,9 @@ def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) 
     assert order == []
     assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
     assert warming.wait(5)  # the warm-up is under way when the prompt comes
+    # Accepting again meanwhile keeps the warm-up that is running as the one prompts wait
+    # for, rather than starting another that would do nothing (a review finding).
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
     answers: list[int] = []
     prompt = threading.Thread(
         target=lambda: answers.append(client.post("/api/chat", json={"prompt": "Hi"}).status_code)
@@ -508,7 +511,7 @@ def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) 
     finish.set()
     prompt.join(5)
     assert answers == [200]
-    assert order == ["rendered Hello.", "LLM warmed up", "asked"]
+    assert order == ["rendered Hello.", "LLM warmed up", "asked"]  # and warmed up once
 
 
 REPLY_ID = "0123456789abcdef0123456789abcdef"
