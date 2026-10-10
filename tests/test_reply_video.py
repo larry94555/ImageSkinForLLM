@@ -818,18 +818,19 @@ def test_a_waiting_clips_request_does_not_answer_with_clips_a_newer_prompt_took(
         ).status_code
 
     def wait_for_clips() -> None:
-        answers["waiting"] = client.get(f"/api/chat/clips/{'a' * 8}?known=0&wait=10").status_code
+        # The first clip is listed while it is written (R22d): wait for the second, or the end.
+        answers["waiting"] = client.get(f"/api/chat/clips/{'a' * 8}?known=1&wait=10").status_code
 
     client = video_app(tmp_path, render, stream)
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         post("First", "a" * 8)
         assert rendering.wait(5)
         waiting = threading.Thread(target=wait_for_clips)
-        waiting.start()  # waits for the first clip, still being rendered
+        waiting.start()  # waits while the first clip is still being rendered
         second = threading.Thread(target=post, args=("Second", "b" * 8))
         second.start()
         time.sleep(0.2)  # the second prompt has taken the first reply's clips
-        go.set()  # the first clip is rendered now, and wakes the waiting request
+        go.set()  # the first clip is rendered now; the reply ends, and wakes the waiting request
         waiting.join(5)
         second.join(5)
     assert answers == {"First": 200, "waiting": 404, "Second": 200}
