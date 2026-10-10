@@ -12,7 +12,6 @@ slow, so nothing was gained.
 import logging
 import os
 import queue
-import shutil
 import tempfile
 import threading
 import time
@@ -158,7 +157,7 @@ class SentenceClips:
         self._cancelled = True
         self.close()
         self.wait()
-        shutil.rmtree(self.folder, ignore_errors=True)
+        self._videos.remove_clips(self.folder)
 
     def _stopped(self) -> bool:
         return self._error is not None or self._cancelled
@@ -233,9 +232,14 @@ class SentenceClips:
     def _render(self, spoken: Spoken) -> None:
         """Render the spoken sentence's clip, and remove the speech once it is in."""
         path = self.folder / f"{len(self.clips) + 1}.mp4"
-        self._videos._steps.render(self._photo, spoken.wav, path)
-        spoken.wav.unlink(missing_ok=True)
-        spoken.wav.with_suffix(".json").unlink(missing_ok=True)
+        try:
+            self._videos._steps.render(self._photo, spoken.wav, path)
+        except Exception:
+            path.unlink(missing_ok=True)  # a clip cut short is never left behind
+            raise
+        finally:
+            spoken.wav.unlink(missing_ok=True)
+            spoken.wav.with_suffix(".json").unlink(missing_ok=True)
         with self._changed:
             self.times.append(ClipTime(spoken.sentence_at, time.perf_counter()))
             self.clips.append(path)
@@ -259,7 +263,7 @@ class ReplyVideos:
         self._before_engines = before_engines or (lambda: None)
         # Left by a reply cut short when the server last stopped.
         for old in self.folder.glob("clips-*"):
-            shutil.rmtree(old, ignore_errors=True)
+            self.remove_clips(old)
         for old in self.folder.glob("*.rendering.mp4"):
             old.unlink(missing_ok=True)
         self._render_clip = render_clip
@@ -291,7 +295,37 @@ class ReplyVideos:
 
     def sentence_clips(self, photo: Path, reply_id: str) -> SentenceClips:
         """Render a streamed reply sentence by sentence into <folder>/clips-<reply_id>."""
-        return SentenceClips(self, photo, reply_id)
+        clips = SentenceClips(self, photo, reply_id)
+        # Clips of an earlier reply that could not be removed are removed with this one.
+        for old in self.folder.glob("clips-*"):
+            if old != clips.folder:
+                self.remove_clips(old)
+        return clips
+
+    def remove_clips(self, folder: Path) -> None:
+        """Remove a reply's clips and their folder. A clip that can't be removed (as on Windows
+        while the browser still has it open) is logged and left for the next reply to remove,
+        like an old reply video."""
+        left = 0
+        for clip in folder.glob("*"):
+            try:
+                clip.unlink()
+            except OSError as e:
+                left += 1
+                logger.warning(
+                    "Could not remove a reply's clip",
+                    extra={"clip": f"{folder.name}/{clip.name}", "error": str(e)},
+                )
+        if not left:
+            try:
+                folder.rmdir()
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                logger.warning(
+                    "Could not remove a reply's clips",
+                    extra={"clips": folder.name, "error": str(e)},
+                )
 
     def path(self, turn: int) -> Path:
         return self.folder / f"{turn}.mp4"

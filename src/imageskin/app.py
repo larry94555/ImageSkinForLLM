@@ -382,12 +382,15 @@ def create_app(
         return store.path("photos", job.status().photo_id or "")
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
-    def post_chat(body: ChatRequest) -> dict[str, str | int]:
-        """The reply, with its place in the conversation to ask for its video by."""
+    def post_chat(body: ChatRequest) -> dict[str, str | int | bool]:
+        """The reply, with its place in the conversation to ask for its video by, and whether it
+        was streamed: then its clips are made sentence by sentence (roadmap R22) and the
+        browser follows those, even once a newer prompt has taken them, rather than asking for
+        the whole video."""
         with chat_lock, core_share.llm():
             return chat(body)
 
-    def chat(body: ChatRequest) -> dict[str, str | int]:
+    def chat(body: ChatRequest) -> dict[str, str | int | bool]:
         with clips_lock:
             unasked = list(sentence_clips.values())  # only the latest reply is played
             sentence_clips.clear()
@@ -413,7 +416,8 @@ def create_app(
             if not clips.sentences:  # not streamed: the browser asks for the whole video
                 with clips_lock:
                     sentence_clips.pop(body.reply_id or "", None)
-        return {**asdict(reply), "turn": turn}
+        streamed = clips is not None and clips.sentences > 0
+        return {**asdict(reply), "turn": turn, "streamed": streamed}
 
     @app.get("/api/chat/clips/{reply_id}", dependencies=needs_consent)
     def get_clips(
