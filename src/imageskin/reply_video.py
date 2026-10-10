@@ -25,17 +25,19 @@ class VoiceReady:
     def __init__(self, prepare: PrepareVoice, voice_id: Callable[[], str | None]) -> None:
         self._prepare = prepare
         self._voice_id = voice_id
-        self._ready: str | None = None  # the voice prepared in this run of the server
+        # The voice prepared in this run of the server, in a tuple so that a voice with no id
+        # (None) still counts as prepared.
+        self._ready: tuple[str | None] | None = None
 
     def __call__(self) -> None:
         """Prepare the voice (the prepare job's voice step)."""
         voice = self._voice_id()
         self._prepare()
-        self._ready = voice
+        self._ready = (voice,)
 
     def ensure(self) -> None:
         """Prepare the voice unless it is ready already."""
-        if self._ready is None or self._ready != self._voice_id():
+        if self._ready != (self._voice_id(),):
             start = time.perf_counter()
             self()
             logger.info(
