@@ -39,7 +39,9 @@ _SHORT_FORMS = {
 _SHORT_FORM = re.compile(
     r"(?<![\w.])(" + "|".join(re.escape(k) for k in _SHORT_FORMS) + r")\.(?![\w.])", re.I
 )
-_TITLES = {"dr", "mr", "mrs", "prof"}  # come before a name, so they don't end a sentence
+# These go on to more of the sentence, often a name ("Dr. Smith", "Python vs. Java"), so a capital
+# after them doesn't end it.
+_GO_ON = {"dr", "mr", "mrs", "prof", "vs", "e.g", "i.e", "approx"}
 # After a short form, what shows its full stop also ends the sentence.
 _SENTENCE_AFTER = re.compile(r"[ \t]*(?:$|\n|[ \t][\"'“‘(\[]*[A-Z])")
 
@@ -182,7 +184,7 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
         if any(done[m.start() : m.end()]) or not all(keep[m.start() : m.end()]):
             continue
         short = m.group(1).lower()
-        ends = short not in _TITLES and _SENTENCE_AFTER.match(display, m.end())
+        ends = short not in _GO_ON and _SENTENCE_AFTER.match(display, m.end())
         drop(m.start(), m.end() - 1 if ends else m.end(), _SHORT_FORMS[short])
     say.update(_emoji_words(display, keep))
     return keep, say
