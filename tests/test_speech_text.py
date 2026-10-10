@@ -134,6 +134,11 @@ def test_horizontal_rules_and_stray_borders_are_not_spoken() -> None:
         ("Mr. Sr. and Prof. Lee", "Mister Senior and Professor Lee"),
         ("Visit St. Louis.", "Visit St. Louis."),  # Saint or Street: left as written
         ("The DRY rule and JR.EXE stay.", "The DRY rule and JR.EXE stay."),  # not short forms
+        ("Bring fruit, etc. Next topic.", "Bring fruit, et cetera. Next topic."),
+        ("He is Jr.\nNext line", "He is Junior. Next line"),
+        ("Ask Dr. Who.", "Ask Doctor Who."),  # a title never ends the sentence
+        ("Run `dr.` now.", "Run dr. now."),  # short code is said as written
+        ("See [Dr. Smith](https://a.io).", "See Doctor Smith."),
     ],
 )
 def test_short_forms_are_said_as_words(display: str, said: str) -> None:

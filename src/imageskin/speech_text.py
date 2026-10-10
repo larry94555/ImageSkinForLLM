@@ -39,14 +39,9 @@ _SHORT_FORMS = {
 _SHORT_FORM = re.compile(
     r"(?<![\w.])(" + "|".join(re.escape(k) for k in _SHORT_FORMS) + r")\.(?![\w.])", re.I
 )
-
-
-def _say_short_forms(text: str) -> str:
-    def word(m: re.Match[str]) -> str:
-        said = _SHORT_FORMS[m.group(1).lower()]
-        return said + "." if m.end() == len(text) else said  # it ended the sentence too
-
-    return _SHORT_FORM.sub(word, text)
+_TITLES = {"dr", "mr", "mrs", "prof"}  # come before a name, so they don't end a sentence
+# After a short form, what shows its full stop also ends the sentence.
+_SENTENCE_AFTER = re.compile(r"[ \t]*(?:$|\n|[ \t][\"'“‘(\[]*[A-Z])")
 
 
 # The Markdown code rules, shared with the sentence splitter (sentences.py) so both agree on
@@ -182,6 +177,13 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
             for group in range(1, (pattern.groups or 0) + 1):
                 if m.start(group) >= 0 and not done[m.start(group)]:
                     keep[m.start(group) : m.end(group)] = [False] * (m.end(group) - m.start(group))
+    # Short forms in what is still spoken as written (not in code) are said as words.
+    for m in _SHORT_FORM.finditer(display):
+        if any(done[m.start() : m.end()]) or not all(keep[m.start() : m.end()]):
+            continue
+        short = m.group(1).lower()
+        ends = short not in _TITLES and _SENTENCE_AFTER.match(display, m.end())
+        drop(m.start(), m.end() - 1 if ends else m.end(), _SHORT_FORMS[short])
     say.update(_emoji_words(display, keep))
     return keep, say
 
@@ -227,4 +229,4 @@ def spoken_text(display: str) -> str:
         gap = False
         chars.append(word)
         last = i
-    return _say_short_forms("".join(chars))
+    return "".join(chars)
