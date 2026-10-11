@@ -21,7 +21,7 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings, StreamLlm
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
-from imageskin.cores import CoreShare
+from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.prepare_job import (
     CLONES,
     REPLY_SIDE,
@@ -347,8 +347,9 @@ def create_app(
     logger.info(
         "Chat LLM", extra={"url": llm.url, "model": llm.model, "context_tokens": llm.context_tokens}
     )
-    # While the LLM is busy, the voice and video engines leave it half the cores (R22a).
-    core_share = CoreShare()
+    # While the LLM is busy, the voice and video engines leave it half the cores (R22a), of the
+    # performance cores on a CPU that also has efficiency cores (R22g).
+    core_share = CoreShare(cores(use_performance_cores()))
     core_share.llm_done()
     if ask_llm is None:
         client = LlmClient(llm)
