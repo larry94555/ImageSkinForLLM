@@ -489,13 +489,17 @@ def create_app(
         playing it meanwhile."""
         with clips_lock:
             clips = sentence_clips.get(reply_id)
-        if clips is None or not 1 <= n <= len(clips.clips):
+        # Its file and whether it is whole, taken at once: a clip whose video fails meanwhile
+        # is unlisted, and its stream then ends with what there was.
+        found = None if clips is None else clips.clip(n)
+        if clips is None or found is None:
             raise HTTPException(status_code=404, detail="No such clip.")
+        path, whole = found
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
-        if clips.rendered >= n:
-            return FileResponse(clips.clips[n - 1], media_type="video/mp4", headers=headers)
+        if whole:
+            return FileResponse(path, media_type="video/mp4", headers=headers)
         return StreamingResponse(
-            clips.follow(n, CLIP_FOLLOW_S), media_type="video/mp4", headers=headers
+            clips.follow(n, path, CLIP_FOLLOW_S), media_type="video/mp4", headers=headers
         )
 
     def warm_up_replies() -> None:

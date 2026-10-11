@@ -283,10 +283,12 @@ def test_a_clip_is_listed_while_it_is_written_and_followed_as_it_grows(tmp_path:
     assert half_written.wait(5)
     assert len(clips.clips) == 1 and clips.rendered == 0
     before, after = time.perf_counter(), clips.times[0].ready_at
-    assert clips.times[0].sentence_at <= after <= before  # playable: when writing began
+    assert clips.times[0].sentence_at <= after <= before  # listed: when writing began
 
     chunks: list[bytes] = []
-    follower = clips.follow(1, every=0.01)
+    found = clips.clip(1)
+    assert found is not None and found[1] is False  # not whole yet
+    follower = clips.follow(1, found[0], every=0.01)
     chunks.append(next(follower))  # what there is so far, before the clip is whole
     assert chunks == [b"first half "]
     threading.Timer(0.1, go.set).start()
@@ -294,7 +296,8 @@ def test_a_clip_is_listed_while_it_is_written_and_followed_as_it_grows(tmp_path:
     assert b"".join(chunks) == b"first half second half"
     clips.wait(5)
     assert clips.rendered == 1 and clips.done
-    assert list(clips.follow(1, every=0.01)) == [b"first half second half"]  # whole: at once
+    assert clips.clip(1) == (found[0], True) and clips.clip(2) is None
+    assert list(clips.follow(1, found[0], every=0.01)) == [b"first half second half"]  # at once
 
 
 def test_following_a_clip_that_fails_ends_with_what_there_was(tmp_path: Path) -> None:
@@ -312,13 +315,67 @@ def test_following_a_clip_that_fails_ends_with_what_there_was(tmp_path: Path) ->
     clips("One.")
     clips.close()
     assert some_written.wait(5)
-    follower = clips.follow(1, every=0.01)
+    follower = clips.follow(1, clips.folder / "1.mp4", every=0.01)
     assert next(follower) == b"some"
     go.set()
     assert list(follower) == []  # dropped: the stream ends
     clips.wait(5)
     assert clips.error == "ffmpeg stopped" and clips.clips == []
-    assert not (tmp_path / "clips-abc123ef" / "1.mp4").exists()
+    assert clips.folder.exists() and not (clips.folder / "1.mp4").exists()
+
+
+def test_a_clip_that_fails_before_its_stream_begins_ends_the_stream(tmp_path: Path) -> None:
+    # A review finding: the clip was looked up again when the stream began, and was gone.
+    some_written = threading.Event()
+    go = threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        output.write_bytes(b"some")
+        some_written.set()
+        go.wait(5)
+        raise VideoError("ffmpeg stopped")
+
+    videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips.close()
+    assert some_written.wait(5)
+    found = clips.clip(1)  # what the API looks up before it answers
+    assert found is not None
+    follower = clips.follow(1, found[0], every=0.01)  # not begun yet
+    go.set()
+    clips.wait(5)
+    assert clips.clips == [] and clips.clip(1) is None
+    assert list(follower) == []  # begun after the clip was dropped: it just ends
+
+
+def test_a_failed_clip_a_browser_still_has_open_is_left_and_its_error_kept(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A review finding: on Windows, removing a clip the browser is reading fails, and that
+    # error replaced the video's own.
+    def render(photo: Path, text: str, output: Path) -> None:
+        output.write_bytes(b"some")
+        raise VideoError("ffmpeg stopped")
+
+    real_unlink = Path.unlink
+
+    def unlink(path: Path, missing_ok: bool = False) -> None:
+        if path.suffix == ".mp4":
+            raise PermissionError("in use by another process")
+        real_unlink(path, missing_ok=missing_ok)
+
+    videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    with patch.object(Path, "unlink", unlink), caplog.at_level(logging.WARNING):
+        clips("One.")
+        clips.close()
+        clips.wait(5)
+    assert clips.error == "ffmpeg stopped" and clips.clips == []
+    assert (clips.folder / "1.mp4").exists()  # left for the next reply
+    assert "Could not remove a video cut short" in caplog.messages
+    videos.sentence_clips(Path("me.jpg"), "fedcba98")  # the next reply removes it
+    assert not clips.folder.exists()
 
 
 def test_a_reply_with_no_sentences_is_done_at_once(tmp_path: Path) -> None:

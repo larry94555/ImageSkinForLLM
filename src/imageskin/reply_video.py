@@ -21,6 +21,7 @@ from pathlib import Path
 
 from imageskin.prepare_job import ClipSteps, PrepareVoice, RenderClip
 from imageskin.speech_text import spoken_text
+from imageskin.video import discard
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +61,10 @@ def ms_since(start: float) -> float:
 
 @dataclass(frozen=True)
 class ClipTime:
-    """When a sentence arrived from the LLM and when its clip could be played (its video began
-    to be written, roadmap R22d), as time.perf_counter() seconds, for the chat page's timing
-    readout (roadmap R22a)."""
+    """When a sentence arrived from the LLM and when its clip was listed for the browser, as its
+    video began to be written (roadmap R22d), as time.perf_counter() seconds, for the chat
+    page's timing readout (roadmap R22a). The clip plays once its first fragment is written;
+    the page measures that itself, from when the video starts playing."""
 
     sentence_at: float
     ready_at: float
@@ -192,7 +194,7 @@ class SentenceClips:
                     spoken.wav.with_suffix(".json").unlink(missing_ok=True)
                     continue
                 try:
-                    playable_at = self._render(spoken)
+                    listed_at = self._render(spoken)
                 except Exception as e:
                     self._fail(n, "video", e)
                     continue
@@ -203,9 +205,10 @@ class SentenceClips:
                         "render_ms": ms_since(start),
                         # From the sentence arriving from the LLM to its clip being whole.
                         "since_sentence_ms": ms_since(sentence_at),
-                        # The chat page's measure (roadmap R22a): from the sentence to the
-                        # clip starting to be written, when it can be played (R22d).
-                        "playable_since_sentence_ms": round((playable_at - sentence_at) * 1000, 1),
+                        # From the sentence to the clip being listed for the browser, as its
+                        # video starts to be written (R22d); it plays once its first fragment
+                        # is out, which the chat page's readout measures.
+                        "listed_since_sentence_ms": round((listed_at - sentence_at) * 1000, 1),
                         # The roadmap's measure: from the LLM's first words to this clip.
                         "since_first_words_ms": (
                             None if self._first_words is None else ms_since(self._first_words)
@@ -239,20 +242,20 @@ class SentenceClips:
     def _render(self, spoken: Spoken) -> float:
         """Render the spoken sentence's clip, listed as soon as the video step starts so the
         browser can play it while it is written, and remove the speech once it is in. Returns
-        when the clip became playable."""
+        when the clip was listed."""
         path = self.folder / f"{len(self.clips) + 1}.mp4"
-        playable_at = time.perf_counter()
+        listed_at = time.perf_counter()
         with self._changed:
-            self.times.append(ClipTime(spoken.sentence_at, playable_at))
+            self.times.append(ClipTime(spoken.sentence_at, listed_at))
             self.clips.append(path)
             self._changed.notify_all()
         try:
             self._videos._steps.render(self._photo, spoken.wav, path)
         except Exception:
-            with self._changed:  # a clip cut short is never played or left behind
+            with self._changed:  # a clip cut short is never played
                 self.clips.pop()
                 self.times.pop()
-            path.unlink(missing_ok=True)
+            discard(path)  # nor left behind, unless a browser still has it open
             raise
         finally:
             spoken.wav.unlink(missing_ok=True)
@@ -260,12 +263,19 @@ class SentenceClips:
         with self._changed:
             self.rendered += 1
             self._changed.notify_all()
-        return playable_at
+        return listed_at
 
-    def follow(self, n: int, every: float) -> Iterator[bytes]:
-        """Clip `n`'s bytes as they are written, read every `every` seconds, until it is whole
-        (or dropped: then what there was ends the stream)."""
-        path = self.clips[n - 1]
+    def clip(self, n: int) -> tuple[Path, bool] | None:
+        """Clip `n`'s file and whether it is whole, taken together; None when it isn't listed."""
+        with self._changed:
+            if not 1 <= n <= len(self.clips):
+                return None
+            return self.clips[n - 1], self.rendered >= n
+
+    def follow(self, n: int, path: Path, every: float) -> Iterator[bytes]:
+        """Clip `n`'s bytes from `path` (as `clip` gave it) as they are written, read every
+        `every` seconds, until it is whole, or dropped: then what there was ends the stream,
+        even when it was dropped before the stream began."""
         sent = 0
         while True:
             with self._changed:

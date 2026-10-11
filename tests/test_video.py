@@ -130,3 +130,31 @@ def test_a_progressive_mp4_can_be_played_from_its_start(tmp_path: Path) -> None:
     data = progressive.read_bytes()
     assert data.index(b"moov") < data.index(b"moof") < data.index(b"mdat")
     assert data.count(b"moof") >= 3  # 2 s in fragments of at most half a second
+
+
+def test_a_video_cut_short_that_cant_be_removed_still_fails_with_its_own_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A review finding: a browser reading a clip while it is written (R22d) keeps it from being
+    # removed on Windows, and that error replaced ffmpeg's.
+    import subprocess
+
+    output = tmp_path / "a.mp4"
+
+    class Failed:
+        stdin = __import__("io").BytesIO()
+        returncode = 1
+
+        def communicate(self, timeout: float | None = None) -> tuple[bytes, bytes]:
+            output.write_bytes(b"part")
+            return b"", b"Conversion failed!"
+
+    def unlink(path: Path, missing_ok: bool = False) -> None:
+        raise PermissionError("in use by another process")
+
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **_: Failed())
+    monkeypatch.setattr("imageskin.video.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(Path, "unlink", unlink)
+    with pytest.raises(VideoError, match="Conversion failed"), caplog.at_level("WARNING"):
+        write_mp4([b"\0" * 12] * 2, (2, 2), None, output, 10, progressive=True)
+    assert "Could not remove a video cut short" in caplog.messages
