@@ -127,6 +127,9 @@ async function getClips(replyId, known) {
 	if (response.status === 404) return null;
 	return json(response);
 }
+async function stopReply(replyId) {
+	return (await json(await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" }))).stopped;
+}
 //#endregion
 //#region src/pages.tsx
 function HomePage({ consented }) {
@@ -834,6 +837,27 @@ function newReplyId() {
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
+var SOUND_KEY = "imageskin.sound";
+function loadSound() {
+	try {
+		const saved = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "null");
+		const volume = Number(saved?.volume);
+		return {
+			volume: Number.isFinite(volume) ? Math.min(Math.max(volume, 0), 1) : 1,
+			muted: saved?.muted === true
+		};
+	} catch {
+		return {
+			volume: 1,
+			muted: false
+		};
+	}
+}
+function saveSound(sound) {
+	try {
+		localStorage.setItem(SOUND_KEY, JSON.stringify(sound));
+	} catch {}
+}
 function Chat() {
 	const [turns, setTurns] = d(null);
 	const [prompt, setPrompt] = d("");
@@ -846,6 +870,10 @@ function Chat() {
 	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
 	const gone = A(false);
+	const replying = A(null);
+	const stopped = A(null);
+	const [halted, setHalted] = d(false);
+	const [sound, setSound] = d(loadSound);
 	h(() => () => {
 		gone.current = true;
 	}, []);
@@ -858,9 +886,10 @@ function Chat() {
 	}, []);
 	async function followClips(replyId, replied) {
 		let known = 0;
-		while (!gone.current) {
+		while (!gone.current && stopped.current !== replyId) {
 			const answered = replied();
 			const got = await getClips(replyId, known);
+			if (stopped.current === replyId) return;
 			if (got === null) {
 				if (answered) return;
 				await sleep(300);
@@ -899,6 +928,8 @@ function Chat() {
 		const shownAt = (turns ?? []).length + 1;
 		const replyId = newReplyId();
 		let replied = false;
+		replying.current = replyId;
+		setHalted(false);
 		setSending(true);
 		setSpeaking(true);
 		setFailed(null);
@@ -941,10 +972,11 @@ function Chat() {
 		}
 		try {
 			const clipsFailed = await following;
-			if (gone.current) return;
+			if (gone.current || stopped.current === replyId) return;
 			if (clipsFailed !== null) throw clipsFailed;
 			if (!reply.streamed) {
 				const url = await speakReply(reply.turn);
+				if (stopped.current === replyId) return;
 				setClips(url ? [`${url}?t=${Date.now()}`] : []);
 				if (url) {
 					setWhole(true);
@@ -966,6 +998,26 @@ function Chat() {
 			setSpeaking(false);
 		}
 	}
+	function stop() {
+		const replyId = replying.current;
+		if (replyId === null) return;
+		stopped.current = replyId;
+		setHalted(true);
+		setClips([]);
+		setTimes([]);
+		setWhole(false);
+		console.info(`Reply stopped (${clips.length} clips so far)`);
+		stopReply(replyId).catch((e) => console.error("Could not stop the reply", e));
+	}
+	function changeSound(change) {
+		const next = {
+			...sound,
+			...change
+		};
+		setSound(next);
+		saveSound(next);
+	}
+	const stoppable = !halted && (speaking || times.some((t) => t.ended === null));
 	if (turns === null) return /* @__PURE__ */ u("p", {
 		className: "muted busy",
 		children: "Loading…"
@@ -976,7 +1028,13 @@ function Chat() {
 			clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
 				clips,
 				onStarted: started,
-				onEnded: ended
+				onEnded: ended,
+				sound
+			}),
+			/* @__PURE__ */ u(SoundControls, {
+				sound,
+				onChange: changeSound,
+				onStop: stoppable ? stop : void 0
 			}),
 			times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
 				times,
@@ -996,7 +1054,7 @@ function Chat() {
 				className: "muted busy",
 				children: "Thinking…"
 			}),
-			speaking && /* @__PURE__ */ u("p", {
+			speaking && !halted && /* @__PURE__ */ u("p", {
 				className: "muted busy",
 				children: "Getting ready to say it…"
 			}),
@@ -1189,7 +1247,7 @@ function History(props) {
 	});
 }
 function ClipPlayer(props) {
-	const { clips, onStarted, onEnded } = props;
+	const { clips, onStarted, onEnded, sound } = props;
 	const [playing, setPlaying] = d(0);
 	const [active, setActive] = d(0);
 	const players = [A(null), A(null)];
@@ -1209,6 +1267,13 @@ function ClipPlayer(props) {
 		begun.current = /* @__PURE__ */ new Set();
 		play(players[0].current);
 	}, [first]);
+	h(() => {
+		for (const player of players) {
+			if (!player.current) continue;
+			player.current.volume = sound?.volume ?? 1;
+			player.current.muted = sound?.muted ?? false;
+		}
+	});
 	const current = Math.min(playing, clips.length - 1);
 	const shown = clips[current];
 	const next = clips[current + 1];
@@ -1249,6 +1314,35 @@ function ClipPlayer(props) {
 		onClick: () => play(players[active].current),
 		children: "Play the reply"
 	})] });
+}
+function SoundControls(props) {
+	const { sound, onChange, onStop } = props;
+	return /* @__PURE__ */ u("div", {
+		className: "sound-controls",
+		children: [
+			onStop && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: onStop,
+				children: "Stop"
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				"aria-pressed": sound.muted,
+				onClick: () => onChange({ muted: !sound.muted }),
+				children: sound.muted ? "Unmute" : "Mute"
+			}),
+			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: "Volume" }), /* @__PURE__ */ u("input", {
+				type: "range",
+				min: 0,
+				max: 100,
+				value: Math.round(sound.volume * 100),
+				disabled: sound.muted,
+				onInput: (e) => onChange({ volume: Number(e.currentTarget.value) / 100 })
+			})] })
+		]
+	});
 }
 function seconds(ms) {
 	return `${(ms / 1e3).toFixed(1)} s`;

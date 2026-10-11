@@ -279,3 +279,10 @@ export async function getClips(replyId: string, known?: number): Promise<Clips |
   if (response.status === 404) return null;
   return json<Clips>(response);
 }
+
+// Stops a reply's clips (roadmap R19): the server makes no more and removes those it made. The
+// reply's text still comes. True when there were clips to stop.
+export async function stopReply(replyId: string): Promise<boolean> {
+  const response = await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" });
+  return (await json<{ stopped: boolean }>(response)).stopped;
+}

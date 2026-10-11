@@ -19,6 +19,7 @@ import {
   countMatches,
   duration,
   latestExchange,
+  loadSound,
   minutes,
   splitMatches,
 } from "./pages";
@@ -55,6 +56,7 @@ async function openAt(hash: string) {
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -1127,6 +1129,7 @@ function chatServer(
       return init?.method === "POST" ? answer() : Response.json({ turns });
     }
     if (url === "/api/chat/video") return speak();
+    if (url.endsWith("/stop")) return Response.json({ stopped: true }); // R19
     if (url.startsWith("/api/chat/clips/")) return clips();
     return Response.json([]);
   });
@@ -1848,4 +1851,173 @@ test("if the conversation can't be loaded, the chat says so", async () => {
   expect(
     await screen.findByText("Could not load the conversation. Reload the page to try again."),
   ).toBeTruthy();
+});
+
+// --- Stop, volume and mute (R19) ---
+
+test("Stop ends the reply's video and its clips, and the text still comes", async () => {
+  const [answer, reply] = later();
+  const made = clipsMade(["/api/chat/clips/x/1"], false);
+  const fetchMock = chatServer([], answer, undefined, () => Response.json(made));
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull(); // nothing to stop yet
+  fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(document.querySelector("video.reply-video")).not.toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+  expect(document.querySelector("video")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  expect(screen.queryByText("Getting ready to say it…")).toBeNull();
+  const stops = fetchMock.mock.calls.filter(([url]) => url.endsWith("/stop"));
+  expect(stops).toHaveLength(1);
+  const [url, init] = stops[0];
+  expect(url).toMatch(/^\/api\/chat\/clips\/[0-9a-f]{32}\/stop$/);
+  expect(init?.method).toBe("POST");
+  expect(info).toHaveBeenCalledWith("Reply stopped (1 clips so far)");
+  // The clips are no longer followed, though the server still has them to tell of.
+  const asked = fetchMock.mock.calls.filter(([u]) => u.includes("known=")).length;
+  await act(() => new Promise((done) => setTimeout(done, 50)));
+  expect(fetchMock.mock.calls.filter(([u]) => u.includes("known=")).length).toBe(asked);
+  await act(async () => {
+    reply(Response.json({ role: "assistant", content: "Once upon a time.", streamed: true }));
+  });
+  await screen.findByText("Once upon a time.");
+  expect(document.querySelector("video")).toBeNull();
+  fireEvent.input(promptBox(), { target: { value: "Again" } });
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false),
+  ); // the next prompt can be sent
+});
+
+test("a reply stopped while its one video is made doesn't play it", async () => {
+  const [speak, spoken] = later();
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "Hello.", turn: 1, streamed: false }),
+    speak,
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hi" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Hello.");
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+  await act(async () => {
+    spoken(Response.json({ video: "/api/chat/videos/1" }));
+  });
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  expect(document.querySelector("video")).toBeNull();
+});
+
+test("a stop the server refuses is logged", async () => {
+  const [answer] = later();
+  const fetchMock = chatServer([], answer);
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  const original = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url, init) =>
+    url.endsWith("/stop") ? new Response("", { status: 500 }) : original(url, init),
+  );
+  fireEvent.input(promptBox(), { target: { value: "Hi" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+  await waitFor(() =>
+    expect(console.error).toHaveBeenCalledWith("Could not stop the reply", expect.any(Error)),
+  );
+});
+
+test("Stop shows until the last clip has played", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "One.", turn: 1, streamed: true }),
+    undefined,
+    () => Response.json(clipsMade(["/api/chat/clips/x/1"], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("One.");
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy(); // still playing
+  fireEvent.playing(shownVideo());
+  fireEvent.ended(shownVideo());
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+});
+
+test("mute and volume reach both players and are kept for the next visit", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "One. Two.", turn: 1, streamed: true }),
+    undefined,
+    () => Response.json(clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  const volume = screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement;
+  expect(volume.value).toBe("100");
+  fireEvent.input(volume, { target: { value: "40" } });
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await waitFor(() => expect(document.querySelectorAll("video")).toHaveLength(2));
+  for (const video of document.querySelectorAll("video")) {
+    expect(video.volume).toBeCloseTo(0.4);
+    expect(video.muted).toBe(false);
+  }
+  const mute = screen.getByRole("button", { name: "Mute" });
+  expect(mute.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(mute);
+  for (const video of document.querySelectorAll("video")) expect(video.muted).toBe(true);
+  const unmute = screen.getByRole("button", { name: "Unmute" });
+  expect(unmute.getAttribute("aria-pressed")).toBe("true");
+  expect((screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement).disabled).toBe(true);
+  expect(loadSound()).toEqual({ volume: 0.4, muted: true });
+
+  cleanup(); // the next visit starts with the same sound
+  await openAt("#/chat");
+  expect(await screen.findByRole("button", { name: "Unmute" })).toBeTruthy();
+  expect((screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement).value).toBe("40");
+});
+
+test("the sound starts at full volume when nothing usable was kept", () => {
+  expect(loadSound()).toEqual({ volume: 1, muted: false });
+  localStorage.setItem("imageskin.sound", "not json");
+  expect(loadSound()).toEqual({ volume: 1, muted: false });
+  localStorage.setItem("imageskin.sound", JSON.stringify({ volume: 7, muted: "yes" }));
+  expect(loadSound()).toEqual({ volume: 1, muted: false }); // kept within 0 to 1
+  localStorage.setItem("imageskin.sound", JSON.stringify({ volume: "loud" }));
+  expect(loadSound()).toEqual({ volume: 1, muted: false });
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    throw new DOMException("blocked", "SecurityError");
+  });
+  expect(loadSound()).toEqual({ volume: 1, muted: false });
+});
+
+test("a choice that can't be kept still changes the sound", async () => {
+  chatServer([], () => Response.json({}));
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new DOMException("full", "QuotaExceededError");
+  });
+  await openAt("#/chat");
+  fireEvent.click(await screen.findByRole("button", { name: "Mute" }));
+  expect(screen.getByRole("button", { name: "Unmute" })).toBeTruthy();
+});
+
+test("the player plays at full volume when given no sound", () => {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  render(<ClipPlayer clips={["/a"]} />);
+  expect(shownVideo().volume).toBe(1);
+  expect(shownVideo().muted).toBe(false);
 });
