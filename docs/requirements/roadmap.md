@@ -10,25 +10,25 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.6% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 12.3% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.2% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 8.2% | 4 of 6 |
-| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 10 | 13.7% | 8 of 10 |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.5% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 12.2% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.1% | 6 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 8.1% | 4 of 6 |
+| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.9% | 8 of 11 |
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.8% | 0 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.1% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.4% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.8% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.7% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.7% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 5.5% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 5.4% | 0 |
 | 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 6.8% | 0 |
 | 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.7% | 0 |
 | 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.4% | 0 |
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.7% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.4% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.7% | 0 |
-| | **Total** | | **73** | **100%** | **34 of 73** |
+| | **Total** | | **74** | **100%** | **34 of 74** |
 
 Sizes: 17 Simple, 55 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -305,6 +305,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - Found on the way: Pocket generates and decodes on two threads of its own, which start with PyTorch's thread count, so beside the LLM they used twice the engines' share of the cores and a 4-word clause took 1.5 s; splitting the engines' threads between them brought it to about 0.75 s.
 - Measured in the chat page (Gemma 3 4B in llama.cpp with 2 threads, photoreal, Chromium on the same 4-core CPU, Pocket's preset voice standing in for a clone since the cloning weights need a sign-in): the first clip started 1.5 and 1.6 s after its text, and the average wait before a clip was 0.8 s over 6 clips.
 - **Can show:** the timing readout's average under 2 s in the person's own voice.
+
+### R22g. Quick clips: the performance cores (Simple) · item 12
+- Added after Larry's test of R22f on his laptop (2026-10-11), an Intel i7-1360P with 4 performance cores (2 threads each) and 8 efficiency cores. The app counted 16 cores and spread its threads over all of them, though an efficiency core is about 3 times slower per thread. Kept on the performance cores with 8 threads, Pocket TTS took 0.38 to 0.45 seconds of work per second of speech against 0.6 to 1.2, and a 6-word clip was ready in about 1.8 s against 2 to 4.5 s (measured on his laptop with a timing script).
+- On a CPU with performance and efficiency cores, the app keeps itself on the performance cores at startup and counts only theirs for sharing the cores with the LLM (`use_performance_cores` in `cores.py`): on Windows from the cores' efficiency classes, on Linux from Intel's list of performance cores. `IMAGESKIN_ALL_CORES=1` turns it off. Other CPUs, and macOS, are unchanged.
+- **Can show:** the log's `Kept the app on the performance cores` line, and shorter waits in the timing readout on such a laptop.
 
 ### R23. Idle video and smooth joins (Medium) · item 17
 - Between replies the person blinks and moves slightly instead of freezing.
