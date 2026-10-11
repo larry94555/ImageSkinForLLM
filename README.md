@@ -156,7 +156,7 @@ The one-speaker check (roadmap R11) gives each 1.5 second stretch of speech a vo
 
 Under the uploads, the Setup page has a **Prepare** button (roadmap R12). It needs a photo that passed the checks and enough speech in the voice sample, and says which one is missing otherwise. Preparing runs in the server, in the background:
 
-1. **Get the voice ready** (roadmap R25b): when Chatterbox is installed (see [Your own voice](#your-own-voice-chatterbox-turbo-on-the-cpu)), loads it and learns the person's voice from the voice sample, so the clips below are spoken in their own voice. Loading takes about 30 seconds; the first time it downloads about 3 GB. Without Chatterbox it loads Kokoro (the first time it downloads the model, about 330 MB) and the clips use a ready-made voice; the log says so at start with `Prepare speaks in a ready-made Kokoro voice, not the person's`. Needs `pip install -e ".[voice]"` either way.
+1. **Get the voice ready** (roadmap R25b): when Chatterbox is installed (see [Your own voice](#your-own-voice-chatterbox-turbo-on-the-cpu)), loads it and learns the person's voice from the voice sample, so the clips below are spoken in their own voice. With Pocket TTS installed too, Pocket learns it instead, for replies within 2 seconds (see [Replies within 2 seconds in your own voice](#replies-within-2-seconds-in-your-own-voice-pocket-tts)). Loading takes about 30 seconds; the first time it downloads about 3 GB. Without Chatterbox it loads Kokoro (the first time it downloads the model, about 330 MB) and the clips use a ready-made voice; the log says so at start with `Prepare speaks in a ready-made Kokoro voice, not the person's`. Needs `pip install -e ".[voice]"` either way.
 2. **Load the face model:** downloads the photoreal models the first time (about 500 MB). Needs `pip install -e ".[photoreal]"`.
 3. **Render the 10 mouth shapes and the blinking eyes**, then 4. **the idle video** (head movement; most of the time, about 5 minutes on a 4-core CPU; 50 of its 200 frames are rendered and the rest filled in), then 5. **line up the mouth with the head**.
 6. **Render the sample video and the fixed lines** (roadmap R13): the person says "Goodbye.", "Welcome back." and the sample script (about 25 seconds), saved in `clips` in the app data folder. About a minute with Kokoro; about two minutes on a 4-core CPU in the cloned voice, which takes about 2.5 seconds per second of speech.
@@ -205,7 +205,7 @@ Under the video, a timing readout says how long each clip took from its text arr
 
 Each frame of a clip is composited by OpenCV in 8-bit (R22c): about 4 ms a frame on a 4-core CPU, so a clip renders in about a fifth of its playing time and the voice is most of the wait before a clip. Reply clips are rendered on the photo scaled down to 720 pixels on its longest side, since the page shows them at most 640 pixels wide (`REPLY_SIDE` in `src/imageskin/prepare_job.py`); the sample video keeps the photo's size. The log's `Rendered video` line has each clip's `frames`, `duration_ms` and `real_time_factor`.
 
-A clip is offered to the browser the moment its video starts to be written (R22d): the clip is a fragmented MP4 written half a second at a time, and the server streams it as it grows, so the video plays while the rest is rendered and only the voice step is waited for. The readout counts from the text to the clip playing; the log's `Sentence clip ready` line has `listed_since_sentence_ms` (text arrived to the clip listed for the browser, as its video starts to be written; it plays once its first half-second fragment is out) next to `since_sentence_ms` (text arrived to the clip whole). On a 4-core CPU, the voice step runs at about half real time while the LLM writes, and the browser on the same machine takes cores from it too, so later clips in a long reply can still pause between sentences: that is the engines' throughput, and a faster voice or a graphics card is what shortens it.
+A clip is offered to the browser the moment its video starts to be written (R22d): the clip is a fragmented MP4 written half a second at a time, and the server streams it as it grows, so the video plays while the rest is rendered and only the voice step is waited for. The readout counts from the text to the clip playing; the log's `Sentence clip ready` line has `listed_since_sentence_ms` (text arrived to the clip listed for the browser, as its video starts to be written; it plays once its first half-second fragment is out) next to `since_sentence_ms` (text arrived to the clip whole). On a 4-core CPU, the voice step runs at about half real time while the LLM writes, and the browser on the same machine takes cores from it too, so later clips in a long reply can still pause between sentences: that is the engines' throughput, and a faster voice or a graphics card is what shortens it. In the person's own voice, Chatterbox takes several seconds per clip on a 4-core CPU; Pocket TTS brings the first clip to about 1.5 s after its text (see [Replies within 2 seconds in your own voice](#replies-within-2-seconds-in-your-own-voice-pocket-tts)).
 
 For quick replies on a CPU, two things happen at startup once a sample has been accepted (`Warming up replies` in the log): the LLM reads the system prompt (`LLM warmed up`), so the first reply's words come about 2 s sooner, and the voice and video engines load and render a word (`Replies warmed up`), which takes a minute or two the first time. While the LLM is busy (writing the reply, or summarizing the conversation after one), the engines use half the cores and all of them once it has finished (`Engine threads set` with `threads` and `cores`); start llama-server with `--threads` set to the other half, as above. Leave `OMP_NUM_THREADS` unset: the app shares the cores itself, and a cap below the core count is logged as a warning (`OMP_NUM_THREADS caps the engines' cores`).
 
@@ -326,6 +326,41 @@ imageskin sample --photo me.jpg --voice-sample voice-sample.wav -o sample-mine.m
 Add `--engine photoreal` to the last command for the photoreal video (see [Photoreal video](#photoreal-video-liveportrait-on-the-cpu)). Play `kokoro.wav` and `mine.wav` one after the other to hear the ready-made voice and your own (`start mine.wav` in Command Prompt, `Invoke-Item mine.wav` in PowerShell, `open mine.wav` on macOS, `xdg-open mine.wav` on Linux). The logs (JSON lines on stderr) show `Loaded Chatterbox Turbo`, `Learned voice`, `Loaded aligner`, `Aligned words` and then `Spoke text in cloned voice` with `clone_ms` and `align_ms` (the time each took) and `real_time_factor` (seconds of work per second of speech).
 
 If pip stops with `ResolutionImpossible` or `conflict`, nothing was installed: one of the pinned packages needs a different version of something the app already has; report the message. If `say` reports `Chatterbox is not installed`, run the last `pip install` line again. Before this was fixed, the first run also printed a `Wav2Vec2ForCTC LOAD REPORT` saying `wav2vec2.masked_spec_embed` is `MISSING`; the app now hides it. If you see it, it is harmless: that value is only used while the model is being trained, and the published model ships without it.
+
+### Replies within 2 seconds in your own voice (Pocket TTS)
+
+Chatterbox is too slow for replies on a 4-core CPU: a 4-word clause took 7 s on 2 cores, so a reply waits several seconds per clip. [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) (Kyutai; code MIT, weights CC-BY-4.0) also clones the voice from 10 seconds of the voice sample with no training and keeps the person's own accent, and it speaks the same clause in about 0.6 s (roadmap R22f). With it installed next to Chatterbox, Pocket speaks everything in the person's own accent: the replies, the sample video and the fixed lines, so they all sound the same. With an American or British accent, Prepare has a Kokoro voice of that accent read a passage once, converts it to the person's voice with Chatterbox's converter (this adds about a minute to Prepare), and Pocket learns from that, so it speaks every reply in the person's voice with that accent, as fast as with their own. Without Pocket, every clip of another accent is converted as it is spoken, about 17 to 22 s a clip on a laptop. Measured in the chat page on a 4-core CPU with Gemma 3 4B writing on 2 of the cores: the first clip of a reply started 1.5 to 1.6 s after its text, and the average wait before a clip was 0.8 s.
+
+Its weights that clone a voice are gated on Hugging Face, free but behind a one-time step. Make a free account, accept the terms on the [model page](https://huggingface.co/kyutai/pocket-tts), make a read token under [Access Tokens](https://huggingface.co/settings/tokens), then sign in with `hf auth login` and paste the token (it is saved, so this is done once). Install Pocket TTS with Chatterbox already installed as above (about 530 MB of models are downloaded the first time), then start the app and click **Prepare** on the Setup page: the clips are spoken again in Pocket's voice.
+
+macOS / Linux:
+
+```
+source .venv/bin/activate
+hf auth login
+pip freeze --all --exclude-editable > app-constraints.txt
+pip install --retries 10 pocket-tts==3.3.0 -c app-constraints.txt
+```
+
+Windows 11, Command Prompt:
+
+```
+.venv\Scripts\activate.bat
+hf auth login
+pip freeze --all --exclude-editable > app-constraints.txt
+pip install --retries 10 pocket-tts==3.3.0 -c app-constraints.txt
+```
+
+Windows 11, PowerShell:
+
+```
+.venv\Scripts\Activate.ps1
+hf auth login
+pip freeze --all --exclude-editable | Set-Content -Encoding ascii app-constraints.txt
+pip install --retries 10 pocket-tts==3.3.0 -c app-constraints.txt
+```
+
+The log says `Prepare speaks in the person's own voice, cloned with Pocket TTS` at start, `Loaded Pocket TTS`, and `Spoke text in cloned voice` with `"model": "Pocket TTS"` for each clip. `imageskin say --voice-sample` uses Pocket too when it is installed, so you can hear it on its own. If Prepare fails with `could not load Pocket TTS: its weights that clone a voice need the terms accepted`, the terms are not accepted yet or `hf auth login` was not run. To go back to Chatterbox, run `pip uninstall pocket-tts`, restart `imageskin serve` (the app picks its voice engine when it starts) and click **Prepare** again.
 
 ## Making the sample video (on the CPU)
 

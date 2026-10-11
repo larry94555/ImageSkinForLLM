@@ -332,13 +332,35 @@ def test_clips_speak_in_the_cloned_voice_when_chatterbox_is_installed(
     with (
         caplog.at_level(logging.INFO),
         patch("imageskin.chatterbox_engine.check_installed"),
+        patch("imageskin.pocket_engine.installed", return_value=False),
         patch.object(ChatterboxEngine, "learn_voice") as learn,
     ):
         step, engine, voice, kind = clip_voice(sample, lambda: "own", MagicMock())
         step()
     assert isinstance(engine, AccentEngine) and (voice, kind) == (str(sample), "clone")
+    assert engine._clone.name == "Chatterbox Turbo"
     learn.assert_called_once_with(str(sample))
     assert "the person's own voice, cloned with Chatterbox Turbo" in caplog.text
+
+
+def test_clips_speak_in_pocket_tts_when_it_is_installed_too(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from imageskin.chatterbox_engine import ChatterboxEngine
+
+    sample = tmp_path / "voice-sample.wav"
+    with (
+        caplog.at_level(logging.INFO),
+        patch("imageskin.chatterbox_engine.check_installed"),
+        patch("imageskin.pocket_engine.installed", return_value=True),
+        patch.object(ChatterboxEngine, "learn_voice") as learn,
+    ):
+        step, engine, voice, kind = clip_voice(sample, lambda: "own", MagicMock())
+        step()
+    assert isinstance(engine, AccentEngine) and (voice, kind) == (str(sample), "pocket")
+    assert engine._clone.name == "Pocket TTS"
+    learn.assert_called_once_with(str(sample))
+    assert "the person's own voice, cloned with Pocket TTS" in caplog.text
 
 
 def test_clips_speak_in_kokoro_when_chatterbox_is_missing(
@@ -516,6 +538,21 @@ def test_another_accent_needs_preparing_again(tmp_path: Path) -> None:
     assert job.status().state == "idle"
 
 
+def test_pocket_tts_has_its_own_voice_for_every_accent(tmp_path: Path) -> None:
+    accent: list[Accent] = ["own"]
+    job, store = make_job(tmp_path, kind="pocket", accent=accent)
+    job.start()
+    job.wait(5)
+    fingerprint = voice_fingerprint(store.voice_sample_file)
+    assert job.status().voice_id == f"pocket:{fingerprint}"
+    later, _ = make_job(tmp_path, kind="clone", accent=accent)  # Pocket TTS uninstalled
+    assert later.status().state == "idle"
+    # Pocket speaks another accent itself, Chatterbox through Kokoro and its converter.
+    accent[0] = "british"
+    assert job.voice_id() == f"pocket-british:{fingerprint}"
+    assert later.voice_id() == f"clone-british:{fingerprint}"
+
+
 def test_kokoro_ignores_the_accent(tmp_path: Path) -> None:
     accent: list[Accent] = ["own"]
     job, _ = make_job(tmp_path, accent=accent)
@@ -637,11 +674,27 @@ def test_the_accent_engine_shares_the_clone_and_the_speaker_model() -> None:
 
     clone, speakers = MagicMock(), MagicMock()
     with patch("imageskin.chatterbox_engine.TurboConverter") as converter:
-        engine = accent_engine(clone, speakers)
+        engine = accent_engine(clone, "clone", speakers)
         engine._make_converter()
         engine._voice_print(np.zeros(3))
     converter.assert_called_once_with(clone.cloner.return_value.tts.s3gen)
     assert speakers.voice_print.call_args.args[1] == 24000
+    assert not engine._clone_keeps_accent  # Chatterbox converts every line
+
+
+def test_with_pocket_tts_the_accent_converter_loads_chatterbox_itself() -> None:
+    from imageskin.prepare_job import accent_engine
+
+    clone = MagicMock()
+    with (
+        patch("imageskin.chatterbox_engine.TurboConverter") as converter,
+        patch("imageskin.chatterbox_engine._load_cloner") as chatterbox,
+    ):
+        engine = accent_engine(clone, "pocket", MagicMock())
+        engine._make_converter()
+    converter.assert_called_once_with(chatterbox.return_value.tts.s3gen)
+    clone.cloner.assert_not_called()
+    assert engine._clone_keeps_accent  # Pocket learns the accent and speaks every line
 
 
 def test_the_app_shares_one_speaker_model(tmp_path: Path) -> None:
@@ -736,6 +789,16 @@ def test_a_prepare_started_while_the_accent_is_saved_runs_with_the_new_accent(
         job.wait(5)
     assert replies == {"accent": 200, "prepare": 200}
     assert heard == ["british"]  # the job ran with the accent the page shows
+
+
+def test_with_pocket_tts_every_accent_is_offered(tmp_path: Path) -> None:
+    pocket = (lambda: None, MagicMock(), "v", "pocket")
+    with patch("imageskin.app.clip_voice", return_value=pocket):
+        client = TestClient(create_app(tmp_path, check_photo=lambda p: PhotoResult([], 80)))
+    client.post("/api/consent", json={"agreed": True})
+    assert client.get("/api/accent").json() == {"accent": "own", "available": True}
+    (tmp_path / "accent.json").write_text('{"accent": "british"}')
+    assert client.get("/api/accent").json() == {"accent": "british", "available": True}
 
 
 def test_without_the_clone_only_the_persons_own_accent_is_offered(tmp_path: Path) -> None:

@@ -89,6 +89,8 @@ STEPS = (
     ("clips", "Render the sample video and the fixed lines", 100),
 )
 NO_PHOTO = "Add a photo that passes the checks first."
+# The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
+CLONES = ("pocket", "clone")
 
 
 class PrepareError(Exception):
@@ -152,7 +154,7 @@ class PrepareJob:
         prepare_voice: PrepareVoice,
         prepare_face: PrepareFace,
         render_clip: RenderClip,
-        voice_kind: str = "kokoro",  # what speaks the clips: "clone" or "kokoro"
+        voice_kind: str = "kokoro",  # what speaks the clips: "pocket", "clone" or "kokoro"
         accent: Callable[[], Accent] = lambda: OWN,  # the accent chosen in setup
     ) -> None:
         self._file = home / "prepare.json"
@@ -263,15 +265,18 @@ class PrepareJob:
 
     def voice_id(self) -> str | None:
         """The voice clips are spoken in now: who speaks them, with which accent, and the sample
-        they learned from. Installing Chatterbox after a Kokoro prepare changes it too. Kokoro
-        speaks with its own accent, whichever is chosen."""
+        they learned from. Installing Chatterbox after a Kokoro prepare changes it too, and so does
+        installing or removing Pocket TTS. Kokoro speaks with its own accent, whichever is
+        chosen."""
         fingerprint = voice_fingerprint(self._store.voice_sample_file)
         if not fingerprint:
             return None
         accent = self._accent()
         kind = self._voice_kind
-        if kind == "clone" and accent != OWN:
-            kind = f"clone-{accent}"
+        # Chatterbox speaks another accent through Kokoro and its converter; Pocket TTS speaks it
+        # itself, learned from converted speech.
+        if kind in CLONES and accent != OWN:
+            kind = f"{kind}-{accent}"
         return f"{kind}:{fingerprint}"
 
     def _remove_clips(self) -> int:
@@ -437,9 +442,12 @@ def cloned_voice(
 def clip_voice(
     voice_sample: Path, accent: Callable[[], Accent], speakers: "SpeakerChecker"
 ) -> tuple[PrepareVoice, VoiceEngine, str, str]:
-    """The voice step, the engine, the voice the clips are spoken in and its kind ("clone" or
-    "kokoro"): the person's own, cloned from the voice sample with the chosen accent, when
-    Chatterbox is installed (see the README); otherwise Kokoro's."""
+    """The voice step, the engine, the voice the clips are spoken in and its kind ("pocket",
+    "clone" or "kokoro"): the person's own, cloned from the voice sample with the chosen accent,
+    when Chatterbox is installed (see the README); otherwise Kokoro's. With Pocket TTS installed
+    too, Pocket speaks, about ten times faster than Chatterbox on 4 cores, so replies can start
+    within 1 to 2 seconds (roadmap R22f), with every accent (see accent_engine)."""
+    from imageskin import pocket_engine
     from imageskin.chatterbox_engine import ChatterboxEngine, check_installed
 
     try:
@@ -449,22 +457,37 @@ def clip_voice(
         logger.warning(message, extra={"reason": str(e)})
         kokoro = KokoroEngine()
         return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE, "kokoro"
-    logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
-    engine = accent_engine(ChatterboxEngine(), speakers)
-    return cloned_voice(engine, voice_sample, accent), engine, str(voice_sample), "clone"
+    if pocket_engine.installed():
+        logger.info("Prepare speaks in the person's own voice, cloned with Pocket TTS")
+        clone, kind = pocket_engine.pocket_engine(), "pocket"
+    else:
+        logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
+        clone, kind = ChatterboxEngine(), "clone"
+    engine = accent_engine(clone, kind, speakers)
+    return cloned_voice(engine, voice_sample, accent), engine, str(voice_sample), kind
 
 
-def accent_engine(clone: "ChatterboxEngine", speakers: "SpeakerChecker") -> AccentEngine:
+def accent_engine(clone: "ChatterboxEngine", kind: str, speakers: "SpeakerChecker") -> AccentEngine:
     """The clone, with Kokoro, Chatterbox's converter and the app's speaker model (shared with the
-    one-speaker check) for other accents. Each is loaded only when another accent is first used."""
-    from imageskin.chatterbox_engine import SAMPLE_RATE, TurboConverter
+    one-speaker check) for other accents. Each is loaded only when another accent is first used.
+    The converter shares Chatterbox's model with the clone, or loads it when Pocket TTS clones.
+    Pocket keeps the accent it learns from, so it learns another accent from converted speech
+    in prepare and speaks every line itself, as fast as the person's own accent. Both are decided
+    by `kind`, the clone's kind in the voice id ("clone" for Chatterbox, "pocket"), not by its
+    name in the logs."""
+    from imageskin.chatterbox_engine import SAMPLE_RATE, TurboConverter, _load_cloner
     from imageskin.kokoro_engine import kokoro_for
+
+    def converter() -> TurboConverter:
+        model = clone.cloner() if kind == "clone" else _load_cloner()
+        return TurboConverter(model.tts.s3gen)  # type: ignore[attr-defined]
 
     return AccentEngine(
         clone,
         kokoro_for,
-        lambda: TurboConverter(clone.cloner().tts.s3gen),  # type: ignore[attr-defined]
+        converter,
         lambda samples: speakers.voice_print(samples, SAMPLE_RATE),
+        clone_keeps_accent=kind == "pocket",
     )
 
 

@@ -7,6 +7,7 @@ import pytest
 from imageskin.accent import (
     ACCENTS,
     KOKORO_VOICES,
+    PASSAGE,
     PROBE,
     AccentEngine,
     convert_fitted,
@@ -88,6 +89,9 @@ class FakeClone:
     def learn_voice(self, voice: str) -> None:
         self.learned.append(voice)
 
+    def learn_speech(self, voice: str, speech: np.ndarray) -> None:
+        self.learned.append(f"{voice} from speech at {speech[0]:.3f}")
+
     def reference(self, voice: str, fresh: bool = False) -> np.ndarray:
         self.learned.append(f"read {voice} afresh" if fresh else f"read {voice}")
         return tone(0.5)
@@ -131,7 +135,9 @@ class FakeConverter:
         return np.full(len(samples) + 10, (samples[0] + 0.5) / 2, dtype=np.float32)
 
 
-def accent_engine() -> tuple[AccentEngine, FakeClone, dict[str, FakeKokoro], FakeConverter]:
+def accent_engine(
+    clone_keeps_accent: bool = False,
+) -> tuple[AccentEngine, FakeClone, dict[str, FakeKokoro], FakeConverter]:
     clone, converter = FakeClone(), FakeConverter()
     kokoros: dict[str, FakeKokoro] = {}
 
@@ -144,7 +150,13 @@ def accent_engine() -> tuple[AccentEngine, FakeClone, dict[str, FakeKokoro], Fak
         angle = abs(float(samples[0]) - 0.5)
         return np.array([np.cos(angle), np.sin(angle)])
 
-    engine = AccentEngine(clone, kokoro, lambda: converter, voice_print)  # type: ignore[arg-type]
+    engine = AccentEngine(
+        clone,  # type: ignore[arg-type]
+        kokoro,
+        lambda: converter,
+        voice_print,
+        clone_keeps_accent=clone_keeps_accent,
+    )
     return engine, clone, kokoros, converter
 
 
@@ -179,6 +191,52 @@ def test_another_accent_picks_a_base_voice_and_converts_it(
     assert "Loaded voice converter" in caplog.text
     engine.prepare("voice-sample.wav", "own")  # back to the person's own accent
     assert engine.speak("voice-sample.wav", "Hi").pcm == b"clone"
+
+
+def test_a_clone_that_keeps_accents_learns_the_accent_once_and_speaks_every_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    engine, clone, kokoros, converter = accent_engine(clone_keeps_accent=True)
+    with caplog.at_level(logging.INFO):
+        engine.prepare("voice-sample.wav", "british")
+    british = kokoros["b"]
+    # The picked base voice reads the passage; converted, it is what the clone learns from.
+    assert engine.base == "bm_lewis" and british.said[-1] == ("bm_lewis", PASSAGE)
+    assert clone.learned == [
+        "read voice-sample.wav afresh",
+        "voice-sample.wav from speech at 0.475",
+    ]
+    assert engine._converter is None  # freed: no line is converted
+    said = len(british.said)
+    assert engine.speak("voice-sample.wav", "Hi").pcm == b"clone"
+    assert len(british.said) == said  # the clone spoke, not Kokoro
+    learned = next(
+        r for r in caplog.records if r.getMessage() == "Clone learned the voice with the accent"
+    )
+    assert vars(learned)["accent"] == "british" and vars(learned)["base"] == "bm_lewis"
+    assert vars(learned)["passage_s"] == 0.5
+    assert "Converted speech to the person's voice" not in caplog.text
+    engine.prepare("voice-sample.wav", "own")  # the own accent learns from the voice sample again
+    assert clone.learned[-1] == "voice-sample.wav"
+
+
+def test_a_converter_that_fails_on_the_passage_says_so() -> None:
+    engine, _, _, converter = accent_engine(clone_keeps_accent=True)
+    calls = 0
+
+    def convert_probes_only(samples: np.ndarray) -> np.ndarray:
+        nonlocal calls
+        calls += 1
+        if calls > len(KOKORO_VOICES["american"][1]):
+            raise RuntimeError("out of memory")
+        return samples
+
+    with (
+        pytest.MonkeyPatch.context() as m,
+        pytest.raises(VoiceError, match="could not convert the voice: out of memory"),
+    ):
+        m.setattr(FakeConverter, "__call__", lambda self, s: convert_probes_only(s))
+        engine.prepare("voice-sample.wav", "american")
 
 
 def test_a_converter_that_fails_says_so() -> None:

@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 ENGINES = ("opencv", "photoreal")
 VOICE_SAMPLE_HELP = (
     "speak in the voice of this voice sample (from imageskin voice-sample) instead of a Kokoro "
-    "voice, cloned with Chatterbox Turbo; see 'Your own voice' in the README"
+    "voice, cloned with Pocket TTS when it is installed, else Chatterbox Turbo; see 'Your own "
+    "voice' in the README"
 )
 
 
@@ -32,9 +33,11 @@ def voice_engine(voice: str, voice_sample: Path | None) -> tuple[VoiceEngine, st
     """The engine and voice to speak with: a clone of the voice sample, or a Kokoro voice."""
     if voice_sample is None:
         return KokoroEngine(), voice
+    from imageskin import pocket_engine
     from imageskin.chatterbox_engine import ChatterboxEngine
 
-    engine = ChatterboxEngine()
+    # As in the app: Pocket TTS when installed (roadmap R22f), else Chatterbox.
+    engine = pocket_engine.pocket_engine() if pocket_engine.installed() else ChatterboxEngine()
     engine.check_voice_sample(str(voice_sample))  # before the photo is prepared or models load
     return engine, str(voice_sample)
 

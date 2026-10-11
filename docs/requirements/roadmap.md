@@ -2,7 +2,7 @@
 
 Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7 and 11 to 13, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46). Milestone 18, added later on 2026-10-09, comes last and adds a profile of each student's interests and personality (item 47).
 
-PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, and R22a to R22e for replies within 1 to 2 seconds after Larry's test of R22, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R24 and R27 onward. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, and R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R24 and R27 onward. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -10,25 +10,25 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.7% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 12.5% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.3% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 8.3% | 4 of 6 |
-| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 9 | 12.5% | 8 of 9 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.9% | 0 |
-| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.2% | 0 |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.6% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 12.3% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.2% | 6 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 6 | 8.2% | 4 of 6 |
+| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 10 | 13.7% | 8 of 10 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.8% | 0 |
+| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.1% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.4% | 0 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.9% | 0 |
-| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.8% | 0 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.8% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 5.6% | 0 |
-| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 6.9% | 0 |
-| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.8% | 0 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.8% | 0 |
+| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.7% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.7% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 5.5% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 6.8% | 0 |
+| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.7% | 0 |
 | 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.4% | 0 |
-| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.8% | 0 |
+| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.7% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.4% | 0 |
-| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.8% | 0 |
-| | **Total** | | **72** | **100%** | **34 of 72** |
+| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.7% | 0 |
+| | **Total** | | **73** | **100%** | **34 of 73** |
 
 Sizes: 17 Simple, 55 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -298,6 +298,13 @@ The PRs below are written for either kind of video engine, but these are the one
 - Measured apart from the app (Kokoro, 2 threads, idle): the voice step grows with the clause, 1.5 s for the 4-word "Martin Luther King Junior." (2.2 s of speech) against 2.2 s for the 8-word clause (3.55 s), so the first clip is ready about 0.7 s sooner alone and more beside the LLM. The cost: the rest of the sentence is a longer clip whose text arrives when the sentence ends, so the pause before clip 2 can grow by about as much; the engines' throughput beside the LLM sets the total.
 - **Can show:** the first clip is a few words and starts sooner; the readout says so.
 - **Built:** as above.
+
+### R22f. Quick clips: a fast clone of the person's voice (Medium) · items 4, 12
+- Added after Larry's test of R22e (2026-10-11): replies in his cloned voice still waited well over 2 seconds. Measured on 4 cores with 2 threads, Chatterbox Turbo took 7 s for a 4-word clause and 8.8 s for a 6-word one (about four times slower than real time), while Pocket TTS (Kyutai; code MIT, weights CC-BY-4.0), which also clones from 10 seconds of the voice sample and keeps the person's accent, took 0.56 s and 0.77 s (int8). Kokoro, not the person's voice, took 1.3 s.
+- With Pocket TTS installed next to Chatterbox, it speaks everything in the person's own accent (`pocket_engine.py`, run through `ChatterboxEngine`'s steps with the same forced alignment), so the replies, the sample and the fixed lines sound the same; with another accent, Kokoro's base voice reads a passage once in Prepare, Chatterbox's converter turns it into the person's voice and Pocket learns from that, so it speaks every line with that accent at the same speed (`AccentEngine` with `clone_keeps_accent`). Without Pocket, another accent converts each line, about 17 to 22 s a clip on Larry's laptop. Installing or removing it, then restarting the server (the engine is picked at startup), asks for Prepare again. Its cloning weights are gated: the README says how to accept the terms and sign in once.
+- Found on the way: Pocket generates and decodes on two threads of its own, which start with PyTorch's thread count, so beside the LLM they used twice the engines' share of the cores and a 4-word clause took 1.5 s; splitting the engines' threads between them brought it to about 0.75 s.
+- Measured in the chat page (Gemma 3 4B in llama.cpp with 2 threads, photoreal, Chromium on the same 4-core CPU, Pocket's preset voice standing in for a clone since the cloning weights need a sign-in): the first clip started 1.5 and 1.6 s after its text, and the average wait before a clip was 0.8 s over 6 clips.
+- **Can show:** the timing readout's average under 2 s in the person's own voice.
 
 ### R23. Idle video and smooth joins (Medium) · item 17
 - Between replies the person blinks and moves slightly instead of freezing.
