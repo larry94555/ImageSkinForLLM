@@ -4,6 +4,7 @@ import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -347,6 +348,38 @@ def test_a_clip_that_fails_before_its_stream_begins_ends_the_stream(tmp_path: Pa
     clips.wait(5)
     assert clips.clips == [] and clips.clip(1) is None
     assert list(follower) == []  # begun after the clip was dropped: it just ends
+
+
+def test_a_clip_removed_just_before_its_stream_reads_it_ends_the_stream(tmp_path: Path) -> None:
+    # A review finding: the clip could be dropped and removed between the stream seeing it
+    # listed and opening its file.
+    some_written = threading.Event()
+    go = threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        output.write_bytes(b"some")
+        some_written.set()
+        go.wait(5)
+        raise VideoError("ffmpeg stopped")
+
+    videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips.close()
+    assert some_written.wait(5)
+    found = clips.clip(1)
+    assert found is not None
+    real_open = Path.open
+
+    def open_after_the_drop(path: Path, *args: Any, **kwargs: Any) -> Any:
+        if path == found[0] and not go.is_set():  # seen as listed; dropped before it opens
+            go.set()
+            clips.wait(5)
+        return real_open(path, *args, **kwargs)
+
+    with patch.object(Path, "open", open_after_the_drop):
+        chunks = list(clips.follow(1, found[0], every=0.01))
+    assert chunks == [] and clips.clips == [] and not found[0].exists()
 
 
 def test_a_failed_clip_a_browser_still_has_open_is_left_and_its_error_kept(
