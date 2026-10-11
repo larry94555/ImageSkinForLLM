@@ -156,6 +156,19 @@ def test_sample_with_voice_sample_uses_the_clone() -> None:
     assert voice == "me.wav"
 
 
+@pytest.mark.parametrize(("pocket", "name"), [(True, "Pocket TTS"), (False, "Chatterbox Turbo")])
+def test_the_clone_is_pocket_tts_when_it_is_installed(pocket: bool, name: str) -> None:
+    from imageskin.cli import voice_engine
+
+    with (
+        patch("imageskin.pocket_engine.installed", return_value=pocket),
+        patch("imageskin.chatterbox_engine.ChatterboxEngine.check_voice_sample") as check,
+    ):
+        engine, voice = voice_engine("af_heart", Path("me.wav"))
+    assert engine.name == name and voice == "me.wav"  # type: ignore[attr-defined]
+    check.assert_called_once_with("me.wav")
+
+
 def test_sample_error_is_logged(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["sample", "--photo", str(tmp_path / "missing.jpg")]) == 1
     entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])

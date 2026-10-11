@@ -219,7 +219,7 @@ def test_broken_install_and_load_failures(
 
     with pytest.raises(VoiceError, match="installed but could not be loaded"):
         engine_with(broken_import).speak(str(voice_sample), "Hi")
-    assert "Could not import Chatterbox" in caplog.text
+    assert "Could not import Chatterbox Turbo" in caplog.text
     with pytest.raises(VoiceError, match="could not load Chatterbox Turbo: connection reset"):
         engine_with(no_network).speak(str(voice_sample), "Hi")
 

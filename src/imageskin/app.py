@@ -23,6 +23,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.cores import CoreShare
 from imageskin.prepare_job import (
+    CLONES,
     REPLY_SIDE,
     ClipName,
     ClipSteps,
@@ -306,12 +307,12 @@ def create_app(
     @app.get("/api/accent", dependencies=needs_consent)
     def get_accent() -> AccentChoice:
         # Without the person's own voice, Kokoro speaks in its own accent, so that is the one shown.
-        available = voice_kind == "clone"
+        available = voice_kind in CLONES
         return AccentChoice(accent=accent() if available else "own", available=available)
 
     @app.put("/api/accent", dependencies=needs_consent)
     def put_accent(body: AccentRequest) -> AccentChoice:
-        if body.accent != "own" and voice_kind != "clone":
+        if body.accent != "own" and voice_kind not in CLONES:
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
         if not job.change_accent(lambda: save_accent(data_home, body.accent)):
             # The running job would finish in the old accent; it is chosen before or after it.

@@ -35,6 +35,7 @@ SAMPLE_RATE = 24000  # Chatterbox's output rate, and the voice sample's
 REFERENCE_S = 10.0  # Chatterbox learns from about this much of the voice sample
 TURBO_REVISION = "749d1c1a46eb10492095d68fbcf55691ccf137cd"  # the weights tested in R25a
 INSTALL_HINT = "see 'Your own voice' in the README"
+NAME = "Chatterbox Turbo"
 
 
 class Cloner(Protocol):
@@ -106,14 +107,18 @@ def check_installed() -> None:
 
 
 class ChatterboxEngine:
-    """Speaks text in the voice of a voice sample; `voice` is the sample's path."""
+    """Speaks text in the voice of a voice sample; `voice` is the sample's path. Another clone
+    model with the same steps, such as Pocket TTS (roadmap R22f), is given as `load` with its
+    `name` for the log and the errors."""
 
     def __init__(
         self,
         load: Callable[[], Cloner] | None = None,
         aligner: Aligner | None = None,
         check: Callable[[], None] | None = None,
+        name: str = NAME,
     ) -> None:
+        self.name = name
         self._load = load or _load_cloner
         self._aligner = aligner or Aligner()
         self._check = check or check_installed
@@ -161,7 +166,7 @@ class ChatterboxEngine:
         try:
             samples = np.asarray(cloner(text), dtype=np.float32)
         except Exception as e:  # the model's own errors
-            raise VoiceError(f"Chatterbox could not speak the text: {e}") from e
+            raise VoiceError(f"{self.name} could not speak the text: {e}") from e
         clone_s = time.perf_counter() - start
         start = time.perf_counter()
         words, sounds = self._aligner.align(samples, SAMPLE_RATE, text)
@@ -170,6 +175,7 @@ class ChatterboxEngine:
         logger.info(
             "Spoke text in cloned voice",
             extra={
+                "model": self.name,
                 "chars": len(text),
                 "words": len(words),
                 "sounds": len(sounds),
@@ -189,7 +195,7 @@ class ChatterboxEngine:
         try:
             cloner.set_voice(reference)
         except Exception as e:  # the model's own errors
-            raise VoiceError(f"Chatterbox could not learn the voice in {voice}: {e}") from e
+            raise VoiceError(f"{self.name} could not learn the voice in {voice}: {e}") from e
         self._voice = voice
         logger.info(
             "Learned voice",
@@ -212,12 +218,12 @@ class ChatterboxEngine:
             try:
                 self._cloner = self._load()
             except ImportError as e:
-                logger.exception("Could not import Chatterbox")
-                raise VoiceError(f"Chatterbox is installed but could not be loaded: {e}") from e
+                logger.exception(f"Could not import {self.name}")
+                raise VoiceError(f"{self.name} is installed but could not be loaded: {e}") from e
             except Exception as e:  # download or model load failure
-                raise VoiceError(f"could not load Chatterbox Turbo: {e}") from e
+                raise VoiceError(f"could not load {self.name}: {e}") from e
             logger.info(
-                "Loaded Chatterbox Turbo",
+                f"Loaded {self.name}",
                 extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
             )
         return self._cloner
