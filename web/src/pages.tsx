@@ -1062,11 +1062,18 @@ function seconds(ms: number): string {
 // How long each clip that has started waited, in milliseconds: from when it could have started
 // (its text arrived, and the clip before it ended) to when it did.
 export function clipWaits(times: ClipTime[]): number[] {
-  return times.flatMap((t, i) => {
-    if (t.started === null) return [];
-    const before = times[i - 1]?.ended ?? null;
-    return [Math.max(0, t.started - Math.max(t.text, before ?? t.text))];
+  return times.flatMap((_, i) => {
+    const wait = clipWait(times, i);
+    return wait === null ? [] : [wait];
   });
+}
+
+// How long clip i waited, as above, or null if it has not started.
+function clipWait(times: ClipTime[], i: number): number | null {
+  const t = times[i];
+  if (t.started === null) return null;
+  const before = times[i - 1]?.ended ?? null;
+  return Math.max(0, t.started - Math.max(t.text, before ?? t.text));
 }
 
 function average(waits: number[]): number {
@@ -1096,8 +1103,7 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean; earlier?:
           const after = t.started - t.text;
           const before = times[i - 1];
           const pause = before?.ended === null || before === undefined ? null : Math.max(0, t.started - before.ended);
-          const wait = Math.max(0, t.started - Math.max(t.text, before?.ended ?? t.text));
-          const late = wait > limit;
+          const late = (clipWait(times, i) ?? 0) > limit;
           return (
             <li key={i} className={late ? "late" : undefined}>
               {name}: spoken {seconds(after)} after its text arrived

@@ -1116,11 +1116,16 @@ function seconds(ms) {
 	return `${(ms / 1e3).toFixed(1)} s`;
 }
 function clipWaits(times) {
-	return times.flatMap((t, i) => {
-		if (t.started === null) return [];
-		const before = times[i - 1]?.ended ?? null;
-		return [Math.max(0, t.started - Math.max(t.text, before ?? t.text))];
+	return times.flatMap((_, i) => {
+		const wait = clipWait(times, i);
+		return wait === null ? [] : [wait];
 	});
+}
+function clipWait(times, i) {
+	const t = times[i];
+	if (t.started === null) return null;
+	const before = times[i - 1]?.ended ?? null;
+	return Math.max(0, t.started - Math.max(t.text, before ?? t.text));
 }
 function average(waits) {
 	return waits.reduce((a, b) => a + b, 0) / waits.length;
@@ -1140,7 +1145,7 @@ function ClipTimes(props) {
 				const after = t.started - t.text;
 				const before = times[i - 1];
 				const pause = before?.ended === null || before === void 0 ? null : Math.max(0, t.started - before.ended);
-				const late = Math.max(0, t.started - Math.max(t.text, before?.ended ?? t.text)) > limit;
+				const late = (clipWait(times, i) ?? 0) > limit;
 				return /* @__PURE__ */ u("li", {
 					className: late ? "late" : void 0,
 					children: [
