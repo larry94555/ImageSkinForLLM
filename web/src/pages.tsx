@@ -1,6 +1,6 @@
 // The app's pages. Each one is a function that returns what the page shows.
 
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import {
   type Accent,
@@ -30,6 +30,7 @@ import {
   sendPrompt,
   speakReply,
   startPrepare,
+  stopReply,
   type Turn,
   type Upload,
   uploadFile,
@@ -767,6 +768,36 @@ export interface ClipTime {
   ended: number | null;
 }
 
+// The sound of the person speaking (roadmap R19): volume from 0 to 1, and muted or not. Kept
+// in this browser so it lasts from one visit to the next.
+export interface Sound {
+  volume: number;
+  muted: boolean;
+}
+
+const SOUND_KEY = "imageskin.sound";
+
+export function loadSound(): Sound {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "null") as Partial<Sound> | null;
+    const volume = Number(saved?.volume);
+    return {
+      volume: Number.isFinite(volume) ? Math.min(Math.max(volume, 0), 1) : 1,
+      muted: saved?.muted === true,
+    };
+  } catch {
+    return { volume: 1, muted: false }; // storage blocked, or something else saved there
+  }
+}
+
+function saveSound(sound: Sound) {
+  try {
+    localStorage.setItem(SOUND_KEY, JSON.stringify(sound));
+  } catch {
+    // Storage blocked: the choice lasts until the page is left.
+  }
+}
+
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
 // (roadmap R22); if that fails, the reply stays as text with a short note.
@@ -783,6 +814,11 @@ function Chat() {
   const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const gone = useRef(false); // the page was left: stop following clips
+  const replying = useRef<string | null>(null); // the latest reply's id
+  const stopped = useRef<string | null>(null); // the id of a reply stopped with Stop (R19)
+  const wakeOnStop = useRef<() => void>(() => {}); // ends the latest reply's waits on Stop
+  const [halted, setHalted] = useState(false); // the latest reply was stopped
+  const [sound, setSound] = useState<Sound>(loadSound);
 
   useEffect(
     () => () => {
@@ -805,9 +841,10 @@ function Chat() {
   // its clips. Throws when a clip failed.
   async function followClips(replyId: string, replied: () => boolean): Promise<void> {
     let known = 0;
-    while (!gone.current) {
+    while (!gone.current && stopped.current !== replyId) {
       const answered = replied(); // read first: the clips may be dropped once it has replied
       const got = await getClips(replyId, known);
+      if (stopped.current === replyId) return; // stopped while it asked
       if (got === null) {
         if (answered) return;
         await sleep(CLIP_POLL_MS);
@@ -843,6 +880,12 @@ function Chat() {
     const shownAt = (turns ?? []).length + 1; // where the reply shows, after the prompt
     const replyId = newReplyId();
     let replied = false;
+    replying.current = replyId;
+    // Settles on Stop, so the reply no longer waits for clips or a video it won't play.
+    const stopping = new Promise<"stopped">((resolve) => {
+      wakeOnStop.current = () => resolve("stopped");
+    });
+    setHalted(false);
     setSending(true);
     setSpeaking(true);
     setFailed(null);
@@ -873,7 +916,7 @@ function Chat() {
       setPrompt(text);
       setFailed(e instanceof Error ? e.message : String(e));
       replied = true;
-      await following;
+      await Promise.race([following, stopping]);
       setClips([]); // with any clip made before the LLM failed, and its timing row
       setTimes([]);
       setWhole(false);
@@ -884,13 +927,14 @@ function Chat() {
       setSending(false);
     }
     try {
-      const clipsFailed = await following;
-      if (gone.current) return; // the page was left meanwhile
+      const clipsFailed = await Promise.race([following, stopping]);
+      if (gone.current || clipsFailed === "stopped") return; // left or stopped meanwhile
       if (clipsFailed !== null) throw clipsFailed;
       if (!reply.streamed) {
         // Not streamed: the whole reply is spoken in one video (roadmap R17), asked for by the
         // server's count, which another tab's replies may have moved on from this tab's.
-        const url = await speakReply(reply.turn);
+        const url = await Promise.race([speakReply(reply.turn, replyId), stopping]);
+        if (url === "stopped") return; // stopped while it was made
         // A new address each time, so the same reply number after a restart plays afresh.
         setClips(url ? [`${url}?t=${Date.now()}`] : []);
         if (url) {
@@ -906,15 +950,45 @@ function Chat() {
     }
   }
 
+  // Stop (roadmap R19): the person stops speaking at once, and the server stops making the
+  // reply's clips. The reply's text still comes.
+  function stop() {
+    const replyId = replying.current;
+    if (replyId === null) return;
+    stopped.current = replyId;
+    wakeOnStop.current();
+    setHalted(true);
+    setClips([]);
+    setTimes([]);
+    setWhole(false);
+    console.info(`Reply stopped (${clips.length} clips so far)`);
+    stopReply(replyId).catch((e: unknown) => console.error("Could not stop the reply", e));
+  }
+
+  function changeSound(change: Partial<Sound>) {
+    const next = { ...sound, ...change };
+    setSound(next);
+    saveSound(next);
+  }
+
+  // Something to stop: a reply still being made, or a clip that hasn't finished playing.
+  const stoppable = !halted && (speaking || times.some((t) => t.ended === null));
   if (turns === null) return <p className="muted busy">Loading…</p>;
   return (
     <div className="chat">
-      {clips.length > 0 && <ClipPlayer clips={clips} onStarted={started} onEnded={ended} />}
+      {clips.length > 0 && (
+        <ClipPlayer clips={clips} onStarted={started} onEnded={ended} sound={sound} />
+      )}
+      <SoundControls
+        sound={sound}
+        onChange={changeSound}
+        onStop={stoppable ? stop : undefined}
+      />
       {times.length > 0 && <ClipTimes times={times} whole={whole} earlier={earlier} />}
       {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
       <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
       {sending && <p className="muted busy">Thinking…</p>}
-      {speaking && <p className="muted busy">Getting ready to say it…</p>}
+      {speaking && !halted && <p className="muted busy">Getting ready to say it…</p>}
       {failed && <p className="error">{failed}</p>}
       <form
         onSubmit={(e) => {
@@ -1119,8 +1193,9 @@ export function ClipPlayer(props: {
   clips: string[];
   onStarted?: (clip: number, at: number) => void;
   onEnded?: (clip: number, at: number) => void;
+  sound?: Sound; // the volume and mute (roadmap R19); full volume when not given
 }) {
-  const { clips, onStarted, onEnded } = props;
+  const { clips, onStarted, onEnded, sound } = props;
   const [playing, setPlaying] = useState(0); // the clip to play; clips.length once all have
   const [active, setActive] = useState(0); // which of the two players is showing
   const players = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
@@ -1148,6 +1223,15 @@ export function ClipPlayer(props: {
     begun.current = new Set();
     play(players[0].current);
   }, [first]);
+  useLayoutEffect(() => {
+    // Both players, so the next clip starts at the same volume; set before the browser
+    // paints, so a new player never starts at full volume.
+    for (const player of players) {
+      if (!player.current) continue;
+      player.current.volume = sound?.volume ?? 1;
+      player.current.muted = sound?.muted ?? false;
+    }
+  });
   const current = Math.min(playing, clips.length - 1);
   const shown = clips[current];
   const next = clips[current + 1];
@@ -1200,6 +1284,44 @@ export function ClipPlayer(props: {
         </button>
       )}
     </>
+  );
+}
+
+// Stop, mute and volume for the person speaking (roadmap R19). Stop shows only while there is
+// something to stop.
+export function SoundControls(props: {
+  sound: Sound;
+  onChange: (change: Partial<Sound>) => void;
+  onStop?: () => void;
+}) {
+  const { sound, onChange, onStop } = props;
+  return (
+    <div className="sound-controls">
+      {onStop && (
+        <button type="button" className="secondary" onClick={onStop}>
+          Stop
+        </button>
+      )}
+      <button
+        type="button"
+        className="secondary"
+        aria-pressed={sound.muted}
+        onClick={() => onChange({ muted: !sound.muted })}
+      >
+        {sound.muted ? "Unmute" : "Mute"}
+      </button>
+      <label>
+        <span>Volume</span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(sound.volume * 100)}
+          disabled={sound.muted}
+          onInput={(e) => onChange({ volume: Number(e.currentTarget.value) / 100 })}
+        />
+      </label>
+    </div>
   );
 }
 

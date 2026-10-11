@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -71,15 +72,22 @@ class AccentRequest(BaseModel):
     accent: Accent
 
 
+REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
+# At most this many replies stopped before their prompt came are remembered (roadmap R19).
+STOPPED_EARLY_MAX = 64
+
+
 class ChatRequest(BaseModel):
     prompt: str
     # Chosen by the browser, so it can ask for the reply's clips while the LLM is still writing
     # (roadmap R22).
-    reply_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{8,64}$")
+    reply_id: str | None = Field(default=None, pattern=REPLY_ID_PATTERN)
 
 
 class ReplyVideoRequest(BaseModel):
     turn: int  # the reply's place in the conversation, from 0
+    # The reply's id from POST /api/chat, so Stop can stop its video (roadmap R19).
+    reply_id: str | None = Field(default=None, pattern=REPLY_ID_PATTERN)
 
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
@@ -392,6 +400,12 @@ def create_app(
     # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by its id.
     sentence_clips: dict[str, SentenceClips] = {}
     clips_lock = threading.Lock()  # guards sentence_clips, used by several request threads
+    # Replies stopped in the browser before their prompt reached chat() (roadmap R19): no clips
+    # are made for them. Guarded by clips_lock.
+    stopped_early: set[str] = set()
+    # Replies spoken in one video (not streamed) being made now, each with the event Stop sets
+    # (roadmap R19). Guarded by clips_lock.
+    whole_videos: dict[str, threading.Event] = {}
     # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
     # prompt waiting on another always drops that one's clips.
     chat_lock = threading.Lock()
@@ -431,7 +445,11 @@ def create_app(
         if photo is not None and body.reply_id is not None:
             clips = replies.sentence_clips(photo, body.reply_id)
             with clips_lock:
-                sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
+                if body.reply_id in stopped_early:  # stopped before it started: no clips
+                    stopped_early.discard(body.reply_id)
+                    clips = None
+                else:
+                    sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
             reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError) as e:
@@ -448,6 +466,42 @@ def create_app(
                     sentence_clips.pop(body.reply_id or "", None)
         streamed = clips is not None and clips.sentences > 0
         return {**asdict(reply), "turn": turn, "streamed": streamed}
+
+    @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_consent)
+    def stop_clips(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, bool]:
+        """Stop a reply's clips (roadmap R19): no more are made, the one being made is dropped
+        after the step under way, and the files are removed. The reply's text still comes.
+        A reply whose prompt hasn't reached the LLM yet gets no clips at all. Answers at once;
+        the step under way finishes on a thread of its own."""
+        with clips_lock:
+            clips = sentence_clips.pop(reply_id, None)
+            video = whole_videos.get(reply_id)
+            if video is not None:
+                video.set()  # its render stops before its next step
+            elif clips is None:
+                if len(stopped_early) >= STOPPED_EARLY_MAX:  # ids that never came: forget them
+                    stopped_early.clear()
+                stopped_early.add(reply_id)
+        logger.info(
+            "Reply stopped",
+            extra={
+                "reply_id": reply_id,
+                "clips": None if clips is None else len(clips.clips),
+                "whole_video": video is not None,
+            },
+        )
+        if clips is not None:
+            threading.Thread(target=cancel_clips, args=(clips,), name="stop-clips").start()
+        return {"stopped": clips is not None or video is not None}
+
+    def cancel_clips(clips: SentenceClips) -> None:
+        start = time.perf_counter()
+        try:
+            clips.cancel()
+        except Exception:
+            logger.exception("Could not stop a reply's clips", extra={"folder": str(clips.folder)})
+            return
+        logger.info("Reply clips stopped", extra={"duration_ms": ms_since(start)})
 
     CLIP_FOLLOW_S = 0.05  # how often a clip still being rendered is read for more of it
 
@@ -547,11 +601,23 @@ def create_app(
         photo = chosen_photo()
         if photo is None:
             raise HTTPException(status_code=409, detail="The photo was removed. Choose another.")
+        stop = threading.Event()
+        if body.reply_id is not None:
+            with clips_lock:
+                if body.reply_id in stopped_early:  # stopped before it was asked for
+                    stopped_early.discard(body.reply_id)
+                    stop.set()
+                whole_videos[body.reply_id] = stop
         try:
-            path = replies.render(photo, body.turn, turns[body.turn].content)
+            path = replies.render(photo, body.turn, turns[body.turn].content, stop.is_set)
         except Exception as e:
             # The voice and video engines' errors say what went wrong; the reply is still shown.
             raise HTTPException(status_code=502, detail=str(e)) from e
+        finally:
+            if body.reply_id is not None:
+                with clips_lock:
+                    if whole_videos.get(body.reply_id) is stop:
+                        del whole_videos[body.reply_id]
         return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
 
     @app.get("/api/chat/videos/{turn}", dependencies=needs_consent)

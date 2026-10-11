@@ -142,7 +142,13 @@ class SentenceClips:
         has failed or the reply is done, so the browser needn't ask again and again."""
         with self._changed:
             self._changed.wait_for(
-                lambda: len(self.clips) > known or self.done or self._error is not None, timeout
+                lambda: (
+                    len(self.clips) > known
+                    or self.done
+                    or self._error is not None
+                    or self._cancelled
+                ),
+                timeout,
             )
 
     @property
@@ -156,8 +162,11 @@ class SentenceClips:
             self._thread.join(timeout)
 
     def cancel(self) -> None:
-        """The reply failed: stop after the step being done and remove the clips."""
-        self._cancelled = True
+        """The reply failed or was stopped: stop after the step being done and remove the
+        clips. A request waiting for the next clip is answered at once (roadmap R19)."""
+        with self._changed:
+            self._cancelled = True
+            self._changed.notify_all()
         self.close()
         self.wait()
         self._videos.remove_clips(self.folder)
@@ -381,24 +390,48 @@ class ReplyVideos:
     def path(self, turn: int) -> Path:
         return self.folder / f"{turn}.mp4"
 
-    def render(self, photo: Path, turn: int, reply: str) -> Path | None:
+    def render(
+        self, photo: Path, turn: int, reply: str, stopped: Callable[[], bool] = lambda: False
+    ) -> Path | None:
         """Speak the reply (turn is its place in the conversation) and render it on the photo.
-        None when nothing in it is spoken, such as a reply of only emoji. The voice and video
-        engines' errors are passed on."""
+        None when nothing in it is spoken, such as a reply of only emoji, or when `stopped`
+        says so before the voice step or between it and the video step (roadmap R19). The
+        voice and video engines' errors are passed on."""
         text = spoken_text(reply)
         if not text:
             logger.info("Reply has nothing to speak", extra={"turn": turn})
             return None
         with self._voice_lock, self._video_lock:
             start = time.perf_counter()
+            if stopped():  # while it waited for the engines
+                logger.info("Reply video stopped", extra={"turn": turn, "step": "before voice"})
+                return None
             self._before_engines()
             self._voice.ensure()
             self.folder.mkdir(parents=True, exist_ok=True)
             path = self.path(turn)
+
+            def log_stop(step: str) -> None:
+                logger.info(
+                    "Reply video stopped",
+                    extra={"turn": turn, "step": step, "duration_ms": ms_since(start)},
+                )
+
             # Written aside then moved, so a video cut short is never played.
             rendering = path.with_name(f"{turn}.rendering.mp4")
             try:
-                self._render_clip(photo, text, rendering)
+                # The two steps apart, so a stop between them skips the video step.
+                with tempfile.TemporaryDirectory() as tmp:
+                    wav = Path(tmp) / "speech.wav"
+                    self._steps.speak(text, wav)
+                    if stopped():
+                        log_stop("after voice")
+                        return None
+                    self._steps.render(photo, wav, rendering)
+                if stopped():  # during the video step: it is dropped, not published
+                    rendering.unlink(missing_ok=True)
+                    log_stop("after video")
+                    return None
                 os.replace(rendering, path)
             except Exception as e:
                 rendering.unlink(missing_ok=True)

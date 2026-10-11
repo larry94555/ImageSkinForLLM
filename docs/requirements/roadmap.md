@@ -13,8 +13,8 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.3% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 12.0% | 9 of 9 |
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.0% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.3% | 6 of 7 |
-| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.7% | 8 of 11 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.3% | 7 of 7 |
+| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.7% | 10 of 11 |
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.7% | 0 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.0% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.7% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.7% | 0 |
-| | **Total** | | **75** | **100%** | **36 of 75** |
+| | **Total** | | **75** | **100%** | **39 of 75** |
 
 Sizes: 19 Simple, 56 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -246,9 +246,10 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** a reply is spoken with the panel closed; opening it shows the full text, a search finds a word in an earlier reply, and the panel closes.
 - **Built:** a search box at the top of the open history (`History` in `pages.tsx`). Typing marks every match in the questions and replies, ignoring case; the current match stands out and is scrolled into view, with "N of M" or "No matches" beside it. Next and Previous, or Enter and Shift+Enter in the box, step through the matches and wrap round at either end. The log has `History search found N matches in T turns (ms)`. Closing the history clears the search.
 
-### R19. Stop, volume and mute (Simple) · items 18, 21
+### R19. Stop, volume and mute (Simple) · items 18, 21 · Done in [PR #60](https://github.com/larry94555/ImageSkinForLLM/pull/60)
 - Stop button ends playback and cancels any rendering still in progress; volume and mute controls.
 - **Can show:** a reply can be stopped mid-sentence; volume and mute work.
+- **Built:** under the video, **Stop** (shown only while a reply is being made or playing), **Mute** / **Unmute** and a **Volume** slider (`SoundControls` in `pages.tsx`). Stop takes the video away at once and asks the server to stop the reply's clips (`POST /api/chat/clips/<reply id>/stop`): no more are made, the one under way is dropped after its step, and the files are removed; the reply's text still comes. A reply stopped before its prompt reaches the LLM gets no clips. Volume and mute apply to both players and are kept in the browser for the next visit. The server log has `Reply stopped` and `Reply clips stopped` with the time it took; the browser console has `Reply stopped (N clips so far)`.
 
 ## Milestone 5: Real-time replies
 
@@ -306,14 +307,14 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the first clip is a few words and starts sooner; the readout says so.
 - **Built:** as above.
 
-### R22f. Quick clips: a fast clone of the person's voice (Medium) · items 4, 12
+### R22f. Quick clips: a fast clone of the person's voice (Medium) · items 4, 12 · Done in [PR #55](https://github.com/larry94555/ImageSkinForLLM/pull/55)
 - Added after Larry's test of R22e (2026-10-11): replies in his cloned voice still waited well over 2 seconds. Measured on 4 cores with 2 threads, Chatterbox Turbo took 7 s for a 4-word clause and 8.8 s for a 6-word one (about four times slower than real time), while Pocket TTS (Kyutai; code MIT, weights CC-BY-4.0), which also clones from 10 seconds of the voice sample and keeps the person's accent, took 0.56 s and 0.77 s (int8). Kokoro, not the person's voice, took 1.3 s.
 - With Pocket TTS installed next to Chatterbox, it speaks everything in the person's own accent (`pocket_engine.py`, run through `ChatterboxEngine`'s steps with the same forced alignment), so the replies, the sample and the fixed lines sound the same; with another accent, Kokoro's base voice reads a passage once in Prepare, Chatterbox's converter turns it into the person's voice and Pocket learns from that, so it speaks every line with that accent at the same speed (`AccentEngine` with `clone_keeps_accent`). Without Pocket, another accent converts each line, about 17 to 22 s a clip on Larry's laptop. Installing or removing it, then restarting the server (the engine is picked at startup), asks for Prepare again. Its cloning weights are gated: the README says how to accept the terms and sign in once.
 - Found on the way: Pocket generates and decodes on two threads of its own, which start with PyTorch's thread count, so beside the LLM they used twice the engines' share of the cores and a 4-word clause took 1.5 s; splitting the engines' threads between them brought it to about 0.75 s.
 - Measured in the chat page (Gemma 3 4B in llama.cpp with 2 threads, photoreal, Chromium on the same 4-core CPU, Pocket's preset voice standing in for a clone since the cloning weights need a sign-in): the first clip started 1.5 and 1.6 s after its text, and the average wait before a clip was 0.8 s over 6 clips.
 - **Can show:** the timing readout's average under 2 s in the person's own voice.
 
-### R22g. Quick clips: the performance cores (Simple) · item 12
+### R22g. Quick clips: the performance cores (Simple) · item 12 · Done in [PR #56](https://github.com/larry94555/ImageSkinForLLM/pull/56)
 - Added after Larry's test of R22f on his laptop (2026-10-11), an Intel i7-1360P with 4 performance cores (2 threads each) and 8 efficiency cores. The app counted 16 cores and spread its threads over all of them, though an efficiency core is about 3 times slower per thread. Kept on the performance cores with 8 threads, Pocket TTS took 0.38 to 0.45 seconds of work per second of speech against 0.6 to 1.2, and a 6-word clip was ready in about 1.8 s against 2 to 4.5 s (measured on his laptop with a timing script).
 - On a CPU with performance and efficiency cores, the app keeps itself on the performance cores at startup and counts only theirs for sharing the cores with the LLM (`use_performance_cores` in `cores.py`): on Windows from the cores' efficiency classes, on Linux from Intel's list of performance cores. `IMAGESKIN_ALL_CORES=1` turns it off. Other CPUs, and macOS, are unchanged.
 - **Can show:** the log's `Kept the app on the performance cores` line, and shorter waits in the timing readout on such a laptop.

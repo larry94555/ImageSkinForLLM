@@ -224,3 +224,7 @@ ol.turns .note { display: block; margin-top: 6px; font-size: 0.85rem; color: var
 .history-search input { font: inherit; padding: 6px 8px; flex: 1 1 12em; min-width: 0; }
 .history-box mark { background: #fde68a; color: #111; border-radius: 2px; }
 .history-box mark.current { background: #f59e0b; outline: 2px solid #b45309; }
+/* Stop, mute and volume under the person speaking (roadmap R19). */
+.sound-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sound-controls label { display: flex; gap: 8px; align-items: center; font-size: 0.875rem; }
+.sound-controls input[type="range"] { width: 140px; accent-color: var(--accent); }

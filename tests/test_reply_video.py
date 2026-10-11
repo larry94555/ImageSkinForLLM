@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from imageskin.app import CHAT_LOCKED, NO_SUCH_REPLY, create_app
 from imageskin.chat import LlmError
 from imageskin.prepare_job import ClipSteps, PrepareJob, PrepareStatus, steps_clip
-from imageskin.reply_video import ReplyVideos, VoiceReady
+from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, text_steps
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult, UploadStore, VoiceSample
 from imageskin.video import VideoError
@@ -85,7 +85,7 @@ def test_the_old_video_stays_until_the_new_one_is_in_place(tmp_path: Path) -> No
         seen.append(first.exists())  # the browser may still be playing it
         output.write_text(text)
 
-    videos._render_clip = render
+    videos._steps = text_steps(render)
     videos.render(Path("me.jpg"), 3, "Again")
     assert seen == [True] and not first.exists()
 
@@ -636,7 +636,9 @@ def test_files_left_from_before_a_restart_are_removed(tmp_path: Path) -> None:
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
 
 
-def video_app(tmp_path: Path, render: object, stream: object = None) -> TestClient:
+def video_app(
+    tmp_path: Path, render: object, stream: object = None, steps: ClipSteps | None = None
+) -> TestClient:
     client = TestClient(
         create_app(
             tmp_path,
@@ -646,6 +648,7 @@ def video_app(tmp_path: Path, render: object, stream: object = None) -> TestClie
             render_clip=render,  # type: ignore[arg-type]
             ask_llm=lambda messages: f"You said **{messages[-1]['content']}**",
             stream_llm=stream,  # type: ignore[arg-type]
+            clip_steps=steps,
         )
     )
     client.app.state.reply_warm_up.join(5)  # type: ignore[attr-defined]
@@ -1054,6 +1057,261 @@ def test_a_waiting_clips_request_does_not_answer_with_clips_a_newer_prompt_took(
         waiting.join(5)
         second.join(5)
     assert answers == {"First": 200, "waiting": 404, "Second": 200}
+
+
+def test_stopping_a_reply_ends_its_clips_but_not_its_text(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Roadmap R19: Stop drops the reply's clips, the one being rendered included, while the
+    LLM's text still comes."""
+    rendering, go = threading.Event(), threading.Event()
+    rendered: list[str] = []
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        rendering.set()
+        go.wait(5)
+        write_text(photo, text, output)
+        rendered.append(text)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield from ["One. ", "Two. ", "Three."]
+
+    caplog.set_level(logging.INFO, logger="imageskin.app")
+    client = video_app(tmp_path, render, stream)
+    clips_api = f"/api/chat/clips/{REPLY_ID}"
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        sent = client.post("/api/chat", json={"prompt": "Count", "reply_id": REPLY_ID})
+        assert sent.json()["content"] == "One. Two. Three."  # the text is all there
+        assert rendering.wait(5)
+        start = time.perf_counter()
+        stopped = client.post(f"{clips_api}/stop")
+        assert stopped.json() == {"stopped": True}
+        assert time.perf_counter() - start < 2  # answered without waiting for the render
+        assert client.get(clips_api).status_code == 404
+        go.set()
+        folder = tmp_path / "replies" / f"clips-{REPLY_ID}"
+        deadline = time.perf_counter() + 5
+        while folder.exists() and time.perf_counter() < deadline:
+            time.sleep(0.02)
+        assert not folder.exists()
+        assert rendered == ["One."]  # the clip under way finished; Two and Three never began
+        # Stopped again, or a reply with clips no more: nothing to stop.
+        assert client.post(f"{clips_api}/stop").json() == {"stopped": False}
+        assert client.post("/api/chat/clips/XYZ12345/stop").status_code == 422
+    messages = [r.message for r in caplog.records]
+    assert "Reply stopped" in messages
+    deadline = time.perf_counter() + 5
+    while "Reply clips stopped" not in [r.message for r in caplog.records]:
+        assert time.perf_counter() < deadline
+        time.sleep(0.02)
+    [done] = [r for r in caplog.records if r.message == "Reply clips stopped"]
+    assert done.duration_ms >= 0  # type: ignore[attr-defined]
+
+
+def test_stop_answers_a_request_waiting_for_the_next_clip_at_once(tmp_path: Path) -> None:
+    """The regression for a review finding: a request waiting for the next clip waited until
+    the clip being rendered was done, or its 10 seconds ran out, after Stop."""
+    rendering, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        rendering.set()
+        go.wait(5)
+        write_text(photo, text, output)
+
+    client = video_app(tmp_path, render, lambda messages: iter(["One. Two."]))
+    clips_api = f"/api/chat/clips/{REPLY_ID}"
+    answers: dict[str, float] = {}
+
+    def wait_for_clips() -> None:
+        start = time.perf_counter()
+        status = client.get(f"{clips_api}?known=1&wait=10").status_code
+        answers["status"], answers["after"] = status, time.perf_counter() - start
+
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Count", "reply_id": REPLY_ID})
+        assert rendering.wait(5)
+        waiting = threading.Thread(target=wait_for_clips)
+        waiting.start()
+        time.sleep(0.2)  # waiting for clip 2, while clip 1 is still being rendered
+        client.post(f"{clips_api}/stop")
+        waiting.join(5)
+        go.set()
+    assert answers["status"] == 404 and answers["after"] < 2
+
+
+def test_stop_skips_the_video_step_of_a_reply_spoken_in_one_video(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The regression for a review finding: Stop only discarded a reply's one video once it
+    was made, holding the engines (and the chat page) for the whole render."""
+    speaking, go = threading.Event(), threading.Event()
+    rendered: list[str] = []
+
+    def speak(text: str, wav: Path) -> None:
+        speaking.set()
+        go.wait(5)
+        wav.write_text(text)
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        rendered.append(wav.read_text())
+        output.write_text("video")
+
+    caplog.set_level(logging.INFO, logger="imageskin.reply_video")
+    client = video_app(tmp_path, write_text, steps=ClipSteps(speak, render))
+    answers: dict[str, object] = {}
+
+    def ask_for_video() -> None:
+        answers["video"] = client.post(
+            "/api/chat/video", json={"turn": 1, "reply_id": REPLY_ID}
+        ).json()
+
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})  # not streamed
+        making = threading.Thread(target=ask_for_video)
+        making.start()
+        assert speaking.wait(5)
+        stopped = client.post(f"/api/chat/clips/{REPLY_ID}/stop")
+        assert stopped.json() == {"stopped": True}
+        go.set()
+        making.join(5)
+        assert answers["video"] == {"video": None} and rendered == []
+        assert not (tmp_path / "replies" / "1.mp4").exists()
+        # Stopped again once it is over: nothing to stop. The next reply's video is made.
+        assert client.post(f"/api/chat/clips/{REPLY_ID}/stop").json() == {"stopped": False}
+        other = "f" * 32
+        made = client.post("/api/chat/video", json={"turn": 1, "reply_id": other}).json()
+        assert made == {"video": "/api/chat/videos/1"} and rendered == ["You said Hi"]
+    [log] = [r for r in caplog.records if r.message == "Reply video stopped"]
+    assert log.step == "after voice"  # type: ignore[attr-defined]
+
+
+def test_a_video_stopped_during_its_video_step_is_dropped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The regression for a review finding: a Stop during the video step let the finished
+    video be published as the reply's, replacing the one before it."""
+    rendering, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        output.write_text("half")
+        rendering.set()
+        go.wait(5)
+        output.write_text("video")
+
+    caplog.set_level(logging.INFO, logger="imageskin.reply_video")
+    client = video_app(tmp_path, write_text, steps=ClipSteps(write_text_wav, render))
+    earlier = tmp_path / "replies" / "0.mp4"  # the reply before, still playable
+    earlier.parent.mkdir(parents=True, exist_ok=True)
+    earlier.write_text("earlier")
+    answers: dict[str, object] = {}
+
+    def ask_for_video() -> None:
+        answers["video"] = client.post(
+            "/api/chat/video", json={"turn": 1, "reply_id": REPLY_ID}
+        ).json()
+
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        making = threading.Thread(target=ask_for_video)
+        making.start()
+        assert rendering.wait(5)
+        assert client.post(f"/api/chat/clips/{REPLY_ID}/stop").json() == {"stopped": True}
+        go.set()
+        making.join(5)
+    assert answers["video"] == {"video": None}
+    assert sorted(p.name for p in (tmp_path / "replies").iterdir()) == ["0.mp4"]
+    messages = [r.message for r in caplog.records]
+    assert "Rendered reply video" not in messages
+    [log] = [r for r in caplog.records if r.message == "Reply video stopped"]
+    assert log.step == "after video"  # type: ignore[attr-defined]
+
+
+def write_text_wav(text: str, wav: Path) -> None:
+    wav.write_text(text)
+
+
+def test_a_video_stopped_before_it_is_asked_for_is_not_made(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="imageskin.reply_video")
+    said: list[str] = []
+
+    def speak(text: str, wav: Path) -> None:
+        said.append(text)
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        output.write_text("video")
+
+    client = video_app(tmp_path, write_text, steps=ClipSteps(speak, render))
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        client.post(f"/api/chat/clips/{REPLY_ID}/stop")
+        made = client.post("/api/chat/video", json={"turn": 1, "reply_id": REPLY_ID}).json()
+    assert made == {"video": None} and said == []
+    [log] = [r for r in caplog.records if r.message == "Reply video stopped"]
+    assert log.step == "before voice"  # type: ignore[attr-defined]
+
+
+def test_a_reply_stopped_before_its_prompt_arrives_gets_no_clips(tmp_path: Path) -> None:
+    rendered: list[str] = []
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        rendered.append(text)
+        write_text(photo, text, output)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield "One. Two."
+
+    client = video_app(tmp_path, render, stream)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        stopped = client.post(f"/api/chat/clips/{REPLY_ID}/stop")
+        assert stopped.json() == {"stopped": False}
+        sent = client.post("/api/chat", json={"prompt": "Count", "reply_id": REPLY_ID})
+        assert sent.json()["content"] == "One. Two."
+        assert sent.json()["streamed"] is False
+        assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 404
+        # Only that once: the same id sent again is spoken as usual.
+        client.post("/api/chat", json={"prompt": "Again", "reply_id": REPLY_ID})
+        assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 200
+    assert rendered[:1] == ["One."]
+
+
+def test_only_so_many_early_stops_are_remembered(tmp_path: Path) -> None:
+    client = video_app(tmp_path, write_text, lambda messages: iter(["One."]))
+    with (
+        patch("imageskin.app.load_review", return_value=Review(accepted=True)),
+        patch("imageskin.app.STOPPED_EARLY_MAX", 2),
+    ):
+        for reply_id in ["a" * 8, "b" * 8, "c" * 8]:  # the third forgets the first two
+            client.post(f"/api/chat/clips/{reply_id}/stop")
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": "a" * 8})
+        assert client.get(f"/api/chat/clips/{'a' * 8}").status_code == 200
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": "c" * 8})
+        assert client.get(f"/api/chat/clips/{'c' * 8}").status_code == 404
+
+
+def test_a_stop_that_fails_is_logged(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    rendering, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        rendering.set()
+        go.wait(5)
+        write_text(photo, text, output)
+
+    client = video_app(tmp_path, render, lambda messages: iter(["One. Two."]))
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Count", "reply_id": REPLY_ID})
+        assert rendering.wait(5)
+        with patch.object(SentenceClips, "cancel", side_effect=OSError("disk gone")):
+            client.post(f"/api/chat/clips/{REPLY_ID}/stop")
+            deadline = time.perf_counter() + 5
+            while not [r for r in caplog.records if r.levelno == logging.ERROR]:
+                assert time.perf_counter() < deadline
+                time.sleep(0.02)
+        go.set()
+    [error] = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert error.message == "Could not stop a reply's clips"
+    assert error.exc_info is not None and "disk gone" in str(error.exc_info[1])
 
 
 def test_the_api_drops_the_clips_of_a_failed_streamed_reply(tmp_path: Path) -> None:

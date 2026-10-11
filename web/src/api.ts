@@ -241,11 +241,12 @@ export async function sendPrompt(prompt: string, replyId?: string): Promise<Repl
 // Speaks a reply in the person's voice on their photo (roadmap R17); turn is its place in the
 // conversation. Returns the video's address, or null when the reply has nothing to say aloud.
 // Throws an Error saying why when the voice or the video fails.
-export async function speakReply(turn: number): Promise<string | null> {
+// `replyId`, the reply's id from sendPrompt, lets Stop stop the video being made (roadmap R19).
+export async function speakReply(turn: number, replyId?: string): Promise<string | null> {
   const response = await fetch("/api/chat/video", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ turn }),
+    body: JSON.stringify(replyId ? { turn, reply_id: replyId } : { turn }),
   });
   if (!response.ok) throw new Error(await refusal(response));
   return ((await response.json()) as { video: string | null }).video;
@@ -278,4 +279,11 @@ export async function getClips(replyId: string, known?: number): Promise<Clips |
   const response = await fetch(`/api/chat/clips/${replyId}${query}`);
   if (response.status === 404) return null;
   return json<Clips>(response);
+}
+
+// Stops a reply's clips (roadmap R19): the server makes no more and removes those it made. The
+// reply's text still comes. True when there were clips to stop.
+export async function stopReply(replyId: string): Promise<boolean> {
+  const response = await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" });
+  return (await json<{ stopped: boolean }>(response)).stopped;
 }
