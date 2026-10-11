@@ -410,6 +410,13 @@ class ReplyVideos:
             self._voice.ensure()
             self.folder.mkdir(parents=True, exist_ok=True)
             path = self.path(turn)
+
+            def log_stop(step: str) -> None:
+                logger.info(
+                    "Reply video stopped",
+                    extra={"turn": turn, "step": step, "duration_ms": ms_since(start)},
+                )
+
             # Written aside then moved, so a video cut short is never played.
             rendering = path.with_name(f"{turn}.rendering.mp4")
             try:
@@ -418,16 +425,13 @@ class ReplyVideos:
                     wav = Path(tmp) / "speech.wav"
                     self._steps.speak(text, wav)
                     if stopped():
-                        logger.info(
-                            "Reply video stopped",
-                            extra={
-                                "turn": turn,
-                                "step": "after voice",
-                                "duration_ms": ms_since(start),
-                            },
-                        )
+                        log_stop("after voice")
                         return None
                     self._steps.render(photo, wav, rendering)
+                if stopped():  # during the video step: it is dropped, not published
+                    rendering.unlink(missing_ok=True)
+                    log_stop("after video")
+                    return None
                 os.replace(rendering, path)
             except Exception as e:
                 rendering.unlink(missing_ok=True)

@@ -1185,6 +1185,51 @@ def test_stop_skips_the_video_step_of_a_reply_spoken_in_one_video(
     assert log.step == "after voice"  # type: ignore[attr-defined]
 
 
+def test_a_video_stopped_during_its_video_step_is_dropped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The regression for a review finding: a Stop during the video step let the finished
+    video be published as the reply's, replacing the one before it."""
+    rendering, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        output.write_text("half")
+        rendering.set()
+        go.wait(5)
+        output.write_text("video")
+
+    caplog.set_level(logging.INFO, logger="imageskin.reply_video")
+    client = video_app(tmp_path, write_text, steps=ClipSteps(write_text_wav, render))
+    earlier = tmp_path / "replies" / "0.mp4"  # the reply before, still playable
+    earlier.parent.mkdir(parents=True, exist_ok=True)
+    earlier.write_text("earlier")
+    answers: dict[str, object] = {}
+
+    def ask_for_video() -> None:
+        answers["video"] = client.post(
+            "/api/chat/video", json={"turn": 1, "reply_id": REPLY_ID}
+        ).json()
+
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        making = threading.Thread(target=ask_for_video)
+        making.start()
+        assert rendering.wait(5)
+        assert client.post(f"/api/chat/clips/{REPLY_ID}/stop").json() == {"stopped": True}
+        go.set()
+        making.join(5)
+    assert answers["video"] == {"video": None}
+    assert sorted(p.name for p in (tmp_path / "replies").iterdir()) == ["0.mp4"]
+    messages = [r.message for r in caplog.records]
+    assert "Rendered reply video" not in messages
+    [log] = [r for r in caplog.records if r.message == "Reply video stopped"]
+    assert log.step == "after video"  # type: ignore[attr-defined]
+
+
+def write_text_wav(text: str, wav: Path) -> None:
+    wav.write_text(text)
+
+
 def test_a_video_stopped_before_it_is_asked_for_is_not_made(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
