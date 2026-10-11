@@ -981,8 +981,8 @@ function TurnList(props: {
 }
 
 // The whole conversation, both the prompts and the replies, closed on every page load so the
-// video stays the focus. Opened, it is a box of limited height with its own scrollbar, kept
-// scrolled to the newest turn.
+// video stays the focus (roadmap R18a; R18 adds a search box). Opened, it is a box of limited
+// height with its own scrollbar, kept scrolled to the newest turn.
 export function History(props: { turns: Turn[]; unspoken: { turn: number; why: string } | null }) {
   const { turns, unspoken } = props;
   const [open, setOpen] = useState(false);
@@ -991,17 +991,16 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number; why: s
     if (open && box.current) box.current.scrollTop = box.current.scrollHeight;
   }, [open, turns]);
 
-  function toggle(e: Event) {
-    e.preventDefault();
+  function toggle() {
     console.info(`Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`);
     setOpen(!open);
   }
 
   return (
     <section className="history">
-      <a href="#" role="button" aria-expanded={open} onClick={toggle}>
+      <button type="button" className="link" aria-expanded={open} onClick={toggle}>
         {open ? "Hide history" : "Show history"}
-      </a>
+      </button>
       {open && (
         <div ref={box} className="history-box" tabIndex={0} aria-label="Conversation history">
           <TurnList turns={turns} unspoken={unspoken} />

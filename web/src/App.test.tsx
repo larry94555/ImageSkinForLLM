@@ -1203,7 +1203,7 @@ test("when the LLM fails, the message says so and the prompt goes back in the bo
   expect(screen.queryByText("Hello?", { selector: "li" })).toBeNull();
 });
 
-// --- Video stays the focus: history closed by default ---
+// --- Video stays the focus: history closed by default (R18a) ---
 
 test("only the latest exchange shows; the history is closed until opened", async () => {
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -1223,6 +1223,8 @@ test("only the latest exchange shows; the history is closed until opened", async
   expect(document.querySelector(".history-box")).toBeNull();
 
   const show = screen.getByRole("button", { name: "Show history" });
+  expect(show.tagName).toBe("BUTTON"); // a real button: Enter and Space both toggle it
+  expect(show.getAttribute("type")).toBe("button");
   expect(show.getAttribute("aria-expanded")).toBe("false");
   fireEvent.click(show);
   const box = screen.getByLabelText("Conversation history");

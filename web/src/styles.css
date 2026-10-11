@@ -202,9 +202,16 @@ ol.turns .note { display: block; margin-top: 6px; font-size: 0.85rem; color: var
 .chat form button { justify-self: start; }
 .chat .prompt { display: grid; gap: 4px; width: 100%; }
 .chat textarea { font: inherit; padding: 8px; width: 100%; resize: vertical; }
-/* The whole conversation, closed by default so the video stays the focus. */
+/* The whole conversation, closed by default so the video stays the focus (roadmap R18a). */
 .history { display: grid; gap: 8px; }
-.history > a { justify-self: start; color: var(--accent); }
+/* A button, so Enter and Space both toggle it, that reads as a link. */
+.history button.link {
+  justify-self: start;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
 .history-box {
   max-height: 40vh;
   overflow-y: auto;

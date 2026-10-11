@@ -1069,16 +1069,15 @@ function History(props) {
 	h(() => {
 		if (open && box.current) box.current.scrollTop = box.current.scrollHeight;
 	}, [open, turns]);
-	function toggle(e) {
-		e.preventDefault();
+	function toggle() {
 		console.info(`Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`);
 		setOpen(!open);
 	}
 	return /* @__PURE__ */ u("section", {
 		className: "history",
-		children: [/* @__PURE__ */ u("a", {
-			href: "#",
-			role: "button",
+		children: [/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "link",
 			"aria-expanded": open,
 			onClick: toggle,
 			children: open ? "Hide history" : "Show history"
