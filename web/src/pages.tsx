@@ -777,6 +777,7 @@ function Chat() {
   const [speaking, setSpeaking] = useState(false);
   const [clips, setClips] = useState<string[]>([]);
   const [times, setTimes] = useState<ClipTime[]>([]); // one per clip of the latest reply
+  const [earlier, setEarlier] = useState<number[]>([]); // the waits of the replies before it
   const [whole, setWhole] = useState(false); // the latest reply is one video, not clips
   // Why the latest reply could not be spoken, by its place in the turns shown.
   const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
@@ -849,6 +850,7 @@ function Chat() {
     setFailed(null);
     setUnspoken(null);
     setClips([]); // the server replaces the last reply's clips or video with this one's
+    setEarlier((e) => [...e, ...clipWaits(times)]);
     setTimes([]);
     setWhole(false);
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
@@ -910,7 +912,7 @@ function Chat() {
   return (
     <div className="chat">
       {clips.length > 0 && <ClipPlayer clips={clips} onStarted={started} onEnded={ended} />}
-      {times.length > 0 && <ClipTimes times={times} whole={whole} />}
+      {times.length > 0 && <ClipTimes times={times} whole={whole} earlier={earlier} />}
       {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
       <ol className="turns">
         {turns.map((turn, i) => (
@@ -961,7 +963,9 @@ function Chat() {
 // Plays a reply's clips one after another, as they arrive (roadmap R22). When it reaches the
 // end of the clips so far, it waits on the last frame for the next one. Two players take turns:
 // while one plays a clip, the other loads the next, so the switch between sentences costs no
-// time (roadmap R22a). `onStarted` and `onEnded` are told when each clip starts and ends.
+// time (roadmap R22a). `onStarted` and `onEnded` are told when each clip starts and ends. There
+// are no controls: the person speaks on their own, as if live. Only if the browser refuses to
+// play with sound (its autoplay rules) is there a button to start them.
 export function ClipPlayer(props: {
   clips: string[];
   onStarted?: (clip: number, at: number) => void;
@@ -971,23 +975,34 @@ export function ClipPlayer(props: {
   const [playing, setPlaying] = useState(0); // the clip to play; clips.length once all have
   const [active, setActive] = useState(0); // which of the two players is showing
   const players = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
+  const [refused, setRefused] = useState(false); // the browser wouldn't play it by itself
   const begun = useRef(new Set<number>()); // clips that have started, told of once each
   const first = clips[0];
-  useEffect(() => {
-    // A new reply starts from its first clip.
-    setPlaying(0);
-    setActive(0);
-    begun.current = new Set();
-  }, [first]);
-  useEffect(() => {
-    // The other player took over with the next clip loaded: it only has to start.
-    const player = players[active].current;
-    if (active === 0 && playing === 0) return; // the first clip plays by itself (autoplay)
+
+  function play(player: HTMLVideoElement | null) {
     try {
-      void player?.play()?.catch(() => undefined); // refused: the controls still play it
+      void player
+        ?.play()
+        ?.then(() => setRefused(false))
+        .catch((e: unknown) => {
+          if (e instanceof DOMException && e.name === "NotAllowedError") setRefused(true);
+        });
     } catch {
       // Not every browser (or test) can play.
     }
+  }
+
+  useEffect(() => {
+    // A new reply starts from its first clip, which plays by itself.
+    setPlaying(0);
+    setActive(0);
+    begun.current = new Set();
+    play(players[0].current);
+  }, [first]);
+  useEffect(() => {
+    // The other player took over with the next clip loaded: it only has to start.
+    if (active === 0 && playing === 0) return; // the first clip is started above
+    play(players[active].current);
   }, [active]);
 
   const current = Math.min(playing, clips.length - 1);
@@ -1017,8 +1032,8 @@ export function ClipPlayer(props: {
             className="reply-video"
             src={clips[current]}
             autoPlay
-            controls
             playsInline
+            disablePictureInPicture
             onPlaying={() => begins(performance.now())}
             onEnded={() => ends(performance.now())}
           />
@@ -1027,6 +1042,11 @@ export function ClipPlayer(props: {
             <video key={n} ref={players[n]} src={next} preload="auto" playsInline hidden />
           )
         ),
+      )}
+      {refused && (
+        <button type="button" className="play-reply" onClick={() => play(players[active].current)}>
+          Play the reply
+        </button>
       )}
     </>
   );
@@ -1037,15 +1057,33 @@ function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
+// How long each clip that has started waited, in milliseconds: from when it could have started
+// (its text arrived, and the clip before it ended) to when it did.
+export function clipWaits(times: ClipTime[]): number[] {
+  return times.flatMap((t, i) => {
+    if (t.started === null) return [];
+    const before = times[i - 1]?.ended ?? null;
+    return [Math.max(0, t.started - Math.max(t.text, before ?? t.text))];
+  });
+}
+
+function average(waits: number[]): number {
+  return waits.reduce((a, b) => a + b, 0) / waits.length;
+}
+
 // How long each clip took to be spoken, against the 1 to 2 second target (roadmap R22a): from
-// its text arriving from the LLM to it playing, and the pause after the clip before it. The
-// first clip is late when its wait after the text passes the target; the others when the pause
-// does, since a clip whose text arrived while the one before it was still playing is on time if
-// it follows straight on. A clip is a sentence, except the first, which is the first sentence's
-// first clause (R22b). A reply spoken in one video has one line.
-export function ClipTimes(props: { times: ClipTime[]; whole?: boolean }) {
-  const { times, whole } = props;
+// its text arriving from the LLM to it playing, and the pause after the clip before it. A clip
+// is late when its wait passes the target: from its text for the first, and from the later of
+// its text and the end of the clip before for the others, since a clip whose text arrived while
+// the one before it was still playing is on time if it follows straight on. Then the average
+// wait, for this reply and, with `earlier` (the waits of the replies before it since the page
+// was opened), for all of them. A clip is a sentence, except the first, which is the first
+// sentence's first clause (R22b). A reply spoken in one video has one line.
+export function ClipTimes(props: { times: ClipTime[]; whole?: boolean; earlier?: number[] }) {
+  const { times, whole, earlier = [] } = props;
   const limit = 2000;
+  const waits = clipWaits(times);
+  const all = [...earlier, ...waits];
   return (
     <div className="timing">
       <span>Timing (target 1 to 2 s)</span>
@@ -1056,7 +1094,8 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean }) {
           const after = t.started - t.text;
           const before = times[i - 1];
           const pause = before?.ended === null || before === undefined ? null : Math.max(0, t.started - before.ended);
-          const late = (pause === null ? after : pause) > limit;
+          const wait = Math.max(0, t.started - Math.max(t.text, before?.ended ?? t.text));
+          const late = wait > limit;
           return (
             <li key={i} className={late ? "late" : undefined}>
               {name}: spoken {seconds(after)} after its text arrived
@@ -1065,6 +1104,14 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean }) {
           );
         })}
       </ol>
+      {waits.length > 0 && (
+        <p className={average(waits) > limit ? "average late" : "average"}>
+          Average wait: {seconds(average(waits))} over {waits.length}{" "}
+          {waits.length === 1 ? "clip" : "clips"} of this reply
+          {earlier.length > 0 &&
+            `; ${seconds(average(all))} over ${all.length} clips since the page was opened`}
+        </p>
+      )}
     </div>
   );
 }

@@ -841,6 +841,7 @@ function Chat() {
 	const [speaking, setSpeaking] = d(false);
 	const [clips, setClips] = d([]);
 	const [times, setTimes] = d([]);
+	const [earlier, setEarlier] = d([]);
 	const [whole, setWhole] = d(false);
 	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
@@ -909,6 +910,7 @@ function Chat() {
 		setFailed(null);
 		setUnspoken(null);
 		setClips([]);
+		setEarlier((e) => [...e, ...clipWaits(times)]);
 		setTimes([]);
 		setWhole(false);
 		setTurns((t) => [...t ?? [], {
@@ -984,7 +986,8 @@ function Chat() {
 			}),
 			times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
 				times,
-				whole
+				whole,
+				earlier
 			}),
 			turns.length === 0 && /* @__PURE__ */ u("p", {
 				className: "muted",
@@ -1052,19 +1055,25 @@ function ClipPlayer(props) {
 	const [playing, setPlaying] = d(0);
 	const [active, setActive] = d(0);
 	const players = [A(null), A(null)];
+	const [refused, setRefused] = d(false);
 	const begun = A(/* @__PURE__ */ new Set());
 	const first = clips[0];
+	function play(player) {
+		try {
+			player?.play()?.then(() => setRefused(false)).catch((e) => {
+				if (e instanceof DOMException && e.name === "NotAllowedError") setRefused(true);
+			});
+		} catch {}
+	}
 	h(() => {
 		setPlaying(0);
 		setActive(0);
 		begun.current = /* @__PURE__ */ new Set();
+		play(players[0].current);
 	}, [first]);
 	h(() => {
-		const player = players[active].current;
 		if (active === 0 && playing === 0) return;
-		try {
-			player?.play()?.catch(() => void 0);
-		} catch {}
+		play(players[active].current);
 	}, [active]);
 	const current = Math.min(playing, clips.length - 1);
 	const next = clips[current + 1];
@@ -1080,13 +1089,13 @@ function ClipPlayer(props) {
 		if (next !== void 0) setActive((a) => 1 - a);
 		setPlaying(playing + 1);
 	}
-	return /* @__PURE__ */ u(S, { children: [0, 1].map((n) => n === active ? /* @__PURE__ */ u("video", {
+	return /* @__PURE__ */ u(S, { children: [[0, 1].map((n) => n === active ? /* @__PURE__ */ u("video", {
 		ref: players[n],
 		className: "reply-video",
 		src: clips[current],
 		autoPlay: true,
-		controls: true,
 		playsInline: true,
+		disablePictureInPicture: true,
 		onPlaying: () => begins(performance.now()),
 		onEnded: () => ends(performance.now())
 	}, n) : next !== void 0 && /* @__PURE__ */ u("video", {
@@ -1095,33 +1104,67 @@ function ClipPlayer(props) {
 		preload: "auto",
 		playsInline: true,
 		hidden: true
-	}, n)) });
+	}, n)), refused && /* @__PURE__ */ u("button", {
+		type: "button",
+		className: "play-reply",
+		onClick: () => play(players[active].current),
+		children: "Play the reply"
+	})] });
 }
 function seconds(ms) {
 	return `${(ms / 1e3).toFixed(1)} s`;
 }
+function clipWaits(times) {
+	return times.flatMap((t, i) => {
+		if (t.started === null) return [];
+		const before = times[i - 1]?.ended ?? null;
+		return [Math.max(0, t.started - Math.max(t.text, before ?? t.text))];
+	});
+}
+function average(waits) {
+	return waits.reduce((a, b) => a + b, 0) / waits.length;
+}
 function ClipTimes(props) {
-	const { times, whole } = props;
+	const { times, whole, earlier = [] } = props;
 	const limit = 2e3;
+	const waits = clipWaits(times);
+	const all = [...earlier, ...waits];
 	return /* @__PURE__ */ u("div", {
 		className: "timing",
-		children: [/* @__PURE__ */ u("span", { children: "Timing (target 1 to 2 s)" }), /* @__PURE__ */ u("ol", { children: times.map((t, i) => {
-			const name = whole ? "Reply" : `Clip ${i + 1}`;
-			if (t.started === null) return /* @__PURE__ */ u("li", { children: [name, ": not spoken yet"] }, i);
-			const after = t.started - t.text;
-			const before = times[i - 1];
-			const pause = before?.ended === null || before === void 0 ? null : Math.max(0, t.started - before.ended);
-			return /* @__PURE__ */ u("li", {
-				className: (pause === null ? after : pause) > limit ? "late" : void 0,
+		children: [
+			/* @__PURE__ */ u("span", { children: "Timing (target 1 to 2 s)" }),
+			/* @__PURE__ */ u("ol", { children: times.map((t, i) => {
+				const name = whole ? "Reply" : `Clip ${i + 1}`;
+				if (t.started === null) return /* @__PURE__ */ u("li", { children: [name, ": not spoken yet"] }, i);
+				const after = t.started - t.text;
+				const before = times[i - 1];
+				const pause = before?.ended === null || before === void 0 ? null : Math.max(0, t.started - before.ended);
+				const late = Math.max(0, t.started - Math.max(t.text, before?.ended ?? t.text)) > limit;
+				return /* @__PURE__ */ u("li", {
+					className: late ? "late" : void 0,
+					children: [
+						name,
+						": spoken ",
+						seconds(after),
+						" after its text arrived",
+						pause !== null && `, ${seconds(pause)} after clip ${i} ended`
+					]
+				}, i);
+			}) }),
+			waits.length > 0 && /* @__PURE__ */ u("p", {
+				className: average(waits) > limit ? "average late" : "average",
 				children: [
-					name,
-					": spoken ",
-					seconds(after),
-					" after its text arrived",
-					pause !== null && `, ${seconds(pause)} after clip ${i} ended`
+					"Average wait: ",
+					seconds(average(waits)),
+					" over ",
+					waits.length,
+					" ",
+					waits.length === 1 ? "clip" : "clips",
+					" of this reply",
+					earlier.length > 0 && `; ${seconds(average(all))} over ${all.length} clips since the page was opened`
 				]
-			}, i);
-		}) })]
+			})
+		]
 	});
 }
 function StepState(props) {
