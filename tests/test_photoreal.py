@@ -28,6 +28,7 @@ from imageskin.photoreal import (
     audio_seed,
     reach,
     read_shapes,
+    settled,
 )
 from imageskin.photoreal_library import build_library, load_library, mouth_mask
 from imageskin.video import VideoError, read_pcm16
@@ -250,3 +251,14 @@ def test_idle_video_rests_blinks_and_loops(
     video.release()
     assert frames == n
     assert "Rendered idle video" in caplog.messages
+
+
+def test_the_voices_movement_settles_at_each_end_of_a_clip() -> None:
+    """R23: every clip starts and ends in the idle pose, so clips join without a jump."""
+    move = FrameMotion(1.0, 2.0, 3.0, 4.0, 5.0)
+    n = 30
+    assert settled(move, 0, n) == FrameMotion() and settled(move, n - 1, n) == FrameMotion()
+    ramp = [settled(move, i, n).tilt for i in range(6)]
+    assert ramp == sorted(ramp) and 0 < ramp[1] < ramp[4] < 4.0
+    assert settled(move, 5, n) is move and settled(move, n - 6, n) is move
+    assert settled(move, 2, n) == settled(move, n - 3, n)  # the same easing at both ends

@@ -63,6 +63,18 @@ DEFAULT_TIMEOUT_S = 300.0
 # loop, so its blinks repeat only that seldom while the head's drift still loops smoothly.
 IDLE_LOOPS = 3
 IDLE_SEED = 23  # its blinks: the same for every photo, as nothing is spoken to seed them
+# The voice's movement of the head and brows eases in over this many frames at the start of a
+# clip and out at its end, so every clip starts and ends in the idle pose (roadmap R23).
+SETTLE_FRAMES = 5
+
+
+def settled(move: FrameMotion, i: int, n_frames: int) -> FrameMotion:
+    """`move` in frame `i` of `n_frames`, eased to none at the first and last frames."""
+    edge = min(i, n_frames - 1 - i) / SETTLE_FRAMES
+    if edge >= 1.0:
+        return move
+    k = edge * edge * (3.0 - 2.0 * edge)  # smoothstep: no sudden start to the easing
+    return FrameMotion(*(k * v for v in move))
 
 
 class ShapeMorph:
@@ -280,8 +292,9 @@ class PhotorealEngine:
     ) -> float:
         """Render the speech in `wav` on the library's photo into `output`; `progressive` for an
         MP4 that can be played while it is written (roadmap R22d). The head moves through the
-        idle loop from frame `start_frame`, so a clip that starts where the one before it ended
-        joins it without a jump (roadmap R23). Returns the video's seconds."""
+        idle loop from frame `start_frame`, and the voice's movement settles at each end, so a
+        clip that starts where the one before it ended joins it without a jump (roadmap R23).
+        Returns the video's seconds."""
         start = time.perf_counter()
         samples, rate = read_pcm16(wav)
         seconds = len(samples) / rate
@@ -293,7 +306,8 @@ class PhotorealEngine:
 
         def frames() -> Iterator[bytes]:
             for i, w in enumerate(weights):
-                yield compositor.frame(w, start_frame + i, eyes[i], moves.at(i)).tobytes()
+                move = settled(moves.at(i), i, n_frames)
+                yield compositor.frame(w, start_frame + i, eyes[i], move).tobytes()
 
         h, w = lib.photo.shape[:2]
         write_mp4(
