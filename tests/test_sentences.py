@@ -108,58 +108,70 @@ FIRST_CLAUSE_CASES = [
         ["He led the movement", "because he had to.", "Next."],
     ),
     ('She said "yes, we can" and left. Next.', ['She said "yes,', 'we can" and left.', "Next."]),
-    # After eight words when there is no clause, but not on a word that leads into the next.
+    # After five words when there is no clause (R22e), but not on a word that leads into the
+    # next: then on the last word before it that doesn't lead into the next...
+    (
+        "One two three four five six seven of the big old house. Next.",
+        ["One two three four five", "six seven of the big old house.", "Next."],
+    ),
     (
         "Martin Luther King Jr. was a really important leader in the Civil Rights Movement. Next.",
         [
-            "Martin Luther King Jr. was a really important",
-            "leader in the Civil Rights Movement.",
+            "Martin Luther King Jr.",
+            "was a really important leader in the Civil Rights Movement.",
             "Next.",
         ],
     ),
     (
-        "One two three four five six seven of the big old house. Next.",
-        ["One two three four five six seven of the big", "old house.", "Next."],
+        "He said yes (quickly) the big old house. Next.",
+        ["He said yes (quickly)", "the big old house.", "Next."],
     ),
-    (  # twelve words at most, whatever the twelfth is
-        "One two three four five six seven of the in the of cat. Next.",
-        ["One two three four five six seven of the in the of", "cat.", "Next."],
+    # ...or, when every word so far leads into the next, on the first after that doesn't.
+    ("The of the in the big old house. Next.", ["The of the in the big", "old house.", "Next."]),
+    (  # eight words at most, whatever the eighth is
+        "The of the in the of a the an cat. Next.",
+        ["The of the in the of a the", "an cat.", "Next."],
     ),
     # A short first sentence, or one that ends before a clause, is kept whole.
     ("Hello there, Larry.", ["Hello there, Larry."]),
     ("I am fine. And you, Larry, how are you?", ["I am fine.", "And you, Larry, how are you?"]),
-    ("One two three four five six seven eight.", ["One two three four five six seven eight."]),
+    ("One two three four five.", ["One two three four five."]),
+    ("One two three four five six.", ["One two three four five six."]),
+    ("The capital of France is Paris.", ["The capital of France is Paris."]),
+    ("One two three four five", ["One two three four five"]),
     # Only the first sentence is cut; a comma inside inline code isn't a clause.
     (
         "Use `a, b, c` now, please. Then, go on, and stop.",
         ["Use `a, b, c` now,", "please.", "Then, go on, and stop."],
     ),
+    # Looking back for a word to end on skips code and dashes too.
+    (
+        "Try `x, y` is the a big old house. Next.",
+        ["Try `x, y` is the a big", "old house.", "Next."],
+    ),
+    ("He was – the of old house now. Next.", ["He was – the of old", "house now.", "Next."]),
     ("Steps:\n1. First, do this\n2. Then, that", ["Steps:", "1. First, do this", "2. Then, that"]),
     # Nor is a picture, link or HTML tag, which speech_text replaces whole: the clause ends
-    # after it instead (a review finding on R22b).
+    # after it instead (a review finding on R22b), or the sentence stays whole when that would
+    # pass eight words.
+    (
+        "Please see ![a detailed diagram of it](d.png) before we go on. Next.",
+        ["Please see ![a detailed diagram of it](d.png)", "before we go on.", "Next."],
+    ),
+    (
+        "Read [the long guide to it](https://a.io/g) first and then go. Next.",
+        ["Read [the long guide to it](https://a.io/g)", "first and then go.", "Next."],
+    ),
+    (
+        'One two <span class="a b c"> three four five six. Next.',
+        ['One two <span class="a b c">', "three four five six.", "Next."],
+    ),
     (
         "Please see ![a very detailed diagram showing the entire architecture clearly]"
         "(diagram.png) before continuing. Next.",
         [
             "Please see ![a very detailed diagram showing the entire architecture clearly]"
-            "(diagram.png)",
-            "before continuing.",
-            "Next.",
-        ],
-    ),
-    (
-        "Read [the long guide to the whole setup, step by step](https://a.io/guide) first. Next.",
-        [
-            "Read [the long guide to the whole setup, step by step](https://a.io/guide)",
-            "first.",
-            "Next.",
-        ],
-    ),
-    (
-        'One two <span class="note big" title="a b c d e f g"> three four five six. Next.',
-        [
-            'One two <span class="note big" title="a b c d e f g">',
-            "three four five six.",
+            "(diagram.png) before continuing.",
             "Next.",
         ],
     ),
@@ -201,3 +213,10 @@ def test_the_first_clause_waits_for_the_next_word() -> None:
     assert splitter.feed(" ") == []
     assert splitter.feed("how") == ["Well now Larry,"]
     assert splitter.flush() == ["how"]
+
+
+def test_a_cut_by_word_count_waits_for_the_word_after_the_next() -> None:
+    splitter = SentenceSplitter(first_clause=True)
+    assert splitter.feed("One two three four five six") == []  # the sentence may end on "six"
+    assert splitter.feed(" s") == ["One two three four five"]
+    assert splitter.flush() == ["six s"]

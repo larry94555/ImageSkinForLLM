@@ -186,6 +186,8 @@ ol.turns .who { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
 .timing { font-size: 0.85rem; color: var(--muted); }
 .timing ol { margin: 2px 0 0; padding-left: 1.4em; }
 .timing .late { color: var(--error); }
+.timing .average { margin: 4px 0 0; font-weight: 600; }
+.play-reply { margin-top: 6px; }
 ol.turns .note { display: block; margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
 .chat form button { justify-self: start; }
 .chat .prompt { display: grid; gap: 4px; width: 100%; }

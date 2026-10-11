@@ -11,7 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
-import { ClipPlayer, type ClipTime, ClipTimes, duration, minutes } from "./pages";
+import { ClipPlayer, type ClipTime, ClipTimes, clipWaits, duration, minutes } from "./pages";
 
 const IDLE: PrepareStatus = {
   state: "idle",
@@ -1458,19 +1458,54 @@ test("clips play in order when they arrive faster than they play", () => {
   expect(videos[1].getAttribute("src")).toBe("/b");
   expect(videos[1].getAttribute("preload")).toBe("auto");
   expect(videos[1].hidden).toBe(true);
-  expect(play).not.toHaveBeenCalled(); // the first clip plays by itself
+  expect(play).toHaveBeenCalledTimes(1); // the first clip is started as it arrives
+  expect(shownVideo().controls).toBe(false); // no controls: the person speaks by themselves
   fireEvent.ended(shownVideo());
   expect(shownVideo()).toBe(videos[1]); // takes over, and the first loads the one after
   expect(shownVideo().getAttribute("src")).toBe("/b");
   expect(videos[0].getAttribute("src")).toBe("/c");
   expect(videos[0].hidden).toBe(true);
-  expect(play).toHaveBeenCalledTimes(1);
+  expect(play).toHaveBeenCalledTimes(2);
   fireEvent.ended(shownVideo());
   expect(shownVideo()).toBe(videos[0]);
   expect(shownVideo().getAttribute("src")).toBe("/c");
   expect(container.querySelectorAll("video")).toHaveLength(1); // nothing more to load yet
   rerender(<ClipPlayer clips={["/d"]} />); // the next reply starts from its first clip
   expect(shownVideo().getAttribute("src")).toBe("/d");
+});
+
+test("a reply the browser won't play by itself gets a button to start it", async () => {
+  const refused = new DOMException("needs a click first", "NotAllowedError");
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValueOnce(refused);
+  play.mockResolvedValue(undefined);
+  render(<ClipPlayer clips={["/a"]} />);
+  const button = await screen.findByRole("button", { name: "Play the reply" });
+  fireEvent.click(button);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull());
+  expect(play).toHaveBeenCalledTimes(2);
+});
+
+test("a clip that arrives after the one before ended still gets the button if refused", async () => {
+  const refused = new DOMException("needs a click first", "NotAllowedError");
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const { rerender } = render(<ClipPlayer clips={["/a"]} />);
+  expect(play).toHaveBeenCalledTimes(1);
+  fireEvent.ended(shownVideo()); // played every clip so far: waits on the last frame
+  play.mockRejectedValueOnce(refused);
+  rerender(<ClipPlayer clips={["/a", "/b"]} />); // the next arrives in the same player
+  expect(shownVideo().getAttribute("src")).toBe("/b");
+  expect(play).toHaveBeenCalledTimes(2); // started here, not left to autoplay alone
+  const button = await screen.findByRole("button", { name: "Play the reply" });
+  fireEvent.click(button);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull());
+  expect(play).toHaveBeenCalledTimes(3);
+});
+
+test("a clip that fails to play for another reason gets no button", async () => {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(new Error("no source"));
+  render(<ClipPlayer clips={["/a"]} />);
+  await Promise.resolve();
+  expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull();
 });
 
 test("the player says when each clip starts and ends, once each", () => {
@@ -1515,11 +1550,33 @@ test("the timing readout shows each sentence against the target", () => {
   // The first clip is judged by its wait after the text, the others by the pause before them.
   expect(rows.map((r) => r.className)).toEqual(["", "", "late", "late", ""]);
   expect(container.textContent).toContain("Timing (target 1 to 2 s)");
+  // The average of the waits: 1.26, 0.3, 2.4 and 2.1 s.
+  const average = container.querySelector(".average") as HTMLElement;
+  expect(average.textContent).toBe("Average wait: 1.5 s over 4 clips of this reply");
+  expect(average.className).toBe("average");
+  // With the replies before it since the page was opened: (6.06 + 3 + 3) / 6 = 2.0 s.
+  const since = render(<ClipTimes times={times} earlier={[3000, 3000]} />);
+  expect(since.container.querySelector(".average")?.textContent).toBe(
+    "Average wait: 1.5 s over 4 clips of this reply; 2.0 s over 6 clips since the page was opened",
+  );
   // A reply spoken in one video (not streamed) is one line.
   const whole = render(
     <ClipTimes times={[{ text: 0, ready: 6000, started: 7200, ended: null }]} whole />,
   );
   expect(whole.container.textContent).toContain("Reply: spoken 7.2 s after its text arrived");
+  const slow = whole.container.querySelectorAll(".average")[0] as HTMLElement;
+  expect(slow.textContent).toBe("Average wait: 7.2 s over 1 clip of this reply");
+  expect(slow.className).toBe("average late");
+});
+
+test("a clip whose text came after the one before ended waits from its text", () => {
+  const times: ClipTime[] = [
+    { text: 0, ready: 900, started: 1000, ended: 3000 },
+    { text: 4000, ready: 5000, started: 5500, ended: null }, // 2.5 s after clip 1, 1.5 s after its text
+  ];
+  expect(clipWaits(times)).toEqual([1000, 1500]);
+  const { container } = render(<ClipTimes times={times} />);
+  expect(Array.from(container.querySelectorAll("li")).map((r) => r.className)).toEqual(["", ""]);
 });
 
 test("the chat shows how long each sentence took once it plays", async () => {
