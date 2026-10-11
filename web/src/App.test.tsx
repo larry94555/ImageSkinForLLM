@@ -1485,6 +1485,22 @@ test("a reply the browser won't play by itself gets a button to start it", async
   expect(play).toHaveBeenCalledTimes(2);
 });
 
+test("a clip that arrives after the one before ended still gets the button if refused", async () => {
+  const refused = new DOMException("needs a click first", "NotAllowedError");
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const { rerender } = render(<ClipPlayer clips={["/a"]} />);
+  expect(play).toHaveBeenCalledTimes(1);
+  fireEvent.ended(shownVideo()); // played every clip so far: waits on the last frame
+  play.mockRejectedValueOnce(refused);
+  rerender(<ClipPlayer clips={["/a", "/b"]} />); // the next arrives in the same player
+  expect(shownVideo().getAttribute("src")).toBe("/b");
+  expect(play).toHaveBeenCalledTimes(2); // started here, not left to autoplay alone
+  const button = await screen.findByRole("button", { name: "Play the reply" });
+  fireEvent.click(button);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull());
+  expect(play).toHaveBeenCalledTimes(3);
+});
+
 test("a clip that fails to play for another reason gets no button", async () => {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(new Error("no source"));
   render(<ClipPlayer clips={["/a"]} />);

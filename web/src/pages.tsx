@@ -999,14 +999,16 @@ export function ClipPlayer(props: {
     begun.current = new Set();
     play(players[0].current);
   }, [first]);
-  useEffect(() => {
-    // The other player took over with the next clip loaded: it only has to start.
-    if (active === 0 && playing === 0) return; // the first clip is started above
-    play(players[active].current);
-  }, [active]);
-
   const current = Math.min(playing, clips.length - 1);
+  const shown = clips[current];
   const next = clips[current + 1];
+  useEffect(() => {
+    // The next clip is showing: the other player took over with it loaded, or, when playing
+    // caught up with the clips, it arrived in the same player after the last one ended. Either
+    // way it is started here, so a refusal shows the button.
+    if (shown === first) return; // the first clip is started above
+    play(players[active].current);
+  }, [active, shown]);
 
   function begins(at: number) {
     if (playing < clips.length && !begun.current.has(playing)) {
@@ -1030,7 +1032,7 @@ export function ClipPlayer(props: {
             key={n}
             ref={players[n]}
             className="reply-video"
-            src={clips[current]}
+            src={shown}
             autoPlay
             playsInline
             disablePictureInPicture
