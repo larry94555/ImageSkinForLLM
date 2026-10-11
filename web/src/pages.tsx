@@ -782,7 +782,6 @@ function Chat() {
   // Why the latest reply could not be spoken, by its place in the turns shown.
   const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  const end = useRef<HTMLDivElement>(null);
   const gone = useRef(false); // the page was left: stop following clips
 
   useEffect(
@@ -800,7 +799,6 @@ function Chat() {
         setFailed("Could not load the conversation. Reload the page to try again.");
       });
   }, []);
-  useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [turns, sending, speaking]);
 
   // Follow the reply's clips until the last one is made, or until the server has none to tell
   // of once the reply is in: it wasn't streamed, or a newer prompt (from another tab, say) took
@@ -914,19 +912,7 @@ function Chat() {
       {clips.length > 0 && <ClipPlayer clips={clips} onStarted={started} onEnded={ended} />}
       {times.length > 0 && <ClipTimes times={times} whole={whole} earlier={earlier} />}
       {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
-      <ol className="turns">
-        {turns.map((turn, i) => (
-          <li key={i} className={turn.role}>
-            <span className="who">{turn.role === "user" ? "You" : "Reply"}</span>
-            {turn.content}
-            {unspoken?.turn === i && (
-              <span className="note">
-                I couldn&apos;t say this one aloud, so here it is as text. {unspoken.why}
-              </span>
-            )}
-          </li>
-        ))}
-      </ol>
+      <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
       {sending && <p className="muted busy">Thinking…</p>}
       {speaking && <p className="muted busy">Getting ready to say it…</p>}
       {failed && <p className="error">{failed}</p>}
@@ -955,8 +941,72 @@ function Chat() {
           Send
         </button>
       </form>
-      <div ref={end} />
+      {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
     </div>
+  );
+}
+
+// Where the latest exchange starts: the last prompt, with the reply after it if there is one.
+export function latestExchange(turns: Turn[]): number {
+  for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === "user") return i;
+  return Math.max(turns.length - 1, 0);
+}
+
+// The turns from `from` on, numbered by their place in the whole conversation so a note on a
+// reply that couldn't be spoken stays with it.
+function TurnList(props: {
+  turns: Turn[];
+  from?: number;
+  unspoken: { turn: number; why: string } | null;
+}) {
+  const { turns, from = 0, unspoken } = props;
+  return (
+    <ol className="turns">
+      {turns.slice(from).map((turn, k) => {
+        const i = from + k;
+        return (
+          <li key={i} className={turn.role}>
+            <span className="who">{turn.role === "user" ? "You" : "Reply"}</span>
+            {turn.content}
+            {unspoken?.turn === i && (
+              <span className="note">
+                I couldn&apos;t say this one aloud, so here it is as text. {unspoken.why}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// The whole conversation, both the prompts and the replies, closed on every page load so the
+// video stays the focus (roadmap R18a; R18 adds a search box). Opened, it is a box of limited
+// height with its own scrollbar, kept scrolled to the newest turn.
+export function History(props: { turns: Turn[]; unspoken: { turn: number; why: string } | null }) {
+  const { turns, unspoken } = props;
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open && box.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [open, turns]);
+
+  function toggle() {
+    console.info(`Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`);
+    setOpen(!open);
+  }
+
+  return (
+    <section className="history">
+      <button type="button" className="link" aria-expanded={open} onClick={toggle}>
+        {open ? "Hide history" : "Show history"}
+      </button>
+      {open && (
+        <div ref={box} className="history-box" tabIndex={0} aria-label="Conversation history">
+          <TurnList turns={turns} unspoken={unspoken} />
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -845,7 +845,6 @@ function Chat() {
 	const [whole, setWhole] = d(false);
 	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
-	const end = A(null);
 	const gone = A(false);
 	h(() => () => {
 		gone.current = true;
@@ -857,11 +856,6 @@ function Chat() {
 			setFailed("Could not load the conversation. Reload the page to try again.");
 		});
 	}, []);
-	h(() => end.current?.scrollIntoView?.({ block: "end" }), [
-		turns,
-		sending,
-		speaking
-	]);
 	async function followClips(replyId, replied) {
 		let known = 0;
 		while (!gone.current) {
@@ -993,22 +987,10 @@ function Chat() {
 				className: "muted",
 				children: "Say hello to start the conversation."
 			}),
-			/* @__PURE__ */ u("ol", {
-				className: "turns",
-				children: turns.map((turn, i) => /* @__PURE__ */ u("li", {
-					className: turn.role,
-					children: [
-						/* @__PURE__ */ u("span", {
-							className: "who",
-							children: turn.role === "user" ? "You" : "Reply"
-						}),
-						turn.content,
-						unspoken?.turn === i && /* @__PURE__ */ u("span", {
-							className: "note",
-							children: ["I couldn't say this one aloud, so here it is as text. ", unspoken.why]
-						})
-					]
-				}, i))
+			/* @__PURE__ */ u(TurnList, {
+				turns,
+				from: latestExchange(turns),
+				unspoken
 			}),
 			sending && /* @__PURE__ */ u("p", {
 				className: "muted busy",
@@ -1046,8 +1028,69 @@ function Chat() {
 					children: "Send"
 				})]
 			}),
-			/* @__PURE__ */ u("div", { ref: end })
+			turns.length > 0 && /* @__PURE__ */ u(History, {
+				turns,
+				unspoken
+			})
 		]
+	});
+}
+function latestExchange(turns) {
+	for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === "user") return i;
+	return Math.max(turns.length - 1, 0);
+}
+function TurnList(props) {
+	const { turns, from = 0, unspoken } = props;
+	return /* @__PURE__ */ u("ol", {
+		className: "turns",
+		children: turns.slice(from).map((turn, k) => {
+			const i = from + k;
+			return /* @__PURE__ */ u("li", {
+				className: turn.role,
+				children: [
+					/* @__PURE__ */ u("span", {
+						className: "who",
+						children: turn.role === "user" ? "You" : "Reply"
+					}),
+					turn.content,
+					unspoken?.turn === i && /* @__PURE__ */ u("span", {
+						className: "note",
+						children: ["I couldn't say this one aloud, so here it is as text. ", unspoken.why]
+					})
+				]
+			}, i);
+		})
+	});
+}
+function History(props) {
+	const { turns, unspoken } = props;
+	const [open, setOpen] = d(false);
+	const box = A(null);
+	h(() => {
+		if (open && box.current) box.current.scrollTop = box.current.scrollHeight;
+	}, [open, turns]);
+	function toggle() {
+		console.info(`Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`);
+		setOpen(!open);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "history",
+		children: [/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "link",
+			"aria-expanded": open,
+			onClick: toggle,
+			children: open ? "Hide history" : "Show history"
+		}), open && /* @__PURE__ */ u("div", {
+			ref: box,
+			className: "history-box",
+			tabIndex: 0,
+			"aria-label": "Conversation history",
+			children: /* @__PURE__ */ u(TurnList, {
+				turns,
+				unspoken
+			})
+		})]
 	});
 }
 function ClipPlayer(props) {
