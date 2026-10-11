@@ -23,6 +23,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.cores import CoreShare
 from imageskin.prepare_job import (
+    REPLY_SIDE,
     ClipName,
     ClipSteps,
     PrepareError,
@@ -271,8 +272,12 @@ def create_app(
     )
     # The voice is prepared again for replies after the server restarts (roadmap R17).
     voice_ready = VoiceReady(prepare_voice or voice_step, lambda: job.voice_id())
+    # The sample keeps the photo's own size and reply clips are scaled down (roadmap R22c).
+    # Each has its own engine, so a prepare and a reply never share one.
     steps = clip_steps or photoreal_steps(data_home, voice_engine, voice)
     render = render_clip or steps_clip(steps)
+    reply_steps = clip_steps or photoreal_steps(data_home, voice_engine, voice, max_side=REPLY_SIDE)
+    reply_render = render_clip or steps_clip(reply_steps)
     job = PrepareJob(
         data_home,
         store,
@@ -373,9 +378,9 @@ def create_app(
     # does both in its video step.
     replies = ReplyVideos(
         data_home,
-        render,
+        reply_render,
         voice_ready,
-        clip_steps or (None if render_clip else steps),
+        clip_steps or (None if render_clip else reply_steps),
         before_engines=core_share.apply_here,
     )
     # The latest streamed reply's clips, rendered sentence by sentence (roadmap R21), by its id.
