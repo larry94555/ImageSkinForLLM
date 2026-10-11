@@ -1033,14 +1033,17 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number; why: s
   const [current, setCurrent] = useState(0);
   const box = useRef<HTMLDivElement>(null);
   const total = query.trim() ? countMatches(turns, query) : 0;
+  // The match shown as current, kept in range when the conversation shrinks under it (a prompt
+  // taken back when the LLM fails).
+  const active = Math.min(current, Math.max(total - 1, 0));
   useEffect(() => {
     if (open && box.current) box.current.scrollTop = box.current.scrollHeight;
   }, [open, turns]);
   useEffect(() => {
     if (total === 0) return;
-    const mark = box.current?.querySelector(`mark[data-match="${current}"]`);
+    const mark = box.current?.querySelector(`mark[data-match="${active}"]`);
     mark?.scrollIntoView?.({ block: "nearest" });
-  }, [open, query, current, total]);
+  }, [open, query, active, total]);
 
   function toggle() {
     console.info(`Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`);
@@ -1061,7 +1064,7 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number; why: s
 
   // Steps to the next match, or back with -1, wrapping round at either end.
   function step(by: number) {
-    if (total > 0) setCurrent((current + by + total) % total);
+    if (total > 0) setCurrent((active + by + total) % total);
   }
 
   return (
@@ -1093,12 +1096,12 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number; why: s
             </button>
             {query.trim() && (
               <span className="muted" aria-live="polite">
-                {total === 0 ? "No matches" : `${current + 1} of ${total}`}
+                {total === 0 ? "No matches" : `${active + 1} of ${total}`}
               </span>
             )}
           </div>
           <div ref={box} className="history-box" tabIndex={0} aria-label="Conversation history">
-            <TurnList turns={turns} unspoken={unspoken} search={{ query, current }} />
+            <TurnList turns={turns} unspoken={unspoken} search={{ query, current: active }} />
           </div>
         </>
       )}

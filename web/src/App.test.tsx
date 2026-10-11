@@ -1319,6 +1319,39 @@ test("a search marks every match and steps through them", async () => {
   info.mockRestore();
 });
 
+test("the current match stays valid when a failed prompt is taken back", async () => {
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  const [answer, reply] = later();
+  chatServer(
+    [
+      { role: "user", content: "Where is Paris?" },
+      { role: "assistant", content: "Paris is in France." },
+    ],
+    answer,
+  );
+  await openAt("#/chat");
+  await screen.findByText("Paris is in France.");
+  fireEvent.click(screen.getByRole("button", { name: "Show history" }));
+  fireEvent.input(screen.getByLabelText("Search the history"), { target: { value: "paris" } });
+  fireEvent.input(promptBox(), { target: { value: "More about Paris?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  // The prompt is in the history while the LLM answers, and its match is chosen.
+  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  expect(screen.getByText("3 of 3")).toBeTruthy();
+  await act(async () => {
+    reply(Response.json({ detail: "The LLM failed." }, { status: 502 }));
+  });
+  expect(await screen.findByText("The LLM failed.")).toBeTruthy();
+  expect(screen.getByText("2 of 2")).toBeTruthy();
+  const box = screen.getByLabelText("Conversation history");
+  expect(box.querySelector("mark.current")?.getAttribute("data-match")).toBe("1");
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  expect(screen.getByText("1 of 2")).toBeTruthy();
+  vi.restoreAllMocks();
+});
+
 test("matches are found ignoring case and kept as written", () => {
   expect(splitMatches("Paris, paris and PARIS", "paris")).toEqual([
     "",

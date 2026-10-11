@@ -1098,16 +1098,17 @@ function History(props) {
 	const [current, setCurrent] = d(0);
 	const box = A(null);
 	const total = query.trim() ? countMatches(turns, query) : 0;
+	const active = Math.min(current, Math.max(total - 1, 0));
 	h(() => {
 		if (open && box.current) box.current.scrollTop = box.current.scrollHeight;
 	}, [open, turns]);
 	h(() => {
 		if (total === 0) return;
-		(box.current?.querySelector(`mark[data-match="${current}"]`))?.scrollIntoView?.({ block: "nearest" });
+		(box.current?.querySelector(`mark[data-match="${active}"]`))?.scrollIntoView?.({ block: "nearest" });
 	}, [
 		open,
 		query,
-		current,
+		active,
 		total
 	]);
 	function toggle() {
@@ -1126,7 +1127,7 @@ function History(props) {
 		}
 	}
 	function step(by) {
-		if (total > 0) setCurrent((current + by + total) % total);
+		if (total > 0) setCurrent((active + by + total) % total);
 	}
 	return /* @__PURE__ */ u("section", {
 		className: "history",
@@ -1168,7 +1169,7 @@ function History(props) {
 				query.trim() && /* @__PURE__ */ u("span", {
 					className: "muted",
 					"aria-live": "polite",
-					children: total === 0 ? "No matches" : `${current + 1} of ${total}`
+					children: total === 0 ? "No matches" : `${active + 1} of ${total}`
 				})
 			]
 		}), /* @__PURE__ */ u("div", {
@@ -1181,7 +1182,7 @@ function History(props) {
 				unspoken,
 				search: {
 					query,
-					current
+					current: active
 				}
 			})
 		})] })]
