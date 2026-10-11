@@ -467,9 +467,7 @@ def clip_voice(
     return cloned_voice(engine, voice_sample, accent), engine, str(voice_sample), kind
 
 
-def accent_engine(
-    clone: "ChatterboxEngine", kind: str, speakers: "SpeakerChecker"
-) -> AccentEngine:
+def accent_engine(clone: "ChatterboxEngine", kind: str, speakers: "SpeakerChecker") -> AccentEngine:
     """The clone, with Kokoro, Chatterbox's converter and the app's speaker model (shared with the
     one-speaker check) for other accents. Each is loaded only when another accent is first used.
     The converter shares Chatterbox's model with the clone, or loads it when Pocket TTS clones.
