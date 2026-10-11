@@ -673,9 +673,8 @@ def test_the_accent_engine_shares_the_clone_and_the_speaker_model() -> None:
     from imageskin.prepare_job import accent_engine
 
     clone, speakers = MagicMock(), MagicMock()
-    clone.name = "Chatterbox Turbo"
     with patch("imageskin.chatterbox_engine.TurboConverter") as converter:
-        engine = accent_engine(clone, speakers)
+        engine = accent_engine(clone, "clone", speakers)
         engine._make_converter()
         engine._voice_print(np.zeros(3))
     converter.assert_called_once_with(clone.cloner.return_value.tts.s3gen)
@@ -687,12 +686,11 @@ def test_with_pocket_tts_the_accent_converter_loads_chatterbox_itself() -> None:
     from imageskin.prepare_job import accent_engine
 
     clone = MagicMock()
-    clone.name = "Pocket TTS"
     with (
         patch("imageskin.chatterbox_engine.TurboConverter") as converter,
         patch("imageskin.chatterbox_engine._load_cloner") as chatterbox,
     ):
-        engine = accent_engine(clone, MagicMock())
+        engine = accent_engine(clone, "pocket", MagicMock())
         engine._make_converter()
     converter.assert_called_once_with(chatterbox.return_value.tts.s3gen)
     clone.cloner.assert_not_called()

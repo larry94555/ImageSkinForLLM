@@ -463,22 +463,25 @@ def clip_voice(
     else:
         logger.info("Prepare speaks in the person's own voice, cloned with Chatterbox Turbo")
         clone, kind = ChatterboxEngine(), "clone"
-    engine = accent_engine(clone, speakers)
+    engine = accent_engine(clone, kind, speakers)
     return cloned_voice(engine, voice_sample, accent), engine, str(voice_sample), kind
 
 
-def accent_engine(clone: "ChatterboxEngine", speakers: "SpeakerChecker") -> AccentEngine:
+def accent_engine(
+    clone: "ChatterboxEngine", kind: str, speakers: "SpeakerChecker"
+) -> AccentEngine:
     """The clone, with Kokoro, Chatterbox's converter and the app's speaker model (shared with the
     one-speaker check) for other accents. Each is loaded only when another accent is first used.
     The converter shares Chatterbox's model with the clone, or loads it when Pocket TTS clones.
     Pocket keeps the accent it learns from, so it learns another accent from converted speech
-    in prepare and speaks every line itself, as fast as the person's own accent."""
-    from imageskin import pocket_engine
-    from imageskin.chatterbox_engine import NAME, SAMPLE_RATE, TurboConverter, _load_cloner
+    in prepare and speaks every line itself, as fast as the person's own accent. Both are decided
+    by `kind`, the clone's kind in the voice id ("clone" for Chatterbox, "pocket"), not by its
+    name in the logs."""
+    from imageskin.chatterbox_engine import SAMPLE_RATE, TurboConverter, _load_cloner
     from imageskin.kokoro_engine import kokoro_for
 
     def converter() -> TurboConverter:
-        model = clone.cloner() if clone.name == NAME else _load_cloner()
+        model = clone.cloner() if kind == "clone" else _load_cloner()
         return TurboConverter(model.tts.s3gen)  # type: ignore[attr-defined]
 
     return AccentEngine(
@@ -486,7 +489,7 @@ def accent_engine(clone: "ChatterboxEngine", speakers: "SpeakerChecker") -> Acce
         kokoro_for,
         converter,
         lambda samples: speakers.voice_print(samples, SAMPLE_RATE),
-        clone_keeps_accent=clone.name == pocket_engine.NAME,
+        clone_keeps_accent=kind == "pocket",
     )
 
 
