@@ -11,7 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
-import { ClipPlayer, type ClipTime, ClipTimes, clipWaits, duration, minutes } from "./pages";
+import { ClipPlayer, type ClipTime, ClipTimes, clipWaits, duration, latestExchange, minutes } from "./pages";
 
 const IDLE: PrepareStatus = {
   state: "idle",
@@ -1201,6 +1201,63 @@ test("when the LLM fails, the message says so and the prompt goes back in the bo
   expect(await screen.findByText(/Is llama-server running\?/)).toBeTruthy();
   expect(promptBox().value).toBe("Hello?");
   expect(screen.queryByText("Hello?", { selector: "li" })).toBeNull();
+});
+
+// --- Video stays the focus: history closed by default ---
+
+test("only the latest exchange shows; the history is closed until opened", async () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  chatServer(
+    [
+      { role: "user", content: "My name is Larry." },
+      { role: "assistant", content: "Nice to meet you, Larry!" },
+      { role: "user", content: "What is my name?" },
+      { role: "assistant", content: "Your name is Larry." },
+    ],
+    () => Response.json({}),
+  );
+  await openAt("#/chat");
+  expect(await screen.findByText("Your name is Larry.")).toBeTruthy();
+  expect(screen.getByText("What is my name?")).toBeTruthy();
+  expect(screen.queryByText("My name is Larry.")).toBeNull();
+  expect(document.querySelector(".history-box")).toBeNull();
+
+  const show = screen.getByRole("button", { name: "Show history" });
+  expect(show.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(show);
+  const box = screen.getByLabelText("Conversation history");
+  const items = within(box).getAllByRole("listitem").map((li) => li.textContent);
+  expect(items).toEqual([
+    "YouMy name is Larry.",
+    "ReplyNice to meet you, Larry!",
+    "YouWhat is my name?",
+    "ReplyYour name is Larry.",
+  ]);
+  expect(info).toHaveBeenCalledWith("Chat history shown (4 turns)");
+
+  fireEvent.click(screen.getByRole("button", { name: "Hide history" }));
+  expect(document.querySelector(".history-box")).toBeNull();
+  expect(info).toHaveBeenCalledWith("Chat history hidden (4 turns)");
+  info.mockRestore();
+});
+
+test("an empty conversation has no history link", async () => {
+  chatServer([], () => Response.json({}));
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  expect(screen.queryByRole("button", { name: "Show history" })).toBeNull();
+});
+
+test("the latest exchange starts at the last prompt", () => {
+  expect(latestExchange([])).toBe(0);
+  expect(latestExchange([{ role: "assistant", content: "Hi" }])).toBe(0);
+  expect(
+    latestExchange([
+      { role: "user", content: "a" },
+      { role: "assistant", content: "b" },
+      { role: "user", content: "c" },
+    ]),
+  ).toBe(2);
 });
 
 // --- Spoken video replies (R17) ---
