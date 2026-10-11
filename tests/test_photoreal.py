@@ -107,12 +107,12 @@ def test_one_compositor_makes_one_frame_at_a_time(tmp_path: Path, short_loop: ob
             inside[0] -= 1
         return made
 
-    comp.face = slow_face  # type: ignore[method-assign]
     threads = [threading.Thread(target=comp.frame, args=({"rest": 1.0}, i)) for i in range(4)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    with patch.object(comp, "face", slow_face):
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
     assert most[0] == 1
 
 
