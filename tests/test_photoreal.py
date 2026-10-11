@@ -1,3 +1,5 @@
+import threading
+import time
 from array import array
 from pathlib import Path
 from unittest.mock import patch
@@ -84,6 +86,34 @@ def test_frame_shows_the_mouth_shape_in_the_photo(tmp_path: Path, short_loop: ob
     mouth = (slice(16 + 370 // 4 - 3, 16 + 370 // 4 + 3), slice(36 + 60, 36 + 68))
     assert opened[mouth].mean() < closed[mouth].mean() - 20
     assert np.array_equal(opened[:10], closed[:10])  # outside the face is the photo
+
+
+def test_one_compositor_makes_one_frame_at_a_time(tmp_path: Path, short_loop: object) -> None:
+    # Its maps and stills are written in place for each frame (R22c), so two threads sharing
+    # it (a review finding) must take turns.
+    build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
+    comp = Compositor(load_library(tmp_path / "lib"))
+    face = comp.face
+    inside, most = [0], [0]
+    count = threading.Lock()
+
+    def slow_face(*args: object) -> object:
+        with count:
+            inside[0] += 1
+            most[0] = max(most[0], inside[0])
+        time.sleep(0.05)
+        made = face(*args)  # type: ignore[arg-type]
+        with count:
+            inside[0] -= 1
+        return made
+
+    comp.face = slow_face  # type: ignore[method-assign]
+    threads = [threading.Thread(target=comp.frame, args=({"rest": 1.0}, i)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert most[0] == 1
 
 
 def test_eye_morph_closes_the_eyes_part_way(tmp_path: Path, short_loop: object) -> None:
