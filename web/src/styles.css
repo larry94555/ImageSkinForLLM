@@ -219,4 +219,3 @@ ol.turns .note { display: block; margin-top: 6px; font-size: 0.85rem; color: var
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.history-box ol.turns li { max-width: 85%; }
