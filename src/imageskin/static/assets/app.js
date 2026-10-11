@@ -1040,11 +1040,15 @@ function latestExchange(turns) {
 	return Math.max(turns.length - 1, 0);
 }
 function TurnList(props) {
-	const { turns, from = 0, unspoken } = props;
+	const { turns, from = 0, unspoken, search } = props;
+	let counted = 0;
 	return /* @__PURE__ */ u("ol", {
 		className: "turns",
 		children: turns.slice(from).map((turn, k) => {
 			const i = from + k;
+			const first = counted;
+			const parts = search ? splitMatches(turn.content, search.query) : [turn.content];
+			counted += (parts.length - 1) / 2;
 			return /* @__PURE__ */ u("li", {
 				className: turn.role,
 				children: [
@@ -1052,7 +1056,16 @@ function TurnList(props) {
 						className: "who",
 						children: turn.role === "user" ? "You" : "Reply"
 					}),
-					turn.content,
+					search ? /* @__PURE__ */ u("span", { children: parts.map((part, p) => {
+						if (p % 2 === 0) return part;
+						const n = first + (p - 1) / 2;
+						const current = n === search.current ? "current" : void 0;
+						return /* @__PURE__ */ u("mark", {
+							"data-match": n,
+							className: current,
+							children: part
+						}, p);
+					}) }) : turn.content,
 					unspoken?.turn === i && /* @__PURE__ */ u("span", {
 						className: "note",
 						children: ["I couldn't say this one aloud, so here it is as text. ", unspoken.why]
@@ -1062,16 +1075,58 @@ function TurnList(props) {
 		})
 	});
 }
+function splitMatches(text, query) {
+	const q = query.trim().toLowerCase();
+	if (!q) return [text];
+	const lower = text.toLowerCase();
+	const parts = [];
+	let at = 0;
+	for (let found = lower.indexOf(q); found >= 0; found = lower.indexOf(q, at)) {
+		parts.push(text.slice(at, found), text.slice(found, found + q.length));
+		at = found + q.length;
+	}
+	parts.push(text.slice(at));
+	return parts;
+}
+function countMatches(turns, query) {
+	return turns.reduce((n, turn) => n + (splitMatches(turn.content, query).length - 1) / 2, 0);
+}
 function History(props) {
 	const { turns, unspoken } = props;
 	const [open, setOpen] = d(false);
+	const [query, setQuery] = d("");
+	const [current, setCurrent] = d(0);
 	const box = A(null);
+	const total = query.trim() ? countMatches(turns, query) : 0;
 	h(() => {
 		if (open && box.current) box.current.scrollTop = box.current.scrollHeight;
 	}, [open, turns]);
+	h(() => {
+		if (total === 0) return;
+		(box.current?.querySelector(`mark[data-match="${current}"]`))?.scrollIntoView?.({ block: "nearest" });
+	}, [
+		open,
+		query,
+		current,
+		total
+	]);
 	function toggle() {
 		console.info(`Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`);
+		if (open) search("");
 		setOpen(!open);
+	}
+	function search(text) {
+		const began = performance.now();
+		const found = text.trim() ? countMatches(turns, text) : 0;
+		setQuery(text);
+		setCurrent(0);
+		if (text.trim()) {
+			const ms = Math.round(performance.now() - began);
+			console.info(`History search found ${found} matches in ${turns.length} turns (${ms} ms)`);
+		}
+	}
+	function step(by) {
+		if (total > 0) setCurrent((current + by + total) % total);
 	}
 	return /* @__PURE__ */ u("section", {
 		className: "history",
@@ -1081,16 +1136,55 @@ function History(props) {
 			"aria-expanded": open,
 			onClick: toggle,
 			children: open ? "Hide history" : "Show history"
-		}), open && /* @__PURE__ */ u("div", {
+		}), open && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("div", {
+			className: "history-search",
+			role: "search",
+			children: [
+				/* @__PURE__ */ u("input", {
+					type: "search",
+					"aria-label": "Search the history",
+					placeholder: "Search the history",
+					value: query,
+					onInput: (e) => search(e.currentTarget.value),
+					onKeyDown: (e) => {
+						if (e.key === "Enter") {
+							e.preventDefault();
+							step(e.shiftKey ? -1 : 1);
+						}
+					}
+				}),
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					disabled: total < 2,
+					onClick: () => step(-1),
+					children: "Previous"
+				}),
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					disabled: total < 2,
+					onClick: () => step(1),
+					children: "Next"
+				}),
+				query.trim() && /* @__PURE__ */ u("span", {
+					className: "muted",
+					"aria-live": "polite",
+					children: total === 0 ? "No matches" : `${current + 1} of ${total}`
+				})
+			]
+		}), /* @__PURE__ */ u("div", {
 			ref: box,
 			className: "history-box",
 			tabIndex: 0,
 			"aria-label": "Conversation history",
 			children: /* @__PURE__ */ u(TurnList, {
 				turns,
-				unspoken
+				unspoken,
+				search: {
+					query,
+					current
+				}
 			})
-		})]
+		})] })]
 	});
 }
 function ClipPlayer(props) {

@@ -11,7 +11,17 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
-import { ClipPlayer, type ClipTime, ClipTimes, clipWaits, duration, latestExchange, minutes } from "./pages";
+import {
+  ClipPlayer,
+  type ClipTime,
+  ClipTimes,
+  clipWaits,
+  countMatches,
+  duration,
+  latestExchange,
+  minutes,
+  splitMatches,
+} from "./pages";
 
 const IDLE: PrepareStatus = {
   state: "idle",
@@ -1241,6 +1251,96 @@ test("only the latest exchange shows; the history is closed until opened", async
   expect(document.querySelector(".history-box")).toBeNull();
   expect(info).toHaveBeenCalledWith("Chat history hidden (4 turns)");
   info.mockRestore();
+});
+
+// --- Searching the history (R18) ---
+
+test("a search marks every match and steps through them", async () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  const scrolled: string[] = [];
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled.push(this.getAttribute("data-match") ?? "");
+  };
+  chatServer(
+    [
+      { role: "user", content: "Where is Paris?" },
+      { role: "assistant", content: "Paris is in France. See https://en.wikipedia.org/wiki/Paris" },
+      { role: "user", content: "Thanks!" },
+      { role: "assistant", content: "You're welcome." },
+    ],
+    () => Response.json({}),
+  );
+  await openAt("#/chat");
+  await screen.findByText("You're welcome.");
+  fireEvent.click(screen.getByRole("button", { name: "Show history" }));
+  const search = screen.getByLabelText("Search the history");
+  const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
+  const previous = screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement;
+  expect(next.disabled).toBe(true);
+
+  fireEvent.input(search, { target: { value: "paris" } });
+  const box = screen.getByLabelText("Conversation history");
+  const marks = () => Array.from(box.querySelectorAll("mark"));
+  // The link stays in full in the history, so its "Paris" is found too.
+  expect(marks().map((m) => m.textContent)).toEqual(["Paris", "Paris", "Paris"]);
+  expect(screen.getByText("1 of 3")).toBeTruthy();
+  expect(marks()[0].className).toBe("current");
+  expect(info).toHaveBeenCalledWith(
+    expect.stringMatching(/^History search found 3 matches in 4 turns \(\d+ ms\)$/),
+  );
+
+  fireEvent.click(next);
+  expect(screen.getByText("2 of 3")).toBeTruthy();
+  expect(marks()[1].className).toBe("current");
+  fireEvent.keyDown(search, { key: "Enter" });
+  expect(screen.getByText("3 of 3")).toBeTruthy();
+  fireEvent.keyDown(search, { key: "Enter" }); // wraps round to the first
+  expect(screen.getByText("1 of 3")).toBeTruthy();
+  fireEvent.keyDown(search, { key: "Enter", shiftKey: true }); // and back to the last
+  expect(screen.getByText("3 of 3")).toBeTruthy();
+  fireEvent.click(previous);
+  expect(screen.getByText("2 of 3")).toBeTruthy();
+  expect(scrolled).toContain("2");
+
+  fireEvent.input(search, { target: { value: "London" } });
+  expect(screen.getByText("No matches")).toBeTruthy();
+  expect(marks()).toEqual([]);
+  expect(next.disabled).toBe(true);
+
+  fireEvent.input(search, { target: { value: "" } });
+  expect(screen.queryByText("No matches")).toBeNull();
+
+  fireEvent.input(search, { target: { value: "Paris" } });
+  fireEvent.click(screen.getByRole("button", { name: "Hide history" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show history" }));
+  expect((screen.getByLabelText("Search the history") as HTMLInputElement).value).toBe("");
+  expect(screen.getByLabelText("Conversation history").querySelector("mark")).toBeNull();
+  Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  info.mockRestore();
+});
+
+test("matches are found ignoring case and kept as written", () => {
+  expect(splitMatches("Paris, paris and PARIS", "paris")).toEqual([
+    "",
+    "Paris",
+    ", ",
+    "paris",
+    " and ",
+    "PARIS",
+    "",
+  ]);
+  expect(splitMatches("Hello", "  ")).toEqual(["Hello"]);
+  expect(splitMatches("Hello", "bye")).toEqual(["Hello"]);
+  expect(
+    countMatches(
+      [
+        { role: "user", content: "aa a" },
+        { role: "assistant", content: "A" },
+      ],
+      "a",
+    ),
+  ).toBe(4);
+  expect(countMatches([{ role: "user", content: "aaa" }], "aa")).toBe(1); // no overlaps
 });
 
 test("an empty conversation has no history link", async () => {
