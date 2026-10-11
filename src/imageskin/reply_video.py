@@ -283,13 +283,15 @@ class SentenceClips:
                 dropped = n > len(self.clips) or self.clips[n - 1] != path
             if dropped:
                 return
-            if path.exists():
+            try:
                 with path.open("rb") as f:
                     f.seek(sent)
                     more = f.read()
-                if more:
-                    sent += len(more)
-                    yield more
+            except FileNotFoundError:  # not begun yet, or dropped and removed since: see above
+                more = b""
+            if more:
+                sent += len(more)
+                yield more
             if whole:
                 return
             time.sleep(every)
