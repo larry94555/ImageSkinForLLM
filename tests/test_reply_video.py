@@ -604,6 +604,49 @@ def test_the_api_speaks_a_reply_and_serves_its_video(tmp_path: Path) -> None:
     assert locked.status_code == 403 and locked.json()["detail"] == CHAT_LOCKED
 
 
+def test_the_sample_keeps_the_photos_size_and_only_reply_clips_are_scaled_down(
+    tmp_path: Path,
+) -> None:
+    # A review finding: the sample went through the reply clips' scaled-down engine too.
+    made: list[int | None] = []
+    rendered: list[int | None] = []
+
+    def steps(
+        home: Path,
+        engine: object,
+        voice: str = "",
+        max_side: int | None = None,
+        progressive: bool = False,
+    ) -> object:
+        made.append(max_side)
+        assert progressive == (max_side is not None)  # only reply clips play while written
+
+        def speak(text: str, wav: Path) -> None:
+            wav.write_bytes(b"wav")
+
+        def render(photo: Path, wav: Path, output: Path) -> None:
+            rendered.append(max_side)
+            tone_clip(0.2, output)
+
+        return ClipSteps(speak, render)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield from ["Hi Larry. ", "How are you?"]
+
+    with patch("imageskin.app.photoreal_steps", steps):
+        client = video_app(tmp_path, None, stream)
+    assert sorted(made, key=str) == [720, None]  # an engine each, for the sample and replies
+    photo = tmp_path / "me.jpg"
+    client.app.state.prepare_job._render_clip(photo, "Hello.", tmp_path / "sample.mp4")  # type: ignore[attr-defined]
+    assert rendered == [None]  # the sample, at the photo's own size
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+        while not client.get(f"/api/chat/clips/{REPLY_ID}").json()["done"]:
+            time.sleep(0.01)
+        client.post("/api/chat/video", json={"turn": 1})
+    assert rendered[1:] == [720, 720, 720]  # two reply clips and a reply in one video
+
+
 def test_replies_are_warmed_up_at_start_once_a_sample_is_accepted(tmp_path: Path) -> None:
     first = video_app(tmp_path, write_text)  # makes the photo; nothing accepted at its start
     assert not (tmp_path / "replies").exists()

@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import math
+import threading
 import time
 from array import array
 from collections.abc import Callable, Iterator
@@ -124,13 +125,13 @@ class Compositor:
         self.jaw = jaw_field(lm, lib.window)
         self.brow = brow_field(lm, lib.eye_window)
         self.head = head_weight(lm)
-        self.crop_grid = pixel_grid(lib.shapes["rest"])
-        self.pivot = (float(lm[8, 0]), float(lm[8, 1]) + 40)  # below the chin, at the neck
-        # The head's move is a turn about the pivot plus a shift, faded by `head`: the parts
-        # that don't change from frame to frame are made once (roadmap R22c).
-        px, py = self.pivot
-        self._x = np.ascontiguousarray(self.crop_grid[..., 0])
-        self._y = np.ascontiguousarray(self.crop_grid[..., 1])
+        # The head's move is a turn about a pivot below the chin, at the neck, plus a shift,
+        # faded by `head`: the parts that don't change from frame to frame are made once
+        # (roadmap R22c).
+        grid = pixel_grid(lib.shapes["rest"])
+        px, py = float(lm[8, 0]), float(lm[8, 1]) + 40
+        self._x = np.ascontiguousarray(grid[..., 0])
+        self._y = np.ascontiguousarray(grid[..., 1])
         self._hx = np.ascontiguousarray((self._x - px) * self.head, np.float32)
         self._hy = np.ascontiguousarray((self._y - py) * self.head, np.float32)
         self._map_x = np.empty_like(self._x)
@@ -140,6 +141,8 @@ class Compositor:
             box: self.lib.shapes["rest"][box[1] : box[3], box[0] : box[2]].copy()
             for box in self.boxes
         }
+        # Those maps and stills are written in place for each frame, so one frame at a time.
+        self._frame_lock = threading.Lock()
 
     def face(
         self,
@@ -221,7 +224,8 @@ class Compositor:
         move: FrameMotion = STILL,
     ) -> Image:
         """One whole RGB video frame."""
-        return self.paste(self.face(weights, frame, eye_open, move))
+        with self._frame_lock:
+            return self.paste(self.face(weights, frame, eye_open, move))
 
 
 def audio_seed(samples: array[int]) -> int:
