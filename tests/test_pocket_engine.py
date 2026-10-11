@@ -117,3 +117,27 @@ def test_pocket_s_two_worker_threads_share_the_engines_threads() -> None:
         assert torch.threads == 1  # never none
         raise RuntimeError("the model failed")
     assert torch.threads == 1
+
+
+def test_the_gated_reason_is_hugging_faces_own_error() -> None:
+    class GatedRepoError(Exception):
+        pass
+
+    def refused(path: str) -> object:
+        raise GatedRepoError(
+            f"403 Client Error. (Request ID: Root=1-6acb)\n\n"
+            f"Cannot access gated repo for url {path}."
+        )
+
+    reason = pocket_engine.gated_reason(refused, "hf://kyutai/pocket-tts/model.safetensors")
+    assert reason == (
+        "GatedRepoError: 403 Client Error. Cannot access gated repo for url"
+        " hf://kyutai/pocket-tts/model.safetensors."
+    )
+
+    def silent(path: str) -> object:
+        raise OSError()
+
+    assert pocket_engine.gated_reason(silent, "x") == "OSError"
+    assert pocket_engine.gated_reason(lambda path: path, "x") == "the download works now; try again"
+    assert "no weights that clone" in pocket_engine.gated_reason(refused, None)

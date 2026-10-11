@@ -15,7 +15,8 @@ engine refuses. The models (about 530 MB) are downloaded on first use and cached
 
 import importlib.util
 import logging
-from collections.abc import Iterator
+import re
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -65,6 +66,21 @@ def worker_threads(torch: Any) -> Iterator[None]:
         torch.set_num_threads(threads)
 
 
+def gated_reason(download: Callable[[str], object], weights_path: str | None) -> str:
+    """Why the weights that clone a voice could not be downloaded. Pocket falls back to its model
+    without cloning and drops the error, which says which step is missing (not signed in, terms
+    not accepted, a token without access to gated models), so the download is tried again for it.
+    """
+    if weights_path is None:
+        return "this model has no weights that clone a voice"
+    try:
+        download(weights_path)
+    except Exception as e:  # what Hugging Face refused, or a network error
+        detail = " ".join(re.sub(r"\(Request ID: [^)]*\)", "", str(e)).split())[:500]
+        return f"{type(e).__name__}: {detail}" if detail else type(e).__name__
+    return "the download works now; try again"
+
+
 class PocketCloner:  # pragma: no cover - needs the models; see the functional run in the PR
     def __init__(self) -> None:
         from pocket_tts import TTSModel
@@ -72,7 +88,10 @@ class PocketCloner:  # pragma: no cover - needs the models; see the functional r
         # int8: about 40% faster on the CPU, with no measurable change in quality (Kyutai).
         self.model = TTSModel.load_model(quantize=True)
         if not self.model.has_voice_cloning:
-            raise VoiceError(GATED)
+            from pocket_tts.utils.utils import download_if_necessary
+
+            reason = gated_reason(download_if_necessary, self.model.config.weights_path)
+            raise VoiceError(f"{GATED}; Hugging Face said: {reason}")
         if self.model.sample_rate != SAMPLE_RATE:
             raise VoiceError(f"Pocket TTS speaks at {self.model.sample_rate} Hz, not {SAMPLE_RATE}")
         self._state: object | None = None
