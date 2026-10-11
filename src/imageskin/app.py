@@ -12,7 +12,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -276,7 +276,9 @@ def create_app(
     # Each has its own engine, so a prepare and a reply never share one.
     steps = clip_steps or photoreal_steps(data_home, voice_engine, voice)
     render = render_clip or steps_clip(steps)
-    reply_steps = clip_steps or photoreal_steps(data_home, voice_engine, voice, max_side=REPLY_SIDE)
+    reply_steps = clip_steps or photoreal_steps(
+        data_home, voice_engine, voice, max_side=REPLY_SIDE, progressive=True
+    )
     reply_render = render_clip or steps_clip(reply_steps)
     job = PrepareJob(
         data_home,
@@ -443,6 +445,8 @@ def create_app(
         streamed = clips is not None and clips.sentences > 0
         return {**asdict(reply), "turn": turn, "streamed": streamed}
 
+    CLIP_FOLLOW_S = 0.05  # how often a clip still being rendered is read for more of it
+
     @app.get("/api/chat/clips/{reply_id}", dependencies=needs_consent)
     def get_clips(
         reply_id: str,
@@ -479,13 +483,24 @@ def create_app(
         }
 
     @app.get("/api/chat/clips/{reply_id}/{n}", dependencies=needs_consent)
-    def get_clip_file(reply_id: str, n: int) -> FileResponse:
+    def get_clip_file(reply_id: str, n: int) -> Response:
+        """The clip, whole once it is rendered; while it is still being rendered, as much of it
+        as there is and then the rest as it is written (roadmap R22d), so the browser can start
+        playing it meanwhile."""
         with clips_lock:
             clips = sentence_clips.get(reply_id)
-        if clips is None or not 1 <= n <= len(clips.clips):
+        # Its file and whether it is whole, taken at once: a clip whose video fails meanwhile
+        # is unlisted, and its stream then ends with what there was.
+        found = None if clips is None else clips.clip(n)
+        if clips is None or found is None:
             raise HTTPException(status_code=404, detail="No such clip.")
+        path, whole = found
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
-        return FileResponse(clips.clips[n - 1], media_type="video/mp4", headers=headers)
+        if whole:
+            return FileResponse(path, media_type="video/mp4", headers=headers)
+        return StreamingResponse(
+            clips.follow(n, path, CLIP_FOLLOW_S), media_type="video/mp4", headers=headers
+        )
 
     def warm_up_replies() -> None:
         # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
