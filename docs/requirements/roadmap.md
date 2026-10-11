@@ -239,7 +239,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the video stays at the top of the window; under it only the latest question and reply show; Show history opens the whole conversation, questions and replies, in a box with its own scrollbar, closed again on every page load.
 - **Built:** a `History` component in `pages.tsx`, a real button (Show history / Hide history) that opens a box at most 40% of the window tall. The video sticks to the top of the window and is at most 45% of it tall. The page no longer scrolls itself to the bottom after each turn. R18 adds the search box to this component.
 
-### R18. Reply text panel (Medium) · item 11
+### R18. Reply text panel (Medium) · item 11 · Done in [PR #59](https://github.com/larry94555/ImageSkinForLLM/pull/59)
 - **Already built in R18a:** the panel, closed by default, its open and close control, and scrolling through the conversation. What remains is the search box, built into R18a's `History` component.
 - Changed from word highlighting after Larry's review of R16 (2026-10-09): reading along with the words being spoken is distracting, and a highlight kept in sync would complicate the screen and could slow replies. Words are not highlighted.
 - The written replies, with URLs, code and emoji in full, go in a text panel that is closed by default. A button opens it; it scrolls through the conversation, has a search box that finds and steps through matches, and closes again.
