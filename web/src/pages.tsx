@@ -953,21 +953,42 @@ export function latestExchange(turns: Turn[]): number {
 }
 
 // The turns from `from` on, numbered by their place in the whole conversation so a note on a
-// reply that couldn't be spoken stays with it.
+// reply that couldn't be spoken stays with it. With `search`, the matches of its query are
+// marked, numbered in order, and the current one stands out.
 function TurnList(props: {
   turns: Turn[];
   from?: number;
   unspoken: { turn: number; why: string } | null;
+  search?: { query: string; current: number };
 }) {
-  const { turns, from = 0, unspoken } = props;
+  const { turns, from = 0, unspoken, search } = props;
+  let counted = 0; // matches marked in the turns before this one
   return (
     <ol className="turns">
       {turns.slice(from).map((turn, k) => {
         const i = from + k;
+        const first = counted;
+        const parts = search ? splitMatches(turn.content, search.query) : [turn.content];
+        counted += (parts.length - 1) / 2;
         return (
           <li key={i} className={turn.role}>
             <span className="who">{turn.role === "user" ? "You" : "Reply"}</span>
-            {turn.content}
+            {search ? (
+              <span>
+                {parts.map((part, p) => {
+                  if (p % 2 === 0) return part;
+                  const n = first + (p - 1) / 2;
+                  const current = n === search.current ? "current" : undefined;
+                  return (
+                    <mark key={p} data-match={n} className={current}>
+                      {part}
+                    </mark>
+                  );
+                })}
+              </span>
+            ) : (
+              turn.content
+            )}
             {unspoken?.turn === i && (
               <span className="note">
                 I couldn&apos;t say this one aloud, so here it is as text. {unspoken.why}
@@ -980,20 +1001,70 @@ function TurnList(props: {
   );
 }
 
+// Splits `text` around each match of `query`, ignoring case: the even items are the text
+// between matches and the odd ones the matches, as written. A blank query matches nothing.
+export function splitMatches(text: string, query: string): string[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [text];
+  const lower = text.toLowerCase();
+  const parts: string[] = [];
+  let at = 0;
+  for (let found = lower.indexOf(q); found >= 0; found = lower.indexOf(q, at)) {
+    parts.push(text.slice(at, found), text.slice(found, found + q.length));
+    at = found + q.length;
+  }
+  parts.push(text.slice(at));
+  return parts;
+}
+
+// How many times `query` is found in the conversation.
+export function countMatches(turns: Turn[], query: string): number {
+  return turns.reduce((n, turn) => n + (splitMatches(turn.content, query).length - 1) / 2, 0);
+}
+
 // The whole conversation, both the prompts and the replies, closed on every page load so the
-// video stays the focus (roadmap R18a; R18 adds a search box). Opened, it is a box of limited
-// height with its own scrollbar, kept scrolled to the newest turn.
+// video stays the focus (roadmap R18a). Opened, it is a box of limited height with its own
+// scrollbar, kept scrolled to the newest turn, and a search box that marks every match and steps
+// through them with Next and Previous, or Enter and Shift+Enter (roadmap R18).
 export function History(props: { turns: Turn[]; unspoken: { turn: number; why: string } | null }) {
   const { turns, unspoken } = props;
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [current, setCurrent] = useState(0);
   const box = useRef<HTMLDivElement>(null);
+  const total = query.trim() ? countMatches(turns, query) : 0;
+  // The match shown as current, kept in range when the conversation shrinks under it (a prompt
+  // taken back when the LLM fails).
+  const active = Math.min(current, Math.max(total - 1, 0));
   useEffect(() => {
     if (open && box.current) box.current.scrollTop = box.current.scrollHeight;
   }, [open, turns]);
+  useEffect(() => {
+    if (total === 0) return;
+    const mark = box.current?.querySelector(`mark[data-match="${active}"]`);
+    mark?.scrollIntoView?.({ block: "nearest" });
+  }, [open, query, active, total]);
 
   function toggle() {
     console.info(`Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`);
+    if (open) search(""); // it opens again without the old search
     setOpen(!open);
+  }
+
+  function search(text: string) {
+    const began = performance.now();
+    const found = text.trim() ? countMatches(turns, text) : 0;
+    setQuery(text);
+    setCurrent(0);
+    if (text.trim()) {
+      const ms = Math.round(performance.now() - began);
+      console.info(`History search found ${found} matches in ${turns.length} turns (${ms} ms)`);
+    }
+  }
+
+  // Steps to the next match, or back with -1, wrapping round at either end.
+  function step(by: number) {
+    if (total > 0) setCurrent((active + by + total) % total);
   }
 
   return (
@@ -1002,9 +1073,37 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number; why: s
         {open ? "Hide history" : "Show history"}
       </button>
       {open && (
-        <div ref={box} className="history-box" tabIndex={0} aria-label="Conversation history">
-          <TurnList turns={turns} unspoken={unspoken} />
-        </div>
+        <>
+          <div className="history-search" role="search">
+            <input
+              type="search"
+              aria-label="Search the history"
+              placeholder="Search the history"
+              value={query}
+              onInput={(e) => search(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  step(e.shiftKey ? -1 : 1);
+                }
+              }}
+            />
+            <button type="button" disabled={total < 2} onClick={() => step(-1)}>
+              Previous
+            </button>
+            <button type="button" disabled={total < 2} onClick={() => step(1)}>
+              Next
+            </button>
+            {query.trim() && (
+              <span className="muted" aria-live="polite">
+                {total === 0 ? "No matches" : `${active + 1} of ${total}`}
+              </span>
+            )}
+          </div>
+          <div ref={box} className="history-box" tabIndex={0} aria-label="Conversation history">
+            <TurnList turns={turns} unspoken={unspoken} search={{ query, current: active }} />
+          </div>
+        </>
       )}
     </section>
   );

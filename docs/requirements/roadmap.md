@@ -13,7 +13,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.3% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 12.0% | 9 of 9 |
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.0% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.3% | 5 of 7 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.3% | 6 of 7 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.7% | 8 of 11 |
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.7% | 0 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.0% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.7% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.7% | 0 |
-| | **Total** | | **75** | **100%** | **35 of 75** |
+| | **Total** | | **75** | **100%** | **36 of 75** |
 
 Sizes: 19 Simple, 56 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -239,11 +239,12 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the video stays at the top of the window; under it only the latest question and reply show; Show history opens the whole conversation, questions and replies, in a box with its own scrollbar, closed again on every page load.
 - **Built:** a `History` component in `pages.tsx`, a real button (Show history / Hide history) that opens a box at most 40% of the window tall. The video sticks to the top of the window and is at most 45% of it tall. The page no longer scrolls itself to the bottom after each turn. R18 adds the search box to this component.
 
-### R18. Reply text panel (Medium) · item 11
+### R18. Reply text panel (Medium) · item 11 · Done in [PR #59](https://github.com/larry94555/ImageSkinForLLM/pull/59)
 - **Already built in R18a:** the panel, closed by default, its open and close control, and scrolling through the conversation. What remains is the search box, built into R18a's `History` component.
 - Changed from word highlighting after Larry's review of R16 (2026-10-09): reading along with the words being spoken is distracting, and a highlight kept in sync would complicate the screen and could slow replies. Words are not highlighted.
 - The written replies, with URLs, code and emoji in full, go in a text panel that is closed by default. A button opens it; it scrolls through the conversation, has a search box that finds and steps through matches, and closes again.
 - **Can show:** a reply is spoken with the panel closed; opening it shows the full text, a search finds a word in an earlier reply, and the panel closes.
+- **Built:** a search box at the top of the open history (`History` in `pages.tsx`). Typing marks every match in the questions and replies, ignoring case; the current match stands out and is scrolled into view, with "N of M" or "No matches" beside it. Next and Previous, or Enter and Shift+Enter in the box, step through the matches and wrap round at either end. The log has `History search found N matches in T turns (ms)`. Closing the history clears the search.
 
 ### R19. Stop, volume and mute (Simple) · items 18, 21
 - Stop button ends playback and cancels any rendering still in progress; volume and mute controls.
