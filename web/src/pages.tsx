@@ -1,6 +1,6 @@
 // The app's pages. Each one is a function that returns what the page shows.
 
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import {
   type Accent,
@@ -816,6 +816,7 @@ function Chat() {
   const gone = useRef(false); // the page was left: stop following clips
   const replying = useRef<string | null>(null); // the latest reply's id
   const stopped = useRef<string | null>(null); // the id of a reply stopped with Stop (R19)
+  const wakeOnStop = useRef<() => void>(() => {}); // ends the latest reply's waits on Stop
   const [halted, setHalted] = useState(false); // the latest reply was stopped
   const [sound, setSound] = useState<Sound>(loadSound);
 
@@ -880,6 +881,10 @@ function Chat() {
     const replyId = newReplyId();
     let replied = false;
     replying.current = replyId;
+    // Settles on Stop, so the reply no longer waits for clips or a video it won't play.
+    const stopping = new Promise<"stopped">((resolve) => {
+      wakeOnStop.current = () => resolve("stopped");
+    });
     setHalted(false);
     setSending(true);
     setSpeaking(true);
@@ -911,7 +916,7 @@ function Chat() {
       setPrompt(text);
       setFailed(e instanceof Error ? e.message : String(e));
       replied = true;
-      await following;
+      await Promise.race([following, stopping]);
       setClips([]); // with any clip made before the LLM failed, and its timing row
       setTimes([]);
       setWhole(false);
@@ -922,14 +927,14 @@ function Chat() {
       setSending(false);
     }
     try {
-      const clipsFailed = await following;
-      if (gone.current || stopped.current === replyId) return; // left or stopped meanwhile
+      const clipsFailed = await Promise.race([following, stopping]);
+      if (gone.current || clipsFailed === "stopped") return; // left or stopped meanwhile
       if (clipsFailed !== null) throw clipsFailed;
       if (!reply.streamed) {
         // Not streamed: the whole reply is spoken in one video (roadmap R17), asked for by the
         // server's count, which another tab's replies may have moved on from this tab's.
-        const url = await speakReply(reply.turn);
-        if (stopped.current === replyId) return; // stopped while it was made
+        const url = await Promise.race([speakReply(reply.turn, replyId), stopping]);
+        if (url === "stopped") return; // stopped while it was made
         // A new address each time, so the same reply number after a restart plays afresh.
         setClips(url ? [`${url}?t=${Date.now()}`] : []);
         if (url) {
@@ -951,6 +956,7 @@ function Chat() {
     const replyId = replying.current;
     if (replyId === null) return;
     stopped.current = replyId;
+    wakeOnStop.current();
     setHalted(true);
     setClips([]);
     setTimes([]);
@@ -1217,8 +1223,9 @@ export function ClipPlayer(props: {
     begun.current = new Set();
     play(players[0].current);
   }, [first]);
-  useEffect(() => {
-    // Both players, so the next clip starts at the same volume.
+  useLayoutEffect(() => {
+    // Both players, so the next clip starts at the same volume; set before the browser
+    // paints, so a new player never starts at full volume.
     for (const player of players) {
       if (!player.current) continue;
       player.current.volume = sound?.volume ?? 1;

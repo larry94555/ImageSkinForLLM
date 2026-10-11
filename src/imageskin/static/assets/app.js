@@ -1,5 +1,5 @@
 // Generated from web/src/*.tsx by `npm run build` in web/. Do not edit; edit web/src.
-import { a as R, i as h, n as A, o as S, r as d, t as u } from "./preact.js";
+import { a as h, i as d, n as A, o as R, r as _, s as S, t as u } from "./preact.js";
 //#region src/api.ts
 async function json(response) {
 	if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -112,11 +112,14 @@ async function sendPrompt(prompt, replyId) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
-async function speakReply(turn) {
+async function speakReply(turn, replyId) {
 	const response = await fetch("/api/chat/video", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ turn })
+		body: JSON.stringify(replyId ? {
+			turn,
+			reply_id: replyId
+		} : { turn })
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 	return (await response.json()).video;
@@ -872,6 +875,7 @@ function Chat() {
 	const gone = A(false);
 	const replying = A(null);
 	const stopped = A(null);
+	const wakeOnStop = A(() => {});
 	const [halted, setHalted] = d(false);
 	const [sound, setSound] = d(loadSound);
 	h(() => () => {
@@ -929,6 +933,9 @@ function Chat() {
 		const replyId = newReplyId();
 		let replied = false;
 		replying.current = replyId;
+		const stopping = new Promise((resolve) => {
+			wakeOnStop.current = () => resolve("stopped");
+		});
 		setHalted(false);
 		setSending(true);
 		setSpeaking(true);
@@ -960,7 +967,7 @@ function Chat() {
 			setPrompt(text);
 			setFailed(e instanceof Error ? e.message : String(e));
 			replied = true;
-			await following;
+			await Promise.race([following, stopping]);
 			setClips([]);
 			setTimes([]);
 			setWhole(false);
@@ -971,12 +978,12 @@ function Chat() {
 			setSending(false);
 		}
 		try {
-			const clipsFailed = await following;
-			if (gone.current || stopped.current === replyId) return;
+			const clipsFailed = await Promise.race([following, stopping]);
+			if (gone.current || clipsFailed === "stopped") return;
 			if (clipsFailed !== null) throw clipsFailed;
 			if (!reply.streamed) {
-				const url = await speakReply(reply.turn);
-				if (stopped.current === replyId) return;
+				const url = await Promise.race([speakReply(reply.turn, replyId), stopping]);
+				if (url === "stopped") return;
 				setClips(url ? [`${url}?t=${Date.now()}`] : []);
 				if (url) {
 					setWhole(true);
@@ -1002,6 +1009,7 @@ function Chat() {
 		const replyId = replying.current;
 		if (replyId === null) return;
 		stopped.current = replyId;
+		wakeOnStop.current();
 		setHalted(true);
 		setClips([]);
 		setTimes([]);
@@ -1267,7 +1275,7 @@ function ClipPlayer(props) {
 		begun.current = /* @__PURE__ */ new Set();
 		play(players[0].current);
 	}, [first]);
-	h(() => {
+	_(() => {
 		for (const player of players) {
 			if (!player.current) continue;
 			player.current.volume = sound?.volume ?? 1;

@@ -1422,7 +1422,7 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
   await waitFor(() =>
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/chat/video",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ turn: 3 }) }),
+      expect.objectContaining({ method: "POST", body: expect.stringMatching(/^\{"turn":3,"reply_id":"[0-9a-f]{32}"\}$/) }),
     ),
   );
   expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
@@ -1471,7 +1471,7 @@ test("a reply's video is asked for by the server's count, not this page's", asyn
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/chat/video",
-      expect.objectContaining({ body: JSON.stringify({ turn: 3 }) }),
+      expect.objectContaining({ body: expect.stringMatching(/^\{"turn":3,"reply_id":"[0-9a-f]{32}"\}$/) }),
     ),
   );
 });
@@ -1513,7 +1513,7 @@ test("a reply done with no clips is spoken in one video", async () => {
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/chat/video",
-      expect.objectContaining({ body: JSON.stringify({ turn: 1 }) }),
+      expect.objectContaining({ body: expect.stringMatching(/^\{"turn":1,"reply_id":"[0-9a-f]{32}"\}$/) }),
     ),
   );
   await waitFor(() => expect(shownVideo()?.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/1/));
@@ -1891,9 +1891,9 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   ); // the next prompt can be sent
 });
 
-test("a reply stopped while its one video is made doesn't play it", async () => {
+test("Stop frees the chat at once while a reply's one video is still being made", async () => {
   const [speak, spoken] = later();
-  chatServer(
+  const fetchMock = chatServer(
     [],
     () => Response.json({ role: "assistant", content: "Hello.", turn: 1, streamed: false }),
     speak,
@@ -1905,13 +1905,48 @@ test("a reply stopped while its one video is made doesn't play it", async () => 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   await screen.findByText("Hello.");
+  // The video is asked for with the reply's id, so the server can stop making it.
+  const [, init] = await waitFor(() => {
+    const call = fetchMock.mock.calls.find(([url]) => url === "/api/chat/video");
+    expect(call).toBeDefined();
+    return call!;
+  });
+  const { reply_id: asked } = JSON.parse(init!.body as string) as { reply_id: string };
   vi.spyOn(console, "info").mockImplementation(() => {});
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-  await act(async () => {
-    spoken(Response.json({ video: "/api/chat/videos/1" }));
-  });
+  expect(fetchMock).toHaveBeenCalledWith(`/api/chat/clips/${asked}/stop`, { method: "POST" });
+  // Not waiting for the video: the next prompt can go now.
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  fireEvent.input(promptBox(), { target: { value: "Again" } });
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+  await act(async () => {
+    spoken(Response.json({ video: null })); // the server stopped making it
+  });
   expect(document.querySelector("video")).toBeNull();
+});
+
+test("Stop frees the chat at once while a clip request is still waiting", async () => {
+  // The regression for a review finding: a request waiting for the next clip (up to 10 s on
+  // the server) kept the chat waiting after Stop.
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const [answer, reply] = later();
+  chatServer([], answer, undefined, (/* the long wait */) => new Promise<Response>(() => {}));
+  await openAt("#/chat");
+  await screen.findByText("Say hello to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await act(async () => {
+    reply(Response.json({ role: "assistant", content: "One. Two.", turn: 1, streamed: true }));
+  });
+  await screen.findByText("One. Two.");
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy(); // still waiting for clips
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  fireEvent.input(promptBox(), { target: { value: "Again" } });
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false),
+  );
 });
 
 test("a stop the server refuses is logged", async () => {
