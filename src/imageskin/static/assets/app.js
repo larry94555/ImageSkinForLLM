@@ -1071,12 +1071,13 @@ function ClipPlayer(props) {
 		begun.current = /* @__PURE__ */ new Set();
 		play(players[0].current);
 	}, [first]);
-	h(() => {
-		if (active === 0 && playing === 0) return;
-		play(players[active].current);
-	}, [active]);
 	const current = Math.min(playing, clips.length - 1);
+	const shown = clips[current];
 	const next = clips[current + 1];
+	h(() => {
+		if (shown === first) return;
+		play(players[active].current);
+	}, [active, shown]);
 	function begins(at) {
 		if (playing < clips.length && !begun.current.has(playing)) {
 			begun.current.add(playing);
@@ -1092,7 +1093,7 @@ function ClipPlayer(props) {
 	return /* @__PURE__ */ u(S, { children: [[0, 1].map((n) => n === active ? /* @__PURE__ */ u("video", {
 		ref: players[n],
 		className: "reply-video",
-		src: clips[current],
+		src: shown,
 		autoPlay: true,
 		playsInline: true,
 		disablePictureInPicture: true,
