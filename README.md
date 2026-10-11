@@ -360,7 +360,7 @@ pip freeze --all --exclude-editable | Set-Content -Encoding ascii app-constraint
 pip install --retries 10 pocket-tts==3.3.0 -c app-constraints.txt
 ```
 
-The log says `Prepare speaks in the person's own voice, cloned with Pocket TTS` at start, `Loaded Pocket TTS`, and `Spoke text in cloned voice` with `"model": "Pocket TTS"` for each clip. `imageskin say --voice-sample` uses Pocket too when it is installed, so you can hear it on its own. If Prepare fails with `could not load Pocket TTS: its weights that clone a voice need the terms accepted`, the terms are not accepted yet or `hf auth login` was not run. To go back to Chatterbox, run `pip uninstall pocket-tts` and click **Prepare** again.
+The log says `Prepare speaks in the person's own voice, cloned with Pocket TTS` at start, `Loaded Pocket TTS`, and `Spoke text in cloned voice` with `"model": "Pocket TTS"` for each clip. `imageskin say --voice-sample` uses Pocket too when it is installed, so you can hear it on its own. If Prepare fails with `could not load Pocket TTS: its weights that clone a voice need the terms accepted`, the terms are not accepted yet or `hf auth login` was not run. To go back to Chatterbox, run `pip uninstall pocket-tts`, restart `imageskin serve` (the app picks its voice engine when it starts) and click **Prepare** again.
 
 ## Making the sample video (on the CPU)
 

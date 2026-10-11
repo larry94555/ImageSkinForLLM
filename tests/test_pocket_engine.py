@@ -83,6 +83,8 @@ def test_pocket_load_failures_name_pocket(voice_sample: Path) -> None:
             engine.speak(str(voice_sample), "Hi")
     assert str(e.value).startswith("could not load Pocket TTS: its weights that clone a voice")
     assert pocket_engine.TERMS_URL in str(e.value) and "hf auth login" in str(e.value)
+    # The engine is picked when the server starts, so going back to Chatterbox needs a restart.
+    assert "uninstall pocket-tts and restart imageskin serve" in str(e.value)
 
 
 def test_installed_and_check_installed_look_for_the_packages() -> None:

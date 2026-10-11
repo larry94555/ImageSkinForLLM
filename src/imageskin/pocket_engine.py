@@ -33,7 +33,7 @@ NAME = "Pocket TTS"
 TERMS_URL = "https://huggingface.co/kyutai/pocket-tts"
 GATED = (
     f"its weights that clone a voice need the terms accepted at {TERMS_URL}, then: hf auth login"
-    " (or uninstall pocket-tts to speak with Chatterbox)"
+    " (or uninstall pocket-tts and restart imageskin serve to speak with Chatterbox)"
 )
 # Pocket runs the voice, the aligner (transformers) and the pronunciation step (Kokoro).
 REQUIRED = ("pocket_tts", "transformers", "kokoro")
