@@ -1,5 +1,6 @@
 // The app's pages. Each one is a function that returns what the page shows.
 
+import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import {
@@ -13,6 +14,7 @@ import {
   getAccent,
   getChat,
   getClips,
+  IDLE_VIDEO_URL,
   getPhotoChoice,
   clipUrl,
   getPrepare,
@@ -819,6 +821,7 @@ function Chat() {
   const wakeOnStop = useRef<() => void>(() => {}); // ends the latest reply's waits on Stop
   const [halted, setHalted] = useState(false); // the latest reply was stopped
   const [sound, setSound] = useState<Sound>(loadSound);
+  const [idle, setIdle] = useState<Idle>("loading"); // the idle video (roadmap R23)
 
   useEffect(
     () => () => {
@@ -976,9 +979,17 @@ function Chat() {
   if (turns === null) return <p className="muted busy">Loading…</p>;
   return (
     <div className="chat">
-      {clips.length > 0 && (
-        <ClipPlayer clips={clips} onStarted={started} onEnded={ended} sound={sound} />
-      )}
+      <Stage idle={idle} onIdle={setIdle}>
+        {clips.length > 0 && (
+          <ClipPlayer
+            clips={clips}
+            onStarted={started}
+            onEnded={ended}
+            sound={sound}
+            rest={idle === "ready"}
+          />
+        )}
+      </Stage>
       <SoundControls
         sound={sound}
         onChange={changeSound}
@@ -1183,6 +1194,46 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number; why: s
   );
 }
 
+// Whether the idle video is loading, showing, or there is none (an engine that can't make
+// one, or it failed: then the chat holds each reply's last frame, as before R23).
+export type Idle = "loading" | "ready" | "none";
+
+// Where the person is shown (roadmap R23): between replies, the idle video plays on a loop, so
+// the person blinks and moves slightly instead of freezing; a reply's clips play over it.
+export function Stage(props: {
+  idle: Idle;
+  onIdle: (idle: Idle) => void;
+  children?: ComponentChildren;
+}) {
+  const { idle, onIdle } = props;
+  return (
+    <div className="stage">
+      {idle !== "none" && (
+        <video
+          className="idle-video"
+          src={IDLE_VIDEO_URL}
+          hidden={idle !== "ready"}
+          autoPlay
+          loop
+          muted
+          playsInline
+          disablePictureInPicture
+          onLoadedData={() => {
+            if (idle === "ready") return;
+            console.info("Idle video ready");
+            onIdle("ready");
+          }}
+          onError={() => {
+            console.info("No idle video: the chat holds each reply's last frame");
+            onIdle("none");
+          }}
+        />
+      )}
+      {props.children}
+    </div>
+  );
+}
+
 // Plays a reply's clips one after another, as they arrive (roadmap R22). When it reaches the
 // end of the clips so far, it waits on the last frame for the next one. Two players take turns:
 // while one plays a clip, the other loads the next, so the switch between sentences costs no
@@ -1194,8 +1245,14 @@ export function ClipPlayer(props: {
   onStarted?: (clip: number, at: number) => void;
   onEnded?: (clip: number, at: number) => void;
   sound?: Sound; // the volume and mute (roadmap R19); full volume when not given
+  // There is an idle video under the player (roadmap R23): each clip fades in over it when it
+  // starts, and the player fades back to it when it runs out of clips, rather than holding the
+  // last frame. Clips that follow straight on join without a fade, as each starts where the
+  // one before ended.
+  rest?: boolean;
 }) {
-  const { clips, onStarted, onEnded, sound } = props;
+  const { clips, onStarted, onEnded, sound, rest } = props;
+  const [on, setOn] = useState(false); // a clip is showing, not resting on the idle video
   const [playing, setPlaying] = useState(0); // the clip to play; clips.length once all have
   const [active, setActive] = useState(0); // which of the two players is showing
   const players = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
@@ -1220,6 +1277,7 @@ export function ClipPlayer(props: {
     // A new reply starts from its first clip, which plays by itself.
     setPlaying(0);
     setActive(0);
+    setOn(false);
     begun.current = new Set();
     play(players[0].current);
   }, [first]);
@@ -1244,6 +1302,7 @@ export function ClipPlayer(props: {
   }, [active, shown]);
 
   function begins(at: number) {
+    setOn(true);
     if (playing < clips.length && !begun.current.has(playing)) {
       begun.current.add(playing);
       onStarted?.(playing, at);
@@ -1254,6 +1313,7 @@ export function ClipPlayer(props: {
     if (playing >= clips.length) return; // played again by hand, after the last clip so far
     onEnded?.(playing, at);
     if (next !== undefined) setActive((a) => 1 - a); // the next clip is loaded there already
+    else setOn(false); // back to the idle video until the next clip comes
     setPlaying(playing + 1);
   }
 
@@ -1264,7 +1324,7 @@ export function ClipPlayer(props: {
           <video
             key={n}
             ref={players[n]}
-            className="reply-video"
+            className={rest ? (on ? "reply-video over" : "reply-video over resting") : "reply-video"}
             src={shown}
             autoPlay
             playsInline

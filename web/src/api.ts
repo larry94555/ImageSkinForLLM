@@ -287,3 +287,7 @@ export async function stopReply(replyId: string): Promise<boolean> {
   const response = await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" });
   return (await json<{ stopped: boolean }>(response)).stopped;
 }
+
+// The person at rest, blinking and moving slightly, played on a loop between replies (roadmap
+// R23). The server answers once its warm-up has made it, and 404 when there is none.
+export const IDLE_VIDEO_URL = "/api/chat/idle";

@@ -43,6 +43,7 @@ PrepareFace = Callable[[Path, Progress], None]
 RenderClip = Callable[[Path, str, Path], None]  # photo, what to say, MP4 to write
 SpeakClip = Callable[[str, Path], None]  # what to say, WAV to write (its timings JSON beside it)
 RenderVideo = Callable[[Path, Path, Path], None]  # photo, the WAV spoken, MP4 to write
+RenderIdle = Callable[[Path, Path], None]  # photo, MP4 to write
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,8 @@ class ClipSteps:
 
     speak: SpeakClip
     render: RenderVideo
+    # The idle video shown between replies (roadmap R23), for an engine that can make one.
+    idle: RenderIdle | None = None
 
 
 def steps_clip(steps: ClipSteps) -> RenderClip:
@@ -520,14 +523,18 @@ def photoreal_steps(
     max_side: int | None = None,  # the clip's longest side, when the photo is to be scaled down
     progressive: bool = False,  # an MP4 that can be played while it is written (roadmap R22d)
 ) -> ClipSteps:
-    """Speak the text in the voice; render the speech from the photo's photoreal library."""
-    # The video engine and the loaded library, made on first use and kept for the next clip.
-    kept: dict[str, Any] = {}
+    """Speak the text in the voice; render the speech from the photo's photoreal library.
+
+    Each clip starts on the idle-loop frame the one before it ended on, so a reply's clips
+    join without the head jumping back (roadmap R23)."""
+    # The video engine and the loaded library, made on first use and kept for the next clip,
+    # and the idle-loop frame the next clip starts on.
+    kept: dict[str, Any] = {"frame": 0}
 
     def speak(text: str, wav: Path) -> None:
         write_speech(voice_engine.speak(voice, text), wav, wav.with_suffix(".json"))
 
-    def render(photo: Path, wav: Path, output: Path) -> None:
+    def load(photo: Path) -> tuple[Any, Any]:
         from imageskin.photoreal import PhotorealEngine
         from imageskin.photoreal_library import scaled
 
@@ -537,10 +544,22 @@ def photoreal_steps(
             lib = video.prepare(photo)
             if max_side is not None:
                 lib = scaled(lib, max_side)
-            kept.update(photo=photo, video=video, lib=lib)
-        kept["video"].render(kept["lib"], wav, output, progressive=progressive)
+            kept.update(photo=photo, video=video, lib=lib, frame=0)
+        return kept["video"], kept["lib"]
 
-    return ClipSteps(speak, render)
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        from imageskin.video import FPS
+
+        video, lib = load(photo)
+        start = kept["frame"]
+        seconds = video.render(lib, wav, output, progressive=progressive, start_frame=start)
+        kept["frame"] = start + max(1, round(seconds * FPS))  # the loop wraps it
+
+    def idle(photo: Path, output: Path) -> None:
+        video, lib = load(photo)
+        video.render_idle(lib, output)
+
+    return ClipSteps(speak, render, idle)
 
 
 def photoreal_clip(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_VOICE) -> RenderClip:

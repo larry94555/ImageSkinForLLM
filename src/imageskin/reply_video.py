@@ -352,6 +352,41 @@ class ReplyVideos:
                 "Replies warmed up",
                 extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
             )
+            self._make_idle(photo)
+
+    def idle(self, photo: Path) -> Path | None:
+        """The idle video for the photo (roadmap R23), once the warm-up has made it."""
+        path = self.folder / "idle" / f"{photo.stem}.mp4"
+        return path if path.is_file() else None
+
+    def _make_idle(self, photo: Path) -> None:
+        """Make the photo's idle video, unless it is made already, and remove any other
+        photo's. Failures are logged only: the chat then holds each reply's last frame."""
+        render_idle = self._steps.idle
+        if render_idle is None or self.idle(photo) is not None:
+            return
+        start = time.perf_counter()
+        folder = self.folder / "idle"
+        path = folder / f"{photo.stem}.mp4"
+        rendering = folder / f"{photo.stem}.rendering.mp4"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            render_idle(photo, rendering)
+            os.replace(rendering, path)
+        except Exception as e:
+            discard(rendering)
+            logger.error("Could not make the idle video", extra={"error": str(e)})
+            return
+        for old in folder.glob("*.mp4"):
+            if old != path:
+                try:
+                    old.unlink()
+                except OSError as e:  # open in a browser, as on Windows: removed next time
+                    logger.warning(
+                        "Could not remove an old idle video",
+                        extra={"video": old.name, "error": str(e)},
+                    )
+        logger.info("Idle video ready", extra={"duration_ms": ms_since(start)})
 
     def sentence_clips(self, photo: Path, reply_id: str) -> SentenceClips:
         """Render a streamed reply sentence by sentence into <folder>/clips-<reply_id>."""

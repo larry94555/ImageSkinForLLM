@@ -583,6 +583,7 @@ def test_default_clip_speaks_and_renders_photoreal_with_the_shared_voice(
     voice = MagicMock()
     voice.speak.return_value = Speech(b"\0\0" * 2400, 24000, [])
     with patch("imageskin.photoreal.PhotorealEngine") as engine:
+        engine.return_value.render.return_value = 0.1  # seconds
         render = photoreal_clip(tmp_path, voice)
         render(tmp_path / "me.jpg", "Goodbye.", tmp_path / "goodbye.mp4")
         render(tmp_path / "me.jpg", "Welcome back.", tmp_path / "welcome.mp4")
@@ -603,7 +604,8 @@ def test_clips_can_speak_in_another_voice(tmp_path: Path) -> None:
 
     voice = MagicMock()
     voice.speak.return_value = Speech(b"\0\0" * 2400, 24000, [])
-    with patch("imageskin.photoreal.PhotorealEngine"):
+    with patch("imageskin.photoreal.PhotorealEngine") as engine:
+        engine.return_value.render.return_value = 0.1  # seconds
         photoreal_clip(tmp_path, voice, "voice-sample.wav")(
             tmp_path / "me.jpg", "Goodbye.", tmp_path / "goodbye.mp4"
         )
