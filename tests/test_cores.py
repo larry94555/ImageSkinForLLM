@@ -257,3 +257,48 @@ def test_linux_pin_sets_every_thread() -> None:
         _linux_pin(every)
         stop.set()
         worker.join()
+
+
+@pytest.mark.skipif(not hasattr(os, "sched_setaffinity"), reason="Linux only")
+def test_linux_pin_skips_a_thread_that_ended() -> None:
+    from imageskin.cores import _linux_pin
+
+    every = sorted(os.sched_getaffinity(0))
+    real = os.sched_setaffinity
+    calls: list[int] = []
+
+    def set_affinity(task: int, cpus: list[int]) -> None:
+        calls.append(task)
+        if len(calls) == 1:
+            raise ProcessLookupError(3, "No such process")
+        real(task, cpus)
+
+    with patch("os.listdir", return_value=["999999", str(os.getpid())]):
+        with patch("os.sched_setaffinity", side_effect=set_affinity):
+            _linux_pin(every)
+    assert calls == [999999, os.getpid()]
+
+
+def test_the_app_is_pinned_before_any_of_its_threads_start(tmp_path: Path) -> None:
+    from imageskin.app import create_app
+
+    order: list[str] = []
+    real_start = threading.Thread.start
+
+    def start(self: threading.Thread) -> None:
+        order.append(f"thread {self.name}")
+        real_start(self)
+
+    def pin() -> int:
+        order.append("pinned")
+        return 2
+
+    with (
+        patch("imageskin.app.use_performance_cores", side_effect=pin),
+        patch.object(threading.Thread, "start", start),
+        patch("imageskin.app.CoreShare") as share,
+    ):
+        create_app(tmp_path)
+    assert order[0] == "pinned" and order.count("pinned") == 1
+    assert any(o.startswith("thread ") for o in order[1:])  # the model threads come after
+    assert share.call_args.args == (2,)  # the count kept is the one shared with the LLM

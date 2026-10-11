@@ -145,6 +145,8 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
+    # First, before any thread starts, so every later thread inherits the pin (R22g).
+    performance_cores = use_performance_cores()
     # The built browser files are committed unminified so they stay readable; compressing
     # responses here makes them small on the wire instead (less than half the size).
     app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -349,7 +351,7 @@ def create_app(
     )
     # While the LLM is busy, the voice and video engines leave it half the cores (R22a), of the
     # performance cores on a CPU that also has efficiency cores (R22g).
-    core_share = CoreShare(cores(use_performance_cores()))
+    core_share = CoreShare(cores(performance_cores))
     core_share.llm_done()
     if ask_llm is None:
         client = LlmClient(llm)

@@ -119,9 +119,13 @@ def _windows_pin(cpus: list[int]) -> None:  # pragma: no cover - Windows only
 
 
 def _linux_pin(cpus: list[int]) -> None:
-    """Every thread of the process, since Linux sets one thread at a time."""
+    """Every thread of the process, since Linux sets one thread at a time; threads started later
+    inherit it. A thread that ended meanwhile is skipped."""
     for task in os.listdir("/proc/self/task"):
-        os.sched_setaffinity(int(task), cpus)  # type: ignore[attr-defined,unused-ignore]
+        try:
+            os.sched_setaffinity(int(task), cpus)  # type: ignore[attr-defined,unused-ignore]
+        except ProcessLookupError:
+            continue
 
 
 def performance_cpus() -> list[int] | None:
@@ -142,8 +146,8 @@ def use_performance_cores(
     pin: Callable[[list[int]], None] | None = None,
 ) -> int | None:
     """Keep the app on the performance cores, when the CPU also has efficiency cores, and return
-    how many logical CPUs it kept; None leaves it on every core. Called before the engines
-    start their threads. IMAGESKIN_ALL_CORES=1 turns it off."""
+    how many logical CPUs it kept; None leaves it on every core. Called first when the app is
+    made, before any of its threads start. IMAGESKIN_ALL_CORES=1 turns it off."""
     if os.environ.get(ALL_CORES) == "1":
         logger.info("The app may use every core", extra={"setting": ALL_CORES})
         return None
