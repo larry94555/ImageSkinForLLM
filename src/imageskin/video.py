@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import shutil
 import subprocess
@@ -12,6 +13,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypeVar
+
+logger = logging.getLogger(__name__)
 
 FPS = 25
 SMOOTH_S = 0.05  # spread of the mouth smoothing, in seconds (a Gaussian sigma)
@@ -104,12 +107,24 @@ def write_mp4(
     except subprocess.TimeoutExpired as e:
         proc.kill()
         proc.communicate()  # reap the process and close its pipes
-        output.unlink(missing_ok=True)  # a partial MP4 must not look like a result
+        discard(output)  # a partial MP4 must not look like a result
         raise VideoError(f"ffmpeg took longer than {timeout_s:g} seconds") from e
     if proc.returncode != 0:
-        output.unlink(missing_ok=True)
+        discard(output)
         detail = err.decode(errors="replace").strip().splitlines()[-1:] or ["no error output"]
         raise VideoError(f"ffmpeg could not write {output.name} ({detail[0]})")
+
+
+def discard(output: Path) -> None:
+    """Remove a video cut short. A browser can be reading it while it is written (roadmap
+    R22d), and on Windows that keeps it from being removed: then it is logged and left for the
+    next reply's clean-up, and the error that cut it short is the one raised."""
+    try:
+        output.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning(
+            "Could not remove a video cut short", extra={"video": output.name, "error": str(e)}
+        )
 
 
 def read_pcm16(wav: Path) -> tuple[array[int], int]:
