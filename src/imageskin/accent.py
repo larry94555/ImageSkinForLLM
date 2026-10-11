@@ -7,6 +7,12 @@ timings still drive the mouth. The Kokoro voice is picked to suit the person, as
 (R26a) does: every voice of that accent says a probe line and is converted to their voice, and
 the closest after conversion is used.
 
+Converting every line is slow on a CPU (about 17 to 22 s a clip on Larry's laptop), so when the
+clone keeps the accent of the speech it learns from, as Pocket TTS does (R22f), the converter
+runs once in prepare instead: the base voice reads a passage, it is converted to the person's
+voice, and the clone learns from that. The clone then speaks every line itself, in the person's
+voice with the chosen accent, as fast as with their own.
+
 The choice is saved as accent.json in the app's home folder, so it survives a restart.
 """
 
@@ -49,7 +55,15 @@ KOKORO_VOICES: dict[Accent, tuple[str, list[str]]] = {
     ),
 }
 PROBE = "Hello, it's good to see you. What would you like to talk about today?"
+# What the base voice reads for the clone to learn the accent from: more than the clone's 10
+# seconds, with most of English's sounds (Aesop's "The North Wind and the Sun", used in phonetics).
+PASSAGE = (
+    "The North Wind and the Sun were disputing which was the stronger, when a traveller came"
+    " along wrapped in a warm cloak. They agreed that the one who first succeeded in making the"
+    " traveller take his cloak off should be considered stronger than the other."
+)
 
+RATE = 24000  # the clone's and the converter's rate, which Kokoro's matches
 Samples = np.ndarray  # 24 kHz float samples
 Convert = Callable[[Samples], Samples]
 
@@ -129,11 +143,13 @@ class AccentEngine:
         kokoro: Callable[[str], VoiceEngine],  # Kokoro for a language code
         converter: Callable[[], Converter],
         voice_print: Callable[[Samples], np.ndarray],  # unit length, compared by dot product
+        clone_keeps_accent: bool = False,  # the clone speaks with the accent it learns from
     ) -> None:
         self._clone = clone
         self._kokoro = kokoro
         self._make_converter = converter
         self._voice_print = voice_print
+        self._clone_keeps_accent = clone_keeps_accent
         self._engines: dict[str, VoiceEngine] = {}
         self._converter: Converter | None = None
         self.accent: Accent = OWN
@@ -174,9 +190,34 @@ class AccentEngine:
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
+        if self._clone_keeps_accent:
+            self._teach_clone(voice, kokoro, converter)
+
+    def _teach_clone(self, voice: str, kokoro: VoiceEngine, converter: Converter) -> None:
+        """Have the clone learn the person's voice with the accent: the base voice reads the
+        passage and it is converted to the person's voice, once, so no line is converted later."""
+        assert self.base is not None
+        start = time.perf_counter()
+        spoken = pcm16_to_float(kokoro.speak(self.base, PASSAGE).pcm)
+        try:
+            accented = convert_fitted(spoken, converter)
+        except Exception as e:  # the model's own errors
+            raise VoiceError(f"Chatterbox could not convert the voice: {e}") from e
+        self._clone.learn_speech(voice, accented)
+        # Not needed again until the accent changes, so its model (about 3 GB) can be freed.
+        self._converter = None
+        logger.info(
+            "Clone learned the voice with the accent",
+            extra={
+                "accent": self.accent,
+                "base": self.base,
+                "passage_s": round(len(spoken) / RATE, 2),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
 
     def speak(self, voice: str, text: str) -> Speech:
-        if self.accent == OWN or self.base is None:
+        if self.accent == OWN or self.base is None or self._clone_keeps_accent:
             return self._clone.speak(voice, text)
         lang, _ = KOKORO_VOICES[self.accent]
         speech = self._engine(lang).speak(self.base, text)

@@ -538,7 +538,7 @@ def test_another_accent_needs_preparing_again(tmp_path: Path) -> None:
     assert job.status().state == "idle"
 
 
-def test_pocket_tts_has_its_own_voice_and_shares_the_other_accents(tmp_path: Path) -> None:
+def test_pocket_tts_has_its_own_voice_for_every_accent(tmp_path: Path) -> None:
     accent: list[Accent] = ["own"]
     job, store = make_job(tmp_path, kind="pocket", accent=accent)
     job.start()
@@ -547,9 +547,10 @@ def test_pocket_tts_has_its_own_voice_and_shares_the_other_accents(tmp_path: Pat
     assert job.status().voice_id == f"pocket:{fingerprint}"
     later, _ = make_job(tmp_path, kind="clone", accent=accent)  # Pocket TTS uninstalled
     assert later.status().state == "idle"
-    # Another accent is Kokoro and Chatterbox's converter, whichever clones the own accent.
+    # Pocket speaks another accent itself, Chatterbox through Kokoro and its converter.
     accent[0] = "british"
-    assert job.voice_id() == later.voice_id() == f"clone-british:{fingerprint}"
+    assert job.voice_id() == f"pocket-british:{fingerprint}"
+    assert later.voice_id() == f"clone-british:{fingerprint}"
 
 
 def test_kokoro_ignores_the_accent(tmp_path: Path) -> None:
@@ -679,6 +680,7 @@ def test_the_accent_engine_shares_the_clone_and_the_speaker_model() -> None:
         engine._voice_print(np.zeros(3))
     converter.assert_called_once_with(clone.cloner.return_value.tts.s3gen)
     assert speakers.voice_print.call_args.args[1] == 24000
+    assert not engine._clone_keeps_accent  # Chatterbox converts every line
 
 
 def test_with_pocket_tts_the_accent_converter_loads_chatterbox_itself() -> None:
@@ -690,9 +692,11 @@ def test_with_pocket_tts_the_accent_converter_loads_chatterbox_itself() -> None:
         patch("imageskin.chatterbox_engine.TurboConverter") as converter,
         patch("imageskin.chatterbox_engine._load_cloner") as chatterbox,
     ):
-        accent_engine(clone, MagicMock())._make_converter()
+        engine = accent_engine(clone, MagicMock())
+        engine._make_converter()
     converter.assert_called_once_with(chatterbox.return_value.tts.s3gen)
     clone.cloner.assert_not_called()
+    assert engine._clone_keeps_accent  # Pocket learns the accent and speaks every line
 
 
 def test_the_app_shares_one_speaker_model(tmp_path: Path) -> None:

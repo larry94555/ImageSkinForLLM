@@ -273,9 +273,10 @@ class PrepareJob:
             return None
         accent = self._accent()
         kind = self._voice_kind
-        # Another accent is spoken by Kokoro and Chatterbox's converter, whichever clones.
+        # Chatterbox speaks another accent through Kokoro and its converter; Pocket TTS speaks it
+        # itself, learned from converted speech.
         if kind in CLONES and accent != OWN:
-            kind = f"clone-{accent}"
+            kind = f"{kind}-{accent}"
         return f"{kind}:{fingerprint}"
 
     def _remove_clips(self) -> int:
@@ -444,8 +445,8 @@ def clip_voice(
     """The voice step, the engine, the voice the clips are spoken in and its kind ("pocket",
     "clone" or "kokoro"): the person's own, cloned from the voice sample with the chosen accent,
     when Chatterbox is installed (see the README); otherwise Kokoro's. With Pocket TTS installed
-    too, Pocket speaks the person's own accent, about ten times faster than Chatterbox on 4 cores,
-    so replies can start within 1 to 2 seconds (roadmap R22f)."""
+    too, Pocket speaks, about ten times faster than Chatterbox on 4 cores, so replies can start
+    within 1 to 2 seconds (roadmap R22f), with every accent (see accent_engine)."""
     from imageskin import pocket_engine
     from imageskin.chatterbox_engine import ChatterboxEngine, check_installed
 
@@ -469,7 +470,10 @@ def clip_voice(
 def accent_engine(clone: "ChatterboxEngine", speakers: "SpeakerChecker") -> AccentEngine:
     """The clone, with Kokoro, Chatterbox's converter and the app's speaker model (shared with the
     one-speaker check) for other accents. Each is loaded only when another accent is first used.
-    The converter shares Chatterbox's model with the clone, or loads it when Pocket TTS clones."""
+    The converter shares Chatterbox's model with the clone, or loads it when Pocket TTS clones.
+    Pocket keeps the accent it learns from, so it learns another accent from converted speech
+    in prepare and speaks every line itself, as fast as the person's own accent."""
+    from imageskin import pocket_engine
     from imageskin.chatterbox_engine import NAME, SAMPLE_RATE, TurboConverter, _load_cloner
     from imageskin.kokoro_engine import kokoro_for
 
@@ -482,6 +486,7 @@ def accent_engine(clone: "ChatterboxEngine", speakers: "SpeakerChecker") -> Acce
         kokoro_for,
         converter,
         lambda samples: speakers.voice_print(samples, SAMPLE_RATE),
+        clone_keeps_accent=clone.name == pocket_engine.NAME,
     )
 
 

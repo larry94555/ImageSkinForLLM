@@ -289,3 +289,19 @@ def test_reference_and_cloner_are_shared_with_the_accent_converter(voice_sample:
     write_wav(voice_sample, np.full(SAMPLE_RATE * 12, 0.3, dtype=np.float32))
     assert eng.reference(str(voice_sample))[0] == expected[0]  # kept from before
     assert eng.reference(str(voice_sample), fresh=True)[0] == pytest.approx(0.3, abs=1e-3)
+
+
+def test_learn_speech_learns_from_given_speech_and_keeps_it(voice_sample: Path) -> None:
+    cloner = FakeCloner()
+    aligner = FakeAligner()
+    eng = ChatterboxEngine(lambda: cloner, aligner, lambda: None)
+    # The person's voice with another accent: 14 seconds after half a second of silence.
+    speech = np.concatenate([np.zeros(SAMPLE_RATE // 2), np.full(SAMPLE_RATE * 14, 0.4)])
+    eng.learn_speech(str(voice_sample), speech.astype(np.float32))
+    assert aligner.loads == 1 and len(cloner.voices) == 1
+    assert len(cloner.voices[0]) == 10 * SAMPLE_RATE and cloner.voices[0][0] == pytest.approx(0.4)
+    eng.check_voice_sample(str(voice_sample))
+    eng.speak(str(voice_sample), "Hello")
+    assert len(cloner.voices) == 1  # still that speech, not the voice sample's
+    eng.learn_voice(str(voice_sample))  # back to the voice sample
+    assert cloner.voices[-1][0] == 0.5

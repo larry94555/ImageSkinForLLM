@@ -141,6 +141,14 @@ class ChatterboxEngine:
         self.check_voice_sample(voice)
         self._learn_voice(self._loaded(), voice)
 
+    def learn_speech(self, voice: str, speech: np.ndarray) -> None:
+        """Learn the voice from other speech than the voice sample's, such as the person's voice
+        converted to another accent (roadmap R22f); it is still the voice of `voice`."""
+        self._check()
+        self._voice = None
+        self._reference = (voice, reference_clip(speech))
+        self._learn_voice(self._loaded(), voice)
+
     def reference(self, voice: str, fresh: bool = False) -> np.ndarray:
         """The stretch of the voice sample the voice is learned from; fresh reads it again, as the
         voice sample is joined again whenever the recordings change."""

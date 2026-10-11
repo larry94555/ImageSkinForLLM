@@ -4,7 +4,8 @@
 Measured on 4 cores with 2 threads: a 4-word clause took 0.56 s with Pocket TTS (int8) against
 7 s with Chatterbox Turbo, and a 6-word one 0.77 s against 8.8 s, so it runs at about a third of
 real time where Chatterbox runs at about four times. It learns the voice from the same 10 seconds
-of the voice sample as Chatterbox, keeps the person's own accent and speaks at 24 kHz. Like
+of the voice sample as Chatterbox, keeps the accent of what it learns from (the person's own, or
+another learned from converted speech; see accent.py) and speaks at 24 kHz. Like
 Chatterbox it reports no timings, so ChatterboxEngine runs it with the same forced alignment.
 
 The code is MIT and the weights are CC-BY-4.0 (credit: Kyutai). The weights that clone a voice
@@ -39,7 +40,7 @@ REQUIRED = ("pocket_tts", "transformers", "kokoro")
 
 
 def installed() -> bool:
-    """Whether Pocket TTS is installed; when it is, it speaks the person's own accent."""
+    """Whether Pocket TTS is installed; when it is, it speaks every accent (see accent.py)."""
     return importlib.util.find_spec("pocket_tts") is not None
 
 
