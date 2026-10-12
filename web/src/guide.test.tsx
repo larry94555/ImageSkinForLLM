@@ -118,3 +118,13 @@ test("every step has a clear way back to the Setup page, above and below", () =>
   fireEvent.change(screen.getByRole("combobox"), { target: { value: "9" } });
   expect(screen.getAllByRole("link", { name: "← Return to Setup page" })).toHaveLength(2);
 });
+
+test("the guide says which recordings today's voice uses, so the extra ones aren't oversold", () => {
+  // Today's clone learns from about 10 seconds of the sample (chatterbox_engine.REFERENCE_S);
+  // recordings 4 to 7 are kept only for a later trained voice (docs/planning/input-voice.md).
+  localStorage.setItem("imageskin.guide", JSON.stringify({ step: 4 }));
+  render(<GuidePage />);
+  expect(screen.getByText(/Recordings 1 to 3 \(about 4 minutes\) are enough for the voice today/)).toBeTruthy();
+  expect(screen.getByText(/Recordings 4 to 7 do\s+not change today's voice/)).toBeTruthy();
+  expect(screen.queryByText(/in depth/)).toBeNull();
+});

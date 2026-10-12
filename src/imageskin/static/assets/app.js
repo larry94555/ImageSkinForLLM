@@ -753,7 +753,11 @@ var STEPS = [
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "The times are the length of each whole recording, from Record to Stop. Recordings 1 to 3 teach the app what your voice sounds like; 4 to 7 give it enough to learn your voice in depth, so it still sounds like you with a different accent. You can take breaks between recordings, as long as you use the same room, microphone and distance."
+				children: "The times are the length of each whole recording, from Record to Stop. You can take breaks between recordings, as long as you use the same room, microphone and distance."
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: "Recordings 1 to 3 (about 4 minutes) are enough for the voice today. Recordings 4 to 7 do not change today's voice: they are kept so a closer, trained copy of your voice can be made later without recording again. If you are short on time, stop after Recording 3."
 			}),
 			/* @__PURE__ */ u("h2", { children: "How to speak" }),
 			/* @__PURE__ */ u("ul", {
