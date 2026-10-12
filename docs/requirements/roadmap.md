@@ -15,7 +15,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.0% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.3% | 7 of 7 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.7% | 11 of 11 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.7% | 3 of 5 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.7% | 4 of 5 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.0% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.7% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.7% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.7% | 0 |
-| | **Total** | | **75** | **100%** | **42 of 75** |
+| | **Total** | | **75** | **100%** | **43 of 75** |
 
 Sizes: 19 Simple, 56 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -345,6 +345,7 @@ The PRs below are written for either kind of video engine, but these are the one
 ### R37. Building the wiki (Medium) · item 26
 - The LLM turns the extracted content into wiki pages (one per topic, linking back to the PDF pages it came from). Adding, replacing or removing a PDF rebuilds only the pages that PDF affects.
 - **Can show:** the wiki pages built from a sample PDF, and the logs showing how long the build took.
+- **Built:** `build_wiki` in `wiki.py` cuts a PDF's reading into parts that fit the context window (each piece marked `[page N]`), asks the LLM for each part's topics as JSON (title, pages, text; at most 6, held to a schema on llama-server), and merges a topic that runs over several parts, since the LLM is told the titles found so far. An unusable answer is asked again once, then the part is skipped and listed. `WikiJob` in `wiki_job.py` builds one PDF at a time after it is read, saves `content/wiki/<id>.json` with the PDF's version, rebuilds only a replaced PDF's pages, removes a removed PDF's, catches up on start, and waits for llama-server when it can't be reached. Each PDF has its own pages, so the same topic in two PDFs is two pages *(default)*. `GET /api/wiki`, `/api/wiki/{page_id}`, `/api/wiki/builds` and `/api/content/{id}/wiki`; Manage Content shows the progress, then the page count with a **Wiki pages** link.
 
 ### R38. Wiki review and corrections (Medium) · item 26
 - A wiki page in Manage Content to browse the pages, see the PDF pages each came from, and edit a page. A corrected page is marked so a rebuild doesn't overwrite it silently.

@@ -364,6 +364,16 @@ def test_the_client_asks_the_chat_api(fake_llm: str) -> None:
     ]
 
 
+def test_the_client_can_ask_for_json_of_a_given_form(fake_llm: str) -> None:
+    FakeLlm.answer = (200, reply('{"topics": []}'))
+    client = LlmClient(LlmSettings(url=fake_llm))
+    schema = {"type": "object"}
+    assert client.ask([{"role": "user", "content": "Hi"}], 900, schema) == '{"topics": []}'
+    sent = FakeLlm.received[0]
+    assert sent["max_tokens"] == 900
+    assert sent["response_format"] == {"type": "json_object", "schema": schema}
+
+
 @pytest.mark.parametrize(
     ("answer", "message"),
     [

@@ -19,7 +19,16 @@ from pydantic import BaseModel, Field
 
 from imageskin import __version__, pdf_reading
 from imageskin.accent import Accent, load_accent, save_accent
-from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings, StreamLlm
+from imageskin.chat import (
+    AskLlm,
+    Conversation,
+    Count,
+    LlmClient,
+    LlmError,
+    LlmSettings,
+    StreamLlm,
+    estimate,
+)
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
@@ -55,6 +64,9 @@ from imageskin.uploads import (
     UploadStore,
     VoiceSample,
 )
+from imageskin.wiki import TOPICS_SCHEMA, WIKI_REPLY_TOKENS, AskForTopics, Wiki, build_wiki
+from imageskin.wiki import Progress as WikiProgress
+from imageskin.wiki_job import BuildWiki, WikiJob, WikiStatus
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +152,23 @@ def sound_checker(speakers: SpeakerChecker) -> SoundCheck:
     return functools.partial(sound_checks.check, voices=speakers.check)
 
 
+def wiki_builder(llm: LlmSettings, client: LlmClient | None, ask_llm: AskLlm | None) -> BuildWiki:
+    """Builds wiki pages with the chat's LLM: llama-server's, or `ask_llm` (tests)."""
+    ask: AskForTopics
+    count: Count
+    if client is not None:
+        ask = functools.partial(client.ask, max_tokens=WIKI_REPLY_TOKENS, schema=TOPICS_SCHEMA)
+        count, window = client.count, client.context_tokens
+    else:
+        assert ask_llm is not None
+        ask, count, window = ask_llm, estimate, lambda: llm.context_tokens
+
+    def build(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress) -> Wiki:
+        return build_wiki(pdf_id, pieces, ask, count, window(), progress)
+
+    return build
+
+
 def create_app(
     home: Path | None = None,
     check_photo: PhotoCheck | None = None,
@@ -153,6 +182,7 @@ def create_app(
     stream_llm: StreamLlm | None = None,
     warm_up_llm: Callable[[], None] | None = None,  # with ask_llm: readies the LLM (tests)
     read_pdf: ReadPdf | None = None,
+    build_wiki: BuildWiki | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -283,8 +313,15 @@ def create_app(
     content_api = "/api/content"
     # Each PDF is read when it is added or replaced (R36); on start, any not read yet.
     readings = ReadingJob(content, read_pdf or pdf_reading.read_pdf)
+    # Then the wiki is built from what was read (R37), with the chat's LLM.
+    llm = llm or LlmSettings()
+    client = LlmClient(llm) if ask_llm is None else None
+    wiki = WikiJob(content, readings, build_wiki or wiki_builder(llm, client, ask_llm))
+    readings.on_read = wiki.queue
     readings.catch_up()
+    wiki.catch_up()
     app.state.readings = readings
+    app.state.wiki = wiki
 
     @app.get(content_api)
     def list_pdfs() -> list[Pdf]:
@@ -305,6 +342,7 @@ def create_app(
             pdf = content.replace(pdf_id, file.filename, file.file)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
+        wiki.reset(pdf_id)
         readings.queue(pdf)
         return pdf
 
@@ -319,6 +357,13 @@ def create_app(
         if reading is None:
             raise HTTPException(status_code=404, detail="Not read yet.")
         return reading
+
+    @app.get(content_api + "/{pdf_id}/wiki")
+    def get_pdf_wiki(pdf_id: str) -> dict[str, Any]:
+        built = wiki.built(pdf_id)
+        if built is None:
+            raise HTTPException(status_code=404, detail="No wiki pages yet.")
+        return built
 
     @app.get(content_api + "/{pdf_id}")
     def get_pdf(pdf_id: str) -> FileResponse:
@@ -344,7 +389,24 @@ def create_app(
         if not removed:
             raise HTTPException(status_code=404, detail="No such PDF.")
         readings.forget(pdf_id)
+        wiki.forget(pdf_id)
         return {"removed": True}
+
+    @app.get("/api/wiki")
+    def list_wiki_pages(pdf: str | None = None) -> list[dict[str, Any]]:
+        return wiki.pages(pdf)
+
+    # Before /{page_id}, which would take "builds" as an id.
+    @app.get("/api/wiki/builds")
+    def wiki_statuses() -> dict[str, WikiStatus]:
+        return wiki.statuses()
+
+    @app.get("/api/wiki/{page_id}")
+    def get_wiki_page(page_id: str) -> dict[str, Any]:
+        page = wiki.page(page_id)
+        if page is None:
+            raise HTTPException(status_code=404, detail="No such wiki page.")
+        return page
 
     # One voice engine for the job, so Prepare loads the voice model once.
     def accent() -> Accent:
@@ -425,7 +487,6 @@ def create_app(
         start_reply_warm_up()  # the chat opens now: ready the LLM and the engines (R22a)
         return asdict(review)
 
-    llm = llm or LlmSettings()
     logger.info(
         "Chat LLM", extra={"url": llm.url, "model": llm.model, "context_tokens": llm.context_tokens}
     )
@@ -433,8 +494,7 @@ def create_app(
     # performance cores on a CPU that also has efficiency cores (R22g).
     core_share = CoreShare(cores(performance_cores))
     core_share.llm_done()
-    if ask_llm is None:
-        client = LlmClient(llm)
+    if client is not None:
         conversation = Conversation(
             client.ask,
             client.context_tokens,
@@ -444,6 +504,7 @@ def create_app(
             llm_busy=core_share.llm,
         )
     else:
+        assert ask_llm is not None
         conversation = Conversation(
             ask_llm,
             lambda: llm.context_tokens,
@@ -451,6 +512,10 @@ def create_app(
             warm_up=warm_up_llm,
             llm_busy=core_share.llm,
         )
+
+    # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's
+    # memory; it is read again once they are done.
+    wiki.when_idle = conversation.warm_up
 
     @app.get("/api/chat", dependencies=needs_consent)
     def get_chat() -> dict[str, object]:

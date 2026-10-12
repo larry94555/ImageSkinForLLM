@@ -347,3 +347,23 @@ export function readingUrl(id: string): string {
 export async function listReadings(): Promise<Record<string, Reading>> {
   return json<Record<string, Reading>>(await fetch("/api/content/readings"));
 }
+
+// How far the server has got building a PDF's wiki pages with the LLM (roadmap R37).
+export interface WikiBuild {
+  state: "waiting" | "building" | "done" | "failed";
+  part: number; // parts done so far
+  parts: number; // parts in all, once known
+  pages: number | null; // once done: wiki pages built
+  skipped_parts: number[] | null; // once done: parts the LLM gave no usable answer for
+  error: string | null; // why it failed, or what it is waiting for
+}
+
+// A PDF's wiki pages with their text, as JSON, to open in a new tab.
+export function wikiUrl(id: string): string {
+  return `/api/content/${id}/wiki`;
+}
+
+// The wiki progress of each PDF, by its id. A PDF not read yet is missing.
+export async function listWikiBuilds(): Promise<Record<string, WikiBuild>> {
+  return json<Record<string, WikiBuild>>(await fetch("/api/wiki/builds"));
+}

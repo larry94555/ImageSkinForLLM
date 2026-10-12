@@ -58,9 +58,15 @@ def done_status(reading: dict[str, Any]) -> ReadingStatus:
 
 
 class ReadingJob:
-    def __init__(self, store: ContentStore, read: ReadPdf = read_pdf) -> None:
+    def __init__(
+        self,
+        store: ContentStore,
+        read: ReadPdf = read_pdf,
+        on_read: Callable[[str], None] | None = None,  # given the id once a reading is saved
+    ) -> None:
         self.store = store
         self.read = read
+        self.on_read = on_read
         self.folder = store.root / "read"
         self._lock = threading.Lock()
         self._waiting: list[str] = []
@@ -202,6 +208,8 @@ class ReadingJob:
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
+        if self.on_read is not None:
+            self.on_read(pdf.id)  # the wiki is built from it (R37)
 
     def _set(self, pdf_id: str, status: ReadingStatus) -> None:
         with self._lock:
