@@ -327,7 +327,7 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 6: Content and the wiki
 
-### R34. PDF storage and content API (Medium) · item 24 · Built in R34's PR
+### R34. PDF storage and content API (Medium) · item 24 · Done in [PR #62](https://github.com/larry94555/ImageSkinForLLM/pull/62)
 - Server API to add, remove and replace PDFs, stored apart from the image and sound files, with the same safe-storage rules as R6 (size limit, type check, safe names).
 - **Can show:** add, replace and remove a PDF with API calls, and the logs and folder showing each change.
 - **Built:** `ContentStore` in `content.py` keeps PDFs in `<data folder>/content/pdfs` as `<id>.pdf` with `<id>.json` (display name, size, `added_at`, `replaced_at`); `POST`, `GET`, `PUT` and `DELETE` under `/api/content`. The type is checked from the first bytes (`%PDF-`), names are only for display, and limits are 100 MB per PDF and 2 GB in total. Replacing keeps the id, so R37 can rebuild only that PDF's wiki pages. The API needs no consent (PDFs aren't the person's likeness); R44 adds the administrator sign-on.
