@@ -88,6 +88,8 @@ npm run build   # type check and build into src/imageskin/static
 
 Commit the built files with the source change; CI fails if they are out of date.
 
+The home page (http://127.0.0.1:8000/) offers **Start setup** until a sample video has been accepted. After that it shows the chosen photo and three equal choices: **Chat**, **Manage Content** and **Setup**. The browser console logs `Home loaded in … ms (setup done)` or `(setup not done)`; before consent it asks the server nothing and logs `Home loaded (setup not started: no consent yet)`.
+
 ## Uploading photos and recordings
 
 The Setup page links to the **recording guide** (http://127.0.0.1:8000/#/guide), the same steps as [docs/guides/Photo-and-Voice-Recording-Guide.pdf](docs/guides/Photo-and-Voice-Recording-Guide.pdf) one step at a time: pick Windows 10, Windows 11 or Mac to see only that laptop's steps, take the five photos, read the seven recording scripts, then add the files on the Setup page. The browser remembers the step and laptop, so the guide reopens where it was left. The browser console logs `Guide step N of 16: …` and `Guide laptop: …`.

@@ -5,7 +5,8 @@ import { useEffect, useState } from "preact/hooks";
 import { getConsent } from "./api";
 import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
-import { ChatPage, ConsentPage, HomePage, NotFoundPage, SetupPage } from "./pages";
+import { HomePage } from "./home";
+import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { type Page, resolve, useHash } from "./router";
 
 const NAV: { page: Page; href: string; label: string }[] = [

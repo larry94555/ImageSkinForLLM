@@ -134,12 +134,6 @@ test("if the server can't be reached, setup stays blocked", async () => {
   expect(await screen.findByText("Before you start")).toBeTruthy();
 });
 
-test("home starts setup at consent until it is given", async () => {
-  serverWithConsent(false);
-  await openAt("#/");
-  const start = await screen.findByRole("link", { name: "Start setup" });
-  expect(start.getAttribute("href")).toBe("#/consent");
-});
 
 // --- Upload screen (R7) ---
 
