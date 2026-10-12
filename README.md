@@ -108,6 +108,20 @@ Behind the screen, the server stores uploaded photos (JPG, PNG, HEIC) and record
 
 Try them on the API docs page at http://127.0.0.1:8000/docs while `imageskin serve` is running.
 
+### PDF content
+
+The PDFs that answers will come from (the Manage Content page, coming next) are stored in `content/pdfs` inside the app's folder, apart from the photos and recordings, under random names with a small JSON file each that keeps the name it was uploaded with. The type is checked from the file's first bytes (`%PDF-`), not its name. Limits: 100 MB per PDF, 2 GB in total. These requests don't need consent, since PDFs aren't the person's likeness; administrator sign-on comes later.
+
+| Request | What it does |
+|---|---|
+| `POST /api/content` | Add a PDF (form field `file`) |
+| `GET /api/content` | List the PDFs, oldest first, with `name`, `size`, `added_at` and `replaced_at` |
+| `GET /api/content/{id}` | Download one |
+| `PUT /api/content/{id}` | Replace one with a new file (form field `file`), keeping its id |
+| `DELETE /api/content/{id}` | Remove one |
+
+The log has `PDF added`, `PDF replaced` and `PDF removed` with the id, size, stored path and time taken, or `PDF refused` with the reason.
+
 HEIC photos (from iPhones) need an optional extra: `pip install -e ".[heic]"`. It is optional because pillow-heif's wheels include libheif and libde265 (LGPL-3) and x265 (GPL-2); the app only uses them to read HEIC files.
 
 ### Photo checks

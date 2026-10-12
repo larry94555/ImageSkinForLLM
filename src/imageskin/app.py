@@ -22,6 +22,7 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings, StreamLlm
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
+from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.prepare_job import (
     CLONES,
@@ -272,6 +273,54 @@ def create_app(
     def remove_upload(kind: Kind, upload_id: str) -> dict[str, bool]:
         if not store.remove(kind, upload_id):
             raise HTTPException(status_code=404, detail="No such file.")
+        return {"removed": True}
+
+    # PDF content (R34): kept apart from the photos and sounds. It is the administrator's
+    # material, not the person's likeness, so it needs no consent; sign-on comes with R44.
+    content = ContentStore(data_home)
+    content_api = "/api/content"
+
+    @app.get(content_api)
+    def list_pdfs() -> list[Pdf]:
+        return content.list()
+
+    @app.post(content_api)
+    def add_pdf(file: UploadFile) -> Pdf:
+        try:
+            return content.add(file.filename, file.file)
+        except UploadError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+
+    @app.put(content_api + "/{pdf_id}")
+    def replace_pdf(pdf_id: str, file: UploadFile) -> Pdf:
+        try:
+            return content.replace(pdf_id, file.filename, file.file)
+        except UploadError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+
+    @app.get(content_api + "/{pdf_id}")
+    def get_pdf(pdf_id: str) -> FileResponse:
+        path = content.path(pdf_id)
+        pdf = content.get(pdf_id)
+        if path is None or pdf is None:
+            raise HTTPException(status_code=404, detail="No such PDF.")
+        return FileResponse(
+            path,
+            media_type="application/pdf",
+            filename=pdf.name,
+            content_disposition_type="inline",
+            # no-cache: replacing a PDF keeps its address, so the browser must check for a new one.
+            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
+        )
+
+    @app.delete(content_api + "/{pdf_id}")
+    def remove_pdf(pdf_id: str) -> dict[str, bool]:
+        try:
+            removed = content.remove(pdf_id)
+        except UploadError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        if not removed:
+            raise HTTPException(status_code=404, detail="No such PDF.")
         return {"removed": True}
 
     # One voice engine for the job, so Prepare loads the voice model once.
