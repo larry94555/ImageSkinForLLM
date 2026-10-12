@@ -352,3 +352,7 @@ ul.choices a:focus-visible {
 ul.choices .title { font-weight: 600; color: var(--accent); }
 ul.choices .title::after { content: " →"; }
 ul.choices .text { color: var(--muted); font-size: 0.9rem; }
+.guide-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
+.guide a.return { color: var(--accent); font-weight: 600; text-decoration: none; }
+.guide a.return:hover, .guide a.return:focus-visible { text-decoration: underline; }
+.guide-bottom { margin: 16px 0 0; }

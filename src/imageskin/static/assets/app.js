@@ -1208,14 +1208,21 @@ function GuidePage() {
 	return /* @__PURE__ */ u("section", {
 		className: "guide",
 		children: [
-			/* @__PURE__ */ u("p", {
-				className: "muted step-count",
-				children: [
-					"Recording guide · Step ",
-					step + 1,
-					" of ",
-					STEPS.length
-				]
+			/* @__PURE__ */ u("div", {
+				className: "guide-top",
+				children: [/* @__PURE__ */ u("a", {
+					className: "return",
+					href: "#/setup",
+					children: "← Return to Setup page"
+				}), /* @__PURE__ */ u("p", {
+					className: "muted step-count",
+					children: [
+						"Recording guide · Step ",
+						step + 1,
+						" of ",
+						STEPS.length
+					]
+				})]
 			}),
 			/* @__PURE__ */ u("progress", {
 				value: step + 1,
@@ -1256,6 +1263,14 @@ function GuidePage() {
 						}, s.title))
 					})
 				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "guide-bottom",
+				children: /* @__PURE__ */ u("a", {
+					className: "return",
+					href: "#/setup",
+					children: "← Return to Setup page"
+				})
 			})
 		]
 	});

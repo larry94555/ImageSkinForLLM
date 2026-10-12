@@ -617,9 +617,14 @@ export function GuidePage() {
   const last = step === STEPS.length - 1;
   return (
     <section className="guide">
-      <p className="muted step-count">
-        Recording guide · Step {step + 1} of {STEPS.length}
-      </p>
+      <div className="guide-top">
+        <a className="return" href="#/setup">
+          ← Return to Setup page
+        </a>
+        <p className="muted step-count">
+          Recording guide · Step {step + 1} of {STEPS.length}
+        </p>
+      </div>
       <progress value={step + 1} max={STEPS.length} aria-label="Guide progress" />
       <h1>{current.title}</h1>
       {current.body(laptop, pick)}
@@ -643,6 +648,11 @@ export function GuidePage() {
           ))}
         </select>
       </label>
+      <p className="guide-bottom">
+        <a className="return" href="#/setup">
+          ← Return to Setup page
+        </a>
+      </p>
     </section>
   );
 }

@@ -105,3 +105,12 @@ test("if the place can't be saved, the guide still works and logs why", () => {
   expect(heading()).toBe("Get ready");
   expect(console.error).toHaveBeenCalledWith("Could not save the guide's place", expect.any(Error));
 });
+
+test("every step has a clear way back to the Setup page, above and below", () => {
+  render(<GuidePage />);
+  const links = screen.getAllByRole("link", { name: "← Return to Setup page" });
+  expect(links).toHaveLength(2);
+  for (const link of links) expect(link.getAttribute("href")).toBe("#/setup");
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "9" } });
+  expect(screen.getAllByRole("link", { name: "← Return to Setup page" })).toHaveLength(2);
+});
