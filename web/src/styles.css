@@ -257,3 +257,61 @@ ol.turns .note { display: block; margin-top: 6px; font-size: 0.85rem; color: var
 .sound-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .sound-controls label { display: flex; gap: 8px; align-items: center; font-size: 0.875rem; }
 .sound-controls input[type="range"] { width: 140px; accent-color: var(--accent); }
+/* The recording guide, one step at a time. */
+.guide h1 { margin: 4px 0 12px; }
+.guide .step-count { margin: 0; font-size: 0.875rem; }
+.guide progress { width: 100%; height: 6px; accent-color: var(--accent); }
+.guide ul.bullets, .guide ol.tips, .guide ul.checklist { padding-left: 1.4em; display: grid; gap: 6px; }
+.guide ul.bullets li, .guide ol.tips li, .guide ul.checklist li,
+.guide ol.script li {
+  display: list-item;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.guide ul.checklist { list-style: "☐  "; }
+.guide ol.script {
+  padding: 12px 12px 12px 2.6em;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 1.05rem;
+}
+.guide ol.script li::marker { color: var(--muted); }
+.guide .story {
+  padding: 4px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 1.05rem;
+}
+table.guide-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 8px 0; }
+table.guide-table th, table.guide-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+table.guide-table th { color: var(--muted); font-weight: 600; }
+fieldset.laptops { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+fieldset.laptops label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  cursor: pointer;
+}
+fieldset.laptops label.picked { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+fieldset.laptops input { grid-row: span 2; margin-top: 0.3em; }
+fieldset.laptops .title { font-weight: 600; }
+fieldset.laptops .muted { font-size: 0.875rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.guide-nav { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 24px; }
+.guide .jump { display: block; margin-top: 16px; font-size: 0.875rem; color: var(--muted); }
+.guide .jump select { font: inherit; }
+.notice a { color: var(--accent); }

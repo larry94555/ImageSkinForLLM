@@ -4,6 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import { getConsent } from "./api";
 import { ContentPage } from "./content";
+import { GuidePage } from "./guide";
 import { ChatPage, ConsentPage, HomePage, NotFoundPage, SetupPage } from "./pages";
 import { type Page, resolve, useHash } from "./router";
 
@@ -13,6 +14,11 @@ const NAV: { page: Page; href: string; label: string }[] = [
   { page: "chat", href: "#/chat", label: "Chat" },
   { page: "content", href: "#/content", label: "Manage Content" },
 ];
+
+// The top bar link to highlight: the recording guide is part of setup.
+function current(page: Page | undefined): Page | undefined {
+  return page === "guide" ? "setup" : page;
+}
 
 export function App() {
   const hash = useHash();
@@ -50,6 +56,7 @@ export function App() {
       setup: <SetupPage />,
       chat: <ChatPage />,
       content: <ContentPage />,
+      guide: <GuidePage />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }
@@ -65,7 +72,7 @@ export function App() {
             <a
               key={item.page}
               href={item.href}
-              className={route?.page === item.page ? "current" : undefined}
+              className={current(route?.page) === item.page ? "current" : undefined}
             >
               {item.label}
             </a>

@@ -90,6 +90,8 @@ Commit the built files with the source change; CI fails if they are out of date.
 
 ## Uploading photos and recordings
 
+The Setup page links to the **recording guide** (http://127.0.0.1:8000/#/guide), the same steps as [docs/guides/Photo-and-Voice-Recording-Guide.pdf](docs/guides/Photo-and-Voice-Recording-Guide.pdf) one step at a time: pick Windows 10, Windows 11 or Mac to see only that laptop's steps, take the five photos, read the seven recording scripts, then add the files on the Setup page. The browser remembers the step and laptop, so the guide reopens where it was left. The browser console logs `Guide step N of 16: …` and `Guide laptop: …`.
+
 Open http://127.0.0.1:8000/#/setup while `imageskin serve` is running to upload photos and recordings in the browser: **Add photos** and **Add recordings** take one or more files at a time, uploaded photos are shown as pictures (click one to open it full size), recordings can be played, and **Remove** deletes a file. A refused file is listed with the reason. The files land in `uploads` inside the app data folder that the server logs at startup.
 
 Behind the screen, the server stores uploaded photos (JPG, PNG, HEIC) and recordings (WAV, M4A, MP3) in `uploads` inside the app's folder, under random names. The type is checked from each file's contents, not its name. Photos are kept as JPG or PNG; recordings are converted to WAV with ffmpeg. Uploads are refused until consent is confirmed. Limits: 25 MB per photo, 100 MB per recording, 10 minutes per recording, 1 GB in total.

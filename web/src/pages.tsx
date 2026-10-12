@@ -128,6 +128,10 @@ export function SetupPage() {
     <>
       <h1>Setup</h1>
       <p className="done">Thank you, consent is confirmed.</p>
+      <p className="notice">
+        New to this? The <a href="#/guide">recording guide</a> walks you step by step through
+        taking the photos and making the voice recordings on a Windows or Mac laptop.
+      </p>
       <UploadSection
         kind="photos"
         title="Photos"
