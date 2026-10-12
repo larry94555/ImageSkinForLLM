@@ -210,7 +210,7 @@ class WikiJob:
             wiki = self.build(pdf_id, reading["pieces"], progress, wait_for_llm)
         except Superseded:
             return True
-        except WikiError as e:
+        except (WikiError, LlmError) as e:  # an LlmError here is a refusal, not an outage
             logger.error("Could not build the wiki", extra={"id": pdf_id, "error": str(e)})
             self._set(pdf_id, WikiStatus("failed", error=str(e)))
             return True
@@ -225,7 +225,8 @@ class WikiJob:
         with self._lock:
             if self.store.get(pdf_id) != pdf:
                 return True  # replaced or removed meanwhile; it is built again, or not needed
-            self._save(saved)
+            if not self._save(saved):
+                return True
         logger.info(
             "Wiki pages built",
             extra={
@@ -239,8 +240,8 @@ class WikiJob:
         )
         return True
 
-    def _save(self, saved: dict[str, Any]) -> None:
-        """Called with the lock held."""
+    def _save(self, saved: dict[str, Any]) -> bool:
+        """Whether the pages were saved. Called with the lock held."""
         pdf_id = saved["id"]
         writing = self.folder / f"{pdf_id}.writing"
         try:
@@ -257,8 +258,9 @@ class WikiJob:
             self._status[pdf_id] = WikiStatus(
                 "failed", error="The wiki pages could not be saved. Try replacing the PDF."
             )
-            return
+            return False
         self._status[pdf_id] = done_status(saved)
+        return True
 
     def _set(self, pdf_id: str, status: WikiStatus) -> None:
         with self._lock:

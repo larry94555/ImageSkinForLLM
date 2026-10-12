@@ -4,18 +4,20 @@ import urllib.error
 
 import pytest
 
-from imageskin.chat import LlmError, Message, estimate
+from imageskin.chat import EmptyReply, LlmError, Message, estimate
 from imageskin.wiki import (
     KNOWN_PROMPT,
-    PROMPT_TOKENS,
+    TITLES_TOKENS,
     WIKI_REPLY_TOKENS,
     Part,
     WikiError,
     ask_part,
     build_wiki,
     cut,
+    latest_titles,
     normalize,
     parse,
+    prompt_tokens,
     slug,
     split,
     unique,
@@ -23,7 +25,7 @@ from imageskin.wiki import (
 
 PDF_ID = "a" * 32
 # A window that leaves 1000 tokens (bytes, with `estimate`) for each part.
-WINDOW = WIKI_REPLY_TOKENS + PROMPT_TOKENS + 1000
+WINDOW = WIKI_REPLY_TOKENS + prompt_tokens(estimate) + 1000
 
 
 def piece(page: int, text: str) -> dict[str, object]:
@@ -97,17 +99,57 @@ def test_a_part_is_asked_again_when_the_first_answer_cannot_be_used(
     assert "The LLM's wiki answer could not be used" in caplog.text
 
 
-def test_a_refused_part_counts_as_unusable_but_an_unreachable_llm_stops_the_build() -> None:
-    def refuse(messages: list[Message]) -> str:
-        raise LlmError("The LLM refused the prompt (400)")
+def test_an_empty_reply_counts_as_unusable_but_a_failed_request_is_passed_on() -> None:
+    def empty(messages: list[Message]) -> str:
+        raise EmptyReply("The LLM sent an empty reply.")
 
-    assert ask_part(Part("x", [1]), [], refuse) is None
+    assert ask_part(Part("x", [1]), [], empty) is None
+
+    def refuse(messages: list[Message]) -> str:
+        raise LlmError("The LLM refused the prompt (400): too long")
+
+    with pytest.raises(LlmError, match="refused"):
+        ask_part(Part("x", [1]), [], refuse)
 
     def down(messages: list[Message]) -> str:
         raise LlmError("Could not reach the LLM") from urllib.error.URLError("refused")
 
     with pytest.raises(LlmError):
         ask_part(Part("x", [1]), [], down)
+
+
+def test_a_refused_request_fails_the_build_even_with_a_wait_for_the_llm() -> None:
+    def refuse(messages: list[Message]) -> str:
+        raise LlmError("The LLM refused the prompt (400)")
+
+    waited: list[int] = []
+    with pytest.raises(LlmError, match="refused"):
+        build_wiki(
+            PDF_ID,
+            [piece(1, "a")],
+            refuse,
+            estimate,
+            WINDOW,
+            None,
+            lambda e, n, of: waited.append(n),
+        )
+    assert waited == []
+
+
+def test_every_cut_of_a_long_piece_keeps_its_page() -> None:
+    text = " ".join(["word"] * 300)  # far more than one part
+    parts = split([piece(1, text), piece(2, "next")], 500, estimate)
+    assert len(parts) >= 3
+    for part in parts[:-1]:
+        assert part.text.startswith("[page 1] ") and part.pages == [1]
+        assert estimate(part.text) <= 500
+    assert parts[-1].text.endswith("[page 2] next") and parts[-1].text.startswith("[page 1] ")
+
+
+def test_only_the_latest_titles_that_fit_are_passed_on() -> None:
+    titles = [f"Title {n:03}" for n in range(100)]  # 9 characters each
+    kept = latest_titles(titles, estimate)
+    assert kept == titles[-len(kept) :] and len(kept) == TITLES_TOKENS // 10
 
 
 def test_the_wiki_has_one_page_per_topic_merged_across_parts(

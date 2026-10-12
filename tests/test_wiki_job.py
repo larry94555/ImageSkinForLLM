@@ -154,8 +154,11 @@ def test_the_build_waits_for_the_llm_and_asks_the_same_part_again(
     def build(
         pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
     ) -> Wiki:
-        # Each piece counts 150 tokens and each part has room for 200: one piece per part.
-        return build_wiki(pdf_id, pieces, ask, lambda text: 150, 2000, progress, wait)
+        # A piece counts 150 tokens and anything else 1, so each part has room for one piece.
+        def count(text: str) -> int:
+            return 150 if "Rain" in text or "Snow" in text else 1
+
+        return build_wiki(pdf_id, pieces, ask, count, 1800, progress, wait)
 
     store, readings, wiki = jobs(tmp_path, build, retry_s=0.01)
     pdf = store.add("a.pdf", io.BytesIO(PDF))
@@ -216,7 +219,7 @@ def test_a_build_that_fails_says_why_and_the_next_pdf_is_still_built(
     statuses = wiki.statuses()
     assert statuses[pdfs[0].id] == WikiStatus("failed", error="The LLM gave no usable answer.")
     assert statuses[pdfs[1].id].error == "Something went wrong building it."
-    assert statuses[pdfs[2].id].state == "failed"
+    assert statuses[pdfs[2].id].error == "The LLM refused the prompt (400)"
     assert statuses[pdfs[3].id].state == "done"
     assert "Could not build the wiki" in caplog.text
 
@@ -257,6 +260,7 @@ def test_pages_that_cannot_be_saved_fail_with_the_reason(
         "The wiki pages could not be saved. Try replacing the PDF."
     )
     assert "Could not save the wiki pages" in caplog.text
+    assert "Wiki pages built" not in caplog.text
 
 
 def test_broken_saved_pages_are_logged_and_not_used(

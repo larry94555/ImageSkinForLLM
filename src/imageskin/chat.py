@@ -88,6 +88,10 @@ class LlmError(Exception):
     """The LLM could not be reached or gave no reply; the message says so in plain words."""
 
 
+class EmptyReply(LlmError):
+    """The LLM answered, but with no words: its output, not the request, was at fault."""
+
+
 def estimate(text: str) -> int:
     """A count that never falls short of a real tokenizer's, for when the server can't count."""
     return len(text.encode())
@@ -279,7 +283,7 @@ class LlmClient:
         except (KeyError, IndexError, TypeError) as e:
             raise LlmError(f"The LLM at {url} sent an answer without a reply.") from e
         if not isinstance(content, str) or not content.strip():
-            raise LlmError("The LLM sent an empty reply. Try asking again.")
+            raise EmptyReply("The LLM sent an empty reply. Try asking again.")
         return content.strip()
 
     def stream(self, messages: list[Message]) -> Iterator[str]:

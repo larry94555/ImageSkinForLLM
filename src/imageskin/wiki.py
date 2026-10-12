@@ -18,16 +18,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from imageskin.chat import Count, LlmError, Message, unreachable
+from imageskin.chat import TOKENS_PER_MESSAGE, Count, EmptyReply, LlmError, Message, unreachable
 
 logger = logging.getLogger(__name__)
 
 # The longest answer asked for per part: up to 6 topics of 3 to 8 sentences each.
 WIKI_REPLY_TOKENS = 1200
-# Room for the instructions and the titles found so far, besides the part itself.
-PROMPT_TOKENS = 600
-# The latest titles found so far that are passed on to the next part.
-KNOWN_TITLES = 40
+# The most the titles found so far may take in the prompt; the latest that fit are passed on.
+TITLES_TOKENS = 300
 MAX_TITLE_CHARS = 80
 # A piece too long for one part is cut into parts of at most this many characters.
 MIN_CUT_CHARS = 200
@@ -110,7 +108,7 @@ def build_wiki(
 ) -> Wiki:
     """Turn a reading's pieces into wiki pages. LlmError when the LLM can't be reached and
     there is no `wait_for_llm`."""
-    budget = context_tokens - WIKI_REPLY_TOKENS - PROMPT_TOKENS
+    budget = context_tokens - WIKI_REPLY_TOKENS - prompt_tokens(count)
     if budget < 200:
         raise WikiError(
             f"The LLM's context window ({context_tokens} tokens) is too small to build the wiki."
@@ -120,13 +118,13 @@ def build_wiki(
     topics: dict[str, WikiPage] = {}  # by normalized title, in the order found
     for number, part in enumerate(parts, start=1):
         start = time.perf_counter()
-        known = list(t.title for t in topics.values())[-KNOWN_TITLES:]
+        known = latest_titles([t.title for t in topics.values()], count)
         while True:
             try:
                 found = ask_part(part, known, ask)
                 break
             except LlmError as e:
-                if wait_for_llm is None:
+                if wait_for_llm is None or not down(e):
                     raise
                 wait_for_llm(e, number, len(parts))
         if found is None:
@@ -160,6 +158,12 @@ def build_wiki(
     return wiki
 
 
+def prompt_tokens(count: Count) -> int:
+    """The most a part's prompt can take besides the part: the instructions, the titles found so
+    far, and the two messages' framing."""
+    return count(f"{WIKI_PROMPT}\n\n{KNOWN_PROMPT} ") + TITLES_TOKENS + 2 * TOKENS_PER_MESSAGE
+
+
 def split(pieces: list[dict[str, Any]], budget: int, count: Count) -> list[Part]:
     """The pieces, each marked with its page, in parts of at most `budget` tokens."""
     parts: list[Part] = []
@@ -174,7 +178,10 @@ def split(pieces: list[dict[str, Any]], budget: int, count: Count) -> list[Part]
         lines, pages, used = [], [], 0
 
     for piece in pieces:
-        for text in cut(f"[page {piece['page']}] {piece['text']}", budget, count):
+        # Every cut of a long piece is marked with its page, so none is put down to the next.
+        marker = f"[page {piece['page']}] "
+        for cut_text in cut(piece["text"], budget - count(marker), count):
+            text = marker + cut_text
             n = count(text) + 2  # the blank line between pieces
             if used + n > budget:
                 close()
@@ -203,20 +210,37 @@ def cut(text: str, budget: int, count: Count) -> list[str]:
     return found
 
 
+def latest_titles(titles: list[str], count: Count) -> list[str]:
+    """The latest titles that fit in TITLES_TOKENS, oldest first."""
+    kept: list[str] = []
+    room = TITLES_TOKENS
+    for title in reversed(titles):
+        room -= count(title) + 1  # and the "; " between titles
+        if room < 0:
+            break
+        kept.append(title)
+    return list(reversed(kept))
+
+
+def down(e: LlmError) -> bool:
+    """Whether the LLM couldn't be reached at all, as opposed to answering badly or refusing."""
+    return e.__cause__ is not None and unreachable(e.__cause__)
+
+
 def ask_part(
     part: Part, known: list[str], ask: AskForTopics
 ) -> list[tuple[str, list[int], str]] | None:
     """The topics the LLM finds in one part, asked twice if the first answer can't be used; None
-    if neither can. LlmError when the LLM can't be reached at all."""
+    if neither can. LlmError when the request itself fails: the LLM can't be reached, or it
+    refused the request, which asking again would not change."""
     prompt = WIKI_PROMPT if not known else f"{WIKI_PROMPT}\n\n{KNOWN_PROMPT} {'; '.join(known)}"
     messages = [{"role": "system", "content": prompt}, {"role": "user", "content": part.text}]
     for attempt in (1, 2):
         try:
             answer = ask(messages)
-        except LlmError as e:
-            if e.__cause__ is not None and unreachable(e.__cause__):
-                raise
-            answer = str(e)  # refused or empty: no better asked again
+        except EmptyReply:
+            answer = ""  # the LLM's output, like an answer that can't be parsed
+        # Any other LlmError (unreachable, refused, unreadable) is passed on.
         topics = parse(answer, part.pages)
         if topics:
             return topics
