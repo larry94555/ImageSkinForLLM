@@ -6,9 +6,10 @@ from typing import Any
 
 import pytest
 
-from imageskin.chat import EmptyReply, LlmError, Message, estimate
+from imageskin.chat import TOKENS_PER_MESSAGE, EmptyReply, LlmError, Message, estimate
 from imageskin.wiki import WikiPage
 from imageskin.wiki_outline import (
+    DETAIL_PROMPT,
     DETAIL_SCHEMA,
     MAX_DEPTH,
     OUTLINE_REPLY_TOKENS,
@@ -24,6 +25,7 @@ from imageskin.wiki_outline import (
     sentences,
     shown,
     simple,
+    units,
 )
 
 PDF_ID = "a" * 32
@@ -39,8 +41,8 @@ def sections(*found: tuple[str, str, list[int]]) -> str:
     return json.dumps({"sections": [{"title": t, "summary": s, "topics": n} for t, s, n in found]})
 
 
-def detail(summary: str, *parts: tuple[str, str] | tuple[str, str, list[int]]) -> str:
-    found = [{"title": p[0], "text": p[1], "pages": p[2] if len(p) > 2 else []} for p in parts]
+def detail(summary: str, *parts: tuple[str, list[int]]) -> str:
+    found = [{"title": t, "paragraphs": n} for t, n in parts]
     return json.dumps({"summary": summary, "parts": found})
 
 
@@ -127,21 +129,23 @@ def test_topics_are_kept_as_they_are_when_no_sections_can_be_found(
     assert step.__dict__["step"] == "sections" and step.__dict__["used"] is False
 
 
-def test_a_topic_the_pdf_says_more_about_gets_a_detail_page_from_the_pdf() -> None:
-    llm = Llm(detail("A summary.", ("First", "One. Two.", [2, 7]), ("Second", "[page 1] Three.")))
+def test_a_topic_the_pdf_says_more_about_gets_a_detail_page_of_the_pdfs_paragraphs() -> None:
+    llm = Llm(detail("A summary.", ("First", [1]), ("Second", [2, 3, 9])))
     page = WikiPage(f"{PDF_ID}-t1", "Topic 1", "The LLM's few sentences.", [1, 2])
     pieces = [piece(1, LONG), piece(2, "More."), piece(3, "Another topic.")]
     found = outliner(llm).outline([page], pieces)
 
     messages, schema = llm.asked[0]
     assert schema is DETAIL_SCHEMA
-    assert messages[1]["content"] == f"Topic 1\n\n[page 1] {LONG}\n\n[page 2] More."
+    first, rest = LONG.split(" Sentence 6")
+    rest = "Sentence 6" + rest
+    assert messages[1]["content"] == f"Topic 1\n\n1. {first}\n\n2. {rest}\n\n3. More."
     entry = found[0]
     assert (entry.id, entry.detail) == (f"{PDF_ID}-t1", True)
     assert entry.summary == "The LLM's few sentences."  # the topic keeps its own
     assert [(e.id, e.title, e.summary, e.pages, e.detail) for e in entry.entries] == [
-        (f"{PDF_ID}-first", "First", "One. Two.", [2], False),
-        (f"{PDF_ID}-second", "Second", "Three.", [1, 2], False),
+        (f"{PDF_ID}-first", "First", first, [1], False),  # in the PDF's own words
+        (f"{PDF_ID}-second", "Second", f"{rest} More.", [1, 2], False),
     ]
 
 
@@ -151,29 +155,49 @@ def test_a_topic_the_pdf_says_little_about_is_shown_as_it_is() -> None:
     assert llm.asked == [] and found[0].summary == "Few." and not found[0].detail
 
 
-def test_a_long_text_with_no_parts_about_the_topic_in_one_batch_skips_that_batch() -> None:
-    paragraphs = "\n\n".join(LONG for _ in range(4))
-    window = OUTLINE_REPLY_TOKENS + 1050  # 2 paragraphs at a time
-    llm = Llm("nothing here", "still nothing", detail("S.", ("A", "a."), ("B", "b.")))
-    found = outliner(llm, window=window).outline([topic(1, paragraphs)])
-    assert found[0].summary == "S." and [e.title for e in found[0].entries] == ["A", "B"]
+def test_paragraphs_are_sent_in_batches_that_fit_and_a_batch_with_no_parts_adds_none() -> None:
+    pieces = [piece(1, f"{n}" * 100 + ".") for n in range(1, 7)]  # 6 paragraphs, 1 sentence each
+    room = estimate(DETAIL_PROMPT) + estimate("Topic 1") + 2 * TOKENS_PER_MESSAGE + 230
+    llm = Llm(
+        "nothing here",  # paragraphs 1 and 2, asked twice
+        "still nothing",
+        detail("S.", ("A", [3, 1]), ("B", [4])),  # 1 is not in this batch
+        detail("S3.", ("C", [6, 5]), ("Again", [5])),  # 5 is in C already
+    )
+    found = outliner(llm, window=OUTLINE_REPLY_TOKENS + room).outline([topic(1, "Few.")], pieces)
+    batches = [m[1]["content"].split("\n\n")[1:] for m, _ in llm.asked]
+    assert [[line.split(".")[0] for line in b] for b in batches] == [
+        ["1", "2"],
+        ["1", "2"],
+        ["3", "4"],
+        ["5", "6"],
+    ]
+    entry = found[0]
+    assert entry.summary == "Few." and entry.detail
+    assert [(e.title, e.summary) for e in entry.entries] == [
+        ("A", pieces[2]["text"]),
+        ("B", pieces[3]["text"]),
+        ("C", f"{pieces[4]['text']} {pieces[5]['text']}"),
+    ]
 
 
 def test_a_long_part_opens_up_again_down_to_the_last_level() -> None:
+    pieces = [piece(1, f"{n}" * 129 + ".") for n in range(1, 8)]  # 7 paragraphs of 130
     llm = Llm(
-        detail("Level 2.", ("Deep", LONG), ("Flat", "Flat.")),
-        detail("Level 3.", ("Deeper", LONG), ("Other", "Other.")),
+        detail("Level 2.", ("Deep", [1, 2, 3, 4, 5, 6]), ("Flat", [7])),
+        detail("Level 3.", ("Deeper", [1, 2, 3, 4, 5]), ("Other", [6])),
     )
-    found = outliner(llm).outline([topic(1, LONG)])
+    found = outliner(llm).outline([topic(1, "Few.")], pieces)
     deep = found[0].entries[0]
-    assert deep.detail and deep.summary == "Level 3."
+    assert deep.detail and deep.summary == "Level 3."  # the LLM's summary of the part
     deeper = deep.entries[0]
-    assert MAX_DEPTH == 4 and not deeper.detail and deeper.summary == LONG  # the last level
+    assert MAX_DEPTH == 4 and not deeper.detail  # the last level, though not simple
+    assert deeper.summary == " ".join(p["text"] for p in pieces[:5])
     assert len(llm.asked) == 2
 
 
 def test_a_long_topic_that_cannot_be_split_is_kept_whole() -> None:
-    one_part = detail("Summary.", ("Only", "Text."))
+    one_part = detail("Summary.", ("Only", [1]))
     found = outliner(Llm(one_part, "")).outline([topic(1, LONG)])
     assert found[0].summary == LONG and not found[0].detail and found[0].entries == []
 
@@ -186,25 +210,10 @@ def test_an_empty_reply_counts_as_unusable() -> None:
     assert found[0].summary == LONG
 
 
-def test_a_long_text_is_split_in_batches_that_fit() -> None:
-    paragraphs = "\n\n".join(LONG for _ in range(6))  # about 1300 characters
-    window = OUTLINE_REPLY_TOKENS + 1050  # leaves room for 2 paragraphs at a time
-    llm = Llm(
-        detail("First half.", ("A", "a."), ("B", "b.")),
-        detail("Second half.", ("C", "c.")),
-        detail("Third.", ("D", "d.")),
-    )
-    found = outliner(llm, window=window).outline([topic(1, paragraphs)])
-    assert len(llm.asked) == 3
-    assert all(estimate(m[1]["content"]) < 500 for m, _ in llm.asked)
-    assert found[0].summary == "First half."
-    assert [e.title for e in found[0].entries] == ["A", "B", "C", "D"]
-
-
 def test_an_unreachable_llm_is_waited_for_and_a_refusal_passed_on() -> None:
     error = LlmError("Could not reach the LLM")
     error.__cause__ = urllib.error.URLError("refused")
-    llm = Llm(error, detail("Summary.", ("A", "a."), ("B", "b.")))
+    llm = Llm(error, detail("Summary.", ("A", [1]), ("B", [2])))
     waits: list[int] = []
     found = outliner(llm, wait_for_llm=lambda e, n, of: waits.append(n)).outline([topic(1, LONG)])
     assert waits == [1] and found[0].detail
@@ -214,6 +223,15 @@ def test_an_unreachable_llm_is_waited_for_and_a_refusal_passed_on() -> None:
     refused = LlmError("The LLM refused the prompt (400)")
     with pytest.raises(LlmError, match="refused"):
         outliner(Llm(refused), wait_for_llm=lambda e, n, of: None).outline([topic(1, LONG)])
+
+
+def test_a_long_paragraph_is_cut_into_pieces_short_enough_to_show() -> None:
+    assert units(3, LONG) == [
+        (3, LONG.split(" Sentence 6")[0]),
+        (3, "Sentence 6" + LONG.split(" Sentence 6")[1]),
+    ]
+    assert units(1, "x" * 700) == [(1, "x" * 700)]  # one sentence stays whole
+    assert units(1, "  ") == []
 
 
 @pytest.mark.parametrize(
@@ -243,12 +261,19 @@ def test_sections_keep_each_topic_once() -> None:
         "not JSON",
         "[]",
         '{"summary": "s", "parts": []}',
-        '{"summary": " ", "parts": [{"title": "T", "text": "x"}]}',
-        '{"summary": "s", "parts": [1, {"title": "T", "text": " "}, {"title": 2, "text": "x"}]}',
+        '{"summary": " ", "parts": [{"title": "T", "paragraphs": [1]}]}',
+        '{"summary": "s", "parts": [1, {"title": "T", "paragraphs": [2, "1"]}]}',
+        '{"summary": "s", "parts": [{"title": 2, "paragraphs": [1]}]}',
+        '{"summary": "s", "parts": [{"title": "T", "paragraphs": "1"}]}',
     ],
 )
 def test_unusable_detail_is_none(raw: str) -> None:
-    assert read_detail(raw, [1]) is None
+    assert read_detail(raw, {1}) is None
+
+
+def test_detail_keeps_each_paragraph_once() -> None:
+    raw = detail(" S. ", ("T", [1, 1, 2]))
+    assert read_detail(raw, {1, 2}) == ("S.", [("T", [1, 2])])
 
 
 def test_saved_entries_are_read_back_and_shown_down_to_the_next_detail_page() -> None:

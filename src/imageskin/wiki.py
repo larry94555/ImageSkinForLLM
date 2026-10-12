@@ -22,8 +22,10 @@ from imageskin.chat import TOKENS_PER_MESSAGE, Count, EmptyReply, LlmError, Mess
 
 logger = logging.getLogger(__name__)
 
-# The longest answer asked for per part: up to 6 topics of 3 to 8 sentences each.
-WIKI_REPLY_TOKENS = 1200
+# The longest answer asked for per part: up to 6 topics of 2 or 3 sentences each. The detail
+# comes from the PDF itself (wiki_outline), so the LLM writes only a summary of each topic,
+# which keeps the build fast: most of an LLM request's time is spent writing its answer.
+WIKI_REPLY_TOKENS = 800
 # The most the titles found so far may take in the prompt; the latest that fit are passed on.
 TITLES_TOKENS = 300
 MAX_TITLE_CHARS = 80
@@ -33,9 +35,9 @@ MIN_CUT_CHARS = 200
 WIKI_PROMPT = (
     "You are building a wiki from a document. Below is one part of it; each piece starts with its"
     " page number in square brackets. List the main topics this part covers, at most 6. For each"
-    " topic give a short title of a few words, the page numbers it comes from, and a text of 3 to"
-    " 8 sentences that explains what the document says about it, in plain words, using only what"
-    " the document says. Answer with JSON only, in this form:"
+    " topic give a short title of a few words, the page numbers it comes from, and a summary of 2"
+    " or 3 sentences of what the document says about it, in plain words, using only what the"
+    " document says. Answer with JSON only, in this form:"
     ' {"topics": [{"title": "…", "pages": [1, 2], "text": "…"}]}'
 )
 KNOWN_PROMPT = "Topics found in earlier parts (reuse a title exactly when this part continues it):"

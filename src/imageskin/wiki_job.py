@@ -45,9 +45,9 @@ BuildWiki = Callable[[str, list[dict[str, Any]], Progress, WaitForLlm], Wiki]
 BuildOutline = Callable[
     [str, list[WikiPage], list[dict[str, Any]], OutlineProgress, WaitForLlm], list[Entry]
 ]
-# What saved pages look like; pages saved in an older form are built again. 3: detail pages
-# come from the PDF's own text.
-WIKI_FORMAT = 3
+# What saved pages look like; pages saved in an older form are built again. 4: detail pages
+# show the PDF's own words.
+WIKI_FORMAT = 4
 # How long to wait before trying again when the LLM can't be reached.
 RETRY_S = 30.0
 

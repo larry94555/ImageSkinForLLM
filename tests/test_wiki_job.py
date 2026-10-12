@@ -169,7 +169,7 @@ def test_the_build_waits_for_the_llm_and_asks_the_same_part_again(
         def count(text: str) -> int:
             return 150 if "Rain" in text or "Snow" in text else 1
 
-        return build_wiki(pdf_id, pieces, ask, count, 1800, progress, wait)
+        return build_wiki(pdf_id, pieces, ask, count, 1400, progress, wait)
 
     store, readings, wiki = jobs(tmp_path, build, retry_s=0.01)
     pdf = store.add("a.pdf", io.BytesIO(PDF))
@@ -461,7 +461,7 @@ def test_the_app_builds_the_outline_with_the_chat_llm(tmp_path: Path) -> None:
     def ask(messages: list[Message]) -> str:
         if messages[0]["content"].startswith(WIKI_PROMPT):
             return json.dumps({"topics": [{"title": "Rain", "pages": [1], "text": LONG}]})
-        parts = [{"title": "Drops", "text": "Drops."}, {"title": "Puddles", "text": "Pools."}]
+        parts = [{"title": "Drops", "paragraphs": [1]}, {"title": "Puddles", "paragraphs": [2]}]
         return json.dumps({"summary": "Rain falls.", "parts": parts})
 
     def long_page(path: Path, progress: Progress) -> Reading:
@@ -475,4 +475,5 @@ def test_the_app_builds_the_outline_with_the_chat_llm(tmp_path: Path) -> None:
     built = client.get(f"/api/content/{pdf['id']}/wiki").json()
     assert [e["title"] for e in built["outline"][0]["entries"]] == ["Drops", "Puddles"]
     page = client.get(f"/api/wiki/{pdf['id']}-puddles").json()
-    assert page["summary"] == "Pools." and page["pdf_name"] == "w.pdf"
+    assert page["summary"] == "Rain 6 falls. Rain 7 falls. Rain 8 falls."  # the PDF's words
+    assert page["pdf_name"] == "w.pdf"

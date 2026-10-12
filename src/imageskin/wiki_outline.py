@@ -3,9 +3,11 @@
 The topics R37 finds (`wiki.build_wiki`) are grouped by the LLM into the sections of a table of
 contents, each with a short summary. Each topic is shown with the LLM's few sentences on it. When
 what the PDF itself says on the topic's pages is simple enough, that is all; when it says more,
-the topic gets a detail page: the LLM splits what the PDF says about the topic into parts, and
-each part is again either simple enough to show as it is or a detail page of its own, down to
-MAX_DEPTH levels. If the LLM can't group or split something, it stays as it is.
+the topic gets a detail page: the LLM groups the PDF's paragraphs about the topic into parts and
+summarizes them, and each part is again either simple enough to show in the PDF's own words or a
+detail page of its own, down to MAX_DEPTH levels. The LLM writes only titles and summaries, not
+the PDF's text again, which keeps the build fast (most of an LLM request's time is spent writing
+its answer). If the LLM can't group or split something, it stays as it is.
 """
 
 import logging
@@ -31,11 +33,11 @@ SIMPLE_CHARS = 600
 MAX_DEPTH = 4
 # Tables of contents this short need no sections.
 FEW_TOPICS = 3
-# The longest answer asked for: a few sections, or a summary and the parts of a text.
-OUTLINE_REPLY_TOKENS = 1200
+# The longest answer asked for: a few sections, or a summary and the parts of a text, each
+# with its title and paragraph numbers.
+OUTLINE_REPLY_TOKENS = 600
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
-# The page markers sent with the PDF's text, which the LLM sometimes copies into its own.
-PAGE_MARKER = re.compile(r"\[page \d+\]\s*")
+NUMBERED = re.compile(r"(\d+)\. ")
 
 SECTIONS_PROMPT = (
     "Below are the topics of a document, numbered, in the document's order, each with how it"
@@ -45,13 +47,12 @@ SECTIONS_PROMPT = (
     ' in this form: {"sections": [{"title": "…", "summary": "…", "topics": [1, 2]}]}'
 )
 DETAIL_PROMPT = (
-    "Below is a text from a document; the topic is in its first line, and a piece may start with"
-    " its page number in square brackets. Using only what the text says about that topic, write"
-    " a summary of it in 2 or 3 sentences, then split it into 2 to 6 parts that each cover one"
-    " point, each with a short title of a few words, the page numbers it comes from, and its"
-    " text. Keep every detail the text gives about the topic, in the same order, without adding"
-    " anything. Answer with JSON only, in this form:"
-    ' {"summary": "…", "parts": [{"title": "…", "pages": [1], "text": "…"}]}'
+    "Below are numbered paragraphs from a document, in its order; the topic is in the first"
+    " line. Using only what they say about that topic, write a summary of it in 2 or 3"
+    " sentences, then group the paragraphs about the topic into 2 to 6 parts that each cover one"
+    " point, in order, each with a short title of a few words and the numbers of its paragraphs."
+    " Leave out paragraphs that are not about the topic. Answer with JSON only, in this form:"
+    ' {"summary": "…", "parts": [{"title": "…", "paragraphs": [1, 2]}]}'
 )
 
 SECTIONS_SCHEMA: dict[str, Any] = {
@@ -82,10 +83,9 @@ DETAIL_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "title": {"type": "string"},
-                    "pages": {"type": "array", "items": {"type": "integer"}},
-                    "text": {"type": "string"},
+                    "paragraphs": {"type": "array", "items": {"type": "integer"}},
                 },
-                "required": ["title", "pages", "text"],
+                "required": ["title", "paragraphs"],
             },
         },
     },
@@ -96,6 +96,8 @@ DETAIL_SCHEMA: dict[str, Any] = {
 AskForJson = Callable[[list[Message], dict[str, Any]], str]
 # The LLM requests made so far; the number in all grows as detail pages are found.
 OutlineProgress = Callable[[int], None]
+# A paragraph of the PDF (or a few sentences of a long one), with its page.
+Unit = tuple[int, str]
 
 
 @dataclass
@@ -145,32 +147,36 @@ class Outliner:
     def topic(self, page: WikiPage, pieces: list[dict[str, Any]]) -> Entry:
         """A topic, with the LLM's few sentences on it; its detail is what the PDF says on its
         pages (or those sentences, when nothing was read there)."""
-        source = "\n\n".join(
-            f"[page {p['page']}] {p['text']}" for p in pieces if p["page"] in page.pages
-        )
-        return self.entry(page.title, page.text, source or page.text, page.pages, 2, page.id)
+        source = [u for p in pieces if p["page"] in page.pages for u in units(p["page"], p["text"])]
+        source = source or units(page.pages[0] if page.pages else 1, page.text)
+        return self.entry(page.title, page.text, source, page.pages, 2, page.id)
 
     def entry(
         self,
         title: str,
-        summary: str,
-        text: str,
+        summary: str | None,
+        source: list[Unit],
         pages: list[int],
         depth: int,
         entry_id: str = "",
     ) -> Entry:
-        """An entry with its summary, and a detail page of `text`'s parts unless the text is
-        simple enough (or the entry is on the last level)."""
+        """An entry with its summary (for a part, None: its own text, or the LLM's summary of
+        it once opened), and a detail page of its source's parts unless the source is simple
+        enough (or the entry is on the last level)."""
         entry_id = entry_id or unique(f"{self.pdf_id}-{slug(title)}", self.used)
-        entry = Entry(entry_id, title, summary, pages)
-        if depth >= MAX_DEPTH or simple(text):
+        text = " ".join(t for _, t in source)
+        entry = Entry(entry_id, title, text if summary is None else summary, pages)
+        if depth >= MAX_DEPTH or len(source) < 2 or simple(text):
             return entry
-        found = self.split(title, text, pages)
+        found = self.split(title, source)
         if found is None:
-            return entry  # the summary is kept
-        if summary == text:  # a part: its own text is now on its detail page
+            return entry
+        if summary is None:
             entry.summary = found[0]
-        entry.entries = [self.entry(t, x, x, p, depth + 1) for t, p, x in found[1]]
+        for part_title, numbers in found[1]:
+            part = [source[n - 1] for n in numbers]
+            part_pages = sorted({p for p, _ in part})
+            entry.entries.append(self.entry(part_title, None, part, part_pages, depth + 1))
         entry.detail = True
         return entry
 
@@ -203,21 +209,28 @@ class Outliner:
         return contents
 
     def split(
-        self, title: str, text: str, pages: list[int]
-    ) -> tuple[str, list[tuple[str, list[int], str]]] | None:
-        """A long text's summary and its parts, each with its pages; None if the LLM couldn't
-        split it. A batch with no usable answer (it may say nothing about the topic) adds no
-        parts."""
+        self, title: str, source: list[Unit]
+    ) -> tuple[str, list[tuple[str, list[int]]]] | None:
+        """A long source's summary and its parts, each with the numbers of its units (from 1);
+        None if the LLM couldn't split it. A unit goes to the first part that names it; a batch
+        with no usable answer (it may say nothing about the topic) adds no parts."""
         summary: str | None = None
-        parts: list[tuple[str, list[int], str]] = []
-        read = partial(read_detail, pages=pages)
-        for batch in self.batches(text.split("\n\n"), DETAIL_PROMPT, title):
+        parts: list[tuple[str, list[int]]] = []
+        placed: set[int] = set()
+        lines = [f"{n}. {text}" for n, (_, text) in enumerate(source, 1)]
+        for batch in self.batches(lines, DETAIL_PROMPT, title):
+            numbers = {int(m.group(1)) for line in batch if (m := NUMBERED.match(line))}
+            read = partial(read_detail, numbers=numbers)
             found = self.request(
                 DETAIL_PROMPT, f"{title}\n\n" + "\n\n".join(batch), DETAIL_SCHEMA, read
             )
-            if found is not None:
-                summary = summary or found[0]
-                parts += found[1]
+            for part_title, members in found[1] if found else []:
+                members = [n for n in members if n not in placed]
+                if members:
+                    placed.update(members)
+                    parts.append((part_title, sorted(members)))
+            summary = summary or (found[0] if found else None)
+        parts.sort(key=lambda part: part[1][0])
         return (summary, parts) if summary and len(parts) > 1 else None
 
     def batches(self, lines: list[str], prompt: str, heading: str = "") -> list[list[str]]:
@@ -305,31 +318,41 @@ def read_sections(answer: str, numbers: set[int]) -> list[tuple[str, str, list[i
     return found or None
 
 
-def read_detail(
-    answer: str, pages: list[int]
-) -> tuple[str, list[tuple[str, list[int], str]]] | None:
-    """The summary and parts in the LLM's answer, each part with only the text's pages (all of
-    them when it gave none of them); None if it has no summary or parts."""
+def read_detail(answer: str, numbers: set[int]) -> tuple[str, list[tuple[str, list[int]]]] | None:
+    """The summary and parts in the LLM's answer, each part with only the paragraphs asked
+    about; None if it has no summary or parts."""
     data = load_json(answer)
     if not isinstance(data, dict):
         return None
     summary, parts = data.get("summary"), data.get("parts")
     found = []
     for part in parts if isinstance(parts, list) else []:
-        if isinstance(part, dict):
-            title, text = clean_title(part.get("title")), part.get("text")
-            given = part.get("pages")
-            cited = sorted(
-                {p for p in given if type(p) is int and p in pages}
-                if isinstance(given, list)
-                else []
-            )
-            text = PAGE_MARKER.sub("", text).strip() if isinstance(text, str) else ""
-            if title and text:
-                found.append((title, cited or pages, text))
+        if not isinstance(part, dict):
+            continue
+        title, given = clean_title(part.get("title")), part.get("paragraphs")
+        members = (
+            [n for n in given if type(n) is int and n in numbers] if isinstance(given, list) else []
+        )
+        if title and members:
+            found.append((title, list(dict.fromkeys(members))))
     if not isinstance(summary, str) or not summary.strip() or not found:
         return None
     return summary.strip(), found
+
+
+def units(page: int, text: str) -> list[Unit]:
+    """A paragraph of the PDF, in pieces short enough to show as they are."""
+    found: list[Unit] = []
+    sentences_in: list[str] = []
+    for sentence in SENTENCE_END.split(text.strip()):
+        if sentences_in and not simple(" ".join([*sentences_in, sentence])):
+            found.append((page, " ".join(sentences_in)))
+            sentences_in = []
+        if sentence:
+            sentences_in.append(sentence)
+    if sentences_in:
+        found.append((page, " ".join(sentences_in)))
+    return found
 
 
 def sentences(text: str) -> int:
