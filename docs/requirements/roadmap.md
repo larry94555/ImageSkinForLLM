@@ -10,27 +10,27 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.3% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 12.0% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.0% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.3% | 7 of 7 |
-| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.7% | 11 of 11 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.7% | 4 of 5 |
-| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.0% | 0 |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.1% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 11.7% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 7.8% | 6 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.1% | 7 of 7 |
+| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.3% | 11 of 11 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 7 | 9.1% | 4 of 7 |
+| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.9% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.7% | 0 |
-| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.7% | 0 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.7% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 5.3% | 0 |
-| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 6.7% | 0 |
-| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.7% | 0 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.5% | 0 |
+| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.6% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.6% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 5.2% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 6.5% | 0 |
+| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.6% | 0 |
 | 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.3% | 0 |
-| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.7% | 0 |
+| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.6% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
-| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.7% | 0 |
-| | **Total** | | **75** | **100%** | **43 of 75** |
+| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.6% | 0 |
+| | **Total** | | **77** | **100%** | **43 of 77** |
 
-Sizes: 19 Simple, 56 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 19 Simple, 58 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -346,6 +346,15 @@ The PRs below are written for either kind of video engine, but these are the one
 - The LLM turns the extracted content into wiki pages (one per topic, linking back to the PDF pages it came from). Adding, replacing or removing a PDF rebuilds only the pages that PDF affects.
 - **Can show:** the wiki pages built from a sample PDF, and the logs showing how long the build took.
 - **Built:** `build_wiki` in `wiki.py` cuts a PDF's reading into parts that fit the context window (each piece marked `[page N]`), asks the LLM for each part's topics as JSON (title, pages, text; at most 6, held to a schema on llama-server), and merges a topic that runs over several parts, since the LLM is told the titles found so far. An unusable answer is asked again once, then the part is skipped and listed. `WikiJob` in `wiki_job.py` builds one PDF at a time after it is read, saves `content/wiki/<id>.json` with the PDF's version, rebuilds only a replaced PDF's pages, removes a removed PDF's, catches up on start, and waits for llama-server when it can't be reached. Each PDF has its own pages, so the same topic in two PDFs is two pages *(default)*. `GET /api/wiki`, `/api/wiki/{page_id}`, `/api/wiki/builds` and `/api/content/{id}/wiki`; Manage Content shows the progress, then the page count with a **Wiki pages** link.
+
+### R37a. The wiki as an outline (Medium) · item 26
+- Added by Larry on 2026-10-12: the wiki must read as an outline, not a flat list. From the topics R37 finds, the LLM builds each PDF's table of contents as an outline of sections. Each entry is either summarized in a few sentences, when its detail is simple enough, or has a short summary with a link to a detail page of its own. A detail page follows the same pattern: a few sentences on the whole, then an outline of its parts, each summarized or linked to a further detail page.
+- Simple enough *(default)*: its text fits in about 5 sentences. Depth is capped at 4 levels, so a long PDF can't make the build run on.
+- **Can show:** the outline and detail pages built from a sample PDF (as JSON for now), and the logs showing each level's time.
+
+### R37b. Reading the wiki in the browser (Medium) · item 26
+- Replaces the JSON link with readable pages: a **Wiki** page lists every PDF's table of contents as a nested outline that opens and closes. Each entry shows its summary; an entry with a detail page links to it, and that page opens on its own address with the same layout, a trail back to the levels above it, and links to the PDF pages it came from.
+- **Can show:** open a PDF's table of contents, open and close its levels, follow a link to a detail page and back, and open a cited PDF page.
 
 ### R38. Wiki review and corrections (Medium) · item 26
 - A wiki page in Manage Content to browse the pages, see the PDF pages each came from, and edit a page. A corrected page is marked so a rebuild doesn't overwrite it silently.
