@@ -384,6 +384,916 @@ function day(iso) {
 	return new Date(iso).toLocaleDateString();
 }
 //#endregion
+//#region src/guide.tsx
+var LAPTOPS = [
+	{
+		id: "win10",
+		label: "Windows 10",
+		photo: "Camera app",
+		voice: "Voice Recorder app"
+	},
+	{
+		id: "win11",
+		label: "Windows 11",
+		photo: "Camera app",
+		voice: "Sound Recorder app"
+	},
+	{
+		id: "mac",
+		label: "Mac",
+		photo: "Photo Booth app",
+		voice: "Voice Memos app"
+	}
+];
+var STORAGE_KEY = "imageskin.guide";
+function loadGuide() {
+	try {
+		const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
+		const step = typeof saved?.step === "number" ? saved.step : 0;
+		const laptop = LAPTOPS.some((l) => l.id === saved?.laptop) ? saved?.laptop : null;
+		return {
+			step: Math.min(Math.max(0, Math.floor(step)), STEPS.length - 1),
+			laptop
+		};
+	} catch {
+		return {
+			step: 0,
+			laptop: null
+		};
+	}
+}
+function saveGuide(state) {
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+	} catch (e) {
+		console.error("Could not save the guide's place", e);
+	}
+}
+function For({ laptop, only, children }) {
+	return laptop === null || only.includes(laptop) ? /* @__PURE__ */ u(S, { children }) : null;
+}
+function Script({ first, lines }) {
+	return /* @__PURE__ */ u("ol", {
+		className: "script",
+		start: first,
+		children: lines.map((line) => /* @__PURE__ */ u("li", { children: line }, line))
+	});
+}
+function Before({ name, minutes, children }) {
+	return /* @__PURE__ */ u("p", {
+		className: "notice",
+		children: [
+			children ?? /* @__PURE__ */ u(S, { children: "Press Record. Read each line, then pause about 1 second (one breath) before the next line." }),
+			" ",
+			"At the end: press Stop, listen to check it, and name it ",
+			/* @__PURE__ */ u("b", { children: name }),
+			". This whole recording takes about ",
+			minutes,
+			"."
+		]
+	});
+}
+function Questions({ items }) {
+	return /* @__PURE__ */ u("ul", {
+		className: "bullets",
+		children: items.map((q) => /* @__PURE__ */ u("li", { children: q }, q))
+	});
+}
+var STEPS = [
+	{
+		title: "Before you begin",
+		body: (laptop, pick) => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("p", { children: "This guide helps you make, on your own laptop:" }),
+			/* @__PURE__ */ u("ul", {
+				className: "bullets",
+				children: [/* @__PURE__ */ u("li", { children: "Five photos of your face (picture files, usually ending in .jpg)." }), /* @__PURE__ */ u("li", { children: "Three to seven recordings of your voice (sound files, usually ending in .m4a or .wav). The first three, about 4 minutes, are enough today; all seven take about 15 minutes." })]
+			}),
+			/* @__PURE__ */ u("p", { children: "The photo becomes the face, and the recordings teach the app to speak in a voice that sounds like you. Your recordings are not played back as they are; they are only used as a sample." }),
+			/* @__PURE__ */ u("h2", { children: "What you need" }),
+			/* @__PURE__ */ u("ul", {
+				className: "bullets",
+				children: [
+					/* @__PURE__ */ u("li", { children: "A laptop with a built-in camera and microphone (almost all laptops have both)." }),
+					/* @__PURE__ */ u("li", { children: "A quiet room and about 40 minutes (you can take a break between recordings)." }),
+					/* @__PURE__ */ u("li", { children: "A window or lamp in front of you for light." }),
+					/* @__PURE__ */ u("li", { children: "This guide open next to the recording app, or on a second screen, so you can read the script while recording." })
+				]
+			}),
+			/* @__PURE__ */ u("p", { children: "No accounts, downloads or technical skills are needed. Everything uses apps that already come with your laptop." }),
+			/* @__PURE__ */ u("h2", { children: "Which laptop do you have?" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The guide then shows only the steps for your laptop."
+			}),
+			/* @__PURE__ */ u("fieldset", {
+				className: "laptops",
+				children: [/* @__PURE__ */ u("legend", {
+					className: "sr-only",
+					children: "Your laptop"
+				}), LAPTOPS.map((l) => /* @__PURE__ */ u("label", {
+					className: laptop === l.id ? "picked" : void 0,
+					children: [
+						/* @__PURE__ */ u("input", {
+							type: "radio",
+							name: "laptop",
+							checked: laptop === l.id,
+							onChange: () => pick(l.id)
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "title",
+							children: l.label
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "muted",
+							children: [
+								"Photo: ",
+								l.photo,
+								". Voice: ",
+								l.voice,
+								"."
+							]
+						})
+					]
+				}, l.id))]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Not sure which Windows you have? Press the Windows key, type ",
+					/* @__PURE__ */ u("b", { children: "winver" }),
+					" and press Enter. A small window shows \"Windows 10\" or \"Windows 11\". Click OK to close it."
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: "Your permission matters. Only use photos and voice recordings of yourself, or of someone who is happy for them to be used to make a talking video that looks and sounds like them."
+			})
+		] })
+	},
+	{
+		title: "Get ready",
+		body: () => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("h2", { children: "For the photo" }),
+			/* @__PURE__ */ u("ul", {
+				className: "bullets",
+				children: [
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Light in front of you." }), " Sit facing a window (daytime is best) or a lamp. Do not sit with a bright window behind you, or your face will be dark."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Plain background." }), " A plain wall behind you is ideal."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Clean the camera lens." }), " Gently wipe the small lens above your screen with a soft cloth. Smudges make the photo blurry."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Raise the laptop." }), " Put it on a few books so the camera is at about the height of your eyes, not looking up at your chin."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Clear your face." }), " Take off sunglasses, hats and masks, and move hair away from your eyes. Ordinary glasses are fine, but tilt them slightly if they reflect light."] })
+				]
+			}),
+			/* @__PURE__ */ u("h2", { children: "For the voice recording" }),
+			/* @__PURE__ */ u("ul", {
+				className: "bullets",
+				children: [
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Quiet room." }), " Turn off the TV, music, fans, heaters and air conditioning. Close the windows and door. Silence your phone."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Soft room is better." }), " A bedroom with curtains, a bed and carpet sounds much better than a kitchen or bathroom, which echo."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Sit close." }), " Sit about an arm's length from the laptop or a little closer, and stay at the same distance the whole time."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Have water nearby." }), " A sip between sections keeps your voice clear."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Plug in the laptop" }), " so it does not go to sleep or run out of battery while you record."] })
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Using a headset or plug-in microphone? That is fine and often sounds better. Plug it in before you open the recording app. Keep it a hand's width from your mouth, a little to the side so your breath does not hit it."
+			}),
+			/* @__PURE__ */ u("h2", { children: "\"Allow\" messages" }),
+			/* @__PURE__ */ u("p", { children: [
+				"The first time you open a camera or recording app, your laptop may ask whether the app can use the camera or microphone. Always click ",
+				/* @__PURE__ */ u("b", { children: "Allow" }),
+				" or ",
+				/* @__PURE__ */ u("b", { children: "OK" }),
+				". If you clicked \"Don't allow\" by mistake, see the last step of this guide."
+			] })
+		] })
+	},
+	{
+		title: "Take 5 photos",
+		body: () => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("p", { children: "Take these 5 photos, in this order, without moving the laptop or changing the light between them. The app picks the best one as your face; the others are backups." }),
+			/* @__PURE__ */ u("table", {
+				className: "guide-table",
+				children: [/* @__PURE__ */ u("thead", { children: /* @__PURE__ */ u("tr", { children: [
+					/* @__PURE__ */ u("th", { children: "Photo" }),
+					/* @__PURE__ */ u("th", { children: "Your head" }),
+					/* @__PURE__ */ u("th", { children: "Your face" })
+				] }) }), /* @__PURE__ */ u("tbody", { children: [
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "1" }),
+						/* @__PURE__ */ u("td", { children: "Straight at the camera" }),
+						/* @__PURE__ */ u("td", { children: "Relaxed and neutral, mouth closed. This is the most important photo." })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "2" }),
+						/* @__PURE__ */ u("td", { children: "Straight at the camera" }),
+						/* @__PURE__ */ u("td", { children: "Relaxed, lips slightly apart (as if about to say \"uh\"). No teeth showing, or only a little." })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "3" }),
+						/* @__PURE__ */ u("td", { children: "Straight at the camera" }),
+						/* @__PURE__ */ u("td", { children: "A gentle, closed-mouth smile, the way you smile when greeting someone." })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "4" }),
+						/* @__PURE__ */ u("td", { children: "Turned slightly to your left (about the angle of glancing at a clock on the wall). Eyes still on the lens." }),
+						/* @__PURE__ */ u("td", { children: "Relaxed, mouth closed." })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "5" }),
+						/* @__PURE__ */ u("td", { children: "Turned slightly to your right, the same small amount. Eyes still on the lens." }),
+						/* @__PURE__ */ u("td", { children: "Relaxed, mouth closed." })
+					] })
+				] })]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "If a photo comes out blurry, with eyes closed, or badly lit, simply take that one again."
+			}),
+			/* @__PURE__ */ u("h2", { children: "What matters most" }),
+			/* @__PURE__ */ u("ol", {
+				className: "tips",
+				children: [
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Your face fills a good part of the picture." }), " Head and shoulders only. Leave about a hand's width of space above your head and some space on each side, because the face moves slightly in the video."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Eyes on the lens, not the screen." }), " Look at the small camera dot above the screen. Keep your eyes open and relaxed, not wide."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Mouth closed or only slightly open." }), " The app makes the mouth movements itself. A big smile or open mouth \"freezes\" your teeth into every word."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Soft, even light on both sides of your face." }), " Avoid one side in shadow, shiny spots on your forehead, or a bright window behind you."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Sharp, not blurry." }), " Hold still for the moment the photo is taken. Clean the lens first."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Nothing covering your face." }), " No hands near your face, hair out of your eyes, no hat, sunglasses or mask. Normal glasses are fine without glare."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Camera at eye level." }), " Sit up straight with your shoulders relaxed and level."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Plain, tidy background." }), " Avoid busy shelves, mirrors, posters, or other people behind you."] }),
+					/* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("b", { children: "Look like yourself on a normal day." }), " Solid colours look better than busy patterns. This is how the video version of you will look."] })
+				]
+			})
+		] })
+	},
+	{
+		title: "How to take the photos",
+		body: (laptop) => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(For, {
+			laptop,
+			only: ["win10", "win11"],
+			children: [
+				/* @__PURE__ */ u("h2", { children: "Windows 10 and Windows 11: the Camera app" }),
+				/* @__PURE__ */ u("ol", {
+					className: "tips",
+					children: [
+						/* @__PURE__ */ u("li", { children: "Click the Start button, or press the Windows key on your keyboard." }),
+						/* @__PURE__ */ u("li", { children: [
+							"Type ",
+							/* @__PURE__ */ u("b", { children: "Camera" }),
+							". When the Camera app appears in the list, click it."
+						] }),
+						/* @__PURE__ */ u("li", { children: [
+							"If asked \"Let Camera access your camera?\" or similar, click ",
+							/* @__PURE__ */ u("b", { children: "Yes" }),
+							" or ",
+							/* @__PURE__ */ u("b", { children: "Allow" }),
+							". Your face now appears on the screen."
+						] }),
+						/* @__PURE__ */ u("li", { children: "Make sure the app is in photo mode, not video. If the round button on the right shows a video camera, click the small camera icon next to it." }),
+						/* @__PURE__ */ u("li", { children: "Sit back so your head and shoulders fit in the picture. Look at the small camera lens above the screen." }),
+						/* @__PURE__ */ u("li", { children: [
+							"Click the round ",
+							/* @__PURE__ */ u("b", { children: "Take photo" }),
+							" button. You hear a shutter sound, and a small preview appears in a corner."
+						] }),
+						/* @__PURE__ */ u("li", { children: "Take the rest of the 5 photos from the previous step, one after another." }),
+						/* @__PURE__ */ u("li", { children: "To look at them, click the small preview in the corner. Close the Camera app when you are done." })
+					]
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"The photos are saved in your ",
+						/* @__PURE__ */ u("b", { children: "Pictures" }),
+						" folder, inside ",
+						/* @__PURE__ */ u("b", { children: "Camera Roll" }),
+						". For a sharper photo, click the gear icon (Settings) and choose the largest size under Photo quality."
+					]
+				})
+			]
+		}), /* @__PURE__ */ u(For, {
+			laptop,
+			only: ["mac"],
+			children: [/* @__PURE__ */ u("h2", { children: "Mac: the Photo Booth app" }), /* @__PURE__ */ u("ol", {
+				className: "tips",
+				children: [
+					/* @__PURE__ */ u("li", { children: [
+						"Press ",
+						/* @__PURE__ */ u("b", { children: "Command + Space" }),
+						" together. A search bar appears."
+					] }),
+					/* @__PURE__ */ u("li", { children: [
+						"Type ",
+						/* @__PURE__ */ u("b", { children: "Photo Booth" }),
+						" and press Return. Your face appears and a small green light turns on next to the camera."
+					] }),
+					/* @__PURE__ */ u("li", { children: "In the bottom left corner, click the left of the three small buttons (a single square), so the app takes one photo, not four." }),
+					/* @__PURE__ */ u("li", { children: "If you see an Effects button, make sure no effect is chosen (\"Normal\")." }),
+					/* @__PURE__ */ u("li", { children: "Sit back so your head and shoulders fit in the picture. Look at the camera lens above the screen." }),
+					/* @__PURE__ */ u("li", { children: "Click the red camera button. Photo Booth counts down 3, 2, 1, the screen flashes white, and the photo is taken." }),
+					/* @__PURE__ */ u("li", { children: "Take the rest of the 5 photos from the previous step. They appear as small pictures along the bottom." }),
+					/* @__PURE__ */ u("li", { children: [
+						"Save each photo to the Desktop: click it, then choose ",
+						/* @__PURE__ */ u("b", { children: "File > Export" }),
+						", choose Desktop, name it (such as Photo 1) and click Save. Or drag each small picture onto your Desktop."
+					] })
+				]
+			})]
+		})] })
+	},
+	{
+		title: "Record your voice",
+		body: () => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("p", { children: "The guide has 7 recordings, one for each of the next steps; the first 3 are the ones needed today. Record a section, stop, listen to check it, and only then move on. If a section goes wrong, just record that section again; you never have to start over." }),
+			/* @__PURE__ */ u("table", {
+				className: "guide-table",
+				children: [/* @__PURE__ */ u("thead", { children: /* @__PURE__ */ u("tr", { children: [
+					/* @__PURE__ */ u("th", { children: "Recording" }),
+					/* @__PURE__ */ u("th", { children: "What you say" }),
+					/* @__PURE__ */ u("th", { children: "About" })
+				] }) }), /* @__PURE__ */ u("tbody", { children: [
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "Voice 1" }),
+						/* @__PURE__ */ u("td", { children: "Read script lines 1 to 10" }),
+						/* @__PURE__ */ u("td", { children: "1½ minutes" })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "Voice 2" }),
+						/* @__PURE__ */ u("td", { children: "Read script lines 11 to 19" }),
+						/* @__PURE__ */ u("td", { children: "1½ minutes" })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "Voice 3" }),
+						/* @__PURE__ */ u("td", { children: "Answer 2 or 3 questions in your own words" }),
+						/* @__PURE__ */ u("td", { children: "1 minute" })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "Voice 4" }),
+						/* @__PURE__ */ u("td", { children: "Read a short story" }),
+						/* @__PURE__ */ u("td", { children: "3 minutes" })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "Voice 5" }),
+						/* @__PURE__ */ u("td", { children: "Read script lines 20 to 39" }),
+						/* @__PURE__ */ u("td", { children: "3 minutes" })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "Voice 6" }),
+						/* @__PURE__ */ u("td", { children: "Read a short explanation" }),
+						/* @__PURE__ */ u("td", { children: "3 minutes" })
+					] }),
+					/* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("td", { children: "Voice 7" }),
+						/* @__PURE__ */ u("td", { children: "Answer 4 or 5 questions in your own words" }),
+						/* @__PURE__ */ u("td", { children: "2 minutes" })
+					] })
+				] })]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The times are the length of each whole recording, from Record to Stop. You can take breaks between recordings, as long as you use the same room, microphone and distance."
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: "Recordings 1 to 3 (about 4 minutes) are enough for the voice today. Recordings 4 to 7 do not change today's voice: they are kept so a closer, trained copy of your voice can be made later without recording again. If you are short on time, stop after Recording 3."
+			}),
+			/* @__PURE__ */ u("h2", { children: "How to speak" }),
+			/* @__PURE__ */ u("ul", {
+				className: "bullets",
+				children: [
+					/* @__PURE__ */ u("li", { children: "Use your normal, relaxed voice, the way you talk to a friend." }),
+					/* @__PURE__ */ u("li", { children: "Speak at a natural, everyday pace. Pause about 1 second (one breath) after each line." }),
+					/* @__PURE__ */ u("li", { children: "Small slip? Don't stop. Pause for a second, then say that line again and carry on." }),
+					/* @__PURE__ */ u("li", { children: "Lots of slips, or a noise (cough, phone, dog)? Stop, delete that recording, and record that section again." }),
+					/* @__PURE__ */ u("li", { children: "Only your voice should be on the recording. Ask others in the house to stay quiet." })
+				]
+			}),
+			/* @__PURE__ */ u("h2", { children: "First, a 10-second test" }),
+			/* @__PURE__ */ u("p", { children: "Record yourself saying \"Hello, this is a test\" and play it back. If it sounds muffled, quiet or echoey, move closer to the laptop or try a different room." })
+		] })
+	},
+	{
+		title: "How to make each recording",
+		body: (laptop) => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("p", { children: "You repeat these \"record, stop, check, rename\" steps seven times, once for each recording." }),
+			/* @__PURE__ */ u(For, {
+				laptop,
+				only: ["win10"],
+				children: [
+					/* @__PURE__ */ u("h2", { children: "Windows 10: the Voice Recorder app" }),
+					/* @__PURE__ */ u("ol", {
+						className: "tips",
+						children: [
+							/* @__PURE__ */ u("li", { children: [
+								"Press the Windows key, type ",
+								/* @__PURE__ */ u("b", { children: "Voice Recorder" }),
+								", and click the app."
+							] }),
+							/* @__PURE__ */ u("li", { children: [
+								"If asked to allow the microphone, click ",
+								/* @__PURE__ */ u("b", { children: "Yes" }),
+								" or ",
+								/* @__PURE__ */ u("b", { children: "Allow" }),
+								"."
+							] }),
+							/* @__PURE__ */ u("li", { children: "Click the big round blue microphone button to start recording. A timer starts counting." }),
+							/* @__PURE__ */ u("li", { children: [
+								"Read that step's page only. At the end, click the round ",
+								/* @__PURE__ */ u("b", { children: "Stop" }),
+								" button. The recording appears in the list on the left."
+							] }),
+							/* @__PURE__ */ u("li", { children: "Click the recording and press Play. Listen to a few seconds at the start and the end." }),
+							/* @__PURE__ */ u("li", { children: [
+								"Rename it: right-click the recording, choose ",
+								/* @__PURE__ */ u("b", { children: "Rename" }),
+								", type Voice 1 (then Voice 2 and so on) and press Enter."
+							] }),
+							/* @__PURE__ */ u("li", { children: "Not happy with it? Right-click it, choose Delete, and record that section again." })
+						]
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							"The recordings are saved in ",
+							/* @__PURE__ */ u("b", { children: "Documents" }),
+							", inside ",
+							/* @__PURE__ */ u("b", { children: "Sound recordings" }),
+							", as .m4a files. Can't find Voice Recorder? Get \"Windows Voice Recorder\" free from the Microsoft Store."
+						]
+					})
+				]
+			}),
+			/* @__PURE__ */ u(For, {
+				laptop,
+				only: ["win11"],
+				children: [
+					/* @__PURE__ */ u("h2", { children: "Windows 11: the Sound Recorder app" }),
+					/* @__PURE__ */ u("ol", {
+						className: "tips",
+						children: [
+							/* @__PURE__ */ u("li", { children: [
+								"Press the Windows key, type ",
+								/* @__PURE__ */ u("b", { children: "Sound Recorder" }),
+								", and click the app."
+							] }),
+							/* @__PURE__ */ u("li", { children: [
+								"If asked to allow the microphone, click ",
+								/* @__PURE__ */ u("b", { children: "Yes" }),
+								" or ",
+								/* @__PURE__ */ u("b", { children: "Allow" }),
+								"."
+							] }),
+							/* @__PURE__ */ u("li", { children: [
+								"One time only: click the three dots (···) at the top right, choose Settings, set Recording format to ",
+								/* @__PURE__ */ u("b", { children: "WAV" }),
+								" (if shown) and Audio quality to ",
+								/* @__PURE__ */ u("b", { children: "High" }),
+								". Click the back arrow."
+							] }),
+							/* @__PURE__ */ u("li", { children: "If you use a headset or plug-in mic, pick it from the microphone list at the bottom left." }),
+							/* @__PURE__ */ u("li", { children: [
+								"Click the big round red ",
+								/* @__PURE__ */ u("b", { children: "Record" }),
+								" button. A timer starts counting."
+							] }),
+							/* @__PURE__ */ u("li", { children: [
+								"Read that step's page only. At the end, click the square ",
+								/* @__PURE__ */ u("b", { children: "Stop" }),
+								" button."
+							] }),
+							/* @__PURE__ */ u("li", { children: "Click the recording and press Play. Listen to a few seconds at the start and the end." }),
+							/* @__PURE__ */ u("li", { children: [
+								"Rename it: right-click it, choose ",
+								/* @__PURE__ */ u("b", { children: "Rename" }),
+								", type Voice 1 (then Voice 2 and so on) and press Enter."
+							] }),
+							/* @__PURE__ */ u("li", { children: "Not happy with it? Right-click it, choose Delete, and record that section again." })
+						]
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							"The recordings are saved in ",
+							/* @__PURE__ */ u("b", { children: "Documents" }),
+							", inside ",
+							/* @__PURE__ */ u("b", { children: "Sound recordings" }),
+							", as .wav or .m4a files. Either is fine."
+						]
+					})
+				]
+			}),
+			/* @__PURE__ */ u(For, {
+				laptop,
+				only: ["mac"],
+				children: [
+					/* @__PURE__ */ u("h2", { children: "Mac: the Voice Memos app" }),
+					/* @__PURE__ */ u("ol", {
+						className: "tips",
+						children: [
+							/* @__PURE__ */ u("li", { children: [
+								"Press ",
+								/* @__PURE__ */ u("b", { children: "Command + Space" }),
+								", type ",
+								/* @__PURE__ */ u("b", { children: "Voice Memos" }),
+								", and press Return."
+							] }),
+							/* @__PURE__ */ u("li", { children: [
+								"If asked to allow the microphone, click ",
+								/* @__PURE__ */ u("b", { children: "OK" }),
+								" or ",
+								/* @__PURE__ */ u("b", { children: "Allow" }),
+								"."
+							] }),
+							/* @__PURE__ */ u("li", { children: [
+								"One time only: choose ",
+								/* @__PURE__ */ u("b", { children: "Voice Memos > Settings" }),
+								" (Preferences on older Macs) and set Audio Quality to ",
+								/* @__PURE__ */ u("b", { children: "Lossless" }),
+								"."
+							] }),
+							/* @__PURE__ */ u("li", { children: [
+								"Click the big round red ",
+								/* @__PURE__ */ u("b", { children: "Record" }),
+								" button at the bottom left."
+							] }),
+							/* @__PURE__ */ u("li", { children: [
+								"Read that step's page only. At the end, click ",
+								/* @__PURE__ */ u("b", { children: "Done" }),
+								"."
+							] }),
+							/* @__PURE__ */ u("li", { children: "Click the recording and press Play. Listen to a few seconds at the start and the end." }),
+							/* @__PURE__ */ u("li", { children: "Rename it: double-click its name, type Voice 1 (then Voice 2 and so on) and press Return." }),
+							/* @__PURE__ */ u("li", { children: "Not happy with it? Click it, press Delete, and record that section again." }),
+							/* @__PURE__ */ u("li", { children: "Drag the recording from the list onto your Desktop. A file ending in .m4a appears there." })
+						]
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Do not click the magic-wand Enhance Recording button, and do not add effects."
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: "Leave \"clean-up\" features off. Noise reduction, voice clarity, voice focus or \"enhance\" options make the voice worse for this. The plain, natural sound gives the best result."
+			})
+		] })
+	},
+	{
+		title: "Recording 1 of 7",
+		body: () => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Before, {
+			name: "Voice 1",
+			minutes: "1½ minutes"
+		}), /* @__PURE__ */ u(Script, {
+			first: 1,
+			lines: [
+				"Hi, thanks for stopping by. It's good to see you.",
+				"I wasn't sure what to expect today, but honestly, I'm glad you asked.",
+				"Let me think about that for a second. Okay, here's what I'd do.",
+				"First, take a deep breath. Second, write down the three things that matter most. Third, pick one and start there.",
+				"Really? You found it in the garage, behind the old bicycle? That's amazing!",
+				"No, no, that's not what I meant at all. I meant the other one, the blue one.",
+				"The weather this weekend should be cool and breezy, with a chance of rain on Sunday afternoon.",
+				"My favourite meal is still my grandmother's soup, with fresh bread and a little too much butter.",
+				"She sells seashells by the seashore, and the shells she sells are surely seashells.",
+				"The quick brown fox jumps over the lazy dog, and the dog doesn't seem to mind."
+			]
+		})] })
+	},
+	{
+		title: "Recording 2 of 7",
+		body: () => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Before, {
+			name: "Voice 2",
+			minutes: "1½ minutes"
+		}), /* @__PURE__ */ u(Script, {
+			first: 11,
+			lines: [
+				"Could you call me back around four thirty? My number is five five five, two nine one, eight three zero seven.",
+				"It cost about twelve dollars and fifty cents, which felt fair for what it was.",
+				"Hmm, I'm not totally sure. I think it was in two thousand nineteen, but don't quote me on that.",
+				"Wow. That is genuinely the best news I've heard all week.",
+				"I'm sorry to hear that. That sounds really hard, and it makes sense that you're tired.",
+				"Here's a fun fact: an octopus has three hearts and blue blood.",
+				"Would you like the short version, or the long version with all the details?",
+				"Measure twice, cut once. My father used to say that, and he was usually right.",
+				"Thanks for listening. Take care of yourself, and let's talk again soon."
+			]
+		})] })
+	},
+	{
+		title: "Recording 3 of 7",
+		body: () => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u(Before, {
+				name: "Voice 3",
+				minutes: "1 minute",
+				children: "Choose two or three of the questions below. Press Record and answer them out loud in your own words, as if chatting with a friend, for about 20 to 30 seconds each. Pause for a second between questions."
+			}),
+			/* @__PURE__ */ u(Questions, { items: [
+				"What did you do last weekend?",
+				"Describe a place you love and why.",
+				"Explain how to make something you cook often.",
+				"What's something you've changed your mind about?"
+			] }),
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: [
+					"Short on time? You can stop here: Recordings 1 to 3 are enough for today's voice. Use",
+					" ",
+					/* @__PURE__ */ u("b", { children: "Go to step" }),
+					" below to jump to ",
+					/* @__PURE__ */ u("b", { children: "Check your recordings" }),
+					"."
+				]
+			})
+		] })
+	},
+	{
+		title: "Recording 4 of 7",
+		body: () => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Before, {
+			name: "Voice 4",
+			minutes: "3 minutes",
+			children: "Press Record. Read the story at a relaxed, natural pace, as if reading to a friend. Pause about 1 second between paragraphs. If you stumble, pause and reread that sentence."
+		}), /* @__PURE__ */ u("div", {
+			className: "story",
+			children: [
+				/* @__PURE__ */ u("p", { children: "Every Saturday morning, my neighbour Ruth walks her old dog, Biscuit, down to the bakery on the corner. Biscuit is twelve years old, mostly grey around the nose, and moves at exactly one speed: slow. Ruth says that suits her just fine." }),
+				/* @__PURE__ */ u("p", { children: "Last spring, the bakery changed owners. The new baker, a quiet young man named Theo, didn't know about Biscuit. On his first Saturday, he looked up from the counter to find a dog sitting politely by the door, staring at the shelf of day-old rolls." }),
+				/* @__PURE__ */ u("p", { children: "\"Is he waiting for someone?\" Theo asked. Ruth laughed. \"He's waiting for you. The last owner gave him the end of a loaf every week. I think he expects the tradition to continue.\"" }),
+				/* @__PURE__ */ u("p", { children: "Theo thought about it for a moment, then broke off a small piece of crust and crouched down. Biscuit took it gently, wagged his tail twice, and walked straight back out the door. Ruth apologised and hurried after him." }),
+				/* @__PURE__ */ u("p", { children: "The next Saturday, Theo had a paper bag ready, with \"Biscuit\" written on it in thick black marker. The Saturday after that, he added a second bag for Ruth: two warm cinnamon buns and a note that said, \"For the person holding the leash.\"" }),
+				/* @__PURE__ */ u("p", { children: "By summer, half the street knew the story. Children waved at Biscuit through the window. A man from the hardware store brought a water bowl for the doorstep. Somebody even painted a small sign, shaped like a bone, that read: \"Dogs welcome. Especially Biscuit.\"" }),
+				/* @__PURE__ */ u("p", { children: "I asked Ruth once why she thought the whole thing had caught on. She shrugged and said, \"People like a routine they can count on. And everybody likes being expected.\" Then she checked her watch, because it was almost nine o'clock, and Biscuit was already standing by the door." })
+			]
+		})] })
+	},
+	{
+		title: "Recording 5 of 7",
+		body: () => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Before, {
+			name: "Voice 5",
+			minutes: "3 minutes"
+		}), /* @__PURE__ */ u(Script, {
+			first: 20,
+			lines: [
+				"Good morning! Did you sleep well, or were the neighbours noisy again?",
+				"That's a fair question, and I don't have a perfect answer, but I'll do my best.",
+				"Wait, say that again? I think I missed the most important part.",
+				"The train leaves at seven fifteen from platform nine, so we should be there by seven.",
+				"Honestly, I loved the first half of the film, but the ending felt rushed.",
+				"If you add a pinch of salt to the water, the pasta tastes much better.",
+				"Oh no, I left my umbrella on the bus. Typical!",
+				"Let's keep it simple: one page, three ideas, and a clear next step.",
+				"She was born on the fourth of July, nineteen eighty-six, in a small town by the river.",
+				"Are you sure? Because yesterday you told me the opposite.",
+				"Thank you so much. That was incredibly kind, and I won't forget it.",
+				"The library opens at ten, closes at six, and is shut on Mondays.",
+				"Please don't worry about it. These things happen to everyone.",
+				"Which would you rather have: a quiet cabin in the woods, or a flat in the middle of the city?",
+				"Turn left at the lights, go past the petrol station, and it's the third house on the right.",
+				"I can't believe it's already October. Where did the year go?",
+				"Bright yellow jackets, thick woollen gloves, and very wet boots.",
+				"The answer is forty-two, but nobody remembers what the question was.",
+				"Hmm. Let me check my notes, and I'll get back to you this afternoon.",
+				"That's everything for now. Thanks again, and have a lovely evening."
+			]
+		})] })
+	},
+	{
+		title: "Recording 6 of 7",
+		body: () => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Before, {
+			name: "Voice 6",
+			minutes: "3 minutes",
+			children: "Press Record. Read it as if you were explaining it to a curious friend. Pause about 1 second between paragraphs."
+		}), /* @__PURE__ */ u("div", {
+			className: "story",
+			children: [
+				/* @__PURE__ */ u("p", { children: "Have you ever wondered why the sky is blue during the day, but red and orange at sunset? The answer has to do with sunlight, and with the air itself." }),
+				/* @__PURE__ */ u("p", { children: "Sunlight looks white, but it is really a mixture of every colour of the rainbow. Each colour travels as a wave, and the waves have different lengths. Red light has long, lazy waves. Blue and violet light have short, quick ones." }),
+				/* @__PURE__ */ u("p", { children: "When sunlight enters the air, it bumps into tiny gas molecules, mostly nitrogen and oxygen. These molecules are far too small to see, but they scatter short waves much more strongly than long ones. So blue light bounces around the sky in every direction, and wherever you look, some of it reaches your eyes. That is why the whole sky seems to glow blue." }),
+				/* @__PURE__ */ u("p", { children: "You might ask: if violet waves are even shorter, why isn't the sky violet? There are two reasons. First, the sun gives off less violet light than blue. Second, our eyes are simply more sensitive to blue. Put those together, and blue wins." }),
+				/* @__PURE__ */ u("p", { children: "Now think about sunset. When the sun is low, its light has to travel through much more air before it reaches you, sometimes forty times as much as at midday. Along that long path, most of the blue light is scattered away to the sides. What is left is the light that scatters least: the yellows, oranges and deep reds." }),
+				/* @__PURE__ */ u("p", { children: "Dust, smoke and tiny water droplets can make sunsets even more dramatic, because they add their own scattering and colour. After a large volcanic eruption, people around the world have seen unusually vivid sunsets for months." }),
+				/* @__PURE__ */ u("p", { children: "So the next time you watch the sky change colour in the evening, remember: you are watching sunlight take the long way home." })
+			]
+		})] })
+	},
+	{
+		title: "Recording 7 of 7",
+		body: () => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u(Before, {
+				name: "Voice 7",
+				minutes: "2 minutes",
+				children: "Choose four or five of the questions below, different from the ones in Recording 3. Press Record and answer them out loud in your own words, for about 20 to 30 seconds each. Pause for a second between questions."
+			}),
+			/* @__PURE__ */ u(Questions, { items: [
+				"What was your first job, and what did you learn from it?",
+				"Describe your ideal day off, from morning to night.",
+				"Tell a short story about a time something went wrong but turned out fine.",
+				"What's a book, film or song you'd recommend, and why?",
+				"Explain how to get from your home to a shop or café you like.",
+				"If you could learn any skill instantly, what would it be?",
+				"What's the best piece of advice anyone has given you?"
+			] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Optional: is English not your first language? Make one more recording of about 1 minute talking about anything in your first language, and name it Voice 8. It helps capture the sound of your voice."
+			})
+		] })
+	},
+	{
+		title: "Check your recordings",
+		body: () => /* @__PURE__ */ u("ul", {
+			className: "checklist",
+			children: [
+				/* @__PURE__ */ u("li", { children: "You have at least Voice 1, Voice 2 and Voice 3. These are all today's voice needs. Voice 4 to Voice 7 (and Voice 8) are extra, if you made them." }),
+				/* @__PURE__ */ u("li", { children: "Voice 1 and Voice 2 are each about 1 to 2 minutes long; Voice 3 is about 1 minute. If you made them, Voice 4, 5 and 6 are each about 3 minutes and Voice 7 is about 2 minutes." }),
+				/* @__PURE__ */ u("li", { children: "When you play them back, your voice is clear and easy to hear." }),
+				/* @__PURE__ */ u("li", { children: "There is no music, TV, other voices or loud background hum." }),
+				/* @__PURE__ */ u("li", { children: "If one of them went wrong, delete just that one and record that section again." })
+			]
+		})
+	},
+	{
+		title: "Add your files to the app",
+		body: (laptop) => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("p", { children: "Find your 5 photos and your recordings (Voice 1 to Voice 3, plus any extra ones you made), then add them on the Setup page." }),
+			/* @__PURE__ */ u(For, {
+				laptop,
+				only: ["win10", "win11"],
+				children: [/* @__PURE__ */ u("h2", { children: "Windows" }), /* @__PURE__ */ u("ul", {
+					className: "bullets",
+					children: [
+						/* @__PURE__ */ u("li", { children: [
+							"Photos: in the file picker, open ",
+							/* @__PURE__ */ u("b", { children: "Pictures" }),
+							", then ",
+							/* @__PURE__ */ u("b", { children: "Camera Roll" }),
+							". Your 5 photos are the newest ones."
+						] }),
+						/* @__PURE__ */ u("li", { children: [
+							"Recordings: open ",
+							/* @__PURE__ */ u("b", { children: "Documents" }),
+							", then ",
+							/* @__PURE__ */ u("b", { children: "Sound recordings" }),
+							". You should see Voice 1, Voice 2 and Voice 3, and any extra ones you made."
+						] }),
+						/* @__PURE__ */ u("li", { children: [
+							"Can't find them? Pictures and Documents may be inside a OneDrive folder. Type ",
+							/* @__PURE__ */ u("b", { children: "Camera Roll" }),
+							" or ",
+							/* @__PURE__ */ u("b", { children: "Sound recordings" }),
+							" in the search box at the top right."
+						] })
+					]
+				})]
+			}),
+			/* @__PURE__ */ u(For, {
+				laptop,
+				only: ["mac"],
+				children: [/* @__PURE__ */ u("h2", { children: "Mac" }), /* @__PURE__ */ u("p", { children: "Your photos and recordings are on your Desktop (you put them there in the earlier steps)." })]
+			}),
+			/* @__PURE__ */ u("ol", {
+				className: "tips",
+				children: [
+					/* @__PURE__ */ u("li", { children: [
+						"On the Setup page, click ",
+						/* @__PURE__ */ u("b", { children: "Add photos" }),
+						" and choose all 5 photos at once."
+					] }),
+					/* @__PURE__ */ u("li", { children: [
+						"Click ",
+						/* @__PURE__ */ u("b", { children: "Add recordings" }),
+						" and choose all your recordings at once: Voice 1 to Voice 3, plus Voice 4 to Voice 8 if you made them."
+					] }),
+					/* @__PURE__ */ u("li", { children: "Each file is checked as it arrives. If one needs fixing, the page says what to change; take or record that one again and add it." })
+				]
+			}),
+			/* @__PURE__ */ u("a", {
+				className: "button",
+				href: "#/setup",
+				children: "Go to setup"
+			})
+		] })
+	},
+	{
+		title: "If something goes wrong",
+		body: () => /* @__PURE__ */ u("table", {
+			className: "guide-table",
+			children: [/* @__PURE__ */ u("thead", { children: /* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("th", { children: "Problem" }), /* @__PURE__ */ u("th", { children: "What to try" })] }) }), /* @__PURE__ */ u("tbody", { children: [
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "The camera shows a black screen or \"We can't find your camera\"" }), /* @__PURE__ */ u("td", { children: "Some laptops have a sliding cover over the camera, or a camera on/off key. Slide the cover open or press the key. Close any other app that might use the camera (Zoom, Teams, Skype, FaceTime) and try again." })] }),
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "Windows: I clicked \"No\" when asked about the camera or microphone" }), /* @__PURE__ */ u("td", { children: [
+					"Press the Windows key, type ",
+					/* @__PURE__ */ u("b", { children: "Camera privacy settings" }),
+					" (or ",
+					/* @__PURE__ */ u("b", { children: "Microphone privacy settings" }),
+					") and open it. Turn on access, and make sure Camera, Voice Recorder or Sound Recorder is switched on."
+				] })] }),
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "Mac: I clicked \"Don't Allow\"" }), /* @__PURE__ */ u("td", { children: "Apple menu > System Settings > Privacy & Security. Click Camera or Microphone and switch on Photo Booth or Voice Memos." })] }),
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "The photo is dark or has strong shadows" }), /* @__PURE__ */ u("td", { children: "Face a window or put a lamp behind the laptop, shining toward your face. Turn off bright lights behind you." })] }),
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "The photo is blurry" }), /* @__PURE__ */ u("td", { children: "Wipe the camera lens, sit still, and make sure the room is bright." })] }),
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "The recording timer doesn't move, or playback is silent" }), /* @__PURE__ */ u("td", { children: "Check that the microphone is allowed (see above). Plug a headset in before opening the app. On Windows 11 Sound Recorder, check the microphone chosen at the bottom left." })] }),
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "The recording sounds echoey or noisy" }), /* @__PURE__ */ u("td", { children: "Move to a smaller room with soft furniture, curtains or carpet. A walk-in closet works very well. Turn off fans and air conditioning." })] }),
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "I can't find Voice Recorder or Sound Recorder (Windows)" }), /* @__PURE__ */ u("td", { children: "Open the Microsoft Store, search for \"Sound Recorder\" or \"Windows Voice Recorder\", and click Get. It is free." })] }),
+				/* @__PURE__ */ u("tr", { children: [/* @__PURE__ */ u("td", { children: "I can't find my files" }), /* @__PURE__ */ u("td", { children: "Windows: in File Explorer, type the file name, Camera Roll or Sound recordings in the search box at the top right. Mac: press Command + Space and type the file name." })] })
+			] })]
+		})
+	}
+];
+function GuidePage() {
+	const [state, setState] = d(loadGuide);
+	const { step, laptop } = state;
+	h(() => {
+		saveGuide(state);
+	}, [state]);
+	function go(to) {
+		setState({
+			...state,
+			step: to
+		});
+		console.info(`Guide step ${to + 1} of ${STEPS.length}: ${STEPS[to].title}`);
+		window.scrollTo?.({ top: 0 });
+	}
+	function pick(l) {
+		setState({
+			...state,
+			laptop: l
+		});
+		console.info(`Guide laptop: ${l}`);
+	}
+	const current = STEPS[step];
+	const last = step === STEPS.length - 1;
+	return /* @__PURE__ */ u("section", {
+		className: "guide",
+		children: [
+			/* @__PURE__ */ u("div", {
+				className: "guide-top",
+				children: [/* @__PURE__ */ u("a", {
+					className: "return",
+					href: "#/setup",
+					children: "← Return to Setup page"
+				}), /* @__PURE__ */ u("p", {
+					className: "muted step-count",
+					children: [
+						"Recording guide · Step ",
+						step + 1,
+						" of ",
+						STEPS.length
+					]
+				})]
+			}),
+			/* @__PURE__ */ u("progress", {
+				value: step + 1,
+				max: STEPS.length,
+				"aria-label": "Guide progress"
+			}),
+			/* @__PURE__ */ u("h1", { children: current.title }),
+			current.body(laptop, pick),
+			/* @__PURE__ */ u("div", {
+				className: "guide-nav",
+				children: [/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					disabled: step === 0,
+					onClick: () => go(step - 1),
+					children: "Back"
+				}), !last && /* @__PURE__ */ u("button", {
+					type: "button",
+					onClick: () => go(step + 1),
+					children: ["Next: ", STEPS[step + 1].title]
+				})]
+			}),
+			/* @__PURE__ */ u("label", {
+				className: "jump",
+				children: [
+					"Go to step",
+					" ",
+					/* @__PURE__ */ u("select", {
+						value: step,
+						onChange: (e) => go(Number(e.currentTarget.value)),
+						children: STEPS.map((s, i) => /* @__PURE__ */ u("option", {
+							value: i,
+							children: [
+								i + 1,
+								". ",
+								s.title
+							]
+						}, s.title))
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "guide-bottom",
+				children: /* @__PURE__ */ u("a", {
+					className: "return",
+					href: "#/setup",
+					children: "← Return to Setup page"
+				})
+			})
+		]
+	});
+}
+//#endregion
 //#region src/home.tsx
 async function loadHome(consented) {
 	if (!consented) {
@@ -541,6 +1451,17 @@ function SetupPage() {
 		/* @__PURE__ */ u("p", {
 			className: "done",
 			children: "Thank you, consent is confirmed."
+		}),
+		/* @__PURE__ */ u("p", {
+			className: "notice",
+			children: [
+				"New to this? The ",
+				/* @__PURE__ */ u("a", {
+					href: "#/guide",
+					children: "recording guide"
+				}),
+				" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop."
+			]
 		}),
 		/* @__PURE__ */ u(UploadSection, {
 			kind: "photos",
@@ -1818,7 +2739,8 @@ var PAGES = {
 	"/consent": "consent",
 	"/setup": "setup",
 	"/chat": "chat",
-	"/content": "content"
+	"/content": "content",
+	"/guide": "guide"
 };
 function pageFor(hash) {
 	return PAGES[hash.replace(/^#/, "").replace(/\/+$/, "") || "/"] ?? "not-found";
@@ -1864,6 +2786,9 @@ var NAV = [
 		label: "Manage Content"
 	}
 ];
+function current(page) {
+	return page === "guide" ? "setup" : page;
+}
 function App() {
 	const hash = useHash();
 	const [consented, setConsented] = d(null);
@@ -1887,6 +2812,7 @@ function App() {
 		setup: /* @__PURE__ */ u(SetupPage, {}),
 		chat: /* @__PURE__ */ u(ChatPage, {}),
 		content: /* @__PURE__ */ u(ContentPage, {}),
+		guide: /* @__PURE__ */ u(GuidePage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
@@ -1896,7 +2822,7 @@ function App() {
 			children: "ImageSkinForLLM"
 		}), /* @__PURE__ */ u("nav", { children: NAV.map((item) => /* @__PURE__ */ u("a", {
 			href: item.href,
-			className: route?.page === item.page ? "current" : void 0,
+			className: current(route?.page) === item.page ? "current" : void 0,
 			children: item.label
 		}, item.page)) })] }),
 		/* @__PURE__ */ u("main", { children: content }),

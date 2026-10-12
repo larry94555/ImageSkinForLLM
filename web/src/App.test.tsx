@@ -111,6 +111,17 @@ test("with consent, setup opens and the nav marks it", async () => {
   expect(screen.getByRole("link", { name: "Setup" }).className).toBe("current");
 });
 
+test("setup links to the recording guide, which keeps setup marked in the nav", async () => {
+  serverWithConsent(true);
+  await openAt("#/setup");
+  const link = await screen.findByRole("link", { name: "recording guide" });
+  expect(link.getAttribute("href")).toBe("#/guide");
+  cleanup();
+  await openAt("#/guide");
+  expect(await screen.findByRole("heading", { name: "Before you begin" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Setup" }).className).toBe("current");
+});
+
 test("unknown pages say so", async () => {
   serverWithConsent(true);
   await openAt("#/nowhere");

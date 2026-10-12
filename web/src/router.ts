@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 
-export type Page = "home" | "consent" | "setup" | "chat" | "content" | "not-found";
+export type Page = "home" | "consent" | "setup" | "chat" | "content" | "guide" | "not-found";
 
 const PAGES: Record<string, Page> = {
   "/": "home",
@@ -10,6 +10,7 @@ const PAGES: Record<string, Page> = {
   "/setup": "setup",
   "/chat": "chat",
   "/content": "content",
+  "/guide": "guide",
 };
 
 export interface Route {
