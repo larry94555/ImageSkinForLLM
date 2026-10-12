@@ -1,21 +1,24 @@
 // The Manage Content page (roadmap R35): the PDFs the answers will come from, with add, replace
 // and remove. They are kept apart from the photos and recordings (roadmap R34). Each PDF shows
-// how far the server has got reading it (roadmap R36).
+// how far the server has got reading it (roadmap R36) and building its wiki pages (roadmap R37).
 
 import { useEffect, useState } from "preact/hooks";
 
 import {
   listPdfs,
   listReadings,
+  listWikiBuilds,
   type Pdf,
   pdfUrl,
   type Reading,
   readingUrl,
   removePdf,
   sendPdf,
+  type WikiBuild,
+  wikiUrl,
 } from "./api";
 
-// How often the reading progress is checked while a PDF is being read.
+// How often the reading and wiki progress is checked while a PDF is being read or built.
 export const READING_POLL_MS = 1000;
 
 interface Refused {
@@ -36,24 +39,38 @@ export function ContentPage() {
   const reading = (pdfs ?? []).some((pdf) =>
     ["waiting", "reading", undefined].includes(readings[pdf.id]?.state),
   );
+  const [wiki, setWiki] = useState<Record<string, WikiBuild>>({});
+  // A PDF that has been read has its wiki pages built next.
+  const building = (pdfs ?? []).some(
+    (pdf) =>
+      readings[pdf.id]?.state === "done" &&
+      ["waiting", "building", undefined].includes(wiki[pdf.id]?.state),
+  );
 
-  // Checks the progress whenever the list changes, then every second while a PDF is read.
+  // Checks the progress whenever the list changes, then every second while a PDF is read or
+  // its wiki pages are built.
   useEffect(() => {
     if (pdfs === null) return;
     let stopped = false;
-    const check = () =>
+    const check = () => {
       listReadings()
         .then((next) => {
           if (!stopped) setReadings(next);
         })
         .catch((e: unknown) => console.error("Could not check the reading progress", e));
-    void check();
-    const timer = reading ? window.setInterval(check, READING_POLL_MS) : undefined;
+      listWikiBuilds()
+        .then((next) => {
+          if (!stopped) setWiki(next);
+        })
+        .catch((e: unknown) => console.error("Could not check the wiki progress", e));
+    };
+    check();
+    const timer = reading || building ? window.setInterval(check, READING_POLL_MS) : undefined;
     return () => {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [pdfs, reading]);
+  }, [pdfs, reading, building]);
 
   useEffect(() => {
     listPdfs()
@@ -166,6 +183,7 @@ export function ContentPage() {
               {day(pdf.replaced_at ?? pdf.added_at)}
             </span>
             <ReadingLine id={pdf.id} reading={readings[pdf.id]} />
+            <WikiLine id={pdf.id} build={wiki[pdf.id]} />
             <span className="actions">
               <label className={sending?.replacing === pdf.id ? "replace busy" : "replace"}>
                 {sending?.replacing === pdf.id ? `Uploading ${sending.name}…` : "Replace"}
@@ -217,6 +235,38 @@ export function readingText(r: Reading): string {
   let scanned = blank.length ? ` (no text on page ${blank.join(", ")}, maybe scanned)` : "";
   if (blank.length && !found.length) scanned = ", maybe scanned";
   return `Read ${plural(r.pages, "page")}: ${found.join(", ") || "no text found"}${scanned}`;
+}
+
+function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
+  if (!build) return null;
+  if (build.state === "failed") return <span className="error">{wikiText(build)}</span>;
+  if (build.state !== "done") return <span className="muted busy">{wikiText(build)}</span>;
+  return (
+    <span className="muted">
+      {wikiText(build)} ·{" "}
+      <a href={wikiUrl(id)} target="_blank" rel="noreferrer">
+        Wiki pages
+      </a>
+    </span>
+  );
+}
+
+// "Wiki: 7 pages", or how far building them has got.
+export function wikiText(b: WikiBuild): string {
+  if (b.state === "waiting") {
+    if (b.error) return "Waiting for the LLM to build the wiki pages…";
+    return "Waiting to build the wiki pages…";
+  }
+  if (b.state === "building") {
+    return b.parts
+      ? `Building the wiki pages: part ${Math.min(b.part + 1, b.parts)} of ${b.parts}…`
+      : "Building the wiki pages…";
+  }
+  if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";
+  const n = b.skipped_parts?.length ?? 0;
+  const why = "the LLM gave no usable answer";
+  const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: ${why})` : "";
+  return `Wiki: ${plural(b.pages ?? 0, "page")}${skipped}`;
 }
 
 function plural(n: number, word: string): string {

@@ -1,9 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import type { Pdf, Reading } from "./api";
+import type { Pdf, Reading, WikiBuild } from "./api";
 import { App } from "./App";
-import { ContentPage, READING_POLL_MS, readingText, size } from "./content";
+import { ContentPage, READING_POLL_MS, readingText, size, wikiText } from "./content";
 
 const GUIDE: Pdf = {
   id: "a1",
@@ -23,19 +23,37 @@ const READ: Reading = {
   error: null,
 };
 
+const BUILT: WikiBuild = {
+  state: "done",
+  part: 2,
+  parts: 2,
+  pages: 7,
+  skipped_parts: [],
+  error: null,
+};
+
 // A fake content API holding `pdfs`. `refuse` makes adding or replacing fail with that reason.
 // `readings` are the reading progress answers, in turn; the last one repeats.
 function server(
   pdfs: Pdf[],
-  opts: { refuse?: string; listFails?: boolean; readings?: Record<string, Reading>[] } = {},
+  opts: {
+    refuse?: string;
+    listFails?: boolean;
+    readings?: Record<string, Reading>[];
+    wiki?: Record<string, WikiBuild>[];
+  } = {},
 ) {
   let next = 0;
   const readings = [...(opts.readings ?? [{}])];
+  const wiki = [...(opts.wiki ?? [{}])];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
     if (url === "/api/content/readings") {
       return Response.json(readings.length > 1 ? readings.shift() : readings[0]);
+    }
+    if (url === "/api/wiki/builds") {
+      return Response.json(wiki.length > 1 ? wiki.shift() : wiki[0]);
     }
     if (url === "/api/content" && method === "GET") {
       return opts.listFails ? new Response("", { status: 500 }) : Response.json(pdfs);
@@ -206,6 +224,7 @@ test("shows how far each PDF has got being read, checking again until it is done
   const reading: Reading = { ...READ, state: "reading", page: 1, kind: null, counts: null };
   const fetchMock = server([GUIDE], {
     readings: [{ a1: { ...reading, state: "waiting", pages: 0 } }, { a1: reading }, { a1: READ }],
+    wiki: [{ a1: BUILT }],
   });
   render(<ContentPage />);
   expect(await screen.findByText("Waiting to be read…")).toBeTruthy();
@@ -288,4 +307,69 @@ test("reading progress reads as a sentence", () => {
   expect(
     readingText({ ...READ, counts: { paragraph: 0, slide: 0, table: 0 }, pages_without_text: [1] }),
   ).toBe("Read 3 pages: no text found, maybe scanned");
+});
+
+test("shows the wiki pages being built once a PDF is read, checking until they are", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const building: WikiBuild = { ...BUILT, state: "building", part: 0, pages: null };
+  const fetchMock = server([GUIDE], {
+    readings: [{ a1: READ }],
+    wiki: [{}, { a1: building }, { a1: { ...building, part: 1 } }, { a1: BUILT }],
+  });
+  render(<ContentPage />);
+  expect(await screen.findByText(/Read 3 pages/)).toBeTruthy();
+  for (const text of ["Building the wiki pages: part 1 of 2…", "part 2 of 2", "Wiki: 7 pages"]) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READING_POLL_MS);
+    });
+    expect(await screen.findByText(new RegExp(text))).toBeTruthy();
+  }
+  const link = screen.getByRole("link", { name: "Wiki pages" });
+  expect(link.getAttribute("href")).toBe("/api/content/a1/wiki");
+
+  // Done: no more checks.
+  const checks = fetchMock.mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(READING_POLL_MS * 3);
+  });
+  expect(fetchMock.mock.calls.length).toBe(checks);
+  vi.useRealTimers();
+});
+
+test("wiki pages that could not be built show why", async () => {
+  server([GUIDE], {
+    readings: [{ a1: READ }],
+    wiki: [{ a1: { ...BUILT, state: "failed", error: "The LLM gave no usable answer." } }],
+  });
+  render(<ContentPage />);
+  const error = await screen.findByText("The LLM gave no usable answer.");
+  expect(error.className).toBe("error");
+});
+
+test("a failed wiki progress check is logged", async () => {
+  server([GUIDE]);
+  vi.mocked(fetch).mockImplementation(async (url) =>
+    url === "/api/wiki/builds" ? new Response("", { status: 500 }) : Response.json([GUIDE]),
+  );
+  render(<ContentPage />);
+  await screen.findByRole("link", { name: "guide.pdf" });
+  await waitFor(() =>
+    expect(console.error).toHaveBeenCalledWith(
+      "Could not check the wiki progress",
+      expect.any(Error),
+    ),
+  );
+});
+
+test("wiki progress reads as a sentence", () => {
+  const waiting: WikiBuild = { ...BUILT, state: "waiting", parts: 0, pages: null };
+  expect(wikiText(waiting)).toBe("Waiting to build the wiki pages…");
+  expect(wikiText({ ...waiting, error: "Could not reach the LLM" })).toBe(
+    "Waiting for the LLM to build the wiki pages…",
+  );
+  expect(wikiText({ ...waiting, state: "building" })).toBe("Building the wiki pages…");
+  expect(wikiText({ ...BUILT, state: "failed" })).toBe("The wiki pages could not be built.");
+  expect(wikiText({ ...BUILT, pages: 1, parts: 5, skipped_parts: [2, 4] })).toBe(
+    "Wiki: 1 page (2 parts of 5 skipped: the LLM gave no usable answer)",
+  );
 });

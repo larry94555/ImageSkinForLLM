@@ -159,6 +159,12 @@ function readingUrl(id) {
 async function listReadings() {
 	return json(await fetch("/api/content/readings"));
 }
+function wikiUrl(id) {
+	return `/api/content/${id}/wiki`;
+}
+async function listWikiBuilds() {
+	return json(await fetch("/api/wiki/builds"));
+}
 //#endregion
 //#region src/content.tsx
 var READING_POLL_MS = 1e3;
@@ -173,19 +179,34 @@ function ContentPage() {
 		"reading",
 		void 0
 	].includes(readings[pdf.id]?.state));
+	const [wiki, setWiki] = d({});
+	const building = (pdfs ?? []).some((pdf) => readings[pdf.id]?.state === "done" && [
+		"waiting",
+		"building",
+		void 0
+	].includes(wiki[pdf.id]?.state));
 	h(() => {
 		if (pdfs === null) return;
 		let stopped = false;
-		const check = () => listReadings().then((next) => {
-			if (!stopped) setReadings(next);
-		}).catch((e) => console.error("Could not check the reading progress", e));
+		const check = () => {
+			listReadings().then((next) => {
+				if (!stopped) setReadings(next);
+			}).catch((e) => console.error("Could not check the reading progress", e));
+			listWikiBuilds().then((next) => {
+				if (!stopped) setWiki(next);
+			}).catch((e) => console.error("Could not check the wiki progress", e));
+		};
 		check();
-		const timer = reading ? window.setInterval(check, READING_POLL_MS) : void 0;
+		const timer = reading || building ? window.setInterval(check, READING_POLL_MS) : void 0;
 		return () => {
 			stopped = true;
 			window.clearInterval(timer);
 		};
-	}, [pdfs, reading]);
+	}, [
+		pdfs,
+		reading,
+		building
+	]);
 	h(() => {
 		listPdfs().then(setPdfs).catch((e) => {
 			console.error("Could not list the PDFs", e);
@@ -311,6 +332,10 @@ function ContentPage() {
 					id: pdf.id,
 					reading: readings[pdf.id]
 				}),
+				/* @__PURE__ */ u(WikiLine, {
+					id: pdf.id,
+					build: wiki[pdf.id]
+				}),
 				/* @__PURE__ */ u("span", {
 					className: "actions",
 					children: [/* @__PURE__ */ u("label", {
@@ -372,6 +397,42 @@ function readingText(r) {
 	let scanned = blank.length ? ` (no text on page ${blank.join(", ")}, maybe scanned)` : "";
 	if (blank.length && !found.length) scanned = ", maybe scanned";
 	return `Read ${plural(r.pages, "page")}: ${found.join(", ") || "no text found"}${scanned}`;
+}
+function WikiLine({ id, build }) {
+	if (!build) return null;
+	if (build.state === "failed") return /* @__PURE__ */ u("span", {
+		className: "error",
+		children: wikiText(build)
+	});
+	if (build.state !== "done") return /* @__PURE__ */ u("span", {
+		className: "muted busy",
+		children: wikiText(build)
+	});
+	return /* @__PURE__ */ u("span", {
+		className: "muted",
+		children: [
+			wikiText(build),
+			" ·",
+			" ",
+			/* @__PURE__ */ u("a", {
+				href: wikiUrl(id),
+				target: "_blank",
+				rel: "noreferrer",
+				children: "Wiki pages"
+			})
+		]
+	});
+}
+function wikiText(b) {
+	if (b.state === "waiting") {
+		if (b.error) return "Waiting for the LLM to build the wiki pages…";
+		return "Waiting to build the wiki pages…";
+	}
+	if (b.state === "building") return b.parts ? `Building the wiki pages: part ${Math.min(b.part + 1, b.parts)} of ${b.parts}…` : "Building the wiki pages…";
+	if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";
+	const n = b.skipped_parts?.length ?? 0;
+	const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: the LLM gave no usable answer)` : "";
+	return `Wiki: ${plural(b.pages ?? 0, "page")}${skipped}`;
 }
 function plural(n, word) {
 	return `${n} ${word}${n === 1 ? "" : "s"}`;

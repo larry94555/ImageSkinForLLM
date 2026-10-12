@@ -88,6 +88,10 @@ class LlmError(Exception):
     """The LLM could not be reached or gave no reply; the message says so in plain words."""
 
 
+class EmptyReply(LlmError):
+    """The LLM answered, but with no words: its output, not the request, was at fault."""
+
+
 def estimate(text: str) -> int:
     """A count that never falls short of a real tokenizer's, for when the server can't count."""
     return len(text.encode())
@@ -129,7 +133,7 @@ def ms_since(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
-def unreachable(e: Exception) -> bool:
+def unreachable(e: BaseException) -> bool:
     """The server didn't answer at all (not started yet, say), as opposed to answering no."""
     if isinstance(e, urllib.error.HTTPError):
         return False
@@ -202,7 +206,11 @@ class LlmClient:
         return n_ctx
 
     def _post(
-        self, messages: list[Message], stream: bool, max_tokens: int = REPLY_TOKENS
+        self,
+        messages: list[Message],
+        stream: bool,
+        max_tokens: int = REPLY_TOKENS,
+        schema: dict[str, Any] | None = None,
     ) -> tuple[str, urllib.request.Request]:
         url = self.settings.url.rstrip("/") + "/chat/completions"
         body: dict[str, object] = {
@@ -213,6 +221,10 @@ class LlmClient:
         }
         if stream:
             body["stream"] = True
+        if schema is not None:
+            # The answer must be JSON of this form (the wiki, roadmap R37). This is the form
+            # both llama-server and llama-cpp-python's server take; OpenAI's is "json_schema".
+            body["response_format"] = {"type": "json_object", "schema": schema}
         request = urllib.request.Request(
             url,
             data=json.dumps(body).encode(),
@@ -250,8 +262,13 @@ class LlmClient:
             return
         logger.info("LLM warmed up", extra={"url": url, "duration_ms": ms_since(start)})
 
-    def ask(self, messages: list[Message]) -> str:
-        url, request = self._post(messages, stream=False)
+    def ask(
+        self,
+        messages: list[Message],
+        max_tokens: int = REPLY_TOKENS,
+        schema: dict[str, Any] | None = None,
+    ) -> str:
+        url, request = self._post(messages, stream=False, max_tokens=max_tokens, schema=schema)
         try:
             with self._open(url, request) as response:
                 data = json.loads(response.read())
@@ -266,7 +283,7 @@ class LlmClient:
         except (KeyError, IndexError, TypeError) as e:
             raise LlmError(f"The LLM at {url} sent an answer without a reply.") from e
         if not isinstance(content, str) or not content.strip():
-            raise LlmError("The LLM sent an empty reply. Try asking again.")
+            raise EmptyReply("The LLM sent an empty reply. Try asking again.")
         return content.strip()
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
