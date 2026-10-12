@@ -313,7 +313,14 @@ function day(iso) {
 }
 //#endregion
 //#region src/home.tsx
-async function loadHome() {
+async function loadHome(consented) {
+	if (!consented) {
+		console.info("Home loaded (setup not started: no consent yet)");
+		return {
+			done: false,
+			photo: null
+		};
+	}
 	const started = performance.now();
 	try {
 		const [review, choice] = await Promise.all([getReview(), getPhotoChoice()]);
@@ -359,8 +366,8 @@ function choices(done, consented) {
 function HomePage({ consented }) {
 	const [state, setState] = d(null);
 	h(() => {
-		loadHome().then(setState);
-	}, []);
+		loadHome(consented).then(setState);
+	}, [consented]);
 	if (state === null) return /* @__PURE__ */ u("p", {
 		className: "muted busy",
 		children: "Loading…"

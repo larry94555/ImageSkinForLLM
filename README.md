@@ -88,7 +88,7 @@ npm run build   # type check and build into src/imageskin/static
 
 Commit the built files with the source change; CI fails if they are out of date.
 
-The home page (http://127.0.0.1:8000/) offers **Start setup** until a sample video has been accepted. After that it shows the chosen photo and three equal choices: **Chat**, **Manage Content** and **Setup**. The browser console logs `Home loaded in … ms (setup done)` or `(setup not done)`.
+The home page (http://127.0.0.1:8000/) offers **Start setup** until a sample video has been accepted. After that it shows the chosen photo and three equal choices: **Chat**, **Manage Content** and **Setup**. The browser console logs `Home loaded in … ms (setup done)` or `(setup not done)`; before consent it asks the server nothing and logs `Home loaded (setup not started: no consent yet)`.
 
 ## Uploading photos and recordings
 

@@ -18,7 +18,12 @@ export interface HomeState {
   photo: string | null;
 }
 
-export async function loadHome(): Promise<HomeState> {
+// Before consent, setup can't be done and the server refuses the setup reads, so none are made.
+export async function loadHome(consented: boolean): Promise<HomeState> {
+  if (!consented) {
+    console.info("Home loaded (setup not started: no consent yet)");
+    return { done: false, photo: null };
+  }
   const started = performance.now();
   try {
     const [review, choice] = await Promise.all([getReview(), getPhotoChoice()]);
@@ -70,8 +75,8 @@ export function HomePage({ consented }: { consented: boolean }) {
   // null until the server has answered.
   const [state, setState] = useState<HomeState | null>(null);
   useEffect(() => {
-    void loadHome().then(setState);
-  }, []);
+    void loadHome(consented).then(setState);
+  }, [consented]);
 
   if (state === null) return <p className="muted busy">Loading…</p>;
   return (

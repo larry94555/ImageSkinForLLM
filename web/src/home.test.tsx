@@ -5,9 +5,16 @@ import { choices, HomePage, loadHome } from "./home";
 
 const PHOTO_ID = "a".repeat(32);
 
-function server(accepted: boolean, photo: string | null = PHOTO_ID, ok = true) {
+// Like the real server, the setup reads are refused until consent is given.
+function server(
+  accepted: boolean,
+  photo: string | null = PHOTO_ID,
+  ok = true,
+  consented = true,
+) {
   const fetchMock = vi.fn(async (url: string) => {
     if (!ok) return new Response("", { status: 503 });
+    if (!consented) return new Response("", { status: 403 });
     if (url === "/api/review") {
       return Response.json({ accepted, accepted_at: accepted ? "2026-10-12T08:00:00Z" : null });
     }
@@ -38,12 +45,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("before setup is done, home offers only setup, at consent until it is given", async () => {
-  server(false);
+test("before consent, home offers setup at consent without asking for setup state", async () => {
+  const fetchMock = server(false, null, true, false);
   render(<HomePage consented={false} />);
   expect(await screen.findByText("Welcome")).toBeTruthy();
   expect(hrefs()).toEqual({ "Start setup": "#/consent" });
   expect(screen.queryByRole("img")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(console.error).not.toHaveBeenCalled();
 });
 
 test("before setup is done, with consent given, setup opens the setup page", async () => {
@@ -72,7 +81,7 @@ test("once setup is done but no photo is chosen, there is no portrait", async ()
 
 test("if the server can't be reached, home offers setup and logs why", async () => {
   server(false, null, false);
-  expect(await loadHome()).toEqual({ done: false, photo: null });
+  expect(await loadHome(true)).toEqual({ done: false, photo: null });
   expect(console.error).toHaveBeenCalledWith(
     "Could not load the home page's setup state",
     expect.any(Error),
