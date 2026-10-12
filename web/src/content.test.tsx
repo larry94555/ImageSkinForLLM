@@ -30,6 +30,9 @@ const BUILT: WikiBuild = {
   pages: 7,
   skipped_parts: [],
   error: null,
+  stage: "topics",
+  steps: 0,
+  detail_pages: 0,
 };
 
 // A fake content API holding `pdfs`. `refuse` makes adding or replacing fail with that reason.
@@ -372,4 +375,8 @@ test("wiki progress reads as a sentence", () => {
   expect(wikiText({ ...BUILT, pages: 1, parts: 5, skipped_parts: [2, 4] })).toBe(
     "Wiki: 1 page (2 parts of 5 skipped: the LLM gave no usable answer)",
   );
+  const outline: WikiBuild = { ...BUILT, state: "building", stage: "outline", pages: null };
+  expect(wikiText(outline)).toBe("Building the wiki outline…");
+  expect(wikiText({ ...outline, steps: 3 })).toBe("Building the wiki outline: 3 steps done…");
+  expect(wikiText({ ...BUILT, detail_pages: 1 })).toBe("Wiki: 7 pages, 1 detail page");
 });

@@ -356,6 +356,9 @@ export interface WikiBuild {
   pages: number | null; // once done: wiki pages built
   skipped_parts: number[] | null; // once done: parts the LLM gave no usable answer for
   error: string | null; // why it failed, or what it is waiting for
+  stage: "topics" | "outline"; // while building: finding the topics, then building the outline
+  steps: number; // outline requests made to the LLM so far
+  detail_pages: number | null; // once done: the outline's detail pages
 }
 
 // A PDF's wiki pages with their text, as JSON, to open in a new tab.

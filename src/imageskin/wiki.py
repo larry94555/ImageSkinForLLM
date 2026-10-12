@@ -254,14 +254,7 @@ def ask_part(
 def parse(answer: str, pages: list[int]) -> list[tuple[str, list[int], str]]:
     """The usable topics in the LLM's answer: each with a title and text, and only the part's
     pages (all of them when it gave none of the part's pages)."""
-    try:
-        data = json.loads(answer)
-    except ValueError:
-        start, end = answer.find("{"), answer.rfind("}")  # JSON inside other words, or ```json
-        try:
-            data = json.loads(answer[start : end + 1]) if 0 <= start < end else None
-        except ValueError:
-            data = None
+    data = load_json(answer)
     topics = data.get("topics") if isinstance(data, dict) else None
     found = []
     for topic in topics if isinstance(topics, list) else []:
@@ -270,7 +263,7 @@ def parse(answer: str, pages: list[int]) -> list[tuple[str, list[int], str]]:
         title, text = topic.get("title"), topic.get("text")
         if not isinstance(title, str) or not isinstance(text, str):
             continue
-        title, text = " ".join(title.split())[:MAX_TITLE_CHARS], text.strip()
+        title, text = clean_title(title), text.strip()
         if not title or not text:
             continue
         given = topic.get("pages")
@@ -279,6 +272,23 @@ def parse(answer: str, pages: list[int]) -> list[tuple[str, list[int], str]]:
         )
         found.append((title, cited or pages, text))
     return found
+
+
+def load_json(answer: str) -> Any:
+    """The JSON object in the LLM's answer, even inside other words or ```json; None if none."""
+    try:
+        return json.loads(answer)
+    except ValueError:
+        start, end = answer.find("{"), answer.rfind("}")
+        try:
+            return json.loads(answer[start : end + 1]) if 0 <= start < end else None
+        except ValueError:
+            return None
+
+
+def clean_title(title: object) -> str:
+    """A title on one line and not too long, or "" if it isn't text."""
+    return " ".join(title.split())[:MAX_TITLE_CHARS] if isinstance(title, str) else ""
 
 
 def normalize(title: str) -> str:

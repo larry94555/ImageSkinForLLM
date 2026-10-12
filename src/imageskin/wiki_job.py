@@ -7,6 +7,9 @@ read again, and removing it removes them; other PDFs' pages are left alone. On s
 that has been read but has no up-to-date pages is built again. One PDF is built at a time. While
 the LLM can't be reached (llama-server not started yet, say), the build waits and asks for the
 same part again, keeping the parts already done.
+
+Once a PDF's topics are found, the LLM builds the wiki's outline from them (R37a): the table of
+contents, and the detail pages of the topics too long to say in a few sentences.
 """
 
 import contextlib
@@ -15,19 +18,33 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
 from imageskin.chat import LlmError
 from imageskin.content import ContentStore
 from imageskin.reading_job import ReadingJob, version
-from imageskin.wiki import Progress, WaitForLlm, Wiki, WikiError
+from imageskin.wiki import Progress, WaitForLlm, Wiki, WikiError, WikiPage
+from imageskin.wiki_outline import (
+    Entry,
+    OutlineProgress,
+    count_detail,
+    find,
+    from_saved,
+    plain_outline,
+    shown,
+)
 
 logger = logging.getLogger(__name__)
 
 State = Literal["waiting", "building", "done", "failed"]
+Stage = Literal["topics", "outline"]
 # Builds the wiki pages for a PDF (its id and the pieces read from it).
 BuildWiki = Callable[[str, list[dict[str, Any]], Progress, WaitForLlm], Wiki]
+# Builds a PDF's outline from its topics (its id and its wiki pages).
+BuildOutline = Callable[[str, list[WikiPage], OutlineProgress, WaitForLlm], list[Entry]]
+# What saved pages look like; pages saved in an older form are built again.
+WIKI_FORMAT = 2
 # How long to wait before trying again when the LLM can't be reached.
 RETRY_S = 30.0
 
@@ -44,11 +61,17 @@ class WikiStatus:
     pages: int | None = None  # once done: wiki pages built
     skipped_parts: list[int] | None = None  # once done: parts the LLM gave no usable answer for
     error: str | None = None  # why it failed, or what it is waiting for
+    stage: Stage = "topics"  # while building: finding the topics, then building the outline
+    steps: int = 0  # outline requests made to the LLM so far
+    detail_pages: int | None = None  # once done: the outline's detail pages
 
 
 def done_status(saved: dict[str, Any]) -> WikiStatus:
     parts = saved["parts"]
-    return WikiStatus("done", parts, parts, len(saved["pages"]), saved["skipped_parts"])
+    detail = sum(count_detail(e) for e in from_saved(saved["outline"]))
+    return WikiStatus(
+        "done", parts, parts, len(saved["pages"]), saved["skipped_parts"], detail_pages=detail
+    )
 
 
 class WikiJob:
@@ -57,12 +80,14 @@ class WikiJob:
         store: ContentStore,
         readings: ReadingJob,
         build: BuildWiki,
+        outline: BuildOutline | None = None,  # None: the topics as they are
         retry_s: float = RETRY_S,
         when_idle: Callable[[], None] | None = None,  # after the last build in the queue
     ) -> None:
         self.store = store
         self.readings = readings
         self.build = build
+        self.outline = outline or (lambda pdf_id, topics, progress, wait: plain_outline(topics))
         self.retry_s = retry_s
         self.when_idle = when_idle
         self.folder = store.root / "wiki"
@@ -133,15 +158,18 @@ class WikiJob:
         return self._saved(pdf_id)
 
     def page(self, page_id: str) -> dict[str, Any] | None:
-        """One page with its text, or None."""
+        """One entry of the outline as its page shows it, or None. A topic's has its whole text
+        too."""
         pdf_id = page_id.split("-", 1)[0]
         saved = self._saved(pdf_id)
         if saved is None:
             return None
-        for page in saved["pages"]:
-            if page["id"] == page_id:
-                return {**summary(saved), **page}
-        return None
+        entry = find(from_saved(saved["outline"]), page_id)
+        if entry is None:
+            return None
+        texts = {page["id"]: page["text"] for page in saved["pages"]}
+        text = {"text": texts[page_id]} if page_id in texts else {}
+        return {**summary(saved), **shown(entry), **text}
 
     def wait(self, timeout: float = 30) -> None:
         """Until every queued PDF is built (tests)."""
@@ -163,6 +191,8 @@ class WikiJob:
                 "Could not read saved wiki pages", extra={"path": str(path), "error": str(e)}
             )
             return None
+        if saved.get("format") != WIKI_FORMAT:
+            return None  # saved before the outline (R37a): built again
         return saved if saved.get("version") == version(pdf) else None
 
     def _run(self) -> None:
@@ -199,12 +229,18 @@ class WikiJob:
         def progress(part: int, parts: int) -> None:
             self._set(pdf_id, WikiStatus("building", part, parts))
 
-        def wait_for_llm(error: LlmError, part: int, parts: int) -> None:
+        def pause(error: LlmError, building: WikiStatus, step: int) -> None:
             logger.warning(
                 "Waiting for the LLM to build the wiki",
-                extra={"id": pdf_id, "part": part, "error": str(error), "retry_s": self.retry_s},
+                extra={
+                    "id": pdf_id,
+                    "stage": building.stage,
+                    "part": step,
+                    "error": str(error),
+                    "retry_s": self.retry_s,
+                },
             )
-            self._set(pdf_id, WikiStatus("waiting", part - 1, parts, error=str(error)))
+            self._set(pdf_id, replace(building, state="waiting", error=str(error)))
             time.sleep(self.retry_s)
             with self._lock:
                 if (
@@ -213,10 +249,32 @@ class WikiJob:
                     or pdf_id in self._waiting
                 ):
                     raise Superseded  # replaced or removed meanwhile
-            self._set(pdf_id, WikiStatus("building", part - 1, parts))
+            self._set(pdf_id, building)
+
+        def wait_for_llm(error: LlmError, part: int, parts: int) -> None:
+            pause(error, WikiStatus("building", part - 1, parts), part)
 
         try:
             wiki = self.build(pdf_id, reading["pieces"], progress, wait_for_llm)
+            parts = wiki.parts
+
+            def outline_progress(steps: int) -> None:
+                self._set(
+                    pdf_id, WikiStatus("building", parts, parts, stage="outline", steps=steps)
+                )
+
+            def wait_for_outline(error: LlmError, step: int, _: int) -> None:
+                building = WikiStatus("building", parts, parts, stage="outline", steps=step - 1)
+                pause(error, building, step)
+
+            outline_progress(0)
+            try:
+                outline = self.outline(pdf_id, wiki.pages, outline_progress, wait_for_outline)
+            except LlmError as e:  # refused: the topics are kept, as they are
+                logger.error(
+                    "Could not build the wiki outline", extra={"id": pdf_id, "error": str(e)}
+                )
+                outline = plain_outline(wiki.pages)
         except Superseded:
             return True
         except (WikiError, LlmError) as e:  # an LlmError here is a refusal, not an outage
@@ -224,12 +282,14 @@ class WikiJob:
             self._set(pdf_id, WikiStatus("failed", error=str(e)))
             return True
         saved = {
+            "format": WIKI_FORMAT,
             "id": pdf_id,
             "name": pdf.name,
             "version": version(pdf),
             "parts": wiki.parts,
             "skipped_parts": wiki.skipped_parts,
             "pages": [asdict(page) for page in wiki.pages],
+            "outline": [asdict(entry) for entry in outline],
         }
         with self._lock:
             if self.store.get(pdf_id) != pdf:
@@ -243,6 +303,7 @@ class WikiJob:
                 "upload_name": pdf.name,
                 "parts": wiki.parts,
                 "pages": len(wiki.pages),
+                "detail_pages": sum(count_detail(e) for e in outline),
                 "skipped_parts": wiki.skipped_parts,
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },

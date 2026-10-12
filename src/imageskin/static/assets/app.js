@@ -428,11 +428,13 @@ function wikiText(b) {
 		if (b.error) return "Waiting for the LLM to build the wiki pages…";
 		return "Waiting to build the wiki pages…";
 	}
+	if (b.state === "building" && b.stage === "outline") return b.steps ? `Building the wiki outline: ${plural(b.steps, "step")} done…` : "Building the wiki outline…";
 	if (b.state === "building") return b.parts ? `Building the wiki pages: part ${Math.min(b.part + 1, b.parts)} of ${b.parts}…` : "Building the wiki pages…";
 	if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";
 	const n = b.skipped_parts?.length ?? 0;
 	const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: the LLM gave no usable answer)` : "";
-	return `Wiki: ${plural(b.pages ?? 0, "page")}${skipped}`;
+	const detail = b.detail_pages ? `, ${plural(b.detail_pages, "detail page")}` : "";
+	return `Wiki: ${plural(b.pages ?? 0, "page")}${detail}${skipped}`;
 }
 function plural(n, word) {
 	return `${n} ${word}${n === 1 ? "" : "s"}`;
