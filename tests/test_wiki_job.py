@@ -313,3 +313,40 @@ def test_the_app_builds_with_the_chat_llm_when_none_is_given(tmp_path: Path) -> 
     settle(app.state.readings, app.state.wiki)
     assert [p["title"] for p in client.get("/api/wiki").json()] == ["Weather"]
     assert "[page 1] Rain." in asked[0][1]["content"]
+
+
+def test_a_pdf_already_being_built_is_not_queued_again(tmp_path: Path) -> None:
+    started, go_on = threading.Event(), threading.Event()
+    built: list[str] = []
+
+    def slow(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
+        built.append(pdf_id)
+        started.set()
+        go_on.wait(5)
+        return one_page_per_piece(pdf_id, pieces, progress)
+
+    store, readings, wiki = jobs(tmp_path, slow)
+    pdf = store.add("a.pdf", io.BytesIO(PDF))
+    readings.queue(pdf)
+    readings.wait()
+    assert started.wait(5)
+    wiki.catch_up()  # read, with no pages saved yet: the start-up race
+    wiki.queue(pdf.id)
+    assert wiki.statuses()[pdf.id] == WikiStatus("building")
+    go_on.set()
+    wiki.wait()
+    assert built == [pdf.id]
+
+    # A replaced version still queues behind the one being built.
+    go_on.clear()
+    started.clear()
+    readings.queue(store.replace(pdf.id, "a2.pdf", io.BytesIO(b"%PDF-1.4" + PDF)))
+    assert started.wait(5)
+    readings.queue(store.replace(pdf.id, "a3.pdf", io.BytesIO(b"%PDF-1.5" + PDF)))
+    readings.wait()  # a3 is read and queued for its pages while a2's are built
+    go_on.set()
+    settle(readings, wiki)
+    assert len(built) == 3
+    assert {p["pdf_name"] for p in wiki.pages()} == {"a3.pdf"}

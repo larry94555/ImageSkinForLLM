@@ -70,6 +70,7 @@ class WikiJob:
         self._waiting: list[str] = []
         self._status: dict[str, WikiStatus] = {}
         self._worker: threading.Thread | None = None
+        self._building: tuple[str, str] | None = None  # the PDF and version being built now
 
     def catch_up(self) -> None:
         """Queue every PDF that has been read but whose pages are missing or out of date."""
@@ -78,7 +79,10 @@ class WikiJob:
                 self.queue(pdf.id)
 
     def queue(self, pdf_id: str) -> None:
+        pdf = self.store.get(pdf_id)
         with self._lock:
+            if pdf is not None and self._building == (pdf_id, version(pdf)):
+                return  # this very version is being built now
             if pdf_id not in self._waiting:
                 self._waiting.append(pdf_id)
             self._status[pdf_id] = WikiStatus("waiting")
@@ -169,11 +173,16 @@ class WikiJob:
                     self._worker = None
                     break
                 pdf_id = self._waiting.pop(0)
+                pdf = self.store.get(pdf_id)
+                self._building = (pdf_id, version(pdf)) if pdf else None
             try:
                 built = self._build(pdf_id) or built
             except Exception as e:  # never let one PDF stop the PDFs queued after it
                 logger.exception("Could not build the wiki", extra={"id": pdf_id, "error": repr(e)})
                 self._set(pdf_id, WikiStatus("failed", error="Something went wrong building it."))
+            finally:
+                with self._lock:
+                    self._building = None
         if built and self.when_idle is not None:
             self.when_idle()
 
