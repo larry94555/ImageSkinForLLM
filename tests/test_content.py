@@ -276,3 +276,64 @@ def test_info_without_its_pdf_is_not_listed(tmp_path: Path) -> None:
     pdf = store.add("a.pdf", io.BytesIO(PDF))
     (tmp_path / "content" / "pdfs" / f"{pdf.id}.pdf").unlink()
     assert store.list() == []
+
+
+def interrupted(tmp_path: Path, step: int, replacing: bool) -> str:
+    """The folder as _commit leaves it when the app stops after `step` of its 4 steps."""
+    store = ContentStore(tmp_path)
+    pdf = store.add("v1.pdf", io.BytesIO(PDF)) if replacing else None
+    pdf_id = pdf.id if pdf else "a" * 32
+    folder = tmp_path / "content" / "pdfs"
+    folder.mkdir(parents=True, exist_ok=True)
+    final = folder / f"{pdf_id}.pdf"
+    new_info = json.dumps({"id": pdf_id, "name": "v2.pdf", "size": 1, "added_at": "x"})
+    (folder / f"{pdf_id}.writing").write_text(new_info, encoding="utf-8")
+    if step >= 2 and replacing:
+        final.replace(final.with_suffix(".old"))
+    if step >= 3:
+        final.write_bytes(OTHER_PDF)
+    if step >= 4:
+        (folder / f"{pdf_id}.writing").replace(final.with_suffix(".json"))
+    return pdf_id
+
+
+@pytest.mark.parametrize(
+    ("step", "replacing", "expected"),
+    [
+        (1, False, None),
+        (3, False, None),
+        (4, False, ("v2.pdf", OTHER_PDF)),
+        (1, True, ("v1.pdf", PDF)),
+        (2, True, ("v1.pdf", PDF)),
+        (3, True, ("v1.pdf", PDF)),
+        (4, True, ("v2.pdf", OTHER_PDF)),
+    ],
+)
+def test_a_change_stopped_midway_is_recovered_on_start(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    step: int,
+    replacing: bool,
+    expected: tuple[str, bytes] | None,
+) -> None:
+    pdf_id = interrupted(tmp_path, step, replacing)
+    with caplog.at_level(logging.WARNING):
+        store = ContentStore(tmp_path)
+    leftovers = [p for p in pdf_folder(tmp_path) if not p.endswith((".pdf", ".json"))]
+    assert leftovers == []
+    if expected is None:
+        assert store.list() == [] and pdf_folder(tmp_path) == []
+    else:
+        assert [p.name for p in store.list()] == [expected[0]]
+        assert (store.path(pdf_id) or Path()).read_bytes() == expected[1]
+    if (step, replacing) != (4, False):  # a finished add leaves nothing to recover
+        assert any(r.message == "Recovered an interrupted PDF change" for r in caplog.records)
+
+
+def test_a_lone_backup_is_put_back(tmp_path: Path) -> None:
+    store = ContentStore(tmp_path)
+    pdf = store.add("v1.pdf", io.BytesIO(PDF))
+    stored = store.path(pdf.id) or Path()
+    stored.replace(stored.with_suffix(".old"))
+    assert ContentStore(tmp_path).list() == [pdf]
+    assert pdf_folder(tmp_path) == [f"{pdf.id}.json", f"{pdf.id}.pdf"]

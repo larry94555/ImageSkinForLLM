@@ -54,6 +54,35 @@ class ContentStore:
         # Held while a PDF is stored, replaced or removed, so the total limit and an id's two
         # files never see a half-made change.
         self._lock = threading.Lock()
+        self._recover()
+
+    def _recover(self) -> None:
+        """Finish or undo a change the app was stopped in the middle of (see _commit): a
+        leftover .writing means the info was never committed, so the change is undone; a
+        leftover .old with no .writing means it was committed, so the backup goes."""
+        if not self.folder.is_dir():
+            return
+        for leftover in sorted({*self.folder.glob("*.writing"), *self.folder.glob("*.old")}):
+            stored = leftover.with_suffix(".pdf")
+            backup, writing = stored.with_suffix(".old"), stored.with_suffix(".writing")
+            if not leftover.exists():  # handled with its pair
+                continue
+            if writing.exists():
+                if backup.exists():
+                    backup.replace(stored)
+                elif not stored.with_suffix(".json").exists():
+                    stored.unlink(missing_ok=True)  # a new PDF that was never committed
+                writing.unlink()
+                outcome = "undone"
+            elif stored.exists():
+                backup.unlink()
+                outcome = "finished"
+            else:
+                backup.replace(stored)
+                outcome = "undone"
+            logger.warning(
+                "Recovered an interrupted PDF change", extra={"id": stored.stem, "outcome": outcome}
+            )
 
     def _total_bytes(self, leaving_out: str | None = None) -> int:
         if not self.folder.is_dir():
