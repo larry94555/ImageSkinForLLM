@@ -253,19 +253,25 @@ function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
 
 // "Wiki: 7 pages", or how far building them has got.
 export function wikiText(b: WikiBuild): string {
-  const sofar = b.elapsed_s != null ? ` (${duration(b.elapsed_s)} so far)` : "";
+  const left = (what: string) =>
+    b.remaining_s != null ? `, about ${duration(b.remaining_s)} left${what}` : "";
+  const time = (what = "") =>
+    b.elapsed_s != null ? ` (${duration(b.elapsed_s)} so far${left(what)})` : "";
+  const sofar = time();
   if (b.state === "waiting") {
     if (b.error) return `Waiting for the LLM to build the wiki pages…${sofar}`;
     return `Waiting to build the wiki pages…${sofar}`;
   }
   if (b.state === "building" && b.stage === "outline") {
-    return b.steps
-      ? `Building the wiki outline: ${plural(b.steps, "step")} done…${sofar}`
+    const step = Math.min(b.steps + 1, b.steps_planned);
+    return b.steps_planned
+      ? `Building the wiki outline: step ${step} of about ${b.steps_planned}…${sofar}`
       : `Building the wiki outline…${sofar}`;
   }
   if (b.state === "building") {
+    const part = Math.min(b.part + 1, b.parts);
     return b.parts
-      ? `Building the wiki pages: part ${Math.min(b.part + 1, b.parts)} of ${b.parts}…${sofar}`
+      ? `Building the wiki pages: part ${part} of ${b.parts}…${time(" before the outline")}`
       : `Building the wiki pages…${sofar}`;
   }
   if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";

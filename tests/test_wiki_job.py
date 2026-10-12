@@ -17,7 +17,7 @@ from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.reading_job import ReadingJob
 from imageskin.wiki import WIKI_PROMPT, WaitForLlm, Wiki, WikiError, WikiPage, build_wiki
 from imageskin.wiki import Progress as WikiProgress
-from imageskin.wiki_job import BuildWiki, WikiJob, WikiStatus
+from imageskin.wiki_job import BuildWiki, WikiJob, WikiStatus, remaining
 from imageskin.wiki_outline import Entry, OutlineProgress
 
 PDF = b"%PDF-1.7\n" + b"x" * 100 + b"\n%%EOF\n"
@@ -46,7 +46,7 @@ def jobs(
 
 
 def timeless(status: WikiStatus) -> WikiStatus:
-    return replace(status, elapsed_s=None)
+    return replace(status, elapsed_s=None, remaining_s=None)
 
 
 def settle(readings: ReadingJob, wiki: WikiJob) -> None:
@@ -379,6 +379,7 @@ def test_the_outline_is_built_after_the_topics_and_saved_with_them(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     seen: list[WikiStatus] = []
+    estimates: list[float | None] = []
 
     def outline(
         pdf_id: str,
@@ -390,7 +391,8 @@ def test_the_outline_is_built_after_the_topics_and_saved_with_them(
         seen.append(timeless(wiki.statuses()[pdf_id]))
         wait(down(), 1, 0)  # the LLM goes away for a moment
         seen.append(timeless(wiki.statuses()[pdf_id]))
-        progress(1)
+        progress(1, 2)
+        estimates.append(wiki.statuses()[pdf_id].remaining_s)
         seen.append(timeless(wiki.statuses()[pdf_id]))
         parts = [Entry(f"{pdf_id}-drops", "Drops", "Drops.", [1])]
         return [Entry(topics[0].id, "Rain", "Rain falls.", [1], parts, detail=True)]
@@ -404,8 +406,9 @@ def test_the_outline_is_built_after_the_topics_and_saved_with_them(
     assert seen == [
         WikiStatus("building", 1, 1, stage="outline"),
         WikiStatus("building", 1, 1, stage="outline"),
-        WikiStatus("building", 1, 1, stage="outline", steps=1),
+        WikiStatus("building", 1, 1, stage="outline", steps=1, steps_planned=2),
     ]
+    assert estimates[0] is not None and estimates[0] >= 0  # one step done, one left
     assert timeless(wiki.statuses()[pdf.id]) == WikiStatus("done", 1, 1, 1, [], detail_pages=1)
     waited = [r for r in caplog.records if r.message == "Waiting for the LLM to build the wiki"]
     assert waited[0].__dict__["stage"] == "outline"
@@ -477,3 +480,12 @@ def test_the_app_builds_the_outline_with_the_chat_llm(tmp_path: Path) -> None:
     page = client.get(f"/api/wiki/{pdf['id']}-puddles").json()
     assert page["summary"] == "Rain 6 falls. Rain 7 falls. Rain 8 falls."  # the PDF's words
     assert page["pdf_name"] == "w.pdf"
+
+
+def test_the_time_left_is_estimated_from_the_steps_done_so_far() -> None:
+    topics = WikiStatus("building", 2, 5)
+    assert remaining(topics, 60) == 90  # 30 s a part, 3 parts left
+    assert remaining(WikiStatus("building", 0, 5), 60) is None  # nothing to go on yet
+    outline = WikiStatus("building", 5, 5, stage="outline", steps=3, steps_planned=4)
+    assert remaining(outline, 30) == 10
+    assert remaining(replace(outline, steps_planned=3), 30) == 0

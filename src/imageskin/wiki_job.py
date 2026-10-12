@@ -66,8 +66,11 @@ class WikiStatus:
     error: str | None = None  # why it failed, or what it is waiting for
     stage: Stage = "topics"  # while building: finding the topics, then building the outline
     steps: int = 0  # outline requests made to the LLM so far
+    steps_planned: int = 0  # outline requests planned so far; more as long parts are found
     detail_pages: int | None = None  # once done: the outline's detail pages
     elapsed_s: float | None = None  # how long the build has taken so far, or took once done
+    # About how long this stage has left, from how long its steps have taken so far.
+    remaining_s: float | None = None
 
 
 def done_status(saved: dict[str, Any]) -> WikiStatus:
@@ -109,6 +112,7 @@ class WikiJob:
         self._worker: threading.Thread | None = None
         self._building: tuple[str, str] | None = None  # the PDF and version being built now
         self._started: dict[str, float] = {}  # when the build now running started (monotonic)
+        self._stage_started: dict[str, float] = {}  # and when its stage started
 
     def catch_up(self) -> None:
         """Queue every PDF that has been read but whose pages are missing or out of date."""
@@ -148,8 +152,14 @@ class WikiJob:
             with self._lock:
                 status = self._status.get(pdf.id)
                 started = self._started.get(pdf.id)
+                stage_started = self._stage_started.get(pdf.id)
             if status is not None and status.state != "done" and started is not None:
-                status = replace(status, elapsed_s=round(time.monotonic() - started, 1))
+                now = time.monotonic()
+                status = replace(
+                    status,
+                    elapsed_s=round(now - started, 1),
+                    remaining_s=remaining(status, now - (stage_started or started)),
+                )
             if status is None or status.state == "done":
                 saved = self._saved(pdf.id)
                 status = done_status(saved) if saved else None
@@ -230,6 +240,7 @@ class WikiJob:
                 with self._lock:
                     self._building = None
                     self._started.pop(pdf_id, None)
+                    self._stage_started.pop(pdf_id, None)
         if built and self.when_idle is not None:
             self.when_idle()
 
@@ -241,7 +252,7 @@ class WikiJob:
             return False  # removed, or replaced and not read again yet (it is queued then)
         start = time.perf_counter()
         with self._lock:
-            self._started[pdf_id] = time.monotonic()
+            self._started[pdf_id] = self._stage_started[pdf_id] = time.monotonic()
         logger.info("Building wiki pages", extra={"id": pdf_id, "upload_name": pdf.name})
         self._set(pdf_id, WikiStatus("building"))
 
@@ -277,16 +288,21 @@ class WikiJob:
             wiki = self.build(pdf_id, reading["pieces"], progress, wait_for_llm)
             parts = wiki.parts
 
-            def outline_progress(steps: int) -> None:
-                self._set(
-                    pdf_id, WikiStatus("building", parts, parts, stage="outline", steps=steps)
-                )
+            planned = 0
+
+            def outline_progress(steps: int, steps_planned: int) -> None:
+                nonlocal planned
+                planned = steps_planned
+                status = WikiStatus("building", parts, parts, stage="outline", steps=steps)
+                self._set(pdf_id, replace(status, steps_planned=steps_planned))
 
             def wait_for_outline(error: LlmError, step: int, _: int) -> None:
-                building = WikiStatus("building", parts, parts, stage="outline", steps=step - 1)
-                pause(error, building, step)
+                status = WikiStatus("building", parts, parts, stage="outline", steps=step - 1)
+                pause(error, replace(status, steps_planned=planned), step)
 
-            outline_progress(0)
+            with self._lock:
+                self._stage_started[pdf_id] = time.monotonic()
+            outline_progress(0, 0)
             try:
                 outline = self.outline(
                     pdf_id, wiki.pages, reading["pieces"], outline_progress, wait_for_outline
@@ -359,6 +375,19 @@ class WikiJob:
             # A PDF replaced while it was built waits for its new pages; don't hide that.
             if pdf_id not in self._waiting and pdf_id in self._status:
                 self._status[pdf_id] = status
+
+
+def remaining(status: WikiStatus, stage_s: float) -> float | None:
+    """About how long the stage has left: the time its steps done so far took, on average, for
+    each step left; None until a step is done."""
+    done, total = (
+        (status.steps, status.steps_planned)
+        if status.stage == "outline"
+        else (status.part, status.parts)
+    )
+    if done < 1 or total < done:
+        return None
+    return round(stage_s / done * (total - done), 1)
 
 
 def summary(saved: dict[str, Any]) -> dict[str, Any]:

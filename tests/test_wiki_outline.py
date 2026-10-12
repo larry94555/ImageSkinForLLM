@@ -100,8 +100,10 @@ def test_many_topics_are_grouped_into_sections_in_order() -> None:
             ("Again", "Only topics already placed.", [1]),
         )
     )
-    progress: list[int] = []
-    found = outliner(llm, progress=progress.append).outline([topic(n) for n in range(1, 5)])
+    progress: list[tuple[int, int]] = []
+    found = outliner(llm, progress=lambda *p: progress.append(p)).outline(
+        [topic(n) for n in range(1, 5)]
+    )
 
     messages, schema = llm.asked[0]
     assert schema is SECTIONS_SCHEMA
@@ -113,7 +115,7 @@ def test_many_topics_are_grouped_into_sections_in_order() -> None:
     ]
     assert [e.id for e in found[0].entries] == [f"{PDF_ID}-t1", f"{PDF_ID}-t2"]
     assert found[0].id == f"{PDF_ID}-water" and not found[0].detail
-    assert progress == [1]
+    assert progress == [(1, 1)]
 
 
 def test_topics_are_kept_as_they_are_when_no_sections_can_be_found(
@@ -187,7 +189,11 @@ def test_a_long_part_opens_up_again_down_to_the_last_level() -> None:
         detail("Level 2.", ("Deep", [1, 2, 3, 4, 5, 6]), ("Flat", [7])),
         detail("Level 3.", ("Deeper", [1, 2, 3, 4, 5]), ("Other", [6])),
     )
-    found = outliner(llm).outline([topic(1, "Few.")], pieces)
+    progress: list[tuple[int, int]] = []
+    found = outliner(llm, progress=lambda *p: progress.append(p)).outline(
+        [topic(1, "Few.")], pieces
+    )
+    assert progress == [(1, 1), (2, 2)]  # the long part's request is planned once it is found
     deep = found[0].entries[0]
     assert deep.detail and deep.summary == "Level 3."  # the LLM's summary of the part
     deeper = deep.entries[0]

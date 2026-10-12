@@ -424,13 +424,21 @@ function WikiLine({ id, build }) {
 	});
 }
 function wikiText(b) {
-	const sofar = b.elapsed_s != null ? ` (${duration$1(b.elapsed_s)} so far)` : "";
+	const left = (what) => b.remaining_s != null ? `, about ${duration$1(b.remaining_s)} left${what}` : "";
+	const time = (what = "") => b.elapsed_s != null ? ` (${duration$1(b.elapsed_s)} so far${left(what)})` : "";
+	const sofar = time();
 	if (b.state === "waiting") {
 		if (b.error) return `Waiting for the LLM to build the wiki pages…${sofar}`;
 		return `Waiting to build the wiki pages…${sofar}`;
 	}
-	if (b.state === "building" && b.stage === "outline") return b.steps ? `Building the wiki outline: ${plural(b.steps, "step")} done…${sofar}` : `Building the wiki outline…${sofar}`;
-	if (b.state === "building") return b.parts ? `Building the wiki pages: part ${Math.min(b.part + 1, b.parts)} of ${b.parts}…${sofar}` : `Building the wiki pages…${sofar}`;
+	if (b.state === "building" && b.stage === "outline") {
+		const step = Math.min(b.steps + 1, b.steps_planned);
+		return b.steps_planned ? `Building the wiki outline: step ${step} of about ${b.steps_planned}…${sofar}` : `Building the wiki outline…${sofar}`;
+	}
+	if (b.state === "building") {
+		const part = Math.min(b.part + 1, b.parts);
+		return b.parts ? `Building the wiki pages: part ${part} of ${b.parts}…${time(" before the outline")}` : `Building the wiki pages…${sofar}`;
+	}
 	if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";
 	const n = b.skipped_parts?.length ?? 0;
 	const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: the LLM gave no usable answer)` : "";

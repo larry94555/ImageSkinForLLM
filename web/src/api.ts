@@ -358,8 +358,10 @@ export interface WikiBuild {
   error: string | null; // why it failed, or what it is waiting for
   stage: "topics" | "outline"; // while building: finding the topics, then building the outline
   steps: number; // outline requests made to the LLM so far
+  steps_planned: number; // outline requests planned so far; more as long parts are found
   detail_pages: number | null; // once done: the outline's detail pages
   elapsed_s: number | null; // how long the build has taken so far, or took once done
+  remaining_s: number | null; // about how long this stage has left, once a step is done
 }
 
 // A PDF's wiki pages with their text, as JSON, to open in a new tab.

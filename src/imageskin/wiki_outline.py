@@ -94,8 +94,9 @@ DETAIL_SCHEMA: dict[str, Any] = {
 
 # Asks the LLM for JSON held to a schema, and returns its answer; LlmError when that fails.
 AskForJson = Callable[[list[Message], dict[str, Any]], str]
-# The LLM requests made so far; the number in all grows as detail pages are found.
-OutlineProgress = Callable[[int], None]
+# The LLM requests made so far, and those planned in all so far: the topics' and the sections'
+# at first, more as parts are found long enough to open up too.
+OutlineProgress = Callable[[int, int], None]
 # A paragraph of the PDF (or a few sentences of a long one), with its page.
 Unit = tuple[int, str]
 
@@ -119,6 +120,7 @@ class Outliner:
     progress: OutlineProgress | None = None
     wait_for_llm: WaitForLlm | None = None
     requests: int = 0
+    planned: int = 0
     used: set[str] = field(default_factory=set)
 
     def outline(
@@ -130,7 +132,16 @@ class Outliner:
         start = time.perf_counter()
         logger.info("Building wiki outline", extra={"id": self.pdf_id, "topics": len(topics)})
         self.used.update(t.id for t in topics)  # a topic's entry keeps its page's id
-        entries = [self.topic(t, pieces or []) for t in topics]
+        sources = [self.source(t, pieces or []) for t in topics]
+        for t, source in zip(topics, sources, strict=True):
+            if opens(source, 2):
+                self.planned += len(self.batches(numbered(source), DETAIL_PROMPT, t.title))
+        if len(topics) > FEW_TOPICS:
+            self.planned += len(self.batches(self.contents_lines(topics), SECTIONS_PROMPT))
+        entries = [
+            self.entry(t.title, t.text, source, t.pages, 2, t.id, planned=True)
+            for t, source in zip(topics, sources, strict=True)
+        ]
         contents = self.sections(topics, entries) if len(topics) > FEW_TOPICS else entries
         logger.info(
             "Wiki outline built",
@@ -144,12 +155,11 @@ class Outliner:
         )
         return contents
 
-    def topic(self, page: WikiPage, pieces: list[dict[str, Any]]) -> Entry:
-        """A topic, with the LLM's few sentences on it; its detail is what the PDF says on its
-        pages (or those sentences, when nothing was read there)."""
+    def source(self, page: WikiPage, pieces: list[dict[str, Any]]) -> list[Unit]:
+        """A topic's detail: what the PDF says on its pages (or the LLM's few sentences on it,
+        when nothing was read there)."""
         source = [u for p in pieces if p["page"] in page.pages for u in units(p["page"], p["text"])]
-        source = source or units(page.pages[0] if page.pages else 1, page.text)
-        return self.entry(page.title, page.text, source, page.pages, 2, page.id)
+        return source or units(page.pages[0] if page.pages else 1, page.text)
 
     def entry(
         self,
@@ -159,6 +169,7 @@ class Outliner:
         pages: list[int],
         depth: int,
         entry_id: str = "",
+        planned: bool = False,  # whether its requests are counted in self.planned already
     ) -> Entry:
         """An entry with its summary (for a part, None: its own text, or the LLM's summary of
         it once opened), and a detail page of its source's parts unless the source is simple
@@ -166,9 +177,9 @@ class Outliner:
         entry_id = entry_id or unique(f"{self.pdf_id}-{slug(title)}", self.used)
         text = " ".join(t for _, t in source)
         entry = Entry(entry_id, title, text if summary is None else summary, pages)
-        if depth >= MAX_DEPTH or len(source) < 2 or simple(text):
+        if not opens(source, depth):
             return entry
-        found = self.split(title, source)
+        found = self.split(title, source, planned)
         if found is None:
             return entry
         if summary is None:
@@ -183,7 +194,7 @@ class Outliner:
     def sections(self, topics: list[WikiPage], entries: list[Entry]) -> list[Entry]:
         """The entries grouped into sections, in batches that fit the context window. A topic
         the LLM leaves out stays in the table of contents on its own."""
-        lines = [f"{n}. {t.title}: {first_sentence(t.text)}" for n, t in enumerate(topics, 1)]
+        lines = self.contents_lines(topics)
         contents: list[Entry] = []
         placed: set[int] = set()
         for batch in self.batches(lines, SECTIONS_PROMPT):
@@ -208,8 +219,11 @@ class Outliner:
                 placed.add(n)
         return contents
 
+    def contents_lines(self, topics: list[WikiPage]) -> list[str]:
+        return [f"{n}. {t.title}: {first_sentence(t.text)}" for n, t in enumerate(topics, 1)]
+
     def split(
-        self, title: str, source: list[Unit]
+        self, title: str, source: list[Unit], planned: bool = False
     ) -> tuple[str, list[tuple[str, list[int]]]] | None:
         """A long source's summary and its parts, each with the numbers of its units (from 1);
         None if the LLM couldn't split it. A unit goes to the first part that names it; a batch
@@ -217,8 +231,10 @@ class Outliner:
         summary: str | None = None
         parts: list[tuple[str, list[int]]] = []
         placed: set[int] = set()
-        lines = [f"{n}. {text}" for n, (_, text) in enumerate(source, 1)]
-        for batch in self.batches(lines, DETAIL_PROMPT, title):
+        batches = self.batches(numbered(source), DETAIL_PROMPT, title)
+        if not planned:
+            self.planned += len(batches)
+        for batch in batches:
             numbers = {int(m.group(1)) for line in batch if (m := NUMBERED.match(line))}
             read = partial(read_detail, numbers=numbers)
             found = self.request(
@@ -285,7 +301,7 @@ class Outliner:
             },
         )
         if self.progress:
-            self.progress(self.requests)
+            self.progress(self.requests, max(self.planned, self.requests))
         return found
 
     def answer(self, messages: list[Message], schema: dict[str, Any]) -> str:
@@ -338,6 +354,15 @@ def read_detail(answer: str, numbers: set[int]) -> tuple[str, list[tuple[str, li
     if not isinstance(summary, str) or not summary.strip() or not found:
         return None
     return summary.strip(), found
+
+
+def opens(source: list[Unit], depth: int) -> bool:
+    """Whether an entry on this level gets a detail page of its source's parts."""
+    return depth < MAX_DEPTH and len(source) > 1 and not simple(" ".join(t for _, t in source))
+
+
+def numbered(source: list[Unit]) -> list[str]:
+    return [f"{n}. {text}" for n, (_, text) in enumerate(source, 1)]
 
 
 def units(page: int, text: str) -> list[Unit]:
