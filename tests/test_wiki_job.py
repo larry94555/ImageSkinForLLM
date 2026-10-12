@@ -63,8 +63,8 @@ def test_a_read_pdf_gets_its_wiki_pages(tmp_path: Path, caplog: pytest.LogCaptur
         {**listed, "id": f"{pdf.id}-p1", "title": "Rain.", "pages": [1]},
         {**listed, "id": f"{pdf.id}-p2", "title": "Snow.", "pages": [2]},
     ]
-    page = {**listed, "id": f"{pdf.id}-p2", "title": "Snow.", "text": "Snow.", "pages": [2]}
-    page |= {"summary": "Snow.", "detail": False, "entries": []}
+    page: dict[str, object] = {**listed, "id": f"{pdf.id}-p2", "title": "Snow.", "pages": [2]}
+    page |= {"text": "Snow.", "summary": "Snow.", "detail": False, "entries": []}
     assert wiki.page(f"{pdf.id}-p2") == page
     assert wiki.page(f"{pdf.id}-nope") is None and wiki.page("nope") is None
     saved = json.loads((tmp_path / "content" / "wiki" / f"{pdf.id}.json").read_text())
