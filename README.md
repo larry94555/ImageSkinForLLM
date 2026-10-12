@@ -121,10 +121,14 @@ The PDFs that answers will come from are stored in `content/pdfs` inside the app
 | `GET /api/content/{id}` | Download one |
 | `PUT /api/content/{id}` | Replace one with a new file (form field `file`), keeping its id |
 | `DELETE /api/content/{id}` | Remove one |
+| `GET /api/content/readings` | How far each PDF has got being read: `state` (`waiting`, `reading`, `done` or `failed`), `page` of `pages`, and once done its `kind` and how many paragraphs, slides and tables were found |
+| `GET /api/content/{id}/reading` | What was read from one: each piece with its `page`, `kind` (`paragraph`, `slide` or `table`), `text`, and a table's `rows` |
 
 The log has `PDF added`, `PDF replaced` and `PDF removed` with the id, size, stored path and time taken, or `PDF refused` with the reason.
 
 To manage them in the browser, open **Manage Content** in the app's top bar (http://127.0.0.1:8000/#/content while `imageskin serve` is running). **Add PDFs** takes one or more PDFs at a time, each PDF's name opens it, **Replace** swaps in a new file for that PDF and **Remove** deletes it after asking. A refused file is listed with the reason. The browser console has `Added …`, `Replaced … with …` (each with the time taken in ms) and `Removed …`.
+
+Each PDF is read in the background when it is added or replaced, one at a time, with [pdfplumber](https://github.com/jsvine/pdfplumber) (MIT): tables as rows and columns, a page wider than it is tall as one slide, and any other text as paragraphs, each with its page number. What was read is saved in `content/read/<id>.json`; on start, any PDF not read yet (or replaced since) is read again. Manage Content shows each PDF's progress ("Reading page 24 of 400…") and then what was found, with a **What was read** link to the JSON. Tables are found from their ruling lines, so a table drawn without lines is read as text. A scanned page (a picture with no text) is listed as having no text, since there is no OCR. The log has `Reading PDF`, then `PDF read` with the kind, page count, counts and time taken, or `Could not read the PDF` with the error; pages with no text are logged as a warning. A 400-page text PDF took about 40 seconds to read on a 4-core CPU.
 
 HEIC photos (from iPhones) need an optional extra: `pip install -e ".[heic]"`. It is optional because pillow-heif's wheels include libheif and libde265 (LGPL-3) and x265 (GPL-2); the app only uses them to read HEIC files.
 

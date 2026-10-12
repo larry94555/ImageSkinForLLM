@@ -326,3 +326,24 @@ export async function removePdf(id: string): Promise<void> {
   const response = await fetch(pdfUrl(id), { method: "DELETE" });
   if (!response.ok) throw new Error(await refusal(response));
 }
+
+// How far the server has got reading a PDF's text, slides and tables (roadmap R36).
+export interface Reading {
+  state: "waiting" | "reading" | "done" | "failed";
+  page: number; // pages read so far
+  pages: number; // pages in all, once known
+  kind: "text" | "slides" | "tables" | null; // once done
+  counts: { paragraph: number; slide: number; table: number } | null; // once done
+  pages_without_text: number[] | null; // once done: maybe scanned, so not read
+  error: string | null;
+}
+
+// What was read from a PDF, as JSON, to open in a new tab.
+export function readingUrl(id: string): string {
+  return `/api/content/${id}/reading`;
+}
+
+// The reading progress of each PDF, by its id. A PDF not read yet may be missing.
+export async function listReadings(): Promise<Record<string, Reading>> {
+  return json<Record<string, Reading>>(await fetch("/api/content/readings"));
+}
