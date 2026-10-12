@@ -291,3 +291,38 @@ export async function stopReply(replyId: string): Promise<boolean> {
 // The person at rest, blinking and moving slightly, played on a loop between replies (roadmap
 // R23). The server answers once its warm-up has made it, and 404 when there is none.
 export const IDLE_VIDEO_URL = "/api/chat/idle";
+
+// A PDF on the Manage Content page (roadmap R34, R35). name is the name it was uploaded with,
+// for display only; replacing it keeps the id.
+export interface Pdf {
+  id: string;
+  name: string;
+  size: number; // bytes
+  added_at: string;
+  replaced_at: string | null;
+}
+
+export function pdfUrl(id: string): string {
+  return `/api/content/${id}`;
+}
+
+export async function listPdfs(): Promise<Pdf[]> {
+  return json<Pdf[]>(await fetch("/api/content"));
+}
+
+// Adds a PDF, or with `id` replaces that one's file. Throws an Error saying why when refused.
+export async function sendPdf(file: File, id?: string): Promise<Pdf> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(id ? pdfUrl(id) : "/api/content", {
+    method: id ? "PUT" : "POST",
+    body: form,
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as Pdf;
+}
+
+export async function removePdf(id: string): Promise<void> {
+  const response = await fetch(pdfUrl(id), { method: "DELETE" });
+  if (!response.ok) throw new Error(await refusal(response));
+}
