@@ -20,6 +20,9 @@ dependencies = [
     "numpy>=1.24",
     # Runs the speaker model for the one-speaker check (MIT).
     "onnxruntime>=1.17",
+    # Reads the text, slides and tables in the content PDFs (MIT; pdfminer.six MIT, pypdfium2
+    # Apache 2.0 or BSD).
+    "pdfplumber>=0.11",
 ]
 
 [project.optional-dependencies]
@@ -57,6 +60,8 @@ dev = [
     "mypy>=1.10",
     "pytest>=8",
     "pytest-cov>=5",
+    # Makes the PDFs the reading tests read (BSD).
+    "reportlab>=4",
     "ruff>=0.5",
 ]
 
@@ -78,7 +83,7 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["kokoro", "torch", "mediapipe", "mediapipe.*", "onnxruntime", "pillow_heif", "PIL", "PIL.*", "src.*",
+module = ["kokoro", "torch", "mediapipe", "mediapipe.*", "onnxruntime", "pillow_heif", "PIL", "PIL.*", "src.*", "pdfplumber", "reportlab", "reportlab.*",
     "chatterbox", "chatterbox.*", "pocket_tts", "pocket_tts.*", "soundfile", "librosa", "transformers", "transformers.*", "huggingface_hub",
 ]
 ignore_missing_imports = true

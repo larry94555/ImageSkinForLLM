@@ -9,6 +9,7 @@ what is later built from it (the wiki, roadmap R37) can be rebuilt for that one 
 
 import json
 import logging
+import shutil
 import threading
 import time
 import uuid
@@ -207,6 +208,18 @@ class ContentStore:
             return None
         stored = self.folder / f"{pdf_id}.pdf"
         return stored if stored.is_file() else None
+
+    def snapshot(self, pdf_id: str, dest: Path) -> Pdf | None:
+        """Copy a PDF to dest, with the info for that same file, or None if it is gone. The copy
+        is taken under the lock, so it never mixes an old file with new info, and whoever reads
+        it doesn't hold the stored file open: on Windows that would block replacing or removing
+        it."""
+        with self._lock:
+            stored, pdf = self.path(pdf_id), self.get(pdf_id)
+            if stored is None or pdf is None:
+                return None
+            shutil.copyfile(stored, dest)
+        return pdf
 
     def remove(self, pdf_id: str) -> bool:
         """Delete a PDF; False when there is none with that id."""

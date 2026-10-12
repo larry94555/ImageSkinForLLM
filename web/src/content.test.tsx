@@ -1,9 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import type { Pdf } from "./api";
+import type { Pdf, Reading } from "./api";
 import { App } from "./App";
-import { ContentPage, size } from "./content";
+import { ContentPage, READING_POLL_MS, readingText, size } from "./content";
 
 const GUIDE: Pdf = {
   id: "a1",
@@ -13,12 +13,30 @@ const GUIDE: Pdf = {
   replaced_at: null,
 };
 
+const READ: Reading = {
+  state: "done",
+  page: 3,
+  pages: 3,
+  kind: "text",
+  counts: { paragraph: 12, slide: 0, table: 1 },
+  pages_without_text: [],
+  error: null,
+};
+
 // A fake content API holding `pdfs`. `refuse` makes adding or replacing fail with that reason.
-function server(pdfs: Pdf[], opts: { refuse?: string; listFails?: boolean } = {}) {
+// `readings` are the reading progress answers, in turn; the last one repeats.
+function server(
+  pdfs: Pdf[],
+  opts: { refuse?: string; listFails?: boolean; readings?: Record<string, Reading>[] } = {},
+) {
   let next = 0;
+  const readings = [...(opts.readings ?? [{}])];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/content/readings") {
+      return Response.json(readings.length > 1 ? readings.shift() : readings[0]);
+    }
     if (url === "/api/content" && method === "GET") {
       return opts.listFails ? new Response("", { status: 500 }) : Response.json(pdfs);
     }
@@ -36,6 +54,11 @@ function server(pdfs: Pdf[], opts: { refuse?: string; listFails?: boolean } = {}
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+// The calls that change something.
+function changes(fetchMock: ReturnType<typeof server>) {
+  return fetchMock.mock.calls.filter(([, init]) => init?.method);
 }
 
 function pdfFile(name: string) {
@@ -138,7 +161,7 @@ test("choosing no file to replace with changes nothing", async () => {
   render(<ContentPage />);
   await screen.findByRole("link", { name: "guide.pdf" });
   await choose(screen.getByLabelText("Replace guide.pdf"));
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(changes(fetchMock)).toHaveLength(0);
 });
 
 test("removes a PDF after asking", async () => {
@@ -147,7 +170,7 @@ test("removes a PDF after asking", async () => {
   render(<ContentPage />);
   const item = (await screen.findByRole("link", { name: "guide.pdf" })).closest("li")!;
   fireEvent.click(within(item).getByRole("button", { name: "Remove" }));
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(changes(fetchMock)).toHaveLength(0);
   await act(async () => {
     fireEvent.click(within(item).getByRole("button", { name: "Remove" }));
   });
@@ -176,4 +199,93 @@ test("sizes read as KB or MB", () => {
   expect(size(10)).toBe("1 KB");
   expect(size(1536)).toBe("2 KB");
   expect(size(2_500_000)).toBe("2.4 MB");
+});
+
+test("shows how far each PDF has got being read, checking again until it is done", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const reading: Reading = { ...READ, state: "reading", page: 1, kind: null, counts: null };
+  const fetchMock = server([GUIDE], {
+    readings: [{ a1: { ...reading, state: "waiting", pages: 0 } }, { a1: reading }, { a1: READ }],
+  });
+  render(<ContentPage />);
+  expect(await screen.findByText("Waiting to be read…")).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(READING_POLL_MS);
+  });
+  expect(await screen.findByText("Reading page 1 of 3…")).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(READING_POLL_MS);
+  });
+  expect(await screen.findByText(/Read 3 pages: 12 paragraphs, 1 table/)).toBeTruthy();
+  const link = screen.getByRole("link", { name: "What was read" });
+  expect(link.getAttribute("href")).toBe("/api/content/a1/reading");
+
+  // Done: no more checks.
+  const checks = fetchMock.mock.calls.length;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(READING_POLL_MS * 3);
+  });
+  expect(fetchMock.mock.calls.length).toBe(checks);
+  vi.useRealTimers();
+});
+
+test("a PDF that could not be read shows why", async () => {
+  server([GUIDE], {
+    readings: [{ a1: { ...READ, state: "failed", error: "This PDF could not be read." } }],
+  });
+  render(<ContentPage />);
+  const error = await screen.findByText("This PDF could not be read.");
+  expect(error.className).toBe("error");
+});
+
+test("a failed progress check is tried again", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  server([GUIDE]);
+  let checks = 0;
+  vi.mocked(fetch).mockImplementation(async (url) => {
+    if (url !== "/api/content/readings") return Response.json([GUIDE]);
+    return ++checks === 1 ? new Response("", { status: 500 }) : Response.json({ a1: READ });
+  });
+  render(<ContentPage />);
+  await screen.findByRole("link", { name: "guide.pdf" });
+  await waitFor(() => expect(checks).toBe(1));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(READING_POLL_MS);
+  });
+  expect(await screen.findByText(/Read 3 pages/)).toBeTruthy();
+  vi.useRealTimers();
+});
+
+test("a failed progress check is logged", async () => {
+  server([GUIDE]);
+  vi.mocked(fetch).mockImplementation(async (url) =>
+    url === "/api/content/readings" ? new Response("", { status: 500 }) : Response.json([GUIDE]),
+  );
+  render(<ContentPage />);
+  await screen.findByRole("link", { name: "guide.pdf" });
+  await waitFor(() =>
+    expect(console.error).toHaveBeenCalledWith(
+      "Could not check the reading progress",
+      expect.any(Error),
+    ),
+  );
+});
+
+test("reading progress reads as a sentence", () => {
+  expect(readingText({ ...READ, state: "reading", pages: 0 })).toBe("Reading…");
+  expect(readingText({ ...READ, state: "failed" })).toBe("Could not be read.");
+  expect(
+    readingText({
+      ...READ,
+      pages: 1,
+      counts: { paragraph: 0, slide: 1, table: 0 },
+      pages_without_text: [2, 3],
+    }),
+  ).toBe("Read 1 page: 1 slide (no text on page 2, 3, maybe scanned)");
+  expect(readingText({ ...READ, counts: { paragraph: 0, slide: 0, table: 0 } })).toBe(
+    "Read 3 pages: no text found",
+  );
+  expect(
+    readingText({ ...READ, counts: { paragraph: 0, slide: 0, table: 0 }, pages_without_text: [1] }),
+  ).toBe("Read 3 pages: no text found, maybe scanned");
 });
