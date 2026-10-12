@@ -64,7 +64,14 @@ from imageskin.uploads import (
     UploadStore,
     VoiceSample,
 )
-from imageskin.wiki import TOPICS_SCHEMA, WIKI_REPLY_TOKENS, AskForTopics, Wiki, build_wiki
+from imageskin.wiki import (
+    TOPICS_SCHEMA,
+    WIKI_REPLY_TOKENS,
+    AskForTopics,
+    WaitForLlm,
+    Wiki,
+    build_wiki,
+)
 from imageskin.wiki import Progress as WikiProgress
 from imageskin.wiki_job import BuildWiki, WikiJob, WikiStatus
 
@@ -163,8 +170,10 @@ def wiki_builder(llm: LlmSettings, client: LlmClient | None, ask_llm: AskLlm | N
         assert ask_llm is not None
         ask, count, window = ask_llm, estimate, lambda: llm.context_tokens
 
-    def build(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress) -> Wiki:
-        return build_wiki(pdf_id, pieces, ask, count, window(), progress)
+    def build(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
+        return build_wiki(pdf_id, pieces, ask, count, window(), progress, wait)
 
     return build
 

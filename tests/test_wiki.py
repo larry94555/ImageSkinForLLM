@@ -175,3 +175,31 @@ def test_titles_become_unique_ids() -> None:
         "p-a-2",
         "p-a-3",
     ]
+
+
+def test_an_unreachable_llm_is_waited_for_and_the_same_part_asked_again() -> None:
+    def down() -> LlmError:
+        error = LlmError("Could not reach the LLM")
+        error.__cause__ = urllib.error.URLError("refused")
+        return error
+
+    answers: list[str | LlmError] = [answer(("A", [1], "x")), down(), answer(("B", [2], "y"))]
+    asked: list[str] = []
+
+    def ask(messages: list[Message]) -> str:
+        asked.append(messages[1]["content"])
+        next_answer = answers.pop(0)
+        if isinstance(next_answer, LlmError):
+            raise next_answer
+        return next_answer
+
+    waits: list[tuple[int, int]] = []
+    pieces = [piece(1, "a" * 900), piece(2, "b" * 900)]
+    wiki = build_wiki(
+        PDF_ID, pieces, ask, estimate, WINDOW, wait_for_llm=lambda e, n, of: waits.append((n, of))
+    )
+    assert waits == [(2, 2)]
+    assert asked[1] == asked[2] and len(asked) == 3
+    assert [p.title for p in wiki.pages] == ["A", "B"]
+    with pytest.raises(LlmError):
+        build_wiki(PDF_ID, pieces[:1], lambda m: (_ for _ in ()).throw(down()), estimate, WINDOW)

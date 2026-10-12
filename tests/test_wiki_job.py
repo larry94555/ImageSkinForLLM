@@ -15,7 +15,7 @@ from imageskin.content import ContentStore
 from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.reading_job import ReadingJob
 from imageskin.wiki import Progress as WikiProgress
-from imageskin.wiki import Wiki, WikiError, WikiPage
+from imageskin.wiki import WaitForLlm, Wiki, WikiError, WikiPage, build_wiki
 from imageskin.wiki_job import BuildWiki, WikiJob, WikiStatus
 
 PDF = b"%PDF-1.7\n" + b"x" * 100 + b"\n%%EOF\n"
@@ -25,7 +25,9 @@ def two_pages(path: Path, progress: Progress) -> Reading:
     return Reading("text", 2, [Piece(1, "paragraph", "Rain."), Piece(2, "paragraph", "Snow.")], [])
 
 
-def one_page_per_piece(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress) -> Wiki:
+def one_page_per_piece(
+    pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: Any = None
+) -> Wiki:
     progress(1, 1)
     pages = [WikiPage(f"{pdf_id}-p{p['page']}", p["text"], p["text"], [p["page"]]) for p in pieces]
     return Wiki(1, pages)
@@ -81,7 +83,9 @@ def test_replacing_a_pdf_rebuilds_only_its_pages_and_removing_it_removes_them(
     settle(readings, wiki)
     built: list[str] = []
 
-    def counting(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress) -> Wiki:
+    def counting(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
         built.append(pdf_id)
         return one_page_per_piece(pdf_id, pieces, progress)
 
@@ -112,7 +116,9 @@ def test_catch_up_builds_read_pdfs_with_no_up_to_date_pages(tmp_path: Path) -> N
     readings.wait()
     built: list[str] = []
 
-    def counting(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress) -> Wiki:
+    def counting(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
         built.append(pdf_id)
         return one_page_per_piece(pdf_id, pieces, progress)
 
@@ -123,31 +129,73 @@ def test_catch_up_builds_read_pdfs_with_no_up_to_date_pages(tmp_path: Path) -> N
     assert unread.id not in restarted.statuses()
 
 
-def test_the_build_waits_while_the_llm_cannot_be_reached(
+def down() -> LlmError:
+    error = LlmError("Could not reach the LLM")
+    error.__cause__ = urllib.error.URLError("refused")
+    return error
+
+
+def topics(title: str) -> str:
+    return json.dumps({"topics": [{"title": title, "pages": [1], "text": "Text."}]})
+
+
+def test_the_build_waits_for_the_llm_and_asks_the_same_part_again(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    calls = 0
+    asked: list[str] = []
 
-    def flaky(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress) -> Wiki:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise LlmError("Could not reach the LLM") from urllib.error.URLError("refused")
-        return one_page_per_piece(pdf_id, pieces, progress)
+    def ask(messages: list[Message]) -> str:
+        part = messages[1]["content"]
+        asked.append(part)
+        if len(asked) == 2:  # the LLM goes away while part 2 is asked
+            raise down()
+        return topics(part[:8])
 
-    store, readings, wiki = jobs(tmp_path, flaky, retry_s=0.01)
+    def build(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
+        # Each piece counts 150 tokens and each part has room for 200: one piece per part.
+        return build_wiki(pdf_id, pieces, ask, lambda text: 150, 2000, progress, wait)
+
+    store, readings, wiki = jobs(tmp_path, build, retry_s=0.01)
     pdf = store.add("a.pdf", io.BytesIO(PDF))
     readings.queue(pdf)
     settle(readings, wiki)
-    assert calls == 2
-    assert wiki.statuses()[pdf.id].state == "done"
+
+    # Part 2 is asked again; part 1 is not.
+    assert asked == ["[page 1] Rain.", "[page 2] Snow.", "[page 2] Snow."]
+    assert wiki.statuses()[pdf.id] == WikiStatus("done", 2, 2, 2, [])
     assert "Waiting for the LLM to build the wiki" in caplog.text
+
+
+def test_a_pdf_removed_while_its_build_waits_for_the_llm_is_dropped(tmp_path: Path) -> None:
+    waiting = threading.Event()
+
+    def build(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
+        while True:
+            waiting.set()
+            wait(down(), 1, 1)
+
+    store, readings, wiki = jobs(tmp_path, build, retry_s=0.05)
+    pdf = store.add("a.pdf", io.BytesIO(PDF))
+    readings.queue(pdf)
+    readings.wait()
+    assert waiting.wait(5)
+    assert wiki.statuses()[pdf.id].error == "Could not reach the LLM"
+    store.remove(pdf.id)
+    wiki.forget(pdf.id)
+    wiki.wait()
+    assert wiki.statuses() == {} and wiki.pages() == []
 
 
 def test_a_build_that_fails_says_why_and_the_next_pdf_is_still_built(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    def failing(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress) -> Wiki:
+    def failing(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
         pdf = store.get(pdf_id)
         assert pdf is not None
         if pdf.name == "bad.pdf":
@@ -176,7 +224,9 @@ def test_a_build_that_fails_says_why_and_the_next_pdf_is_still_built(
 def test_pages_built_for_a_pdf_replaced_meanwhile_are_not_saved(tmp_path: Path) -> None:
     started, go_on = threading.Event(), threading.Event()
 
-    def slow(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress) -> Wiki:
+    def slow(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
         started.set()
         go_on.wait(5)
         return one_page_per_piece(pdf_id, pieces, progress)

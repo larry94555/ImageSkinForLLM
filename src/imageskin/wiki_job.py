@@ -5,7 +5,8 @@ A PDF's pages are saved in <data folder>/content/wiki/<id>.json with the PDF's v
 built from an older file are never used. Replacing a PDF rebuilds only its pages once it has been
 read again, and removing it removes them; other PDFs' pages are left alone. On start, every PDF
 that has been read but has no up-to-date pages is built again. One PDF is built at a time. While
-the LLM can't be reached (llama-server not started yet, say), the build waits and tries again.
+the LLM can't be reached (llama-server not started yet, say), the build waits and asks for the
+same part again, keeping the parts already done.
 """
 
 import contextlib
@@ -17,18 +18,22 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
-from imageskin.chat import LlmError, unreachable
+from imageskin.chat import LlmError
 from imageskin.content import ContentStore
 from imageskin.reading_job import ReadingJob, version
-from imageskin.wiki import Progress, Wiki, WikiError
+from imageskin.wiki import Progress, WaitForLlm, Wiki, WikiError
 
 logger = logging.getLogger(__name__)
 
 State = Literal["waiting", "building", "done", "failed"]
 # Builds the wiki pages for a PDF (its id and the pieces read from it).
-BuildWiki = Callable[[str, list[dict[str, Any]], Progress], Wiki]
+BuildWiki = Callable[[str, list[dict[str, Any]], Progress, WaitForLlm], Wiki]
 # How long to wait before trying again when the LLM can't be reached.
 RETRY_S = 30.0
+
+
+class Superseded(Exception):
+    """The PDF was replaced or removed while its build waited for the LLM."""
 
 
 @dataclass(frozen=True)
@@ -65,7 +70,6 @@ class WikiJob:
         self._waiting: list[str] = []
         self._status: dict[str, WikiStatus] = {}
         self._worker: threading.Thread | None = None
-        self._wake = threading.Event()  # cuts a wait for the LLM short (tests)
 
     def catch_up(self) -> None:
         """Queue every PDF that has been read but whose pages are missing or out of date."""
@@ -186,20 +190,25 @@ class WikiJob:
         def progress(part: int, parts: int) -> None:
             self._set(pdf_id, WikiStatus("building", part, parts))
 
-        try:
-            wiki = self.build(pdf_id, reading["pieces"], progress)
-        except LlmError as e:
-            if e.__cause__ is None or not unreachable(e.__cause__):
-                raise
+        def wait_for_llm(error: LlmError, part: int, parts: int) -> None:
             logger.warning(
                 "Waiting for the LLM to build the wiki",
-                extra={"id": pdf_id, "error": str(e), "retry_s": self.retry_s},
+                extra={"id": pdf_id, "part": part, "error": str(error), "retry_s": self.retry_s},
             )
-            self._set(pdf_id, WikiStatus("waiting", error=str(e)))
-            self._wake.wait(self.retry_s)
+            self._set(pdf_id, WikiStatus("waiting", part - 1, parts, error=str(error)))
+            time.sleep(self.retry_s)
             with self._lock:
-                if pdf_id not in self._waiting and self._status.get(pdf_id) is not None:
-                    self._waiting.append(pdf_id)
+                if (
+                    self.store.get(pdf_id) != pdf
+                    or pdf_id not in self._status
+                    or pdf_id in self._waiting
+                ):
+                    raise Superseded  # replaced or removed meanwhile
+            self._set(pdf_id, WikiStatus("building", part - 1, parts))
+
+        try:
+            wiki = self.build(pdf_id, reading["pieces"], progress, wait_for_llm)
+        except Superseded:
             return True
         except WikiError as e:
             logger.error("Could not build the wiki", extra={"id": pdf_id, "error": str(e)})

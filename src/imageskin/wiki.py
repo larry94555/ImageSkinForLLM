@@ -45,6 +45,10 @@ KNOWN_PROMPT = "Topics found in earlier parts (reuse a title exactly when this p
 # Asks the LLM about one part (the messages) and returns its answer, or raises LlmError.
 AskForTopics = Callable[[list[Message]], str]
 Progress = Callable[[int, int], None]  # parts done, parts in all
+# Called when the LLM can't be reached while a part is asked (with the error, the part and the
+# parts in all); it waits, then the same part is asked again, so the parts already done are kept.
+# It may raise to stop the build.
+WaitForLlm = Callable[[LlmError, int, int], None]
 
 # What the LLM's answer must look like; servers that support it (llama-server, OpenAI) are held
 # to it, and every answer is checked anyway.
@@ -102,8 +106,10 @@ def build_wiki(
     count: Count,
     context_tokens: int,
     progress: Progress | None = None,
+    wait_for_llm: WaitForLlm | None = None,
 ) -> Wiki:
-    """Turn a reading's pieces into wiki pages. LlmError when the LLM can't be reached."""
+    """Turn a reading's pieces into wiki pages. LlmError when the LLM can't be reached and
+    there is no `wait_for_llm`."""
     budget = context_tokens - WIKI_REPLY_TOKENS - PROMPT_TOKENS
     if budget < 200:
         raise WikiError(
@@ -114,7 +120,15 @@ def build_wiki(
     topics: dict[str, WikiPage] = {}  # by normalized title, in the order found
     for number, part in enumerate(parts, start=1):
         start = time.perf_counter()
-        found = ask_part(part, list(t.title for t in topics.values())[-KNOWN_TITLES:], ask)
+        known = list(t.title for t in topics.values())[-KNOWN_TITLES:]
+        while True:
+            try:
+                found = ask_part(part, known, ask)
+                break
+            except LlmError as e:
+                if wait_for_llm is None:
+                    raise
+                wait_for_llm(e, number, len(parts))
         if found is None:
             wiki.skipped_parts.append(number)
         for title, pages, text in found or []:
