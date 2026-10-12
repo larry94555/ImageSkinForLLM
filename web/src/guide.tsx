@@ -103,8 +103,7 @@ export const STEPS: Step[] = [
         <ul className="bullets">
           <li>Five photos of your face (picture files, usually ending in .jpg).</li>
           <li>
-            Seven recordings of your voice, about 15 minutes of talking in total (sound files,
-            usually ending in .m4a or .wav).
+            Three to seven recordings of your voice (sound files, usually ending in .m4a or .wav). The first three, about 4 minutes, are enough today; all seven take about 15 minutes.
           </li>
         </ul>
         <p>
@@ -263,7 +262,7 @@ export const STEPS: Step[] = [
     body: () => (
       <>
         <p>
-          You will make 7 recordings, one for each of the next steps. Record a section, stop, listen
+          The guide has 7 recordings, one for each of the next steps; the first 3 are the ones needed today. Record a section, stop, listen
           to check it, and only then move on. If a section goes wrong, just record that section
           again; you never have to start over.
         </p>

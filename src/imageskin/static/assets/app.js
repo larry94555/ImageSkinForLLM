@@ -466,7 +466,7 @@ var STEPS = [
 			/* @__PURE__ */ u("p", { children: "This guide helps you make, on your own laptop:" }),
 			/* @__PURE__ */ u("ul", {
 				className: "bullets",
-				children: [/* @__PURE__ */ u("li", { children: "Five photos of your face (picture files, usually ending in .jpg)." }), /* @__PURE__ */ u("li", { children: "Seven recordings of your voice, about 15 minutes of talking in total (sound files, usually ending in .m4a or .wav)." })]
+				children: [/* @__PURE__ */ u("li", { children: "Five photos of your face (picture files, usually ending in .jpg)." }), /* @__PURE__ */ u("li", { children: "Three to seven recordings of your voice (sound files, usually ending in .m4a or .wav). The first three, about 4 minutes, are enough today; all seven take about 15 minutes." })]
 			}),
 			/* @__PURE__ */ u("p", { children: "The photo becomes the face, and the recordings teach the app to speak in a voice that sounds like you. Your recordings are not played back as they are; they are only used as a sample." }),
 			/* @__PURE__ */ u("h2", { children: "What you need" }),
@@ -706,7 +706,7 @@ var STEPS = [
 	{
 		title: "Record your voice",
 		body: () => /* @__PURE__ */ u(S, { children: [
-			/* @__PURE__ */ u("p", { children: "You will make 7 recordings, one for each of the next steps. Record a section, stop, listen to check it, and only then move on. If a section goes wrong, just record that section again; you never have to start over." }),
+			/* @__PURE__ */ u("p", { children: "The guide has 7 recordings, one for each of the next steps; the first 3 are the ones needed today. Record a section, stop, listen to check it, and only then move on. If a section goes wrong, just record that section again; you never have to start over." }),
 			/* @__PURE__ */ u("table", {
 				className: "guide-table",
 				children: [/* @__PURE__ */ u("thead", { children: /* @__PURE__ */ u("tr", { children: [
