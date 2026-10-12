@@ -41,8 +41,10 @@ State = Literal["waiting", "building", "done", "failed"]
 Stage = Literal["topics", "outline"]
 # Builds the wiki pages for a PDF (its id and the pieces read from it).
 BuildWiki = Callable[[str, list[dict[str, Any]], Progress, WaitForLlm], Wiki]
-# Builds a PDF's outline from its topics (its id and its wiki pages).
-BuildOutline = Callable[[str, list[WikiPage], OutlineProgress, WaitForLlm], list[Entry]]
+# Builds a PDF's outline from its topics (its id, its wiki pages and the pieces read from it).
+BuildOutline = Callable[
+    [str, list[WikiPage], list[dict[str, Any]], OutlineProgress, WaitForLlm], list[Entry]
+]
 # What saved pages look like; pages saved in an older form are built again.
 WIKI_FORMAT = 2
 # How long to wait before trying again when the LLM can't be reached.
@@ -87,7 +89,9 @@ class WikiJob:
         self.store = store
         self.readings = readings
         self.build = build
-        self.outline = outline or (lambda pdf_id, topics, progress, wait: plain_outline(topics))
+        self.outline = outline or (
+            lambda pdf_id, topics, pieces, progress, wait: plain_outline(topics)
+        )
         self.retry_s = retry_s
         self.when_idle = when_idle
         self.folder = store.root / "wiki"
@@ -269,7 +273,9 @@ class WikiJob:
 
             outline_progress(0)
             try:
-                outline = self.outline(pdf_id, wiki.pages, outline_progress, wait_for_outline)
+                outline = self.outline(
+                    pdf_id, wiki.pages, reading["pieces"], outline_progress, wait_for_outline
+                )
             except LlmError as e:  # refused: the topics are kept, as they are
                 logger.error(
                     "Could not build the wiki outline", extra={"id": pdf_id, "error": str(e)}

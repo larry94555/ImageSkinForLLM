@@ -39,8 +39,13 @@ def sections(*found: tuple[str, str, list[int]]) -> str:
     return json.dumps({"sections": [{"title": t, "summary": s, "topics": n} for t, s, n in found]})
 
 
-def detail(summary: str, *parts: tuple[str, str]) -> str:
-    return json.dumps({"summary": summary, "parts": [{"title": t, "text": x} for t, x in parts]})
+def detail(summary: str, *parts: tuple[str, str] | tuple[str, str, list[int]]) -> str:
+    found = [{"title": p[0], "text": p[1], "pages": p[2] if len(p) > 2 else []} for p in parts]
+    return json.dumps({"summary": summary, "parts": found})
+
+
+def piece(page: int, text: str) -> dict[str, Any]:
+    return {"page": page, "kind": "paragraph", "text": text, "rows": None}
 
 
 class Llm:
@@ -65,6 +70,7 @@ def outliner(llm: Llm, **kw: Any) -> Outliner:
 def test_simple_texts_are_shown_as_they_are() -> None:
     assert sentences("One. Two? Three!") == 3 and sentences("") == 0
     assert simple("One. Two. Three. Four. Five.") and not simple(LONG)
+    assert not simple("x" * 601)  # one long "sentence", such as a list with no full stops
     assert first_sentence(" First one. Second.") == "First one."
 
 
@@ -121,18 +127,36 @@ def test_topics_are_kept_as_they_are_when_no_sections_can_be_found(
     assert step.__dict__["step"] == "sections" and step.__dict__["used"] is False
 
 
-def test_a_long_topic_gets_a_summary_and_a_detail_page_of_its_parts() -> None:
-    llm = Llm(detail("A summary.", ("First", "One. Two."), ("Second", "Three.")))
-    found = outliner(llm).outline([topic(1, LONG)])
+def test_a_topic_the_pdf_says_more_about_gets_a_detail_page_from_the_pdf() -> None:
+    llm = Llm(detail("A summary.", ("First", "One. Two.", [2, 7]), ("Second", "Three.")))
+    page = WikiPage(f"{PDF_ID}-t1", "Topic 1", "The LLM's few sentences.", [1, 2])
+    pieces = [piece(1, LONG), piece(2, "More."), piece(3, "Another topic.")]
+    found = outliner(llm).outline([page], pieces)
 
     messages, schema = llm.asked[0]
-    assert schema is DETAIL_SCHEMA and messages[1]["content"] == f"Topic 1\n\n{LONG}"
+    assert schema is DETAIL_SCHEMA
+    assert messages[1]["content"] == f"Topic 1\n\n[page 1] {LONG}\n\n[page 2] More."
     entry = found[0]
-    assert (entry.id, entry.summary, entry.detail) == (f"{PDF_ID}-t1", "A summary.", True)
+    assert (entry.id, entry.detail) == (f"{PDF_ID}-t1", True)
+    assert entry.summary == "The LLM's few sentences."  # the topic keeps its own
     assert [(e.id, e.title, e.summary, e.pages, e.detail) for e in entry.entries] == [
-        (f"{PDF_ID}-first", "First", "One. Two.", [1], False),
-        (f"{PDF_ID}-second", "Second", "Three.", [1], False),
+        (f"{PDF_ID}-first", "First", "One. Two.", [2], False),
+        (f"{PDF_ID}-second", "Second", "Three.", [1, 2], False),
     ]
+
+
+def test_a_topic_the_pdf_says_little_about_is_shown_as_it_is() -> None:
+    llm = Llm()
+    found = outliner(llm).outline([topic(1, "Few.")], [piece(1, "Short. Text.")])
+    assert llm.asked == [] and found[0].summary == "Few." and not found[0].detail
+
+
+def test_a_long_text_with_no_parts_about_the_topic_in_one_batch_skips_that_batch() -> None:
+    paragraphs = "\n\n".join(LONG for _ in range(4))
+    window = OUTLINE_REPLY_TOKENS + 1050  # 2 paragraphs at a time
+    llm = Llm("nothing here", "still nothing", detail("S.", ("A", "a."), ("B", "b.")))
+    found = outliner(llm, window=window).outline([topic(1, paragraphs)])
+    assert found[0].summary == "S." and [e.title for e in found[0].entries] == ["A", "B"]
 
 
 def test_a_long_part_opens_up_again_down_to_the_last_level() -> None:
@@ -163,8 +187,8 @@ def test_an_empty_reply_counts_as_unusable() -> None:
 
 
 def test_a_long_text_is_split_in_batches_that_fit() -> None:
-    paragraphs = "\n\n".join(LONG for _ in range(6))  # about 1200 characters
-    window = OUTLINE_REPLY_TOKENS + 900  # leaves room for 2 paragraphs at a time
+    paragraphs = "\n\n".join(LONG for _ in range(6))  # about 1300 characters
+    window = OUTLINE_REPLY_TOKENS + 1050  # leaves room for 2 paragraphs at a time
     llm = Llm(
         detail("First half.", ("A", "a."), ("B", "b.")),
         detail("Second half.", ("C", "c.")),
@@ -224,7 +248,7 @@ def test_sections_keep_each_topic_once() -> None:
     ],
 )
 def test_unusable_detail_is_none(raw: str) -> None:
-    assert read_detail(raw) is None
+    assert read_detail(raw, [1]) is None
 
 
 def test_saved_entries_are_read_back_and_shown_down_to_the_next_detail_page() -> None:

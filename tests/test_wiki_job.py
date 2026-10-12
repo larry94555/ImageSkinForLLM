@@ -371,7 +371,11 @@ def test_the_outline_is_built_after_the_topics_and_saved_with_them(
     seen: list[WikiStatus] = []
 
     def outline(
-        pdf_id: str, topics: list[WikiPage], progress: OutlineProgress, wait: WaitForLlm
+        pdf_id: str,
+        topics: list[WikiPage],
+        pieces: list[dict[str, Any]],
+        progress: OutlineProgress,
+        wait: WaitForLlm,
     ) -> list[Entry]:
         seen.append(wiki.statuses()[pdf_id])
         wait(down(), 1, 0)  # the LLM goes away for a moment
@@ -408,7 +412,11 @@ def test_a_refused_outline_keeps_the_topics_as_they_are(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     def refused(
-        pdf_id: str, topics: list[WikiPage], progress: OutlineProgress, wait: WaitForLlm
+        pdf_id: str,
+        topics: list[WikiPage],
+        pieces: list[dict[str, Any]],
+        progress: OutlineProgress,
+        wait: WaitForLlm,
     ) -> list[Entry]:
         raise LlmError("The LLM refused the prompt (400)")
 
@@ -446,7 +454,10 @@ def test_the_app_builds_the_outline_with_the_chat_llm(tmp_path: Path) -> None:
         parts = [{"title": "Drops", "text": "Drops."}, {"title": "Puddles", "text": "Pools."}]
         return json.dumps({"summary": "Rain falls.", "parts": parts})
 
-    app = create_app(tmp_path, read_pdf=two_pages, ask_llm=ask)
+    def long_page(path: Path, progress: Progress) -> Reading:
+        return Reading("text", 1, [Piece(1, "paragraph", LONG)], [])
+
+    app = create_app(tmp_path, read_pdf=long_page, ask_llm=ask)
     client = TestClient(app)
     pdf = client.post("/api/content", files={"file": ("w.pdf", PDF, "application/pdf")}).json()
     settle(app.state.readings, app.state.wiki)

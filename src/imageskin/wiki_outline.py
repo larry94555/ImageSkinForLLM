@@ -1,11 +1,11 @@
 """The wiki as an outline (roadmap R37a, item 26): each PDF's table of contents.
 
 The topics R37 finds (`wiki.build_wiki`) are grouped by the LLM into the sections of a table of
-contents, each with a short summary. A topic simple enough to say in a few sentences is an entry
-with its text as the summary. A longer one gets a short summary and a detail page of its own:
-the LLM summarizes it and splits it into parts, and each part is again either simple enough to
-show as it is or a detail page of its own, down to MAX_DEPTH levels. Nothing is dropped: if the
-LLM can't group or split something, it stays as it is.
+contents, each with a short summary. Each topic is shown with the LLM's few sentences on it. When
+what the PDF itself says on the topic's pages is simple enough, that is all; when it says more,
+the topic gets a detail page: the LLM splits what the PDF says about the topic into parts, and
+each part is again either simple enough to show as it is or a detail page of its own, down to
+MAX_DEPTH levels. If the LLM can't group or split something, it stays as it is.
 """
 
 import logging
@@ -23,8 +23,9 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# An entry whose text has at most this many sentences is shown as it is (Larry, 2026-10-12).
+# A text of at most this many sentences, and characters, is shown as it is (Larry, 2026-10-12).
 SIMPLE_SENTENCES = 5
+SIMPLE_CHARS = 600
 # Levels in all, the table of contents' sections being the first, so a long PDF can't make the
 # build run on. An entry on the last level is shown as it is.
 MAX_DEPTH = 4
@@ -42,11 +43,13 @@ SECTIONS_PROMPT = (
     ' in this form: {"sections": [{"title": "…", "summary": "…", "topics": [1, 2]}]}'
 )
 DETAIL_PROMPT = (
-    "Below is a text from a document, about the topic in its first line. Write a summary of it"
-    " in 2 or 3 sentences, then split the text into 2 to 6 parts that each cover one point, each"
-    " with a short title of a few words and its text. Keep everything the text says, in the same"
-    " order, without adding anything. Answer with JSON only, in this form:"
-    ' {"summary": "…", "parts": [{"title": "…", "text": "…"}]}'
+    "Below is a text from a document; the topic is in its first line, and a piece may start with"
+    " its page number in square brackets. Using only what the text says about that topic, write"
+    " a summary of it in 2 or 3 sentences, then split it into 2 to 6 parts that each cover one"
+    " point, each with a short title of a few words, the page numbers it comes from, and its"
+    " text. Keep every detail the text gives about the topic, in the same order, without adding"
+    " anything. Answer with JSON only, in this form:"
+    ' {"summary": "…", "parts": [{"title": "…", "pages": [1], "text": "…"}]}'
 )
 
 SECTIONS_SCHEMA: dict[str, Any] = {
@@ -75,8 +78,12 @@ DETAIL_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"title": {"type": "string"}, "text": {"type": "string"}},
-                "required": ["title", "text"],
+                "properties": {
+                    "title": {"type": "string"},
+                    "pages": {"type": "array", "items": {"type": "integer"}},
+                    "text": {"type": "string"},
+                },
+                "required": ["title", "pages", "text"],
             },
         },
     },
@@ -110,12 +117,16 @@ class Outliner:
     requests: int = 0
     used: set[str] = field(default_factory=set)
 
-    def outline(self, topics: list[WikiPage]) -> list[Entry]:
-        """The table of contents: sections of topics, or the topics alone when there are few."""
+    def outline(
+        self, topics: list[WikiPage], pieces: list[dict[str, Any]] | None = None
+    ) -> list[Entry]:
+        """The table of contents: sections of topics, or the topics alone when there are few.
+        `pieces` is what was read in the PDF, each with its page: a topic's detail comes from
+        the pieces on its pages."""
         start = time.perf_counter()
         logger.info("Building wiki outline", extra={"id": self.pdf_id, "topics": len(topics)})
         self.used.update(t.id for t in topics)  # a topic's entry keeps its page's id
-        entries = [self.topic(t) for t in topics]
+        entries = [self.topic(t, pieces or []) for t in topics]
         contents = self.sections(topics, entries) if len(topics) > FEW_TOPICS else entries
         logger.info(
             "Wiki outline built",
@@ -129,23 +140,35 @@ class Outliner:
         )
         return contents
 
-    def topic(self, page: WikiPage) -> Entry:
-        return self.entry(page.title, page.text, page.pages, 2, page.id)
+    def topic(self, page: WikiPage, pieces: list[dict[str, Any]]) -> Entry:
+        """A topic, with the LLM's few sentences on it; its detail is what the PDF says on its
+        pages (or those sentences, when nothing was read there)."""
+        source = "\n\n".join(
+            f"[page {p['page']}] {p['text']}" for p in pieces if p["page"] in page.pages
+        )
+        return self.entry(page.title, page.text, source or page.text, page.pages, 2, page.id)
 
     def entry(
-        self, title: str, text: str, pages: list[int], depth: int, entry_id: str = ""
+        self,
+        title: str,
+        summary: str,
+        text: str,
+        pages: list[int],
+        depth: int,
+        entry_id: str = "",
     ) -> Entry:
-        """An entry shown as it is when simple enough (or on the last level), else summarized
-        with its parts on a detail page."""
+        """An entry with its summary, and a detail page of `text`'s parts unless the text is
+        simple enough (or the entry is on the last level)."""
         entry_id = entry_id or unique(f"{self.pdf_id}-{slug(title)}", self.used)
-        entry = Entry(entry_id, title, text, pages)
+        entry = Entry(entry_id, title, summary, pages)
         if depth >= MAX_DEPTH or simple(text):
             return entry
-        found = self.split(title, text)
+        found = self.split(title, text, pages)
         if found is None:
-            return entry  # kept whole: nothing is lost
-        entry.summary, parts = found
-        entry.entries = [self.entry(t, x, pages, depth + 1) for t, x in parts]
+            return entry  # the summary is kept
+        if summary == text:  # a part: its own text is now on its detail page
+            entry.summary = found[0]
+        entry.entries = [self.entry(t, x, x, p, depth + 1) for t, p, x in found[1]]
         entry.detail = True
         return entry
 
@@ -177,17 +200,22 @@ class Outliner:
                 placed.add(n)
         return contents
 
-    def split(self, title: str, text: str) -> tuple[str, list[tuple[str, str]]] | None:
-        """A long text's summary and its parts; None if the LLM couldn't split it."""
+    def split(
+        self, title: str, text: str, pages: list[int]
+    ) -> tuple[str, list[tuple[str, list[int], str]]] | None:
+        """A long text's summary and its parts, each with its pages; None if the LLM couldn't
+        split it. A batch with no usable answer (it may say nothing about the topic) adds no
+        parts."""
         summary: str | None = None
-        parts: list[tuple[str, str]] = []
+        parts: list[tuple[str, list[int], str]] = []
+        read = partial(read_detail, pages=pages)
         for batch in self.batches(text.split("\n\n"), DETAIL_PROMPT, title):
-            text_batch = f"{title}\n\n" + "\n\n".join(batch)
-            found = self.request(DETAIL_PROMPT, text_batch, DETAIL_SCHEMA, read_detail)
-            if found is None:
-                return None
-            summary = summary or found[0]
-            parts += found[1]
+            found = self.request(
+                DETAIL_PROMPT, f"{title}\n\n" + "\n\n".join(batch), DETAIL_SCHEMA, read
+            )
+            if found is not None:
+                summary = summary or found[0]
+                parts += found[1]
         return (summary, parts) if summary and len(parts) > 1 else None
 
     def batches(self, lines: list[str], prompt: str, heading: str = "") -> list[list[str]]:
@@ -275,8 +303,11 @@ def read_sections(answer: str, numbers: set[int]) -> list[tuple[str, str, list[i
     return found or None
 
 
-def read_detail(answer: str) -> tuple[str, list[tuple[str, str]]] | None:
-    """The summary and parts in the LLM's answer; None if it has no summary or parts."""
+def read_detail(
+    answer: str, pages: list[int]
+) -> tuple[str, list[tuple[str, list[int], str]]] | None:
+    """The summary and parts in the LLM's answer, each part with only the text's pages (all of
+    them when it gave none of them); None if it has no summary or parts."""
     data = load_json(answer)
     if not isinstance(data, dict):
         return None
@@ -285,8 +316,14 @@ def read_detail(answer: str) -> tuple[str, list[tuple[str, str]]] | None:
     for part in parts if isinstance(parts, list) else []:
         if isinstance(part, dict):
             title, text = clean_title(part.get("title")), part.get("text")
+            given = part.get("pages")
+            cited = sorted(
+                {p for p in given if type(p) is int and p in pages}
+                if isinstance(given, list)
+                else []
+            )
             if title and isinstance(text, str) and text.strip():
-                found.append((title, text.strip()))
+                found.append((title, cited or pages, text.strip()))
     if not isinstance(summary, str) or not summary.strip() or not found:
         return None
     return summary.strip(), found
@@ -297,7 +334,7 @@ def sentences(text: str) -> int:
 
 
 def simple(text: str) -> bool:
-    return sentences(text) <= SIMPLE_SENTENCES
+    return sentences(text) <= SIMPLE_SENTENCES and len(text) <= SIMPLE_CHARS
 
 
 def first_sentence(text: str) -> str:

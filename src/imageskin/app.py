@@ -210,9 +210,13 @@ def outline_builder(
         count, window = estimate, lambda: llm.context_tokens
 
     def build(
-        pdf_id: str, topics: list[WikiPage], progress: OutlineProgress, wait: WaitForLlm
+        pdf_id: str,
+        topics: list[WikiPage],
+        pieces: list[dict[str, Any]],
+        progress: OutlineProgress,
+        wait: WaitForLlm,
     ) -> list[Entry]:
-        return Outliner(pdf_id, ask, count, window(), progress, wait).outline(topics)
+        return Outliner(pdf_id, ask, count, window(), progress, wait).outline(topics, pieces)
 
     return build
 
