@@ -1,9 +1,22 @@
 // The Manage Content page (roadmap R35): the PDFs the answers will come from, with add, replace
-// and remove. They are kept apart from the photos and recordings (roadmap R34).
+// and remove. They are kept apart from the photos and recordings (roadmap R34). Each PDF shows
+// how far the server has got reading it (roadmap R36).
 
 import { useEffect, useState } from "preact/hooks";
 
-import { listPdfs, type Pdf, pdfUrl, removePdf, sendPdf } from "./api";
+import {
+  listPdfs,
+  listReadings,
+  type Pdf,
+  pdfUrl,
+  type Reading,
+  readingUrl,
+  removePdf,
+  sendPdf,
+} from "./api";
+
+// How often the reading progress is checked while a PDF is being read.
+export const READING_POLL_MS = 1000;
 
 interface Refused {
   name: string;
@@ -17,6 +30,30 @@ export function ContentPage() {
   // What is being sent now: the file's name, and the id of the PDF it replaces, if any.
   const [sending, setSending] = useState<{ name: string; replacing?: string } | null>(null);
   const [refused, setRefused] = useState<Refused[]>([]);
+  const [readings, setReadings] = useState<Record<string, Reading>>({});
+  // Until every PDF is read or has failed. A PDF with no progress yet counts as being read, so
+  // a failed check is tried again.
+  const reading = (pdfs ?? []).some((pdf) =>
+    ["waiting", "reading", undefined].includes(readings[pdf.id]?.state),
+  );
+
+  // Checks the progress whenever the list changes, then every second while a PDF is read.
+  useEffect(() => {
+    if (pdfs === null) return;
+    let stopped = false;
+    const check = () =>
+      listReadings()
+        .then((next) => {
+          if (!stopped) setReadings(next);
+        })
+        .catch((e: unknown) => console.error("Could not check the reading progress", e));
+    void check();
+    const timer = reading ? window.setInterval(check, READING_POLL_MS) : undefined;
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [pdfs, reading]);
 
   useEffect(() => {
     listPdfs()
@@ -128,6 +165,7 @@ export function ContentPage() {
               {size(pdf.size)} · {pdf.replaced_at ? "replaced" : "added"}{" "}
               {day(pdf.replaced_at ?? pdf.added_at)}
             </span>
+            <ReadingLine id={pdf.id} reading={readings[pdf.id]} />
             <span className="actions">
               <label className={sending?.replacing === pdf.id ? "replace busy" : "replace"}>
                 {sending?.replacing === pdf.id ? `Uploading ${sending.name}…` : "Replace"}
@@ -149,6 +187,40 @@ export function ContentPage() {
       </ul>
     </>
   );
+}
+
+function ReadingLine({ id, reading }: { id: string; reading?: Reading }) {
+  if (!reading) return null;
+  if (reading.state === "failed") return <span className="error">{readingText(reading)}</span>;
+  if (reading.state !== "done") return <span className="muted busy">{readingText(reading)}</span>;
+  return (
+    <span className="muted">
+      {readingText(reading)} ·{" "}
+      <a href={readingUrl(id)} target="_blank" rel="noreferrer">
+        What was read
+      </a>
+    </span>
+  );
+}
+
+// "Read 3 pages: 12 paragraphs, 1 table", or how far reading has got.
+export function readingText(r: Reading): string {
+  if (r.state === "waiting") return "Waiting to be read…";
+  if (r.state === "reading") {
+    return r.pages ? `Reading page ${r.page} of ${r.pages}…` : "Reading…";
+  }
+  if (r.state === "failed") return r.error ?? "Could not be read.";
+  const found = (["paragraph", "slide", "table"] as const)
+    .filter((kind) => r.counts?.[kind])
+    .map((kind) => plural(r.counts?.[kind] ?? 0, kind));
+  const blank = r.pages_without_text ?? [];
+  let scanned = blank.length ? ` (no text on page ${blank.join(", ")}, maybe scanned)` : "";
+  if (blank.length && !found.length) scanned = ", maybe scanned";
+  return `Read ${plural(r.pages, "page")}: ${found.join(", ") || "no text found"}${scanned}`;
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
 // 1536 -> "2 KB", 2_500_000 -> "2.4 MB"
