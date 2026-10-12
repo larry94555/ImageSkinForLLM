@@ -5,12 +5,15 @@ import { GuidePage, loadGuide, STEPS } from "./guide";
 
 beforeEach(() => {
   localStorage.clear();
+  // jsdom has no scrolling; each step change scrolls the page to the top.
+  vi.stubGlobal("scrollTo", vi.fn());
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -28,6 +31,7 @@ test("Next and Back move through the steps and log each one", () => {
   fireEvent.click(screen.getByRole("button", { name: "Next: Get ready" }));
   expect(heading()).toBe("Get ready");
   expect(console.info).toHaveBeenCalledWith(`Guide step 2 of ${STEPS.length}: Get ready`);
+  expect(window.scrollTo).toHaveBeenCalledWith({ top: 0 });
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(heading()).toBe("Before you begin");
 });
