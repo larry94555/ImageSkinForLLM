@@ -8,6 +8,7 @@ describe("router", () => {
     expect(pageFor("#/")).toBe("home");
     expect(pageFor("#/consent")).toBe("consent");
     expect(pageFor("#/setup/")).toBe("setup");
+    expect(pageFor("#/content")).toBe("content");
     expect(pageFor("#/nowhere")).toBe("not-found");
   });
 

@@ -133,6 +133,184 @@ async function getClips(replyId, known) {
 async function stopReply(replyId) {
 	return (await json(await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" }))).stopped;
 }
+function pdfUrl(id) {
+	return `/api/content/${id}`;
+}
+async function listPdfs() {
+	return json(await fetch("/api/content"));
+}
+async function sendPdf(file, id) {
+	const form = new FormData();
+	form.append("file", file);
+	const response = await fetch(id ? pdfUrl(id) : "/api/content", {
+		method: id ? "PUT" : "POST",
+		body: form
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
+async function removePdf(id) {
+	const response = await fetch(pdfUrl(id), { method: "DELETE" });
+	if (!response.ok) throw new Error(await refusal(response));
+}
+//#endregion
+//#region src/content.tsx
+function ContentPage() {
+	const [pdfs, setPdfs] = d(null);
+	const [loadFailed, setLoadFailed] = d(false);
+	const [sending, setSending] = d(null);
+	const [refused, setRefused] = d([]);
+	h(() => {
+		listPdfs().then(setPdfs).catch((e) => {
+			console.error("Could not list the PDFs", e);
+			setLoadFailed(true);
+		});
+	}, []);
+	async function send(file, replacing) {
+		setSending({
+			name: file.name,
+			replacing: replacing?.id
+		});
+		const started = performance.now();
+		try {
+			const pdf = await sendPdf(file, replacing?.id);
+			const took = `${Math.round(performance.now() - started)} ms`;
+			console.info(replacing ? `Replaced ${replacing.name} with ${pdf.name} in ${took}` : `Added ${pdf.name} in ${took}`);
+			return pdf;
+		} catch (e) {
+			console.error(`${replacing ? "Replacing" : "Adding"} ${file.name} refused`, e);
+			setRefused((current) => [...current, {
+				name: file.name,
+				reason: e.message
+			}]);
+			return null;
+		} finally {
+			setSending(null);
+		}
+	}
+	async function add(event) {
+		const input = event.currentTarget;
+		const files = Array.from(input.files ?? []);
+		input.value = "";
+		setRefused([]);
+		for (const file of files) {
+			const pdf = await send(file);
+			if (pdf) setPdfs((current) => [...current ?? [], pdf]);
+		}
+	}
+	async function replace(old, event) {
+		const input = event.currentTarget;
+		const file = input.files?.[0];
+		input.value = "";
+		if (!file) return;
+		setRefused([]);
+		const pdf = await send(file, old);
+		if (pdf) setPdfs((current) => (current ?? []).map((p) => p.id === pdf.id ? pdf : p));
+	}
+	async function remove(pdf) {
+		if (!window.confirm(`Remove ${pdf.name}?`)) return;
+		setRefused([]);
+		try {
+			await removePdf(pdf.id);
+			console.info(`Removed ${pdf.name}`);
+			setPdfs((current) => (current ?? []).filter((p) => p.id !== pdf.id));
+		} catch (e) {
+			console.error(`Could not remove ${pdf.name}`, e);
+			setRefused([{
+				name: pdf.name,
+				reason: "Could not remove it. Please try again."
+			}]);
+		}
+	}
+	const ready = sending === null && (pdfs !== null || loadFailed);
+	const loading = pdfs === null && !loadFailed;
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("h1", { children: "Manage Content" }),
+		/* @__PURE__ */ u("p", {
+			className: "muted",
+			children: "Add the PDFs the person's answers will come from, up to 100 MB each. Replace a PDF when it has a newer version, or remove it when it no longer applies."
+		}),
+		/* @__PURE__ */ u("label", {
+			className: ready ? "button" : "button busy",
+			children: [sending && !sending.replacing ? `Uploading ${sending.name}…` : loading ? "Loading…" : "Add PDFs", /* @__PURE__ */ u("input", {
+				type: "file",
+				multiple: true,
+				accept: "application/pdf,.pdf",
+				disabled: !ready,
+				onChange: add,
+				className: "file"
+			})]
+		}),
+		refused.map((r) => /* @__PURE__ */ u("p", {
+			className: "error",
+			children: [
+				r.name,
+				": ",
+				r.reason
+			]
+		}, r.name)),
+		loadFailed && /* @__PURE__ */ u("p", {
+			className: "error",
+			children: "Could not load the list. Reload the page to try again."
+		}),
+		loading && /* @__PURE__ */ u("p", {
+			className: "muted busy",
+			children: "Loading the PDFs…"
+		}),
+		pdfs?.length === 0 && /* @__PURE__ */ u("p", {
+			className: "muted",
+			children: "No PDFs yet."
+		}),
+		/* @__PURE__ */ u("ul", {
+			className: "pdfs",
+			children: pdfs?.map((pdf) => /* @__PURE__ */ u("li", { children: [
+				/* @__PURE__ */ u("a", {
+					className: "name",
+					href: pdfUrl(pdf.id),
+					target: "_blank",
+					rel: "noreferrer",
+					children: pdf.name
+				}),
+				/* @__PURE__ */ u("span", {
+					className: "muted",
+					children: [
+						size(pdf.size),
+						" · ",
+						pdf.replaced_at ? "replaced" : "added",
+						" ",
+						day(pdf.replaced_at ?? pdf.added_at)
+					]
+				}),
+				/* @__PURE__ */ u("span", {
+					className: "actions",
+					children: [/* @__PURE__ */ u("label", {
+						className: sending?.replacing === pdf.id ? "replace busy" : "replace",
+						children: [sending?.replacing === pdf.id ? `Uploading ${sending.name}…` : "Replace", /* @__PURE__ */ u("input", {
+							type: "file",
+							accept: "application/pdf,.pdf",
+							"aria-label": `Replace ${pdf.name}`,
+							disabled: !ready,
+							onChange: (e) => replace(pdf, e),
+							className: "file"
+						})]
+					}), /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "remove",
+						onClick: () => remove(pdf),
+						children: "Remove"
+					})]
+				})
+			] }, pdf.id))
+		})
+	] });
+}
+function size(bytes) {
+	if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+	return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+function day(iso) {
+	return new Date(iso).toLocaleDateString();
+}
 //#endregion
 //#region src/pages.tsx
 function HomePage({ consented }) {
@@ -1490,7 +1668,8 @@ var PAGES = {
 	"/": "home",
 	"/consent": "consent",
 	"/setup": "setup",
-	"/chat": "chat"
+	"/chat": "chat",
+	"/content": "content"
 };
 function pageFor(hash) {
 	return PAGES[hash.replace(/^#/, "").replace(/\/+$/, "") || "/"] ?? "not-found";
@@ -1529,6 +1708,11 @@ var NAV = [
 		page: "chat",
 		href: "#/chat",
 		label: "Chat"
+	},
+	{
+		page: "content",
+		href: "#/content",
+		label: "Manage Content"
 	}
 ];
 function App() {
@@ -1553,6 +1737,7 @@ function App() {
 		} }),
 		setup: /* @__PURE__ */ u(SetupPage, {}),
 		chat: /* @__PURE__ */ u(ChatPage, {}),
+		content: /* @__PURE__ */ u(ContentPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [

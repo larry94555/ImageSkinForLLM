@@ -15,7 +15,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.0% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.3% | 7 of 7 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.7% | 11 of 11 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.7% | 1 of 5 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.7% | 2 of 5 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.0% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.7% | 0 |
@@ -332,9 +332,10 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** add, replace and remove a PDF with API calls, and the logs and folder showing each change.
 - **Built:** `ContentStore` in `content.py` keeps PDFs in `<data folder>/content/pdfs` as `<id>.pdf` with `<id>.json` (display name, size, `added_at`, `replaced_at`); `POST`, `GET`, `PUT` and `DELETE` under `/api/content`. The type is checked from the first bytes (`%PDF-`), names are only for display, and limits are 100 MB per PDF and 2 GB in total. Replacing keeps the id, so R37 can rebuild only that PDF's wiki pages. The API needs no consent (PDFs aren't the person's likeness); R44 adds the administrator sign-on.
 
-### R35. Manage Content page (Medium) · item 24
+### R35. Manage Content page (Medium) · item 24 · Done in [PR #63](https://github.com/larry94555/ImageSkinForLLM/pull/63)
 - A "Manage Content" link opens a separate page listing the PDFs, with add, remove and replace.
 - **Can show:** in the browser, upload two PDFs, replace one and remove the other.
+- **Built:** `ContentPage` in `web/src/content.tsx` at `#/content`, linked as **Manage Content** in the top bar. It lists each PDF with its name (opens the PDF), size and the day it was added or last replaced; **Add PDFs** takes several at a time, **Replace** keeps the PDF's place and id, **Remove** asks first, and a refused file is shown with the server's reason. The browser console has `Added …` and `Replaced … with …` with the time taken in ms, and `Removed …`. The top bar now wraps on a narrow screen.
 
 ### R36. Reading text, slides and tables (Medium) · item 25
 - Extracts each PDF by kind: text as paragraphs, slides page by page, tables as rows and columns, with the page number kept for each piece. Runs when a PDF is added or replaced, as a job with progress like R12.

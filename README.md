@@ -110,7 +110,7 @@ Try them on the API docs page at http://127.0.0.1:8000/docs while `imageskin ser
 
 ### PDF content
 
-The PDFs that answers will come from (the Manage Content page, coming next) are stored in `content/pdfs` inside the app's folder, apart from the photos and recordings, under random names with a small JSON file each that keeps the name it was uploaded with. The type is checked from the file's first bytes (`%PDF-`), not its name. Limits: 100 MB per PDF, 2 GB in total. These requests don't need consent, since PDFs aren't the person's likeness; administrator sign-on comes later.
+The PDFs that answers will come from are stored in `content/pdfs` inside the app's folder, apart from the photos and recordings, under random names with a small JSON file each that keeps the name it was uploaded with. The type is checked from the file's first bytes (`%PDF-`), not its name. Limits: 100 MB per PDF, 2 GB in total. These requests don't need consent, since PDFs aren't the person's likeness; administrator sign-on comes later.
 
 | Request | What it does |
 |---|---|
@@ -121,6 +121,8 @@ The PDFs that answers will come from (the Manage Content page, coming next) are 
 | `DELETE /api/content/{id}` | Remove one |
 
 The log has `PDF added`, `PDF replaced` and `PDF removed` with the id, size, stored path and time taken, or `PDF refused` with the reason.
+
+To manage them in the browser, open **Manage Content** in the app's top bar (http://127.0.0.1:8000/#/content while `imageskin serve` is running). **Add PDFs** takes one or more PDFs at a time, each PDF's name opens it, **Replace** swaps in a new file for that PDF and **Remove** deletes it after asking. A refused file is listed with the reason. The browser console has `Added …`, `Replaced … with …` (each with the time taken in ms) and `Removed …`.
 
 HEIC photos (from iPhones) need an optional extra: `pip install -e ".[heic]"`. It is optional because pillow-heif's wheels include libheif and libde265 (LGPL-3) and x265 (GPL-2); the app only uses them to read HEIC files.
 

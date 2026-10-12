@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getConsent } from "./api";
+import { ContentPage } from "./content";
 import { ChatPage, ConsentPage, HomePage, NotFoundPage, SetupPage } from "./pages";
 import { type Page, resolve, useHash } from "./router";
 
@@ -10,6 +11,7 @@ const NAV: { page: Page; href: string; label: string }[] = [
   { page: "home", href: "#/", label: "Home" },
   { page: "setup", href: "#/setup", label: "Setup" },
   { page: "chat", href: "#/chat", label: "Chat" },
+  { page: "content", href: "#/content", label: "Manage Content" },
 ];
 
 export function App() {
@@ -47,6 +49,7 @@ export function App() {
       ),
       setup: <SetupPage />,
       chat: <ChatPage />,
+      content: <ContentPage />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }
