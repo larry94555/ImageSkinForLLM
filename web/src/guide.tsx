@@ -430,6 +430,10 @@ export const STEPS: Step[] = [
             "What's something you've changed your mind about?",
           ]}
         />
+        <p className="notice">
+          Short on time? You can stop here: Recordings 1 to 3 are enough for today&apos;s voice. Use{" "}
+          <b>Go to step</b> below to jump to <b>Check your recordings</b>.
+        </p>
       </>
     ),
   },
@@ -538,8 +542,8 @@ export const STEPS: Step[] = [
     title: "Check your recordings",
     body: () => (
       <ul className="checklist">
-        <li>You have 7 recordings named Voice 1 to Voice 7 (plus Voice 8 if you made the optional one).</li>
-        <li>Voice 1 and Voice 2 are each about 1 to 2 minutes long; Voice 3 is about 1 minute; Voice 4, 5 and 6 are each about 3 minutes; Voice 7 is about 2 minutes.</li>
+        <li>You have at least Voice 1, Voice 2 and Voice 3. These are all today&apos;s voice needs. Voice 4 to Voice 7 (and Voice 8) are extra, if you made them.</li>
+        <li>Voice 1 and Voice 2 are each about 1 to 2 minutes long; Voice 3 is about 1 minute. If you made them, Voice 4, 5 and 6 are each about 3 minutes and Voice 7 is about 2 minutes.</li>
         <li>When you play them back, your voice is clear and easy to hear.</li>
         <li>There is no music, TV, other voices or loud background hum.</li>
         <li>If one of them went wrong, delete just that one and record that section again.</li>
@@ -550,22 +554,22 @@ export const STEPS: Step[] = [
     title: "Add your files to the app",
     body: (laptop) => (
       <>
-        <p>Find your 5 photos and 7 recordings, then add them on the Setup page.</p>
+        <p>Find your 5 photos and your recordings (Voice 1 to Voice 3, plus any extra ones you made), then add them on the Setup page.</p>
         <For laptop={laptop} only={["win10", "win11"]}>
           <h2>Windows</h2>
           <ul className="bullets">
             <li>Photos: in the file picker, open <b>Pictures</b>, then <b>Camera Roll</b>. Your 5 photos are the newest ones.</li>
-            <li>Recordings: open <b>Documents</b>, then <b>Sound recordings</b>. You should see Voice 1 to Voice 7.</li>
+            <li>Recordings: open <b>Documents</b>, then <b>Sound recordings</b>. You should see Voice 1, Voice 2 and Voice 3, and any extra ones you made.</li>
             <li>Can't find them? Pictures and Documents may be inside a OneDrive folder. Type <b>Camera Roll</b> or <b>Sound recordings</b> in the search box at the top right.</li>
           </ul>
         </For>
         <For laptop={laptop} only={["mac"]}>
           <h2>Mac</h2>
-          <p>All 12 files are on your Desktop (you put them there in the earlier steps).</p>
+          <p>Your photos and recordings are on your Desktop (you put them there in the earlier steps).</p>
         </For>
         <ol className="tips">
           <li>On the Setup page, click <b>Add photos</b> and choose all 5 photos at once.</li>
-          <li>Click <b>Add recordings</b> and choose all 7 recordings at once.</li>
+          <li>Click <b>Add recordings</b> and choose all your recordings at once: Voice 1 to Voice 3, plus Voice 4 to Voice 8 if you made them.</li>
           <li>Each file is checked as it arrives. If one needs fixing, the page says what to change; take or record that one again and add it.</li>
         </ol>
         <a className="button" href="#/setup">

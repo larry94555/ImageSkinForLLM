@@ -984,16 +984,30 @@ var STEPS = [
 	},
 	{
 		title: "Recording 3 of 7",
-		body: () => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Before, {
-			name: "Voice 3",
-			minutes: "1 minute",
-			children: "Choose two or three of the questions below. Press Record and answer them out loud in your own words, as if chatting with a friend, for about 20 to 30 seconds each. Pause for a second between questions."
-		}), /* @__PURE__ */ u(Questions, { items: [
-			"What did you do last weekend?",
-			"Describe a place you love and why.",
-			"Explain how to make something you cook often.",
-			"What's something you've changed your mind about?"
-		] })] })
+		body: () => /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u(Before, {
+				name: "Voice 3",
+				minutes: "1 minute",
+				children: "Choose two or three of the questions below. Press Record and answer them out loud in your own words, as if chatting with a friend, for about 20 to 30 seconds each. Pause for a second between questions."
+			}),
+			/* @__PURE__ */ u(Questions, { items: [
+				"What did you do last weekend?",
+				"Describe a place you love and why.",
+				"Explain how to make something you cook often.",
+				"What's something you've changed your mind about?"
+			] }),
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: [
+					"Short on time? You can stop here: Recordings 1 to 3 are enough for today's voice. Use",
+					" ",
+					/* @__PURE__ */ u("b", { children: "Go to step" }),
+					" below to jump to ",
+					/* @__PURE__ */ u("b", { children: "Check your recordings" }),
+					"."
+				]
+			})
+		] })
 	},
 	{
 		title: "Recording 4 of 7",
@@ -1092,8 +1106,8 @@ var STEPS = [
 		body: () => /* @__PURE__ */ u("ul", {
 			className: "checklist",
 			children: [
-				/* @__PURE__ */ u("li", { children: "You have 7 recordings named Voice 1 to Voice 7 (plus Voice 8 if you made the optional one)." }),
-				/* @__PURE__ */ u("li", { children: "Voice 1 and Voice 2 are each about 1 to 2 minutes long; Voice 3 is about 1 minute; Voice 4, 5 and 6 are each about 3 minutes; Voice 7 is about 2 minutes." }),
+				/* @__PURE__ */ u("li", { children: "You have at least Voice 1, Voice 2 and Voice 3. These are all today's voice needs. Voice 4 to Voice 7 (and Voice 8) are extra, if you made them." }),
+				/* @__PURE__ */ u("li", { children: "Voice 1 and Voice 2 are each about 1 to 2 minutes long; Voice 3 is about 1 minute. If you made them, Voice 4, 5 and 6 are each about 3 minutes and Voice 7 is about 2 minutes." }),
 				/* @__PURE__ */ u("li", { children: "When you play them back, your voice is clear and easy to hear." }),
 				/* @__PURE__ */ u("li", { children: "There is no music, TV, other voices or loud background hum." }),
 				/* @__PURE__ */ u("li", { children: "If one of them went wrong, delete just that one and record that section again." })
@@ -1103,7 +1117,7 @@ var STEPS = [
 	{
 		title: "Add your files to the app",
 		body: (laptop) => /* @__PURE__ */ u(S, { children: [
-			/* @__PURE__ */ u("p", { children: "Find your 5 photos and 7 recordings, then add them on the Setup page." }),
+			/* @__PURE__ */ u("p", { children: "Find your 5 photos and your recordings (Voice 1 to Voice 3, plus any extra ones you made), then add them on the Setup page." }),
 			/* @__PURE__ */ u(For, {
 				laptop,
 				only: ["win10", "win11"],
@@ -1122,7 +1136,7 @@ var STEPS = [
 							/* @__PURE__ */ u("b", { children: "Documents" }),
 							", then ",
 							/* @__PURE__ */ u("b", { children: "Sound recordings" }),
-							". You should see Voice 1 to Voice 7."
+							". You should see Voice 1, Voice 2 and Voice 3, and any extra ones you made."
 						] }),
 						/* @__PURE__ */ u("li", { children: [
 							"Can't find them? Pictures and Documents may be inside a OneDrive folder. Type ",
@@ -1137,7 +1151,7 @@ var STEPS = [
 			/* @__PURE__ */ u(For, {
 				laptop,
 				only: ["mac"],
-				children: [/* @__PURE__ */ u("h2", { children: "Mac" }), /* @__PURE__ */ u("p", { children: "All 12 files are on your Desktop (you put them there in the earlier steps)." })]
+				children: [/* @__PURE__ */ u("h2", { children: "Mac" }), /* @__PURE__ */ u("p", { children: "Your photos and recordings are on your Desktop (you put them there in the earlier steps)." })]
 			}),
 			/* @__PURE__ */ u("ol", {
 				className: "tips",
@@ -1150,7 +1164,7 @@ var STEPS = [
 					/* @__PURE__ */ u("li", { children: [
 						"Click ",
 						/* @__PURE__ */ u("b", { children: "Add recordings" }),
-						" and choose all 7 recordings at once."
+						" and choose all your recordings at once: Voice 1 to Voice 3, plus Voice 4 to Voice 8 if you made them."
 					] }),
 					/* @__PURE__ */ u("li", { children: "Each file is checked as it arrives. If one needs fixing, the page says what to change; take or record that one again and add it." })
 				]

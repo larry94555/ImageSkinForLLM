@@ -128,3 +128,24 @@ test("the guide says which recordings today's voice uses, so the extra ones aren
   expect(screen.getByText(/Recordings 4 to 7 do\s+not change today's voice/)).toBeTruthy();
   expect(screen.queryByText(/in depth/)).toBeNull();
 });
+
+test("the short path (stop after Recording 3) stays consistent in the later steps", () => {
+  const at = (title: string) => STEPS.findIndex((s) => s.title === title);
+  localStorage.setItem("imageskin.guide", JSON.stringify({ step: at("Recording 3 of 7") }));
+  render(<GuidePage />);
+  expect(screen.getByText(/You can stop here: Recordings 1 to 3 are enough/)).toBeTruthy();
+
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: String(at("Check your recordings")) } });
+  expect(screen.getByText(/You have at least Voice 1, Voice 2 and Voice 3/)).toBeTruthy();
+
+  fireEvent.change(screen.getByRole("combobox"), {
+    target: { value: String(at("Add your files to the app")) },
+  });
+  expect(screen.getByText(/Voice 1 to Voice 3, plus Voice 4 to Voice 8 if you made them/)).toBeTruthy();
+
+  // No later step may say all 7 recordings are needed.
+  for (let i = at("Check your recordings"); i < STEPS.length; i++) {
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: String(i) } });
+    expect(screen.queryByText(/7 recordings|Voice 1 to Voice 7|12 files/)).toBeNull();
+  }
+});
