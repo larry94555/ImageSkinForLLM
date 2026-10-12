@@ -309,7 +309,8 @@ def create_app(
             media_type="application/pdf",
             filename=pdf.name,
             content_disposition_type="inline",
-            headers={"X-Content-Type-Options": "nosniff"},
+            # no-cache: replacing a PDF keeps its address, so the browser must check for a new one.
+            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
         )
 
     @app.delete(content_api + "/{pdf_id}")

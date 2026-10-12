@@ -174,6 +174,7 @@ def test_content_api_adds_fetches_replaces_and_removes(tmp_path: Path) -> None:
     assert fetched.headers["content-type"] == "application/pdf"
     assert fetched.headers["x-content-type-options"] == "nosniff"
     assert fetched.headers["content-disposition"].startswith("inline")
+    assert fetched.headers["cache-control"] == "no-cache"
 
     put = client.put(f"/api/content/{pdf['id']}", files={"file": ("Week 1 v2.pdf", OTHER_PDF)})
     assert put.status_code == 200
