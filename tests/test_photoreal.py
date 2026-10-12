@@ -28,6 +28,7 @@ from imageskin.photoreal import (
     audio_seed,
     reach,
     read_shapes,
+    settled,
 )
 from imageskin.photoreal_library import build_library, load_library, mouth_mask
 from imageskin.video import VideoError, read_pcm16
@@ -195,3 +196,69 @@ def test_read_shapes(tmp_path: Path) -> None:
     assert read_shapes(wav.with_suffix(".json"))[1].shape == "AA"
     with pytest.raises(VideoError, match="could not read mouth shapes"):
         read_shapes(tmp_path / "missing.json")
+
+
+def test_render_starts_on_the_given_loop_frame(tmp_path: Path, short_loop: object) -> None:
+    """R23: a clip starts where the one before it ended, so the head doesn't jump back."""
+    engine = PhotorealEngine(home=tmp_path / "home", make_portrait=lambda _: FakePortrait())
+    lib = engine.prepare(photo_file(tmp_path))
+    wav = tmp_path / "speech.wav"
+    write_speech(wav)
+    seen: list[int] = []
+    real_frame = Compositor.frame
+
+    def frame(
+        self: Compositor, w: dict[str, float], i: int, eye_open: float, move: FrameMotion
+    ) -> object:
+        seen.append(i)
+        return real_frame(self, w, i, eye_open, move)
+
+    with patch.object(Compositor, "frame", frame):
+        engine.render(lib, wav, tmp_path / "reply.mp4", start_frame=7)
+    assert seen == list(range(7, 17))  # Compositor.face wraps them onto the loop
+
+
+def test_idle_video_rests_blinks_and_loops(
+    tmp_path: Path, short_loop: object, caplog: pytest.LogCaptureFixture
+) -> None:
+    engine = PhotorealEngine(home=tmp_path / "home", make_portrait=lambda _: FakePortrait())
+    lib = engine.prepare(photo_file(tmp_path))
+    seen: list[tuple[dict[str, float], int, float]] = []
+    real_frame = Compositor.frame
+
+    def frame(
+        self: Compositor, w: dict[str, float], i: int, eye_open: float = 1.0, *rest: object
+    ) -> object:
+        seen.append((w, i, eye_open))
+        return real_frame(self, w, i, eye_open)
+
+    n = len(lib.loop) * photoreal.IDLE_LOOPS
+    track = [1.0] * n
+    track[3] = 0.0
+    caplog.set_level("INFO")
+    out = tmp_path / "idle.mp4"
+    with (
+        patch.object(photoreal, "eye_track", return_value=track) as eye_track,
+        patch.object(Compositor, "frame", frame),
+    ):
+        assert engine.render_idle(lib, out) == pytest.approx(n / 25)
+    assert eye_track.call_args.args[:2] == (n, 25)
+    assert [i for _, i, _ in seen] == list(range(n))  # whole turns of the loop
+    assert all(w == {"rest": 1.0} for w, _, _ in seen)  # the mouth at rest
+    assert [e for _, _, e in seen] == track
+    video = cv2.VideoCapture(str(out))
+    frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    video.release()
+    assert frames == n
+    assert "Rendered idle video" in caplog.messages
+
+
+def test_the_voices_movement_settles_at_each_end_of_a_clip() -> None:
+    """R23: every clip starts and ends in the idle pose, so clips join without a jump."""
+    move = FrameMotion(1.0, 2.0, 3.0, 4.0, 5.0)
+    n = 30
+    assert settled(move, 0, n) == FrameMotion() and settled(move, n - 1, n) == FrameMotion()
+    ramp = [settled(move, i, n).tilt for i in range(6)]
+    assert ramp == sorted(ramp) and 0 < ramp[1] < ramp[4] < 4.0
+    assert settled(move, 5, n) is move and settled(move, n - 6, n) is move
+    assert settled(move, 2, n) == settled(move, n - 3, n)  # the same easing at both ends

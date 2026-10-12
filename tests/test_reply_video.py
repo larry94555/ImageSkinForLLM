@@ -161,6 +161,85 @@ def test_a_failed_warm_up_is_logged_only(tmp_path: Path, caplog: pytest.LogCaptu
     assert "Could not warm up replies" in caplog.messages
 
 
+def idle_steps(made: list[str], fail: bool = False) -> ClipSteps:
+    """Clip steps whose engine can make the idle video (R23)."""
+
+    def idle(photo: Path, output: Path) -> None:
+        made.append(photo.name)
+        if fail:
+            output.write_bytes(b"half")
+            raise VideoError("ffmpeg stopped")
+        output.write_bytes(b"idle")
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        output.write_bytes(b"mp4")
+
+    return ClipSteps(lambda text, wav: None, render, idle)
+
+
+def test_warming_up_makes_the_idle_video_once_per_photo(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    made: list[str] = []
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), idle_steps(made)
+    )
+    assert videos.idle(Path("me.jpg")) is None
+    caplog.set_level(logging.INFO)
+    videos.warm_up(Path("me.jpg"))
+    videos.warm_up(Path("me.jpg"))  # a second accept: kept
+    assert made == ["me.jpg"] and "Idle video ready" in caplog.messages
+    idle = videos.idle(Path("me.jpg"))
+    assert idle is not None and idle.read_bytes() == b"idle"
+    videos.warm_up(Path("you.jpg"))  # another photo prepared: its own, and the old one goes
+    assert made == ["me.jpg", "you.jpg"]
+    assert [p.name for p in (tmp_path / "replies" / "idle").iterdir()] == ["you.mp4"]
+    videos.render(Path("you.jpg"), 1, "Hello")  # a reply's video leaves the idle video be
+    videos.render(Path("you.jpg"), 3, "Hello")
+    assert videos.idle(Path("you.jpg")) is not None
+
+
+def test_an_idle_video_that_fails_is_logged_and_left_out(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    made: list[str] = []
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), idle_steps(made, fail=True)
+    )
+    videos.warm_up(Path("me.jpg"))
+    assert "Could not make the idle video" in caplog.messages
+    assert videos.idle(Path("me.jpg")) is None
+    assert list((tmp_path / "replies" / "idle").iterdir()) == []  # nothing half made is kept
+
+
+def test_an_old_idle_video_that_cant_be_removed_is_left_for_later(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    old = tmp_path / "replies" / "idle" / "me.mp4"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"idle")
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), idle_steps([])
+    )
+    real_unlink = Path.unlink
+
+    def unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == old:
+            raise PermissionError("open in the browser")
+        real_unlink(self, missing_ok)
+
+    with patch.object(Path, "unlink", unlink):
+        videos.warm_up(Path("you.jpg"))
+    assert "Could not remove an old idle video" in caplog.messages
+    assert videos.idle(Path("you.jpg")) is not None and old.exists()
+
+
+def test_an_engine_without_an_idle_video_makes_none(tmp_path: Path) -> None:
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    videos.warm_up(Path("me.jpg"))
+    assert videos.idle(Path("me.jpg")) is None
+
+
 # --- Sentence by sentence (R21) ---
 
 
@@ -767,6 +846,16 @@ def test_replies_are_warmed_up_when_the_sample_is_accepted(tmp_path: Path) -> No
     assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
     client.app.state.reply_warm_up.join(5)  # type: ignore[attr-defined]
     assert rendered == ["Hello."]
+
+
+def test_the_api_serves_the_idle_video_once_the_warm_up_made_it(tmp_path: Path) -> None:
+    made: list[str] = []
+    client = video_app(tmp_path, None, steps=idle_steps(made))
+    assert client.get("/api/chat/idle").status_code == 404  # nothing accepted: no warm-up yet
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    idle = client.get("/api/chat/idle")  # waits for the warm-up that makes it
+    assert idle.status_code == 200 and idle.content == b"idle" and len(made) == 1
+    assert idle.headers["content-type"] == "video/mp4"
 
 
 def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) -> None:

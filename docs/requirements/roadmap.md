@@ -14,7 +14,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 12.0% | 9 of 9 |
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 8.0% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.3% | 7 of 7 |
-| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.7% | 10 of 11 |
+| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.7% | 11 of 11 |
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 5 | 6.7% | 0 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 4.0% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.7% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.7% | 0 |
-| | **Total** | | **75** | **100%** | **39 of 75** |
+| | **Total** | | **75** | **100%** | **40 of 75** |
 
 Sizes: 19 Simple, 56 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -319,10 +319,11 @@ The PRs below are written for either kind of video engine, but these are the one
 - On a CPU with performance and efficiency cores, the app keeps itself on the performance cores at startup and counts only theirs for sharing the cores with the LLM (`use_performance_cores` in `cores.py`): on Windows from the cores' efficiency classes, on Linux from Intel's list of performance cores. `IMAGESKIN_ALL_CORES=1` turns it off. Other CPUs, and macOS, are unchanged.
 - **Can show:** the log's `Kept the app on the performance cores` line, and shorter waits in the timing readout on such a laptop.
 
-### R23. Idle video and smooth joins (Medium) · item 17
+### R23. Idle video and smooth joins (Medium) · item 17 · Done in [PR #61](https://github.com/larry94555/ImageSkinForLLM/pull/61)
 - Between replies the person blinks and moves slightly instead of freezing.
 - Returns to the idle pose between sentence clips and crossfades the joins.
 - **Can show:** the person looks alive while waiting, and multi-sentence replies play without visible jumps.
+- **Built:** the warm-up makes an idle video once per photo (`render_idle` in `photoreal.py`, 24 s: three turns of the idle loop with the mouth at rest and blinks, silent, at the reply clips' size; about 3 s to make), kept in `<data folder>/replies/idle` and served at `GET /api/chat/idle`. The chat page plays it on a loop under the reply clips (`Stage` in `pages.tsx`): a clip fades in over it as it starts (0.25 s), and the player fades back to it when it runs out of clips, during a pause between clips, after the reply and after Stop. Each clip starts on the idle-loop frame the one before it ended on, and the voice's head and brow movement eases out over the first and last 5 frames of a clip (`settled`), so back-to-back clips join without a jump: measured on the real engines, the mean pixel change at a join went from 2.45 and 1.53 to 0.23 and 0.14, against 0.2 between two frames inside a clip. Without an idle video (an engine that makes none, or it failed), the chat holds each reply's last frame as before. The log has `Rendered idle video` and `Idle video ready` with the time taken, or `Could not make the idle video`; the browser console has `Idle video ready`.
 
 ## Milestone 6: Content and the wiki
 

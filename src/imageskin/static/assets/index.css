@@ -180,18 +180,30 @@ ol.turns li {
 ol.turns li.user { justify-self: end; border-color: var(--accent); }
 ol.turns .who { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
 .chat form { justify-items: stretch; }
-/* The person speaking the latest reply (roadmap R17). */
+/* The person speaking the latest reply (roadmap R17), over the idle video (roadmap R23). */
 /* It stays at the top of the window when the page scrolls, so the person is always in view. */
-.reply-video {
+.stage {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.reply-video,
+.idle-video {
   display: block;
   width: 100%;
   max-height: 45vh;
   background: #000;
   border-radius: 8px;
-  position: sticky;
-  top: 0;
-  z-index: 1;
 }
+/* A clip lies over the idle video and fades between it and the clip at each end. */
+.reply-video.over {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  max-height: none;
+  transition: opacity 0.25s ease;
+}
+.reply-video.resting { opacity: 0; }
 /* How long each sentence took to be spoken, against the 1 to 2 second target (roadmap R22a). */
 .timing { font-size: 0.85rem; color: var(--muted); }
 .timing ol { margin: 2px 0 0; padding-left: 1.4em; }

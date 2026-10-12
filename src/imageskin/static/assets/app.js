@@ -878,6 +878,7 @@ function Chat() {
 	const wakeOnStop = A(() => {});
 	const [halted, setHalted] = d(false);
 	const [sound, setSound] = d(loadSound);
+	const [idle, setIdle] = d("loading");
 	h(() => () => {
 		gone.current = true;
 	}, []);
@@ -1033,11 +1034,16 @@ function Chat() {
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [
-			clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
-				clips,
-				onStarted: started,
-				onEnded: ended,
-				sound
+			/* @__PURE__ */ u(Stage, {
+				idle,
+				onIdle: setIdle,
+				children: clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
+					clips,
+					onStarted: started,
+					onEnded: ended,
+					sound,
+					rest: idle === "ready"
+				})
 			}),
 			/* @__PURE__ */ u(SoundControls, {
 				sound,
@@ -1254,8 +1260,34 @@ function History(props) {
 		})] })]
 	});
 }
+function Stage(props) {
+	const { idle, onIdle } = props;
+	return /* @__PURE__ */ u("div", {
+		className: "stage",
+		children: [idle !== "none" && /* @__PURE__ */ u("video", {
+			className: "idle-video",
+			src: "/api/chat/idle",
+			hidden: idle !== "ready",
+			autoPlay: true,
+			loop: true,
+			muted: true,
+			playsInline: true,
+			disablePictureInPicture: true,
+			onLoadedData: () => {
+				if (idle === "ready") return;
+				console.info("Idle video ready");
+				onIdle("ready");
+			},
+			onError: () => {
+				console.info("No idle video: the chat holds each reply's last frame");
+				onIdle("none");
+			}
+		}), props.children]
+	});
+}
 function ClipPlayer(props) {
-	const { clips, onStarted, onEnded, sound } = props;
+	const { clips, onStarted, onEnded, sound, rest } = props;
+	const [on, setOn] = d(false);
 	const [playing, setPlaying] = d(0);
 	const [active, setActive] = d(0);
 	const players = [A(null), A(null)];
@@ -1272,6 +1304,7 @@ function ClipPlayer(props) {
 	h(() => {
 		setPlaying(0);
 		setActive(0);
+		setOn(false);
 		begun.current = /* @__PURE__ */ new Set();
 		play(players[0].current);
 	}, [first]);
@@ -1290,6 +1323,7 @@ function ClipPlayer(props) {
 		play(players[active].current);
 	}, [active, shown]);
 	function begins(at) {
+		setOn(true);
 		if (playing < clips.length && !begun.current.has(playing)) {
 			begun.current.add(playing);
 			onStarted?.(playing, at);
@@ -1299,11 +1333,12 @@ function ClipPlayer(props) {
 		if (playing >= clips.length) return;
 		onEnded?.(playing, at);
 		if (next !== void 0) setActive((a) => 1 - a);
+		else setOn(false);
 		setPlaying(playing + 1);
 	}
 	return /* @__PURE__ */ u(S, { children: [[0, 1].map((n) => n === active ? /* @__PURE__ */ u("video", {
 		ref: players[n],
-		className: "reply-video",
+		className: rest ? on ? "reply-video over" : "reply-video over resting" : "reply-video",
 		src: shown,
 		autoPlay: true,
 		playsInline: true,

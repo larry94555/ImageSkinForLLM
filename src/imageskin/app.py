@@ -423,7 +423,7 @@ def create_app(
         with chat_lock, core_share.llm():
             return chat(body)
 
-    def wait_for_warm_up() -> None:
+    def wait_for_warm_up(what: str = "Prompt") -> None:
         """A prompt sent right after the sample was accepted waits for the warm-up to finish,
         so it doesn't reach the LLM while the LLM is still reading the system prompt, or the
         engines while they render their first word (a review finding on R22a). The wait has
@@ -432,7 +432,7 @@ def create_app(
         if thread.is_alive():
             start = time.perf_counter()
             thread.join()
-            logger.info("Prompt waited for the warm-up", extra={"wait_ms": ms_since(start)})
+            logger.info(f"{what} waited for the warm-up", extra={"wait_ms": ms_since(start)})
 
     def chat(body: ChatRequest) -> dict[str, str | int | bool]:
         with clips_lock:
@@ -619,6 +619,18 @@ def create_app(
                     if whole_videos.get(body.reply_id) is stop:
                         del whole_videos[body.reply_id]
         return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
+
+    @app.get("/api/chat/idle", dependencies=needs_consent)
+    def get_idle_video() -> FileResponse:
+        """The person at rest, blinking and moving slightly, shown on a loop between replies
+        (roadmap R23). Made by the warm-up, so a request during it waits for it."""
+        wait_for_warm_up("Idle video")
+        photo = chosen_photo()
+        path = None if photo is None else replies.idle(photo)
+        if path is None:
+            raise HTTPException(status_code=404, detail="No idle video.")
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
+        return FileResponse(path, media_type="video/mp4", headers=headers)
 
     @app.get("/api/chat/videos/{turn}", dependencies=needs_consent)
     def get_reply_video(turn: int) -> FileResponse:

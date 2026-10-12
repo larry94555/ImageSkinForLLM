@@ -59,6 +59,22 @@ from imageskin.visemes import ShapeTiming, frame_weights
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_S = 300.0
+# The idle video the chat shows between replies (roadmap R23): this many turns of the idle
+# loop, so its blinks repeat only that seldom while the head's drift still loops smoothly.
+IDLE_LOOPS = 3
+IDLE_SEED = 23  # its blinks: the same for every photo, as nothing is spoken to seed them
+# The voice's movement of the head and brows eases in over this many frames at the start of a
+# clip and out at its end, so every clip starts and ends in the idle pose (roadmap R23).
+SETTLE_FRAMES = 5
+
+
+def settled(move: FrameMotion, i: int, n_frames: int) -> FrameMotion:
+    """`move` in frame `i` of `n_frames`, eased to none at the first and last frames."""
+    edge = min(i, n_frames - 1 - i) / SETTLE_FRAMES
+    if edge >= 1.0:
+        return move
+    k = edge * edge * (3.0 - 2.0 * edge)  # smoothstep: no sudden start to the easing
+    return FrameMotion(*(k * v for v in move))
 
 
 class ShapeMorph:
@@ -260,9 +276,25 @@ class PhotorealEngine:
         find_ffmpeg()  # fail now, not after a long setup
         return prepare_library(photo, self._home, self._make_portrait)
 
-    def render(self, lib: Library, wav: Path, output: Path, progressive: bool = False) -> float:
+    def _compositor(self, lib: Library) -> Compositor:
+        key = (lib.folder, lib.photo.shape[:2])
+        compositor = self._compositors.get(key) or Compositor(lib)
+        self._compositors[key] = compositor
+        return compositor
+
+    def render(
+        self,
+        lib: Library,
+        wav: Path,
+        output: Path,
+        progressive: bool = False,
+        start_frame: int = 0,
+    ) -> float:
         """Render the speech in `wav` on the library's photo into `output`; `progressive` for an
-        MP4 that can be played while it is written (roadmap R22d). Returns the video's seconds."""
+        MP4 that can be played while it is written (roadmap R22d). The head moves through the
+        idle loop from frame `start_frame`, and the voice's movement settles at each end, so a
+        clip that starts where the one before it ended joins it without a jump (roadmap R23).
+        Returns the video's seconds."""
         start = time.perf_counter()
         samples, rate = read_pcm16(wav)
         seconds = len(samples) / rate
@@ -270,13 +302,12 @@ class PhotorealEngine:
         weights = frame_weights(read_shapes(wav.with_suffix(".json")), n_frames, FPS)
         eyes = eye_track(n_frames, FPS, seed=audio_seed(samples))
         moves = motion(np.asarray(samples, np.float32) / 32768.0, rate, n_frames, FPS)
-        key = (lib.folder, lib.photo.shape[:2])
-        compositor = self._compositors.get(key) or Compositor(lib)
-        self._compositors[key] = compositor
+        compositor = self._compositor(lib)
 
         def frames() -> Iterator[bytes]:
             for i, w in enumerate(weights):
-                yield compositor.frame(w, i, eyes[i], moves.at(i)).tobytes()
+                move = settled(moves.at(i), i, n_frames)
+                yield compositor.frame(w, start_frame + i, eyes[i], move).tobytes()
 
         h, w = lib.photo.shape[:2]
         write_mp4(
@@ -293,6 +324,35 @@ class PhotorealEngine:
                 "duration_ms": round(elapsed * 1000, 1),
                 # Below 1.0 means faster than real time.
                 "real_time_factor": round(elapsed / seconds, 2) if seconds else None,
+            },
+        )
+        return seconds
+
+    def render_idle(self, lib: Library, output: Path) -> float:
+        """Write the idle video the chat shows between replies (roadmap R23): the face at
+        rest, drifting through the idle loop IDLE_LOOPS times and blinking now and then,
+        silent. It ends on the frame before its first, so it plays on a loop without a jump,
+        and every blink ends before it does. Returns its seconds."""
+        start = time.perf_counter()
+        n_frames = len(lib.loop) * IDLE_LOOPS
+        eyes = eye_track(n_frames, FPS, seed=IDLE_SEED)
+        compositor = self._compositor(lib)
+        rest = {"rest": 1.0}
+
+        def frames() -> Iterator[bytes]:
+            for i in range(n_frames):
+                yield compositor.frame(rest, i, eyes[i]).tobytes()
+
+        h, w = lib.photo.shape[:2]
+        write_mp4(frames(), (w, h), None, output, self._timeout_s, pix_fmt="rgb24")
+        seconds = n_frames / FPS
+        logger.info(
+            "Rendered idle video",
+            extra={
+                "output": str(output),
+                "frames": n_frames,
+                "video_s": round(seconds, 2),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
         return seconds
