@@ -126,22 +126,46 @@ class ContentStore:
                     pdf = Pdf(id=uuid.uuid4().hex, name=name, size=size, added_at=now())
                 else:
                     pdf = replace(old, name=name, size=size, replaced_at=now())
-                self.folder.mkdir(parents=True, exist_ok=True)
-                final = self.folder / f"{pdf.id}.pdf"
-                info = final.with_suffix(".json")
-                writing = info.with_suffix(".writing")
-                writing.write_text(json.dumps(asdict(pdf)), encoding="utf-8")
-                received.replace(final)
-                writing.replace(info)
+                self._commit(pdf, received, replacing=old is not None)
             return pdf
         finally:
             received.unlink(missing_ok=True)
+
+    def _commit(self, pdf: Pdf, received: Path, replacing: bool) -> None:
+        """Move the received file and its info into place. If either step fails, the store is
+        left as it was: a new PDF is taken out again, a replaced one gets its old file back."""
+        self.folder.mkdir(parents=True, exist_ok=True)
+        final = self.folder / f"{pdf.id}.pdf"
+        info = final.with_suffix(".json")
+        writing = info.with_suffix(".writing")
+        backup = final.with_suffix(".old")
+        try:
+            writing.write_text(json.dumps(asdict(pdf)), encoding="utf-8")
+            if replacing:
+                final.replace(backup)
+            received.replace(final)
+            writing.replace(info)
+        except OSError as e:
+            if replacing and backup.exists():
+                backup.replace(final)
+            elif not replacing:
+                final.unlink(missing_ok=True)
+            writing.unlink(missing_ok=True)
+            logger.error(
+                "Could not store the PDF", extra={"id": pdf.id, "path": str(final), "error": str(e)}
+            )
+            raise UploadError("The PDF could not be stored. Try again.", status=500) from e
+        backup.unlink(missing_ok=True)
 
     def list(self) -> list[Pdf]:
         """Stored PDFs, oldest first."""
         if not self.folder.is_dir():
             return []
-        pdfs = [p for info in self.folder.glob("*.json") if (p := self._read(info)) is not None]
+        pdfs = [
+            p
+            for info in self.folder.glob("*.json")
+            if info.with_suffix(".pdf").is_file() and (p := self._read(info)) is not None
+        ]
         return sorted(pdfs, key=lambda p: p.added_at)
 
     def get(self, pdf_id: str | None) -> Pdf | None:
@@ -161,8 +185,14 @@ class ContentStore:
             stored = self.path(pdf_id)
             if stored is None:
                 return False
+            # The file first: if it can't be deleted (open elsewhere), the PDF stays listed
+            # and can be removed again.
+            try:
+                stored.unlink()
+            except OSError as e:
+                logger.error("Could not remove the PDF", extra={"id": pdf_id, "error": str(e)})
+                raise UploadError("The PDF could not be removed. Try again.", status=500) from e
             stored.with_suffix(".json").unlink(missing_ok=True)
-            stored.unlink()
         logger.info("PDF removed", extra={"id": pdf_id})
         return True
 

@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -146,6 +147,8 @@ def test_unreadable_info_is_logged_and_skipped(
 ) -> None:
     store = ContentStore(tmp_path)
     good = store.add("a.pdf", io.BytesIO(PDF))
+    for bad in ("f" * 32, "e" * 32):
+        (tmp_path / "content" / "pdfs" / f"{bad}.pdf").write_bytes(PDF)
     (tmp_path / "content" / "pdfs" / ("f" * 32 + ".json")).write_text("{oops", encoding="utf-8")
     (tmp_path / "content" / "pdfs" / ("e" * 32 + ".json")).write_text(
         json.dumps({"id": "e" * 32}), encoding="utf-8"
@@ -191,3 +194,84 @@ def test_content_api_errors_are_plain_messages(tmp_path: Path) -> None:
     missing = client.put(f"/api/content/{'0' * 32}", files={"file": ("x.pdf", PDF)})
     assert missing.status_code == 404 and missing.json()["detail"] == "No such PDF."
     assert client.get("/api/content/..%2F..%2Fsecret").status_code == 404
+
+
+def fail_info_commit(real: Callable[[Path, Path], Path]) -> Callable[[Path, Path], Path]:
+    """Path.replace that fails when the info file is moved into place, after the PDF."""
+
+    def replace(self: Path, target: Path) -> Path:
+        if self.suffix == ".writing":
+            raise PermissionError("locked by antivirus")
+        return real(self, target)
+
+    return replace
+
+
+def pdf_folder(home: Path) -> list[str]:
+    return sorted(p.name for p in (home / "content" / "pdfs").iterdir())
+
+
+def test_a_failed_add_leaves_nothing_behind(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = ContentStore(tmp_path)
+    with (
+        patch.object(Path, "replace", fail_info_commit(Path.replace)),
+        pytest.raises(UploadError) as e,
+        caplog.at_level(logging.ERROR),
+    ):
+        store.add("a.pdf", io.BytesIO(PDF))
+    assert e.value.status == 500 and str(e.value).startswith("The PDF could not be stored.")
+    assert store.list() == [] and pdf_folder(tmp_path) == []
+    assert list((tmp_path / "content" / "tmp").iterdir()) == []
+    assert any(r.message == "Could not store the PDF" for r in caplog.records)
+
+
+def test_a_failed_replacement_keeps_the_old_pdf_and_info(tmp_path: Path) -> None:
+    store = ContentStore(tmp_path)
+    old = store.add("v1.pdf", io.BytesIO(PDF))
+    with (
+        patch.object(Path, "replace", fail_info_commit(Path.replace)),
+        pytest.raises(UploadError) as e,
+    ):
+        store.replace(old.id, "v2.pdf", io.BytesIO(OTHER_PDF))
+    assert e.value.status == 500
+    assert store.list() == [old]
+    assert (store.path(old.id) or Path()).read_bytes() == PDF
+    assert pdf_folder(tmp_path) == [f"{old.id}.json", f"{old.id}.pdf"]
+
+    # And a later replacement works.
+    assert store.replace(old.id, "v2.pdf", io.BytesIO(OTHER_PDF)).name == "v2.pdf"
+    assert pdf_folder(tmp_path) == [f"{old.id}.json", f"{old.id}.pdf"]
+
+
+def test_a_pdf_that_cannot_be_deleted_stays_listed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = ContentStore(tmp_path)
+    pdf = store.add("a.pdf", io.BytesIO(PDF))
+    real_unlink = Path.unlink
+
+    def unlink(self: Path, missing_ok: bool = False) -> None:
+        if self.suffix == ".pdf":
+            raise PermissionError("open in another program")
+        real_unlink(self, missing_ok=missing_ok)
+
+    with patch.object(Path, "unlink", unlink), caplog.at_level(logging.ERROR):
+        with pytest.raises(UploadError) as e:
+            store.remove(pdf.id)
+        client = TestClient(create_app(tmp_path))
+        sent = client.delete(f"/api/content/{pdf.id}")
+    assert e.value.status == 500
+    assert sent.status_code == 500 and sent.json()["detail"].startswith("The PDF could not be")
+    assert any(r.message == "Could not remove the PDF" for r in caplog.records)
+    assert store.list() == [pdf]
+    assert store.remove(pdf.id) is True
+    assert store.list() == []
+
+
+def test_info_without_its_pdf_is_not_listed(tmp_path: Path) -> None:
+    store = ContentStore(tmp_path)
+    pdf = store.add("a.pdf", io.BytesIO(PDF))
+    (tmp_path / "content" / "pdfs" / f"{pdf.id}.pdf").unlink()
+    assert store.list() == []

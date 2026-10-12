@@ -314,7 +314,11 @@ def create_app(
 
     @app.delete(content_api + "/{pdf_id}")
     def remove_pdf(pdf_id: str) -> dict[str, bool]:
-        if not content.remove(pdf_id):
+        try:
+            removed = content.remove(pdf_id)
+        except UploadError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        if not removed:
             raise HTTPException(status_code=404, detail="No such PDF.")
         return {"removed": True}
 
