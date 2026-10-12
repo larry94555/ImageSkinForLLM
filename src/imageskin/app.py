@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi import Path as PathParam
@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from imageskin import __version__
+from imageskin import __version__, pdf_reading
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.chat import AskLlm, Conversation, LlmClient, LlmError, LlmSettings, StreamLlm
 from imageskin.config import default_home
@@ -40,6 +40,7 @@ from imageskin.prepare_job import (
     photoreal_steps,
     steps_clip,
 )
+from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
@@ -151,6 +152,7 @@ def create_app(
     ask_llm: AskLlm | None = None,
     stream_llm: StreamLlm | None = None,
     warm_up_llm: Callable[[], None] | None = None,  # with ask_llm: readies the LLM (tests)
+    read_pdf: ReadPdf | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -279,6 +281,10 @@ def create_app(
     # material, not the person's likeness, so it needs no consent; sign-on comes with R44.
     content = ContentStore(data_home)
     content_api = "/api/content"
+    # Each PDF is read when it is added or replaced (R36); on start, any not read yet.
+    readings = ReadingJob(content, read_pdf or pdf_reading.read_pdf)
+    readings.catch_up()
+    app.state.readings = readings
 
     @app.get(content_api)
     def list_pdfs() -> list[Pdf]:
@@ -287,16 +293,32 @@ def create_app(
     @app.post(content_api)
     def add_pdf(file: UploadFile) -> Pdf:
         try:
-            return content.add(file.filename, file.file)
+            pdf = content.add(file.filename, file.file)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
+        readings.queue(pdf)
+        return pdf
 
     @app.put(content_api + "/{pdf_id}")
     def replace_pdf(pdf_id: str, file: UploadFile) -> Pdf:
         try:
-            return content.replace(pdf_id, file.filename, file.file)
+            pdf = content.replace(pdf_id, file.filename, file.file)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
+        readings.queue(pdf)
+        return pdf
+
+    # Before /{pdf_id}, which would take "readings" as an id.
+    @app.get(content_api + "/readings")
+    def reading_statuses() -> dict[str, ReadingStatus]:
+        return readings.statuses()
+
+    @app.get(content_api + "/{pdf_id}/reading")
+    def get_reading(pdf_id: str) -> dict[str, Any]:
+        reading = readings.reading(pdf_id)
+        if reading is None:
+            raise HTTPException(status_code=404, detail="Not read yet.")
+        return reading
 
     @app.get(content_api + "/{pdf_id}")
     def get_pdf(pdf_id: str) -> FileResponse:
@@ -321,6 +343,7 @@ def create_app(
             raise HTTPException(status_code=e.status, detail=str(e)) from e
         if not removed:
             raise HTTPException(status_code=404, detail="No such PDF.")
+        readings.forget(pdf_id)
         return {"removed": True}
 
     # One voice engine for the job, so Prepare loads the voice model once.

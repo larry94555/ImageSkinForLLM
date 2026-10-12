@@ -153,13 +153,35 @@ async function removePdf(id) {
 	const response = await fetch(pdfUrl(id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
 }
+function readingUrl(id) {
+	return `/api/content/${id}/reading`;
+}
+async function listReadings() {
+	return json(await fetch("/api/content/readings"));
+}
 //#endregion
 //#region src/content.tsx
+var READING_POLL_MS = 1e3;
 function ContentPage() {
 	const [pdfs, setPdfs] = d(null);
 	const [loadFailed, setLoadFailed] = d(false);
 	const [sending, setSending] = d(null);
 	const [refused, setRefused] = d([]);
+	const [readings, setReadings] = d({});
+	const reading = Object.values(readings).some((r) => r.state === "waiting" || r.state === "reading");
+	h(() => {
+		if (pdfs === null) return;
+		let stopped = false;
+		const check = () => listReadings().then((next) => {
+			if (!stopped) setReadings(next);
+		}).catch((e) => console.error("Could not check the reading progress", e));
+		check();
+		const timer = reading ? window.setInterval(check, READING_POLL_MS) : void 0;
+		return () => {
+			stopped = true;
+			window.clearInterval(timer);
+		};
+	}, [pdfs, reading]);
 	h(() => {
 		listPdfs().then(setPdfs).catch((e) => {
 			console.error("Could not list the PDFs", e);
@@ -281,6 +303,10 @@ function ContentPage() {
 						day(pdf.replaced_at ?? pdf.added_at)
 					]
 				}),
+				/* @__PURE__ */ u(ReadingLine, {
+					id: pdf.id,
+					reading: readings[pdf.id]
+				}),
 				/* @__PURE__ */ u("span", {
 					className: "actions",
 					children: [/* @__PURE__ */ u("label", {
@@ -303,6 +329,48 @@ function ContentPage() {
 			] }, pdf.id))
 		})
 	] });
+}
+function ReadingLine({ id, reading }) {
+	if (!reading) return null;
+	if (reading.state === "failed") return /* @__PURE__ */ u("span", {
+		className: "error",
+		children: readingText(reading)
+	});
+	if (reading.state !== "done") return /* @__PURE__ */ u("span", {
+		className: "muted busy",
+		children: readingText(reading)
+	});
+	return /* @__PURE__ */ u("span", {
+		className: "muted",
+		children: [
+			readingText(reading),
+			" ·",
+			" ",
+			/* @__PURE__ */ u("a", {
+				href: readingUrl(id),
+				target: "_blank",
+				rel: "noreferrer",
+				children: "What was read"
+			})
+		]
+	});
+}
+function readingText(r) {
+	if (r.state === "waiting") return "Waiting to be read…";
+	if (r.state === "reading") return r.pages ? `Reading page ${r.page} of ${r.pages}…` : "Reading…";
+	if (r.state === "failed") return r.error ?? "Could not be read.";
+	const found = [
+		"paragraph",
+		"slide",
+		"table"
+	].filter((kind) => r.counts?.[kind]).map((kind) => plural(r.counts?.[kind] ?? 0, kind));
+	const blank = r.pages_without_text ?? [];
+	let scanned = blank.length ? ` (no text on page ${blank.join(", ")}, maybe scanned)` : "";
+	if (blank.length && !found.length) scanned = ", maybe scanned";
+	return `Read ${plural(r.pages, "page")}: ${found.join(", ") || "no text found"}${scanned}`;
+}
+function plural(n, word) {
+	return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 function size(bytes) {
 	if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
