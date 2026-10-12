@@ -384,18 +384,95 @@ function day(iso) {
 	return new Date(iso).toLocaleDateString();
 }
 //#endregion
-//#region src/pages.tsx
-function HomePage({ consented }) {
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("h1", { children: "Welcome" }),
-		/* @__PURE__ */ u("p", { children: "Set up a talking video of a person from a few photos and voice recordings. The person then speaks the chatbot's replies." }),
-		/* @__PURE__ */ u("a", {
-			className: "button",
-			href: consented ? "#/setup" : "#/consent",
-			children: "Start setup"
-		})
-	] });
+//#region src/home.tsx
+async function loadHome(consented) {
+	if (!consented) {
+		console.info("Home loaded (setup not started: no consent yet)");
+		return {
+			done: false,
+			photo: null
+		};
+	}
+	const started = performance.now();
+	try {
+		const [review, choice] = await Promise.all([getReview(), getPhotoChoice()]);
+		const state = {
+			done: review.accepted,
+			photo: review.accepted && choice.id ? uploadUrl("photos", choice.id) : null
+		};
+		console.info(`Home loaded in ${Math.round(performance.now() - started)} ms (setup ${state.done ? "done" : "not done"})`);
+		return state;
+	} catch (e) {
+		console.error("Could not load the home page's setup state", e);
+		return {
+			done: false,
+			photo: null
+		};
+	}
 }
+function choices(done, consented) {
+	const setupHref = consented ? "#/setup" : "#/consent";
+	if (!done) return [{
+		href: setupHref,
+		title: "Start setup",
+		text: "Add photos and voice recordings, then review a sample video of the person speaking."
+	}];
+	return [
+		{
+			href: "#/chat",
+			title: "Chat",
+			text: "Ask a question. The person answers in their own voice and face."
+		},
+		{
+			href: "#/content",
+			title: "Manage Content",
+			text: "Add, replace or remove the PDFs that answers come from."
+		},
+		{
+			href: setupHref,
+			title: "Setup",
+			text: "Change the photos, the voice recordings or the accent."
+		}
+	];
+}
+function HomePage({ consented }) {
+	const [state, setState] = d(null);
+	h(() => {
+		loadHome(consented).then(setState);
+	}, [consented]);
+	if (state === null) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Loading…"
+	});
+	return /* @__PURE__ */ u("section", {
+		className: "home",
+		children: [/* @__PURE__ */ u("div", {
+			className: "hero",
+			children: [state.photo && /* @__PURE__ */ u("img", {
+				className: "portrait",
+				src: state.photo,
+				alt: "The person in the video"
+			}), /* @__PURE__ */ u("div", { children: [/* @__PURE__ */ u("h1", { children: state.done ? "Welcome back" : "Welcome" }), /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: state.done ? "Setup is done. Pick up where you left off." : "Make a talking video of a person from a few photos and voice recordings. The person then speaks the chatbot's replies."
+			})] })]
+		}), /* @__PURE__ */ u("ul", {
+			className: state.done ? "choices three" : "choices",
+			children: choices(state.done, consented).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
+				href: c.href,
+				children: [/* @__PURE__ */ u("span", {
+					className: "title",
+					children: c.title
+				}), /* @__PURE__ */ u("span", {
+					className: "text",
+					children: c.text
+				})]
+			}) }, c.title))
+		})]
+	});
+}
+//#endregion
+//#region src/pages.tsx
 function ConsentPage({ onConfirmed }) {
 	const [checked, setChecked] = d(false);
 	const [saving, setSaving] = d(false);
