@@ -113,6 +113,7 @@ class WikiJob:
         self._building: tuple[str, str] | None = None  # the PDF and version being built now
         self._started: dict[str, float] = {}  # when the build now running started (monotonic)
         self._stage_started: dict[str, float] = {}  # and when its stage started
+        self._last_step: dict[str, float] = {}  # and when its last step was done
 
     def catch_up(self) -> None:
         """Queue every PDF that has been read but whose pages are missing or out of date."""
@@ -153,12 +154,15 @@ class WikiJob:
                 status = self._status.get(pdf.id)
                 started = self._started.get(pdf.id)
                 stage_started = self._stage_started.get(pdf.id)
+                last_step = self._last_step.get(pdf.id)
             if status is not None and status.state != "done" and started is not None:
                 now = time.monotonic()
+                stage_started = stage_started or started
+                last_step = last_step or stage_started
                 status = replace(
                     status,
                     elapsed_s=round(now - started, 1),
-                    remaining_s=remaining(status, now - (stage_started or started)),
+                    remaining_s=remaining(status, last_step - stage_started, now - last_step),
                 )
             if status is None or status.state == "done":
                 saved = self._saved(pdf.id)
@@ -241,6 +245,7 @@ class WikiJob:
                     self._building = None
                     self._started.pop(pdf_id, None)
                     self._stage_started.pop(pdf_id, None)
+                    self._last_step.pop(pdf_id, None)
         if built and self.when_idle is not None:
             self.when_idle()
 
@@ -257,6 +262,7 @@ class WikiJob:
         self._set(pdf_id, WikiStatus("building"))
 
         def progress(part: int, parts: int) -> None:
+            self._stepped(pdf_id)
             self._set(pdf_id, WikiStatus("building", part, parts))
 
         def pause(error: LlmError, building: WikiStatus, step: int) -> None:
@@ -291,6 +297,7 @@ class WikiJob:
             planned = 0
 
             def outline_progress(steps: int, steps_planned: int) -> None:
+                self._stepped(pdf_id)
                 nonlocal planned
                 planned = steps_planned
                 status = WikiStatus("building", parts, parts, stage="outline", steps=steps)
@@ -302,6 +309,7 @@ class WikiJob:
 
             with self._lock:
                 self._stage_started[pdf_id] = time.monotonic()
+                self._last_step.pop(pdf_id, None)
             outline_progress(0, 0)
             try:
                 outline = self.outline(
@@ -370,6 +378,10 @@ class WikiJob:
         self._status[pdf_id] = done_status(saved)
         return True
 
+    def _stepped(self, pdf_id: str) -> None:
+        with self._lock:
+            self._last_step[pdf_id] = time.monotonic()
+
     def _set(self, pdf_id: str, status: WikiStatus) -> None:
         with self._lock:
             # A PDF replaced while it was built waits for its new pages; don't hide that.
@@ -377,17 +389,21 @@ class WikiJob:
                 self._status[pdf_id] = status
 
 
-def remaining(status: WikiStatus, stage_s: float) -> float | None:
-    """About how long the stage has left: the time its steps done so far took, on average, for
-    each step left; None until a step is done."""
+def remaining(status: WikiStatus, steps_s: float, since_s: float) -> float | None:
+    """About how long the stage has left: the time its steps done so far took (`steps_s`), on
+    average, for each step left, less the time since the last one (`since_s`), so it counts
+    down between steps; None until a step is done."""
     done, total = (
         (status.steps, status.steps_planned)
         if status.stage == "outline"
-        else (status.part, status.parts)
+        else (
+            status.part,
+            status.parts,
+        )
     )
     if done < 1 or total < done:
         return None
-    return round(stage_s / done * (total - done), 1)
+    return round(max(0.0, steps_s / done * (total - done) - since_s), 1)
 
 
 def summary(saved: dict[str, Any]) -> dict[str, Any]:

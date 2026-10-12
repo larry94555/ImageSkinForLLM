@@ -484,8 +484,10 @@ def test_the_app_builds_the_outline_with_the_chat_llm(tmp_path: Path) -> None:
 
 def test_the_time_left_is_estimated_from_the_steps_done_so_far() -> None:
     topics = WikiStatus("building", 2, 5)
-    assert remaining(topics, 60) == 90  # 30 s a part, 3 parts left
-    assert remaining(WikiStatus("building", 0, 5), 60) is None  # nothing to go on yet
+    assert remaining(topics, 60, 0) == 90  # 30 s a part, 3 parts left
+    assert remaining(topics, 60, 20) == 70  # counting down until the next part is done
+    assert remaining(topics, 60, 200) == 0
+    assert remaining(WikiStatus("building", 0, 5), 0, 60) is None  # nothing to go on yet
     outline = WikiStatus("building", 5, 5, stage="outline", steps=3, steps_planned=4)
-    assert remaining(outline, 30) == 10
-    assert remaining(replace(outline, steps_planned=3), 30) == 0
+    assert remaining(outline, 30, 0) == 10
+    assert remaining(replace(outline, steps_planned=3), 30, 0) == 0
