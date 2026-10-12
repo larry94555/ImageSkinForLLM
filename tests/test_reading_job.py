@@ -79,20 +79,24 @@ def test_catch_up_reads_only_pdfs_with_no_up_to_date_reading(tmp_path: Path) -> 
     job = ReadingJob(store, one_paragraph)
     job.queue(first)
     job.wait()
-    second = store.add("b.pdf", io.BytesIO(PDF))
-    (tmp_path / "content" / "read" / f"{first.id}.json").write_text("{not json")
+    second = store.add("b.pdf", io.BytesIO(b"%PDF-1.4" + PDF))
+    third = store.add("c.pdf", io.BytesIO(b"%PDF-1.3" + PDF))
+    job.queue(third)
+    job.wait()
+    (tmp_path / "content" / "read" / f"{third.id}.json").write_text("{not json")
 
-    read: list[Path] = []
+    read: list[bytes] = []
 
     def counting(path: Path, progress: Progress) -> Reading:
-        read.append(path)
+        read.append(path.read_bytes())
         return one_paragraph(path, progress)
 
     later = ReadingJob(store, counting)  # as after a restart
     later.catch_up()
     later.wait()
-    assert read == [store.path(first.id), store.path(second.id)]  # first's reading is broken
-    assert set(later.statuses()) == {first.id, second.id}
+    # The second was never read, and the third's reading is broken; the first is up to date.
+    assert read == [b"%PDF-1.4" + PDF, b"%PDF-1.3" + PDF]
+    assert set(later.statuses()) == {first.id, second.id, third.id}
 
 
 def test_progress_is_reported_and_a_removed_pdf_is_forgotten(tmp_path: Path) -> None:
@@ -172,3 +176,88 @@ def test_the_content_api_reads_each_kind_of_pdf(tmp_path: Path) -> None:
     assert client.delete(f"/api/content/{ids['text_pdf']}").status_code == 200
     assert client.get(f"/api/content/{ids['text_pdf']}/reading").status_code == 404
     assert ids["text_pdf"] not in client.get("/api/content/readings").json()
+
+
+def test_a_copy_is_read_so_the_stored_pdf_can_be_replaced_or_removed_meanwhile(
+    tmp_path: Path,
+) -> None:
+    store = ContentStore(tmp_path)
+    halfway, go_on = threading.Event(), threading.Event()
+    read: list[Path] = []
+
+    def slow(path: Path, progress: Progress) -> Reading:
+        read.append(path)
+        with path.open("rb"):  # held open the whole time, as pdfplumber does
+            halfway.set()
+            go_on.wait(5)
+        return one_paragraph(path, progress)
+
+    job = ReadingJob(store, slow)
+    first = store.add("a.pdf", io.BytesIO(PDF))
+    second = store.add("b.pdf", io.BytesIO(PDF))
+    job.queue(first)
+    job.queue(second)
+    assert halfway.wait(5)
+    stored = store.path(first.id)
+    assert read[0] != stored and read[0].read_bytes() == PDF
+    store.replace(first.id, "a2.pdf", io.BytesIO(b"%PDF-1.4" + PDF))
+    store.remove(second.id)
+    go_on.set()
+    job.wait()
+
+    assert [p.exists() for p in read] == [False]  # the copy is gone; b.pdf was never read
+    assert list((tmp_path / "content" / "tmp").iterdir()) == []
+
+
+def test_a_reading_that_cannot_be_saved_fails_and_the_next_pdf_is_still_read(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = ContentStore(tmp_path)
+    blocker = tmp_path / "content" / "read"
+    blocker.parent.mkdir(parents=True, exist_ok=True)
+    blocker.write_text("a file where the folder should be")
+
+    calls: list[Path] = []
+
+    def unblocking(path: Path, progress: Progress) -> Reading:
+        calls.append(path)
+        if len(calls) == 2:  # the first PDF's reading has failed to save by now
+            blocker.unlink()
+        return one_paragraph(path, progress)
+
+    job = ReadingJob(store, unblocking)
+    first = store.add("a.pdf", io.BytesIO(PDF))
+    second = store.add("b.pdf", io.BytesIO(PDF))
+    job.queue(first)
+    job.queue(second)
+    job.wait()
+
+    statuses = job.statuses()
+    assert statuses[first.id].state == "failed"
+    assert statuses[first.id].error == "What was read could not be saved. Try replacing the PDF."
+    assert statuses[second.id].state == "done"
+    assert any(r.message == "Could not save the reading" for r in caplog.records)
+
+
+def test_an_unexpected_error_fails_that_pdf_and_the_next_is_still_read(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    def first_breaks(path: Path, progress: Progress) -> Reading:
+        if not calls:
+            calls.append(path)
+            raise MemoryError("too big")
+        return one_paragraph(path, progress)
+
+    calls: list[Path] = []
+    store = ContentStore(tmp_path)
+    job = ReadingJob(store, first_breaks)
+    first = store.add("a.pdf", io.BytesIO(PDF))
+    second = store.add("b.pdf", io.BytesIO(PDF))
+    job.queue(first)
+    job.queue(second)
+    job.wait()
+
+    statuses = job.statuses()
+    assert statuses[first.id] == ReadingStatus("failed", error="Something went wrong reading it.")
+    assert statuses[second.id].state == "done"
+    assert any(r.message == "Could not read the PDF" and r.exc_info for r in caplog.records)

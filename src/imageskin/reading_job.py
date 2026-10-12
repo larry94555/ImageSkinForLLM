@@ -3,13 +3,17 @@ far it has got, like the prepare job (R12).
 
 What was read is saved in <data folder>/content/read/<id>.json with the PDF's version (when it
 was added or last replaced), so a reading left over from an older file is never used. On start,
-every PDF with no up-to-date reading is read again. One PDF is read at a time.
+every PDF with no up-to-date reading is read again. One PDF is read at a time, from a private
+copy, so the stored file can be replaced or removed meanwhile (Windows won't rename or delete a
+file that is open).
 """
 
+import contextlib
 import json
 import logging
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -130,11 +134,25 @@ class ReadingJob:
                     self._worker = None
                     return
                 pdf_id = self._waiting.pop(0)
-            pdf, path = self.store.get(pdf_id), self.store.path(pdf_id)
-            if pdf is not None and path is not None:
-                self._read(pdf, path)
+            try:
+                self._read(pdf_id)
+            except Exception as e:  # never let one PDF stop the PDFs queued after it
+                logger.exception("Could not read the PDF", extra={"id": pdf_id, "error": repr(e)})
+                self._set(pdf_id, ReadingStatus("failed", error="Something went wrong reading it."))
 
-    def _read(self, pdf: Pdf, path: Path) -> None:
+    def _read(self, pdf_id: str) -> None:
+        # A private copy, so the stored PDF can be replaced or removed while it is read.
+        tmp = self.store.root / "tmp"
+        tmp.mkdir(parents=True, exist_ok=True)
+        copy = tmp / f"{uuid.uuid4().hex}.reading"
+        try:
+            pdf = self.store.snapshot(pdf_id, copy)
+            if pdf is not None:
+                self._read_copy(pdf, copy)
+        finally:
+            copy.unlink(missing_ok=True)
+
+    def _read_copy(self, pdf: Pdf, path: Path) -> None:
         start = time.perf_counter()
         logger.info("Reading PDF", extra={"id": pdf.id, "upload_name": pdf.name})
 
@@ -155,10 +173,22 @@ class ReadingJob:
         with self._lock:
             if self.store.get(pdf.id) != pdf:
                 return  # replaced or removed meanwhile; a newer reading is queued, or none needed
-            self.folder.mkdir(parents=True, exist_ok=True)
             writing = self.folder / f"{pdf.id}.writing"
-            writing.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
-            writing.replace(self.folder / f"{pdf.id}.json")
+            try:
+                self.folder.mkdir(parents=True, exist_ok=True)
+                writing.write_text(json.dumps(saved, ensure_ascii=False), encoding="utf-8")
+                writing.replace(self.folder / f"{pdf.id}.json")
+            except OSError as e:
+                with contextlib.suppress(OSError):  # the folder may be what failed
+                    writing.unlink(missing_ok=True)
+                logger.error(
+                    "Could not save the reading",
+                    extra={"id": pdf.id, "path": str(writing), "error": str(e)},
+                )
+                self._status[pdf.id] = ReadingStatus(
+                    "failed", error="What was read could not be saved. Try replacing the PDF."
+                )
+                return
             status = done_status(saved)
             self._status[pdf.id] = status
         logger.info(
