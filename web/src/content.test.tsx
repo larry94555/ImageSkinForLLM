@@ -33,6 +33,7 @@ const BUILT: WikiBuild = {
   stage: "topics",
   steps: 0,
   detail_pages: 0,
+  elapsed_s: null,
 };
 
 // A fake content API holding `pdfs`. `refuse` makes adding or replacing fail with that reason.
@@ -379,4 +380,14 @@ test("wiki progress reads as a sentence", () => {
   expect(wikiText(outline)).toBe("Building the wiki outline…");
   expect(wikiText({ ...outline, steps: 3 })).toBe("Building the wiki outline: 3 steps done…");
   expect(wikiText({ ...BUILT, detail_pages: 1 })).toBe("Wiki: 7 pages, 1 detail page");
+  expect(wikiText({ ...outline, steps: 2, elapsed_s: 252.4 })).toBe(
+    "Building the wiki outline: 2 steps done… (4 min 12 s so far)",
+  );
+  expect(wikiText({ ...BUILT, state: "building", part: 0, elapsed_s: 5 })).toBe(
+    "Building the wiki pages: part 1 of 2… (5 s so far)",
+  );
+  expect(wikiText({ ...waiting, error: "down", elapsed_s: 61 })).toBe(
+    "Waiting for the LLM to build the wiki pages… (1 min 1 s so far)",
+  );
+  expect(wikiText({ ...BUILT, elapsed_s: 3780 })).toBe("Wiki: 7 pages, built in 1 h 3 min");
 });

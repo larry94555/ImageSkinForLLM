@@ -424,17 +424,25 @@ function WikiLine({ id, build }) {
 	});
 }
 function wikiText(b) {
+	const sofar = b.elapsed_s != null ? ` (${duration$1(b.elapsed_s)} so far)` : "";
 	if (b.state === "waiting") {
-		if (b.error) return "Waiting for the LLM to build the wiki pages…";
-		return "Waiting to build the wiki pages…";
+		if (b.error) return `Waiting for the LLM to build the wiki pages…${sofar}`;
+		return `Waiting to build the wiki pages…${sofar}`;
 	}
-	if (b.state === "building" && b.stage === "outline") return b.steps ? `Building the wiki outline: ${plural(b.steps, "step")} done…` : "Building the wiki outline…";
-	if (b.state === "building") return b.parts ? `Building the wiki pages: part ${Math.min(b.part + 1, b.parts)} of ${b.parts}…` : "Building the wiki pages…";
+	if (b.state === "building" && b.stage === "outline") return b.steps ? `Building the wiki outline: ${plural(b.steps, "step")} done…${sofar}` : `Building the wiki outline…${sofar}`;
+	if (b.state === "building") return b.parts ? `Building the wiki pages: part ${Math.min(b.part + 1, b.parts)} of ${b.parts}…${sofar}` : `Building the wiki pages…${sofar}`;
 	if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";
 	const n = b.skipped_parts?.length ?? 0;
 	const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: the LLM gave no usable answer)` : "";
 	const detail = b.detail_pages ? `, ${plural(b.detail_pages, "detail page")}` : "";
-	return `Wiki: ${plural(b.pages ?? 0, "page")}${detail}${skipped}`;
+	const took = b.elapsed_s != null ? `, built in ${duration$1(b.elapsed_s)}` : "";
+	return `Wiki: ${plural(b.pages ?? 0, "page")}${detail}${took}${skipped}`;
+}
+function duration$1(seconds) {
+	const s = Math.round(seconds);
+	if (s < 60) return `${s} s`;
+	if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
+	return `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`;
 }
 function plural(n, word) {
 	return `${n} ${word}${n === 1 ? "" : "s"}`;

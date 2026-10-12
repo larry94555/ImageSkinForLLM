@@ -3,6 +3,7 @@ import json
 import logging
 import threading
 import urllib.error
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,10 @@ def jobs(
     return store, readings, wiki
 
 
+def timeless(status: WikiStatus) -> WikiStatus:
+    return replace(status, elapsed_s=None)
+
+
 def settle(readings: ReadingJob, wiki: WikiJob) -> None:
     readings.wait()
     wiki.wait()
@@ -57,7 +62,9 @@ def test_a_read_pdf_gets_its_wiki_pages(tmp_path: Path, caplog: pytest.LogCaptur
         readings.queue(pdf)
         settle(readings, wiki)
 
-    assert wiki.statuses() == {pdf.id: WikiStatus("done", 1, 1, 2, [], detail_pages=0)}
+    status = wiki.statuses()[pdf.id]
+    assert timeless(status) == WikiStatus("done", 1, 1, 2, [], detail_pages=0)
+    assert status.elapsed_s is not None and status.elapsed_s >= 0  # how long it took
     listed = {"pdf_id": pdf.id, "pdf_name": "weather.pdf"}
     assert wiki.pages() == [
         {**listed, "id": f"{pdf.id}-p1", "title": "Rain.", "pages": [1]},
@@ -69,6 +76,7 @@ def test_a_read_pdf_gets_its_wiki_pages(tmp_path: Path, caplog: pytest.LogCaptur
     assert wiki.page(f"{pdf.id}-nope") is None and wiki.page("nope") is None
     saved = json.loads((tmp_path / "content" / "wiki" / f"{pdf.id}.json").read_text())
     assert saved["version"] == pdf.added_at and len(saved["pages"]) == 2
+    assert saved["duration_s"] == status.elapsed_s
     assert [e["id"] for e in saved["outline"]] == [f"{pdf.id}-p1", f"{pdf.id}-p2"]
     built = [r for r in caplog.records if r.message == "Wiki pages built"][0]
     assert built.__dict__["pages"] == 2 and built.__dict__["duration_ms"] >= 0
@@ -170,7 +178,7 @@ def test_the_build_waits_for_the_llm_and_asks_the_same_part_again(
 
     # Part 2 is asked again; part 1 is not.
     assert asked == ["[page 1] Rain.", "[page 2] Snow.", "[page 2] Snow."]
-    assert wiki.statuses()[pdf.id] == WikiStatus("done", 2, 2, 2, [], detail_pages=0)
+    assert timeless(wiki.statuses()[pdf.id]) == WikiStatus("done", 2, 2, 2, [], detail_pages=0)
     assert "Waiting for the LLM to build the wiki" in caplog.text
 
 
@@ -242,7 +250,8 @@ def test_pages_built_for_a_pdf_replaced_meanwhile_are_not_saved(tmp_path: Path) 
     readings.queue(pdf)
     readings.wait()
     assert started.wait(5)
-    assert wiki.statuses()[pdf.id] == WikiStatus("building")
+    status = wiki.statuses()[pdf.id]
+    assert timeless(status) == WikiStatus("building") and status.elapsed_s is not None
     store.replace(pdf.id, "a2.pdf", io.BytesIO(b"%PDF-1.4" + PDF))
     wiki.reset(pdf.id)
     go_on.set()
@@ -337,7 +346,8 @@ def test_a_pdf_already_being_built_is_not_queued_again(tmp_path: Path) -> None:
     assert started.wait(5)
     wiki.catch_up()  # read, with no pages saved yet: the start-up race
     wiki.queue(pdf.id)
-    assert wiki.statuses()[pdf.id] == WikiStatus("building")
+    status = wiki.statuses()[pdf.id]
+    assert timeless(status) == WikiStatus("building") and status.elapsed_s is not None
     go_on.set()
     wiki.wait()
     assert built == [pdf.id]
@@ -377,11 +387,11 @@ def test_the_outline_is_built_after_the_topics_and_saved_with_them(
         progress: OutlineProgress,
         wait: WaitForLlm,
     ) -> list[Entry]:
-        seen.append(wiki.statuses()[pdf_id])
+        seen.append(timeless(wiki.statuses()[pdf_id]))
         wait(down(), 1, 0)  # the LLM goes away for a moment
-        seen.append(wiki.statuses()[pdf_id])
+        seen.append(timeless(wiki.statuses()[pdf_id]))
         progress(1)
-        seen.append(wiki.statuses()[pdf_id])
+        seen.append(timeless(wiki.statuses()[pdf_id]))
         parts = [Entry(f"{pdf_id}-drops", "Drops", "Drops.", [1])]
         return [Entry(topics[0].id, "Rain", "Rain falls.", [1], parts, detail=True)]
 
@@ -396,7 +406,7 @@ def test_the_outline_is_built_after_the_topics_and_saved_with_them(
         WikiStatus("building", 1, 1, stage="outline"),
         WikiStatus("building", 1, 1, stage="outline", steps=1),
     ]
-    assert wiki.statuses()[pdf.id] == WikiStatus("done", 1, 1, 1, [], detail_pages=1)
+    assert timeless(wiki.statuses()[pdf.id]) == WikiStatus("done", 1, 1, 1, [], detail_pages=1)
     waited = [r for r in caplog.records if r.message == "Waiting for the LLM to build the wiki"]
     assert waited[0].__dict__["stage"] == "outline"
     topic = wiki.page(f"{pdf.id}-rain")

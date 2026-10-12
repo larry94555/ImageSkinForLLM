@@ -359,6 +359,7 @@ export interface WikiBuild {
   stage: "topics" | "outline"; // while building: finding the topics, then building the outline
   steps: number; // outline requests made to the LLM so far
   detail_pages: number | null; // once done: the outline's detail pages
+  elapsed_s: number | null; // how long the build has taken so far, or took once done
 }
 
 // A PDF's wiki pages with their text, as JSON, to open in a new tab.

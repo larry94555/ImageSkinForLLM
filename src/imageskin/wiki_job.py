@@ -67,13 +67,20 @@ class WikiStatus:
     stage: Stage = "topics"  # while building: finding the topics, then building the outline
     steps: int = 0  # outline requests made to the LLM so far
     detail_pages: int | None = None  # once done: the outline's detail pages
+    elapsed_s: float | None = None  # how long the build has taken so far, or took once done
 
 
 def done_status(saved: dict[str, Any]) -> WikiStatus:
     parts = saved["parts"]
     detail = sum(count_detail(e) for e in from_saved(saved["outline"]))
     return WikiStatus(
-        "done", parts, parts, len(saved["pages"]), saved["skipped_parts"], detail_pages=detail
+        "done",
+        parts,
+        parts,
+        len(saved["pages"]),
+        saved["skipped_parts"],
+        detail_pages=detail,
+        elapsed_s=saved.get("duration_s"),
     )
 
 
@@ -101,6 +108,7 @@ class WikiJob:
         self._status: dict[str, WikiStatus] = {}
         self._worker: threading.Thread | None = None
         self._building: tuple[str, str] | None = None  # the PDF and version being built now
+        self._started: dict[str, float] = {}  # when the build now running started (monotonic)
 
     def catch_up(self) -> None:
         """Queue every PDF that has been read but whose pages are missing or out of date."""
@@ -139,6 +147,9 @@ class WikiJob:
         for pdf in self.store.list():
             with self._lock:
                 status = self._status.get(pdf.id)
+                started = self._started.get(pdf.id)
+            if status is not None and status.state != "done" and started is not None:
+                status = replace(status, elapsed_s=round(time.monotonic() - started, 1))
             if status is None or status.state == "done":
                 saved = self._saved(pdf.id)
                 status = done_status(saved) if saved else None
@@ -218,6 +229,7 @@ class WikiJob:
             finally:
                 with self._lock:
                     self._building = None
+                    self._started.pop(pdf_id, None)
         if built and self.when_idle is not None:
             self.when_idle()
 
@@ -228,6 +240,8 @@ class WikiJob:
         if pdf is None or reading is None:
             return False  # removed, or replaced and not read again yet (it is queued then)
         start = time.perf_counter()
+        with self._lock:
+            self._started[pdf_id] = time.monotonic()
         logger.info("Building wiki pages", extra={"id": pdf_id, "upload_name": pdf.name})
         self._set(pdf_id, WikiStatus("building"))
 
@@ -297,6 +311,7 @@ class WikiJob:
             "skipped_parts": wiki.skipped_parts,
             "pages": [asdict(page) for page in wiki.pages],
             "outline": [asdict(entry) for entry in outline],
+            "duration_s": round(time.perf_counter() - start, 1),
         }
         with self._lock:
             if self.store.get(pdf_id) != pdf:
