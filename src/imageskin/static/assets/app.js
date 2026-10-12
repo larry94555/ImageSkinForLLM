@@ -168,7 +168,11 @@ function ContentPage() {
 	const [sending, setSending] = d(null);
 	const [refused, setRefused] = d([]);
 	const [readings, setReadings] = d({});
-	const reading = Object.values(readings).some((r) => r.state === "waiting" || r.state === "reading");
+	const reading = (pdfs ?? []).some((pdf) => [
+		"waiting",
+		"reading",
+		void 0
+	].includes(readings[pdf.id]?.state));
 	h(() => {
 		if (pdfs === null) return;
 		let stopped = false;

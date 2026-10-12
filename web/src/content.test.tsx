@@ -238,6 +238,24 @@ test("a PDF that could not be read shows why", async () => {
   expect(error.className).toBe("error");
 });
 
+test("a failed progress check is tried again", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  server([GUIDE]);
+  let checks = 0;
+  vi.mocked(fetch).mockImplementation(async (url) => {
+    if (url !== "/api/content/readings") return Response.json([GUIDE]);
+    return ++checks === 1 ? new Response("", { status: 500 }) : Response.json({ a1: READ });
+  });
+  render(<ContentPage />);
+  await screen.findByRole("link", { name: "guide.pdf" });
+  await waitFor(() => expect(checks).toBe(1));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(READING_POLL_MS);
+  });
+  expect(await screen.findByText(/Read 3 pages/)).toBeTruthy();
+  vi.useRealTimers();
+});
+
 test("a failed progress check is logged", async () => {
   server([GUIDE]);
   vi.mocked(fetch).mockImplementation(async (url) =>

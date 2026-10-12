@@ -31,8 +31,10 @@ export function ContentPage() {
   const [sending, setSending] = useState<{ name: string; replacing?: string } | null>(null);
   const [refused, setRefused] = useState<Refused[]>([]);
   const [readings, setReadings] = useState<Record<string, Reading>>({});
-  const reading = Object.values(readings).some(
-    (r) => r.state === "waiting" || r.state === "reading",
+  // Until every PDF is read or has failed. A PDF with no progress yet counts as being read, so
+  // a failed check is tried again.
+  const reading = (pdfs ?? []).some((pdf) =>
+    ["waiting", "reading", undefined].includes(readings[pdf.id]?.state),
   );
 
   // Checks the progress whenever the list changes, then every second while a PDF is read.
