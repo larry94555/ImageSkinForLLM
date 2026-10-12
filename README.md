@@ -88,6 +88,8 @@ npm run build   # type check and build into src/imageskin/static
 
 Commit the built files with the source change; CI fails if they are out of date.
 
+The home page (http://127.0.0.1:8000/) offers **Start setup** until a sample video has been accepted. After that it shows the chosen photo and three equal choices: **Chat**, **Manage Content** and **Setup**. The browser console logs `Home loaded in … ms (setup done)` or `(setup not done)`.
+
 ## Uploading photos and recordings
 
 Open http://127.0.0.1:8000/#/setup while `imageskin serve` is running to upload photos and recordings in the browser: **Add photos** and **Add recordings** take one or more files at a time, uploaded photos are shown as pictures (click one to open it full size), recordings can be played, and **Remove** deletes a file. A refused file is listed with the reason. The files land in `uploads` inside the app data folder that the server logs at startup.
