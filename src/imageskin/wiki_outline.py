@@ -34,6 +34,8 @@ FEW_TOPICS = 3
 # The longest answer asked for: a few sections, or a summary and the parts of a text.
 OUTLINE_REPLY_TOKENS = 1200
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# The page markers sent with the PDF's text, which the LLM sometimes copies into its own.
+PAGE_MARKER = re.compile(r"\[page \d+\]\s*")
 
 SECTIONS_PROMPT = (
     "Below are the topics of a document, numbered, in the document's order, each with how it"
@@ -322,8 +324,9 @@ def read_detail(
                 if isinstance(given, list)
                 else []
             )
-            if title and isinstance(text, str) and text.strip():
-                found.append((title, cited or pages, text.strip()))
+            text = PAGE_MARKER.sub("", text).strip() if isinstance(text, str) else ""
+            if title and text:
+                found.append((title, cited or pages, text))
     if not isinstance(summary, str) or not summary.strip() or not found:
         return None
     return summary.strip(), found

@@ -128,7 +128,7 @@ def test_topics_are_kept_as_they_are_when_no_sections_can_be_found(
 
 
 def test_a_topic_the_pdf_says_more_about_gets_a_detail_page_from_the_pdf() -> None:
-    llm = Llm(detail("A summary.", ("First", "One. Two.", [2, 7]), ("Second", "Three.")))
+    llm = Llm(detail("A summary.", ("First", "One. Two.", [2, 7]), ("Second", "[page 1] Three.")))
     page = WikiPage(f"{PDF_ID}-t1", "Topic 1", "The LLM's few sentences.", [1, 2])
     pieces = [piece(1, LONG), piece(2, "More."), piece(3, "Another topic.")]
     found = outliner(llm).outline([page], pieces)
