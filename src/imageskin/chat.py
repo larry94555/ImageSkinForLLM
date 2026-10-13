@@ -54,6 +54,17 @@ SUMMARY_PROMPT = (
     " Write only the summary."
 )
 EARLIER = "Earlier in this conversation (summarized):"
+# Put before a prompt with what was found for it in the wiki and PDFs (roadmap R40). It goes in
+# the prompt's own message, not the system message, so the system prompt and the history before
+# it stay the same and llama-server can reuse what it read of them.
+# The most of the context window the passages may take. The LLM reads every token of them
+# before it writes a word: with Qwen 2.5 1.5B on 4 CPU cores that is about 8 ms a token, so 800
+# tokens of passages held the first word back 7 s, against the target of 1 to 2 s (R22).
+CONTENT_TOKENS = 300
+FOUND_INTRO = (
+    "From the documents you know about (answer from these when they cover what is asked, in your"
+    " own words, without mentioning documents, passages or page numbers unless asked):"
+)
 
 
 @dataclass(frozen=True)
@@ -82,6 +93,8 @@ StreamLlm = Callable[[list[Message]], Iterator[str]]
 OnSentence = Callable[[str | None], None]
 # The number of tokens in a text.
 Count = Callable[[str], int]
+# What the wiki and PDFs have on a prompt (roadmap R40): passages, best first.
+FindContent = Callable[[str], list[str]]
 
 
 class LlmError(Exception):
@@ -327,7 +340,9 @@ class Conversation:
         # Entered while the summary after a reply is asked for, so the engines leave the LLM
         # its share of the cores then too (roadmap R22a); send() is wrapped by its caller.
         llm_busy: Callable[[], AbstractContextManager[object]] | None = None,
+        find: FindContent | None = None,  # looks each prompt up in the content (R40)
     ) -> None:
+        self._find = find
         self._ask = ask
         self._stream = stream
         self._warm_up = warm_up
@@ -377,10 +392,11 @@ class Conversation:
         # Normally the summary made after the last reply keeps this within budget; if it
         # couldn't be made, the oldest turns are left out.
         turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
+        asked = self._with_content(prompt, room)
         messages = [
             system_message(self._summary),
             *map(as_message, turns),
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": asked},
         ]
         logger.info(
             "Chat prompt sent",
@@ -427,6 +443,37 @@ class Conversation:
             )
             self._summarizer.start()
         return reply, place
+
+    def _with_content(self, prompt: str, room: int) -> str:
+        """The prompt with what the content has on it before it, as many of the passages found
+        as fit CONTENT_TOKENS and the room left in the context window, best first (roadmap
+        R40). Only the prompt
+        is kept in the conversation. If the lookup fails, the prompt goes on its own."""
+        if self._find is None:
+            return prompt
+        try:
+            found = self._find(prompt)
+        except Exception:
+            logger.exception("Could not look the prompt up in the content; sending it alone")
+            return prompt
+        count = self._count
+        left = room - tokens({"role": "user", "content": prompt}, count) - count(FOUND_INTRO)
+        left = min(left, CONTENT_TOKENS)
+        kept = []
+        for passage in found:
+            cost = count(f"\n- {passage}")
+            if cost > left:
+                break
+            kept.append(passage)
+            left -= cost
+        logger.info(
+            "Content sent with the prompt",
+            extra={"passages_found": len(found), "passages_sent": len(kept)},
+        )
+        if not kept:
+            return prompt
+        lines = "\n".join(f"- {passage}" for passage in kept)
+        return f"{FOUND_INTRO}\n{lines}\n\n{prompt}"
 
     def _stream_reply(self, messages: list[Message], on_sentence: OnSentence | None) -> str:
         """Stream the reply, logging each sentence as soon as it is complete (roadmap R20).

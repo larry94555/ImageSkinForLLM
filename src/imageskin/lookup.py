@@ -31,6 +31,8 @@ Source = Literal["wiki", "pdf"]
 # How many of each kind are found for a question.
 WIKI_LIMIT = 3
 PDF_LIMIT = 5
+# The most of a passage the LLM is given to answer from (R40).
+PASSAGE_CHARS = 400
 # BM25's usual settings: how fast more of the same word stops adding to the score, and how much
 # a long passage is held back.
 K1 = 1.5
@@ -177,6 +179,22 @@ def look_up(
     pdf = [f for f in ranked if f.passage.source == "pdf"][:pdf_limit]
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
     return Lookup(question, wiki, pdf, duration_ms, len(passages))
+
+
+def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
+    """What was found, best first, each with where it came from, for the LLM to answer from
+    (roadmap R40). A long passage (a big table, say) is cut at a word to `chars` characters."""
+    found = sorted([*result.wiki, *result.pdf], key=lambda f: -f.score)
+    passages = []
+    for f in found:
+        p = f.passage
+        where = f"{p.pdf_name}, page{'s' if len(p.pages) > 1 else ''} "
+        where += ", ".join(map(str, p.pages))
+        text = " ".join(p.text.split())
+        if len(text) > chars:
+            text = text[:chars].rsplit(" ", 1)[0] + " …"
+        passages.append(f"{p.title} ({where}): {text}" if p.title else f"({where}): {text}")
+    return passages
 
 
 class ContentLookup:
