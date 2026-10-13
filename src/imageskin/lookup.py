@@ -16,6 +16,7 @@ import logging
 import math
 import re
 import time
+import unicodedata
 from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
@@ -39,6 +40,10 @@ K1 = 1.5
 B = 0.75
 # The share of the question's words, weighted by rarity, that a passage must have to be found.
 MIN_SHARE = 0.4
+# A question word at least this long that the content doesn't have is matched to a content word
+# one typo away, so a misspelled name (Larry's "Reimann", 2026-10-13) is still found in a passage
+# that also has another of the question's words as typed (review on PR #74).
+MIN_TYPO_CHARS = 5
 WORD = re.compile(r"[^\W_]+")
 # A contraction like "can't" or "don't" is a common word, so it goes whole; the ending of
 # "what's", "you're" or "student's" is left off. Straight and curly apostrophes alike.
@@ -81,24 +86,62 @@ class Lookup:
     passages: int = 0  # how many were searched
 
 
+def greek_name(letter: str) -> str:
+    """A Greek letter's name ("ζ" is "zeta"), so a PDF that writes the symbol matches a
+    question that spells it out; any other word as it is."""
+    if len(letter) == 1 and "\u0370" <= letter <= "\u03ff":
+        name = unicodedata.name(letter, "")
+        if name.startswith("GREEK SMALL LETTER ") or name.startswith("GREEK CAPITAL LETTER "):
+            return name.split()[-1].lower()
+    return letter
+
+
 def words(text: str) -> list[str]:
-    """The words that count for matching: lower case, no common words, and a plural "s" or an
-    "ing" or "ed" ending left off, so "recordings", "recording" and "recorded" all match
-    "record"."""
+    """The words that count for matching: lower case, no common words, Greek letters by name,
+    and a plural "s" or an "ing" or "ed" ending left off, so "recordings", "recording" and
+    "recorded" all match "record". A final "e" is left off too, so "used", "uses" and "use"
+    match, and "phased" matches "phase"."""
     text = CONTRACTION_ENDING.sub("", NOT_CONTRACTION.sub(" ", text.lower()))
     found = []
     for word in WORD.findall(text):
+        word = greek_name(word)
         if word in STOP_WORDS:
             continue
         if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
             word = word[:-1]
         if len(word) > 5 and word.endswith("ing"):
             word = word[:-3]
-        elif len(word) > 4 and word.endswith("ed"):
-            word = word[:-2]
+        elif len(word) > 3 and word.endswith("ed"):
+            word = word[:-1]  # "used" is "use", and "recorded" is "recorde" until its "e" is off
+        if len(word) > 4 and word.endswith("e"):
+            word = word[:-1]
         if word not in STOP_WORDS:  # "others" is "other" once its "s" is off
             found.append(word)
     return found
+
+
+def one_typo_apart(a: str, b: str) -> bool:
+    """Whether b is a with one letter changed, added, left out, or swapped with the next."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        if len(diff) == 1:
+            return True
+        i, j = diff[0], diff[-1]
+        return len(diff) == 2 and j == i + 1 and a[i] == b[j] and a[j] == b[i]
+    short, long = (a, b) if len(a) < len(b) else (b, a)
+    return any(long[:i] + long[i + 1 :] == short for i in range(len(long)))
+
+
+def spelled_as_in(word: str, content: Counter[str]) -> str:
+    """A question word the content doesn't have, as the content spells it when one typo apart
+    ("Reimann" for "Riemann"), the most common such word; otherwise the word as it is. Short
+    words are left alone: one letter off turns too many of them into other words."""
+    if word in content or len(word) < MIN_TYPO_CHARS:
+        return word
+    near = [w for w in content if len(w) >= MIN_TYPO_CHARS and one_typo_apart(word, w)]
+    return max(near, key=lambda w: content[w]) if near else word
 
 
 def passage_words(passage: Passage) -> list[str]:
@@ -137,13 +180,18 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
     """The passages that match enough of the question, best first, scored with BM25.
 
     A passage must have at least MIN_SHARE of the question's words, each weighted by how rare it
-    is in the content; a word the content doesn't have at all weighs the most. So a passage that
-    shares only a common word ("best" in "What lighting is best for the photo?") is left out,
-    and a question about something the content doesn't cover finds nothing."""
-    asked = set(words(question))
-    if not asked or not passages:
+    is in the content; a word the content doesn't have at all weighs the most (after a word one
+    typo from a content word is taken as that word, in a passage with a word as typed). So a
+    passage that shares only a common word ("best" in "What lighting is best for the photo?")
+    is left out, and a question about something the content doesn't cover finds nothing."""
+    if not words(question) or not passages:
         return []
     counted = [Counter(passage_words(p)) for p in passages]
+    content: Counter[str] = Counter()
+    for c in counted:
+        content.update(c.keys())
+    typed = set(words(question))
+    asked = {spelled_as_in(w, content) for w in typed} if typed & content.keys() else typed
     lengths = [sum(c.values()) for c in counted]
     average = sum(lengths) / len(lengths) or 1.0
     total = len(passages)
@@ -155,7 +203,10 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
     found = []
     for passage, counts, length in zip(passages, counted, lengths, strict=True):
         matched = [w for w in asked if w in counts]
-        if sum(idf[w] for w in matched) < MIN_SHARE * weight:
+        # A typo corrected helps only a passage that has a question word as typed, so a
+        # correction is never the only reason a passage, or an off-topic prompt, is found
+        # ("polar energy" isn't found by a passage on solar flares; review on PR #74).
+        if not typed.intersection(matched) or sum(idf[w] for w in matched) < MIN_SHARE * weight:
             continue
         score = 0.0
         for w in matched:

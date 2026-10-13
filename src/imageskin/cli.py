@@ -269,7 +269,8 @@ def serve(settings: Settings) -> None:
     logger.info("App data folder", extra={"path": str(default_home().resolve())})
     # access_log=False: the app's own middleware logs each request with its duration.
     llm = LlmSettings(settings.llm_url, settings.llm_model, settings.llm_context_tokens)
-    uvicorn.run(create_app(llm=llm), host=host, port=port, log_config=None, access_log=False)
+    app = create_app(llm=llm, general_prompts=settings.general_prompts)
+    uvicorn.run(app, host=host, port=port, log_config=None, access_log=False)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -72,6 +72,12 @@ FOUND_END = (
 )
 # A passage cut shorter than this to fit is left out; a few words alone don't help.
 MIN_PASSAGE_CHARS = 80
+# Said instead of an answer when general prompts aren't allowed and nothing in the content
+# matches the prompt (roadmap R41). It is spoken, so it is short and plain.
+OFF_TOPIC = (
+    "Sorry, I can only answer questions about the material I was given. Try asking about"
+    " something in it."
+)
 
 
 @dataclass(frozen=True)
@@ -360,8 +366,11 @@ class Conversation:
         # its share of the cores then too (roadmap R22a); send() is wrapped by its caller.
         llm_busy: Callable[[], AbstractContextManager[object]] | None = None,
         find: FindContent | None = None,  # looks each prompt up in the content (R40)
+        # Whether a prompt the content has nothing on is declined rather than answered (R41).
+        content_only: Callable[[], bool] = lambda: False,
     ) -> None:
         self._find = find
+        self._content_only = content_only
         self._ask = ask
         self._stream = stream
         self._warm_up = warm_up
@@ -411,7 +420,10 @@ class Conversation:
         # Normally the summary made after the last reply keeps this within budget; if it
         # couldn't be made, the oldest turns are left out.
         turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
-        asked = self._with_content(prompt, room)
+        found = self._look_up(prompt)
+        if found == [] and self._content_only():
+            return self._decline(prompt, on_sentence)
+        asked = self._with_content(prompt, found, room)
         messages = [
             system_message(self._summary),
             *map(as_message, turns),
@@ -463,17 +475,35 @@ class Conversation:
             self._summarizer.start()
         return reply, place
 
-    def _with_content(self, prompt: str, room: int) -> str:
+    def _look_up(self, prompt: str) -> list[str] | None:
+        """The passages the content has on the prompt, best first, or None when there is no
+        lookup or it failed (then the prompt is answered, never declined)."""
+        if self._find is None:
+            return None
+        try:
+            return self._find(prompt)
+        except Exception:
+            logger.exception("Could not look the prompt up in the content; sending it alone")
+            return None
+
+    def _decline(self, prompt: str, on_sentence: OnSentence | None) -> tuple[Turn, int]:
+        """Say OFF_TOPIC without asking the LLM (roadmap R41). It is shown in the chat but not
+        sent to the LLM with later prompts, so it can't steer their answers."""
+        logger.info("Prompt declined: general prompts are off", extra={"prompt_chars": len(prompt)})
+        if self._stream is not None and on_sentence is not None:
+            on_sentence(None)
+            on_sentence(OFF_TOPIC)
+        reply = Turn("assistant", OFF_TOPIC)
+        with self._lock:
+            self._transcript += [Turn("user", prompt), reply]
+            return reply, len(self._transcript) - 1
+
+    def _with_content(self, prompt: str, found: list[str] | None, room: int) -> str:
         """The prompt with what the content has on it quoted before it: as many of the
         passages found as fit CONTENT_TOKENS and the room left in the context window, best
         first, the last one cut to fit (roadmap R40). Only the prompt is kept in the
-        conversation. If the lookup fails, the prompt goes on its own."""
-        if self._find is None:
-            return prompt
-        try:
-            found = self._find(prompt)
-        except Exception:
-            logger.exception("Could not look the prompt up in the content; sending it alone")
+        conversation."""
+        if found is None:
             return prompt
         count = self._count
         framing = count(f"{FOUND_START}\n<<<\n>>>\n{FOUND_END}\n")

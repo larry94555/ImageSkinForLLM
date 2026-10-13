@@ -29,6 +29,9 @@ class Settings:
     llm_url: str = "http://127.0.0.1:8080/v1"
     llm_model: str = "local"
     llm_context_tokens: int = 4096
+    # Whether the chat answers prompts the PDFs have nothing on, or politely declines them
+    # (roadmap R41, item 28). Declining is the default.
+    general_prompts: bool = False
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -62,6 +65,8 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"llm_model in {path} must be a string")
     if type(settings.llm_context_tokens) is not int or settings.llm_context_tokens < 1024:
         raise ConfigError(f"llm_context_tokens in {path} must be a number of at least 1024")
+    if not isinstance(settings.general_prompts, bool):
+        raise ConfigError(f"general_prompts in {path} must be true or false")
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
     logger.info("Loaded config", extra={"path": str(path)})
