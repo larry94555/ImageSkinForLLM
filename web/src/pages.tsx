@@ -822,6 +822,7 @@ function Chat() {
   const [halted, setHalted] = useState(false); // the latest reply was stopped
   const [sound, setSound] = useState<Sound>(loadSound);
   const [idle, setIdle] = useState<Idle>("loading"); // the idle video (roadmap R23)
+  const [photo, setPhoto] = useState<string | null>(null); // shown until the idle video plays
 
   useEffect(
     () => () => {
@@ -829,6 +830,11 @@ function Chat() {
     },
     [],
   );
+  useEffect(() => {
+    getPhotoChoice()
+      .then((choice) => setPhoto(choice.id ? uploadUrl("photos", choice.id) : null))
+      .catch((e: unknown) => console.error("Could not find the photo for the chat", e));
+  }, []);
   useEffect(() => {
     getChat()
       .then(setTurns)
@@ -960,8 +966,7 @@ function Chat() {
     if (replyId === null) return;
     stopped.current = replyId;
     wakeOnStop.current();
-    setHalted(true);
-    setClips([]);
+    setHalted(true); // the player pauses and fades back to the idle video (R41c)
     setTimes([]);
     setWhole(false);
     console.info(`Reply stopped (${clips.length} clips so far)`);
@@ -976,20 +981,31 @@ function Chat() {
 
   // Something to stop: a reply still being made, or a clip that hasn't finished playing.
   const stoppable = !halted && (speaking || times.some((t) => t.ended === null));
-  if (turns === null) return <p className="muted busy">Loading…</p>;
+  const stage = (
+    <Stage idle={idle} onIdle={setIdle} photo={photo}>
+      {clips.length > 0 && (
+        <ClipPlayer
+          clips={clips}
+          onStarted={started}
+          onEnded={ended}
+          sound={sound}
+          rest={idle === "ready"}
+          stopped={halted}
+        />
+      )}
+    </Stage>
+  );
+  // The person shows from the start, while the conversation loads (R41c).
+  if (turns === null)
+    return (
+      <div className="chat">
+        {stage}
+        <p className="muted busy">Loading…</p>
+      </div>
+    );
   return (
     <div className="chat">
-      <Stage idle={idle} onIdle={setIdle}>
-        {clips.length > 0 && (
-          <ClipPlayer
-            clips={clips}
-            onStarted={started}
-            onEnded={ended}
-            sound={sound}
-            rest={idle === "ready"}
-          />
-        )}
-      </Stage>
+      {stage}
       <SoundControls
         sound={sound}
         onChange={changeSound}
@@ -1201,26 +1217,41 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number; why: s
 export type Idle = "loading" | "ready" | "none";
 
 // Where the person is shown (roadmap R23): between replies, the idle video plays on a loop, so
-// the person blinks and moves slightly instead of freezing; a reply's clips play over it.
+// the person blinks and moves slightly instead of freezing; a reply's clips play over it. The
+// stage keeps one size from the start, and the photo the videos are made from shows under them,
+// so there is no empty or black frame while a video loads and nothing jumps when one starts
+// (R41c): each video fades in over the photo once it plays.
 export function Stage(props: {
   idle: Idle;
   onIdle: (idle: Idle) => void;
+  photo?: string | null;
   children?: ComponentChildren;
 }) {
-  const { idle, onIdle } = props;
+  const { idle, onIdle, photo } = props;
+  const [still, setStill] = useState(true); // the photo loaded, or is loading
   return (
     <div className="stage">
+      {photo && still && (
+        <img
+          className="still"
+          src={photo}
+          alt=""
+          onError={() => {
+            console.error(`Could not show the photo under the video: ${photo}`);
+            setStill(false);
+          }}
+        />
+      )}
       {idle !== "none" && (
         <video
-          className="idle-video"
+          className={idle === "ready" ? "idle-video" : "idle-video resting"}
           src={IDLE_VIDEO_URL}
-          hidden={idle !== "ready"}
           autoPlay
           loop
           muted
           playsInline
           disablePictureInPicture
-          onLoadedData={() => {
+          onPlaying={() => {
             if (idle === "ready") return;
             console.info("Idle video ready");
             onIdle("ready");
@@ -1252,17 +1283,22 @@ export function ClipPlayer(props: {
   // last frame. Clips that follow straight on join without a fade, as each starts where the
   // one before ended.
   rest?: boolean;
+  // Stop was pressed (roadmap R19): the clip pauses at once, then fades back to the idle video,
+  // or holds its frame when there is none (R41c).
+  stopped?: boolean;
 }) {
-  const { clips, onStarted, onEnded, sound, rest } = props;
+  const { clips, onStarted, onEnded, sound, rest, stopped } = props;
   const [on, setOn] = useState(false); // a clip is showing, not resting on the idle video
   const [playing, setPlaying] = useState(0); // the clip to play; clips.length once all have
   const [active, setActive] = useState(0); // which of the two players is showing
   const players = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
   const [refused, setRefused] = useState(false); // the browser wouldn't play it by itself
   const begun = useRef(new Set<number>()); // clips that have started, told of once each
+  const broken = useRef(new Set<string>()); // clips that failed to load while waiting
   const first = clips[0];
 
   function play(player: HTMLVideoElement | null) {
+    if (stopped) return;
     try {
       void player
         ?.play()
@@ -1275,8 +1311,9 @@ export function ClipPlayer(props: {
     }
   }
 
-  useEffect(() => {
-    // A new reply starts from its first clip, which plays by itself.
+  useLayoutEffect(() => {
+    // A new reply starts from its first clip, which plays by itself. Reset before the browser
+    // can tell of the clip playing, so that isn't undone here (R41c).
     setPlaying(0);
     setActive(0);
     setOn(false);
@@ -1300,8 +1337,21 @@ export function ClipPlayer(props: {
     // caught up with the clips, it arrived in the same player after the last one ended. Either
     // way it is started here, so a refusal shows the button.
     if (shown === first) return; // the first clip is started above
-    play(players[active].current);
+    if (broken.current.has(shown)) skip(shown);
+    else play(players[active].current);
   }, [active, shown]);
+  useEffect(() => {
+    if (!stopped) return;
+    for (const player of players) {
+      try {
+        player.current?.pause();
+      } catch {
+        // Not every browser (or test) can pause.
+      }
+    }
+    if (rest) setOn(false);
+    setRefused(false);
+  }, [stopped]);
 
   function begins(at: number) {
     setOn(true);
@@ -1315,8 +1365,16 @@ export function ClipPlayer(props: {
     if (playing >= clips.length) return; // played again by hand, after the last clip so far
     onEnded?.(playing, at);
     if (next !== undefined) setActive((a) => 1 - a); // the next clip is loaded there already
-    else setOn(false); // back to the idle video until the next clip comes
+    else if (rest) setOn(false); // back to the idle video until the next clip comes
     setPlaying(playing + 1);
+  }
+
+  // A clip that can't be played is passed over quietly (R41c): the reply's text still shows,
+  // and the clips after it still play.
+  function skip(url: string) {
+    console.error(`Could not play a clip of the reply, so it was skipped: ${url}`);
+    setOn(false);
+    ends(performance.now());
   }
 
   return (
@@ -1326,21 +1384,30 @@ export function ClipPlayer(props: {
           <video
             key={n}
             ref={players[n]}
-            className={rest ? (on ? "reply-video over" : "reply-video over resting") : "reply-video"}
+            className={on ? "reply-video" : "reply-video resting"}
             src={shown}
-            autoPlay
+            autoPlay={!stopped}
             playsInline
             disablePictureInPicture
             onPlaying={() => begins(performance.now())}
             onEnded={() => ends(performance.now())}
+            onError={() => skip(shown)}
           />
         ) : (
           next !== undefined && (
-            <video key={n} ref={players[n]} src={next} preload="auto" playsInline hidden />
+            <video
+              key={n}
+              ref={players[n]}
+              src={next}
+              preload="auto"
+              playsInline
+              hidden
+              onError={() => broken.current.add(next)}
+            />
           )
         ),
       )}
-      {refused && (
+      {refused && !stopped && (
         <button type="button" className="play-reply" onClick={() => play(players[active].current)}>
           Play the reply
         </button>

@@ -1724,20 +1724,23 @@ test("a clip that fails to play for another reason gets no button", async () => 
   expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull();
 });
 
-test("the idle video shows once it has loaded, and goes when there is none", () => {
+test("the idle video shows once it plays, and goes when there is none", () => {
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   const told: Idle[] = [];
   const { rerender } = render(<Stage idle="loading" onIdle={(i) => told.push(i)} />);
   const idle = document.querySelector("video.idle-video") as HTMLVideoElement;
   expect(idle.getAttribute("src")).toBe("/api/chat/idle");
-  expect(idle.hidden).toBe(true); // out of sight until it can play
+  expect(idle.className).toBe("idle-video resting"); // out of sight until it plays
   expect(idle.loop && idle.muted).toBe(true);
-  fireEvent.loadedData(idle);
+  expect(idle.controls).toBe(false);
+  fireEvent.loadedData(idle); // a frame is not enough: it may not play yet
+  expect(told).toEqual([]);
+  fireEvent.playing(idle);
   expect(told).toEqual(["ready"]);
   expect(info).toHaveBeenCalledWith("Idle video ready");
   rerender(<Stage idle="ready" onIdle={(i) => told.push(i)} />);
-  expect(idle.hidden).toBe(false);
-  fireEvent.loadedData(idle); // loaded again on a loop: told once
+  expect(idle.className).toBe("idle-video"); // fades in over the photo
+  fireEvent.playing(idle); // played again on a loop: told once
   expect(told).toEqual(["ready"]);
   fireEvent.error(idle); // 404: an engine that makes none, or it failed
   expect(told).toEqual(["ready", "none"]);
@@ -1748,28 +1751,84 @@ test("the idle video shows once it has loaded, and goes when there is none", () 
 test("over the idle video, clips fade in and the player fades back between them", () => {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   const { rerender } = render(<ClipPlayer clips={["/a", "/b"]} rest />);
-  expect(shownVideo().className).toBe("reply-video over resting"); // the idle video shows
+  expect(shownVideo().className).toBe("reply-video resting"); // the idle video shows
   fireEvent.playing(shownVideo());
-  expect(shownVideo().className).toBe("reply-video over"); // fades in over it
+  expect(shownVideo().className).toBe("reply-video"); // fades in over it
   fireEvent.ended(shownVideo());
   // The next clip follows straight on, from where the head was: no fade.
   expect(shownVideo().getAttribute("src")).toBe("/b");
-  expect(shownVideo().className).toBe("reply-video over");
+  expect(shownVideo().className).toBe("reply-video");
   fireEvent.ended(shownVideo()); // no clip yet after it: back to the idle video
-  expect(shownVideo().className).toBe("reply-video over resting");
+  expect(shownVideo().className).toBe("reply-video resting");
   rerender(<ClipPlayer clips={["/a", "/b", "/c"]} rest />);
   fireEvent.playing(shownVideo());
-  expect(shownVideo().className).toBe("reply-video over");
+  expect(shownVideo().className).toBe("reply-video");
   rerender(<ClipPlayer clips={["/d"]} rest />); // the next reply starts on the idle video
-  expect(shownVideo().className).toBe("reply-video over resting");
+  expect(shownVideo().className).toBe("reply-video resting");
 });
 
 test("without an idle video, the player holds each clip's last frame", () => {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   render(<ClipPlayer clips={["/a"]} />);
+  expect(shownVideo().className).toBe("reply-video resting"); // the photo shows until it plays
+  fireEvent.playing(shownVideo());
   expect(shownVideo().className).toBe("reply-video");
   fireEvent.ended(shownVideo());
   expect(shownVideo().className).toBe("reply-video");
+});
+
+// --- Clean playback (R41c) ---
+
+test("the stage shows the photo under the videos, and goes without it if it can't load", () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  render(<Stage idle="loading" onIdle={() => {}} photo="/api/uploads/photos/p1" />);
+  const still = document.querySelector(".stage img.still") as HTMLImageElement;
+  expect(still.getAttribute("src")).toBe("/api/uploads/photos/p1");
+  expect(still.alt).toBe(""); // only a picture behind the video
+  fireEvent.error(still);
+  expect(document.querySelector(".stage img.still")).toBeNull(); // no broken image
+  expect(error).toHaveBeenCalledWith(expect.stringContaining("/api/uploads/photos/p1"));
+});
+
+test("a clip that can't be played is passed over quietly and the next one plays", () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const ended = vi.fn();
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  render(<ClipPlayer clips={["/a", "/b"]} onEnded={ended} rest />);
+  fireEvent.error(shownVideo()); // the first clip is broken
+  expect(error).toHaveBeenCalledWith("Could not play a clip of the reply, so it was skipped: /a");
+  expect(shownVideo().getAttribute("src")).toBe("/b");
+  expect(shownVideo().className).toBe("reply-video resting"); // nothing broken on the screen
+  expect(ended).toHaveBeenCalledWith(0, expect.any(Number)); // so Stop doesn't wait on it
+  fireEvent.playing(shownVideo());
+  expect(shownVideo().className).toBe("reply-video");
+});
+
+test("a clip that failed while it waited its turn is passed over when its turn comes", () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const { container, rerender } = render(<ClipPlayer clips={["/a", "/b"]} />);
+  fireEvent.playing(shownVideo());
+  const waiting = container.querySelectorAll("video")[1];
+  fireEvent.error(waiting); // /b failed to load, out of sight
+  rerender(<ClipPlayer clips={["/a", "/b", "/c"]} />);
+  fireEvent.ended(shownVideo());
+  expect(error).toHaveBeenCalledWith("Could not play a clip of the reply, so it was skipped: /b");
+  expect(shownVideo().getAttribute("src")).toBe("/c");
+  expect(play).toHaveBeenCalledTimes(2); // /a, then /c; never /b
+});
+
+test("without an idle video, Stop holds the clip's frame and shows no Play button", async () => {
+  const refused = new DOMException("needs a click first", "NotAllowedError");
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(refused);
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const { rerender } = render(<ClipPlayer clips={["/a"]} />);
+  await screen.findByRole("button", { name: "Play the reply" });
+  fireEvent.playing(shownVideo());
+  rerender(<ClipPlayer clips={["/a"]} stopped />);
+  expect(pause).toHaveBeenCalled();
+  expect(shownVideo().className).toBe("reply-video"); // the frame stays, no flash
+  expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull();
 });
 
 test("the player says when each clip starts and ends, once each", () => {
@@ -1933,14 +1992,19 @@ test("the chat shows the idle video, with the reply's clips over it", async () =
   await openAt("#/chat");
   await screen.findByText("Say hello to start the conversation.");
   const idle = document.querySelector(".stage video.idle-video") as HTMLVideoElement;
-  fireEvent.loadedData(idle);
-  await waitFor(() => expect(idle.hidden).toBe(false)); // before any reply: the person waits
+  fireEvent.playing(idle);
+  await waitFor(() => expect(idle.className).toBe("idle-video")); // the person waits
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(document.querySelector("video.reply-video.over")).not.toBeNull());
+  await waitFor(() => expect(shownVideo()).not.toBeNull());
+  fireEvent.playing(shownVideo());
+  expect(shownVideo().className).toBe("reply-video"); // over the idle video
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-  expect(document.querySelector("video.reply-video")).toBeNull();
-  expect(idle.isConnected && !idle.hidden).toBe(true); // stopped: back to the idle video
+  // Stopped: it pauses at once and fades back to the idle video, with no jump (R41c).
+  expect(pause).toHaveBeenCalled();
+  expect(shownVideo().className).toBe("reply-video resting");
+  expect(idle.className).toBe("idle-video");
   await act(async () => {
     reply(Response.json({ role: "assistant", content: "Once upon a time.", streamed: true }));
   });
@@ -1957,8 +2021,10 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(document.querySelector("video.reply-video")).not.toBeNull());
+  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-  expect(document.querySelector("video.reply-video")).toBeNull();
+  expect(pause).toHaveBeenCalled(); // the clip stops at once
+  expect(shownVideo().autoplay).toBe(false); // and doesn't start again
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   expect(screen.queryByText("Getting ready to say it…")).toBeNull();
   const stops = fetchMock.mock.calls.filter(([url]) => url.endsWith("/stop"));
@@ -1975,7 +2041,6 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
     reply(Response.json({ role: "assistant", content: "Once upon a time.", streamed: true }));
   });
   await screen.findByText("Once upon a time.");
-  expect(document.querySelector("video.reply-video")).toBeNull();
   fireEvent.input(promptBox(), { target: { value: "Again" } });
   await waitFor(() =>
     expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false),

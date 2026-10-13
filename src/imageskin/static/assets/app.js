@@ -2438,8 +2438,12 @@ function Chat() {
 	const [halted, setHalted] = d(false);
 	const [sound, setSound] = d(loadSound);
 	const [idle, setIdle] = d("loading");
+	const [photo, setPhoto] = d(null);
 	h(() => () => {
 		gone.current = true;
+	}, []);
+	h(() => {
+		getPhotoChoice().then((choice) => setPhoto(choice.id ? uploadUrl("photos", choice.id) : null)).catch((e) => console.error("Could not find the photo for the chat", e));
 	}, []);
 	h(() => {
 		getChat().then(setTurns).catch((e) => {
@@ -2571,7 +2575,6 @@ function Chat() {
 		stopped.current = replyId;
 		wakeOnStop.current();
 		setHalted(true);
-		setClips([]);
 		setTimes([]);
 		setWhole(false);
 		console.info(`Reply stopped (${clips.length} clips so far)`);
@@ -2586,24 +2589,30 @@ function Chat() {
 		saveSound(next);
 	}
 	const stoppable = !halted && (speaking || times.some((t) => t.ended === null));
-	if (turns === null) return /* @__PURE__ */ u("p", {
-		className: "muted busy",
-		children: "Loading…"
+	const stage = /* @__PURE__ */ u(Stage, {
+		idle,
+		onIdle: setIdle,
+		photo,
+		children: clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
+			clips,
+			onStarted: started,
+			onEnded: ended,
+			sound,
+			rest: idle === "ready",
+			stopped: halted
+		})
+	});
+	if (turns === null) return /* @__PURE__ */ u("div", {
+		className: "chat",
+		children: [stage, /* @__PURE__ */ u("p", {
+			className: "muted busy",
+			children: "Loading…"
+		})]
 	});
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [
-			/* @__PURE__ */ u(Stage, {
-				idle,
-				onIdle: setIdle,
-				children: clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
-					clips,
-					onStarted: started,
-					onEnded: ended,
-					sound,
-					rest: idle === "ready"
-				})
-			}),
+			stage,
 			/* @__PURE__ */ u(SoundControls, {
 				sound,
 				onChange: changeSound,
@@ -2820,47 +2829,61 @@ function History$1(props) {
 	});
 }
 function Stage(props) {
-	const { idle, onIdle } = props;
+	const { idle, onIdle, photo } = props;
+	const [still, setStill] = d(true);
 	return /* @__PURE__ */ u("div", {
 		className: "stage",
-		children: [idle !== "none" && /* @__PURE__ */ u("video", {
-			className: "idle-video",
-			src: "/api/chat/idle",
-			hidden: idle !== "ready",
-			autoPlay: true,
-			loop: true,
-			muted: true,
-			playsInline: true,
-			disablePictureInPicture: true,
-			onLoadedData: () => {
-				if (idle === "ready") return;
-				console.info("Idle video ready");
-				onIdle("ready");
-			},
-			onError: () => {
-				console.info("No idle video: the chat holds each reply's last frame");
-				onIdle("none");
-			}
-		}), props.children]
+		children: [
+			photo && still && /* @__PURE__ */ u("img", {
+				className: "still",
+				src: photo,
+				alt: "",
+				onError: () => {
+					console.error(`Could not show the photo under the video: ${photo}`);
+					setStill(false);
+				}
+			}),
+			idle !== "none" && /* @__PURE__ */ u("video", {
+				className: idle === "ready" ? "idle-video" : "idle-video resting",
+				src: "/api/chat/idle",
+				autoPlay: true,
+				loop: true,
+				muted: true,
+				playsInline: true,
+				disablePictureInPicture: true,
+				onPlaying: () => {
+					if (idle === "ready") return;
+					console.info("Idle video ready");
+					onIdle("ready");
+				},
+				onError: () => {
+					console.info("No idle video: the chat holds each reply's last frame");
+					onIdle("none");
+				}
+			}),
+			props.children
+		]
 	});
 }
 function ClipPlayer(props) {
-	const { clips, onStarted, onEnded, sound, rest } = props;
+	const { clips, onStarted, onEnded, sound, rest, stopped } = props;
 	const [on, setOn] = d(false);
 	const [playing, setPlaying] = d(0);
 	const [active, setActive] = d(0);
 	const players = [A(null), A(null)];
 	const [refused, setRefused] = d(false);
 	const begun = A(/* @__PURE__ */ new Set());
+	const broken = A(/* @__PURE__ */ new Set());
 	const first = clips[0];
 	function play(player) {
+		if (stopped) return;
 		try {
 			player?.play()?.then(() => setRefused(false)).catch((e) => {
 				if (e instanceof DOMException && e.name === "NotAllowedError") setRefused(true);
 			});
 		} catch {}
 	}
-	h(() => {
+	_(() => {
 		setPlaying(0);
 		setActive(0);
 		setOn(false);
@@ -2879,8 +2902,17 @@ function ClipPlayer(props) {
 	const next = clips[current + 1];
 	h(() => {
 		if (shown === first) return;
-		play(players[active].current);
+		if (broken.current.has(shown)) skip(shown);
+		else play(players[active].current);
 	}, [active, shown]);
+	h(() => {
+		if (!stopped) return;
+		for (const player of players) try {
+			player.current?.pause();
+		} catch {}
+		if (rest) setOn(false);
+		setRefused(false);
+	}, [stopped]);
 	function begins(at) {
 		setOn(true);
 		if (playing < clips.length && !begun.current.has(playing)) {
@@ -2892,25 +2924,32 @@ function ClipPlayer(props) {
 		if (playing >= clips.length) return;
 		onEnded?.(playing, at);
 		if (next !== void 0) setActive((a) => 1 - a);
-		else setOn(false);
+		else if (rest) setOn(false);
 		setPlaying(playing + 1);
+	}
+	function skip(url) {
+		console.error(`Could not play a clip of the reply, so it was skipped: ${url}`);
+		setOn(false);
+		ends(performance.now());
 	}
 	return /* @__PURE__ */ u(S, { children: [[0, 1].map((n) => n === active ? /* @__PURE__ */ u("video", {
 		ref: players[n],
-		className: rest ? on ? "reply-video over" : "reply-video over resting" : "reply-video",
+		className: on ? "reply-video" : "reply-video resting",
 		src: shown,
-		autoPlay: true,
+		autoPlay: !stopped,
 		playsInline: true,
 		disablePictureInPicture: true,
 		onPlaying: () => begins(performance.now()),
-		onEnded: () => ends(performance.now())
+		onEnded: () => ends(performance.now()),
+		onError: () => skip(shown)
 	}, n) : next !== void 0 && /* @__PURE__ */ u("video", {
 		ref: players[n],
 		src: next,
 		preload: "auto",
 		playsInline: true,
-		hidden: true
-	}, n)), refused && /* @__PURE__ */ u("button", {
+		hidden: true,
+		onError: () => broken.current.add(next)
+	}, n)), refused && !stopped && /* @__PURE__ */ u("button", {
 		type: "button",
 		className: "play-reply",
 		onClick: () => play(players[active].current),
