@@ -168,6 +168,31 @@ async function getWikiPage(id) {
 	if (response.status === 404) return null;
 	return json(response);
 }
+async function saveWikiEdit(id, title, summary) {
+	const response = await fetch(`/api/wiki/${encodeURIComponent(id)}`, {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			title,
+			summary
+		})
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
+async function undoWikiEdit(id) {
+	const response = await fetch(`/api/wiki/${encodeURIComponent(id)}/edit`, { method: "DELETE" });
+	if (!response.ok) throw new Error(await refusal(response));
+}
+async function markWikiReviewed(id) {
+	const response = await fetch(`/api/wiki/${encodeURIComponent(id)}/reviewed`, { method: "POST" });
+	if (!response.ok) throw new Error(await refusal(response));
+}
+async function rebuildWiki(pdf) {
+	const response = await fetch(`/api/content/${pdf}/wiki/rebuild`, { method: "POST" });
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 function wikiHref(pdf) {
 	return pdf ? `#/wiki/${pdf}` : "#/wiki";
 }
@@ -2881,20 +2906,35 @@ function useHash() {
 }
 //#endregion
 //#region src/wiki.tsx
+var WIKI_POLL_MS = 2e3;
+function busy(build) {
+	return build?.state === "waiting" || build?.state === "building";
+}
 function WikiPage({ pdf }) {
 	const [wiki, setWiki] = d(null);
 	const [failed, setFailed] = d(false);
+	const [builds, setBuilds] = d({});
+	const [version, setVersion] = d(0);
+	const reload = () => setVersion((v) => v + 1);
+	h(() => {
+		setWiki(null);
+	}, [pdf]);
 	h(() => {
 		let stopped = false;
 		const started = performance.now();
-		setWiki(null);
 		setFailed(false);
-		Promise.all([listPdfs(), listWikiContents(pdf)]).then(([pdfs, contents]) => {
+		Promise.all([
+			listPdfs(),
+			listWikiContents(pdf),
+			listWikiBuilds()
+		]).then(([pdfs, contents, next]) => {
 			console.info(`Wiki loaded in ${Math.round(performance.now() - started)} ms (${contents.length} tables of contents, ${pdfs.length} PDFs)`);
-			if (!stopped) setWiki({
+			if (stopped) return;
+			setWiki({
 				pdfs,
 				contents
 			});
+			setBuilds(next);
 		}).catch((e) => {
 			console.error("Could not load the wiki", e);
 			if (!stopped) setFailed(true);
@@ -2902,7 +2942,28 @@ function WikiPage({ pdf }) {
 		return () => {
 			stopped = true;
 		};
-	}, [pdf]);
+	}, [pdf, version]);
+	const shown = (wiki?.contents ?? []).map((c) => c.pdf_id);
+	const rebuilding = shown.some((id) => busy(builds[id]));
+	h(() => {
+		if (!rebuilding) return;
+		const timer = window.setInterval(() => {
+			listWikiBuilds().then((next) => {
+				setBuilds(next);
+				if (!shown.some((id) => busy(next[id]))) reload();
+			}).catch((e) => console.error("Could not check the wiki progress", e));
+		}, WIKI_POLL_MS);
+		return () => window.clearInterval(timer);
+	}, [rebuilding]);
+	const rebuild = async (id) => {
+		const status = await rebuildWiki(id);
+		console.info(`Rebuilding the wiki of ${id}`);
+		setBuilds((b) => ({
+			...b,
+			[id]: status
+		}));
+		if (!busy(status)) reload();
+	};
 	return /* @__PURE__ */ u("section", {
 		className: "wiki",
 		children: [
@@ -2916,19 +2977,22 @@ function WikiPage({ pdf }) {
 					href: "#/content",
 					children: "Manage Content"
 				}),
-				" say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own."
+				" say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own. You can edit any entry."
 			] }),
 			failed ? /* @__PURE__ */ u("p", {
 				className: "error",
 				children: "The wiki could not be loaded. Check that the app is still running."
 			}) : wiki === null ? /* @__PURE__ */ u("p", { children: "Loading…" }) : /* @__PURE__ */ u(WikiList, {
 				wiki,
-				pdf
+				pdf,
+				builds,
+				onRebuild: rebuild,
+				onChanged: reload
 			})
 		]
 	});
 }
-function WikiList({ wiki, pdf }) {
+function WikiList({ wiki, pdf, builds, onRebuild, onChanged }) {
 	const built = new Set(wiki.contents.map((c) => c.pdf_id));
 	const waiting = wiki.pdfs.filter((p) => !built.has(p.id) && (!pdf || p.id === pdf));
 	if (wiki.pdfs.length === 0) return /* @__PURE__ */ u("p", { children: [
@@ -2942,7 +3006,10 @@ function WikiList({ wiki, pdf }) {
 	if (pdf && wiki.contents.length === 0 && waiting.length === 0) return /* @__PURE__ */ u("p", { children: "This PDF is no longer here. It may have been removed." });
 	return /* @__PURE__ */ u(S, { children: [wiki.contents.map((c) => /* @__PURE__ */ u(Contents, {
 		contents: c,
-		linked: !pdf
+		linked: !pdf,
+		build: builds[c.pdf_id],
+		onRebuild: () => onRebuild(c.pdf_id),
+		onChanged
 	}, c.pdf_id)), waiting.map((p) => /* @__PURE__ */ u("p", {
 		className: "muted",
 		children: [
@@ -2956,26 +3023,141 @@ function WikiList({ wiki, pdf }) {
 		]
 	}, p.id))] });
 }
-function Contents({ contents, linked }) {
+function Contents({ contents, linked, build, onRebuild, onChanged }) {
 	const name = linked ? /* @__PURE__ */ u("a", {
 		href: wikiHref(contents.pdf_id),
 		children: contents.pdf_name
 	}) : contents.pdf_name;
 	return /* @__PURE__ */ u("article", {
 		className: "wiki-pdf",
-		children: [/* @__PURE__ */ u("h2", { children: name }), /* @__PURE__ */ u(Outline, {
-			pdf: contents.pdf_id,
-			entries: contents.entries
-		})]
+		children: [
+			/* @__PURE__ */ u("h2", { children: name }),
+			/* @__PURE__ */ u(Rebuild, {
+				build,
+				onRebuild
+			}),
+			contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
+				edits: contents.lost_edits,
+				onChanged
+			}),
+			/* @__PURE__ */ u(Outline, {
+				pdf: contents.pdf_id,
+				entries: contents.entries,
+				onChanged
+			})
+		]
+	});
+}
+function Rebuild({ build, onRebuild }) {
+	const [asking, setAsking] = d(false);
+	const [error, setError] = d(null);
+	if (busy(build)) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: [wikiText(build), " The pages below stay as they are until it is done."]
+	});
+	const start = () => {
+		setError(null);
+		onRebuild().then(() => setAsking(false)).catch((e) => {
+			console.error("Could not rebuild the wiki", e);
+			setError(e instanceof Error ? e.message : "The wiki could not be rebuilt.");
+		});
+	};
+	return /* @__PURE__ */ u("div", {
+		className: "rebuild",
+		children: [
+			asking ? /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: [
+					"Build this PDF's wiki again with the LLM? It can take a while. Your edits are kept, and each is marked for you to check against the new wiki.",
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						onClick: start,
+						children: "Rebuild"
+					}),
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: () => setAsking(false),
+						children: "Cancel"
+					})
+				]
+			}) : /* @__PURE__ */ u("p", {
+				className: "outline-buttons",
+				children: /* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					onClick: () => setAsking(true),
+					children: "Rebuild the wiki"
+				})
+			}),
+			build?.state === "failed" && !error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: [
+					"The last rebuild didn't finish: ",
+					wikiText(build),
+					" The pages below are the ones built before it. You can try again."
+				]
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			})
+		]
+	});
+}
+function LostEdits({ edits, onChanged }) {
+	const [error, setError] = d(null);
+	const discard = (id) => {
+		undoWikiEdit(id).then(() => {
+			console.info(`Wiki edit discarded: ${id}`);
+			onChanged();
+		}).catch((e) => {
+			console.error("Could not discard the wiki edit", e);
+			setError(e instanceof Error ? e.message : "The edit could not be discarded.");
+		});
+	};
+	return /* @__PURE__ */ u("div", {
+		className: "notice lost-edits",
+		children: [
+			/* @__PURE__ */ u("p", { children: "The rebuilt wiki no longer has these entries you edited. Copy anything you want to keep into another entry, then discard them." }),
+			/* @__PURE__ */ u("ul", { children: edits.map((e) => /* @__PURE__ */ u("li", { children: [
+				/* @__PURE__ */ u("span", {
+					className: "entry-title",
+					children: e.title
+				}),
+				/* @__PURE__ */ u("span", {
+					className: "entry-summary",
+					children: e.summary
+				}),
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					onClick: () => discard(e.id),
+					children: "Discard"
+				})
+			] }, e.id)) }),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			})
+		]
 	});
 }
 function WikiDetailPage({ entry }) {
 	const [page, setPage] = d(null);
 	const [problem, setProblem] = d(null);
+	const [editing, setEditing] = d(false);
+	const [version, setVersion] = d(0);
+	const reload = () => setVersion((v) => v + 1);
+	h(() => {
+		setPage(null);
+		setEditing(false);
+	}, [entry]);
 	h(() => {
 		let stopped = false;
 		const started = performance.now();
-		setPage(null);
 		setProblem(null);
 		getWikiPage(entry).then((next) => {
 			console.info(`Wiki page loaded in ${Math.round(performance.now() - started)} ms`);
@@ -2986,7 +3168,7 @@ function WikiDetailPage({ entry }) {
 				return;
 			}
 			setPage(next);
-			document.querySelector("main")?.scrollIntoView?.();
+			if (version === 0) document.querySelector("main")?.scrollIntoView?.();
 		}).catch((e) => {
 			console.error("Could not load the wiki page", e);
 			if (!stopped) setProblem("failed");
@@ -2994,7 +3176,7 @@ function WikiDetailPage({ entry }) {
 		return () => {
 			stopped = true;
 		};
-	}, [entry]);
+	}, [entry, version]);
 	if (problem) return /* @__PURE__ */ u("section", {
 		className: "wiki",
 		children: [
@@ -3038,21 +3220,36 @@ function WikiDetailPage({ entry }) {
 					})] }, t.id))
 				]
 			}),
-			/* @__PURE__ */ u("h1", { children: page.title }),
-			/* @__PURE__ */ u("p", { children: page.summary }),
-			/* @__PURE__ */ u(PageLinks, {
-				pdf: page.pdf_id,
-				pages: page.pages
-			}),
+			editing ? /* @__PURE__ */ u(EditForm, {
+				entry: page,
+				onDone: (saved) => {
+					setEditing(false);
+					if (saved) reload();
+				}
+			}) : /* @__PURE__ */ u(S, { children: [
+				/* @__PURE__ */ u("h1", { children: page.title }),
+				/* @__PURE__ */ u("p", { children: page.summary }),
+				/* @__PURE__ */ u(PageLinks, {
+					pdf: page.pdf_id,
+					pages: page.pages
+				}),
+				/* @__PURE__ */ u(EditActions, {
+					entry: page,
+					onEdit: () => setEditing(true),
+					onChanged: reload
+				})
+			] }),
 			page.entries.length > 0 && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h2", { children: "In this topic" }), /* @__PURE__ */ u(Outline, {
 				pdf: page.pdf_id,
-				entries: page.entries
+				entries: page.entries,
+				onChanged: reload
 			})] })
 		]
 	});
 }
-function Outline({ pdf, entries }) {
+function Outline({ pdf, entries, onChanged }) {
 	const ref = A(null);
+	const [editing, setEditing] = d(null);
 	const opens = entries.some((e) => e.entries.length > 0);
 	const openAll = (open) => {
 		ref.current?.querySelectorAll("details").forEach((d) => {
@@ -3080,29 +3277,47 @@ function Outline({ pdf, entries }) {
 			]
 		}), /* @__PURE__ */ u(Entries, {
 			pdf,
-			entries
+			entries,
+			edit: {
+				id: editing,
+				start: setEditing,
+				done: (saved) => {
+					setEditing(null);
+					if (saved) onChanged();
+				},
+				changed: onChanged
+			}
 		})]
 	});
 }
-function Entries({ pdf, entries }) {
+function Entries({ pdf, entries, edit }) {
 	return /* @__PURE__ */ u("ul", {
 		className: "outline",
-		children: entries.map((e) => /* @__PURE__ */ u("li", { children: e.entries.length > 0 ? /* @__PURE__ */ u("details", { children: [/* @__PURE__ */ u("summary", { children: /* @__PURE__ */ u(EntryText, {
+		children: entries.map((e) => /* @__PURE__ */ u("li", { children: edit.id === e.id ? /* @__PURE__ */ u("div", {
+			className: "leaf",
+			children: /* @__PURE__ */ u(EditForm, {
+				entry: e,
+				onDone: edit.done
+			})
+		}) : e.entries.length > 0 ? /* @__PURE__ */ u("details", { children: [/* @__PURE__ */ u("summary", { children: /* @__PURE__ */ u(EntryText, {
 			pdf,
-			entry: e
+			entry: e,
+			edit
 		}) }), /* @__PURE__ */ u(Entries, {
 			pdf,
-			entries: e.entries
+			entries: e.entries,
+			edit
 		})] }) : /* @__PURE__ */ u("div", {
 			className: "leaf",
 			children: /* @__PURE__ */ u(EntryText, {
 				pdf,
-				entry: e
+				entry: e,
+				edit
 			})
 		}) }, e.id))
 	});
 }
-function EntryText({ pdf, entry }) {
+function EntryText({ pdf, entry, edit }) {
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("span", {
 			className: "entry-title",
@@ -3121,8 +3336,134 @@ function EntryText({ pdf, entry }) {
 		/* @__PURE__ */ u(PageLinks, {
 			pdf,
 			pages: entry.pages
+		}),
+		/* @__PURE__ */ u(EditActions, {
+			entry,
+			onEdit: () => edit.start(entry.id),
+			onChanged: edit.changed
 		})
 	] });
+}
+function EditActions({ entry, onEdit, onChanged }) {
+	const [error, setError] = d(null);
+	const act = (e, action, failure) => {
+		e.preventDefault();
+		setError(null);
+		Promise.resolve(action()).then(() => {
+			if (action !== onEdit) onChanged();
+		}).catch((err) => {
+			console.error(failure, err);
+			setError(err instanceof Error ? err.message : failure);
+		});
+	};
+	return /* @__PURE__ */ u("span", {
+		className: "entry-actions",
+		children: [
+			entry.review && entry.built && /* @__PURE__ */ u("span", {
+				className: "notice review",
+				children: [
+					"The wiki was rebuilt after you edited this. The new wiki says:",
+					" ",
+					/* @__PURE__ */ u("strong", { children: entry.built.title }),
+					": ",
+					entry.built.summary,
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						onClick: (e) => act(e, () => markWikiReviewed(entry.id), "Could not keep the edit"),
+						children: "Keep my edit"
+					}),
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: (e) => act(e, () => undoWikiEdit(entry.id), "Could not use the new text"),
+						children: "Use the new text"
+					})
+				]
+			}),
+			entry.edited && !entry.review && /* @__PURE__ */ u("span", {
+				className: "muted",
+				children: "Edited by you. "
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "link",
+				onClick: (e) => act(e, onEdit, "Could not edit"),
+				children: "Edit"
+			}),
+			entry.edited && !entry.review && /* @__PURE__ */ u(S, { children: [" · ", /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "link",
+				onClick: (e) => act(e, () => undoWikiEdit(entry.id), "Could not undo the edit"),
+				children: "Undo my edit"
+			})] }),
+			error && /* @__PURE__ */ u("span", {
+				className: "error",
+				children: [" ", error]
+			})
+		]
+	});
+}
+function EditForm({ entry, onDone }) {
+	const [title, setTitle] = d(entry.title);
+	const [summary, setSummary] = d(entry.summary);
+	const [saving, setSaving] = d(false);
+	const [error, setError] = d(null);
+	const save = (e) => {
+		e.preventDefault();
+		const started = performance.now();
+		setSaving(true);
+		setError(null);
+		saveWikiEdit(entry.id, title, summary).then(() => {
+			console.info(`Wiki edit saved in ${Math.round(performance.now() - started)} ms`);
+			onDone(true);
+		}).catch((err) => {
+			console.error("Could not save the wiki edit", err);
+			setError(err instanceof Error ? err.message : "The edit could not be saved.");
+			setSaving(false);
+		});
+	};
+	return /* @__PURE__ */ u("form", {
+		className: "wiki-edit",
+		onSubmit: save,
+		"aria-label": `Edit ${entry.title}`,
+		children: [
+			/* @__PURE__ */ u("label", { children: ["Title", /* @__PURE__ */ u("input", {
+				type: "text",
+				value: title,
+				maxLength: 200,
+				onInput: (e) => setTitle(e.currentTarget.value)
+			})] }),
+			/* @__PURE__ */ u("label", { children: ["Summary", /* @__PURE__ */ u("textarea", {
+				rows: 6,
+				value: summary,
+				maxLength: 5e3,
+				onInput: (e) => setSummary(e.currentTarget.value)
+			})] }),
+			/* @__PURE__ */ u("p", {
+				className: "outline-buttons",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: saving || !title.trim() || !summary.trim(),
+						children: saving ? "Saving…" : "Save"
+					}),
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: () => onDone(false),
+						children: "Cancel"
+					})
+				]
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			})
+		]
+	});
 }
 function PageLinks({ pdf, pages }) {
 	if (pages.length === 0) return null;

@@ -10,6 +10,9 @@ same part again, keeping the parts already done.
 
 Once a PDF's topics are found, the LLM builds the wiki's outline from them (R37a): the table of
 contents, and the detail pages of the topics too long to say in a few sentences.
+
+The user's edits (R38) are kept apart and shown over what was built; a rebuild keeps them and
+flags them for review.
 """
 
 import contextlib
@@ -25,6 +28,7 @@ from imageskin.chat import LlmError
 from imageskin.content import ContentStore
 from imageskin.reading_job import ReadingJob, version
 from imageskin.wiki import Progress, WaitForLlm, Wiki, WikiError, WikiPage
+from imageskin.wiki_edits import EditError, WikiEdits, lost, marked
 from imageskin.wiki_outline import (
     Entry,
     OutlineProgress,
@@ -107,6 +111,7 @@ class WikiJob:
         self.retry_s = retry_s
         self.when_idle = when_idle
         self.folder = store.root / "wiki"
+        self.edits = WikiEdits(self.folder)
         self._lock = threading.Lock()
         self._waiting: list[str] = []
         self._status: dict[str, WikiStatus] = {}
@@ -142,10 +147,62 @@ class WikiJob:
                 self._waiting.remove(pdf_id)
 
     def forget(self, pdf_id: str) -> None:
-        """After a PDF is removed: its pages go too."""
+        """After a PDF is removed: its pages go too, and the user's edits to them."""
         self.reset(pdf_id)
         with self._lock:
             (self.folder / f"{pdf_id}.json").unlink(missing_ok=True)
+        self.edits.forget(pdf_id)
+
+    def rebuild(self, pdf_id: str) -> bool:
+        """Builds a PDF's wiki again with the LLM (R38), keeping the user's edits; whether it
+        was queued (False: no such PDF, or not read yet). The pages built before stay readable
+        until the new ones are saved."""
+        if self.store.get(pdf_id) is None or self.readings.reading(pdf_id) is None:
+            return False
+        logger.info("Rebuilding wiki", extra={"id": pdf_id})
+        self.queue(pdf_id)
+        return True
+
+    def edit(self, page_id: str, title: str, summary: str) -> dict[str, Any]:
+        """Keeps the user's title and summary for an entry (R38) and returns its page. Raises
+        EditError when there is no such entry or the edit can't be kept."""
+        start = time.perf_counter()
+        pdf_id = page_id.split("-", 1)[0]
+        # Under the lock a new build is saved and its edits flagged with, so an edit belongs
+        # either to the pages before it (and is flagged) or to the new ones (and isn't).
+        with self._lock:
+            saved = self._saved(pdf_id)
+            if saved is None or find(from_saved(saved["outline"]), page_id) is None:
+                raise EditError("No such wiki page.", status=404)
+            self.edits.save(pdf_id, page_id, title, summary)
+        logger.info(
+            "Wiki entry edited",
+            extra={
+                "id": pdf_id,
+                "entry": page_id,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        page = self.page(page_id)
+        assert page is not None  # found above
+        return page
+
+    def undo_edit(self, page_id: str) -> bool:
+        """Back to what the LLM built for an entry, or a lost edit discarded; whether there was
+        an edit."""
+        pdf_id = page_id.split("-", 1)[0]
+        undone = self.edits.discard(pdf_id, page_id)
+        if undone:
+            logger.info("Wiki edit undone", extra={"id": pdf_id, "entry": page_id})
+        return undone
+
+    def reviewed(self, page_id: str) -> bool:
+        """The user has checked an edit flagged after a rebuild; whether there was one."""
+        pdf_id = page_id.split("-", 1)[0]
+        checked = self.edits.reviewed(pdf_id, page_id)
+        if checked:
+            logger.info("Wiki edit checked", extra={"id": pdf_id, "entry": page_id})
+        return checked
 
     def statuses(self) -> dict[str, WikiStatus]:
         """How far each stored PDF's pages have got."""
@@ -185,17 +242,28 @@ class WikiJob:
         return found
 
     def built(self, pdf_id: str) -> dict[str, Any] | None:
-        """One PDF's up-to-date pages with their text, as saved, or None if not built yet."""
-        return self._saved(pdf_id)
+        """One PDF's up-to-date pages with their text, as saved, and the user's edits, or None
+        if not built yet."""
+        saved = self._saved(pdf_id)
+        return None if saved is None else {**saved, "edits": self.edits.get(pdf_id)}
 
     def contents(self, pdf_id: str | None = None) -> list[dict[str, Any]]:
         """Every up-to-date table of contents (or one PDF's), as the wiki shows it (R37b): the
-        whole outline, every level of it, detail pages' parts too."""
+        whole outline, every level of it, detail pages' parts too, with the user's edits (R38)
+        and any edits whose entries a rebuild no longer has."""
         found = []
         for pdf in self.store.list():
             saved = self._saved(pdf.id) if pdf_id in (None, pdf.id) else None
             if saved is not None:
-                found.append({**summary(saved), "entries": saved["outline"]})
+                edits = self.edits.get(pdf.id)
+                entries = [marked(e, edits) for e in saved["outline"]]
+                found.append(
+                    {
+                        **summary(saved),
+                        "entries": entries,
+                        "lost_edits": lost(saved["outline"], edits),
+                    }
+                )
         return found
 
     def page(self, page_id: str) -> dict[str, Any] | None:
@@ -209,11 +277,16 @@ class WikiJob:
         entry = find(outline, page_id)
         if entry is None:
             return None
+        edits = self.edits.get(pdf_id)
         above = ancestors(outline, page_id) or []
-        trail = [{"id": e.id, "title": e.title} for e in above if e.detail]
+        trail = [
+            {"id": e.id, "title": edits[e.id]["title"] if e.id in edits else e.title}
+            for e in above
+            if e.detail
+        ]
         texts = {page["id"]: page["text"] for page in saved["pages"]}
         text = {"text": texts[page_id]} if page_id in texts else {}
-        return {**summary(saved), **shown(entry), "trail": trail, **text}
+        return {**summary(saved), **marked(shown(entry), edits), "trail": trail, **text}
 
     def wait(self, timeout: float = 30) -> None:
         """Until every queued PDF is built (tests)."""
@@ -356,6 +429,11 @@ class WikiJob:
                 return True  # replaced or removed meanwhile; it is built again, or not needed
             if not self._save(saved):
                 return True
+            try:
+                # The edits made before these pages are to be checked against them.
+                flagged = self.edits.flag_all(pdf_id)
+            except EditError:
+                flagged = 0  # logged; the edits are kept, just not flagged
         logger.info(
             "Wiki pages built",
             extra={
@@ -365,6 +443,7 @@ class WikiJob:
                 "pages": len(wiki.pages),
                 "detail_pages": sum(count_detail(e) for e in outline),
                 "skipped_parts": wiki.skipped_parts,
+                "flagged_edits": flagged,
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
