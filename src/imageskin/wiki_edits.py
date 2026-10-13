@@ -117,6 +117,11 @@ class WikiEdits:
             self._write(pdf_id, edits)
         return len(edits)
 
+    def replace(self, pdf_id: str, edits: dict[str, dict[str, Any]]) -> None:
+        """All of a PDF's edits at once: a restored or loaded wiki's (R38a)."""
+        with self._lock:
+            self._write(pdf_id, edits)
+
     def forget(self, pdf_id: str) -> None:
         with self._lock:
             self._path(pdf_id).unlink(missing_ok=True)

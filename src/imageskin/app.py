@@ -13,7 +13,7 @@ from typing import Any, Literal
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -76,6 +76,7 @@ from imageskin.wiki import (
 )
 from imageskin.wiki import Progress as WikiProgress
 from imageskin.wiki_edits import EditError
+from imageskin.wiki_history import HistoryError
 from imageskin.wiki_job import BuildOutline, BuildWiki, WikiJob, WikiStatus
 from imageskin.wiki_outline import (
     OUTLINE_REPLY_TOKENS,
@@ -172,6 +173,17 @@ def sound_checker(speakers: SpeakerChecker) -> SoundCheck:
     # Download the model now, so the first recording isn't held up by it.
     threading.Thread(target=speakers.prepare, name="speaker-model", daemon=True).start()
     return functools.partial(sound_checks.check, voices=speakers.check)
+
+
+MAX_WIKI_FILE_BYTES = 50 * 1024 * 1024
+
+
+def wiki_file_name(saved: dict[str, Any]) -> str:
+    """The name a saved wiki file downloads as: the PDF's, with -wiki.json for .pdf."""
+    stem = Path(saved["pdf_name"]).stem or "wiki"
+    kept = (c if (c.isascii() and c.isalnum()) or c in " ._-" else "_" for c in stem)
+    safe = "".join(kept).strip() or "wiki"
+    return f"{safe}-wiki.json"
 
 
 def wiki_builder(llm: LlmSettings, client: LlmClient | None, ask_llm: AskLlm | None) -> BuildWiki:
@@ -510,6 +522,53 @@ def create_app(
         if not wiki.rebuild(pdf_id):
             raise HTTPException(status_code=409, detail="The PDF hasn't been read yet.")
         return wiki.statuses()[pdf_id]
+
+    # The wiki's history, and saving it to a file and loading it back (roadmap R38a).
+    @app.get(content_api + "/{pdf_id}/wiki/history")
+    def wiki_history(pdf_id: str) -> list[dict[str, Any]]:
+        versions = wiki.versions(pdf_id)
+        if versions is None:
+            raise HTTPException(status_code=404, detail="No wiki pages yet.")
+        return versions
+
+    @app.get(content_api + "/{pdf_id}/wiki/history/{version_id}")
+    def wiki_version(pdf_id: str, version_id: str) -> dict[str, Any]:
+        found = wiki.version(pdf_id, version_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such version of the wiki.")
+        return found
+
+    @app.post(content_api + "/{pdf_id}/wiki/history/{version_id}/restore")
+    def restore_wiki_version(pdf_id: str, version_id: str, force: bool = False) -> dict[str, bool]:
+        try:
+            wiki.restore(pdf_id, version_id, force)
+        except HistoryError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        return {"restored": True}
+
+    @app.get(content_api + "/{pdf_id}/wiki/file")
+    def save_wiki_file(pdf_id: str) -> JSONResponse:
+        saved = wiki.export(pdf_id)
+        if saved is None:
+            raise HTTPException(status_code=404, detail="No wiki pages yet.")
+        return JSONResponse(
+            saved,
+            headers={"Content-Disposition": f'attachment; filename="{wiki_file_name(saved)}"'},
+        )
+
+    @app.post(content_api + "/{pdf_id}/wiki/file")
+    def load_wiki_file(pdf_id: str, file: UploadFile, force: bool = False) -> dict[str, int]:
+        data = file.file.read(MAX_WIKI_FILE_BYTES + 1)
+        if len(data) > MAX_WIKI_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"A wiki file can be at most {MAX_WIKI_FILE_BYTES // 2**20} MB.",
+            )
+        try:
+            added = wiki.load(pdf_id, data, force)
+        except HistoryError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        return {"versions_added": added}
 
     # One voice engine for the job, so Prepare loads the voice model once.
     def accent() -> Accent:

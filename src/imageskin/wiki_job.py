@@ -12,7 +12,9 @@ Once a PDF's topics are found, the LLM builds the wiki's outline from them (R37a
 contents, and the detail pages of the topics too long to say in a few sentences.
 
 The user's edits (R38) are kept apart and shown over what was built; a rebuild keeps them and
-flags them for review.
+flags them for review. Every change keeps a version of the whole wiki in its history (R38a), so
+an earlier state can be restored, and the wiki and its history can be saved to a file and loaded
+back.
 """
 
 import contextlib
@@ -29,6 +31,13 @@ from imageskin.content import ContentStore
 from imageskin.reading_job import ReadingJob, version
 from imageskin.wiki import Progress, WaitForLlm, Wiki, WikiError, WikiPage
 from imageskin.wiki_edits import EditError, WikiEdits, lost, marked
+from imageskin.wiki_history import (
+    HistoryError,
+    Kind,
+    WikiHistory,
+    read_wiki_file,
+    wiki_file,
+)
 from imageskin.wiki_outline import (
     Entry,
     OutlineProgress,
@@ -112,6 +121,7 @@ class WikiJob:
         self.when_idle = when_idle
         self.folder = store.root / "wiki"
         self.edits = WikiEdits(self.folder)
+        self.history = WikiHistory(self.folder, WIKI_FORMAT)
         self._lock = threading.Lock()
         self._waiting: list[str] = []
         self._status: dict[str, WikiStatus] = {}
@@ -152,6 +162,7 @@ class WikiJob:
         with self._lock:
             (self.folder / f"{pdf_id}.json").unlink(missing_ok=True)
         self.edits.forget(pdf_id)
+        self.history.forget(pdf_id)
 
     def rebuild(self, pdf_id: str) -> bool:
         """Builds a PDF's wiki again with the LLM (R38), keeping the user's edits; whether it
@@ -174,7 +185,9 @@ class WikiJob:
             saved = self._saved(pdf_id)
             if saved is None or find(from_saved(saved["outline"]), page_id) is None:
                 raise EditError("No such wiki page.", status=404)
-            self.edits.save(pdf_id, page_id, title, summary)
+            self._start_history(pdf_id)
+            edit = self.edits.save(pdf_id, page_id, title, summary)
+            self._keep(pdf_id, "edited", title=edit["title"])
         logger.info(
             "Wiki entry edited",
             extra={
@@ -191,18 +204,158 @@ class WikiJob:
         """Back to what the LLM built for an entry, or a lost edit discarded; whether there was
         an edit."""
         pdf_id = page_id.split("-", 1)[0]
-        undone = self.edits.discard(pdf_id, page_id)
-        if undone:
-            logger.info("Wiki edit undone", extra={"id": pdf_id, "entry": page_id})
-        return undone
+        with self._lock:
+            edit = self.edits.get(pdf_id).get(page_id)
+            if edit is None:
+                return False
+            saved = self._saved(pdf_id)
+            gone = saved is None or find(from_saved(saved["outline"]), page_id) is None
+            self._start_history(pdf_id)
+            if not self.edits.discard(pdf_id, page_id):
+                return False
+            self._keep(pdf_id, "discarded" if gone else "undone", title=edit["title"])
+        logger.info("Wiki edit undone", extra={"id": pdf_id, "entry": page_id})
+        return True
 
     def reviewed(self, page_id: str) -> bool:
         """The user has checked an edit flagged after a rebuild; whether there was one."""
         pdf_id = page_id.split("-", 1)[0]
-        checked = self.edits.reviewed(pdf_id, page_id)
-        if checked:
-            logger.info("Wiki edit checked", extra={"id": pdf_id, "entry": page_id})
-        return checked
+        with self._lock:
+            edit = self.edits.get(pdf_id).get(page_id)
+            if edit is None:
+                return False
+            self._start_history(pdf_id)
+            if not self.edits.reviewed(pdf_id, page_id):
+                return False
+            self._keep(pdf_id, "kept", title=edit["title"])
+        logger.info("Wiki edit checked", extra={"id": pdf_id, "entry": page_id})
+        return True
+
+    def versions(self, pdf_id: str) -> list[dict[str, Any]] | None:
+        """The PDF's wiki versions, newest first (R38a), or None if it has no wiki yet. A wiki
+        built before its history began shows as it is now."""
+        with self._lock:
+            if self._saved(pdf_id) is None:
+                return None
+            self._start_history(pdf_id)
+        return self.history.versions(pdf_id)
+
+    def version(self, pdf_id: str, version_id: str) -> dict[str, Any] | None:
+        """One version as the Wiki page shows it, to read: like contents()."""
+        found = self.history.get(pdf_id, version_id)
+        if found is None:
+            return None
+        wiki, edits = found["wiki"], found["edits"]
+        return {
+            "pdf_id": pdf_id,
+            "pdf_name": wiki["name"],
+            "id": found["id"],
+            "at": found["at"],
+            "change": found["change"],
+            "entries": [marked(e, edits) for e in wiki["outline"]],
+            "lost_edits": lost(wiki["outline"], edits),
+        }
+
+    def restore(self, pdf_id: str, version_id: str, force: bool = False) -> None:
+        """Makes an earlier version the current wiki, as a new version (R38a). Raises
+        HistoryError: 404 no such version, 409 while the wiki is being built, 412 when the
+        version was built from an earlier copy of the PDF (unless `force`)."""
+        found = self.history.get(pdf_id, version_id)
+        if found is None:
+            raise HistoryError("No such version of the wiki.", 404)
+        with self._lock:
+            self._make_current(pdf_id, found["wiki"], found["edits"], force)
+            self._keep(pdf_id, "restored", restored_at=found["at"])
+        logger.info("Wiki version restored", extra={"id": pdf_id, "version": version_id})
+
+    def export(self, pdf_id: str) -> dict[str, Any] | None:
+        """The PDF's current wiki and its whole history, to save to a file (R38a)."""
+        with self._lock:
+            saved = self._saved(pdf_id)
+            if saved is None:
+                return None
+            self._start_history(pdf_id)
+            current = {"wiki": saved, "edits": self.edits.get(pdf_id)}
+        history = self.history.everything(pdf_id)
+        logger.info("Wiki saved to a file", extra={"id": pdf_id, "versions": len(history)})
+        return wiki_file(pdf_id, saved["name"], saved["version"], current, history)
+
+    def load(self, pdf_id: str, data: bytes, force: bool = False) -> int:
+        """Loads a wiki file saved by export(): its current wiki becomes the PDF's, as a new
+        version, and its versions join the history. How many versions it added. Raises
+        HistoryError as restore() does, and 422 when it isn't this PDF's wiki file."""
+        loaded = read_wiki_file(data, WIKI_FORMAT)
+        if loaded["pdf_id"] != pdf_id:
+            raise HistoryError(
+                f"This file is the wiki of another PDF ({loaded.get('pdf_name') or 'unnamed'})."
+            )
+        current = loaded["current"]
+        with self._lock:
+            self._make_current(pdf_id, current["wiki"], current["edits"], force)
+            added = self.history.add(pdf_id, loaded["history"])
+            self._keep(pdf_id, "loaded")
+        logger.info("Wiki loaded from a file", extra={"id": pdf_id, "versions_added": added})
+        return added
+
+    def _make_current(
+        self, pdf_id: str, wiki: dict[str, Any], edits: dict[str, Any], force: bool
+    ) -> None:
+        """Saves a wiki and its edits as the PDF's current one. Called with the lock held."""
+        pdf = self.store.get(pdf_id)
+        if pdf is None:
+            raise HistoryError("No such PDF.", 404)
+        if pdf_id in self._waiting or (self._building or ("",))[0] == pdf_id:
+            raise HistoryError(
+                "The wiki is being built. Wait for it to finish, then try again.", 409
+            )
+        if wiki["version"] != version(pdf) and not force:
+            raise HistoryError(
+                "This wiki was built from an earlier copy of the PDF, so some of it may not "
+                "match the PDF as it is now.",
+                412,
+            )
+        self._start_history(pdf_id)
+        before = self._stored(pdf_id)
+        if not self._save({**wiki, "id": pdf_id, "name": pdf.name, "version": version(pdf)}):
+            if before is not None:  # still the current wiki, not a failed build
+                self._status[pdf_id] = done_status(before)
+            raise HistoryError("The wiki could not be saved. Try again.", 500)
+        try:
+            self.edits.replace(pdf_id, edits)
+        except EditError as e:
+            raise HistoryError(str(e), e.status) from e
+
+    def _start_history(self, pdf_id: str) -> None:
+        """Before the first change to a wiki with no history yet (built before R38a, say), the
+        wiki as it is now is kept, so the change can be undone. Called with the lock held."""
+        if self.history.started(pdf_id):
+            return
+        saved = self._stored(pdf_id)
+        if saved is not None:
+            self._keep_version(pdf_id, saved, "start")
+
+    def _keep(self, pdf_id: str, kind: Kind, **about: str) -> None:
+        """Keeps the wiki as it is now as a new version. Called with the lock held."""
+        saved = self._stored(pdf_id)
+        if saved is not None:
+            self._keep_version(pdf_id, saved, kind, **about)
+
+    def _keep_version(self, pdf_id: str, saved: dict[str, Any], kind: Kind, **about: str) -> None:
+        try:
+            self.history.record(pdf_id, saved, self.edits.get(pdf_id), kind, **about)
+        except HistoryError:
+            pass  # logged; the change itself is made, only its version is missing
+
+    def _stored(self, pdf_id: str) -> dict[str, Any] | None:
+        """The wiki saved for a PDF, even one built from an earlier copy of it (so a rebuild of
+        a replaced PDF keeps the old one in the history first)."""
+        try:
+            saved: dict[str, Any] = json.loads(
+                (self.folder / f"{pdf_id}.json").read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            return None
+        return saved if saved.get("format") == WIKI_FORMAT else None
 
     def statuses(self) -> dict[str, WikiStatus]:
         """How far each stored PDF's pages have got."""
@@ -427,6 +580,8 @@ class WikiJob:
         with self._lock:
             if self.store.get(pdf_id) != pdf:
                 return True  # replaced or removed meanwhile; it is built again, or not needed
+            before = self._stored(pdf_id)
+            self._start_history(pdf_id)  # the pages built before, if they have no history yet
             if not self._save(saved):
                 return True
             try:
@@ -434,6 +589,7 @@ class WikiJob:
                 flagged = self.edits.flag_all(pdf_id)
             except EditError:
                 flagged = 0  # logged; the edits are kept, just not flagged
+            self._keep(pdf_id, "built" if before is None else "rebuilt")
         logger.info(
             "Wiki pages built",
             extra={
