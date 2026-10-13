@@ -395,7 +395,7 @@ The PRs below are written for either kind of video engine, but these are the one
 
 Added by Larry on 2026-10-13. The chat must be clean and professional enough to use in a commercial setting. The teacher view must be usable by a non-technical teacher and the student view by a non-technical student. At the end of this milestone, judged only on how it looks and on answering typed questions, the app is clearly of professional quality. For now anyone can change the settings at will; R44's sign-on restricts them later. Settings come before the Settings page (R27), so these two live in a small Settings menu in the top bar that R27 later takes over.
 
-### R41a. Settings menu: show metrics (Medium) · items 49, 51
+### R41a. Settings menu: show metrics (Medium) · items 49, 51 · Done in [PR #76](https://github.com/larry94555/ImageSkinForLLM/pull/76)
 - A **Settings** menu in the top bar of every page, open to anyone for now. Its first setting, **Show timing metrics**, is off by default: the timing readout under the video (R22a) and the other timings and counts shown on the pages (such as how long a step or a search took) appear only when it is on. The log keeps every timing either way.
 - The settings are saved on the server, so they stay the same after a reload or restart and on every browser *(default)*.
 - **Can show:** the chat with no timing readout, then with it after turning the setting on, and still on after a reload.
