@@ -253,20 +253,42 @@ function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
 
 // "Wiki: 7 pages", or how far building them has got.
 export function wikiText(b: WikiBuild): string {
+  const left = (what: string) =>
+    b.remaining_s != null ? `, about ${duration(b.remaining_s)} left${what}` : "";
+  const time = (what = "") =>
+    b.elapsed_s != null ? ` (${duration(b.elapsed_s)} so far${left(what)})` : "";
+  const sofar = time();
   if (b.state === "waiting") {
-    if (b.error) return "Waiting for the LLM to build the wiki pages…";
-    return "Waiting to build the wiki pages…";
+    if (b.error) return `Waiting for the LLM to build the wiki pages…${sofar}`;
+    return `Waiting to build the wiki pages…${sofar}`;
+  }
+  if (b.state === "building" && b.stage === "outline") {
+    const step = Math.min(b.steps + 1, b.steps_planned);
+    return b.steps_planned
+      ? `Building the wiki outline: step ${step} of about ${b.steps_planned}…${sofar}`
+      : `Building the wiki outline…${sofar}`;
   }
   if (b.state === "building") {
+    const part = Math.min(b.part + 1, b.parts);
     return b.parts
-      ? `Building the wiki pages: part ${Math.min(b.part + 1, b.parts)} of ${b.parts}…`
-      : "Building the wiki pages…";
+      ? `Building the wiki pages: part ${part} of ${b.parts}…${time(" before the outline")}`
+      : `Building the wiki pages…${sofar}`;
   }
   if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";
   const n = b.skipped_parts?.length ?? 0;
   const why = "the LLM gave no usable answer";
   const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: ${why})` : "";
-  return `Wiki: ${plural(b.pages ?? 0, "page")}${skipped}`;
+  const detail = b.detail_pages ? `, ${plural(b.detail_pages, "detail page")}` : "";
+  const took = b.elapsed_s != null ? `, built in ${duration(b.elapsed_s)}` : "";
+  return `Wiki: ${plural(b.pages ?? 0, "page")}${detail}${took}${skipped}`;
+}
+
+// 45 -> "45 s", 252 -> "4 min 12 s", 3780 -> "1 h 3 min"
+export function duration(seconds: number): string {
+  const s = Math.round(seconds);
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
+  return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
 }
 
 function plural(n: number, word: string): string {

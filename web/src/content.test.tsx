@@ -30,6 +30,12 @@ const BUILT: WikiBuild = {
   pages: 7,
   skipped_parts: [],
   error: null,
+  stage: "topics",
+  steps: 0,
+  detail_pages: 0,
+  elapsed_s: null,
+  steps_planned: 0,
+  remaining_s: null,
 };
 
 // A fake content API holding `pdfs`. `refuse` makes adding or replacing fail with that reason.
@@ -372,4 +378,26 @@ test("wiki progress reads as a sentence", () => {
   expect(wikiText({ ...BUILT, pages: 1, parts: 5, skipped_parts: [2, 4] })).toBe(
     "Wiki: 1 page (2 parts of 5 skipped: the LLM gave no usable answer)",
   );
+  const outline: WikiBuild = { ...BUILT, state: "building", stage: "outline", pages: null };
+  expect(wikiText(outline)).toBe("Building the wiki outline…");
+  expect(wikiText({ ...outline, steps: 3, steps_planned: 9 })).toBe(
+    "Building the wiki outline: step 4 of about 9…",
+  );
+  expect(wikiText({ ...BUILT, detail_pages: 1 })).toBe("Wiki: 7 pages, 1 detail page");
+  expect(wikiText({ ...outline, steps: 2, steps_planned: 2, elapsed_s: 252.4 })).toBe(
+    "Building the wiki outline: step 2 of about 2… (4 min 12 s so far)",
+  );
+  expect(
+    wikiText({ ...outline, steps: 2, steps_planned: 5, elapsed_s: 252.4, remaining_s: 90 }),
+  ).toBe("Building the wiki outline: step 3 of about 5… (4 min 12 s so far, about 1 min 30 s left)");
+  expect(wikiText({ ...BUILT, state: "building", part: 1, elapsed_s: 40, remaining_s: 40 })).toBe(
+    "Building the wiki pages: part 2 of 2… (40 s so far, about 40 s left before the outline)",
+  );
+  expect(wikiText({ ...BUILT, state: "building", part: 0, elapsed_s: 5 })).toBe(
+    "Building the wiki pages: part 1 of 2… (5 s so far)",
+  );
+  expect(wikiText({ ...waiting, error: "down", elapsed_s: 61 })).toBe(
+    "Waiting for the LLM to build the wiki pages… (1 min 1 s so far)",
+  );
+  expect(wikiText({ ...BUILT, elapsed_s: 3780 })).toBe("Wiki: 7 pages, built in 1 h 3 min");
 });

@@ -26,6 +26,7 @@ from imageskin.chat import (
     LlmClient,
     LlmError,
     LlmSettings,
+    Message,
     StreamLlm,
     estimate,
 )
@@ -70,10 +71,18 @@ from imageskin.wiki import (
     AskForTopics,
     WaitForLlm,
     Wiki,
+    WikiPage,
     build_wiki,
 )
 from imageskin.wiki import Progress as WikiProgress
-from imageskin.wiki_job import BuildWiki, WikiJob, WikiStatus
+from imageskin.wiki_job import BuildOutline, BuildWiki, WikiJob, WikiStatus
+from imageskin.wiki_outline import (
+    OUTLINE_REPLY_TOKENS,
+    AskForJson,
+    Entry,
+    OutlineProgress,
+    Outliner,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +187,40 @@ def wiki_builder(llm: LlmSettings, client: LlmClient | None, ask_llm: AskLlm | N
     return build
 
 
+def outline_builder(
+    llm: LlmSettings, client: LlmClient | None, ask_llm: AskLlm | None
+) -> BuildOutline:
+    """Builds the wiki's outline with the chat's LLM: llama-server's, or `ask_llm` (tests)."""
+    ask: AskForJson
+    count: Count
+    if client is not None:
+        llama = client
+
+        def ask(messages: list[Message], schema: dict[str, Any]) -> str:
+            return llama.ask(messages, max_tokens=OUTLINE_REPLY_TOKENS, schema=schema)
+
+        count, window = client.count, client.context_tokens
+    else:
+        assert ask_llm is not None
+        test_ask = ask_llm
+
+        def ask(messages: list[Message], schema: dict[str, Any]) -> str:
+            return test_ask(messages)
+
+        count, window = estimate, lambda: llm.context_tokens
+
+    def build(
+        pdf_id: str,
+        topics: list[WikiPage],
+        pieces: list[dict[str, Any]],
+        progress: OutlineProgress,
+        wait: WaitForLlm,
+    ) -> list[Entry]:
+        return Outliner(pdf_id, ask, count, window(), progress, wait).outline(topics, pieces)
+
+    return build
+
+
 def create_app(
     home: Path | None = None,
     check_photo: PhotoCheck | None = None,
@@ -192,6 +235,8 @@ def create_app(
     warm_up_llm: Callable[[], None] | None = None,  # with ask_llm: readies the LLM (tests)
     read_pdf: ReadPdf | None = None,
     build_wiki: BuildWiki | None = None,
+    # The wiki's outline; with build_wiki alone, the topics as they are (tests).
+    build_outline: BuildOutline | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -325,7 +370,10 @@ def create_app(
     # Then the wiki is built from what was read (R37), with the chat's LLM.
     llm = llm or LlmSettings()
     client = LlmClient(llm) if ask_llm is None else None
-    wiki = WikiJob(content, readings, build_wiki or wiki_builder(llm, client, ask_llm))
+    if build_wiki is None:
+        build_wiki = wiki_builder(llm, client, ask_llm)
+        build_outline = build_outline or outline_builder(llm, client, ask_llm)
+    wiki = WikiJob(content, readings, build_wiki, build_outline)
     readings.on_read = wiki.queue
     readings.catch_up()
     wiki.catch_up()

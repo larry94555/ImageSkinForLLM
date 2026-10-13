@@ -22,8 +22,10 @@ from imageskin.chat import TOKENS_PER_MESSAGE, Count, EmptyReply, LlmError, Mess
 
 logger = logging.getLogger(__name__)
 
-# The longest answer asked for per part: up to 6 topics of 3 to 8 sentences each.
-WIKI_REPLY_TOKENS = 1200
+# The longest answer asked for per part: up to 6 topics of 2 or 3 sentences each. The detail
+# comes from the PDF itself (wiki_outline), so the LLM writes only a summary of each topic,
+# which keeps the build fast: most of an LLM request's time is spent writing its answer.
+WIKI_REPLY_TOKENS = 800
 # The most the titles found so far may take in the prompt; the latest that fit are passed on.
 TITLES_TOKENS = 300
 MAX_TITLE_CHARS = 80
@@ -33,9 +35,9 @@ MIN_CUT_CHARS = 200
 WIKI_PROMPT = (
     "You are building a wiki from a document. Below is one part of it; each piece starts with its"
     " page number in square brackets. List the main topics this part covers, at most 6. For each"
-    " topic give a short title of a few words, the page numbers it comes from, and a text of 3 to"
-    " 8 sentences that explains what the document says about it, in plain words, using only what"
-    " the document says. Answer with JSON only, in this form:"
+    " topic give a short title of a few words, the page numbers it comes from, and a summary of 2"
+    " or 3 sentences of what the document says about it, in plain words, using only what the"
+    " document says. Answer with JSON only, in this form:"
     ' {"topics": [{"title": "…", "pages": [1, 2], "text": "…"}]}'
 )
 KNOWN_PROMPT = "Topics found in earlier parts (reuse a title exactly when this part continues it):"
@@ -254,14 +256,7 @@ def ask_part(
 def parse(answer: str, pages: list[int]) -> list[tuple[str, list[int], str]]:
     """The usable topics in the LLM's answer: each with a title and text, and only the part's
     pages (all of them when it gave none of the part's pages)."""
-    try:
-        data = json.loads(answer)
-    except ValueError:
-        start, end = answer.find("{"), answer.rfind("}")  # JSON inside other words, or ```json
-        try:
-            data = json.loads(answer[start : end + 1]) if 0 <= start < end else None
-        except ValueError:
-            data = None
+    data = load_json(answer)
     topics = data.get("topics") if isinstance(data, dict) else None
     found = []
     for topic in topics if isinstance(topics, list) else []:
@@ -270,7 +265,7 @@ def parse(answer: str, pages: list[int]) -> list[tuple[str, list[int], str]]:
         title, text = topic.get("title"), topic.get("text")
         if not isinstance(title, str) or not isinstance(text, str):
             continue
-        title, text = " ".join(title.split())[:MAX_TITLE_CHARS], text.strip()
+        title, text = clean_title(title), text.strip()
         if not title or not text:
             continue
         given = topic.get("pages")
@@ -279,6 +274,23 @@ def parse(answer: str, pages: list[int]) -> list[tuple[str, list[int], str]]:
         )
         found.append((title, cited or pages, text))
     return found
+
+
+def load_json(answer: str) -> Any:
+    """The JSON object in the LLM's answer, even inside other words or ```json; None if none."""
+    try:
+        return json.loads(answer)
+    except ValueError:
+        start, end = answer.find("{"), answer.rfind("}")
+        try:
+            return json.loads(answer[start : end + 1]) if 0 <= start < end else None
+        except ValueError:
+            return None
+
+
+def clean_title(title: object) -> str:
+    """A title on one line and not too long, or "" if it isn't text."""
+    return " ".join(title.split())[:MAX_TITLE_CHARS] if isinstance(title, str) else ""
 
 
 def normalize(title: str) -> str:
