@@ -14,6 +14,7 @@ from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
+from imageskin.lookup import PDF_LIMIT, WIKI_LIMIT
 from imageskin.sample import SAMPLE_SCRIPT, SampleResult, make_sample
 from imageskin.speech_text import spoken_text
 from imageskin.video import INSTALL_HINT, VideoEngine, VideoError, find_ffmpeg
@@ -22,6 +23,7 @@ from imageskin.voice import VoiceEngine, VoiceError, write_speech
 logger = logging.getLogger(__name__)
 
 ENGINES = ("opencv", "photoreal")
+PRINTED_CHARS = 160  # of each passage the lookup command prints
 VOICE_SAMPLE_HELP = (
     "speak in the voice of this voice sample (from imageskin voice-sample) instead of a Kokoro "
     "voice, cloned with Pocket TTS when it is installed, else Chatterbox Turbo; see 'Your own "
@@ -40,6 +42,17 @@ def voice_engine(voice: str, voice_sample: Path | None) -> tuple[VoiceEngine, st
     engine = pocket_engine.pocket_engine() if pocket_engine.installed() else ChatterboxEngine()
     engine.check_voice_sample(str(voice_sample))  # before the photo is prepared or models load
     return engine, str(voice_sample)
+
+
+def count(value: str) -> int:
+    """A whole number of 0 or more, for an option such as --wiki."""
+    try:
+        number = int(value)
+    except ValueError:
+        number = -1
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be a whole number, 0 or more, not {value!r}")
+    return number
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -115,6 +128,20 @@ def build_parser() -> argparse.ArgumentParser:
         default="opencv",
         help="opencv: quick mouth animation (default); photoreal: LivePortrait, with a "
         "one-time setup per photo",
+    )
+    lookup = commands.add_parser(
+        "lookup",
+        help="print the wiki entries and PDF passages found for questions, with the time taken",
+    )
+    lookup.add_argument("questions", nargs="+", help="questions to look up, each in quotes")
+    lookup.add_argument(
+        "--wiki",
+        type=count,
+        default=WIKI_LIMIT,
+        help=f"wiki entries to show (default {WIKI_LIMIT})",
+    )
+    lookup.add_argument(
+        "--pdf", type=count, default=PDF_LIMIT, help=f"PDF passages to show (default {PDF_LIMIT})"
     )
     return parser
 
@@ -196,6 +223,48 @@ def print_spoken_text(text: str | None, file: Path | None) -> int:
     return 0
 
 
+def shorten(text: str, chars: int = PRINTED_CHARS) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= chars else text[: chars - 1].rstrip() + "…"
+
+
+def pages_label(pages: list[int]) -> str:
+    return ("page " if len(pages) == 1 else "pages ") + ", ".join(map(str, pages))
+
+
+def print_lookups(questions: list[str], wiki_limit: int, pdf_limit: int) -> int:
+    """Look questions up in the wiki and PDFs kept in the app's data folder (R39)."""
+    from imageskin.content import ContentStore
+    from imageskin.lookup import ContentLookup
+    from imageskin.reading_job import ReadingJob
+    from imageskin.wiki_job import WikiJob
+
+    def no_builds(*_: object) -> Any:
+        raise AssertionError("the lookup command builds no wiki")
+
+    store = ContentStore(default_home())
+    readings = ReadingJob(store)
+    lookup = ContentLookup(WikiJob(store, readings, no_builds), readings)
+    for question in questions:
+        result = lookup.find(question, wiki_limit, pdf_limit)
+        if not result.passages:
+            logger.error("Nothing to look up in: add PDFs on Manage Content and let them be read")
+            return 1
+        print(f"\nQuestion: {question}")
+        print(f"Looked up in {result.duration_ms} ms")
+        print("Wiki:" if result.wiki else "Wiki: nothing found")
+        for n, f in enumerate(result.wiki, start=1):
+            p = f.passage
+            where = f"{p.pdf_name}, {pages_label(p.pages)}"
+            print(f"  {n}. [{f.score}] {p.title} ({where}): {shorten(p.text)}")
+        print("PDF:" if result.pdf else "PDF: nothing found")
+        for n, f in enumerate(result.pdf, start=1):
+            p = f.passage
+            where = f"{p.pdf_name}, {pages_label(p.pages)}, {p.kind}"
+            print(f"  {n}. [{f.score}] ({where}): {shorten(p.text)}")
+    return 0
+
+
 def serve(settings: Settings) -> None:
     import uvicorn
 
@@ -252,6 +321,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "spoken-text":
         return print_spoken_text(args.text, args.file)
+    if args.command == "lookup":
+        return print_lookups(args.questions, args.wiki, args.pdf)
     if args.command == "prepare":
         try:
             folder, seconds = prepare(args.photo, args.output)
