@@ -85,19 +85,14 @@ export async function listUploads(kind: Kind): Promise<Upload[]> {
 export async function uploadFile(kind: Kind, file: File): Promise<Upload> {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch(`/api/uploads/${kind}`, {
-    method: "POST",
-    body: form,
-  });
+  const response = await fetch(`/api/uploads/${kind}`, { method: "POST", body: form });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Upload;
 }
 
 // Runs the checks on an upload stored before they were on; returns it with the result.
 export async function checkUpload(kind: Kind, id: string): Promise<Upload> {
-  const response = await fetch(`${uploadUrl(kind, id)}/check`, {
-    method: "POST",
-  });
+  const response = await fetch(`${uploadUrl(kind, id)}/check`, { method: "POST" });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Upload;
 }
@@ -289,9 +284,7 @@ export async function getClips(replyId: string, known?: number): Promise<Clips |
 // Stops a reply's clips (roadmap R19): the server makes no more and removes those it made. The
 // reply's text still comes. True when there were clips to stop.
 export async function stopReply(replyId: string): Promise<boolean> {
-  const response = await fetch(`/api/chat/clips/${replyId}/stop`, {
-    method: "POST",
-  });
+  const response = await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" });
   return (await json<{ stopped: boolean }>(response)).stopped;
 }
 
@@ -423,6 +416,7 @@ export function wikiPageHref(id: string): string {
 export function pdfPageUrl(id: string, page: number): string {
   return `${pdfUrl(id)}#page=${page}`;
 }
+
 
 // The wiki progress of each PDF, by its id. A PDF not read yet is missing.
 export async function listWikiBuilds(): Promise<Record<string, WikiBuild>> {
