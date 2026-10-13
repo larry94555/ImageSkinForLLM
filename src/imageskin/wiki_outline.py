@@ -266,14 +266,30 @@ class Outliner:
         return (summaries[0], parts) if summaries and len(parts) > 1 else None
 
     def summarize(self, title: str, summaries: list[str]) -> str:
-        """One summary of several batches' summaries; them joined, if the LLM can't."""
+        """One summary of several batches' summaries; them joined, if the LLM can't. When they
+        don't fit in one request, each batch of them is summarized first, and so on."""
         joined = " ".join(summaries)
         if len(summaries) < 2:
             self.planned -= 1  # the request planned for isn't needed
             return joined
+        batches = self.batches(summaries, SUMMARY_PROMPT, title)
+        if len(batches) == 1:
+            return self.summary_of(title, summaries)
+        if len(batches) == len(summaries):  # one a batch: summarizing them would never end
+            logger.warning(
+                "The wiki outline's summaries are too long to summarize as one",
+                extra={"id": self.pdf_id, "summaries": len(summaries)},
+            )
+            self.planned -= 1
+            return joined
+        self.planned += len(batches)  # a level more; the last request is planned for already
+        return self.summarize(title, [self.summary_of(title, batch) for batch in batches])
+
+    def summary_of(self, title: str, summaries: list[str]) -> str:
         text = f"{title}\n\n" + "\n\n".join(summaries)
-        found = self.request(SUMMARY_PROMPT, text, SUMMARY_SCHEMA, read_summary)
-        return found or joined
+        return self.request(SUMMARY_PROMPT, text, SUMMARY_SCHEMA, read_summary) or " ".join(
+            summaries
+        )
 
     def batches(self, lines: list[str], prompt: str, heading: str = "") -> list[list[str]]:
         """The lines in groups that fit, with the prompt and reply, in the context window."""

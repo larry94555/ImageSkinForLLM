@@ -339,6 +339,32 @@ def test_a_part_split_in_several_batches_gets_one_summary_of_them_all() -> None:
     assert messages[1]["content"] == "Deep\n\nFirst half.\n\nSecond half."
 
 
+def test_summaries_too_many_for_one_request_are_summarized_in_rounds() -> None:
+    def count(text: str) -> int:  # a summary is 100 tokens, anything else 1
+        return 100 if text.startswith("Summary") else 1
+
+    window = OUTLINE_REPLY_TOKENS + 2 * TOKENS_PER_MESSAGE + 2 + 2 * 102  # 2 summaries a request
+    answers = ['{"summary": "Summary AB."}', '{"summary": "Summary CD."}', '{"summary": "All."}']
+    llm = Llm(*answers)
+    outline = Outliner(PDF_ID, llm, count, window, planned=1)
+    progress: list[tuple[int, int]] = []
+    outline.progress = lambda *p: progress.append(p)
+    assert (
+        outline.summarize("T", ["Summary A.", "Summary B.", "Summary C.", "Summary D."]) == "All."
+    )
+    sent = [m[1]["content"] for m, _ in llm.asked]
+    assert sent == [
+        "T\n\nSummary A.\n\nSummary B.",
+        "T\n\nSummary C.\n\nSummary D.",
+        "T\n\nSummary AB.\n\nSummary CD.",
+    ]
+    assert progress == [(1, 3), (2, 3), (3, 3)]  # the round is planned for once it is found
+
+    one_each = Outliner(PDF_ID, Llm(), count, window - 102, planned=1)
+    assert one_each.summarize("T", ["Summary A.", "Summary B."]) == "Summary A. Summary B."
+    assert one_each.planned == 0
+
+
 def test_the_batches_summaries_are_joined_when_the_llm_cannot_summarize_them() -> None:
     outline = outliner(Llm("no", "no"))
     assert outline.summarize("T", ["One.", "Two."]) == "One. Two."
