@@ -6,6 +6,8 @@ restart and on every browser (feature items 49 and 51). R44's sign-on restricts 
 
 import json
 import logging
+import os
+import threading
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 FILENAME = "ui-settings.json"
+# One change at a time, so two changes made together (from two browsers, say) both stay: each
+# reads the file the other wrote (review on PR #77).
+_saving = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -64,9 +69,13 @@ def checked(settings: UiSettings, changes: dict[str, Any]) -> UiSettings:
 
 def save_ui_settings(home: Path, changes: dict[str, Any]) -> UiSettings:
     """Make the changes to the saved settings and save them; ValueError if one is invalid."""
-    settings = checked(load_ui_settings(home), changes)
-    home.mkdir(parents=True, exist_ok=True)
-    path = home / FILENAME
-    path.write_text(json.dumps(asdict(settings)), encoding="utf-8")
+    with _saving:
+        settings = checked(load_ui_settings(home), changes)
+        home.mkdir(parents=True, exist_ok=True)
+        path = home / FILENAME
+        # Written beside it, then put in its place, so a read never sees half a file.
+        part = path.with_suffix(".part")
+        part.write_text(json.dumps(asdict(settings)), encoding="utf-8")
+        os.replace(part, path)
     logger.info("Settings changed", extra={"path": str(path), **changes})
     return settings

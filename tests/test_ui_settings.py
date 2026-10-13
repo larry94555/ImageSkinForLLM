@@ -1,10 +1,13 @@
 import logging
+import threading
+import time
 from dataclasses import fields
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from imageskin import ui_settings
 from imageskin.app import create_app
 from imageskin.ui_settings import (
     CHOICES,
@@ -76,3 +79,23 @@ def test_the_student_view_is_saved_and_the_teacher_view_is_the_default(tmp_path:
     save_ui_settings(tmp_path, {"view": "student"})
     assert load_ui_settings(tmp_path) == UiSettings(show_metrics=False, view="student")
     assert set(CHOICES) == {f.name for f in fields(UiSettings)}  # every setting has its values
+
+
+def test_changes_made_together_both_stay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Review on PR #77: two changes that both read the file before either wrote it lost one.
+    load = ui_settings.load_ui_settings
+
+    def slow_load(home: Path) -> UiSettings:
+        settings = load(home)
+        time.sleep(0.05)  # the other change reads now, unless it waits its turn
+        return settings
+
+    monkeypatch.setattr(ui_settings, "load_ui_settings", slow_load)
+    changes: list[dict[str, object]] = [{"view": "student"}, {"show_metrics": True}]
+    threads = [threading.Thread(target=save_ui_settings, args=(tmp_path, c)) for c in changes]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert load(tmp_path) == UiSettings(show_metrics=True, view="student")
+    assert [f.name for f in tmp_path.iterdir()] == [FILENAME]  # no part-written file left
