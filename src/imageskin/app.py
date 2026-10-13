@@ -34,6 +34,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
+from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
     REPLY_SIDE,
@@ -656,6 +657,12 @@ def create_app(
     # performance cores on a CPU that also has efficiency cores (R22g).
     core_share = CoreShare(cores(performance_cores))
     core_share.llm_done()
+    # Each prompt is looked up in the wiki and PDFs, and the LLM answers from what is found (R40).
+    content_lookup = ContentLookup(wiki, readings)
+
+    def find_content(prompt: str) -> list[str]:
+        return as_passages(content_lookup.find(prompt))
+
     if client is not None:
         conversation = Conversation(
             client.ask,
@@ -664,6 +671,7 @@ def create_app(
             client.stream,
             client.warm_up,
             llm_busy=core_share.llm,
+            find=find_content,
         )
     else:
         assert ask_llm is not None
@@ -673,6 +681,7 @@ def create_app(
             stream=stream_llm,
             warm_up=warm_up_llm,
             llm_busy=core_share.llm,
+            find=find_content,
         )
 
     # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's

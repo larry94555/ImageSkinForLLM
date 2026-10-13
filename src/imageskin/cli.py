@@ -14,7 +14,7 @@ from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.logging_setup import setup_logging
-from imageskin.lookup import PDF_LIMIT, WIKI_LIMIT
+from imageskin.lookup import PDF_LIMIT, WIKI_LIMIT, pages_label, shorten
 from imageskin.sample import SAMPLE_SCRIPT, SampleResult, make_sample
 from imageskin.speech_text import spoken_text
 from imageskin.video import INSTALL_HINT, VideoEngine, VideoError, find_ffmpeg
@@ -223,15 +223,6 @@ def print_spoken_text(text: str | None, file: Path | None) -> int:
     return 0
 
 
-def shorten(text: str, chars: int = PRINTED_CHARS) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= chars else text[: chars - 1].rstrip() + "…"
-
-
-def pages_label(pages: list[int]) -> str:
-    return ("page " if len(pages) == 1 else "pages ") + ", ".join(map(str, pages))
-
-
 def print_lookups(questions: list[str], wiki_limit: int, pdf_limit: int) -> int:
     """Look questions up in the wiki and PDFs kept in the app's data folder (R39)."""
     from imageskin.content import ContentStore
@@ -256,12 +247,12 @@ def print_lookups(questions: list[str], wiki_limit: int, pdf_limit: int) -> int:
         for n, f in enumerate(result.wiki, start=1):
             p = f.passage
             where = f"{p.pdf_name}, {pages_label(p.pages)}"
-            print(f"  {n}. [{f.score}] {p.title} ({where}): {shorten(p.text)}")
+            print(f"  {n}. [{f.score}] {p.title} ({where}): {shorten(p.text, PRINTED_CHARS)}")
         print("PDF:" if result.pdf else "PDF: nothing found")
         for n, f in enumerate(result.pdf, start=1):
             p = f.passage
             where = f"{p.pdf_name}, {pages_label(p.pages)}, {p.kind}"
-            print(f"  {n}. [{f.score}] ({where}): {shorten(p.text)}")
+            print(f"  {n}. [{f.score}] ({where}): {shorten(p.text, PRINTED_CHARS)}")
     return 0
 
 

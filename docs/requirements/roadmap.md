@@ -16,7 +16,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.0% | 7 of 7 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.1% | 11 of 11 |
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 10.3% | 8 of 8 |
-| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.8% | 1 of 3 |
+| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.8% | 2 of 3 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.4% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.6% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.6% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.6% | 0 |
-| | **Total** | | **78** | **100%** | **48 of 78** |
+| | **Total** | | **78** | **100%** | **49 of 78** |
 
 Sizes: 19 Simple, 59 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -380,9 +380,10 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** a command that prints the passages found for a few sample questions, with the time the lookup took.
 - **Built:** `lookup.py` ranks every wiki entry (title and summary, with the user's edits, every level of the outline) and every paragraph, slide and table read from the PDFs with BM25, ranked together so a word's rarity is judged across all the content; words are matched in lower case, without common words and with a plural "s" or an "ing" or "ed" ending left off, and a wiki entry's title counts twice. A passage is found only when it has at least 40% of the question's words, weighted by how rare each is in the content (a word the content lacks weighs the most). This was added after Larry's test (2026-10-13), where, with only a paper on primes added, "What lighting is best for the photo?" found the paper's thanks because it says "best"; it now finds nothing. The passages are gathered again for each question, so an edit or rebuild is found at once. `imageskin lookup "question" …` prints the best 3 wiki entries and 5 PDF passages for each question, with their scores, pages and the time taken; the log has `Looked up a question`.
 
-### R40. Answering from the content (Medium) · item 27
+### R40. Answering from the content (Medium) · item 27 · Done in [PR #73](https://github.com/larry94555/ImageSkinForLLM/pull/73)
 - The chat sends the passages found by R39 with the question, and the LLM answers from them; the answer is shown and spoken as in Milestones 4 and 5.
 - **Can show:** ask a question about a sample PDF and hear the person answer it correctly.
+- **Built:** `Conversation` takes a `find` that `create_app` wires to the R39 lookup: each prompt's best wiki entries and PDF passages (best first, each with its PDF and pages, cut to 400 characters) are quoted before the prompt in its own message, between `<<<` and `>>>` as reference text that is source material only, never instructions to follow (review on PR #73), with the LLM asked to answer from them in its own words without mentioning documents or pages. Only the prompt is kept in the conversation and the system prompt is unchanged, so llama-server keeps reusing what it read. The passages take at most 300 tokens, the last one cut at a word to fit: the LLM reads them all before its first word, and with Qwen 2.5 1.5B on 4 CPU cores 800 tokens of them held the first word back 7 s; with 300 it starts in about 3 s. A prompt nothing matches is sent alone, and general prompts are still answered (R41 adds the setting). Shown with the two setup guides and the Riemann primes paper: "How long should each voice recording be?" went from "It depends on what you want to convey" to "about 1 to 2 minutes long", and the lighting and install questions were answered from the guides. The log has `Content sent with the prompt` with `passages_found` and `passages_sent`.
 
 ### R41. Question scope setting (Simple) · item 28
 - A setting for whether general prompts are allowed. When they aren't, an off-topic prompt gets a short, polite message instead of an answer. The Settings page comes later (R27), so for now the setting is in the config file.
