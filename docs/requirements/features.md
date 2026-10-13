@@ -2,7 +2,7 @@
 
 A web app that puts a talking video of a real person on top of an LLM. The user types or speaks a prompt; the reply is shown as text and spoken by a video of the person, in their cloned voice, lip-synced to the text.
 
-Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08). Items marked *(default)* are choices made pending Larry's confirmation.
+Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08), and items 48 to 51 give it a professional look with a student and a teacher view (Larry, 2026-10-13). Items marked *(default)* are choices made pending Larry's confirmation.
 
 ## Deployment
 
@@ -164,3 +164,18 @@ Added by Larry on 2026-10-09, after the student insights above. It builds on the
    - **How they respond to answers:** from their next message after each answer, such as asking follow-ups and how deep they go, asking for examples or a simpler explanation, questioning or pushing back on an answer, moving straight on, or showing frustration or enthusiasm.
 
    Each line of the profile gives its evidence in one line and links to the questions it came from, and it is worded as an impression from their questions, not a fact or a judgment of the student. Anonymous questions are not used, and a student with too few questions has no profile yet. The administrator can edit or remove a line, and the change is never silently overwritten. The profile is seen only by the administrator, never by students, and is shown on the student summary page (item 45) *(default)*.
+
+## A professional look
+
+Added by Larry on 2026-10-13. The chat must be clean and professional enough to use in a commercial setting: judged only on how it looks and on answering typed questions, the app is clearly of professional quality. The teacher view must be usable by a non-technical teacher and the student view by a non-technical student. These come before spoken prompts (item 9's microphone).
+
+48. **Professional look and clean video.** The video plays cleanly, as one steady picture of the person, with no controls, empty frames, flicker or jumps. Every page has one consistent look, and every message is short and plain, with no technical words, ids or error codes; the detail goes to the log.
+49. **Metrics setting.** The timing metrics (such as the timing readout under the video) are hidden unless a setting turns them on. Off by default *(default)*.
+50. **Student view and teacher view.** A setting chooses the view:
+   - **Student view:** the chat, and read-only use of the wiki and the existing PDFs. The options to manage content, edit the wiki or change the setup are hidden.
+   - **Teacher view:** every page and option. Teacher by default *(default)*.
+51. **Anyone can change these settings for now.** Items 49 and 50 can be changed at will by anyone. Later this is restricted, and the view follows who is using the app:
+   - **Administrator** (signed on, item 30): the teacher view.
+   - **Signed-in student** (item 32): the student view.
+   - **Anonymous visitor** (item 31): question and answer only, with no wiki or PDFs.
+

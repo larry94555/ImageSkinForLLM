@@ -1,8 +1,8 @@
 # ImageSkinForLLM: Roadmap
 
-Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7 and 11 to 13, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46). Milestone 18, added later on 2026-10-09, comes last and adds a profile of each student's interests and personality (item 47).
+Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7 and 11 to 13, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestone 7a, added on 2026-10-13, comes right after them, before spoken prompts: it makes the app look and work like a professional product for a non-technical teacher and student, with a setting to show the timing metrics and a student or teacher view (items 48 to 51). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46). Milestone 18, added later on 2026-10-09, comes last and adds a profile of each student's interests and personality (item 47).
 
-PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, R18a for the first part of the reply text panel, R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, and R37a, R37b and R38a for the wiki's outline, its pages and its versions, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18a, R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R24 and R27 onward. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, R18a for the first part of the reply text panel, R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, R37a, R37b and R38a for the wiki's outline, its pages and its versions, and R41a to R41e for Milestone 7a's professional look, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18a, R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R41a to R41e (a professional look), then R24 and R27 onward. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -10,27 +10,28 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 9.0% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 11.5% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 7.7% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.0% | 7 of 7 |
-| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.1% | 11 of 11 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 10.3% | 8 of 8 |
-| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.8% | 3 of 3 |
-| 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.4% | 0 |
-| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.6% | 0 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.6% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 5.1% | 0 |
-| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 6.4% | 0 |
-| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.6% | 0 |
-| 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.3% | 0 |
-| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.6% | 0 |
-| 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
-| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.6% | 0 |
-| | **Total** | | **78** | **100%** | **50 of 78** |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 8.4% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 10.8% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 7.2% | 6 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 8.4% | 7 of 7 |
+| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 13.3% | 11 of 11 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 9.6% | 8 of 8 |
+| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.6% | 3 of 3 |
+| 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e | 5 | 6.0% | 0 |
+| 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.2% | 0 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.0% | 0 |
+| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.4% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.4% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 4.8% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 6.0% | 0 |
+| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.4% | 0 |
+| 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.2% | 0 |
+| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.4% | 0 |
+| 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.2% | 0 |
+| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.4% | 0 |
+| | **Total** | | **83** | **100%** | **50 of 83** |
 
-Sizes: 19 Simple, 59 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 19 Simple, 64 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -390,6 +391,38 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** the same off-topic question answered with the setting on and politely declined with it off.
 - **Built:** `general_prompts` in the config file, false by default as item 28 says. When it is false and the R39 lookup finds nothing for a prompt, the chat replies "Sorry, I can only answer questions about the material I was given. Try asking about something in it." without asking the LLM, spoken like any reply; the decline is shown in the chat but not sent to the LLM with later prompts. Before any PDF is added every prompt is answered, as there is nothing to keep to, and a prompt whose lookup fails is answered rather than declined. A follow-up like "tell me more" is declined too, since it has none of the content's words. Larry's test with the Riemann paper (2026-10-13): "How is the zeta function used by Reimann?" was declined, as the paper writes ζ, says "use", and spells Riemann right; the lookup now matches Greek letters by name, leaves a final "e" off ("used" matches "use"), and takes a question word of 5 or more letters that the content lacks as the content word one typo away in a passage that also has another of its words as typed (so "What is polar?" isn't taken as "solar", review on PR #74), and it is answered. The log has `Question scope` at start-up and `Prompt declined: general prompts are off`.
 
+## Milestone 7a: A professional look
+
+Added by Larry on 2026-10-13. The chat must be clean and professional enough to use in a commercial setting. The teacher view must be usable by a non-technical teacher and the student view by a non-technical student. At the end of this milestone, judged only on how it looks and on answering typed questions, the app is clearly of professional quality. For now anyone can change the settings at will; R44's sign-on restricts them later. Settings come before the Settings page (R27), so these two live in a small Settings menu in the top bar that R27 later takes over.
+
+### R41a. Settings menu: show metrics (Medium) · items 49, 51
+- A **Settings** menu in the top bar of every page, open to anyone for now. Its first setting, **Show timing metrics**, is off by default: the timing readout under the video (R22a) and the other timings and counts shown on the pages (such as how long a step or a search took) appear only when it is on. The log keeps every timing either way.
+- The settings are saved on the server, so they stay the same after a reload or restart and on every browser *(default)*.
+- **Can show:** the chat with no timing readout, then with it after turning the setting on, and still on after a reload.
+
+### R41b. Student view and teacher view (Medium) · items 50, 51
+- A second setting in the Settings menu: **View: Teacher or Student**, Teacher by default so nothing changes until it is set *(default)*.
+- **Student view:** the top bar has only the chat and the wiki. Setup and Manage Content are hidden, and so are every way to change the wiki: Edit, Undo my edit, Keep my edit or Use the new text, Rebuild the wiki, versions, and saving or loading it from a file. The wiki reads as in R37b, and each PDF can be opened read-only from the wiki. Opening a hidden page by its address shows the chat instead.
+- **Teacher view:** every page and option, as today.
+- Only the screens change for now: the server doesn't check the view, since anyone can switch it. R44's sign-on makes the teacher's pages the administrator's.
+- **Can show:** switch to Student and see only the chat and a read-only wiki with its PDFs, switch back to Teacher and see every option again.
+
+### R41c. Clean video playback (Medium) · items 11, 17, 48
+- The video looks like one steady picture of the person from the moment the chat opens: no browser video controls, no black or empty frames while a clip or the idle video loads (the photo shows until the idle video plays), no jumps in size or position, and no visible flicker or stall when a reply starts, between sentences, at the end and after Stop.
+- Anything that goes wrong with a clip is handled quietly: the reply text still shows, as in item 20, with no broken player left on the screen.
+- **Can show:** a recording of the chat from opening it through two replies and a Stop, with no flash, jump or empty frame, compared with the same steps before this PR.
+
+### R41d. A professional chat screen (Medium) · items 9, 11, 20, 48
+- The chat screen gets one consistent, calm look: the person's video as the centre of the page, a clear prompt box and Send button, a tidy reply text panel, and a simple "thinking" state while the answer is on its way.
+- Every message a student can see is short, plain and friendly, with no error codes, file names, ids or technical words; technical detail goes to the log.
+- It works on a laptop screen and a tablet, and is easy to read (sizes, contrast, keyboard use).
+- **Can show:** screenshots of the chat on a laptop and a tablet: before a question, while thinking, after an answer, with the text panel open, and when the LLM is down.
+
+### R41e. Professional teacher pages (Medium) · items 24, 26, 48, 50
+- Setup, Manage Content and the Wiki get the same look as the chat, and their wording is checked so a non-technical teacher can use them without help: plain words for each button and step, a short line saying what each page is for, and clear progress and done messages.
+- No technical words, ids or raw data are shown to the teacher, apart from the timings that the metrics setting turns on.
+- **Can show:** screenshots of each teacher page, and a walk through adding a PDF, reading its wiki and correcting an entry with nothing explained beforehand.
+
 ## Milestone 8: Spoken prompts
 
 ### R24. Push-to-talk microphone (Medium) · item 9
@@ -400,7 +433,7 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ### R27. Settings page (Medium) · item 8 (part 1)
 - A Settings link on every screen.
-- The options that don't change the setup: play the sound files, view the image files, revalidate images, revalidate sound, run the video test again, clear conversation, return to the app, and the question scope setting from R41.
+- The options that don't change the setup: play the sound files, view the image files, revalidate images, revalidate sound, run the video test again, clear conversation, return to the app, the question scope setting from R41, and the metrics and view settings from R41a and R41b, which move here from the Settings menu.
 - **Can show:** open Settings from any screen, replay the recordings, rerun the sample, clear the conversation and return.
 
 ### R28. Changing photos, voice or accent (Medium) · item 8 (part 2)
@@ -445,6 +478,7 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ### R44. Administrator sign-on (Medium) · item 30
 - A sign-on page for the administrator. The picture, voice, content and settings pages, and their API calls, only work after sign-on.
+- The views from R41b are then set by who is using the app, and the view setting no longer lets anyone switch: the signed-on administrator gets the teacher view, a signed-in student (R46) gets the student view (chat and read-only wiki and PDFs), and an anonymous visitor gets only the question and answer screen (R45).
 - **Can show:** the setup and Manage Content pages refuse a visitor and open after the administrator signs on.
 
 ### R45. Question and answer screen for visitors (Simple) · item 31
