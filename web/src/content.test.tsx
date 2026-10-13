@@ -330,8 +330,8 @@ test("shows the wiki pages being built once a PDF is read, checking until they a
     });
     expect(await screen.findByText(new RegExp(text))).toBeTruthy();
   }
-  const link = screen.getByRole("link", { name: "Wiki pages" });
-  expect(link.getAttribute("href")).toBe("/api/content/a1/wiki");
+  const link = screen.getByRole("link", { name: "Read the wiki" });
+  expect(link.getAttribute("href")).toBe("#/wiki/a1"); // the readable wiki, not its JSON
 
   // Done: no more checks.
   const checks = fetchMock.mock.calls.length;

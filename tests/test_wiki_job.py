@@ -71,7 +71,7 @@ def test_a_read_pdf_gets_its_wiki_pages(tmp_path: Path, caplog: pytest.LogCaptur
         {**listed, "id": f"{pdf.id}-p2", "title": "Snow.", "pages": [2]},
     ]
     page: dict[str, object] = {**listed, "id": f"{pdf.id}-p2", "title": "Snow.", "pages": [2]}
-    page |= {"text": "Snow.", "summary": "Snow.", "detail": False, "entries": []}
+    page |= {"text": "Snow.", "summary": "Snow.", "detail": False, "entries": [], "trail": []}
     assert wiki.page(f"{pdf.id}-p2") == page
     assert wiki.page(f"{pdf.id}-nope") is None and wiki.page("nope") is None
     saved = json.loads((tmp_path / "content" / "wiki" / f"{pdf.id}.json").read_text())
@@ -417,6 +417,12 @@ def test_the_outline_is_built_after_the_topics_and_saved_with_them(
     assert topic["detail"] and [e["title"] for e in topic["entries"]] == ["Drops"]
     part = wiki.page(f"{pdf.id}-drops")
     assert part is not None and part["summary"] == "Drops." and "text" not in part
+    assert part["trail"] == [{"id": f"{pdf.id}-rain", "title": "Rain"}]  # the way back up
+    [contents] = wiki.contents()
+    assert contents["pdf_name"] == "a.pdf" and wiki.contents(pdf.id) == [contents]
+    assert [e["title"] for e in contents["entries"]] == ["Rain"]
+    assert [e["title"] for e in contents["entries"][0]["entries"]] == ["Drops"]  # every level
+    assert wiki.contents("f" * 32) == []
     built = [r for r in caplog.records if r.message == "Wiki pages built"][0]
     assert built.__dict__["detail_pages"] == 1
 
@@ -479,7 +485,12 @@ def test_the_app_builds_the_outline_with_the_chat_llm(tmp_path: Path) -> None:
     assert [e["title"] for e in built["outline"][0]["entries"]] == ["Drops", "Puddles"]
     page = client.get(f"/api/wiki/{pdf['id']}-puddles").json()
     assert page["summary"] == "Rain 6 falls. Rain 7 falls. Rain 8 falls."  # the PDF's words
-    assert page["pdf_name"] == "w.pdf"
+    assert page["pdf_name"] == "w.pdf" and page["trail"] == [
+        {"id": f"{pdf['id']}-rain", "title": "Rain"}
+    ]
+    [contents] = client.get("/api/wiki/contents").json()
+    assert contents["pdf_id"] == pdf["id"] and contents["entries"][0]["detail"]
+    assert client.get("/api/wiki/contents", params={"pdf": pdf["id"]}).json() == [contents]
 
 
 def test_the_time_left_is_estimated_from_the_steps_done_so_far() -> None:

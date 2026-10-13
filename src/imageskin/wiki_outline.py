@@ -470,6 +470,17 @@ def find(entries: list[Entry], entry_id: str) -> Entry | None:
     return None
 
 
+def ancestors(entries: list[Entry], entry_id: str) -> list[Entry] | None:
+    """The entries above an entry, from the top of the outline down; None if it isn't there."""
+    for entry in entries:
+        if entry.id == entry_id:
+            return []
+        found = ancestors(entry.entries, entry_id)
+        if found is not None:
+            return [entry, *found]
+    return None
+
+
 def shown(entry: Entry) -> dict[str, Any]:
     """An entry as its page shows it: its parts, and theirs down to the next detail pages, whose
     own parts are on those pages."""

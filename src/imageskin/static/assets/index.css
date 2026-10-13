@@ -356,3 +356,19 @@ ul.choices .text { color: var(--muted); font-size: 0.9rem; }
 .guide a.return { color: var(--accent); font-weight: 600; text-decoration: none; }
 .guide a.return:hover, .guide a.return:focus-visible { text-decoration: underline; }
 .guide-bottom { margin: 16px 0 0; }
+
+/* The wiki (roadmap R37b): each PDF's table of contents, its levels opening and closing. */
+.wiki article.wiki-pdf { margin-bottom: 24px; }
+.wiki .trail { display: block; margin-bottom: 8px; font-size: 0.875rem; color: var(--muted); }
+.wiki .trail a { color: var(--accent); }
+.wiki .outline-buttons { margin: 0 0 8px; }
+.wiki .outline-buttons button { padding: 4px 12px; font-size: 0.875rem; }
+ul.outline { list-style: none; margin: 0; padding: 0; }
+ul.outline ul.outline { margin: 4px 0 0 20px; padding-left: 12px; border-left: 2px solid var(--line); }
+ul.outline li { margin: 0 0 8px; }
+ul.outline summary { cursor: pointer; }
+/* The marker sits beside the title; a leaf lines up with titles that have one. */
+ul.outline .leaf { padding-left: 1.1em; }
+.entry-title { font-weight: 600; }
+.entry-summary, .entry-pages { display: block; }
+.entry-pages { font-size: 0.875rem; }

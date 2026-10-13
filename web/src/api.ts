@@ -85,14 +85,19 @@ export async function listUploads(kind: Kind): Promise<Upload[]> {
 export async function uploadFile(kind: Kind, file: File): Promise<Upload> {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch(`/api/uploads/${kind}`, { method: "POST", body: form });
+  const response = await fetch(`/api/uploads/${kind}`, {
+    method: "POST",
+    body: form,
+  });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Upload;
 }
 
 // Runs the checks on an upload stored before they were on; returns it with the result.
 export async function checkUpload(kind: Kind, id: string): Promise<Upload> {
-  const response = await fetch(`${uploadUrl(kind, id)}/check`, { method: "POST" });
+  const response = await fetch(`${uploadUrl(kind, id)}/check`, {
+    method: "POST",
+  });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Upload;
 }
@@ -167,7 +172,10 @@ export interface PrepareStatus {
 
 // A video the prepare job rendered (roadmap R13). The finish time is added so that the browser
 // fetches it afresh after preparing again, which replaces it under the same address.
-export function clipUrl(name: "sample" | "goodbye" | "welcome-back", status: PrepareStatus) {
+export function clipUrl(
+  name: "sample" | "goodbye" | "welcome-back",
+  status: PrepareStatus,
+) {
   return `/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`;
 }
 
@@ -189,7 +197,11 @@ export interface Review {
   accepted_at: string | null;
 }
 
-export type Decision = "accept" | "reject-image" | "reject-voice" | "change-accent";
+export type Decision =
+  | "accept"
+  | "reject-image"
+  | "reject-voice"
+  | "change-accent";
 
 export async function getReview(): Promise<Review> {
   return json<Review>(await fetch("/api/review"));
@@ -228,7 +240,10 @@ export interface Reply extends Turn {
 
 // Sends a prompt and returns the LLM's reply. Throws an Error saying why when it fails.
 // `replyId` names the reply, so its clips can be asked for while the LLM writes (roadmap R22).
-export async function sendPrompt(prompt: string, replyId?: string): Promise<Reply> {
+export async function sendPrompt(
+  prompt: string,
+  replyId?: string,
+): Promise<Reply> {
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -242,7 +257,10 @@ export async function sendPrompt(prompt: string, replyId?: string): Promise<Repl
 // conversation. Returns the video's address, or null when the reply has nothing to say aloud.
 // Throws an Error saying why when the voice or the video fails.
 // `replyId`, the reply's id from sendPrompt, lets Stop stop the video being made (roadmap R19).
-export async function speakReply(turn: number, replyId?: string): Promise<string | null> {
+export async function speakReply(
+  turn: number,
+  replyId?: string,
+): Promise<string | null> {
   const response = await fetch("/api/chat/video", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -274,7 +292,10 @@ export interface Clips {
 // With `known`, the clips this page has so far: the server answers as soon as there is more to
 // tell (a new clip, a failure or the end), or after 10 seconds, so a clip is known the moment
 // it is ready.
-export async function getClips(replyId: string, known?: number): Promise<Clips | null> {
+export async function getClips(
+  replyId: string,
+  known?: number,
+): Promise<Clips | null> {
   const query = known === undefined ? "" : `?known=${known}&wait=10`;
   const response = await fetch(`/api/chat/clips/${replyId}${query}`);
   if (response.status === 404) return null;
@@ -284,7 +305,9 @@ export async function getClips(replyId: string, known?: number): Promise<Clips |
 // Stops a reply's clips (roadmap R19): the server makes no more and removes those it made. The
 // reply's text still comes. True when there were clips to stop.
 export async function stopReply(replyId: string): Promise<boolean> {
-  const response = await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" });
+  const response = await fetch(`/api/chat/clips/${replyId}/stop`, {
+    method: "POST",
+  });
   return (await json<{ stopped: boolean }>(response)).stopped;
 }
 
@@ -364,9 +387,54 @@ export interface WikiBuild {
   remaining_s: number | null; // about how long this stage has left, once a step is done
 }
 
-// A PDF's wiki pages with their text, as JSON, to open in a new tab.
-export function wikiUrl(id: string): string {
-  return `/api/content/${id}/wiki`;
+// One entry of a PDF's wiki outline (roadmap R37a): a section, topic or part, with its summary
+// and the PDF pages it came from. A detail entry has its own page too.
+export interface WikiEntry {
+  id: string;
+  title: string;
+  summary: string;
+  pages: number[];
+  detail: boolean;
+  entries: WikiEntry[];
+}
+
+// A PDF's table of contents, as the Wiki page shows it (roadmap R37b): every level of it.
+export interface WikiContents {
+  pdf_id: string;
+  pdf_name: string;
+  entries: WikiEntry[];
+}
+
+// A detail page: its entry with its parts down to the next detail pages, whose own parts are on
+// those pages, and the detail pages above it, from the top down.
+export interface WikiDetail extends WikiEntry {
+  pdf_id: string;
+  pdf_name: string;
+  trail: { id: string; title: string }[];
+}
+
+// Every PDF's table of contents, or one PDF's. A PDF whose wiki isn't built yet is missing.
+export async function listWikiContents(pdf?: string): Promise<WikiContents[]> {
+  const query = pdf ? `?pdf=${encodeURIComponent(pdf)}` : "";
+  return json<WikiContents[]>(await fetch(`/api/wiki/contents${query}`));
+}
+
+export async function getWikiPage(id: string): Promise<WikiDetail> {
+  return json<WikiDetail>(await fetch(`/api/wiki/${encodeURIComponent(id)}`));
+}
+
+// Where the Wiki page shows a PDF's table of contents, and a detail page (roadmap R37b).
+export function wikiHref(pdf?: string): string {
+  return pdf ? `#/wiki/${pdf}` : "#/wiki";
+}
+
+export function wikiPageHref(id: string): string {
+  return `#/wiki/page/${id}`;
+}
+
+// A page of a PDF, opened in the browser's PDF viewer.
+export function pdfPageUrl(id: string, page: number): string {
+  return `${pdfUrl(id)}#page=${page}`;
 }
 
 // The wiki progress of each PDF, by its id. A PDF not read yet is missing.
