@@ -344,8 +344,11 @@ function WikiTools({ contents, onChanged }: { contents: WikiContents; onChanged:
       async (force) => {
         const added = await loadWikiFile(pdf, file, force);
         console.info(`Wiki loaded from ${file.name}: ${added} versions added to the history`);
-        const versions = added === 1 ? "1 version" : `${added} versions`;
-        return `Loaded ${file.name}. Its history added ${versions} to this one, and the wiki before it is kept in the history too.`;
+        const versions =
+          added === 0
+            ? "The history here already had all of its versions"
+            : `Its history added ${added === 1 ? "1 version" : `${added} versions`} to this one`;
+        return `Loaded ${file.name}. ${versions}, and the wiki before it is kept in the history too.`;
       },
       "Load it anyway",
       "Could not load the file",

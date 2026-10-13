@@ -40,7 +40,7 @@ const VERSIONS: WikiVersion[] = [
 
 // A fake wiki API with a history. `refuse` answers every change with that status: 412 until
 // it is sent again with force.
-function server(opts: { refuse?: number; history?: number } = {}) {
+function server(opts: { refuse?: number; history?: number; added?: number } = {}) {
   let wiki = contents("Rain");
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -67,7 +67,7 @@ function server(opts: { refuse?: number; history?: number } = {}) {
     }
     if (url.startsWith("/api/content/a1/wiki/file") && method === "POST") {
       wiki = contents("From a file", true);
-      return Response.json({ versions_added: 2 });
+      return Response.json({ versions_added: opts.added ?? 2 });
     }
     return Response.json({ detail: "Not found" }, { status: 404 });
   });
@@ -184,6 +184,17 @@ test("a wiki file is loaded back, asking first when the PDF was replaced", async
   ]);
   const sent = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")?.[1]?.body;
   expect(sent instanceof FormData && sent.get("file")).toBe(file);
+});
+
+test.each([
+  [0, "The history here already had all of its versions"],
+  [1, "Its history added 1 version to this one"],
+])("loading a file whose history adds %i versions says so", async (added, said) => {
+  server({ added });
+  render(<WikiPage pdf="a1" />);
+  await screen.findByText("Rain");
+  pick();
+  expect(await screen.findByText(new RegExp(said))).toBeTruthy();
 });
 
 test("a file that isn't a wiki file is refused with the reason", async () => {
