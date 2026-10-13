@@ -375,7 +375,7 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 7: Answers from the content
 
-### R39. Looking up questions in the wiki and PDFs (Medium) · item 27
+### R39. Looking up questions in the wiki and PDFs (Medium) · item 27 · Done in [PR #72](https://github.com/larry94555/ImageSkinForLLM/pull/72)
 - Finds the wiki pages and PDF passages that match a question, using the method decided before this PR.
 - **Can show:** a command that prints the passages found for a few sample questions, with the time the lookup took.
 - **Built:** `lookup.py` ranks every wiki entry (title and summary, with the user's edits, every level of the outline) and every paragraph, slide and table read from the PDFs with BM25, ranked together so a word's rarity is judged across all the content; words are matched in lower case, without common words and with a plural "s" left off, and a wiki entry's title counts twice. The passages are gathered again for each question, so an edit or rebuild is found at once. `imageskin lookup "question" …` prints the best 3 wiki entries and 5 PDF passages for each question, with their scores, pages and the time taken; the log has `Looked up a question`.
