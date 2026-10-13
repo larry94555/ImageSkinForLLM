@@ -65,6 +65,16 @@ def test_words_are_lower_case_without_common_words_or_endings() -> None:
     assert words("thing bed lighting") == ["thing", "bed", "light"]  # short words are kept
 
 
+def test_contractions_and_possessives_add_no_stray_words() -> None:
+    assert words("What's photosynthesis?") == words("photosynthesis")
+    assert words("Can't plants? Don’t they?") == ["plant"]
+    assert words("The student's notes, the students’ notes") == ["student", "note"] * 2
+    assert words("You're, we've, I'll, I'd, I'm, others") == []
+    # Review on PR #72: "'s" scored as a word no passage has, so this exact match was dropped.
+    passages = [Passage("pdf", "p", "a.pdf", "", "Photosynthesis makes sugar.", [1])]
+    assert len(rank("What's photosynthesis?", passages)) == 1
+
+
 def test_rank_puts_the_passage_with_more_and_rarer_words_first() -> None:
     def pdf(text: str) -> Passage:
         return Passage("pdf", "p", "a.pdf", "", text, [1])

@@ -38,6 +38,10 @@ B = 0.75
 # The share of the question's words, weighted by rarity, that a passage must have to be found.
 MIN_SHARE = 0.4
 WORD = re.compile(r"[^\W_]+")
+# A contraction like "can't" or "don't" is a common word, so it goes whole; the ending of
+# "what's", "you're" or "student's" is left off. Straight and curly apostrophes alike.
+NOT_CONTRACTION = re.compile(r"[^\W_]+n['’]t\b")
+CONTRACTION_ENDING = re.compile(r"['’](?:s|re|ve|ll|d|m)\b")
 STOP_WORDS = frozenset(
     """a about above after again all also am an and any are as at be because been before being
     below between both but by can could did do does doing down during each few for from further
@@ -78,8 +82,9 @@ def words(text: str) -> list[str]:
     """The words that count for matching: lower case, no common words, and a plural "s" or an
     "ing" or "ed" ending left off, so "recordings", "recording" and "recorded" all match
     "record"."""
+    text = CONTRACTION_ENDING.sub("", NOT_CONTRACTION.sub(" ", text.lower()))
     found = []
-    for word in WORD.findall(text.lower()):
+    for word in WORD.findall(text):
         if word in STOP_WORDS:
             continue
         if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
@@ -88,7 +93,8 @@ def words(text: str) -> list[str]:
             word = word[:-3]
         elif len(word) > 4 and word.endswith("ed"):
             word = word[:-2]
-        found.append(word)
+        if word not in STOP_WORDS:  # "others" is "other" once its "s" is off
+            found.append(word)
     return found
 
 
