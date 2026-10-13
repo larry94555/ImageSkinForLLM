@@ -1,8 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { afterEach, expect, test, vi } from "vitest";
 
-import type { Pdf, WikiBuild, WikiContents, WikiDetail } from "./api";
+import { useContext } from "preact/hooks";
+
+import type { Pdf, UiSettings, WikiBuild, WikiContents, WikiDetail } from "./api";
 import { App } from "./App";
+import { SettingsContext, SettingsProvider, useSettings } from "./settings";
 import { WIKI_POLL_MS, WikiDetailPage, WikiPage } from "./wiki";
 
 const GUIDE: Pdf = {
@@ -642,8 +645,41 @@ test("while the settings load, the top bar shows no teacher's links", async () =
   expect(nav.queryAllByRole("link")).toEqual([]);
   expect(screen.getByRole("link", { name: "ImageSkinForLLM" }).getAttribute("href")).toBe("#/chat");
   expect(screen.queryByText("How the weather changes.")).toBeNull();
+  expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(true);
 
   await act(async () => answer(Response.json(STUDENT)));
   await screen.findByText("How the weather changes.");
   expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
+  expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("a change saved before the first read finishes is not undone by it", async () => {
+  // Review on PR #77: a slow first read could put the Teacher view back after Student was saved.
+  let answer: (r: Response) => void = () => {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "PATCH"
+        ? Response.json(STUDENT)
+        : new Promise<Response>((r) => (answer = r)),
+    ),
+  );
+  let change: (c: Partial<UiSettings>) => Promise<void> = async () => {};
+  function Shows() {
+    const settings = useSettings();
+    change = useContext(SettingsContext).change;
+    return <p>{settings.view}</p>;
+  }
+  render(
+    <SettingsProvider>
+      <Shows />
+    </SettingsProvider>,
+  );
+  await act(() => change({ view: "student" }));
+  expect(screen.getByText("student")).toBeTruthy();
+  await act(async () => {
+    answer(Response.json({ show_metrics: false, view: "teacher" }));
+    await new Promise((r) => setTimeout(r, 20)); // time for the read to be applied, if it were
+  });
+  expect(screen.getByText("student")).toBeTruthy();
 });

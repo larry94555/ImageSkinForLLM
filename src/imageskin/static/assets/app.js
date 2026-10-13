@@ -259,31 +259,33 @@ async function changeSettings(changes) {
 }
 //#endregion
 //#region src/settings.tsx
-var Settings = X({
+var SettingsContext = X({
 	settings: DEFAULT_SETTINGS,
 	loaded: true,
 	change: async () => {}
 });
 function useSettings() {
-	return x(Settings).settings;
+	return x(SettingsContext).settings;
 }
 function useSettingsLoaded() {
-	return x(Settings).loaded;
+	return x(SettingsContext).loaded;
 }
 function SettingsProvider({ children }) {
 	const [settings, setSettings] = d(DEFAULT_SETTINGS);
 	const [loaded, setLoaded] = d(false);
+	const changed = A(false);
 	h(() => {
-		getSettings().then(setSettings).catch((e) => console.error("Could not load the settings", e)).finally(() => setLoaded(true));
+		getSettings().then((read) => changed.current || setSettings(read)).catch((e) => console.error("Could not load the settings", e)).finally(() => setLoaded(true));
 	}, []);
 	async function change(changes) {
 		const started = performance.now();
 		const saved = await changeSettings(changes);
+		changed.current = true;
 		setSettings(saved);
 		const took = Math.round(performance.now() - started);
 		console.info(`Settings changed: ${JSON.stringify(changes)} (${took} ms)`);
 	}
-	return /* @__PURE__ */ u(Settings.Provider, {
+	return /* @__PURE__ */ u(SettingsContext.Provider, {
 		value: {
 			settings,
 			loaded,
@@ -302,7 +304,7 @@ var VIEWS = [[
 	"the chat and a read-only wiki"
 ]];
 function SettingsMenu() {
-	const { settings, change } = x(Settings);
+	const { settings, loaded, change } = x(SettingsContext);
 	const [open, setOpen] = d(false);
 	const [failed, setFailed] = d(false);
 	const menu = A(null);
@@ -336,6 +338,7 @@ function SettingsMenu() {
 			className: "link",
 			"aria-expanded": open,
 			"aria-controls": "settings-menu",
+			disabled: !loaded,
 			onClick: () => setOpen(!open),
 			children: "Settings"
 		}), open && /* @__PURE__ */ u("div", {

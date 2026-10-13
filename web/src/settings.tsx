@@ -14,7 +14,7 @@ interface Shared {
   change: (changes: Partial<UiSettings>) => Promise<void>;
 }
 
-const Settings = createContext<Shared>({
+export const SettingsContext = createContext<Shared>({
   settings: DEFAULT_SETTINGS,
   loaded: true,
   change: async () => {},
@@ -22,21 +22,22 @@ const Settings = createContext<Shared>({
 
 // The settings as saved on the server: the defaults until it answers, or if it can't.
 export function useSettings(): UiSettings {
-  return useContext(Settings).settings;
+  return useContext(SettingsContext).settings;
 }
 
 // Whether the settings have been read, so a page the view hides isn't shown first (R41b).
 export function useSettingsLoaded(): boolean {
-  return useContext(Settings).loaded;
+  return useContext(SettingsContext).loaded;
 }
 
 export function SettingsProvider({ children }: { children: ComponentChildren }) {
   const [settings, setSettings] = useState<UiSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
+  const changed = useRef(false); // a change was saved, so the first read is out of date
 
   useEffect(() => {
     getSettings()
-      .then(setSettings)
+      .then((read) => changed.current || setSettings(read))
       .catch((e: unknown) => console.error("Could not load the settings", e))
       .finally(() => setLoaded(true));
   }, []);
@@ -44,12 +45,13 @@ export function SettingsProvider({ children }: { children: ComponentChildren }) 
   async function change(changes: Partial<UiSettings>) {
     const started = performance.now();
     const saved = await changeSettings(changes);
+    changed.current = true;
     setSettings(saved);
     const took = Math.round(performance.now() - started);
     console.info(`Settings changed: ${JSON.stringify(changes)} (${took} ms)`);
   }
 
-  return <Settings.Provider value={{ settings, loaded, change }}>{children}</Settings.Provider>;
+  return <SettingsContext.Provider value={{ settings, loaded, change }}>{children}</SettingsContext.Provider>;
 }
 
 const VIEWS: [View, string, string][] = [
@@ -58,7 +60,7 @@ const VIEWS: [View, string, string][] = [
 ];
 
 export function SettingsMenu() {
-  const { settings, change } = useContext(Settings);
+  const { settings, loaded, change } = useContext(SettingsContext);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
@@ -97,6 +99,7 @@ export function SettingsMenu() {
         className="link"
         aria-expanded={open}
         aria-controls="settings-menu"
+        disabled={!loaded} // a change before the first read could be undone by it (PR #77 review)
         onClick={() => setOpen(!open)}
       >
         Settings
