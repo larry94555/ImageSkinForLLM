@@ -113,6 +113,12 @@ def test_a_typo_correction_alone_does_not_find_an_off_topic_prompt() -> None:
     assert len(rank("What is solar energy?", solar)) == 1
     assert len(rank("Where does sloar energy come from?", solar)) == 1  # beside "energy"
 
+    # Review on PR #74: "energy" is in the content but too common to find a passage alone, so
+    # only the correction "polar" to "solar" would have found the passage on solar flares.
+    flares = Passage("pdf", "p", "a.pdf", "", "Solar flares erupt.", [2])
+    common = [Passage("pdf", "p", "a.pdf", "", f"Energy note {n}.", [3]) for n in range(10)]
+    assert rank("What is polar energy?", [flares, *common]) == []
+
 
 def test_contractions_and_possessives_add_no_stray_words() -> None:
     assert words("What's photosynthesis?") == words("photosynthesis")
