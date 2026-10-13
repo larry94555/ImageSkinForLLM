@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import threading
+import time
 import urllib.error
 from dataclasses import replace
 from pathlib import Path
@@ -198,6 +199,10 @@ def test_a_pdf_removed_while_its_build_waits_for_the_llm_is_dropped(tmp_path: Pa
     readings.queue(pdf)
     readings.wait()
     assert waiting.wait(5)
+    # The status says so only while the build sleeps between tries, so look until it does.
+    deadline = time.monotonic() + 5
+    while wiki.statuses()[pdf.id].error is None and time.monotonic() < deadline:
+        time.sleep(0.005)
     assert wiki.statuses()[pdf.id].error == "Could not reach the LLM"
     store.remove(pdf.id)
     wiki.forget(pdf.id)
