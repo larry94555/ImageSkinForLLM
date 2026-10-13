@@ -159,8 +159,23 @@ function readingUrl(id) {
 async function listReadings() {
 	return json(await fetch("/api/content/readings"));
 }
-function wikiUrl(id) {
-	return `/api/content/${id}/wiki`;
+async function listWikiContents(pdf) {
+	const query = pdf ? `?pdf=${encodeURIComponent(pdf)}` : "";
+	return json(await fetch(`/api/wiki/contents${query}`));
+}
+async function getWikiPage(id) {
+	const response = await fetch(`/api/wiki/${encodeURIComponent(id)}`);
+	if (response.status === 404) return null;
+	return json(response);
+}
+function wikiHref(pdf) {
+	return pdf ? `#/wiki/${pdf}` : "#/wiki";
+}
+function wikiPageHref(id) {
+	return `#/wiki/page/${id}`;
+}
+function pdfPageUrl(id, page) {
+	return `${pdfUrl(id)}#page=${page}`;
 }
 async function listWikiBuilds() {
 	return json(await fetch("/api/wiki/builds"));
@@ -415,10 +430,8 @@ function WikiLine({ id, build }) {
 			" ·",
 			" ",
 			/* @__PURE__ */ u("a", {
-				href: wikiUrl(id),
-				target: "_blank",
-				rel: "noreferrer",
-				children: "Wiki pages"
+				href: wikiHref(id),
+				children: "Read the wiki"
 			})
 		]
 	});
@@ -2819,10 +2832,35 @@ var PAGES = {
 	"/setup": "setup",
 	"/chat": "chat",
 	"/content": "content",
-	"/guide": "guide"
+	"/guide": "guide",
+	"/wiki": "wiki"
 };
+var WIKI_PDF = /^\/wiki\/([^/]+)$/;
+var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
+function pathOf(hash) {
+	return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
+}
+function wikiTarget(hash) {
+	const path = pathOf(hash);
+	const entry = decoded(WIKI_PAGE.exec(path)?.[1]);
+	if (entry) return { entry };
+	const pdf = decoded(WIKI_PDF.exec(path)?.[1]);
+	return pdf ? { pdf } : {};
+}
+function decoded(part) {
+	if (part === void 0) return void 0;
+	try {
+		return decodeURIComponent(part);
+	} catch {
+		return;
+	}
+}
 function pageFor(hash) {
-	return PAGES[hash.replace(/^#/, "").replace(/\/+$/, "") || "/"] ?? "not-found";
+	const path = pathOf(hash);
+	const wiki = wikiTarget(hash);
+	if (wiki.entry) return "wiki-page";
+	if (wiki.pdf) return "wiki";
+	return PAGES[path] ?? "not-found";
 }
 function resolve(hash, consented) {
 	const page = pageFor(hash);
@@ -2840,6 +2878,264 @@ function useHash() {
 		return () => window.removeEventListener("hashchange", update);
 	}, []);
 	return hash;
+}
+//#endregion
+//#region src/wiki.tsx
+function WikiPage({ pdf }) {
+	const [wiki, setWiki] = d(null);
+	const [failed, setFailed] = d(false);
+	h(() => {
+		let stopped = false;
+		const started = performance.now();
+		setWiki(null);
+		setFailed(false);
+		Promise.all([listPdfs(), listWikiContents(pdf)]).then(([pdfs, contents]) => {
+			console.info(`Wiki loaded in ${Math.round(performance.now() - started)} ms (${contents.length} tables of contents, ${pdfs.length} PDFs)`);
+			if (!stopped) setWiki({
+				pdfs,
+				contents
+			});
+		}).catch((e) => {
+			console.error("Could not load the wiki", e);
+			if (!stopped) setFailed(true);
+		});
+		return () => {
+			stopped = true;
+		};
+	}, [pdf]);
+	return /* @__PURE__ */ u("section", {
+		className: "wiki",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Wiki" }),
+			pdf ? /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				href: wikiHref(),
+				children: "All PDFs"
+			}) }) : /* @__PURE__ */ u("p", { children: [
+				"What the PDFs in ",
+				/* @__PURE__ */ u("a", {
+					href: "#/content",
+					children: "Manage Content"
+				}),
+				" say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own."
+			] }),
+			failed ? /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The wiki could not be loaded. Check that the app is still running."
+			}) : wiki === null ? /* @__PURE__ */ u("p", { children: "Loading…" }) : /* @__PURE__ */ u(WikiList, {
+				wiki,
+				pdf
+			})
+		]
+	});
+}
+function WikiList({ wiki, pdf }) {
+	const built = new Set(wiki.contents.map((c) => c.pdf_id));
+	const waiting = wiki.pdfs.filter((p) => !built.has(p.id) && (!pdf || p.id === pdf));
+	if (wiki.pdfs.length === 0) return /* @__PURE__ */ u("p", { children: [
+		"There are no PDFs yet. Add one in ",
+		/* @__PURE__ */ u("a", {
+			href: "#/content",
+			children: "Manage Content"
+		}),
+		" and its wiki is built from it."
+	] });
+	if (pdf && wiki.contents.length === 0 && waiting.length === 0) return /* @__PURE__ */ u("p", { children: "This PDF is no longer here. It may have been removed." });
+	return /* @__PURE__ */ u(S, { children: [wiki.contents.map((c) => /* @__PURE__ */ u(Contents, {
+		contents: c,
+		linked: !pdf
+	}, c.pdf_id)), waiting.map((p) => /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: [
+			p.name,
+			": its wiki isn't ready yet. ",
+			/* @__PURE__ */ u("a", {
+				href: "#/content",
+				children: "Manage Content"
+			}),
+			" shows how far it has got."
+		]
+	}, p.id))] });
+}
+function Contents({ contents, linked }) {
+	const name = linked ? /* @__PURE__ */ u("a", {
+		href: wikiHref(contents.pdf_id),
+		children: contents.pdf_name
+	}) : contents.pdf_name;
+	return /* @__PURE__ */ u("article", {
+		className: "wiki-pdf",
+		children: [/* @__PURE__ */ u("h2", { children: name }), /* @__PURE__ */ u(Outline, {
+			pdf: contents.pdf_id,
+			entries: contents.entries
+		})]
+	});
+}
+function WikiDetailPage({ entry }) {
+	const [page, setPage] = d(null);
+	const [problem, setProblem] = d(null);
+	h(() => {
+		let stopped = false;
+		const started = performance.now();
+		setPage(null);
+		setProblem(null);
+		getWikiPage(entry).then((next) => {
+			console.info(`Wiki page loaded in ${Math.round(performance.now() - started)} ms`);
+			if (stopped) return;
+			if (next === null) {
+				console.info(`No wiki page ${entry}`);
+				setProblem("missing");
+				return;
+			}
+			setPage(next);
+			document.querySelector("main")?.scrollIntoView?.();
+		}).catch((e) => {
+			console.error("Could not load the wiki page", e);
+			if (!stopped) setProblem("failed");
+		});
+		return () => {
+			stopped = true;
+		};
+	}, [entry]);
+	if (problem) return /* @__PURE__ */ u("section", {
+		className: "wiki",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Wiki" }),
+			/* @__PURE__ */ u("p", {
+				className: "error",
+				children: problem === "missing" ? "This wiki page is no longer here. Its PDF may have been replaced or removed." : "This wiki page could not be loaded. Check that the app is still running, then reload the page."
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				href: wikiHref(),
+				children: "Back to the wiki"
+			}) })
+		]
+	});
+	if (page === null) return /* @__PURE__ */ u("p", { children: "Loading…" });
+	return /* @__PURE__ */ u("section", {
+		className: "wiki",
+		children: [
+			/* @__PURE__ */ u("nav", {
+				className: "trail",
+				"aria-label": "Where this page is",
+				children: [
+					/* @__PURE__ */ u("a", {
+						href: wikiHref(),
+						children: "Wiki"
+					}),
+					/* @__PURE__ */ u("span", {
+						"aria-hidden": "true",
+						children: " › "
+					}),
+					/* @__PURE__ */ u("a", {
+						href: wikiHref(page.pdf_id),
+						children: page.pdf_name
+					}),
+					page.trail.map((t) => /* @__PURE__ */ u("span", { children: [/* @__PURE__ */ u("span", {
+						"aria-hidden": "true",
+						children: " › "
+					}), /* @__PURE__ */ u("a", {
+						href: wikiPageHref(t.id),
+						children: t.title
+					})] }, t.id))
+				]
+			}),
+			/* @__PURE__ */ u("h1", { children: page.title }),
+			/* @__PURE__ */ u("p", { children: page.summary }),
+			/* @__PURE__ */ u(PageLinks, {
+				pdf: page.pdf_id,
+				pages: page.pages
+			}),
+			page.entries.length > 0 && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h2", { children: "In this topic" }), /* @__PURE__ */ u(Outline, {
+				pdf: page.pdf_id,
+				entries: page.entries
+			})] })
+		]
+	});
+}
+function Outline({ pdf, entries }) {
+	const ref = A(null);
+	const opens = entries.some((e) => e.entries.length > 0);
+	const openAll = (open) => {
+		ref.current?.querySelectorAll("details").forEach((d) => {
+			d.open = open;
+		});
+	};
+	return /* @__PURE__ */ u("div", {
+		ref,
+		children: [opens && /* @__PURE__ */ u("p", {
+			className: "outline-buttons",
+			children: [
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					onClick: () => openAll(true),
+					children: "Open all"
+				}),
+				" ",
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					onClick: () => openAll(false),
+					children: "Close all"
+				})
+			]
+		}), /* @__PURE__ */ u(Entries, {
+			pdf,
+			entries
+		})]
+	});
+}
+function Entries({ pdf, entries }) {
+	return /* @__PURE__ */ u("ul", {
+		className: "outline",
+		children: entries.map((e) => /* @__PURE__ */ u("li", { children: e.entries.length > 0 ? /* @__PURE__ */ u("details", { children: [/* @__PURE__ */ u("summary", { children: /* @__PURE__ */ u(EntryText, {
+			pdf,
+			entry: e
+		}) }), /* @__PURE__ */ u(Entries, {
+			pdf,
+			entries: e.entries
+		})] }) : /* @__PURE__ */ u("div", {
+			className: "leaf",
+			children: /* @__PURE__ */ u(EntryText, {
+				pdf,
+				entry: e
+			})
+		}) }, e.id))
+	});
+}
+function EntryText({ pdf, entry }) {
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("span", {
+			className: "entry-title",
+			children: entry.detail ? /* @__PURE__ */ u("a", {
+				href: wikiPageHref(entry.id),
+				children: entry.title
+			}) : entry.title
+		}),
+		/* @__PURE__ */ u("span", {
+			className: "entry-summary",
+			children: [entry.summary, entry.detail && /* @__PURE__ */ u(S, { children: [" ", /* @__PURE__ */ u("a", {
+				href: wikiPageHref(entry.id),
+				children: "Read more"
+			})] })]
+		}),
+		/* @__PURE__ */ u(PageLinks, {
+			pdf,
+			pages: entry.pages
+		})
+	] });
+}
+function PageLinks({ pdf, pages }) {
+	if (pages.length === 0) return null;
+	return /* @__PURE__ */ u("span", {
+		className: "entry-pages muted",
+		children: [pages.length === 1 ? "PDF page " : "PDF pages ", pages.map((n, i) => /* @__PURE__ */ u("span", { children: [i > 0 && ", ", /* @__PURE__ */ u("a", {
+			href: pdfPageUrl(pdf, n),
+			target: "_blank",
+			rel: "noreferrer",
+			title: `Open page ${n} of the PDF`,
+			children: n
+		})] }, n))]
+	});
 }
 //#endregion
 //#region src/App.tsx
@@ -2860,13 +3156,19 @@ var NAV = [
 		label: "Chat"
 	},
 	{
+		page: "wiki",
+		href: "#/wiki",
+		label: "Wiki"
+	},
+	{
 		page: "content",
 		href: "#/content",
 		label: "Manage Content"
 	}
 ];
 function current(page) {
-	return page === "guide" ? "setup" : page;
+	if (page === "guide") return "setup";
+	return page === "wiki-page" ? "wiki" : page;
 }
 function App() {
 	const hash = useHash();
@@ -2892,6 +3194,8 @@ function App() {
 		chat: /* @__PURE__ */ u(ChatPage, {}),
 		content: /* @__PURE__ */ u(ContentPage, {}),
 		guide: /* @__PURE__ */ u(GuidePage, {}),
+		wiki: /* @__PURE__ */ u(WikiPage, { pdf: wikiTarget(hash).pdf }),
+		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [

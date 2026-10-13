@@ -18,6 +18,7 @@ from imageskin.wiki_outline import (
     SUMMARY_PROMPT,
     Entry,
     Outliner,
+    ancestors,
     find,
     first_sentence,
     from_saved,
@@ -295,6 +296,8 @@ def test_saved_entries_are_read_back_and_shown_down_to_the_next_detail_page() ->
     section = Entry("s", "Section", "Section.", [1], [topic_entry])
     assert from_saved([asdict(section)]) == [section]
     assert find([section], "i") is inner and find([section], "nope") is None
+    assert ancestors([section], "i") == [section, topic_entry]  # the levels above it
+    assert ancestors([section], "s") == [] and ancestors([section], "nope") is None
     page = shown(topic_entry)
     assert [e["id"] for e in page["entries"]] == ["i", "l"]
     assert page["entries"][0]["entries"] == []  # on its own detail page

@@ -364,10 +364,59 @@ export interface WikiBuild {
   remaining_s: number | null; // about how long this stage has left, once a step is done
 }
 
-// A PDF's wiki pages with their text, as JSON, to open in a new tab.
-export function wikiUrl(id: string): string {
-  return `/api/content/${id}/wiki`;
+// One entry of a PDF's wiki outline (roadmap R37a): a section, topic or part, with its summary
+// and the PDF pages it came from. A detail entry has its own page too.
+export interface WikiEntry {
+  id: string;
+  title: string;
+  summary: string;
+  pages: number[];
+  detail: boolean;
+  entries: WikiEntry[];
 }
+
+// A PDF's table of contents, as the Wiki page shows it (roadmap R37b): every level of it.
+export interface WikiContents {
+  pdf_id: string;
+  pdf_name: string;
+  entries: WikiEntry[];
+}
+
+// A detail page: its entry with its parts down to the next detail pages, whose own parts are on
+// those pages, and the detail pages above it, from the top down.
+export interface WikiDetail extends WikiEntry {
+  pdf_id: string;
+  pdf_name: string;
+  trail: { id: string; title: string }[];
+}
+
+// Every PDF's table of contents, or one PDF's. A PDF whose wiki isn't built yet is missing.
+export async function listWikiContents(pdf?: string): Promise<WikiContents[]> {
+  const query = pdf ? `?pdf=${encodeURIComponent(pdf)}` : "";
+  return json<WikiContents[]>(await fetch(`/api/wiki/contents${query}`));
+}
+
+// A detail page, or null when there is no such page (404). Throws when it can't be loaded.
+export async function getWikiPage(id: string): Promise<WikiDetail | null> {
+  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}`);
+  if (response.status === 404) return null;
+  return json<WikiDetail>(response);
+}
+
+// Where the Wiki page shows a PDF's table of contents, and a detail page (roadmap R37b).
+export function wikiHref(pdf?: string): string {
+  return pdf ? `#/wiki/${pdf}` : "#/wiki";
+}
+
+export function wikiPageHref(id: string): string {
+  return `#/wiki/page/${id}`;
+}
+
+// A page of a PDF, opened in the browser's PDF viewer.
+export function pdfPageUrl(id: string, page: number): string {
+  return `${pdfUrl(id)}#page=${page}`;
+}
+
 
 // The wiki progress of each PDF, by its id. A PDF not read yet is missing.
 export async function listWikiBuilds(): Promise<Record<string, WikiBuild>> {

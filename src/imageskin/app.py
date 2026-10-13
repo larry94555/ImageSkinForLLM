@@ -453,7 +453,11 @@ def create_app(
     def list_wiki_pages(pdf: str | None = None) -> list[dict[str, Any]]:
         return wiki.pages(pdf)
 
-    # Before /{page_id}, which would take "builds" as an id.
+    # Before /{page_id}, which would take these as ids.
+    @app.get("/api/wiki/contents")
+    def wiki_contents(pdf: str | None = None) -> list[dict[str, Any]]:
+        return wiki.contents(pdf)
+
     @app.get("/api/wiki/builds")
     def wiki_statuses() -> dict[str, WikiStatus]:
         return wiki.statuses()

@@ -15,7 +15,7 @@ import {
   removePdf,
   sendPdf,
   type WikiBuild,
-  wikiUrl,
+  wikiHref,
 } from "./api";
 
 // How often the reading and wiki progress is checked while a PDF is being read or built.
@@ -244,9 +244,7 @@ function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
   return (
     <span className="muted">
       {wikiText(build)} ·{" "}
-      <a href={wikiUrl(id)} target="_blank" rel="noreferrer">
-        Wiki pages
-      </a>
+      <a href={wikiHref(id)}>Read the wiki</a>
     </span>
   );
 }

@@ -28,6 +28,7 @@ from imageskin.wiki import Progress, WaitForLlm, Wiki, WikiError, WikiPage
 from imageskin.wiki_outline import (
     Entry,
     OutlineProgress,
+    ancestors,
     count_detail,
     find,
     from_saved,
@@ -187,19 +188,32 @@ class WikiJob:
         """One PDF's up-to-date pages with their text, as saved, or None if not built yet."""
         return self._saved(pdf_id)
 
+    def contents(self, pdf_id: str | None = None) -> list[dict[str, Any]]:
+        """Every up-to-date table of contents (or one PDF's), as the wiki shows it (R37b): the
+        whole outline, every level of it, detail pages' parts too."""
+        found = []
+        for pdf in self.store.list():
+            saved = self._saved(pdf.id) if pdf_id in (None, pdf.id) else None
+            if saved is not None:
+                found.append({**summary(saved), "entries": saved["outline"]})
+        return found
+
     def page(self, page_id: str) -> dict[str, Any] | None:
-        """One entry of the outline as its page shows it, or None. A topic's has its whole text
-        too."""
+        """One entry of the outline as its page shows it, or None, with the trail of detail
+        pages above it (R37b). A topic's has its whole text too."""
         pdf_id = page_id.split("-", 1)[0]
         saved = self._saved(pdf_id)
         if saved is None:
             return None
-        entry = find(from_saved(saved["outline"]), page_id)
+        outline = from_saved(saved["outline"])
+        entry = find(outline, page_id)
         if entry is None:
             return None
+        above = ancestors(outline, page_id) or []
+        trail = [{"id": e.id, "title": e.title} for e in above if e.detail]
         texts = {page["id"]: page["text"] for page in saved["pages"]}
         text = {"text": texts[page_id]} if page_id in texts else {}
-        return {**summary(saved), **shown(entry), **text}
+        return {**summary(saved), **shown(entry), "trail": trail, **text}
 
     def wait(self, timeout: float = 30) -> None:
         """Until every queued PDF is built (tests)."""
