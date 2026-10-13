@@ -12,8 +12,10 @@ from imageskin.lookup import (
     ContentLookup,
     Passage,
     look_up,
+    pages_label,
     pdf_passages,
     rank,
+    shorten,
     wiki_passages,
     words,
 )
@@ -183,10 +185,10 @@ def test_lookup_command_says_when_there_is_nothing_to_look_up_in(
     assert "Nothing to look up in" in capsys.readouterr().err
 
 
-def test_shorten_cuts_long_passages() -> None:
-    assert cli.shorten("a  b\nc") == "a b c"
-    assert cli.shorten("x" * 10, 5) == "xxxx…"
-    assert cli.pages_label([1, 2]) == "pages 1, 2"
+def test_shorten_cuts_long_passages_at_a_word() -> None:
+    assert shorten("a  b\nc", 10) == "a b c"
+    assert shorten("one two three", 9) == "one two …"
+    assert pages_label([1, 2]) == "pages 1, 2" and pages_label([3]) == "page 3"
 
 
 def test_the_time_taken_includes_gathering_the_passages(

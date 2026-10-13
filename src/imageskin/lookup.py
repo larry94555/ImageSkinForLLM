@@ -181,6 +181,16 @@ def look_up(
     return Lookup(question, wiki, pdf, duration_ms, len(passages))
 
 
+def pages_label(pages: list[int]) -> str:
+    return ("page " if len(pages) == 1 else "pages ") + ", ".join(map(str, pages))
+
+
+def shorten(text: str, chars: int) -> str:
+    """The text on one line, cut at a word to at most `chars` characters with " …" after it."""
+    text = " ".join(text.split())
+    return text if len(text) <= chars else text[:chars].rsplit(" ", 1)[0] + " …"
+
+
 def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
     """What was found, best first, each with where it came from, for the LLM to answer from
     (roadmap R40). A long passage (a big table, say) is cut at a word to `chars` characters."""
@@ -188,11 +198,8 @@ def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
     passages = []
     for f in found:
         p = f.passage
-        where = f"{p.pdf_name}, page{'s' if len(p.pages) > 1 else ''} "
-        where += ", ".join(map(str, p.pages))
-        text = " ".join(p.text.split())
-        if len(text) > chars:
-            text = text[:chars].rsplit(" ", 1)[0] + " …"
+        where = f"{p.pdf_name}, {pages_label(p.pages)}"
+        text = shorten(p.text, chars)
         passages.append(f"{p.title} ({where}): {text}" if p.title else f"({where}): {text}")
     return passages
 
