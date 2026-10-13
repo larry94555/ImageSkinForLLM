@@ -557,3 +557,33 @@ def test_a_saved_file_is_one_moment_of_the_wiki(tmp_path: Path) -> None:
     assert saved["current"]["edits"] == saved["history"][-1]["edits"] == {}
     assert saved["current"]["wiki"] == saved["history"][-1]["wiki"]
     assert kinds(wiki, pdf.id) == ["edited", "built"]  # made after
+
+
+def test_a_restore_whose_edits_cant_be_removed_changes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restoring a version with no edits removes the edits file; when that fails, the wiki and
+    its edits stay as they were."""
+    _, _, wiki, pdf = built(tmp_path)
+    [first] = wiki.versions(pdf.id) or []  # no edits
+    saved = wiki.export(pdf.id)
+    wiki.edit(f"{pdf.id}-p1", "Rain", "Rain falls.")
+    current = wiki.contents(pdf.id)
+    files = wiki_files(tmp_path)
+    edits_file = tmp_path / "content" / "wiki" / f"{pdf.id}.edits.json"
+    unlink = Path.unlink
+
+    def refuse(path: Path, missing_ok: bool = False) -> None:
+        if path == edits_file:
+            raise PermissionError("not allowed")
+        unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    for change in (
+        lambda: wiki.restore(pdf.id, first["id"]),
+        lambda: wiki.load(pdf.id, json.dumps(saved).encode()),
+    ):
+        with pytest.raises(HistoryError, match="nothing was changed") as refused:
+            change()
+        assert refused.value.status == 500
+        assert wiki.contents(pdf.id) == current and wiki_files(tmp_path) == files
