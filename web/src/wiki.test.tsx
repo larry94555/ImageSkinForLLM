@@ -623,3 +623,27 @@ test("a view that can't be saved says so and stays as it was", async () => {
   expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
   expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
 });
+
+test("while the settings load, the top bar shows no teacher's links", async () => {
+  // Review on PR #77: the top bar showed the teacher's links until a Student view was read.
+  server([GUIDE], [CONTENTS]);
+  const wiki = globalThis.fetch;
+  let answer: (r: Response) => void = () => {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init?: RequestInit) =>
+      url === "/api/settings" ? new Promise<Response>((r) => (answer = r)) : wiki(url, init),
+    ),
+  );
+  window.location.hash = "#/wiki";
+  render(<App />);
+  const nav = within(screen.getByRole("navigation", { name: "" }));
+  await act(async () => {}); // consent is read; the settings are not yet
+  expect(nav.queryAllByRole("link")).toEqual([]);
+  expect(screen.getByRole("link", { name: "ImageSkinForLLM" }).getAttribute("href")).toBe("#/chat");
+  expect(screen.queryByText("How the weather changes.")).toBeNull();
+
+  await act(async () => answer(Response.json(STUDENT)));
+  await screen.findByText("How the weather changes.");
+  expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
+});

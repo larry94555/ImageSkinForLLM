@@ -39,6 +39,9 @@ function Shell() {
   const hash = useHash();
   const student = useSettings().view === "student";
   const settingsLoaded = useSettingsLoaded();
+  // Until the settings are read, the top bar has no links, so a student never sees a teacher's
+  // (review on PR #77).
+  const teacher = settingsLoaded && !student;
   // null until the server has answered.
   const [consented, setConsented] = useState<boolean | null>(null);
 
@@ -83,11 +86,11 @@ function Shell() {
   return (
     <>
       <header>
-        <a className="brand" href={student ? "#/chat" : "#/"}>
+        <a className="brand" href={teacher ? "#/" : "#/chat"}>
           ImageSkinForLLM
         </a>
         <nav>
-          {NAV.filter((item) => !student || item.student).map((item) => (
+          {NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => (
             <a
               key={item.page}
               href={item.href}

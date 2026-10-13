@@ -4009,6 +4009,7 @@ function Shell() {
 	const hash = useHash();
 	const student = useSettings().view === "student";
 	const settingsLoaded = useSettingsLoaded();
+	const teacher = settingsLoaded && !student;
 	const [consented, setConsented] = d(null);
 	h(() => {
 		getConsent().then((c) => setConsented(c.agreed)).catch((e) => {
@@ -4039,10 +4040,10 @@ function Shell() {
 		/* @__PURE__ */ u("header", { children: [
 			/* @__PURE__ */ u("a", {
 				className: "brand",
-				href: student ? "#/chat" : "#/",
+				href: teacher ? "#/" : "#/chat",
 				children: "ImageSkinForLLM"
 			}),
-			/* @__PURE__ */ u("nav", { children: NAV.filter((item) => !student || item.student).map((item) => /* @__PURE__ */ u("a", {
+			/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => /* @__PURE__ */ u("a", {
 				href: item.href,
 				className: current(route?.page) === item.page ? "current" : void 0,
 				children: item.label
