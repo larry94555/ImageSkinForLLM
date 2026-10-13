@@ -358,9 +358,12 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** open a PDF's table of contents, open and close its levels, follow a link to a detail page and back, and open a cited PDF page.
 - **Built:** `wiki.tsx` adds a **Wiki** page to the top bar (`#/wiki`, every PDF; `#/wiki/<PDF id>`, one PDF, which Manage Content's **Read the wiki** link opens in place of the JSON). The table of contents shows every level of the outline *(default)*; each entry with parts opens and closes on a click, with **Open all** and **Close all**, and each entry shows its summary and its PDF pages, each opening that page of the PDF in a new tab. A detail entry's title and **Read more** link open its page (`#/wiki/page/<entry id>`): a trail back to the PDF and the detail pages above it, its summary, PDF pages and parts, down to the next detail pages. A PDF whose wiki isn't built yet says so and points to Manage Content. `GET /api/wiki/contents` serves the tables of contents, and `GET /api/wiki/{page_id}` now has the `trail`. Shown with the setup guide and a 6-page lesson PDF built by Qwen 2.5 1.5B; the small model gave the lesson only 2 topics and no detail pages, and some parts are long runs of the PDF's own words, which a bigger model should improve.
 
-### R38. Wiki review and corrections (Medium) · item 26
-- A wiki page in Manage Content to browse the pages, see the PDF pages each came from, and edit a page. A corrected page is marked so a rebuild doesn't overwrite it silently.
-- **Can show:** correct a wiki page, replace its PDF, and see the correction kept and flagged for review.
+### R38. Editing the wiki (Medium) · item 26
+- Larry asked on 2026-10-13 that the user can edit the wiki pages, save them, load them and regenerate them. Browsing the pages and the PDF pages each came from is R37b's Wiki page.
+- **Edit and save:** on the Wiki page and its detail pages, an **Edit** button turns an entry's title and summary into text boxes, with **Save** and **Cancel**. A saved entry is marked as edited.
+- **Load:** edits are saved on the server beside the built wiki, so they are there whenever the Wiki page is opened again, after a restart too.
+- **Regenerate:** a **Rebuild the wiki** button for each PDF builds it again with the LLM. Edited entries are kept *(default)*: an edited entry whose topic the rebuild finds again keeps the user's text and is flagged for review, and one it no longer finds is listed so nothing is lost silently. Replacing the PDF works the same way.
+- **Can show:** edit a summary and save it, reload the page and see it kept, rebuild the wiki and see the edit kept and flagged, and cancel an edit.
 
 ## Milestone 7: Answers from the content
 
