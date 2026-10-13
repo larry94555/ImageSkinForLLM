@@ -14,6 +14,8 @@ from imageskin.wiki_outline import (
     MAX_DEPTH,
     OUTLINE_REPLY_TOKENS,
     SECTIONS_SCHEMA,
+    SIMPLE_CHARS,
+    SUMMARY_PROMPT,
     Entry,
     Outliner,
     find,
@@ -165,9 +167,12 @@ def test_paragraphs_are_sent_in_batches_that_fit_and_a_batch_with_no_parts_adds_
         "still nothing",
         detail("S.", ("A", [3, 1]), ("B", [4])),  # 1 is not in this batch
         detail("S3.", ("C", [6, 5]), ("Again", [5])),  # 5 is in C already
+        json.dumps({"summary": "Unused: a topic keeps its own."}),  # the batches' summaries
     )
     found = outliner(llm, window=OUTLINE_REPLY_TOKENS + room).outline([topic(1, "Few.")], pieces)
-    batches = [m[1]["content"].split("\n\n")[1:] for m, _ in llm.asked]
+    assert llm.asked[-1][0][0]["content"] == SUMMARY_PROMPT
+    assert llm.asked[-1][0][1]["content"] == "Topic 1\n\nS.\n\nS3."
+    batches = [m[1]["content"].split("\n\n")[1:] for m, _ in llm.asked[:-1]]
     assert [[line.split(".")[0] for line in b] for b in batches] == [
         ["1", "2"],
         ["1", "2"],
@@ -236,7 +241,8 @@ def test_a_long_paragraph_is_cut_into_pieces_short_enough_to_show() -> None:
         (3, LONG.split(" Sentence 6")[0]),
         (3, "Sentence 6" + LONG.split(" Sentence 6")[1]),
     ]
-    assert units(1, "x" * 700) == [(1, "x" * 700)]  # one sentence stays whole
+    cut_up = units(1, "word " * 140)  # one sentence of 700 characters
+    assert len(cut_up) == 2 and all(len(t) <= SIMPLE_CHARS for _, t in cut_up)
     assert units(1, "  ") == []
 
 
@@ -300,3 +306,47 @@ def test_a_window_too_small_still_asks_and_the_llm_says_if_it_is_refused() -> No
     llm = Llm("no", "no")
     found = outliner(llm, window=10).outline([topic(n) for n in range(1, 5)])
     assert len(llm.asked) == 2 and len(found) == 4
+
+
+def test_the_table_of_contents_keeps_the_documents_order_whatever_the_llm_answers() -> None:
+    llm = Llm(sections(("Later", "S.", [3, 2]), ("Gappy", "S.", [4, 6])))
+    found = outliner(llm).outline([topic(n) for n in range(1, 7)])
+    # Topic 1, left out, stays first; the section's topics are in order; a section whose
+    # topics aren't next to each other is not kept.
+    assert [e.title for e in found] == ["Topic 1", "Later", "Topic 4", "Topic 5", "Topic 6"]
+    assert [e.title for e in found[1].entries] == ["Topic 2", "Topic 3"]
+
+
+def test_a_part_split_in_several_batches_gets_one_summary_of_them_all() -> None:
+    def count(text: str) -> int:  # a paragraph's line is 100, "Deep" 200, anything else 1
+        return 200 if text == "Deep" else 100 if text[:1].isdigit() else 1
+
+    # The topic's 5 paragraphs fit in one batch; the part "Deep" takes 3 at a time.
+    window = OUTLINE_REPLY_TOKENS + 2 * TOKENS_PER_MESSAGE + 2 + 5 * 102
+    pieces = [piece(1, f"{n}" * 159 + ".") for n in range(1, 6)]  # 160 characters each
+    llm = Llm(
+        detail("Topic.", ("Deep", [1, 2, 3, 4]), ("Flat", [5])),
+        detail("First half.", ("A", [1]), ("B", [2])),
+        detail("Second half.", ("C", [4])),
+        json.dumps({"summary": "The whole part."}),
+    )
+    found = Outliner(PDF_ID, llm, count, window).outline([topic(1, "Few.")], pieces)
+    deep = found[0].entries[0]
+    assert deep.detail and deep.summary == "The whole part."
+    assert [e.title for e in deep.entries] == ["A", "B", "C"]
+    messages, _ = llm.asked[-1]
+    assert messages[0]["content"] == SUMMARY_PROMPT
+    assert messages[1]["content"] == "Deep\n\nFirst half.\n\nSecond half."
+
+
+def test_the_batches_summaries_are_joined_when_the_llm_cannot_summarize_them() -> None:
+    outline = outliner(Llm("no", "no"))
+    assert outline.summarize("T", ["One.", "Two."]) == "One. Two."
+    outline.planned = 1
+    assert outline.summarize("T", ["Only."]) == "Only." and outline.planned == 0
+
+
+def test_a_single_long_paragraph_gets_a_detail_page() -> None:
+    llm = Llm(detail("About it.", ("Start", [1]), ("End", [2])))
+    found = outliner(llm).outline([topic(1, "Few.")], [piece(1, "word " * 140)])
+    assert found[0].detail and [e.title for e in found[0].entries] == ["Start", "End"]

@@ -46,6 +46,11 @@ SECTIONS_PROMPT = (
     " the numbers of its topics. Put every topic in exactly one section. Answer with JSON only,"
     ' in this form: {"sections": [{"title": "…", "summary": "…", "topics": [1, 2]}]}'
 )
+SUMMARY_PROMPT = (
+    "Below are summaries of consecutive parts of a text from a document, in order; the topic is"
+    " in the first line. Write one summary of the whole text in 2 or 3 sentences, using only"
+    ' what they say. Answer with JSON only, in this form: {"summary": "…"}'
+)
 DETAIL_PROMPT = (
     "Below are numbered paragraphs from a document, in its order; the topic is in the first"
     " line. Using only what they say about that topic, write a summary of it in 2 or 3"
@@ -72,6 +77,11 @@ SECTIONS_SCHEMA: dict[str, Any] = {
         }
     },
     "required": ["sections"],
+}
+SUMMARY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"summary": {"type": "string"}},
+    "required": ["summary"],
 }
 DETAIL_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -135,7 +145,7 @@ class Outliner:
         sources = [self.source(t, pieces or []) for t in topics]
         for t, source in zip(topics, sources, strict=True):
             if opens(source, 2):
-                self.planned += len(self.batches(numbered(source), DETAIL_PROMPT, t.title))
+                self.planned += requests_for(self.batches(numbered(source), DETAIL_PROMPT, t.title))
         if len(topics) > FEW_TOPICS:
             self.planned += len(self.batches(self.contents_lines(topics), SECTIONS_PROMPT))
         entries = [
@@ -192,10 +202,12 @@ class Outliner:
         return entry
 
     def sections(self, topics: list[WikiPage], entries: list[Entry]) -> list[Entry]:
-        """The entries grouped into sections, in batches that fit the context window. A topic
-        the LLM leaves out stays in the table of contents on its own."""
+        """The entries grouped into sections, in batches that fit the context window, in the
+        document's order whatever order the LLM answers in. A topic the LLM leaves out stays in
+        the table of contents on its own, where it was; so does a section's topics when they
+        aren't next to each other."""
         lines = self.contents_lines(topics)
-        contents: list[Entry] = []
+        contents: list[tuple[int, Entry]] = []  # by the number of its first topic
         placed: set[int] = set()
         for batch in self.batches(lines, SECTIONS_PROMPT):
             numbers = {int(line.split(".", 1)[0]) for line in batch}
@@ -206,18 +218,18 @@ class Outliner:
                 partial(read_sections, numbers=numbers),
             )
             for title, summary, members in found or []:
-                members = [n for n in members if n not in placed]
-                if not members:
-                    continue
+                members = sorted(n for n in members if n not in placed)
+                if not members or members[-1] - members[0] + 1 != len(members):
+                    continue  # none left, or not next to each other
                 placed.update(members)
                 children = [entries[n - 1] for n in members]
                 pages = sorted({p for c in children for p in c.pages})
                 section_id = unique(f"{self.pdf_id}-{slug(title)}", self.used)
-                contents.append(Entry(section_id, title, summary, pages, children))
+                contents.append((members[0], Entry(section_id, title, summary, pages, children)))
             for n in sorted(numbers - placed):
-                contents.append(entries[n - 1])
+                contents.append((n, entries[n - 1]))
                 placed.add(n)
-        return contents
+        return [entry for _, entry in sorted(contents, key=lambda c: c[0])]
 
     def contents_lines(self, topics: list[WikiPage]) -> list[str]:
         return [f"{n}. {t.title}: {first_sentence(t.text)}" for n, t in enumerate(topics, 1)]
@@ -227,13 +239,14 @@ class Outliner:
     ) -> tuple[str, list[tuple[str, list[int]]]] | None:
         """A long source's summary and its parts, each with the numbers of its units (from 1);
         None if the LLM couldn't split it. A unit goes to the first part that names it; a batch
-        with no usable answer (it may say nothing about the topic) adds no parts."""
-        summary: str | None = None
+        with no usable answer (it may say nothing about the topic) adds no parts. When several
+        batches were summarized, their summaries are summarized as one."""
+        summaries: list[str] = []
         parts: list[tuple[str, list[int]]] = []
         placed: set[int] = set()
         batches = self.batches(numbered(source), DETAIL_PROMPT, title)
         if not planned:
-            self.planned += len(batches)
+            self.planned += requests_for(batches)
         for batch in batches:
             numbers = {int(m.group(1)) for line in batch if (m := NUMBERED.match(line))}
             read = partial(read_detail, numbers=numbers)
@@ -245,9 +258,22 @@ class Outliner:
                 if members:
                     placed.update(members)
                     parts.append((part_title, sorted(members)))
-            summary = summary or (found[0] if found else None)
+            if found:
+                summaries.append(found[0])
+        if len(batches) > 1:  # planned for, whatever the batches gave
+            summaries = [self.summarize(title, summaries)] if summaries else []
         parts.sort(key=lambda part: part[1][0])
-        return (summary, parts) if summary and len(parts) > 1 else None
+        return (summaries[0], parts) if summaries and len(parts) > 1 else None
+
+    def summarize(self, title: str, summaries: list[str]) -> str:
+        """One summary of several batches' summaries; them joined, if the LLM can't."""
+        joined = " ".join(summaries)
+        if len(summaries) < 2:
+            self.planned -= 1  # the request planned for isn't needed
+            return joined
+        text = f"{title}\n\n" + "\n\n".join(summaries)
+        found = self.request(SUMMARY_PROMPT, text, SUMMARY_SCHEMA, read_summary)
+        return found or joined
 
     def batches(self, lines: list[str], prompt: str, heading: str = "") -> list[list[str]]:
         """The lines in groups that fit, with the prompt and reply, in the context window."""
@@ -356,6 +382,17 @@ def read_detail(answer: str, numbers: set[int]) -> tuple[str, list[tuple[str, li
     return summary.strip(), found
 
 
+def requests_for(batches: list[list[str]]) -> int:
+    """The requests a split takes: one a batch, and one to summarize them when there are several."""
+    return len(batches) + (len(batches) > 1)
+
+
+def read_summary(answer: str) -> str | None:
+    data = load_json(answer)
+    summary = data.get("summary") if isinstance(data, dict) else None
+    return summary.strip() if isinstance(summary, str) and summary.strip() else None
+
+
 def opens(source: list[Unit], depth: int) -> bool:
     """Whether an entry on this level gets a detail page of its source's parts."""
     return depth < MAX_DEPTH and len(source) > 1 and not simple(" ".join(t for _, t in source))
@@ -366,17 +403,23 @@ def numbered(source: list[Unit]) -> list[str]:
 
 
 def units(page: int, text: str) -> list[Unit]:
-    """A paragraph of the PDF, in pieces short enough to show as they are."""
+    """A paragraph of the PDF, in pieces short enough to show as they are; a sentence too long
+    for one (a table or list with no full stops, say) is cut at spaces."""
+    pieces = [
+        piece
+        for sentence in SENTENCE_END.split(text.strip())
+        if sentence
+        for piece in cut(sentence, SIMPLE_CHARS, len)
+    ]
     found: list[Unit] = []
-    sentences_in: list[str] = []
-    for sentence in SENTENCE_END.split(text.strip()):
-        if sentences_in and not simple(" ".join([*sentences_in, sentence])):
-            found.append((page, " ".join(sentences_in)))
-            sentences_in = []
-        if sentence:
-            sentences_in.append(sentence)
-    if sentences_in:
-        found.append((page, " ".join(sentences_in)))
+    group: list[str] = []
+    for piece in pieces:
+        if group and not simple(" ".join([*group, piece])):
+            found.append((page, " ".join(group)))
+            group = []
+        group.append(piece)
+    if group:
+        found.append((page, " ".join(group)))
     return found
 
 
