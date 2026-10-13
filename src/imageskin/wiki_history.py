@@ -151,10 +151,10 @@ class WikiHistory:
         return sorted(found, key=lambda v: v["at"])
 
     def _write(self, pdf_id: str, version: dict[str, Any]) -> None:
-        """Called with the lock held. Named by its time, so the files sort oldest first."""
+        """Called with the lock held. The file gets a new name of its own, never one taken from
+        the version, which may come from a file the user loaded; _all sorts them by time."""
         folder = self._folder(pdf_id)
-        stamp = version["at"].replace(":", "").replace("-", "").replace("+", "_")
-        path = folder / f"{stamp}-{version['id']}.json"
+        path = folder / f"{uuid.uuid4().hex}.json"
         writing = path.with_suffix(".writing")
         try:
             folder.mkdir(parents=True, exist_ok=True)

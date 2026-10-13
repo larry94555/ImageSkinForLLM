@@ -341,3 +341,30 @@ def test_the_api_asks_first_for_a_replaced_pdf_and_refuses_a_big_file(
     monkeypatch.setattr("imageskin.app.MAX_WIKI_FILE_BYTES", 10)
     big = client.post(f"{api}/file", files={"file": ("w-wiki.json", saved)})
     assert big.status_code == 413 and "at most" in big.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("at", "version_id"),
+    [
+        ("../../../../escaped", "x"),
+        ("2026-01-01", "../../../../escaped"),
+        ("/tmp/escaped", "/tmp/escaped"),
+        ("2026-01-01", "a/b\\c"),
+    ],
+)
+def test_a_loaded_file_never_writes_outside_the_history(
+    tmp_path: Path, at: str, version_id: str
+) -> None:
+    _, _, wiki, pdf = built(tmp_path)
+    saved = wiki.export(pdf.id)
+    assert saved is not None
+    crafted = {**saved["history"][0], "id": version_id, "at": at}
+    saved["history"].append(crafted)
+    history = tmp_path / "content" / "wiki" / f"{pdf.id}.history"
+    before = {p for p in tmp_path.parent.rglob("*") if not p.is_relative_to(history)}
+
+    assert wiki.load(pdf.id, json.dumps(saved).encode()) == 1
+    after = {p for p in tmp_path.parent.rglob("*") if not p.is_relative_to(history)}
+    assert after == before  # only the history folder gained files
+    assert all(p.parent == history for p in history.iterdir())
+    assert wiki.history.get(pdf.id, version_id) == crafted  # kept, under a name of its own
