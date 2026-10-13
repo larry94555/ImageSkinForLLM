@@ -1,6 +1,8 @@
 import io
 import json
 import logging
+import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +12,7 @@ from test_wiki_job import PDF, jobs, one_page_per_piece, settle, two_pages
 
 from imageskin.app import create_app, wiki_file_name
 from imageskin.content import Pdf
+from imageskin.wiki_edits import EditError
 from imageskin.wiki_history import (
     NOT_A_WIKI_FILE,
     HistoryError,
@@ -19,7 +22,17 @@ from imageskin.wiki_history import (
 )
 from imageskin.wiki_job import WIKI_FORMAT, WikiJob
 
-WIKI = {"format": WIKI_FORMAT, "pages": [], "outline": [], "version": "v1"}
+ENTRY = {"id": "a-rain", "title": "Rain.", "summary": "Rain.", "pages": [1], "detail": False}
+WIKI: dict[str, Any] = {
+    "format": WIKI_FORMAT,
+    "name": "a.pdf",
+    "version": "v1",
+    "parts": 1,
+    "skipped_parts": [],
+    "pages": [{"id": "a-rain", "title": "Rain.", "text": "Rain.", "pages": [1]}],
+    "outline": [{**ENTRY, "entries": [{**ENTRY, "id": "a-drops", "entries": []}]}],
+}
+EDIT = {"title": "Rain", "summary": "Rain falls.", "edited_at": "2026", "review": False}
 
 
 def built(tmp_path: Path) -> tuple[Any, Any, WikiJob, Pdf]:
@@ -46,7 +59,7 @@ def test_versions_are_kept_newest_first_until_forgotten(
     history = WikiHistory(tmp_path, WIKI_FORMAT)
     assert not history.started("a") and history.versions("a") == []
     first = history.record("a", WIKI, {}, "built")
-    second = history.record("a", WIKI, {"a-rain": {"title": "Rain"}}, "edited", title="Rain")
+    second = history.record("a", WIKI, {"a-rain": EDIT}, "edited", title="Rain")
     assert history.started("a") and not history.started("b")
     assert [v["id"] for v in history.versions("a")] == [second["id"], first["id"]]
     assert history.versions("a")[0] == {
@@ -361,10 +374,186 @@ def test_a_loaded_file_never_writes_outside_the_history(
     crafted = {**saved["history"][0], "id": version_id, "at": at}
     saved["history"].append(crafted)
     history = tmp_path / "content" / "wiki" / f"{pdf.id}.history"
-    before = {p for p in tmp_path.parent.rglob("*") if not p.is_relative_to(history)}
+    above = [tmp_path.parent, Path("/tmp")]  # where the crafted names lead
+    assert not any(list(p.glob("*escaped*")) for p in above)
 
     assert wiki.load(pdf.id, json.dumps(saved).encode()) == 1
-    after = {p for p in tmp_path.parent.rglob("*") if not p.is_relative_to(history)}
-    assert after == before  # only the history folder gained files
-    assert all(p.parent == history for p in history.iterdir())
+    assert not any(list(p.glob("*escaped*")) for p in above)
+    written = list(history.rglob("*"))
+    assert all(p.parent == history and re.fullmatch(r"[0-9a-f]{32}\.json", p.name) for p in written)
     assert wiki.history.get(pdf.id, version_id) == crafted  # kept, under a name of its own
+
+
+def nested(**changed: Any) -> dict[str, Any]:
+    return {**WIKI["outline"][0]["entries"][0], **changed}
+
+
+@pytest.mark.parametrize(
+    "wiki",
+    [
+        {**WIKI, "outline": [{}]},
+        {**WIKI, "outline": [{**WIKI["outline"][0], "entries": [nested(summary=None)]}]},
+        {**WIKI, "outline": [{**WIKI["outline"][0], "entries": [nested(entries=None)]}]},
+        {**WIKI, "outline": [nested(detail="no")]},
+        {**WIKI, "outline": [nested(pages=["1"])]},
+        {**WIKI, "outline": [nested(pages=[True])]},
+        {**WIKI, "pages": [{"id": "a-rain", "title": "Rain.", "pages": [1]}]},
+        {**WIKI, "parts": None},
+        {**WIKI, "name": None},
+    ],
+)
+def test_a_file_with_a_broken_wiki_is_refused(wiki: dict[str, Any]) -> None:
+    with pytest.raises(HistoryError, match="isn't a wiki file"):
+        read_wiki_file(a_file(current={"wiki": wiki, "edits": {}}), WIKI_FORMAT)
+    version = {"id": "v", "at": "2026", "change": {"kind": "built"}, "wiki": wiki, "edits": {}}
+    with pytest.raises(HistoryError, match="isn't a wiki file"):
+        read_wiki_file(a_file(history=[version]), WIKI_FORMAT)
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        {"a-rain": "Rain"},
+        {"a-rain": {"title": "Rain", "summary": "Rain falls."}},
+        {"a-rain": {**EDIT, "summary": None}},
+        {"a-rain": {**EDIT, "review": "no"}},
+    ],
+)
+def test_a_file_with_broken_edits_is_refused(edits: dict[str, Any]) -> None:
+    with pytest.raises(HistoryError, match="isn't a wiki file"):
+        read_wiki_file(a_file(current={"wiki": WIKI, "edits": edits}), WIKI_FORMAT)
+    version = {"id": "v", "at": "2026", "change": {"kind": "built"}, "wiki": WIKI, "edits": edits}
+    with pytest.raises(HistoryError, match="isn't a wiki file"):
+        read_wiki_file(a_file(history=[version]), WIKI_FORMAT)
+
+
+def wiki_files(tmp_path: Path) -> dict[str, str]:
+    """Every file the wiki keeps, by name, with what it holds."""
+    folder = tmp_path / "content" / "wiki"
+    return {str(p.relative_to(folder)): p.read_text() for p in folder.rglob("*") if p.is_file()}
+
+
+def test_a_broken_file_changes_nothing(tmp_path: Path) -> None:
+    _, _, wiki, pdf = built(tmp_path)
+    wiki.edit(f"{pdf.id}-p1", "Rain", "Rain falls.")
+    saved = wiki.export(pdf.id)
+    assert saved is not None
+    saved["current"]["wiki"]["outline"] = [{}]
+    before = wiki_files(tmp_path)
+    with pytest.raises(HistoryError, match="isn't a wiki file") as refused:
+        wiki.load(pdf.id, json.dumps(saved).encode())
+    assert refused.value.status == 422 and wiki_files(tmp_path) == before
+
+
+def fail_edits(*args: Any) -> None:
+    raise EditError("The edit could not be saved. Try again.", status=500)
+
+
+def test_a_restore_or_load_whose_edits_cant_be_saved_changes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, wiki, pdf = built(tmp_path)
+    [first] = wiki.versions(pdf.id) or []
+    wiki.edit(f"{pdf.id}-p1", "Rain", "Rain falls.")
+    saved = wiki.export(pdf.id)
+    wiki.rebuild(pdf.id)
+    wiki.wait()
+    wiki.undo_edit(f"{pdf.id}-p1")  # the built text, with no edits
+    current = wiki.contents(pdf.id)
+    files = wiki_files(tmp_path)
+
+    monkeypatch.setattr(wiki.edits, "replace", fail_edits)
+    for change in (
+        lambda: wiki.restore(pdf.id, first["id"]),
+        lambda: wiki.load(pdf.id, json.dumps(saved).encode()),
+    ):
+        with pytest.raises(HistoryError, match="nothing was changed") as refused:
+            change()
+        assert refused.value.status == 500
+        assert wiki.contents(pdf.id) == current and wiki_files(tmp_path) == files
+        assert wiki.statuses()[pdf.id].state == "done"
+
+
+def test_a_load_with_no_wiki_before_it_leaves_none_when_it_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, wiki, pdf = built(tmp_path)
+    saved = json.dumps(wiki.export(pdf.id)).encode()
+    wiki.forget(pdf.id)
+    monkeypatch.setattr(wiki.edits, "replace", fail_edits)
+    with pytest.raises(HistoryError, match="nothing was changed"):
+        wiki.load(pdf.id, saved)
+    assert wiki.contents(pdf.id) == [] and pdf.id not in wiki.statuses()
+
+
+def test_a_wiki_that_cant_be_put_back_is_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, _, wiki, pdf = built(tmp_path)
+    saved = wiki.export(pdf.id)
+    assert saved is not None
+    saved["current"]["wiki"]["parts"] = 2  # not the wiki as it is now
+    save = wiki._save
+    saves: list[bool] = []
+
+    def once(wiki_saved: dict[str, Any]) -> bool:
+        saves.append(not saves and save(wiki_saved))  # the loaded wiki, then not the one before
+        return saves[-1]
+
+    monkeypatch.setattr(wiki, "_save", once)
+    monkeypatch.setattr(wiki.edits, "replace", fail_edits)
+    with pytest.raises(HistoryError, match="nothing was changed"):
+        wiki.load(pdf.id, json.dumps(saved).encode())
+    assert saves == [True, False]
+    assert "Could not put the wiki back after a failed change" in caplog.text
+
+
+def test_a_load_whose_history_cant_all_be_kept_still_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, wiki, pdf = built(tmp_path)
+    wiki.edit(f"{pdf.id}-p1", "Rain", "Rain falls.")
+    saved = wiki.export(pdf.id)
+    assert saved is not None
+    wiki.forget(pdf.id)
+    wiki.rebuild(pdf.id)
+    wiki.wait()
+    write = wiki.history._write
+    imported = {v["id"] for v in saved["history"]}
+
+    def not_imported(pdf_id: str, version: dict[str, Any]) -> None:
+        if version["id"] in imported:
+            raise HistoryError("The wiki's history could not be saved. Try again.", 500)
+        write(pdf_id, version)
+
+    monkeypatch.setattr(wiki.history, "_write", not_imported)
+    assert wiki.load(pdf.id, json.dumps(saved).encode()) == 0  # the change is made all the same
+    assert title(wiki, pdf.id) == "Rain" and kinds(wiki, pdf.id) == ["loaded", "built"]
+
+
+def test_a_saved_file_is_one_moment_of_the_wiki(tmp_path: Path) -> None:
+    """A change made while the file is being saved waits for it, so the file's current wiki is
+    its history's newest version."""
+    _, _, wiki, pdf = built(tmp_path)
+    everything = wiki.history.everything
+    late: list[threading.Thread] = []
+    edited = threading.Event()
+
+    def late_edit() -> None:
+        wiki.edit(f"{pdf.id}-p1", "Rain", "Rain falls.")
+        edited.set()
+
+    def with_an_edit_meanwhile(pdf_id: str) -> list[dict[str, Any]]:
+        thread = threading.Thread(target=late_edit)
+        thread.start()
+        late.append(thread)
+        edited.wait(0.5)  # it waits for the file, so it isn't done
+        return everything(pdf_id)
+
+    wiki.history.everything = with_an_edit_meanwhile  # type: ignore[method-assign]
+    saved = wiki.export(pdf.id)
+    late[0].join(5)
+    assert saved is not None and edited.is_set()
+    assert saved["current"]["edits"] == saved["history"][-1]["edits"] == {}
+    assert saved["current"]["wiki"] == saved["history"][-1]["wiki"]
+    assert kinds(wiki, pdf.id) == ["edited", "built"]  # made after

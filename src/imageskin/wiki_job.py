@@ -275,8 +275,9 @@ class WikiJob:
             if saved is None:
                 return None
             self._start_history(pdf_id)
+            # Under the lock every change keeps its version with, so the history matches.
             current = {"wiki": saved, "edits": self.edits.get(pdf_id)}
-        history = self.history.everything(pdf_id)
+            history = self.history.everything(pdf_id)
         logger.info("Wiki saved to a file", extra={"id": pdf_id, "versions": len(history)})
         return wiki_file(pdf_id, saved["name"], saved["version"], current, history)
 
@@ -316,14 +317,29 @@ class WikiJob:
             )
         self._start_history(pdf_id)
         before = self._stored(pdf_id)
+        failed = HistoryError(
+            "The wiki could not be saved, so nothing was changed. Try again.", 500
+        )
         if not self._save({**wiki, "id": pdf_id, "name": pdf.name, "version": version(pdf)}):
-            if before is not None:  # still the current wiki, not a failed build
-                self._status[pdf_id] = done_status(before)
-            raise HistoryError("The wiki could not be saved. Try again.", 500)
+            self._back_to(pdf_id, before)
+            raise failed
         try:
-            self.edits.replace(pdf_id, edits)
+            self.edits.replace(pdf_id, edits)  # all at once, or not at all
         except EditError as e:
-            raise HistoryError(str(e), e.status) from e
+            # The edits are as they were, so the wiki goes back to what they were made on.
+            self._back_to(pdf_id, before)
+            raise failed from e
+
+    def _back_to(self, pdf_id: str, before: dict[str, Any] | None) -> None:
+        """After a failed restore or load: the wiki as it was. Called with the lock held."""
+        if before is None:
+            (self.folder / f"{pdf_id}.json").unlink(missing_ok=True)
+            self._status.pop(pdf_id, None)
+            return
+        if self._stored(pdf_id) != before and not self._save(before):
+            logger.error("Could not put the wiki back after a failed change", extra={"id": pdf_id})
+            return
+        self._status[pdf_id] = done_status(before)  # still the current wiki, not a failed build
 
     def _start_history(self, pdf_id: str) -> None:
         """Before the first change to a wiki with no history yet (built before R38a, say), the

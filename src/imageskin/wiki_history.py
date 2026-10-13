@@ -34,14 +34,60 @@ class HistoryError(Exception):
         self.status = status
 
 
+def _strings(d: dict[str, Any], *keys: str) -> bool:
+    return all(isinstance(d.get(k), str) for k in keys)
+
+
+def _page_numbers(pages: Any) -> bool:
+    return isinstance(pages, list) and all(
+        isinstance(p, int) and not isinstance(p, bool) for p in pages
+    )
+
+
+def _is_page(page: Any) -> bool:
+    return (
+        isinstance(page, dict)
+        and _strings(page, "id", "title", "text")
+        and _page_numbers(page.get("pages"))
+    )
+
+
+def _is_entry(entry: Any) -> bool:
+    """An outline entry as saved, with every level below it."""
+    return (
+        isinstance(entry, dict)
+        and _strings(entry, "id", "title", "summary")
+        and _page_numbers(entry.get("pages"))
+        and isinstance(entry.get("detail"), bool)
+        and isinstance(entry.get("entries"), list)
+        and all(_is_entry(e) for e in entry["entries"])
+    )
+
+
+def is_edits(edits: Any) -> bool:
+    """A PDF's edits by entry id, as wiki_edits.py saves them."""
+    return isinstance(edits, dict) and all(
+        isinstance(entry_id, str)
+        and isinstance(edit, dict)
+        and _strings(edit, "title", "summary")
+        and isinstance(edit.get("review"), bool)
+        for entry_id, edit in edits.items()
+    )
+
+
 def is_wiki(wiki: Any, wiki_format: int) -> bool:
-    """Whether this is a PDF's saved wiki, in the form it is saved in now."""
+    """Whether this is a PDF's saved wiki, in the form it is saved in now, down to every page
+    and entry, so whatever reads it can rely on it."""
     return (
         isinstance(wiki, dict)
         and wiki.get("format") == wiki_format
+        and _strings(wiki, "version", "name")
+        and isinstance(wiki.get("parts"), int)
+        and isinstance(wiki.get("skipped_parts"), list)
         and isinstance(wiki.get("pages"), list)
+        and all(_is_page(p) for p in wiki["pages"])
         and isinstance(wiki.get("outline"), list)
-        and isinstance(wiki.get("version"), str)
+        and all(_is_entry(e) for e in wiki["outline"])
     )
 
 
@@ -52,7 +98,7 @@ def is_version(version: Any, wiki_format: int) -> bool:
         and isinstance(version.get("at"), str)
         and isinstance(version.get("change"), dict)
         and is_wiki(version.get("wiki"), wiki_format)
-        and isinstance(version.get("edits"), dict)
+        and is_edits(version.get("edits"))
     )
 
 
@@ -108,15 +154,20 @@ class WikiHistory:
         return self._all(pdf_id)
 
     def add(self, pdf_id: str, versions: list[dict[str, Any]]) -> int:
-        """Versions from a file that the history doesn't have yet; how many were added."""
+        """Versions from a file that the history doesn't have yet; how many were added. One that
+        can't be written is logged and left out, as a change's own version is (see record)."""
         known = {v["id"] for v in self._all(pdf_id)}
         added = 0
         with self._lock:
             for version in versions:
-                if version["id"] not in known:
+                if version["id"] in known:
+                    continue
+                try:
                     self._write(pdf_id, version)
-                    known.add(version["id"])
-                    added += 1
+                except HistoryError:
+                    continue  # logged
+                known.add(version["id"])
+                added += 1
         return added
 
     def forget(self, pdf_id: str) -> None:
@@ -203,7 +254,7 @@ def read_wiki_file(data: bytes, wiki_format: int) -> dict[str, Any]:
         or not isinstance(loaded.get("pdf_version"), str)
         or not isinstance(loaded.get("current"), dict)
         or not is_wiki(loaded["current"].get("wiki"), wiki_format)
-        or not isinstance(loaded["current"].get("edits"), dict)
+        or not is_edits(loaded["current"].get("edits"))
         or not isinstance(loaded.get("history"), list)
         or not all(is_version(v, wiki_format) for v in loaded["history"])
     ):
