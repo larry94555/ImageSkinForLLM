@@ -41,7 +41,8 @@ B = 0.75
 # The share of the question's words, weighted by rarity, that a passage must have to be found.
 MIN_SHARE = 0.4
 # A question word at least this long that the content doesn't have is matched to a content word
-# one typo away, so a misspelled name (Larry's "Reimann", 2026-10-13) is still found.
+# one typo away, so a misspelled name (Larry's "Reimann", 2026-10-13) is still found, as long as
+# another of the question's words is in the content as typed (review on PR #74).
 MIN_TYPO_CHARS = 5
 WORD = re.compile(r"[^\W_]+")
 # A contraction like "can't" or "don't" is a common word, so it goes whole; the ending of
@@ -180,16 +181,20 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
 
     A passage must have at least MIN_SHARE of the question's words, each weighted by how rare it
     is in the content; a word the content doesn't have at all weighs the most (after a word one
-    typo from a content word is taken as that word). So a passage that
-    shares only a common word ("best" in "What lighting is best for the photo?") is left out,
-    and a question about something the content doesn't cover finds nothing."""
+    typo from a content word is taken as that word, when another word matches as typed). So a
+    passage that shares only a common word ("best" in "What lighting is best for the photo?")
+    is left out, and a question about something the content doesn't cover finds nothing."""
     if not words(question) or not passages:
         return []
     counted = [Counter(passage_words(p)) for p in passages]
     content: Counter[str] = Counter()
     for c in counted:
         content.update(c.keys())
-    asked = {spelled_as_in(w, content) for w in words(question)}
+    asked = set(words(question))
+    # A typo is corrected only beside a word the content has as typed, so a correction can't be
+    # the only reason an off-topic prompt is found ("polar" alone isn't taken as "solar").
+    if asked & content.keys():
+        asked = {spelled_as_in(w, content) for w in asked}
     lengths = [sum(c.values()) for c in counted]
     average = sum(lengths) / len(lengths) or 1.0
     total = len(passages)

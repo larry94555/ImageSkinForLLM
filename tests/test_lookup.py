@@ -106,6 +106,14 @@ def test_larrys_riemann_question_is_found() -> None:
     assert rank("What lighting is best for the photo?", paper) == []
 
 
+def test_a_typo_correction_alone_does_not_find_an_off_topic_prompt() -> None:
+    # Review on PR #74: "polar" is one letter from "solar", but nothing else matches.
+    solar = [Passage("pdf", "p", "a.pdf", "", "Solar energy comes from the sun.", [1])]
+    assert rank("What is polar?", solar) == []
+    assert len(rank("What is solar energy?", solar)) == 1
+    assert len(rank("Where does sloar energy come from?", solar)) == 1  # beside "energy"
+
+
 def test_contractions_and_possessives_add_no_stray_words() -> None:
     assert words("What's photosynthesis?") == words("photosynthesis")
     assert words("Can't plants? Don’t they?") == ["plant"]
