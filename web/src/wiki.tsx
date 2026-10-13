@@ -235,6 +235,12 @@ function Rebuild({ build, onRebuild }: { build?: WikiBuild; onRebuild: () => Pro
           </button>
         </p>
       )}
+      {build?.state === "failed" && !error && (
+        <p className="error">
+          The last rebuild didn't finish: {wikiText(build)} The pages below are the ones built
+          before it. You can try again.
+        </p>
+      )}
       {error && <p className="error">{error}</p>}
     </div>
   );

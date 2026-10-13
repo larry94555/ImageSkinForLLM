@@ -470,3 +470,41 @@ test("a failed undo says why", async () => {
   await waitFor(() => expect(screen.getAllByText(/The edit could not be saved/).length).toBe(2));
   expect(errors).toHaveBeenCalled();
 });
+
+test("a rebuild that fails later says so, and can be tried again", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const building: WikiBuild = { ...BUILT, state: "building", part: 0, pages: null };
+  const failed: WikiBuild = {
+    ...BUILT,
+    state: "failed",
+    error: "The LLM refused the prompt (400)",
+  };
+  const fetchMock = server(
+    [GUIDE],
+    [CONTENTS],
+    {},
+    {
+      builds: [{ a1: BUILT }, { a1: building }, { a1: failed }],
+    },
+  );
+  render(<WikiPage pdf="a1" />);
+  await screen.findByText("How the weather changes.");
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild the wiki" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild" }));
+  expect(await screen.findByText(/Waiting to build the wiki pages/)).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(WIKI_POLL_MS);
+  });
+  expect(await screen.findByText(/Building the wiki pages/)).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(WIKI_POLL_MS);
+  });
+  expect(
+    await screen.findByText(/The last rebuild didn't finish: The LLM refused the prompt/),
+  ).toBeTruthy();
+  expect(screen.getByText("How the weather changes.")).toBeTruthy(); // the pages built before
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild the wiki" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild" }));
+  await waitFor(() => expect(changes(fetchMock).length).toBe(2)); // tried again
+  vi.useRealTimers();
+});

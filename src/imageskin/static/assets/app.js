@@ -3064,36 +3064,47 @@ function Rebuild({ build, onRebuild }) {
 	};
 	return /* @__PURE__ */ u("div", {
 		className: "rebuild",
-		children: [asking ? /* @__PURE__ */ u("p", {
-			className: "notice",
-			children: [
-				"Build this PDF's wiki again with the LLM? It can take a while. Your edits are kept, and each is marked for you to check against the new wiki.",
-				" ",
-				/* @__PURE__ */ u("button", {
-					type: "button",
-					onClick: start,
-					children: "Rebuild"
-				}),
-				" ",
-				/* @__PURE__ */ u("button", {
+		children: [
+			asking ? /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: [
+					"Build this PDF's wiki again with the LLM? It can take a while. Your edits are kept, and each is marked for you to check against the new wiki.",
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						onClick: start,
+						children: "Rebuild"
+					}),
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: () => setAsking(false),
+						children: "Cancel"
+					})
+				]
+			}) : /* @__PURE__ */ u("p", {
+				className: "outline-buttons",
+				children: /* @__PURE__ */ u("button", {
 					type: "button",
 					className: "secondary",
-					onClick: () => setAsking(false),
-					children: "Cancel"
+					onClick: () => setAsking(true),
+					children: "Rebuild the wiki"
 				})
-			]
-		}) : /* @__PURE__ */ u("p", {
-			className: "outline-buttons",
-			children: /* @__PURE__ */ u("button", {
-				type: "button",
-				className: "secondary",
-				onClick: () => setAsking(true),
-				children: "Rebuild the wiki"
+			}),
+			build?.state === "failed" && !error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: [
+					"The last rebuild didn't finish: ",
+					wikiText(build),
+					" The pages below are the ones built before it. You can try again."
+				]
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
 			})
-		}), error && /* @__PURE__ */ u("p", {
-			className: "error",
-			children: error
-		})]
+		]
 	});
 }
 function LostEdits({ edits, onChanged }) {
