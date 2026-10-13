@@ -79,9 +79,7 @@ export function App() {
             <a
               key={item.page}
               href={item.href}
-              className={
-                current(route?.page) === item.page ? "current" : undefined
-              }
+              className={current(route?.page) === item.page ? "current" : undefined}
             >
               {item.label}
             </a>
@@ -89,9 +87,7 @@ export function App() {
         </nav>
       </header>
       <main>{content}</main>
-      <footer>
-        Photos and recordings stay on the computer that runs this app.
-      </footer>
+      <footer>Photos and recordings stay on the computer that runs this app.</footer>
     </>
   );
 }

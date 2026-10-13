@@ -24,6 +24,13 @@ describe("router", () => {
     expect(wikiTarget("#/wiki/page/a1%20b")).toEqual({ entry: "a1 b" });
   });
 
+  test("a wiki address that isn't valid percent-encoding is not found", () => {
+    for (const hash of ["#/wiki/%", "#/wiki/page/%E0%A4%A"]) {
+      expect(pageFor(hash)).toBe("not-found");
+      expect(wikiTarget(hash)).toEqual({});
+    }
+  });
+
   test("setup is blocked until consent is confirmed", () => {
     expect(resolve("#/setup", false)).toEqual({ page: "consent", redirect: "#/consent" });
     expect(resolve("#/setup", true)).toEqual({ page: "setup" });

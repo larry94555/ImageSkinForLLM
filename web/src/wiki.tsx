@@ -58,15 +58,12 @@ export function WikiPage({ pdf }: { pdf?: string }) {
         </p>
       ) : (
         <p>
-          What the PDFs in <a href="#/content">Manage Content</a> say, topic by
-          topic. Open a topic to see its parts, or follow its title to a page of
-          its own.
+          What the PDFs in <a href="#/content">Manage Content</a> say, topic by topic. Open a topic
+          to see its parts, or follow its title to a page of its own.
         </p>
       )}
       {failed ? (
-        <p className="error">
-          The wiki could not be loaded. Check that the app is still running.
-        </p>
+        <p className="error">The wiki could not be loaded. Check that the app is still running.</p>
       ) : wiki === null ? (
         <p>Loading…</p>
       ) : (
@@ -78,14 +75,12 @@ export function WikiPage({ pdf }: { pdf?: string }) {
 
 function WikiList({ wiki, pdf }: { wiki: Wiki; pdf?: string }) {
   const built = new Set(wiki.contents.map((c) => c.pdf_id));
-  const waiting = wiki.pdfs.filter(
-    (p) => !built.has(p.id) && (!pdf || p.id === pdf),
-  );
+  const waiting = wiki.pdfs.filter((p) => !built.has(p.id) && (!pdf || p.id === pdf));
   if (wiki.pdfs.length === 0) {
     return (
       <p>
-        There are no PDFs yet. Add one in <a href="#/content">Manage Content</a>{" "}
-        and its wiki is built from it.
+        There are no PDFs yet. Add one in <a href="#/content">Manage Content</a> and its wiki is
+        built from it.
       </p>
     );
   }
@@ -99,8 +94,8 @@ function WikiList({ wiki, pdf }: { wiki: Wiki; pdf?: string }) {
       ))}
       {waiting.map((p) => (
         <p key={p.id} className="muted">
-          {p.name}: its wiki isn't ready yet.{" "}
-          <a href="#/content">Manage Content</a> shows how far it has got.
+          {p.name}: its wiki isn't ready yet. <a href="#/content">Manage Content</a> shows how far
+          it has got.
         </p>
       ))}
     </>
@@ -108,13 +103,7 @@ function WikiList({ wiki, pdf }: { wiki: Wiki; pdf?: string }) {
 }
 
 // A PDF's table of contents. `linked`: its name links to its own page.
-function Contents({
-  contents,
-  linked,
-}: {
-  contents: WikiContents;
-  linked: boolean;
-}) {
+function Contents({ contents, linked }: { contents: WikiContents; linked: boolean }) {
   const name = linked ? (
     <a href={wikiHref(contents.pdf_id)}>{contents.pdf_name}</a>
   ) : (
@@ -142,9 +131,7 @@ export function WikiDetailPage({ entry }: { entry: string }) {
     setProblem(null);
     getWikiPage(entry)
       .then((next) => {
-        console.info(
-          `Wiki page loaded in ${Math.round(performance.now() - started)} ms`,
-        );
+        console.info(`Wiki page loaded in ${Math.round(performance.now() - started)} ms`);
         if (stopped) return;
         if (next === null) {
           console.info(`No wiki page ${entry}`);
@@ -219,18 +206,10 @@ function Outline({ pdf, entries }: { pdf: string; entries: WikiEntry[] }) {
     <div ref={ref}>
       {opens && (
         <p className="outline-buttons">
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => openAll(true)}
-          >
+          <button type="button" className="secondary" onClick={() => openAll(true)}>
             Open all
           </button>{" "}
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => openAll(false)}
-          >
+          <button type="button" className="secondary" onClick={() => openAll(false)}>
             Close all
           </button>
         </p>
@@ -267,11 +246,7 @@ function EntryText({ pdf, entry }: { pdf: string; entry: WikiEntry }) {
   return (
     <>
       <span className="entry-title">
-        {entry.detail ? (
-          <a href={wikiPageHref(entry.id)}>{entry.title}</a>
-        ) : (
-          entry.title
-        )}
+        {entry.detail ? <a href={wikiPageHref(entry.id)}>{entry.title}</a> : entry.title}
       </span>
       <span className="entry-summary">
         {entry.summary}

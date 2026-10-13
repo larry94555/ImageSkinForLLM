@@ -32,13 +32,23 @@ function pathOf(hash: string): string {
   return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
 }
 
-// Which PDF or detail page a wiki address names.
+// Which PDF or detail page a wiki address names. A part that isn't valid percent-encoding (a
+// hand-edited bookmark, say) names none, so the address is not found.
 export function wikiTarget(hash: string): { pdf?: string; entry?: string } {
   const path = pathOf(hash);
-  const entry = WIKI_PAGE.exec(path)?.[1];
-  if (entry) return { entry: decodeURIComponent(entry) };
-  const pdf = WIKI_PDF.exec(path)?.[1];
-  return pdf ? { pdf: decodeURIComponent(pdf) } : {};
+  const entry = decoded(WIKI_PAGE.exec(path)?.[1]);
+  if (entry) return { entry };
+  const pdf = decoded(WIKI_PDF.exec(path)?.[1]);
+  return pdf ? { pdf } : {};
+}
+
+function decoded(part: string | undefined): string | undefined {
+  if (part === undefined) return undefined;
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return undefined;
+  }
 }
 
 export interface Route {
@@ -49,8 +59,9 @@ export interface Route {
 
 export function pageFor(hash: string): Page {
   const path = pathOf(hash);
-  if (WIKI_PAGE.test(path)) return "wiki-page";
-  if (WIKI_PDF.test(path)) return "wiki";
+  const wiki = wikiTarget(hash);
+  if (wiki.entry) return "wiki-page";
+  if (wiki.pdf) return "wiki";
   return PAGES[path] ?? "not-found";
 }
 

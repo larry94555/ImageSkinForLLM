@@ -427,7 +427,8 @@ function WikiLine({ id, build }) {
 		className: "muted",
 		children: [
 			wikiText(build),
-			" · ",
+			" ·",
+			" ",
 			/* @__PURE__ */ u("a", {
 				href: wikiHref(id),
 				children: "Read the wiki"
@@ -2841,15 +2842,24 @@ function pathOf(hash) {
 }
 function wikiTarget(hash) {
 	const path = pathOf(hash);
-	const entry = WIKI_PAGE.exec(path)?.[1];
-	if (entry) return { entry: decodeURIComponent(entry) };
-	const pdf = WIKI_PDF.exec(path)?.[1];
-	return pdf ? { pdf: decodeURIComponent(pdf) } : {};
+	const entry = decoded(WIKI_PAGE.exec(path)?.[1]);
+	if (entry) return { entry };
+	const pdf = decoded(WIKI_PDF.exec(path)?.[1]);
+	return pdf ? { pdf } : {};
+}
+function decoded(part) {
+	if (part === void 0) return void 0;
+	try {
+		return decodeURIComponent(part);
+	} catch {
+		return;
+	}
 }
 function pageFor(hash) {
 	const path = pathOf(hash);
-	if (WIKI_PAGE.test(path)) return "wiki-page";
-	if (WIKI_PDF.test(path)) return "wiki";
+	const wiki = wikiTarget(hash);
+	if (wiki.entry) return "wiki-page";
+	if (wiki.pdf) return "wiki";
 	return PAGES[path] ?? "not-found";
 }
 function resolve(hash, consented) {
@@ -2927,8 +2937,7 @@ function WikiList({ wiki, pdf }) {
 			href: "#/content",
 			children: "Manage Content"
 		}),
-		" ",
-		"and its wiki is built from it."
+		" and its wiki is built from it."
 	] });
 	if (pdf && wiki.contents.length === 0 && waiting.length === 0) return /* @__PURE__ */ u("p", { children: "This PDF is no longer here. It may have been removed." });
 	return /* @__PURE__ */ u(S, { children: [wiki.contents.map((c) => /* @__PURE__ */ u(Contents, {
@@ -2938,8 +2947,7 @@ function WikiList({ wiki, pdf }) {
 		className: "muted",
 		children: [
 			p.name,
-			": its wiki isn't ready yet.",
-			" ",
+			": its wiki isn't ready yet. ",
 			/* @__PURE__ */ u("a", {
 				href: "#/content",
 				children: "Manage Content"
