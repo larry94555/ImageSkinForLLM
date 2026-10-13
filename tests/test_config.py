@@ -20,6 +20,11 @@ def test_values_from_file(tmp_path: Path) -> None:
     assert load_settings(path) == Settings(host="0.0.0.0", port=9000, log_level="DEBUG")
 
 
+def test_general_prompts_are_declined_unless_allowed(tmp_path: Path) -> None:
+    assert Settings().general_prompts is False
+    assert load_settings(write(tmp_path, "general_prompts = true\n")).general_prompts is True
+
+
 def test_example_config_loads() -> None:
     example = Path(__file__).parent.parent / "config.example.toml"
     assert load_settings(example) == Settings()
@@ -40,6 +45,7 @@ def test_example_config_loads() -> None:
         ("llm_model = 3", "llm_model"),
         ("llm_context_tokens = 512", "llm_context_tokens"),
         ('llm_context_tokens = "4096"', "llm_context_tokens"),
+        ('general_prompts = "yes"', "general_prompts"),
     ],
 )
 def test_invalid_files_are_rejected(tmp_path: Path, text: str, message: str) -> None:
