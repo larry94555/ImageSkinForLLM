@@ -75,6 +75,7 @@ from imageskin.wiki import (
     build_wiki,
 )
 from imageskin.wiki import Progress as WikiProgress
+from imageskin.wiki_edits import EditError
 from imageskin.wiki_job import BuildOutline, BuildWiki, WikiJob, WikiStatus
 from imageskin.wiki_outline import (
     OUTLINE_REPLY_TOKENS,
@@ -105,6 +106,11 @@ class AccentRequest(BaseModel):
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # At most this many replies stopped before their prompt came are remembered (roadmap R19).
 STOPPED_EARLY_MAX = 64
+
+
+class WikiEditRequest(BaseModel):
+    title: str
+    summary: str
 
 
 class ChatRequest(BaseModel):
@@ -468,6 +474,42 @@ def create_app(
         if page is None:
             raise HTTPException(status_code=404, detail="No such wiki page.")
         return page
+
+    # The user's edits (roadmap R38).
+    @app.put("/api/wiki/{page_id}")
+    def edit_wiki_page(page_id: str, request: WikiEditRequest) -> dict[str, Any]:
+        try:
+            return wiki.edit(page_id, request.title, request.summary)
+        except EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+
+    @app.delete("/api/wiki/{page_id}/edit")
+    def undo_wiki_edit(page_id: str) -> dict[str, bool]:
+        try:
+            undone = wiki.undo_edit(page_id)
+        except EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        if not undone:
+            raise HTTPException(status_code=404, detail="That wiki entry has no edit.")
+        return {"undone": True}
+
+    @app.post("/api/wiki/{page_id}/reviewed")
+    def wiki_edit_reviewed(page_id: str) -> dict[str, bool]:
+        try:
+            checked = wiki.reviewed(page_id)
+        except EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        if not checked:
+            raise HTTPException(status_code=404, detail="That wiki entry has no edit.")
+        return {"reviewed": True}
+
+    @app.post(content_api + "/{pdf_id}/wiki/rebuild")
+    def rebuild_wiki(pdf_id: str) -> WikiStatus:
+        if content.get(pdf_id) is None:
+            raise HTTPException(status_code=404, detail="No such PDF.")
+        if not wiki.rebuild(pdf_id):
+            raise HTTPException(status_code=409, detail="The PDF hasn't been read yet.")
+        return wiki.statuses()[pdf_id]
 
     # One voice engine for the job, so Prepare loads the voice model once.
     def accent() -> Accent:

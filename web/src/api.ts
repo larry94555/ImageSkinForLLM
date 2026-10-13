@@ -373,6 +373,9 @@ export interface WikiEntry {
   pages: number[];
   detail: boolean;
   entries: WikiEntry[];
+  edited: boolean; // the user's own title and summary (roadmap R38)
+  review: boolean; // edited, then the wiki was rebuilt: to be checked
+  built?: { title: string; summary: string }; // while to be checked: what the rebuild says
 }
 
 // A PDF's table of contents, as the Wiki page shows it (roadmap R37b): every level of it.
@@ -380,6 +383,8 @@ export interface WikiContents {
   pdf_id: string;
   pdf_name: string;
   entries: WikiEntry[];
+  // Edits whose entries a rebuild no longer has, until the user discards them.
+  lost_edits: { id: string; title: string; summary: string }[];
 }
 
 // A detail page: its entry with its parts down to the next detail pages, whose own parts are on
@@ -401,6 +406,36 @@ export async function getWikiPage(id: string): Promise<WikiDetail | null> {
   const response = await fetch(`/api/wiki/${encodeURIComponent(id)}`);
   if (response.status === 404) return null;
   return json<WikiDetail>(response);
+}
+
+// The user's edits (roadmap R38). Each throws an Error saying why when refused.
+export async function saveWikiEdit(id: string, title: string, summary: string): Promise<WikiDetail> {
+  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, summary }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as WikiDetail;
+}
+
+// Back to what the LLM built, or a lost edit discarded.
+export async function undoWikiEdit(id: string): Promise<void> {
+  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}/edit`, { method: "DELETE" });
+  if (!response.ok) throw new Error(await refusal(response));
+}
+
+// The user has checked an edit after a rebuild.
+export async function markWikiReviewed(id: string): Promise<void> {
+  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}/reviewed`, { method: "POST" });
+  if (!response.ok) throw new Error(await refusal(response));
+}
+
+// Builds a PDF's wiki again with the LLM, keeping the user's edits.
+export async function rebuildWiki(pdf: string): Promise<WikiBuild> {
+  const response = await fetch(`/api/content/${pdf}/wiki/rebuild`, { method: "POST" });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as WikiBuild;
 }
 
 // Where the Wiki page shows a PDF's table of contents, and a detail page (roadmap R37b).

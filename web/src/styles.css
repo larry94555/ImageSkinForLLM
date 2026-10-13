@@ -372,3 +372,28 @@ ul.outline .leaf { padding-left: 1.1em; }
 .entry-title { font-weight: 600; }
 .entry-summary, .entry-pages { display: block; }
 .entry-pages { font-size: 0.875rem; }
+/* Editing the wiki (roadmap R38). */
+button.link {
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: 0.875rem;
+}
+.entry-actions { display: block; font-size: 0.875rem; }
+.entry-actions .review { display: block; margin: 4px 0; }
+.entry-actions .review button { padding: 2px 10px; font-size: 0.875rem; }
+form.wiki-edit { gap: 8px; justify-items: stretch; margin: 4px 0 8px; }
+form.wiki-edit label { display: grid; gap: 2px; font-weight: 600; }
+form.wiki-edit input, form.wiki-edit textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-weight: normal;
+}
+.wiki .rebuild p { margin: 0 0 8px; }
+.lost-edits ul { list-style: none; padding: 0; margin: 4px 0 0; display: grid; gap: 8px; }

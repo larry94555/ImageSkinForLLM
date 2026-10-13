@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { afterEach, expect, test, vi } from "vitest";
 
-import type { Pdf, WikiContents, WikiDetail } from "./api";
+import type { Pdf, WikiBuild, WikiContents, WikiDetail } from "./api";
 import { App } from "./App";
-import { WikiDetailPage, WikiPage } from "./wiki";
+import { WIKI_POLL_MS, WikiDetailPage, WikiPage } from "./wiki";
 
 const GUIDE: Pdf = {
   id: "a1",
@@ -14,9 +14,25 @@ const GUIDE: Pdf = {
 };
 const NOTES: Pdf = { ...GUIDE, id: "b2", name: "notes.pdf" };
 
+const BUILT: WikiBuild = {
+  state: "done",
+  part: 1,
+  parts: 1,
+  pages: 2,
+  skipped_parts: [],
+  error: null,
+  stage: "topics",
+  steps: 0,
+  steps_planned: 0,
+  detail_pages: 1,
+  elapsed_s: 30,
+  remaining_s: null,
+};
+
 const CONTENTS: WikiContents = {
   pdf_id: "a1",
   pdf_name: "guide.pdf",
+  lost_edits: [],
   entries: [
     {
       id: "a1-weather",
@@ -24,6 +40,8 @@ const CONTENTS: WikiContents = {
       summary: "How the weather changes.",
       pages: [1, 2],
       detail: false,
+      edited: false,
+      review: false,
       entries: [
         {
           id: "a1-rain",
@@ -31,6 +49,8 @@ const CONTENTS: WikiContents = {
           summary: "Rain falls from clouds.",
           pages: [1],
           detail: true,
+          edited: false,
+          review: false,
           entries: [
             {
               id: "a1-drops",
@@ -38,6 +58,8 @@ const CONTENTS: WikiContents = {
               summary: "Drops grow until they fall.",
               pages: [1],
               detail: false,
+              edited: false,
+              review: false,
               entries: [],
             },
           ],
@@ -48,6 +70,8 @@ const CONTENTS: WikiContents = {
           summary: "Snow is frozen.",
           pages: [2],
           detail: false,
+          edited: false,
+          review: false,
           entries: [],
         },
       ],
@@ -63,6 +87,8 @@ const DROPS: WikiDetail = {
   summary: "Drops grow until they fall.",
   pages: [1, 3],
   detail: true,
+  edited: false,
+  review: false,
   trail: [{ id: "a1-rain", title: "Rain" }],
   entries: [
     {
@@ -71,6 +97,8 @@ const DROPS: WikiDetail = {
       summary: "Drops are small.",
       pages: [3],
       detail: false,
+      edited: false,
+      review: false,
       entries: [
         {
           id: "a1-tiny",
@@ -78,6 +106,8 @@ const DROPS: WikiDetail = {
           summary: "Very small.",
           pages: [3],
           detail: false,
+          edited: false,
+          review: false,
           entries: [],
         },
       ],
@@ -85,14 +115,31 @@ const DROPS: WikiDetail = {
   ],
 };
 
-// A fake wiki API: the PDFs, their tables of contents and detail pages by id.
-function server(pdfs: Pdf[], contents: WikiContents[], pages: Record<string, WikiDetail> = {}) {
-  const fetchMock = vi.fn(async (url: string) => {
+// A fake wiki API: the PDFs, their tables of contents and detail pages by id. `builds` are the
+// wiki progress answers, in turn; the last one repeats. `refuse` makes the edits fail with that.
+function server(
+  pdfs: Pdf[],
+  contents: WikiContents[],
+  pages: Record<string, WikiDetail> = {},
+  opts: { builds?: Record<string, WikiBuild>[]; refuse?: string } = {},
+) {
+  const builds = [...(opts.builds ?? [{}])];
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
     if (url === "/api/content") return Response.json(pdfs);
+    if (url === "/api/wiki/builds") {
+      return Response.json(builds.length > 1 ? builds.shift() : builds[0]);
+    }
     if (url.startsWith("/api/wiki/contents")) {
       const pdf = new URL(url, "http://x").searchParams.get("pdf");
       return Response.json(contents.filter((c) => !pdf || c.pdf_id === pdf));
+    }
+    if (method !== "GET") {
+      if (opts.refuse) return Response.json({ detail: opts.refuse }, { status: 422 });
+      if (url.endsWith("/wiki/rebuild")) return Response.json({ ...BUILT, state: "waiting" });
+      if (method === "PUT") return Response.json(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true });
     }
     const page = pages[decodeURIComponent(url.replace("/api/wiki/", ""))];
     if (page) return Response.json(page);
@@ -100,6 +147,13 @@ function server(pdfs: Pdf[], contents: WikiContents[], pages: Record<string, Wik
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+// The calls that changed something: method and address, and what was sent.
+function changes(fetchMock: ReturnType<typeof server>): [string, string, unknown][] {
+  return fetchMock.mock.calls
+    .filter(([, init]) => init?.method && init.method !== "GET")
+    .map(([url, init]) => [init!.method!, url, init?.body ? JSON.parse(String(init.body)) : null]);
 }
 
 afterEach(() => {
@@ -225,4 +279,194 @@ test("the top bar links to the wiki, and a detail page's link opens it", async (
   window.dispatchEvent(new HashChangeEvent("hashchange"));
   expect(await screen.findByRole("heading", { name: "Drops", level: 1 })).toBeTruthy();
   await waitFor(() => expect(nav.getByRole("link", { name: "Wiki" }).className).toBe("current"));
+});
+
+test("an entry's title and summary are edited and saved", async () => {
+  const fetchMock = server([GUIDE], [CONTENTS]);
+  render(<WikiPage pdf="a1" />);
+  await screen.findByText("How the weather changes.");
+  const edits = screen.getAllByRole("button", { name: "Edit" });
+  fireEvent.click(edits[edits.length - 1]); // Snow's
+  const form = screen.getByRole("form", { name: "Edit Snow" });
+  const title = within(form).getByLabelText("Title") as HTMLInputElement;
+  expect(title.value).toBe("Snow");
+  fireEvent.input(title, { target: { value: "Snow and ice" } });
+  fireEvent.input(within(form).getByLabelText("Summary"), { target: { value: "Frozen rain." } });
+  fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("form")).toBeNull());
+  expect(changes(fetchMock)).toEqual([
+    ["PUT", "/api/wiki/a1-snow", { title: "Snow and ice", summary: "Frozen rain." }],
+  ]);
+  // Loaded again, with the saved text.
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/wiki/contents")).length,
+    ).toBe(2),
+  );
+});
+
+test("an edit can be cancelled, and a refused one says why", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const fetchMock = server(
+    [GUIDE],
+    [CONTENTS],
+    {},
+    { refuse: "A wiki entry needs a title and a summary." },
+  );
+  render(<WikiPage pdf="a1" />);
+  await screen.findByText("How the weather changes.");
+  fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("form")).toBeNull();
+  expect(changes(fetchMock)).toEqual([]);
+
+  fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+  const form = screen.getByRole("form", { name: "Edit Weather" });
+  const summary = within(form).getByLabelText("Summary");
+  fireEvent.input(summary, { target: { value: " " } });
+  expect((within(form).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.input(summary, { target: { value: "Weather." } });
+  fireEvent.submit(form);
+  expect(await screen.findByText("A wiki entry needs a title and a summary.")).toBeTruthy();
+  expect(screen.getByRole("form")).toBeTruthy(); // kept, to fix
+  expect(errors).toHaveBeenCalled();
+});
+
+test("an edited entry says so and can be undone", async () => {
+  const edited: WikiContents = {
+    ...CONTENTS,
+    entries: [{ ...CONTENTS.entries[0], title: "My weather", edited: true }],
+  };
+  const fetchMock = server([GUIDE], [edited]);
+  render(<WikiPage pdf="a1" />);
+  expect(await screen.findByText("My weather")).toBeTruthy();
+  expect(screen.getByText(/Edited by you/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Undo my edit" }));
+  await waitFor(() =>
+    expect(changes(fetchMock)).toEqual([["DELETE", "/api/wiki/a1-weather/edit", null]]),
+  );
+});
+
+test("after a rebuild an edit shows the new text, to keep the edit or use the new text", async () => {
+  const flagged: WikiContents = {
+    ...CONTENTS,
+    entries: [
+      {
+        ...CONTENTS.entries[0],
+        title: "My weather",
+        edited: true,
+        review: true,
+        built: { title: "Weather", summary: "The new summary." },
+      },
+    ],
+  };
+  const fetchMock = server([GUIDE], [flagged]);
+  render(<WikiPage pdf="a1" />);
+  expect(await screen.findByText(/The wiki was rebuilt after you edited this/)).toBeTruthy();
+  expect(screen.getByText(/The new summary\./)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Keep my edit" }));
+  fireEvent.click(screen.getByRole("button", { name: "Use the new text" }));
+  await waitFor(() =>
+    expect(changes(fetchMock)).toEqual([
+      ["POST", "/api/wiki/a1-weather/reviewed", null],
+      ["DELETE", "/api/wiki/a1-weather/edit", null],
+    ]),
+  );
+});
+
+test("edits a rebuild left without an entry are listed until discarded", async () => {
+  const left: WikiContents = {
+    ...CONTENTS,
+    lost_edits: [{ id: "a1-hail", title: "Hail", summary: "What I wrote about hail." }],
+  };
+  const fetchMock = server([GUIDE], [left]);
+  render(<WikiPage pdf="a1" />);
+  expect(await screen.findByText("What I wrote about hail.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  await waitFor(() =>
+    expect(changes(fetchMock)).toEqual([["DELETE", "/api/wiki/a1-hail/edit", null]]),
+  );
+});
+
+test("rebuilding asks first, shows the progress, then loads the new wiki", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const building: WikiBuild = { ...BUILT, state: "building", part: 0, pages: null, elapsed_s: 5 };
+  const fetchMock = server(
+    [GUIDE],
+    [CONTENTS],
+    {},
+    { builds: [{ a1: BUILT }, { a1: building }, { a1: BUILT }] },
+  );
+  render(<WikiPage pdf="a1" />);
+  await screen.findByText("How the weather changes.");
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild the wiki" }));
+  expect(screen.getByText(/Your edits are kept/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(changes(fetchMock)).toEqual([]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild the wiki" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild" }));
+  expect(await screen.findByText(/Waiting to build the wiki pages/)).toBeTruthy();
+  expect(changes(fetchMock)).toEqual([["POST", "/api/content/a1/wiki/rebuild", null]]);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(WIKI_POLL_MS);
+  });
+  expect(await screen.findByText(/Building the wiki pages/)).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(WIKI_POLL_MS);
+  });
+  expect(await screen.findByRole("button", { name: "Rebuild the wiki" })).toBeTruthy();
+  const loads = fetchMock.mock.calls.filter(([url]) =>
+    String(url).startsWith("/api/wiki/contents"),
+  );
+  expect(loads.length).toBe(2); // the new wiki
+  vi.useRealTimers();
+});
+
+test("a refused rebuild says why", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  server([GUIDE], [CONTENTS], {}, { refuse: "The PDF hasn't been read yet." });
+  render(<WikiPage pdf="a1" />);
+  await screen.findByText("How the weather changes.");
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild the wiki" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rebuild" }));
+  expect(await screen.findByText("The PDF hasn't been read yet.")).toBeTruthy();
+  expect(errors).toHaveBeenCalled();
+});
+
+test("a detail page's own title and summary are edited there", async () => {
+  const fetchMock = server([GUIDE], [CONTENTS], { "a1-drops": DROPS });
+  render(<WikiDetailPage entry="a1-drops" />);
+  await screen.findByRole("heading", { name: "Drops", level: 1 });
+  fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+  const form = screen.getByRole("form", { name: "Edit Drops" });
+  fireEvent.input(within(form).getByLabelText("Title"), { target: { value: "Raindrops" } });
+  fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("form")).toBeNull());
+  expect(changes(fetchMock)[0]).toEqual([
+    "PUT",
+    "/api/wiki/a1-drops",
+    { title: "Raindrops", summary: "Drops grow until they fall." },
+  ]);
+  fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("heading", { name: "Drops", level: 1 })).toBeTruthy();
+});
+
+test("a failed undo says why", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const edited: WikiContents = {
+    ...CONTENTS,
+    entries: [{ ...CONTENTS.entries[0], edited: true }],
+    lost_edits: [{ id: "a1-hail", title: "Hail", summary: "Hail." }],
+  };
+  server([GUIDE], [edited], {}, { refuse: "The edit could not be saved. Try again." });
+  render(<WikiPage pdf="a1" />);
+  await screen.findByText("How the weather changes.");
+  fireEvent.click(screen.getByRole("button", { name: "Undo my edit" }));
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(screen.getAllByText(/The edit could not be saved/).length).toBe(2));
+  expect(errors).toHaveBeenCalled();
 });

@@ -15,7 +15,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 7.8% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.1% | 7 of 7 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.3% | 11 of 11 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 7 | 9.1% | 6 of 7 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38 | 7 | 9.1% | 7 of 7 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.9% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.5% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.6% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.6% | 0 |
-| | **Total** | | **77** | **100%** | **45 of 77** |
+| | **Total** | | **77** | **100%** | **46 of 77** |
 
 Sizes: 19 Simple, 58 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -358,12 +358,13 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** open a PDF's table of contents, open and close its levels, follow a link to a detail page and back, and open a cited PDF page.
 - **Built:** `wiki.tsx` adds a **Wiki** page to the top bar (`#/wiki`, every PDF; `#/wiki/<PDF id>`, one PDF, which Manage Content's **Read the wiki** link opens in place of the JSON). The table of contents shows every level of the outline *(default)*; each entry with parts opens and closes on a click, with **Open all** and **Close all**, and each entry shows its summary and its PDF pages, each opening that page of the PDF in a new tab. A detail entry's title and **Read more** link open its page (`#/wiki/page/<entry id>`): a trail back to the PDF and the detail pages above it, its summary, PDF pages and parts, down to the next detail pages. A PDF whose wiki isn't built yet says so and points to Manage Content. `GET /api/wiki/contents` serves the tables of contents, and `GET /api/wiki/{page_id}` now has the `trail`. Shown with the setup guide and a 6-page lesson PDF built by Qwen 2.5 1.5B; the small model gave the lesson only 2 topics and no detail pages, and some parts are long runs of the PDF's own words, which a bigger model should improve.
 
-### R38. Editing the wiki (Medium) · item 26
+### R38. Editing the wiki (Medium) · item 26 · Done in PR
 - Larry asked on 2026-10-13 that the user can edit the wiki pages, save them, load them and regenerate them. Browsing the pages and the PDF pages each came from is R37b's Wiki page.
 - **Edit and save:** on the Wiki page and its detail pages, an **Edit** button turns an entry's title and summary into text boxes, with **Save** and **Cancel**. A saved entry is marked as edited.
 - **Load:** edits are saved on the server beside the built wiki, so they are there whenever the Wiki page is opened again, after a restart too.
 - **Regenerate:** a **Rebuild the wiki** button for each PDF builds it again with the LLM. Edited entries are kept *(default)*: an edited entry whose topic the rebuild finds again keeps the user's text and is flagged for review, and one it no longer finds is listed so nothing is lost silently. Replacing the PDF works the same way.
 - **Can show:** edit a summary and save it, reload the page and see it kept, rebuild the wiki and see the edit kept and flagged, and cancel an edit.
+- **Built:** `wiki_edits.py` keeps each PDF's edits in `content/wiki/<id>.edits.json`, apart from the built pages, and `WikiJob` shows them over what was built, marks them all for review whenever a new build is saved, lists the ones whose entries are gone, and removes them with the PDF. The Wiki page and detail pages have **Edit** (title and summary, **Save**, **Cancel**), "Edited by you" with **Undo my edit**, and, after a rebuild, what the new wiki says with **Keep my edit** or **Use the new text**. **Rebuild the wiki** asks once more, shows the progress and loads the new pages when done; the old pages stay readable meanwhile. Entries are matched by id, which comes from the title, so an entry the rebuild titles differently counts as gone and its edit is listed *(default)*. Shown with Qwen 2.5 1.5B on the 6-page lesson PDF: an edit, a reload, a 44 s rebuild that kept and flagged the edit, and **Keep my edit**.
 
 ## Milestone 7: Answers from the content
 
