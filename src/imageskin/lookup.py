@@ -1,0 +1,189 @@
+"""Looking up a question in the wiki and the PDFs (roadmap R39, item 27).
+
+Keyword search, as the roadmap's open decision suggested: the simplest method, with no model to
+download, and embeddings can be added later if answers miss. Every wiki entry (its title and
+summary, with the user's edits) and every piece read from a PDF (a paragraph, slide or table) is
+a passage, ranked by BM25: a passage scores higher the more of the question's words it has, the
+rarer those words are across all the passages, and the shorter it is. Words are matched in lower
+case, without common words like "the", and with a plural "s" left off. A wiki entry's title
+counts twice, since it names what the entry is about.
+
+The passages are gathered again for each question, so a new edit or rebuild is found at once; the
+content is small (a few PDFs), and the time each lookup takes is logged.
+"""
+
+import logging
+import math
+import re
+import time
+from collections import Counter
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+from imageskin.reading_job import ReadingJob
+from imageskin.wiki_job import WikiJob
+
+logger = logging.getLogger(__name__)
+
+Source = Literal["wiki", "pdf"]
+
+# How many of each kind are found for a question.
+WIKI_LIMIT = 3
+PDF_LIMIT = 5
+# BM25's usual settings: how fast more of the same word stops adding to the score, and how much
+# a long passage is held back.
+K1 = 1.5
+B = 0.75
+WORD = re.compile(r"[^\W_]+")
+STOP_WORDS = frozenset(
+    """a about above after again all also am an and any are as at be because been before being
+    below between both but by can could did do does doing down during each few for from further
+    had has have having he her here hers him his how i if in into is it its just me more most my
+    no nor not now of off on once only or other our out over own same she should so some such
+    than that the their them then there these they this those through to too under until up very
+    was we were what when where which while who whom why will with would you your""".split()
+)
+
+
+@dataclass(frozen=True)
+class Passage:
+    source: Source  # a wiki entry, or a piece read from a PDF
+    pdf_id: str
+    pdf_name: str
+    title: str  # a wiki entry's title; empty for a PDF piece
+    text: str  # a wiki entry's summary, or the piece's text
+    pages: list[int]  # the PDF's pages it comes from
+    id: str | None = None  # a wiki entry's id (its page), so answers can link to it
+    kind: str | None = None  # a PDF piece's kind: paragraph, slide or table
+
+
+@dataclass(frozen=True)
+class Found:
+    passage: Passage
+    score: float
+
+
+@dataclass(frozen=True)
+class Lookup:
+    question: str
+    wiki: list[Found] = field(default_factory=list)
+    pdf: list[Found] = field(default_factory=list)
+    duration_ms: float = 0.0
+
+
+def words(text: str) -> list[str]:
+    """The words that count for matching: lower case, no common words, a plural "s" left off."""
+    found = []
+    for word in WORD.findall(text.lower()):
+        if word in STOP_WORDS:
+            continue
+        if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+            word = word[:-1]
+        found.append(word)
+    return found
+
+
+def passage_words(passage: Passage) -> list[str]:
+    return words(passage.title) * 2 + words(passage.text)
+
+
+def wiki_passages(contents: list[dict[str, Any]]) -> list[Passage]:
+    """Every entry of every table of contents (as `WikiJob.contents` gives them), parts too."""
+
+    def walk(entries: list[dict[str, Any]], pdf: dict[str, Any]) -> Iterator[Passage]:
+        for e in entries:
+            yield Passage(
+                "wiki",
+                pdf["pdf_id"],
+                pdf["pdf_name"],
+                e["title"],
+                e["summary"],
+                e["pages"],
+                e["id"],
+            )
+            yield from walk(e.get("entries", []), pdf)
+
+    return [p for pdf in contents for p in walk(pdf["entries"], pdf)]
+
+
+def pdf_passages(reading: dict[str, Any]) -> list[Passage]:
+    """Every piece read from a PDF (as `ReadingJob.reading` gives it)."""
+    return [
+        Passage("pdf", reading["id"], reading["name"], "", p["text"], [p["page"]], kind=p["kind"])
+        for p in reading["pieces"]
+        if p["text"].strip()
+    ]
+
+
+def rank(question: str, passages: list[Passage]) -> list[Found]:
+    """The passages that share a word with the question, best first, scored with BM25."""
+    asked = set(words(question))
+    if not asked or not passages:
+        return []
+    counted = [Counter(passage_words(p)) for p in passages]
+    lengths = [sum(c.values()) for c in counted]
+    average = sum(lengths) / len(lengths) or 1.0
+    having = {w: sum(1 for c in counted if w in c) for w in asked}
+    total = len(passages)
+    found = []
+    for passage, counts, length in zip(passages, counted, lengths, strict=True):
+        score = 0.0
+        for w in asked:
+            n = counts.get(w, 0)
+            if n:
+                idf = math.log(1 + (total - having[w] + 0.5) / (having[w] + 0.5))
+                score += idf * n * (K1 + 1) / (n + K1 * (1 - B + B * length / average))
+        if score > 0:
+            found.append(Found(passage, round(score, 3)))
+    return sorted(found, key=lambda f: -f.score)
+
+
+def look_up(
+    question: str,
+    passages: list[Passage],
+    wiki_limit: int = WIKI_LIMIT,
+    pdf_limit: int = PDF_LIMIT,
+) -> Lookup:
+    """The best wiki entries and PDF passages for a question, ranked together so a word's
+    rarity is judged across all the content."""
+    start = time.perf_counter()
+    ranked = rank(question, passages)
+    wiki = [f for f in ranked if f.passage.source == "wiki"][:wiki_limit]
+    pdf = [f for f in ranked if f.passage.source == "pdf"][:pdf_limit]
+    return Lookup(question, wiki, pdf, round((time.perf_counter() - start) * 1000, 1))
+
+
+class ContentLookup:
+    """Looks questions up in the current wiki (with the user's edits) and what was read from the
+    PDFs."""
+
+    def __init__(self, wiki: WikiJob, readings: ReadingJob) -> None:
+        self.wiki = wiki
+        self.readings = readings
+
+    def passages(self) -> list[Passage]:
+        found = wiki_passages(self.wiki.contents())
+        for pdf in self.wiki.store.list():
+            reading = self.readings.reading(pdf.id)
+            if reading is not None:
+                found += pdf_passages(reading)
+        return found
+
+    def find(
+        self, question: str, wiki_limit: int = WIKI_LIMIT, pdf_limit: int = PDF_LIMIT
+    ) -> Lookup:
+        start = time.perf_counter()
+        passages = self.passages()  # unreadable saved files are logged and left out there
+        result = look_up(question, passages, wiki_limit, pdf_limit)
+        logger.info(
+            "Looked up a question",
+            extra={
+                "question_chars": len(question),
+                "passages": len(passages),
+                "wiki_found": [f.passage.id for f in result.wiki],
+                "pdf_found": len(result.pdf),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return result

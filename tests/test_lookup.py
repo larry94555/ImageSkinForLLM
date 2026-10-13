@@ -1,0 +1,156 @@
+import io
+import logging
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from imageskin import cli
+from imageskin.content import ContentStore
+from imageskin.lookup import (
+    ContentLookup,
+    Passage,
+    look_up,
+    pdf_passages,
+    rank,
+    wiki_passages,
+    words,
+)
+from imageskin.pdf_reading import Piece, Progress, Reading
+from imageskin.reading_job import ReadingJob
+from imageskin.wiki import Progress as WikiProgress
+from imageskin.wiki import Wiki, WikiPage
+from imageskin.wiki_job import WikiJob
+
+PDF = b"%PDF-1.7\n" + b"x" * 100 + b"\n%%EOF\n"
+
+PIECES = [
+    Piece(1, "paragraph", "Photosynthesis turns sunlight, water and carbon dioxide into sugar."),
+    Piece(2, "paragraph", "Plants take in water through their roots."),
+    Piece(3, "table", "Planet | Moons\nMars | 2\nJupiter | 95", [["Planet", "Moons"]]),
+    Piece(4, "paragraph", "   "),
+]
+
+
+def lesson(path: Path, progress: Progress) -> Reading:
+    return Reading("text", 4, PIECES, [])
+
+
+def topics(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: Any) -> Wiki:
+    return Wiki(
+        1,
+        [
+            WikiPage(f"{pdf_id}-photo", "Photosynthesis", "How plants make sugar from light.", [1]),
+            WikiPage(f"{pdf_id}-moons", "Moons of planets", "Mars has two moons.", [3]),
+        ],
+    )
+
+
+def content(tmp_path: Path) -> tuple[ContentStore, ReadingJob, WikiJob]:
+    store = ContentStore(tmp_path)
+    readings = ReadingJob(store, lesson)
+    wiki = WikiJob(store, readings, topics)
+    readings.on_read = wiki.queue
+    pdf = store.add("science.pdf", io.BytesIO(PDF))
+    readings.queue(pdf)
+    readings.wait()
+    wiki.wait()
+    return store, readings, wiki
+
+
+def test_words_are_lower_case_without_common_words_or_plural_s() -> None:
+    assert words("How do the Plants' roots take in WATER?") == ["plant", "root", "take", "water"]
+    assert words("glass gas is") == ["glass", "gas"]  # "ss" and short words are kept
+
+
+def test_rank_puts_the_passage_with_more_and_rarer_words_first() -> None:
+    def pdf(text: str) -> Passage:
+        return Passage("pdf", "p", "a.pdf", "", text, [1])
+
+    passages = [pdf("Water is wet."), pdf("Roots take in water."), pdf("Nothing here.")]
+    found = rank("How do roots take in water?", passages)
+    assert [f.passage.text for f in found] == ["Roots take in water.", "Water is wet."]
+    assert found[0].score > found[1].score > 0
+    assert rank("the of and", passages) == []  # only common words
+    assert rank("water", []) == []
+
+
+def test_a_wiki_title_counts_twice() -> None:
+    title = Passage("wiki", "p", "a.pdf", "Moons", "About them.", [1], "p-moons")
+    text = Passage("wiki", "p", "a.pdf", "Planets", "Moons.", [1], "p-planets")
+    assert [f.passage.id for f in rank("moons", [text, title])] == ["p-moons", "p-planets"]
+
+
+def test_look_up_keeps_the_best_of_each_kind_and_times_it() -> None:
+    passages = [Passage("pdf", "p", "a.pdf", "", f"moon {n}", [n]) for n in range(1, 8)]
+    passages.append(Passage("wiki", "p", "a.pdf", "Moon", "", [1], "p-moon"))
+    result = look_up("moon", passages, wiki_limit=1, pdf_limit=2)
+    assert [f.passage.id for f in result.wiki] == ["p-moon"]
+    assert len(result.pdf) == 2 and result.duration_ms >= 0
+
+
+def test_wiki_passages_include_every_level_and_pdf_passages_skip_empty_pieces() -> None:
+    contents = [
+        {
+            "pdf_id": "p",
+            "pdf_name": "a.pdf",
+            "entries": [
+                {
+                    "id": "p-s",
+                    "title": "Section",
+                    "summary": "S.",
+                    "pages": [1],
+                    "entries": [{"id": "p-t", "title": "Topic", "summary": "T.", "pages": [2]}],
+                }
+            ],
+        }
+    ]
+    assert [p.id for p in wiki_passages(contents)] == ["p-s", "p-t"]
+    reading = {"id": "p", "name": "a.pdf", "pieces": [{"page": 1, "kind": "slide", "text": " "}]}
+    assert pdf_passages(reading) == []
+
+
+def test_content_lookup_finds_wiki_entries_with_edits_and_pdf_passages(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    store, readings, wiki = content(tmp_path)
+    pdf_id = store.list()[0].id
+    wiki.edit(f"{pdf_id}-moons", "Moons of Mars", "Phobos and Deimos circle Mars.")
+    lookup = ContentLookup(wiki, readings)
+    with caplog.at_level(logging.INFO):
+        result = lookup.find("Which moons circle Mars?")
+
+    assert result.wiki[0].passage.id == f"{pdf_id}-moons"
+    assert result.wiki[0].passage.text == "Phobos and Deimos circle Mars."  # the edit is used
+    assert result.pdf[0].passage.kind == "table" and result.pdf[0].passage.pages == [3]
+    assert len(lookup.passages()) == 5  # 2 wiki entries, 3 pieces with text
+    record = [r for r in caplog.records if r.message == "Looked up a question"][0]
+    assert record.__dict__["wiki_found"][0] == f"{pdf_id}-moons"
+    assert record.__dict__["duration_ms"] >= 0
+
+
+def test_lookup_command_prints_what_was_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    content(tmp_path)
+    monkeypatch.setattr(cli, "default_home", lambda: tmp_path)
+    assert cli.main(["lookup", "What does photosynthesis make?", "zebra", "--pdf", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "Question: What does photosynthesis make?" in out and "Looked up in" in out
+    assert "Photosynthesis (science.pdf, page 1): How plants make sugar from light." in out
+    assert "(science.pdf, page 1, paragraph): Photosynthesis turns sunlight" in out
+    assert "Wiki: nothing found" in out and "PDF: nothing found" in out  # for "zebra"
+
+
+def test_lookup_command_says_when_there_is_nothing_to_look_up_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "default_home", lambda: tmp_path)
+    assert cli.main(["lookup", "Anything?"]) == 1
+    assert "Nothing to look up in" in capsys.readouterr().err
+
+
+def test_shorten_cuts_long_passages() -> None:
+    assert cli.shorten("a  b\nc") == "a b c"
+    assert cli.shorten("x" * 10, 5) == "xxxx…"
+    assert cli.pages_label([1, 2]) == "pages 1, 2"

@@ -16,7 +16,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.0% | 7 of 7 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.1% | 11 of 11 |
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 10.3% | 8 of 8 |
-| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.8% | 0 |
+| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.8% | 1 of 3 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.4% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.6% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.6% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.6% | 0 |
-| | **Total** | | **78** | **100%** | **47 of 78** |
+| | **Total** | | **78** | **100%** | **48 of 78** |
 
 Sizes: 19 Simple, 59 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -53,7 +53,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | R25 | The voice tool that makes the person's voice: a CPU voice-conversion tool that turns Kokoro's output into the person's voice (for example OpenVoice's tone-color converter or Seed-VC), and, for keeping the person's own accent (item 4), possibly a cloning TTS. It must be free per use, run on CPU and allow hosted use. **Picked in R25a: cloning with Chatterbox Turbo** (MIT, Resemble AI), which speaks the text directly in the person's voice and keeps their accent. Larry: "The clone sounds very reasonable. The others do not sound like me." (2026-10-08). Rejected: converting Kokoro's voice with Chatterbox's converter (did not sound like him), OpenVoice v2 and kNN-VC (not published as packages), Seed-VC (GPL-3), Pocket TTS (cloning weights gated behind a Hugging Face sign-in). Costs to handle in R25: on a 4-core CPU it takes 1.5 to 2 seconds per second of speech, and it reports no word or sound timings. |
 | R32 | How the hosted site restricts access to its one user. features.md says single-user and HTTPS but names no mechanism. The simplest option is one password checked at the HTTPS proxy, with no accounts. R44 later replaces this with the administrator sign-on. |
 | R36 | The PDF tool that reads text, slides and tables. It must be free, run on CPU and allow hosted use. Scanned PDFs (pictures of pages) would also need OCR; whether they must be supported is open. **Picked in R36: pdfplumber** (MIT, on pdfminer.six, MIT), pure Python on the CPU, with table finding built in. Rejected: PyMuPDF (AGPL, which would bind a hosted site), pypdf and pypdfium2 alone (text only, no tables), Camelot (needs Ghostscript or OpenCV for tables). **Scanned PDFs are not read yet:** their pages are listed as having no text; OCR (for example Tesseract) can be a later PR if it's needed. |
-| R39 | How questions are looked up: keyword search over the wiki and PDF text, or a local embedding model. The simplest option is keyword search first, adding embeddings only if answers miss. |
+| R39 | How questions are looked up: keyword search over the wiki and PDF text, or a local embedding model. The simplest option is keyword search first, adding embeddings only if answers miss. **Picked in R39: keyword search (BM25)** over the wiki entries and the pieces read from the PDFs, with no model to download; embeddings can be added if answers miss. |
 | R43 | Whether a Claude, OpenAI or Grok subscription can be used by a separate app at all. Not checked yet: these subscriptions are mainly for the providers' own apps, and an API key may be the only supported route. If a subscription can't be used, R43 is dropped and features.md updated. |
 | R44 | How the administrator account is created. The simplest option is that the first run asks for an administrator password, stored hashed on the server. |
 | R54 | How a question is rated for each topic, using the definitions in item 40. The simplest option is to ask the chosen LLM (item 29) with the question, each topic's wiki page and those definitions, and to keep its one-line reason with each rating. |
@@ -378,6 +378,7 @@ The PRs below are written for either kind of video engine, but these are the one
 ### R39. Looking up questions in the wiki and PDFs (Medium) · item 27
 - Finds the wiki pages and PDF passages that match a question, using the method decided before this PR.
 - **Can show:** a command that prints the passages found for a few sample questions, with the time the lookup took.
+- **Built:** `lookup.py` ranks every wiki entry (title and summary, with the user's edits, every level of the outline) and every paragraph, slide and table read from the PDFs with BM25, ranked together so a word's rarity is judged across all the content; words are matched in lower case, without common words and with a plural "s" left off, and a wiki entry's title counts twice. The passages are gathered again for each question, so an edit or rebuild is found at once. `imageskin lookup "question" …` prints the best 3 wiki entries and 5 PDF passages for each question, with their scores, pages and the time taken; the log has `Looked up a question`.
 
 ### R40. Answering from the content (Medium) · item 27
 - The chat sends the passages found by R39 with the question, and the LLM answers from them; the answer is shown and spoken as in Milestones 4 and 5.
