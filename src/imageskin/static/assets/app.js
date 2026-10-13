@@ -193,6 +193,38 @@ async function rebuildWiki(pdf) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+var AskFirst = class extends Error {};
+async function refused(response) {
+	const message = await refusal(response);
+	throw response.status === 412 ? new AskFirst(message) : new Error(message);
+}
+async function listWikiVersions(pdf) {
+	const response = await fetch(`/api/content/${pdf}/wiki/history`);
+	if (!response.ok) return refused(response);
+	return await response.json();
+}
+async function getWikiVersion(pdf, id) {
+	const response = await fetch(`/api/content/${pdf}/wiki/history/${encodeURIComponent(id)}`);
+	if (!response.ok) return refused(response);
+	return await response.json();
+}
+async function restoreWikiVersion(pdf, id, force = false) {
+	const response = await fetch(`/api/content/${pdf}/wiki/history/${encodeURIComponent(id)}/restore${force ? "?force=true" : ""}`, { method: "POST" });
+	if (!response.ok) await refused(response);
+}
+function wikiFileUrl(pdf) {
+	return `/api/content/${pdf}/wiki/file`;
+}
+async function loadWikiFile(pdf, file, force = false) {
+	const body = new FormData();
+	body.append("file", file);
+	const response = await fetch(`/api/content/${pdf}/wiki/file${force ? "?force=true" : ""}`, {
+		method: "POST",
+		body
+	});
+	if (!response.ok) return refused(response);
+	return (await response.json()).versions_added;
+}
 function wikiHref(pdf) {
 	return pdf ? `#/wiki/${pdf}` : "#/wiki";
 }
@@ -2465,7 +2497,7 @@ function Chat() {
 					children: "Send"
 				})]
 			}),
-			turns.length > 0 && /* @__PURE__ */ u(History, {
+			turns.length > 0 && /* @__PURE__ */ u(History$1, {
 				turns,
 				unspoken
 			})
@@ -2528,7 +2560,7 @@ function splitMatches(text, query) {
 function countMatches(turns, query) {
 	return turns.reduce((n, turn) => n + (splitMatches(turn.content, query).length - 1) / 2, 0);
 }
-function History(props) {
+function History$1(props) {
 	const { turns, unspoken } = props;
 	const [open, setOpen] = d(false);
 	const [query, setQuery] = d("");
@@ -3036,6 +3068,10 @@ function Contents({ contents, linked, build, onRebuild, onChanged }) {
 				build,
 				onRebuild
 			}),
+			/* @__PURE__ */ u(WikiTools, {
+				contents,
+				onChanged
+			}),
 			contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
 				edits: contents.lost_edits,
 				onChanged
@@ -3104,6 +3140,264 @@ function Rebuild({ build, onRebuild }) {
 				className: "error",
 				children: error
 			})
+		]
+	});
+}
+function changeText(change) {
+	const entry = `\u201c${change.title ?? ""}\u201d`;
+	switch (change.kind) {
+		case "start": return "The wiki as it was before its history began";
+		case "built": return "Built with the LLM";
+		case "rebuilt": return "Rebuilt with the LLM";
+		case "edited": return `You edited ${entry}`;
+		case "undone": return `You undid your edit to ${entry}`;
+		case "kept": return `You kept your edit to ${entry} after a rebuild`;
+		case "discarded": return `You discarded your edit to ${entry}, which a rebuild left without an entry`;
+		case "restored": return `You restored the version from ${when(change.restored_at ?? "")}`;
+		case "loaded": return "You loaded it from a file";
+	}
+}
+function when(at) {
+	const date = new Date(at);
+	return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
+}
+function message(e, fallback) {
+	return e instanceof Error ? e.message : fallback;
+}
+function WikiTools({ contents, onChanged }) {
+	const pdf = contents.pdf_id;
+	const [showing, setShowing] = d(false);
+	const [asking, setAsking] = d(null);
+	const [done, setDone] = d(null);
+	const [error, setError] = d(null);
+	const picker = A(null);
+	const change = (go, confirm, failure) => {
+		setError(null);
+		setDone(null);
+		setAsking(null);
+		const run = (force) => go(force).then((said) => {
+			setDone(said);
+			onChanged();
+		});
+		run(false).catch((e) => {
+			if (e instanceof AskFirst) {
+				setAsking({
+					question: e.message,
+					confirm,
+					go: () => run(true)
+				});
+				return;
+			}
+			console.error(failure, e);
+			setError(message(e, failure));
+		});
+	};
+	const restore = (id, at) => change(async (force) => {
+		await restoreWikiVersion(pdf, id, force);
+		console.info(`Wiki version restored: ${id}`);
+		return `The version from ${when(at)} is the wiki again. The wiki before it is kept in the history, so you can go back to it.`;
+	}, "Restore it anyway", "Could not restore the version");
+	const load = (file) => change(async (force) => {
+		const added = await loadWikiFile(pdf, file, force);
+		console.info(`Wiki loaded from ${file.name}: ${added} versions added to the history`);
+		const versions = added === 1 ? "1 version" : `${added} versions`;
+		return `Loaded ${file.name}. Its history added ${versions} to this one, and the wiki before it is kept in the history too.`;
+	}, "Load it anyway", "Could not load the file");
+	const answer = () => {
+		if (!asking) return;
+		const go = asking.go;
+		setAsking(null);
+		go().catch((e) => {
+			console.error("Could not make the change", e);
+			setError(message(e, "The change could not be made."));
+		});
+	};
+	return /* @__PURE__ */ u("div", {
+		className: "wiki-tools",
+		children: [
+			/* @__PURE__ */ u("p", {
+				className: "outline-buttons",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						"aria-expanded": showing,
+						onClick: () => setShowing((s) => !s),
+						children: showing ? "Hide the history" : "History"
+					}),
+					" ",
+					/* @__PURE__ */ u("a", {
+						className: "button secondary",
+						href: wikiFileUrl(pdf),
+						download: true,
+						children: "Save to a file"
+					}),
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: () => picker.current?.click(),
+						children: "Load from a file"
+					}),
+					/* @__PURE__ */ u("input", {
+						ref: picker,
+						type: "file",
+						accept: ".json,application/json",
+						className: "sr-only",
+						"aria-label": `Load a saved wiki file for ${contents.pdf_name}`,
+						tabIndex: -1,
+						onChange: (e) => {
+							const input = e.currentTarget;
+							const file = input.files?.[0];
+							input.value = "";
+							if (file) load(file);
+						}
+					})
+				]
+			}),
+			asking && /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: [
+					asking.question,
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						onClick: answer,
+						children: asking.confirm
+					}),
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: () => setAsking(null),
+						children: "Cancel"
+					})
+				]
+			}),
+			done && /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: done
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			showing && /* @__PURE__ */ u(History, {
+				contents,
+				onRestore: restore
+			})
+		]
+	});
+}
+function History({ contents, onRestore }) {
+	const pdf = contents.pdf_id;
+	const [versions, setVersions] = d(null);
+	const [failed, setFailed] = d(false);
+	const [viewing, setViewing] = d(null);
+	h(() => {
+		let stopped = false;
+		const started = performance.now();
+		setFailed(false);
+		listWikiVersions(pdf).then((found) => {
+			console.info(`Wiki history loaded in ${Math.round(performance.now() - started)} ms (${found.length} versions)`);
+			if (!stopped) setVersions(found);
+		}).catch((e) => {
+			console.error("Could not load the wiki history", e);
+			if (!stopped) setFailed(true);
+		});
+		return () => {
+			stopped = true;
+		};
+	}, [pdf, contents]);
+	if (failed) return /* @__PURE__ */ u("p", {
+		className: "error",
+		children: "The history could not be loaded. Try again."
+	});
+	if (versions === null) return /* @__PURE__ */ u("p", { children: "Loading the history…" });
+	return /* @__PURE__ */ u("div", {
+		className: "wiki-history",
+		children: [
+			/* @__PURE__ */ u("h3", { children: "History" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Every change keeps a version of the whole wiki, newest first. Restoring one makes it the wiki again, and keeps the wiki before it here too."
+			}),
+			/* @__PURE__ */ u("ol", { children: versions.map((v, i) => /* @__PURE__ */ u("li", { children: [
+				/* @__PURE__ */ u("span", {
+					className: "when",
+					children: when(v.at)
+				}),
+				" ",
+				changeText(v.change),
+				i === 0 && /* @__PURE__ */ u("span", {
+					className: "muted",
+					children: " (the wiki now)"
+				}),
+				" ",
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "link",
+					"aria-expanded": viewing === v.id,
+					onClick: () => setViewing(viewing === v.id ? null : v.id),
+					children: viewing === v.id ? "Hide" : "View"
+				}),
+				i > 0 && /* @__PURE__ */ u(S, { children: [" · ", /* @__PURE__ */ u("button", {
+					type: "button",
+					className: "link",
+					onClick: () => onRestore(v.id, v.at),
+					children: "Restore"
+				})] }),
+				viewing === v.id && /* @__PURE__ */ u(VersionView, {
+					pdf,
+					id: v.id,
+					onRestore: i > 0 ? () => onRestore(v.id, v.at) : void 0
+				})
+			] }, v.id)) })
+		]
+	});
+}
+function VersionView({ pdf, id, onRestore }) {
+	const [shown, setShown] = d(null);
+	const [error, setError] = d(null);
+	h(() => {
+		let stopped = false;
+		getWikiVersion(pdf, id).then((found) => {
+			if (!stopped) setShown(found);
+		}).catch((e) => {
+			console.error("Could not load the wiki version", e);
+			if (!stopped) setError(message(e, "The version could not be loaded."));
+		});
+		return () => {
+			stopped = true;
+		};
+	}, [pdf, id]);
+	if (error) return /* @__PURE__ */ u("p", {
+		className: "error",
+		children: error
+	});
+	if (shown === null) return /* @__PURE__ */ u("p", { children: "Loading…" });
+	return /* @__PURE__ */ u("div", {
+		className: "wiki-version",
+		children: [
+			/* @__PURE__ */ u(Entries, {
+				pdf,
+				entries: shown.entries
+			}),
+			shown.lost_edits.length > 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"It also kept ",
+					shown.lost_edits.length === 1 ? "an edit" : "edits",
+					" whose entries a rebuild had left out: ",
+					shown.lost_edits.map((e) => e.title).join(", "),
+					"."
+				]
+			}),
+			onRestore && /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				onClick: onRestore,
+				children: "Restore this version"
+			}) })
 		]
 	});
 }
@@ -3293,7 +3587,7 @@ function Outline({ pdf, entries, onChanged }) {
 function Entries({ pdf, entries, edit }) {
 	return /* @__PURE__ */ u("ul", {
 		className: "outline",
-		children: entries.map((e) => /* @__PURE__ */ u("li", { children: edit.id === e.id ? /* @__PURE__ */ u("div", {
+		children: entries.map((e) => /* @__PURE__ */ u("li", { children: edit && edit.id === e.id ? /* @__PURE__ */ u("div", {
 			className: "leaf",
 			children: /* @__PURE__ */ u(EditForm, {
 				entry: e,
@@ -3337,10 +3631,13 @@ function EntryText({ pdf, entry, edit }) {
 			pdf,
 			pages: entry.pages
 		}),
-		/* @__PURE__ */ u(EditActions, {
+		edit ? /* @__PURE__ */ u(EditActions, {
 			entry,
 			onEdit: () => edit.start(entry.id),
 			onChanged: edit.changed
+		}) : entry.edited && /* @__PURE__ */ u("span", {
+			className: "entry-actions muted",
+			children: "Edited by you."
 		})
 	] });
 }

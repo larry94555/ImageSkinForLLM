@@ -409,7 +409,11 @@ export async function getWikiPage(id: string): Promise<WikiDetail | null> {
 }
 
 // The user's edits (roadmap R38). Each throws an Error saying why when refused.
-export async function saveWikiEdit(id: string, title: string, summary: string): Promise<WikiDetail> {
+export async function saveWikiEdit(
+  id: string,
+  title: string,
+  summary: string,
+): Promise<WikiDetail> {
   const response = await fetch(`/api/wiki/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -438,6 +442,79 @@ export async function rebuildWiki(pdf: string): Promise<WikiBuild> {
   return (await response.json()) as WikiBuild;
 }
 
+// The wiki's history (roadmap R38a): every change keeps a version of the whole wiki.
+export interface WikiChange {
+  kind:
+    | "start"
+    | "built"
+    | "rebuilt"
+    | "edited"
+    | "undone"
+    | "kept"
+    | "discarded"
+    | "restored"
+    | "loaded";
+  title?: string; // the entry edited
+  restored_at?: string; // when the restored version was kept
+}
+
+export interface WikiVersion {
+  id: string;
+  at: string;
+  change: WikiChange;
+}
+
+// A version as the Wiki page shows it, to read.
+export interface WikiVersionContents extends WikiContents, WikiVersion {}
+
+// Thrown when the server asks first (412): the version or file was built from an earlier copy
+// of the PDF. The message says so; the same call with `force` goes ahead.
+export class AskFirst extends Error {}
+
+async function refused(response: Response): Promise<never> {
+  const message = await refusal(response);
+  throw response.status === 412 ? new AskFirst(message) : new Error(message);
+}
+
+// A PDF's versions, newest first: the first is the wiki as it is now.
+export async function listWikiVersions(pdf: string): Promise<WikiVersion[]> {
+  const response = await fetch(`/api/content/${pdf}/wiki/history`);
+  if (!response.ok) return refused(response);
+  return (await response.json()) as WikiVersion[];
+}
+
+export async function getWikiVersion(pdf: string, id: string): Promise<WikiVersionContents> {
+  const response = await fetch(`/api/content/${pdf}/wiki/history/${encodeURIComponent(id)}`);
+  if (!response.ok) return refused(response);
+  return (await response.json()) as WikiVersionContents;
+}
+
+// Makes a version the wiki again, as a new version, so it can be undone too.
+export async function restoreWikiVersion(pdf: string, id: string, force = false): Promise<void> {
+  const query = force ? "?force=true" : "";
+  const response = await fetch(
+    `/api/content/${pdf}/wiki/history/${encodeURIComponent(id)}/restore${query}`,
+    { method: "POST" },
+  );
+  if (!response.ok) await refused(response);
+}
+
+// Downloads the wiki as it is now, with its whole history.
+export function wikiFileUrl(pdf: string): string {
+  return `/api/content/${pdf}/wiki/file`;
+}
+
+// Loads a file saved from wikiFileUrl: it becomes the wiki, and its history joins this one's.
+// How many versions the history didn't have yet.
+export async function loadWikiFile(pdf: string, file: File, force = false): Promise<number> {
+  const body = new FormData();
+  body.append("file", file);
+  const query = force ? "?force=true" : "";
+  const response = await fetch(`/api/content/${pdf}/wiki/file${query}`, { method: "POST", body });
+  if (!response.ok) return refused(response);
+  return ((await response.json()) as { versions_added: number }).versions_added;
+}
+
 // Where the Wiki page shows a PDF's table of contents, and a detail page (roadmap R37b).
 export function wikiHref(pdf?: string): string {
   return pdf ? `#/wiki/${pdf}` : "#/wiki";
@@ -451,7 +528,6 @@ export function wikiPageHref(id: string): string {
 export function pdfPageUrl(id: string, page: number): string {
   return `${pdfUrl(id)}#page=${page}`;
 }
-
 
 // The wiki progress of each PDF, by its id. A PDF not read yet is missing.
 export async function listWikiBuilds(): Promise<Record<string, WikiBuild>> {
