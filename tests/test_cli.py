@@ -32,9 +32,10 @@ def test_bad_config_logs_error_and_exits_2(
 
 def test_serve_runs_uvicorn_with_config(tmp_path: Path) -> None:
     config = tmp_path / "config.toml"
-    config.write_text("port = 9123\n")
-    with patch("uvicorn.run") as run:
+    config.write_text("port = 9123\ngeneral_prompts = true\n")
+    with patch("uvicorn.run") as run, patch("imageskin.app.create_app") as create_app:
         assert main(["--config", str(config), "serve"]) == 0
+    assert create_app.call_args.kwargs["general_prompts"] is True
     assert run.call_args.kwargs["host"] == "127.0.0.1"
     assert run.call_args.kwargs["port"] == 9123
 

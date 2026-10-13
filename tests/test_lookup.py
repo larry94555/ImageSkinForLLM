@@ -1,6 +1,7 @@
 import io
 import logging
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,12 @@ from imageskin.lookup import (
     ContentLookup,
     Passage,
     look_up,
+    one_typo_apart,
     pages_label,
     pdf_passages,
     rank,
     shorten,
+    spelled_as_in,
     wiki_passages,
     words,
 )
@@ -66,6 +69,55 @@ def test_words_are_lower_case_without_common_words_or_endings() -> None:
     assert words("glass gas is") == ["glass", "gas"]  # "ss" and short words are kept
     assert words("recordings recording recorded record") == ["record"] * 4
     assert words("thing bed lighting") == ["thing", "bed", "light"]  # short words are kept
+
+
+def test_greek_letters_and_word_endings_match_their_other_forms() -> None:
+    assert words("ζ(s) and Zeta") == ["zeta", "s", "zeta"]
+    assert words("Σ π") == ["sigma", "pi"]
+    assert words("used uses use") == ["use"] * 3
+    assert words("phase phases phased") == ["phas"] * 3
+
+
+def test_a_misspelled_word_matches_the_content_word_one_typo_away() -> None:
+    assert one_typo_apart("reimann", "riemann")  # letters swapped
+    assert one_typo_apart("prims", "primes") and one_typo_apart("primes", "prims")
+    assert one_typo_apart("zetas", "zetes")  # one letter changed
+    assert not one_typo_apart("riemann", "riemann") and not one_typo_apart("zeta", "beta function")
+    assert not one_typo_apart("abcde", "badce")
+    content = Counter({"riemann": 3, "reimanns": 1})
+    assert spelled_as_in("reimann", content) == "riemann"  # the most common one
+    assert spelled_as_in("cat", Counter({"cut": 1})) == "cat"  # short words aren't changed
+
+
+def test_larrys_riemann_question_is_found() -> None:
+    # Larry's test (2026-10-13): the paper writes ζ, says "use", and spells Riemann right, so
+    # "How is the zeta function used by Reimann?" found nothing and was declined.
+    def pdf(text: str) -> Passage:
+        return Passage("pdf", "p", "a.pdf", "", text, [1])
+
+    paper = [
+        pdf("Riemann uses the function ζ(s) to count the primes."),
+        *(pdf(f"The function {n} is continuous.") for n in range(5)),
+        pdf("Riemann thanks the Academy."),
+        pdf("Primes below a given quantity."),
+    ]
+    found = rank("How is the zeta function used by Reimann?", paper)
+    assert found[0].passage.text.startswith("Riemann uses the function ζ(s)")
+    assert rank("What lighting is best for the photo?", paper) == []
+
+
+def test_a_typo_correction_alone_does_not_find_an_off_topic_prompt() -> None:
+    # Review on PR #74: "polar" is one letter from "solar", but nothing else matches.
+    solar = [Passage("pdf", "p", "a.pdf", "", "Solar energy comes from the sun.", [1])]
+    assert rank("What is polar?", solar) == []
+    assert len(rank("What is solar energy?", solar)) == 1
+    assert len(rank("Where does sloar energy come from?", solar)) == 1  # beside "energy"
+
+    # Review on PR #74: "energy" is in the content but too common to find a passage alone, so
+    # only the correction "polar" to "solar" would have found the passage on solar flares.
+    flares = Passage("pdf", "p", "a.pdf", "", "Solar flares erupt.", [2])
+    common = [Passage("pdf", "p", "a.pdf", "", f"Energy note {n}.", [3]) for n in range(10)]
+    assert rank("What is polar energy?", [flares, *common]) == []
 
 
 def test_contractions_and_possessives_add_no_stray_words() -> None:

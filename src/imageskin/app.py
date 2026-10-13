@@ -256,6 +256,8 @@ def create_app(
     build_wiki: BuildWiki | None = None,
     # The wiki's outline; with build_wiki alone, the topics as they are (tests).
     build_outline: BuildOutline | None = None,
+    # Whether prompts the content has nothing on are answered too, or declined (R41).
+    general_prompts: bool = False,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -663,6 +665,13 @@ def create_app(
     def find_content(prompt: str) -> list[str]:
         return as_passages(content_lookup.find(prompt))
 
+    # Prompts are limited to the content only once there is some: before any PDF is added,
+    # every prompt is answered.
+    def content_only() -> bool:
+        return not general_prompts and bool(wiki.store.list())
+
+    logger.info("Question scope", extra={"general_prompts": general_prompts})
+
     if client is not None:
         conversation = Conversation(
             client.ask,
@@ -672,6 +681,7 @@ def create_app(
             client.warm_up,
             llm_busy=core_share.llm,
             find=find_content,
+            content_only=content_only,
         )
     else:
         assert ask_llm is not None
@@ -682,6 +692,7 @@ def create_app(
             warm_up=warm_up_llm,
             llm_busy=core_share.llm,
             find=find_content,
+            content_only=content_only,
         )
 
     # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's
