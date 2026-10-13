@@ -189,14 +189,26 @@ test("a detail page has a trail back up, its PDF pages and its own parts", async
 });
 
 test("a missing detail page says so and leads back", async () => {
-  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
   server([GUIDE], [CONTENTS]);
   render(<WikiDetailPage entry="a1-gone" />);
   expect(await screen.findByText(/no longer here/)).toBeTruthy();
   expect(
     screen.getByRole("link", { name: "Back to the wiki" }).getAttribute("href"),
   ).toBe("#/wiki");
-  expect(errors).toHaveBeenCalled();
+  expect(screen.queryByText(/could not be loaded/)).toBeNull();
+});
+
+test("a detail page that can't be loaded says so, not that it was removed", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
+  const { unmount } = render(<WikiDetailPage entry="a1-drops" />);
+  expect(await screen.findByText(/could not be loaded/)).toBeTruthy();
+  expect(screen.queryByText(/no longer here/)).toBeNull();
+  unmount();
+  vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("Failed to fetch"))));
+  render(<WikiDetailPage entry="a1-drops" />);
+  expect(await screen.findByText(/could not be loaded/)).toBeTruthy();
+  expect(errors).toHaveBeenCalledTimes(2);
 });
 
 test("with no PDFs, or a removed one, the wiki says what to do", async () => {

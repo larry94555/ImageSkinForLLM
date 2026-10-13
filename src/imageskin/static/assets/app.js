@@ -164,7 +164,9 @@ async function listWikiContents(pdf) {
 	return json(await fetch(`/api/wiki/contents${query}`));
 }
 async function getWikiPage(id) {
-	return json(await fetch(`/api/wiki/${encodeURIComponent(id)}`));
+	const response = await fetch(`/api/wiki/${encodeURIComponent(id)}`);
+	if (response.status === 404) return null;
+	return json(response);
 }
 function wikiHref(pdf) {
 	return pdf ? `#/wiki/${pdf}` : "#/wiki";
@@ -2961,32 +2963,37 @@ function Contents({ contents, linked }) {
 }
 function WikiDetailPage({ entry }) {
 	const [page, setPage] = d(null);
-	const [missing, setMissing] = d(false);
+	const [problem, setProblem] = d(null);
 	h(() => {
 		let stopped = false;
 		const started = performance.now();
 		setPage(null);
-		setMissing(false);
+		setProblem(null);
 		getWikiPage(entry).then((next) => {
 			console.info(`Wiki page loaded in ${Math.round(performance.now() - started)} ms`);
 			if (stopped) return;
+			if (next === null) {
+				console.info(`No wiki page ${entry}`);
+				setProblem("missing");
+				return;
+			}
 			setPage(next);
 			document.querySelector("main")?.scrollIntoView?.();
 		}).catch((e) => {
 			console.error("Could not load the wiki page", e);
-			if (!stopped) setMissing(true);
+			if (!stopped) setProblem("failed");
 		});
 		return () => {
 			stopped = true;
 		};
 	}, [entry]);
-	if (missing) return /* @__PURE__ */ u("section", {
+	if (problem) return /* @__PURE__ */ u("section", {
 		className: "wiki",
 		children: [
 			/* @__PURE__ */ u("h1", { children: "Wiki" }),
 			/* @__PURE__ */ u("p", {
 				className: "error",
-				children: "This wiki page is no longer here. Its PDF may have been replaced or removed."
+				children: problem === "missing" ? "This wiki page is no longer here. Its PDF may have been replaced or removed." : "This wiki page could not be loaded. Check that the app is still running, then reload the page."
 			}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				href: wikiHref(),

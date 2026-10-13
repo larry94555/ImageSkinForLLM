@@ -132,39 +132,46 @@ function Contents({
 export function WikiDetailPage({ entry }: { entry: string }) {
   // null until loaded.
   const [page, setPage] = useState<WikiDetail | null>(null);
-  const [missing, setMissing] = useState(false);
+  // Why it can't be shown: there is no such page, or it couldn't be loaded.
+  const [problem, setProblem] = useState<"missing" | "failed" | null>(null);
 
   useEffect(() => {
     let stopped = false;
     const started = performance.now();
     setPage(null);
-    setMissing(false);
+    setProblem(null);
     getWikiPage(entry)
       .then((next) => {
         console.info(
           `Wiki page loaded in ${Math.round(performance.now() - started)} ms`,
         );
         if (stopped) return;
+        if (next === null) {
+          console.info(`No wiki page ${entry}`);
+          setProblem("missing");
+          return;
+        }
         setPage(next);
         // A link followed from low on the page above opens this one at its top.
         document.querySelector("main")?.scrollIntoView?.();
       })
       .catch((e: unknown) => {
         console.error("Could not load the wiki page", e);
-        if (!stopped) setMissing(true);
+        if (!stopped) setProblem("failed");
       });
     return () => {
       stopped = true;
     };
   }, [entry]);
 
-  if (missing) {
+  if (problem) {
     return (
       <section className="wiki">
         <h1>Wiki</h1>
         <p className="error">
-          This wiki page is no longer here. Its PDF may have been replaced or
-          removed.
+          {problem === "missing"
+            ? "This wiki page is no longer here. Its PDF may have been replaced or removed."
+            : "This wiki page could not be loaded. Check that the app is still running, then reload the page."}
         </p>
         <p>
           <a href={wikiHref()}>Back to the wiki</a>

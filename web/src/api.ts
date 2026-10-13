@@ -419,8 +419,11 @@ export async function listWikiContents(pdf?: string): Promise<WikiContents[]> {
   return json<WikiContents[]>(await fetch(`/api/wiki/contents${query}`));
 }
 
-export async function getWikiPage(id: string): Promise<WikiDetail> {
-  return json<WikiDetail>(await fetch(`/api/wiki/${encodeURIComponent(id)}`));
+// A detail page, or null when there is no such page (404). Throws when it can't be loaded.
+export async function getWikiPage(id: string): Promise<WikiDetail | null> {
+  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}`);
+  if (response.status === 404) return null;
+  return json<WikiDetail>(response);
 }
 
 // Where the Wiki page shows a PDF's table of contents, and a detail page (roadmap R37b).
