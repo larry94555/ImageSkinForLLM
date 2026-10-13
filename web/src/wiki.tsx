@@ -4,24 +4,34 @@
 //
 // The user can edit an entry's title and summary, and rebuild a PDF's wiki with the LLM, keeping
 // the edits (roadmap R38). After a rebuild each edit is marked for the user to check.
+//
+// Every change keeps a version of the whole wiki, which the user can read and restore, and the
+// wiki and its history can be saved to a file and loaded back (roadmap R38a).
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
+  AskFirst,
   getWikiPage,
+  getWikiVersion,
   listPdfs,
   listWikiBuilds,
   listWikiContents,
+  listWikiVersions,
+  loadWikiFile,
   markWikiReviewed,
   type Pdf,
   pdfPageUrl,
   rebuildWiki,
+  restoreWikiVersion,
   saveWikiEdit,
   undoWikiEdit,
   type WikiBuild,
+  type WikiChange,
   type WikiContents,
   type WikiDetail,
   type WikiEntry,
+  wikiFileUrl,
   wikiHref,
   wikiPageHref,
 } from "./api";
@@ -187,6 +197,7 @@ function Contents({ contents, linked, build, onRebuild, onChanged }: ContentsPro
     <article className="wiki-pdf">
       <h2>{name}</h2>
       <Rebuild build={build} onRebuild={onRebuild} />
+      <WikiTools contents={contents} onChanged={onChanged} />
       {contents.lost_edits.length > 0 && (
         <LostEdits edits={contents.lost_edits} onChanged={onChanged} />
       )}
@@ -242,6 +253,283 @@ function Rebuild({ build, onRebuild }: { build?: WikiBuild; onRebuild: () => Pro
         </p>
       )}
       {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+// What a version's change was, for the History list.
+export function changeText(change: WikiChange): string {
+  const entry = `\u201c${change.title ?? ""}\u201d`;
+  switch (change.kind) {
+    case "start":
+      return "The wiki as it was before its history began";
+    case "built":
+      return "Built with the LLM";
+    case "rebuilt":
+      return "Rebuilt with the LLM";
+    case "edited":
+      return `You edited ${entry}`;
+    case "undone":
+      return `You undid your edit to ${entry}`;
+    case "kept":
+      return `You kept your edit to ${entry} after a rebuild`;
+    case "discarded":
+      return `You discarded your edit to ${entry}, which a rebuild left without an entry`;
+    case "restored":
+      return `You restored the version from ${when(change.restored_at ?? "")}`;
+    case "loaded":
+      return "You loaded it from a file";
+  }
+}
+
+function when(at: string): string {
+  const date = new Date(at);
+  return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
+}
+
+function message(e: unknown, fallback: string): string {
+  return e instanceof Error ? e.message : fallback;
+}
+
+// A change the server asked about first (the PDF was replaced since): what it said, and the
+// change again with `force`.
+interface Asking {
+  question: string;
+  confirm: string;
+  go: () => Promise<void>;
+}
+
+// History, Save to a file and Load from a file, for one PDF's wiki.
+function WikiTools({ contents, onChanged }: { contents: WikiContents; onChanged: () => void }) {
+  const pdf = contents.pdf_id;
+  const [showing, setShowing] = useState(false);
+  const [asking, setAsking] = useState<Asking | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
+
+  // Runs a change, asking first when the server does.
+  const change = (go: (force: boolean) => Promise<string>, confirm: string, failure: string) => {
+    setError(null);
+    setDone(null);
+    setAsking(null);
+    const run = (force: boolean) =>
+      go(force).then((said) => {
+        setDone(said);
+        onChanged();
+      });
+    run(false).catch((e: unknown) => {
+      if (e instanceof AskFirst) {
+        setAsking({ question: e.message, confirm, go: () => run(true) });
+        return;
+      }
+      console.error(failure, e);
+      setError(message(e, failure));
+    });
+  };
+
+  const restore = (id: string, at: string) =>
+    change(
+      async (force) => {
+        await restoreWikiVersion(pdf, id, force);
+        console.info(`Wiki version restored: ${id}`);
+        return `The version from ${when(at)} is the wiki again. The wiki before it is kept in the history, so you can go back to it.`;
+      },
+      "Restore it anyway",
+      "Could not restore the version",
+    );
+
+  const load = (file: File) =>
+    change(
+      async (force) => {
+        const added = await loadWikiFile(pdf, file, force);
+        console.info(`Wiki loaded from ${file.name}: ${added} versions added to the history`);
+        const versions =
+          added === 0
+            ? "The history here already had all of its versions"
+            : `Its history added ${added === 1 ? "1 version" : `${added} versions`} to this one`;
+        return `Loaded ${file.name}. ${versions}, and the wiki before it is kept in the history too.`;
+      },
+      "Load it anyway",
+      "Could not load the file",
+    );
+
+  const answer = () => {
+    if (!asking) return;
+    const go = asking.go;
+    setAsking(null);
+    go().catch((e: unknown) => {
+      console.error("Could not make the change", e);
+      setError(message(e, "The change could not be made."));
+    });
+  };
+
+  return (
+    <div className="wiki-tools">
+      <p className="outline-buttons">
+        <button
+          type="button"
+          className="secondary"
+          aria-expanded={showing}
+          onClick={() => setShowing((s) => !s)}
+        >
+          {showing ? "Hide the history" : "History"}
+        </button>{" "}
+        <a className="button secondary" href={wikiFileUrl(pdf)} download>
+          Save to a file
+        </a>{" "}
+        <button type="button" className="secondary" onClick={() => picker.current?.click()}>
+          Load from a file
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          accept=".json,application/json"
+          className="sr-only"
+          aria-label={`Load a saved wiki file for ${contents.pdf_name}`}
+          tabIndex={-1}
+          onChange={(e) => {
+            const input = e.currentTarget;
+            const file = input.files?.[0];
+            input.value = ""; // the same file can be picked again
+            if (file) load(file);
+          }}
+        />
+      </p>
+      {asking && (
+        <p className="notice">
+          {asking.question}{" "}
+          <button type="button" onClick={answer}>
+            {asking.confirm}
+          </button>{" "}
+          <button type="button" className="secondary" onClick={() => setAsking(null)}>
+            Cancel
+          </button>
+        </p>
+      )}
+      {done && <p className="notice">{done}</p>}
+      {error && <p className="error">{error}</p>}
+      {showing && <History contents={contents} onRestore={restore} />}
+    </div>
+  );
+}
+
+// The PDF's versions, newest first, each to read or restore.
+function History({
+  contents,
+  onRestore,
+}: {
+  contents: WikiContents;
+  onRestore: (id: string, at: string) => void;
+}) {
+  const pdf = contents.pdf_id;
+  const [versions, setVersions] = useState<Awaited<ReturnType<typeof listWikiVersions>> | null>(
+    null,
+  );
+  const [failed, setFailed] = useState(false);
+  const [viewing, setViewing] = useState<string | null>(null);
+
+  // Loaded again whenever the wiki is (`contents` is new then), so a change shows at once.
+  useEffect(() => {
+    let stopped = false;
+    const started = performance.now();
+    setFailed(false);
+    listWikiVersions(pdf)
+      .then((found) => {
+        console.info(
+          `Wiki history loaded in ${Math.round(performance.now() - started)} ms (${found.length} versions)`,
+        );
+        if (!stopped) setVersions(found);
+      })
+      .catch((e: unknown) => {
+        console.error("Could not load the wiki history", e);
+        if (!stopped) setFailed(true);
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [pdf, contents]);
+
+  if (failed) return <p className="error">The history could not be loaded. Try again.</p>;
+  if (versions === null) return <p>Loading the history…</p>;
+  return (
+    <div className="wiki-history">
+      <h3>History</h3>
+      <p className="muted">
+        Every change keeps a version of the whole wiki, newest first. Restoring one makes it the
+        wiki again, and keeps the wiki before it here too.
+      </p>
+      <ol>
+        {versions.map((v, i) => (
+          <li key={v.id}>
+            <span className="when">{when(v.at)}</span> {changeText(v.change)}
+            {i === 0 && <span className="muted"> (the wiki now)</span>}{" "}
+            <button
+              type="button"
+              className="link"
+              aria-expanded={viewing === v.id}
+              onClick={() => setViewing(viewing === v.id ? null : v.id)}
+            >
+              {viewing === v.id ? "Hide" : "View"}
+            </button>
+            {i > 0 && (
+              <>
+                {" · "}
+                <button type="button" className="link" onClick={() => onRestore(v.id, v.at)}>
+                  Restore
+                </button>
+              </>
+            )}
+            {viewing === v.id && (
+              <VersionView
+                pdf={pdf}
+                id={v.id}
+                onRestore={i > 0 ? () => onRestore(v.id, v.at) : undefined}
+              />
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+// One version's table of contents, to read.
+function VersionView({ pdf, id, onRestore }: { pdf: string; id: string; onRestore?: () => void }) {
+  const [shown, setShown] = useState<Awaited<ReturnType<typeof getWikiVersion>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    getWikiVersion(pdf, id)
+      .then((found) => {
+        if (!stopped) setShown(found);
+      })
+      .catch((e: unknown) => {
+        console.error("Could not load the wiki version", e);
+        if (!stopped) setError(message(e, "The version could not be loaded."));
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [pdf, id]);
+  if (error) return <p className="error">{error}</p>;
+  if (shown === null) return <p>Loading…</p>;
+  return (
+    <div className="wiki-version">
+      <Entries pdf={pdf} entries={shown.entries} />
+      {shown.lost_edits.length > 0 && (
+        <p className="muted">
+          It also kept {shown.lost_edits.length === 1 ? "an edit" : "edits"} whose entries a rebuild
+          had left out: {shown.lost_edits.map((e) => e.title).join(", ")}.
+        </p>
+      )}
+      {onRestore && (
+        <p>
+          <button type="button" onClick={onRestore}>
+            Restore this version
+          </button>
+        </p>
+      )}
     </div>
   );
 }
@@ -435,12 +723,13 @@ interface Editing {
   changed: () => void; // an edit undone or checked
 }
 
-function Entries({ pdf, entries, edit }: { pdf: string; entries: WikiEntry[]; edit: Editing }) {
+// Without `edit`, to read only: an earlier version, say.
+function Entries({ pdf, entries, edit }: { pdf: string; entries: WikiEntry[]; edit?: Editing }) {
   return (
     <ul className="outline">
       {entries.map((e) => (
         <li key={e.id}>
-          {edit.id === e.id ? (
+          {edit && edit.id === e.id ? (
             // Not inside the <summary>, where typing a space would open or close the level.
             <div className="leaf">
               <EditForm entry={e} onDone={edit.done} />
@@ -463,7 +752,7 @@ function Entries({ pdf, entries, edit }: { pdf: string; entries: WikiEntry[]; ed
   );
 }
 
-function EntryText({ pdf, entry, edit }: { pdf: string; entry: WikiEntry; edit: Editing }) {
+function EntryText({ pdf, entry, edit }: { pdf: string; entry: WikiEntry; edit?: Editing }) {
   return (
     <>
       <span className="entry-title">
@@ -479,7 +768,11 @@ function EntryText({ pdf, entry, edit }: { pdf: string; entry: WikiEntry; edit: 
         )}
       </span>
       <PageLinks pdf={pdf} pages={entry.pages} />
-      <EditActions entry={entry} onEdit={() => edit.start(entry.id)} onChanged={edit.changed} />
+      {edit ? (
+        <EditActions entry={entry} onEdit={() => edit.start(entry.id)} onChanged={edit.changed} />
+      ) : (
+        entry.edited && <span className="entry-actions muted">Edited by you.</span>
+      )}
     </>
   );
 }

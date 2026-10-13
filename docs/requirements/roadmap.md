@@ -15,7 +15,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 7.7% | 6 of 6 |
 | 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 7 | 9.0% | 7 of 7 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 14.1% | 11 of 11 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 10.3% | 7 of 8 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 10.3% | 8 of 8 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.8% | 0 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.3% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.4% | 0 |
@@ -28,7 +28,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.6% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.3% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.6% | 0 |
-| | **Total** | | **78** | **100%** | **46 of 78** |
+| | **Total** | | **78** | **100%** | **47 of 78** |
 
 Sizes: 19 Simple, 59 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -366,7 +366,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** edit a summary and save it, reload the page and see it kept, rebuild the wiki and see the edit kept and flagged, and cancel an edit.
 - **Built:** `wiki_edits.py` keeps each PDF's edits in `content/wiki/<id>.edits.json`, apart from the built pages, and `WikiJob` shows them over what was built, marks them all for review whenever a new build is saved, lists the ones whose entries are gone, and removes them with the PDF. The Wiki page and detail pages have **Edit** (title and summary, **Save**, **Cancel**), "Edited by you" with **Undo my edit**, and, after a rebuild, what the new wiki says with **Keep my edit** or **Use the new text**. **Rebuild the wiki** asks once more, shows the progress and loads the new pages when done; the old pages stay readable meanwhile. Entries are matched by id, which comes from the title, so an entry the rebuild titles differently counts as gone and its edit is listed *(default)*. Shown with Qwen 2.5 1.5B on the 6-page lesson PDF: an edit, a reload, a 44 s rebuild that kept and flagged the edit, and **Keep my edit**.
 
-### R38a. Wiki versions and saving it to a file (Medium) · item 26
+### R38a. Wiki versions and saving it to a file (Medium) · item 26 · Done in [PR #71](https://github.com/larry94555/ImageSkinForLLM/pull/71)
 - Larry asked on 2026-10-13 that the wiki can be saved to a file and loaded back if it is rebuilt by accident, that edits made before a rebuild are kept, and that there is a version history to return the wiki to an earlier state. Only the current state is in use, but the history of changes is kept with it. R38 already keeps edits across rebuilds; this step adds the history and the file.
 - **History:** every change to a PDF's wiki saves a new version of the whole wiki as it then reads (the built pages with the edits), with when it was made and what changed: built or rebuilt by the LLM, an entry edited, an edit undone or kept, a lost edit discarded, or an earlier version restored. Versions are kept on the server in `content/wiki/<id>.history/`, all of them *(default)*, so an accidental rebuild loses nothing.
 - **Going back:** a **History** button for each PDF on the Wiki page lists its versions, newest first. Any version can be opened to read, then **Restore**d: it becomes the current wiki as a new version, so a restore can itself be undone.

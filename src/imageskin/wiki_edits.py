@@ -117,6 +117,11 @@ class WikiEdits:
             self._write(pdf_id, edits)
         return len(edits)
 
+    def replace(self, pdf_id: str, edits: dict[str, dict[str, Any]]) -> None:
+        """All of a PDF's edits at once: a restored or loaded wiki's (R38a)."""
+        with self._lock:
+            self._write(pdf_id, edits)
+
     def forget(self, pdf_id: str) -> None:
         with self._lock:
             self._path(pdf_id).unlink(missing_ok=True)
@@ -127,11 +132,11 @@ class WikiEdits:
     def _write(self, pdf_id: str, edits: dict[str, dict[str, Any]]) -> None:
         """Called with the lock held. Raises EditError (500) when the file can't be written."""
         path = self._path(pdf_id)
-        if not edits:
-            path.unlink(missing_ok=True)
-            return
         writing = path.with_suffix(".writing")
         try:
+            if not edits:
+                path.unlink(missing_ok=True)
+                return
             self.folder.mkdir(parents=True, exist_ok=True)
             writing.write_text(json.dumps({"edits": edits}, ensure_ascii=False), encoding="utf-8")
             writing.replace(path)
