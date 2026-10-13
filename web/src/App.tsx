@@ -8,6 +8,7 @@ import { GuidePage } from "./guide";
 import { HomePage } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { type Page, resolve, useHash, wikiTarget } from "./router";
+import { SettingsMenu, SettingsProvider } from "./settings";
 import { WikiDetailPage, WikiPage } from "./wiki";
 
 const NAV: { page: Page; href: string; label: string }[] = [
@@ -69,7 +70,7 @@ export function App() {
   }
 
   return (
-    <>
+    <SettingsProvider>
       <header>
         <a className="brand" href="#/">
           ImageSkinForLLM
@@ -85,9 +86,10 @@ export function App() {
             </a>
           ))}
         </nav>
+        <SettingsMenu />
       </header>
       <main>{content}</main>
       <footer>Photos and recordings stay on the computer that runs this app.</footer>
-    </>
+    </SettingsProvider>
   );
 }

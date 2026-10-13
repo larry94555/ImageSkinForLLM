@@ -40,6 +40,7 @@ import {
   type VoiceSample,
   voiceSampleAudioUrl,
 } from "./api";
+import { useSettings } from "./settings";
 
 export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   const [checked, setChecked] = useState(false);
@@ -793,6 +794,7 @@ function saveSound(sound: Sound) {
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
 // (roadmap R22); if that fails, the reply stays as text with a short note.
 function Chat() {
+  const metrics = useSettings().show_metrics; // the timing readout (R41a)
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
@@ -984,7 +986,9 @@ function Chat() {
         onChange={changeSound}
         onStop={stoppable ? stop : undefined}
       />
-      {times.length > 0 && <ClipTimes times={times} whole={whole} earlier={earlier} />}
+      {metrics && times.length > 0 && (
+        <ClipTimes times={times} whole={whole} earlier={earlier} />
+      )}
       {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
       <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
       {sending && <p className="muted busy">Thinking…</p>}
@@ -1447,8 +1451,9 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean; earlier?:
 // Next to each step: done (and how long it took), how far it has got, or waiting its turn.
 function StepState(props: { step: PrepareStep; status: PrepareStatus; index: number }) {
   const { step, status } = props;
+  const metrics = useSettings().show_metrics; // how long a step took (R41a)
   if (step.done >= step.total) {
-    const took = step.seconds !== null ? ` in ${duration(step.seconds)}` : "";
+    const took = metrics && step.seconds !== null ? ` in ${duration(step.seconds)}` : "";
     return <span className="done">Done{took}</span>;
   }
   const current = status.steps?.findIndex((s) => s.done < s.total) === props.index;

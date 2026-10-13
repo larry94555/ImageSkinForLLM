@@ -17,6 +17,7 @@ import {
   type WikiBuild,
   wikiHref,
 } from "./api";
+import { useSettings } from "./settings";
 
 // How often the reading and wiki progress is checked while a PDF is being read or built.
 export const READING_POLL_MS = 1000;
@@ -238,23 +239,27 @@ export function readingText(r: Reading): string {
 }
 
 function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
+  const metrics = useSettings().show_metrics;
   if (!build) return null;
-  if (build.state === "failed") return <span className="error">{wikiText(build)}</span>;
-  if (build.state !== "done") return <span className="muted busy">{wikiText(build)}</span>;
+  if (build.state === "failed") return <span className="error">{wikiText(build, metrics)}</span>;
+  if (build.state !== "done") return <span className="muted busy">{wikiText(build, metrics)}</span>;
   return (
     <span className="muted">
-      {wikiText(build)} ·{" "}
+      {wikiText(build, metrics)} ·{" "}
       <a href={wikiHref(id)}>Read the wiki</a>
     </span>
   );
 }
 
-// "Wiki: 7 pages", or how far building them has got.
-export function wikiText(b: WikiBuild): string {
-  const left = (what: string) =>
-    b.remaining_s != null ? `, about ${duration(b.remaining_s)} left${what}` : "";
-  const time = (what = "") =>
-    b.elapsed_s != null ? ` (${duration(b.elapsed_s)} so far${left(what)})` : "";
+// "Wiki: 7 pages", or how far building them has got. How long it has taken is shown only with
+// `metrics` (R41a); how long is left is always shown.
+export function wikiText(b: WikiBuild, metrics = false): string {
+  const time = (what = "") => {
+    const parts = [];
+    if (metrics && b.elapsed_s != null) parts.push(`${duration(b.elapsed_s)} so far`);
+    if (b.remaining_s != null) parts.push(`about ${duration(b.remaining_s)} left${what}`);
+    return parts.length ? ` (${parts.join(", ")})` : "";
+  };
   const sofar = time();
   if (b.state === "waiting") {
     if (b.error) return `Waiting for the LLM to build the wiki pages…${sofar}`;
@@ -277,7 +282,7 @@ export function wikiText(b: WikiBuild): string {
   const why = "the LLM gave no usable answer";
   const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: ${why})` : "";
   const detail = b.detail_pages ? `, ${plural(b.detail_pages, "detail page")}` : "";
-  const took = b.elapsed_s != null ? `, built in ${duration(b.elapsed_s)}` : "";
+  const took = metrics && b.elapsed_s != null ? `, built in ${duration(b.elapsed_s)}` : "";
   return `Wiki: ${plural(b.pages ?? 0, "page")}${detail}${took}${skipped}`;
 }
 

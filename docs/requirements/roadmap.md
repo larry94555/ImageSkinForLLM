@@ -17,7 +17,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 13.3% | 11 of 11 |
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 9.6% | 8 of 8 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.6% | 3 of 3 |
-| 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e | 5 | 6.0% | 0 |
+| 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e | 5 | 6.0% | 1 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.2% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 6.0% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.4% | 0 |
@@ -29,7 +29,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.4% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.2% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.4% | 0 |
-| | **Total** | | **83** | **100%** | **50 of 83** |
+| | **Total** | | **83** | **100%** | **51 of 83** |
 
 Sizes: 19 Simple, 64 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -395,10 +395,11 @@ The PRs below are written for either kind of video engine, but these are the one
 
 Added by Larry on 2026-10-13. The chat must be clean and professional enough to use in a commercial setting. The teacher view must be usable by a non-technical teacher and the student view by a non-technical student. At the end of this milestone, judged only on how it looks and on answering typed questions, the app is clearly of professional quality. For now anyone can change the settings at will; R44's sign-on restricts them later. Settings come before the Settings page (R27), so these two live in a small Settings menu in the top bar that R27 later takes over.
 
-### R41a. Settings menu: show metrics (Medium) · items 49, 51
+### R41a. Settings menu: show metrics (Medium) · items 49, 51 · Done in [PR #76](https://github.com/larry94555/ImageSkinForLLM/pull/76)
 - A **Settings** menu in the top bar of every page, open to anyone for now. Its first setting, **Show timing metrics**, is off by default: the timing readout under the video (R22a) and the other timings and counts shown on the pages (such as how long a step or a search took) appear only when it is on. The log keeps every timing either way.
 - The settings are saved on the server, so they stay the same after a reload or restart and on every browser *(default)*.
 - **Can show:** the chat with no timing readout, then with it after turning the setting on, and still on after a reload.
+- **Built:** a **Settings** link at the right of the top bar opens a small menu with **Show timing metrics**, off by default. Off, the chat has no timing readout under the video, a finished setup step says "Done" rather than "Done in 31 s", and a wiki build says how long is left but not how long it has taken ("Wiki: 6 pages" rather than "Wiki: 6 pages, built in 18 min 20 s"). How long is left stays, since it tells a teacher how long to wait. The settings are saved as `ui-settings.json` in the app's data folder through `GET` and `PATCH /api/settings`, which need no consent; an unknown setting or a value that isn't true or false is refused, and an unreadable file gives the defaults. The browser console keeps logging every timing either way, and the server logs `Settings changed`.
 
 ### R41b. Student view and teacher view (Medium) · items 50, 51
 - A second setting in the Settings menu: **View: Teacher or Student**, Teacher by default so nothing changes until it is set *(default)*.

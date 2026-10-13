@@ -533,3 +533,28 @@ export function pdfPageUrl(id: string, page: number): string {
 export async function listWikiBuilds(): Promise<Record<string, WikiBuild>> {
   return json<Record<string, WikiBuild>>(await fetch("/api/wiki/builds"));
 }
+
+// The Settings menu's settings (roadmap R41a), saved on the server for every browser.
+export interface UiSettings {
+  show_metrics: boolean; // the timing readout under the video and the other timings
+}
+
+export const DEFAULT_SETTINGS: UiSettings = { show_metrics: false };
+
+// Any value the server didn't send as true or false is the default.
+function settings(data: Partial<UiSettings>): UiSettings {
+  return { show_metrics: data.show_metrics === true };
+}
+
+export async function getSettings(): Promise<UiSettings> {
+  return settings(await json<Partial<UiSettings>>(await fetch("/api/settings")));
+}
+
+export async function changeSettings(changes: Partial<UiSettings>): Promise<UiSettings> {
+  const response = await fetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+  return settings(await json<Partial<UiSettings>>(response));
+}
