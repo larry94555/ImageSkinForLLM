@@ -58,21 +58,40 @@ def content(tmp_path: Path) -> tuple[ContentStore, ReadingJob, WikiJob]:
     return store, readings, wiki
 
 
-def test_words_are_lower_case_without_common_words_or_plural_s() -> None:
+def test_words_are_lower_case_without_common_words_or_endings() -> None:
     assert words("How do the Plants' roots take in WATER?") == ["plant", "root", "take", "water"]
     assert words("glass gas is") == ["glass", "gas"]  # "ss" and short words are kept
+    assert words("recordings recording recorded record") == ["record"] * 4
+    assert words("thing bed lighting") == ["thing", "bed", "light"]  # short words are kept
 
 
 def test_rank_puts_the_passage_with_more_and_rarer_words_first() -> None:
     def pdf(text: str) -> Passage:
         return Passage("pdf", "p", "a.pdf", "", text, [1])
 
-    passages = [pdf("Water is wet."), pdf("Roots take in water."), pdf("Nothing here.")]
-    found = rank("How do roots take in water?", passages)
-    assert [f.passage.text for f in found] == ["Roots take in water.", "Water is wet."]
+    passages = [pdf("Water is wet."), pdf("Roots take water in."), pdf("Nothing here.")]
+    passages.append(pdf("Roots grow down."))
+    found = rank("Roots and water?", passages)
+    assert found[0].passage.text == "Roots take water in."  # both words
+    assert {f.passage.text for f in found[1:]} == {"Water is wet.", "Roots grow down."}
     assert found[0].score > found[1].score > 0
     assert rank("the of and", passages) == []  # only common words
     assert rank("water", []) == []
+
+
+def test_a_passage_sharing_only_a_common_word_is_not_found() -> None:
+    # Larry's test (2026-10-13): with only a paper on primes, "best" matched its thanks.
+    def pdf(text: str) -> Passage:
+        return Passage("pdf", "p", "a.pdf", "", text, [1])
+
+    primes = [pdf("I can best convey my thanks."), pdf("Primes are counted."), pdf("Zeta.")]
+    assert rank("What lighting is best for the photo?", primes) == []
+    assert [f.passage.text for f in rank("How are primes counted?", primes)] == [
+        "Primes are counted."
+    ]
+    # Most of the question's weight is in the one rare word a passage has: it is found.
+    guide = [pdf("A kitchen echoes."), *(pdf(f"Record voice {n}.") for n in range(6))]
+    assert rank("Can I record in a kitchen?", guide)[0].passage.text == "A kitchen echoes."
 
 
 def test_a_wiki_title_counts_twice() -> None:
@@ -134,9 +153,12 @@ def test_lookup_command_prints_what_was_found(
 ) -> None:
     content(tmp_path)
     monkeypatch.setattr(cli, "default_home", lambda: tmp_path)
-    assert cli.main(["lookup", "What does photosynthesis make?", "zebra", "--pdf", "1"]) == 0
+    assert (
+        cli.main(["lookup", "What does photosynthesis turn into sugar?", "zebra", "--pdf", "1"])
+        == 0
+    )
     out = capsys.readouterr().out
-    assert "Question: What does photosynthesis make?" in out and "Looked up in" in out
+    assert "Question: What does photosynthesis turn into sugar?" in out and "Looked up in" in out
     assert "Photosynthesis (science.pdf, page 1): How plants make sugar from light." in out
     assert "(science.pdf, page 1, paragraph): Photosynthesis turns sunlight" in out
     assert "Wiki: nothing found" in out and "PDF: nothing found" in out  # for "zebra"

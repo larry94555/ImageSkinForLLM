@@ -35,6 +35,8 @@ PDF_LIMIT = 5
 # a long passage is held back.
 K1 = 1.5
 B = 0.75
+# The share of the question's words, weighted by rarity, that a passage must have to be found.
+MIN_SHARE = 0.4
 WORD = re.compile(r"[^\W_]+")
 STOP_WORDS = frozenset(
     """a about above after again all also am an and any are as at be because been before being
@@ -73,13 +75,19 @@ class Lookup:
 
 
 def words(text: str) -> list[str]:
-    """The words that count for matching: lower case, no common words, a plural "s" left off."""
+    """The words that count for matching: lower case, no common words, and a plural "s" or an
+    "ing" or "ed" ending left off, so "recordings", "recording" and "recorded" all match
+    "record"."""
     found = []
     for word in WORD.findall(text.lower()):
         if word in STOP_WORDS:
             continue
         if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
             word = word[:-1]
+        if len(word) > 5 and word.endswith("ing"):
+            word = word[:-3]
+        elif len(word) > 4 and word.endswith("ed"):
+            word = word[:-2]
         found.append(word)
     return found
 
@@ -117,25 +125,34 @@ def pdf_passages(reading: dict[str, Any]) -> list[Passage]:
 
 
 def rank(question: str, passages: list[Passage]) -> list[Found]:
-    """The passages that share a word with the question, best first, scored with BM25."""
+    """The passages that match enough of the question, best first, scored with BM25.
+
+    A passage must have at least MIN_SHARE of the question's words, each weighted by how rare it
+    is in the content; a word the content doesn't have at all weighs the most. So a passage that
+    shares only a common word ("best" in "What lighting is best for the photo?") is left out,
+    and a question about something the content doesn't cover finds nothing."""
     asked = set(words(question))
     if not asked or not passages:
         return []
     counted = [Counter(passage_words(p)) for p in passages]
     lengths = [sum(c.values()) for c in counted]
     average = sum(lengths) / len(lengths) or 1.0
-    having = {w: sum(1 for c in counted if w in c) for w in asked}
     total = len(passages)
+    idf = {}
+    for w in asked:
+        having = sum(1 for c in counted if w in c)
+        idf[w] = math.log(1 + (total - having + 0.5) / (having + 0.5))
+    weight = sum(idf.values())
     found = []
     for passage, counts, length in zip(passages, counted, lengths, strict=True):
+        matched = [w for w in asked if w in counts]
+        if sum(idf[w] for w in matched) < MIN_SHARE * weight:
+            continue
         score = 0.0
-        for w in asked:
-            n = counts.get(w, 0)
-            if n:
-                idf = math.log(1 + (total - having[w] + 0.5) / (having[w] + 0.5))
-                score += idf * n * (K1 + 1) / (n + K1 * (1 - B + B * length / average))
-        if score > 0:
-            found.append(Found(passage, round(score, 3)))
+        for w in matched:
+            n = counts[w]
+            score += idf[w] * n * (K1 + 1) / (n + K1 * (1 - B + B * length / average))
+        found.append(Found(passage, round(score, 3)))
     return sorted(found, key=lambda f: -f.score)
 
 
