@@ -395,12 +395,12 @@ The PRs below are written for either kind of video engine, but these are the one
 
 Added by Larry on 2026-10-13. The chat must be clean and professional enough to use in a commercial setting. The teacher view must be usable by a non-technical teacher and the student view by a non-technical student. At the end of this milestone, judged only on how it looks and on answering typed questions, the app is clearly of professional quality. For now anyone can change the settings at will; R44's sign-on restricts them later. Settings come before the Settings page (R27), so these two live in a small Settings menu in the top bar that R27 later takes over.
 
-### R41a. Settings menu: show metrics (Medium) · item 48
+### R41a. Settings menu: show metrics (Medium) · items 49, 51
 - A **Settings** menu in the top bar of every page, open to anyone for now. Its first setting, **Show timing metrics**, is off by default: the timing readout under the video (R22a) and the other timings and counts shown on the pages (such as how long a step or a search took) appear only when it is on. The log keeps every timing either way.
 - The settings are saved on the server, so they stay the same after a reload or restart and on every browser *(default)*.
 - **Can show:** the chat with no timing readout, then with it after turning the setting on, and still on after a reload.
 
-### R41b. Student view and teacher view (Medium) · items 49, 50
+### R41b. Student view and teacher view (Medium) · items 50, 51
 - A second setting in the Settings menu: **View: Teacher or Student**, Teacher by default so nothing changes until it is set *(default)*.
 - **Student view:** the top bar has only the chat and the wiki. Setup and Manage Content are hidden, and so are every way to change the wiki: Edit, Undo my edit, Keep my edit or Use the new text, Rebuild the wiki, versions, and saving or loading it from a file. The wiki reads as in R37b, and each PDF can be opened read-only from the wiki. Opening a hidden page by its address shows the chat instead.
 - **Teacher view:** every page and option, as today.
@@ -478,7 +478,7 @@ Added by Larry on 2026-10-13. The chat must be clean and professional enough to 
 
 ### R44. Administrator sign-on (Medium) · item 30
 - A sign-on page for the administrator. The picture, voice, content and settings pages, and their API calls, only work after sign-on.
-- The teacher view from R41b becomes the signed-on administrator's view, and everyone else gets the student view; the view setting no longer lets anyone switch.
+- The views from R41b are then set by who is using the app, and the view setting no longer lets anyone switch: the signed-on administrator gets the teacher view, a signed-in student (R46) gets the student view (chat and read-only wiki and PDFs), and an anonymous visitor gets only the question and answer screen (R45).
 - **Can show:** the setup and Manage Content pages refuse a visitor and open after the administrator signs on.
 
 ### R45. Question and answer screen for visitors (Simple) · item 31

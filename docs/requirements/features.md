@@ -174,5 +174,8 @@ Added by Larry on 2026-10-13. The chat must be clean and professional enough to 
 50. **Student view and teacher view.** A setting chooses the view:
    - **Student view:** the chat, and read-only use of the wiki and the existing PDFs. The options to manage content, edit the wiki or change the setup are hidden.
    - **Teacher view:** every page and option. Teacher by default *(default)*.
-51. **Anyone can change these settings for now.** Items 49 and 50 can be changed at will by anyone. Later this is restricted: with the administrator sign-on (item 30), the teacher view becomes the administrator's and everyone else gets the student view.
+51. **Anyone can change these settings for now.** Items 49 and 50 can be changed at will by anyone. Later this is restricted, and the view follows who is using the app:
+   - **Administrator** (signed on, item 30): the teacher view.
+   - **Signed-in student** (item 32): the student view.
+   - **Anonymous visitor** (item 31): question and answer only, with no wiki or PDFs.
 
