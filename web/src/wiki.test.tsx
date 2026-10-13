@@ -1,8 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { afterEach, expect, test, vi } from "vitest";
 
-import type { Pdf, WikiBuild, WikiContents, WikiDetail } from "./api";
+import { useContext } from "preact/hooks";
+
+import type { Pdf, UiSettings, WikiBuild, WikiContents, WikiDetail } from "./api";
 import { App } from "./App";
+import { SettingsContext, SettingsProvider, useSettings } from "./settings";
 import { WIKI_POLL_MS, WikiDetailPage, WikiPage } from "./wiki";
 
 const GUIDE: Pdf = {
@@ -507,4 +510,176 @@ test("a rebuild that fails later says so, and can be tried again", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Rebuild" }));
   await waitFor(() => expect(changes(fetchMock).length).toBe(2)); // tried again
   vi.useRealTimers();
+});
+
+// The wiki server above, with the settings saved as `saved` (R41b); PATCH changes them.
+function withSettings(saved: { show_metrics: boolean; view: string }) {
+  const wiki = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/settings") return wiki(url, init);
+      if (init?.method === "PATCH") Object.assign(saved, JSON.parse(String(init.body)));
+      return Response.json(saved);
+    }),
+  );
+}
+
+const STUDENT = { show_metrics: false, view: "student" };
+
+test("the student view has only the chat and a read-only wiki with its PDFs", async () => {
+  const edited: WikiContents = {
+    ...CONTENTS,
+    entries: [{ ...CONTENTS.entries[0], edited: true }],
+    lost_edits: [{ id: "a1-old", title: "Old", summary: "Gone." }],
+  };
+  server([GUIDE, NOTES], [edited], { "a1-drops": DROPS });
+  withSettings({ ...STUDENT });
+  window.location.hash = "#/wiki";
+  render(<App />);
+  const pdf = (await screen.findByRole("heading", { name: "guide.pdf" })).closest("article")!;
+  const nav = within(screen.getByRole("navigation", { name: "" }));
+  expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
+  expect(screen.getByRole("link", { name: "ImageSkinForLLM" }).getAttribute("href")).toBe("#/chat");
+
+  const open = within(pdf).getByRole("link", { name: "Open the PDF" });
+  expect(open.getAttribute("href")).toBe("/api/content/a1");
+  expect(open.getAttribute("target")).toBe("_blank");
+  expect(within(pdf).getByText("How the weather changes.")).toBeTruthy();
+  for (const name of ["Rebuild the wiki", "History", "Load from a file", "Edit"]) {
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  }
+  expect(screen.queryByRole("link", { name: "Save to a file" })).toBeNull();
+  expect(screen.queryByText(/Edited by you/)).toBeNull();
+  expect(screen.queryByText("Old")).toBeNull(); // edits a rebuild left without an entry
+  expect(screen.getByText(/notes\.pdf: its wiki isn't ready yet\.$/)).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
+  expect(screen.queryByText(/You can edit any entry/)).toBeNull();
+
+  window.location.hash = "#/wiki/page/a1-drops";
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  expect(await screen.findByRole("heading", { name: "Drops", level: 1 })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+});
+
+test("in the student view a teacher's page shows the chat instead", async () => {
+  server([], []);
+  withSettings({ ...STUDENT });
+  for (const hash of ["#/", "#/setup", "#/content", "#/guide", "#/consent"]) {
+    window.location.hash = hash;
+    render(<App />);
+    await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+    cleanup();
+  }
+  window.location.hash = "#/wiki";
+  render(<App />);
+  expect(await screen.findByText("There are no PDFs yet.")).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
+});
+
+test("switching the view in the Settings menu shows or hides the teacher's options", async () => {
+  server([GUIDE], [CONTENTS]);
+  const saved = { show_metrics: false, view: "teacher" };
+  withSettings(saved);
+  window.location.hash = "#/wiki";
+  render(<App />);
+  await screen.findByText("How the weather changes.");
+  expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("link", { name: "Manage Content" }).length).toBe(2); // bar and text
+
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("radio", { name: /Student/ }));
+  });
+  expect(saved.view).toBe("student");
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Edit" })).toBeNull());
+  expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("radio", { name: /Teacher/ }));
+  });
+  expect(saved.view).toBe("teacher");
+  expect((await screen.findAllByRole("button", { name: "Edit" })).length).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: "Rebuild the wiki" })).toBeTruthy();
+});
+
+test("a view that can't be saved says so and stays as it was", async () => {
+  server([GUIDE], [CONTENTS]);
+  const wiki = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/settings") return wiki(url, init);
+      if (init?.method === "PATCH") return new Response("", { status: 500 });
+      return Response.json({ show_metrics: false, view: "teacher" });
+    }),
+  );
+  window.location.hash = "#/wiki";
+  render(<App />);
+  await screen.findByText("How the weather changes.");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("radio", { name: /Student/ }));
+  });
+  expect(await screen.findByText("The setting could not be changed. Try again.")).toBeTruthy();
+  expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
+});
+
+test("while the settings load, the top bar shows no teacher's links", async () => {
+  // Review on PR #77: the top bar showed the teacher's links until a Student view was read.
+  server([GUIDE], [CONTENTS]);
+  const wiki = globalThis.fetch;
+  let answer: (r: Response) => void = () => {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init?: RequestInit) =>
+      url === "/api/settings" ? new Promise<Response>((r) => (answer = r)) : wiki(url, init),
+    ),
+  );
+  window.location.hash = "#/wiki";
+  render(<App />);
+  const nav = within(screen.getByRole("navigation", { name: "" }));
+  await act(async () => {}); // consent is read; the settings are not yet
+  expect(nav.queryAllByRole("link")).toEqual([]);
+  expect(screen.getByRole("link", { name: "ImageSkinForLLM" }).getAttribute("href")).toBe("#/chat");
+  expect(screen.queryByText("How the weather changes.")).toBeNull();
+  expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(true);
+
+  await act(async () => answer(Response.json(STUDENT)));
+  await screen.findByText("How the weather changes.");
+  expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
+  expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("a change saved before the first read finishes is not undone by it", async () => {
+  // Review on PR #77: a slow first read could put the Teacher view back after Student was saved.
+  let answer: (r: Response) => void = () => {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "PATCH"
+        ? Response.json(STUDENT)
+        : new Promise<Response>((r) => (answer = r)),
+    ),
+  );
+  let change: (c: Partial<UiSettings>) => Promise<void> = async () => {};
+  function Shows() {
+    const settings = useSettings();
+    change = useContext(SettingsContext).change;
+    return <p>{settings.view}</p>;
+  }
+  render(
+    <SettingsProvider>
+      <Shows />
+    </SettingsProvider>,
+  );
+  await act(() => change({ view: "student" }));
+  expect(screen.getByText("student")).toBeTruthy();
+  await act(async () => {
+    answer(Response.json({ show_metrics: false, view: "teacher" }));
+    await new Promise((r) => setTimeout(r, 20)); // time for the read to be applied, if it were
+  });
+  expect(screen.getByText("student")).toBeTruthy();
 });

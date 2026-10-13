@@ -8,14 +8,15 @@ import { GuidePage } from "./guide";
 import { HomePage } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { type Page, resolve, useHash, wikiTarget } from "./router";
-import { SettingsMenu, SettingsProvider } from "./settings";
+import { SettingsMenu, SettingsProvider, useSettings, useSettingsLoaded } from "./settings";
 import { WikiDetailPage, WikiPage } from "./wiki";
 
-const NAV: { page: Page; href: string; label: string }[] = [
+// The top bar's pages; the student view (R41b) has only the chat and the wiki.
+const NAV: { page: Page; href: string; label: string; student?: boolean }[] = [
   { page: "home", href: "#/", label: "Home" },
   { page: "setup", href: "#/setup", label: "Setup" },
-  { page: "chat", href: "#/chat", label: "Chat" },
-  { page: "wiki", href: "#/wiki", label: "Wiki" },
+  { page: "chat", href: "#/chat", label: "Chat", student: true },
+  { page: "wiki", href: "#/wiki", label: "Wiki", student: true },
   { page: "content", href: "#/content", label: "Manage Content" },
 ];
 
@@ -27,7 +28,20 @@ function current(page: Page | undefined): Page | undefined {
 }
 
 export function App() {
+  return (
+    <SettingsProvider>
+      <Shell />
+    </SettingsProvider>
+  );
+}
+
+function Shell() {
   const hash = useHash();
+  const student = useSettings().view === "student";
+  const settingsLoaded = useSettingsLoaded();
+  // Until the settings are read, the top bar has no links, so a student never sees a teacher's
+  // (review on PR #77).
+  const teacher = settingsLoaded && !student;
   // null until the server has answered.
   const [consented, setConsented] = useState<boolean | null>(null);
 
@@ -40,7 +54,7 @@ export function App() {
       });
   }, []);
 
-  const route = consented === null ? null : resolve(hash, consented);
+  const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, student);
   useEffect(() => {
     if (route?.redirect && route.redirect !== window.location.hash) {
       window.location.replace(route.redirect);
@@ -70,13 +84,13 @@ export function App() {
   }
 
   return (
-    <SettingsProvider>
+    <>
       <header>
-        <a className="brand" href="#/">
+        <a className="brand" href={teacher ? "#/" : "#/chat"}>
           ImageSkinForLLM
         </a>
         <nav>
-          {NAV.map((item) => (
+          {NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => (
             <a
               key={item.page}
               href={item.href}
@@ -90,6 +104,6 @@ export function App() {
       </header>
       <main>{content}</main>
       <footer>Photos and recordings stay on the computer that runs this app.</footer>
-    </SettingsProvider>
+    </>
   );
 }

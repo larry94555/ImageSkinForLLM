@@ -6,19 +6,35 @@ restart and on every browser (feature items 49 and 51). R44's sign-on restricts 
 
 import json
 import logging
-from dataclasses import asdict, dataclass, fields, replace
+import os
+import threading
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 FILENAME = "ui-settings.json"
+# One change at a time, so two changes made together (from two browsers, say) both stay: each
+# reads the file the other wrote (review on PR #77).
+_saving = threading.Lock()
 
 
 @dataclass(frozen=True)
 class UiSettings:
     # The timing readout under the video and the other timings on the pages (item 49).
     show_metrics: bool = False
+    # Which screens are shown (item 50, R41b): every page and option, or the chat and a read-only
+    # wiki with its PDFs. Only the screens change: the server doesn't check it, since anyone can
+    # switch it for now.
+    view: str = "teacher"
+
+
+# The values each setting can take.
+CHOICES: dict[str, tuple[object, ...]] = {
+    "show_metrics": (True, False),
+    "view": ("teacher", "student"),
+}
 
 
 def load_ui_settings(home: Path) -> UiSettings:
@@ -41,20 +57,25 @@ def load_ui_settings(home: Path) -> UiSettings:
 
 def checked(settings: UiSettings, changes: dict[str, Any]) -> UiSettings:
     """The settings with the changes made; ValueError for an unknown name or a wrong value."""
-    known = {f.name for f in fields(UiSettings)}
     for name, value in changes.items():
-        if name not in known:
+        if name not in CHOICES:
             raise ValueError(f"There is no setting called {name}.")
-        if not isinstance(value, bool):
-            raise ValueError(f"The setting {name} must be on or off.")
+        # type() too, so 1 isn't taken as True
+        if not any(type(value) is type(c) and value == c for c in CHOICES[name]):
+            choices = ", ".join(map(str, CHOICES[name]))
+            raise ValueError(f"The setting {name} must be one of: {choices}.")
     return replace(settings, **changes)
 
 
 def save_ui_settings(home: Path, changes: dict[str, Any]) -> UiSettings:
     """Make the changes to the saved settings and save them; ValueError if one is invalid."""
-    settings = checked(load_ui_settings(home), changes)
-    home.mkdir(parents=True, exist_ok=True)
-    path = home / FILENAME
-    path.write_text(json.dumps(asdict(settings)), encoding="utf-8")
+    with _saving:
+        settings = checked(load_ui_settings(home), changes)
+        home.mkdir(parents=True, exist_ok=True)
+        path = home / FILENAME
+        # Written beside it, then put in its place, so a read never sees half a file.
+        part = path.with_suffix(".part")
+        part.write_text(json.dumps(asdict(settings)), encoding="utf-8")
+        os.replace(part, path)
     logger.info("Settings changed", extra={"path": str(path), **changes})
     return settings

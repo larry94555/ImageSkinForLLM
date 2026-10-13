@@ -237,9 +237,15 @@ function pdfPageUrl(id, page) {
 async function listWikiBuilds() {
 	return json(await fetch("/api/wiki/builds"));
 }
-var DEFAULT_SETTINGS = { show_metrics: false };
+var DEFAULT_SETTINGS = {
+	show_metrics: false,
+	view: "teacher"
+};
 function settings(data) {
-	return { show_metrics: data.show_metrics === true };
+	return {
+		show_metrics: data.show_metrics === true,
+		view: data.view === "student" ? "student" : "teacher"
+	};
 }
 async function getSettings() {
 	return settings(await json(await fetch("/api/settings")));
@@ -253,53 +259,77 @@ async function changeSettings(changes) {
 }
 //#endregion
 //#region src/settings.tsx
-var Settings = X({
+var SettingsContext = X({
 	settings: DEFAULT_SETTINGS,
+	loaded: true,
 	change: async () => {}
 });
 function useSettings() {
-	return x(Settings).settings;
+	return x(SettingsContext).settings;
+}
+function useSettingsLoaded() {
+	return x(SettingsContext).loaded;
 }
 function SettingsProvider({ children }) {
 	const [settings, setSettings] = d(DEFAULT_SETTINGS);
+	const [loaded, setLoaded] = d(false);
+	const changed = A(false);
 	h(() => {
-		getSettings().then(setSettings).catch((e) => console.error("Could not load the settings", e));
+		getSettings().then((read) => changed.current || setSettings(read)).catch((e) => console.error("Could not load the settings", e)).finally(() => setLoaded(true));
 	}, []);
 	async function change(changes) {
 		const started = performance.now();
 		const saved = await changeSettings(changes);
+		changed.current = true;
 		setSettings(saved);
 		const took = Math.round(performance.now() - started);
 		console.info(`Settings changed: ${JSON.stringify(changes)} (${took} ms)`);
 	}
-	return /* @__PURE__ */ u(Settings.Provider, {
+	return /* @__PURE__ */ u(SettingsContext.Provider, {
 		value: {
 			settings,
+			loaded,
 			change
 		},
 		children
 	});
 }
+var VIEWS = [[
+	"teacher",
+	"Teacher",
+	"every page and option"
+], [
+	"student",
+	"Student",
+	"the chat and a read-only wiki"
+]];
 function SettingsMenu() {
-	const { settings, change } = x(Settings);
+	const { settings, loaded, change } = x(SettingsContext);
 	const [open, setOpen] = d(false);
 	const [failed, setFailed] = d(false);
+	const menu = A(null);
 	h(() => {
 		if (!open) return;
 		const close = (e) => e.key === "Escape" && setOpen(false);
 		window.addEventListener("keydown", close);
 		return () => window.removeEventListener("keydown", close);
 	}, [open]);
-	async function toggle(name, box) {
-		const on = box.checked;
+	async function save(changes, undo) {
 		setFailed(false);
 		try {
-			await change({ [name]: on });
+			await change(changes);
 		} catch (e) {
-			console.error(`Could not change the setting ${name}`, e);
+			console.error(`Could not change the settings ${JSON.stringify(changes)}`, e);
 			setFailed(true);
-			box.checked = !on;
+			undo();
 		}
+	}
+	function chooseView(view) {
+		const was = settings.view;
+		save({ view }, () => {
+			const box = menu.current?.querySelector(`input[value="${was}"]`);
+			if (box) box.checked = true;
+		});
 	}
 	return /* @__PURE__ */ u("div", {
 		className: "settings",
@@ -308,19 +338,41 @@ function SettingsMenu() {
 			className: "link",
 			"aria-expanded": open,
 			"aria-controls": "settings-menu",
+			disabled: !loaded,
 			onClick: () => setOpen(!open),
 			children: "Settings"
 		}), open && /* @__PURE__ */ u("div", {
 			id: "settings-menu",
+			ref: menu,
 			className: "settings-menu",
 			role: "group",
 			"aria-label": "Settings",
 			children: [
+				/* @__PURE__ */ u("fieldset", { children: [/* @__PURE__ */ u("legend", { children: "View" }), VIEWS.map(([view, label, about]) => /* @__PURE__ */ u("label", {
+					className: "choice",
+					children: [
+						/* @__PURE__ */ u("input", {
+							type: "radio",
+							name: "view",
+							value: view,
+							checked: settings.view === view,
+							onChange: () => chooseView(view)
+						}),
+						" ",
+						/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+							className: "muted",
+							children: [" · ", about]
+						})] })
+					]
+				}, view))] }),
 				/* @__PURE__ */ u("label", { children: [
 					/* @__PURE__ */ u("input", {
 						type: "checkbox",
 						checked: settings.show_metrics,
-						onChange: (e) => toggle("show_metrics", e.currentTarget)
+						onChange: (e) => {
+							const box = e.currentTarget;
+							save({ show_metrics: box.checked }, () => box.checked = !box.checked);
+						}
 					}),
 					" ",
 					"Show timing metrics"
@@ -2314,6 +2366,7 @@ function ReviewChoices(props) {
 	});
 }
 function ChatPage() {
+	const student = useSettings().view === "student";
 	const [accepted, setAccepted] = d(null);
 	h(() => {
 		getReview().then((r) => setAccepted(r.accepted)).catch((e) => {
@@ -2325,15 +2378,18 @@ function ChatPage() {
 		className: "muted busy",
 		children: "Loading…"
 	});
-	if (!accepted) return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("h1", { children: "Chat" }),
-		/* @__PURE__ */ u("p", { children: "The chat is locked until you accept a sample video at the end of setup." }),
-		/* @__PURE__ */ u("a", {
-			className: "button",
-			href: "#/setup",
-			children: "Go to setup"
-		})
-	] });
+	if (!accepted) {
+		if (student) return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u("p", { children: "The chat isn't ready yet. Ask your teacher to finish setting it up." })] });
+		return /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("h1", { children: "Chat" }),
+			/* @__PURE__ */ u("p", { children: "The chat is locked until you accept a sample video at the end of setup." }),
+			/* @__PURE__ */ u("a", {
+				className: "button",
+				href: "#/setup",
+				children: "Go to setup"
+			})
+		] });
+	}
 	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u(Chat, {})] });
 }
 function newReplyId() {
@@ -3026,8 +3082,19 @@ function pageFor(hash) {
 	if (wiki.pdf) return "wiki";
 	return PAGES[path] ?? "not-found";
 }
-function resolve(hash, consented) {
+var TEACHER_PAGES = [
+	"home",
+	"consent",
+	"setup",
+	"guide",
+	"content"
+];
+function resolve(hash, consented, student = false) {
 	const page = pageFor(hash);
+	if (student && TEACHER_PAGES.includes(page)) return {
+		page: "chat",
+		redirect: "#/chat"
+	};
 	if (page === "setup" && !consented) return {
 		page: "consent",
 		redirect: "#/consent"
@@ -3050,6 +3117,7 @@ function busy(build) {
 	return build?.state === "waiting" || build?.state === "building";
 }
 function WikiPage({ pdf }) {
+	const student = useSettings().view === "student";
 	const [wiki, setWiki] = d(null);
 	const [failed, setFailed] = d(false);
 	const [builds, setBuilds] = d({});
@@ -3110,7 +3178,7 @@ function WikiPage({ pdf }) {
 			pdf ? /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				href: wikiHref(),
 				children: "All PDFs"
-			}) }) : /* @__PURE__ */ u("p", { children: [
+			}) }) : student ? /* @__PURE__ */ u("p", { children: "What the PDFs say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own." }) : /* @__PURE__ */ u("p", { children: [
 				"What the PDFs in ",
 				/* @__PURE__ */ u("a", {
 					href: "#/content",
@@ -3132,16 +3200,20 @@ function WikiPage({ pdf }) {
 	});
 }
 function WikiList({ wiki, pdf, builds, onRebuild, onChanged }) {
+	const student = useSettings().view === "student";
 	const built = new Set(wiki.contents.map((c) => c.pdf_id));
 	const waiting = wiki.pdfs.filter((p) => !built.has(p.id) && (!pdf || p.id === pdf));
-	if (wiki.pdfs.length === 0) return /* @__PURE__ */ u("p", { children: [
-		"There are no PDFs yet. Add one in ",
-		/* @__PURE__ */ u("a", {
-			href: "#/content",
-			children: "Manage Content"
-		}),
-		" and its wiki is built from it."
-	] });
+	if (wiki.pdfs.length === 0) {
+		if (student) return /* @__PURE__ */ u("p", { children: "There are no PDFs yet." });
+		return /* @__PURE__ */ u("p", { children: [
+			"There are no PDFs yet. Add one in ",
+			/* @__PURE__ */ u("a", {
+				href: "#/content",
+				children: "Manage Content"
+			}),
+			" and its wiki is built from it."
+		] });
+	}
 	if (pdf && wiki.contents.length === 0 && waiting.length === 0) return /* @__PURE__ */ u("p", { children: "This PDF is no longer here. It may have been removed." });
 	return /* @__PURE__ */ u(S, { children: [wiki.contents.map((c) => /* @__PURE__ */ u(Contents, {
 		contents: c,
@@ -3153,12 +3225,15 @@ function WikiList({ wiki, pdf, builds, onRebuild, onChanged }) {
 		className: "muted",
 		children: [
 			p.name,
-			": its wiki isn't ready yet. ",
-			/* @__PURE__ */ u("a", {
-				href: "#/content",
-				children: "Manage Content"
-			}),
-			" shows how far it has got."
+			": its wiki isn't ready yet.",
+			!student && /* @__PURE__ */ u(S, { children: [
+				" ",
+				/* @__PURE__ */ u("a", {
+					href: "#/content",
+					children: "Manage Content"
+				}),
+				" shows how far it has got."
+			] })
 		]
 	}, p.id))] });
 }
@@ -3167,22 +3242,31 @@ function Contents({ contents, linked, build, onRebuild, onChanged }) {
 		href: wikiHref(contents.pdf_id),
 		children: contents.pdf_name
 	}) : contents.pdf_name;
+	const student = useSettings().view === "student";
 	return /* @__PURE__ */ u("article", {
 		className: "wiki-pdf",
 		children: [
 			/* @__PURE__ */ u("h2", { children: name }),
-			/* @__PURE__ */ u(Rebuild, {
-				build,
-				onRebuild
-			}),
-			/* @__PURE__ */ u(WikiTools, {
-				contents,
-				onChanged
-			}),
-			contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
-				edits: contents.lost_edits,
-				onChanged
-			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				href: pdfUrl(contents.pdf_id),
+				target: "_blank",
+				rel: "noreferrer",
+				children: "Open the PDF"
+			}) }),
+			!student && /* @__PURE__ */ u(S, { children: [
+				/* @__PURE__ */ u(Rebuild, {
+					build,
+					onRebuild
+				}),
+				/* @__PURE__ */ u(WikiTools, {
+					contents,
+					onChanged
+				}),
+				contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
+					edits: contents.lost_edits,
+					onChanged
+				})
+			] }),
 			/* @__PURE__ */ u(Outline, {
 				pdf: contents.pdf_id,
 				entries: contents.entries,
@@ -3551,6 +3635,7 @@ function WikiDetailPage({ entry }) {
 	const [page, setPage] = d(null);
 	const [problem, setProblem] = d(null);
 	const [editing, setEditing] = d(false);
+	const student = useSettings().view === "student";
 	const [version, setVersion] = d(0);
 	const reload = () => setVersion((v) => v + 1);
 	h(() => {
@@ -3635,7 +3720,7 @@ function WikiDetailPage({ entry }) {
 					pdf: page.pdf_id,
 					pages: page.pages
 				}),
-				/* @__PURE__ */ u(EditActions, {
+				!student && /* @__PURE__ */ u(EditActions, {
 					entry: page,
 					onEdit: () => setEditing(true),
 					onChanged: reload
@@ -3651,6 +3736,7 @@ function WikiDetailPage({ entry }) {
 }
 function Outline({ pdf, entries, onChanged }) {
 	const ref = A(null);
+	const student = useSettings().view === "student";
 	const [editing, setEditing] = d(null);
 	const opens = entries.some((e) => e.entries.length > 0);
 	const openAll = (open) => {
@@ -3680,7 +3766,7 @@ function Outline({ pdf, entries, onChanged }) {
 		}), /* @__PURE__ */ u(Entries, {
 			pdf,
 			entries,
-			edit: {
+			edit: student ? void 0 : {
 				id: editing,
 				start: setEditing,
 				done: (saved) => {
@@ -3720,6 +3806,7 @@ function Entries({ pdf, entries, edit }) {
 	});
 }
 function EntryText({ pdf, entry, edit }) {
+	const student = useSettings().view === "student";
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("span", {
 			className: "entry-title",
@@ -3743,7 +3830,7 @@ function EntryText({ pdf, entry, edit }) {
 			entry,
 			onEdit: () => edit.start(entry.id),
 			onChanged: edit.changed
-		}) : entry.edited && /* @__PURE__ */ u("span", {
+		}) : entry.edited && !student && /* @__PURE__ */ u("span", {
 			className: "entry-actions muted",
 			children: "Edited by you."
 		})
@@ -3899,12 +3986,14 @@ var NAV = [
 	{
 		page: "chat",
 		href: "#/chat",
-		label: "Chat"
+		label: "Chat",
+		student: true
 	},
 	{
 		page: "wiki",
 		href: "#/wiki",
-		label: "Wiki"
+		label: "Wiki",
+		student: true
 	},
 	{
 		page: "content",
@@ -3917,7 +4006,13 @@ function current(page) {
 	return page === "wiki-page" ? "wiki" : page;
 }
 function App() {
+	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(Shell, {}) });
+}
+function Shell() {
 	const hash = useHash();
+	const student = useSettings().view === "student";
+	const settingsLoaded = useSettingsLoaded();
+	const teacher = settingsLoaded && !student;
 	const [consented, setConsented] = d(null);
 	h(() => {
 		getConsent().then((c) => setConsented(c.agreed)).catch((e) => {
@@ -3925,7 +4020,7 @@ function App() {
 			setConsented(false);
 		});
 	}, []);
-	const route = consented === null ? null : resolve(hash, consented);
+	const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, student);
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
 	}, [route?.redirect]);
@@ -3944,14 +4039,14 @@ function App() {
 		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
-	return /* @__PURE__ */ u(SettingsProvider, { children: [
+	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("header", { children: [
 			/* @__PURE__ */ u("a", {
 				className: "brand",
-				href: "#/",
+				href: teacher ? "#/" : "#/chat",
 				children: "ImageSkinForLLM"
 			}),
-			/* @__PURE__ */ u("nav", { children: NAV.map((item) => /* @__PURE__ */ u("a", {
+			/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => /* @__PURE__ */ u("a", {
 				href: item.href,
 				className: current(route?.page) === item.page ? "current" : void 0,
 				children: item.label
