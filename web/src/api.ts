@@ -535,15 +535,22 @@ export async function listWikiBuilds(): Promise<Record<string, WikiBuild>> {
 }
 
 // The Settings menu's settings (roadmap R41a), saved on the server for every browser.
+export type View = "teacher" | "student";
+
 export interface UiSettings {
   show_metrics: boolean; // the timing readout under the video and the other timings
+  // Every page and option, or the chat and a read-only wiki with its PDFs (R41b).
+  view: View;
 }
 
-export const DEFAULT_SETTINGS: UiSettings = { show_metrics: false };
+export const DEFAULT_SETTINGS: UiSettings = { show_metrics: false, view: "teacher" };
 
-// Any value the server didn't send as true or false is the default.
+// Any value the server didn't send as one the setting can take is the default.
 function settings(data: Partial<UiSettings>): UiSettings {
-  return { show_metrics: data.show_metrics === true };
+  return {
+    show_metrics: data.show_metrics === true,
+    view: data.view === "student" ? "student" : "teacher",
+  };
 }
 
 export async function getSettings(): Promise<UiSettings> {

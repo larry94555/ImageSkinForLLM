@@ -6,7 +6,7 @@ restart and on every browser (feature items 49 and 51). R44's sign-on restricts 
 
 import json
 import logging
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,17 @@ FILENAME = "ui-settings.json"
 class UiSettings:
     # The timing readout under the video and the other timings on the pages (item 49).
     show_metrics: bool = False
+    # Which screens are shown (item 50, R41b): every page and option, or the chat and a read-only
+    # wiki with its PDFs. Only the screens change: the server doesn't check it, since anyone can
+    # switch it for now.
+    view: str = "teacher"
+
+
+# The values each setting can take.
+CHOICES: dict[str, tuple[object, ...]] = {
+    "show_metrics": (True, False),
+    "view": ("teacher", "student"),
+}
 
 
 def load_ui_settings(home: Path) -> UiSettings:
@@ -41,12 +52,13 @@ def load_ui_settings(home: Path) -> UiSettings:
 
 def checked(settings: UiSettings, changes: dict[str, Any]) -> UiSettings:
     """The settings with the changes made; ValueError for an unknown name or a wrong value."""
-    known = {f.name for f in fields(UiSettings)}
     for name, value in changes.items():
-        if name not in known:
+        if name not in CHOICES:
             raise ValueError(f"There is no setting called {name}.")
-        if not isinstance(value, bool):
-            raise ValueError(f"The setting {name} must be on or off.")
+        # type() too, so 1 isn't taken as True
+        if not any(type(value) is type(c) and value == c for c in CHOICES[name]):
+            choices = ", ".join(map(str, CHOICES[name]))
+            raise ValueError(f"The setting {name} must be one of: {choices}.")
     return replace(settings, **changes)
 
 

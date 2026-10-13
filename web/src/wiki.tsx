@@ -22,6 +22,7 @@ import {
   markWikiReviewed,
   type Pdf,
   pdfPageUrl,
+  pdfUrl,
   rebuildWiki,
   restoreWikiVersion,
   saveWikiEdit,
@@ -52,6 +53,7 @@ function busy(build: WikiBuild | undefined): boolean {
 
 // Every PDF's table of contents, or with `pdf` that one's.
 export function WikiPage({ pdf }: { pdf?: string }) {
+  const student = useSettings().view === "student"; // to read only (R41b)
   // null until loaded.
   const [wiki, setWiki] = useState<Wiki | null>(null);
   const [failed, setFailed] = useState(false);
@@ -117,6 +119,11 @@ export function WikiPage({ pdf }: { pdf?: string }) {
         <p>
           <a href={wikiHref()}>All PDFs</a>
         </p>
+      ) : student ? (
+        <p>
+          What the PDFs say, topic by topic. Open a topic to see its parts, or follow its title to
+          a page of its own.
+        </p>
       ) : (
         <p>
           What the PDFs in <a href="#/content">Manage Content</a> say, topic by topic. Open a topic
@@ -143,9 +150,11 @@ interface ListProps {
 }
 
 function WikiList({ wiki, pdf, builds, onRebuild, onChanged }: ListProps) {
+  const student = useSettings().view === "student";
   const built = new Set(wiki.contents.map((c) => c.pdf_id));
   const waiting = wiki.pdfs.filter((p) => !built.has(p.id) && (!pdf || p.id === pdf));
   if (wiki.pdfs.length === 0) {
+    if (student) return <p>There are no PDFs yet.</p>;
     return (
       <p>
         There are no PDFs yet. Add one in <a href="#/content">Manage Content</a> and its wiki is
@@ -170,8 +179,13 @@ function WikiList({ wiki, pdf, builds, onRebuild, onChanged }: ListProps) {
       ))}
       {waiting.map((p) => (
         <p key={p.id} className="muted">
-          {p.name}: its wiki isn't ready yet. <a href="#/content">Manage Content</a> shows how far
-          it has got.
+          {p.name}: its wiki isn't ready yet.
+          {!student && (
+            <>
+              {" "}
+              <a href="#/content">Manage Content</a> shows how far it has got.
+            </>
+          )}
         </p>
       ))}
     </>
@@ -194,13 +208,23 @@ function Contents({ contents, linked, build, onRebuild, onChanged }: ContentsPro
   ) : (
     contents.pdf_name
   );
+  const student = useSettings().view === "student";
   return (
     <article className="wiki-pdf">
       <h2>{name}</h2>
-      <Rebuild build={build} onRebuild={onRebuild} />
-      <WikiTools contents={contents} onChanged={onChanged} />
-      {contents.lost_edits.length > 0 && (
-        <LostEdits edits={contents.lost_edits} onChanged={onChanged} />
+      <p>
+        <a href={pdfUrl(contents.pdf_id)} target="_blank" rel="noreferrer">
+          Open the PDF
+        </a>
+      </p>
+      {!student && (
+        <>
+          <Rebuild build={build} onRebuild={onRebuild} />
+          <WikiTools contents={contents} onChanged={onChanged} />
+          {contents.lost_edits.length > 0 && (
+            <LostEdits edits={contents.lost_edits} onChanged={onChanged} />
+          )}
+        </>
       )}
       <Outline pdf={contents.pdf_id} entries={contents.entries} onChanged={onChanged} />
     </article>
@@ -584,6 +608,7 @@ export function WikiDetailPage({ entry }: { entry: string }) {
   // Why it can't be shown: there is no such page, or it couldn't be loaded.
   const [problem, setProblem] = useState<"missing" | "failed" | null>(null);
   const [editing, setEditing] = useState(false);
+  const student = useSettings().view === "student"; // to read only (R41b)
   const [version, setVersion] = useState(0);
   const reload = () => setVersion((v) => v + 1);
 
@@ -660,7 +685,9 @@ export function WikiDetailPage({ entry }: { entry: string }) {
           <h1>{page.title}</h1>
           <p>{page.summary}</p>
           <PageLinks pdf={page.pdf_id} pages={page.pages} />
-          <EditActions entry={page} onEdit={() => setEditing(true)} onChanged={reload} />
+          {!student && (
+            <EditActions entry={page} onEdit={() => setEditing(true)} onChanged={reload} />
+          )}
         </>
       )}
       {page.entries.length > 0 && (
@@ -685,6 +712,7 @@ function Outline({
   onChanged: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const student = useSettings().view === "student"; // to read only (R41b)
   const [editing, setEditing] = useState<string | null>(null);
   const opens = entries.some((e) => e.entries.length > 0);
   const openAll = (open: boolean) => {
@@ -713,7 +741,7 @@ function Outline({
           </button>
         </p>
       )}
-      <Entries pdf={pdf} entries={entries} edit={edit} />
+      <Entries pdf={pdf} entries={entries} edit={student ? undefined : edit} />
     </div>
   );
 }
@@ -755,6 +783,7 @@ function Entries({ pdf, entries, edit }: { pdf: string; entries: WikiEntry[]; ed
 }
 
 function EntryText({ pdf, entry, edit }: { pdf: string; entry: WikiEntry; edit?: Editing }) {
+  const student = useSettings().view === "student";
   return (
     <>
       <span className="entry-title">
@@ -773,7 +802,7 @@ function EntryText({ pdf, entry, edit }: { pdf: string; entry: WikiEntry; edit?:
       {edit ? (
         <EditActions entry={entry} onEdit={() => edit.start(entry.id)} onChanged={edit.changed} />
       ) : (
-        entry.edited && <span className="entry-actions muted">Edited by you.</span>
+        entry.edited && !student && <span className="entry-actions muted">Edited by you.</span>
       )}
     </>
   );

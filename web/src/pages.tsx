@@ -706,6 +706,7 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
 
 // Chat (roadmap R14): locked until a sample video is accepted.
 export function ChatPage() {
+  const student = useSettings().view === "student"; // setup is the teacher's (R41b)
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
   useEffect(() => {
@@ -719,6 +720,14 @@ export function ChatPage() {
 
   if (accepted === null) return <p className="muted busy">Loading…</p>;
   if (!accepted) {
+    if (student) {
+      return (
+        <>
+          <h1>Chat</h1>
+          <p>The chat isn't ready yet. Ask your teacher to finish setting it up.</p>
+        </>
+      );
+    }
     return (
       <>
         <h1>Chat</h1>

@@ -2203,3 +2203,21 @@ test("a setting that can't be saved says so and stays as it was", async () => {
   const box = screen.getByRole("checkbox", { name: "Show timing metrics" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
 });
+
+test("in the student view a chat that isn't set up asks for the teacher, not setup", async () => {
+  serverWithConsent(true);
+  const server = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/settings") return Response.json({ show_metrics: false, view: "student" });
+      if (url === "/api/review") return Response.json({ accepted: false });
+      return server(url, init);
+    }),
+  );
+  await openAt("#/chat");
+  expect(
+    await screen.findByText("The chat isn't ready yet. Ask your teacher to finish setting it up."),
+  ).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Go to setup" })).toBeNull();
+});

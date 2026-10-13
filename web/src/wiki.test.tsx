@@ -508,3 +508,118 @@ test("a rebuild that fails later says so, and can be tried again", async () => {
   await waitFor(() => expect(changes(fetchMock).length).toBe(2)); // tried again
   vi.useRealTimers();
 });
+
+// The wiki server above, with the settings saved as `saved` (R41b); PATCH changes them.
+function withSettings(saved: { show_metrics: boolean; view: string }) {
+  const wiki = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/settings") return wiki(url, init);
+      if (init?.method === "PATCH") Object.assign(saved, JSON.parse(String(init.body)));
+      return Response.json(saved);
+    }),
+  );
+}
+
+const STUDENT = { show_metrics: false, view: "student" };
+
+test("the student view has only the chat and a read-only wiki with its PDFs", async () => {
+  const edited: WikiContents = {
+    ...CONTENTS,
+    entries: [{ ...CONTENTS.entries[0], edited: true }],
+    lost_edits: [{ id: "a1-old", title: "Old", summary: "Gone." }],
+  };
+  server([GUIDE, NOTES], [edited], { "a1-drops": DROPS });
+  withSettings({ ...STUDENT });
+  window.location.hash = "#/wiki";
+  render(<App />);
+  const pdf = (await screen.findByRole("heading", { name: "guide.pdf" })).closest("article")!;
+  const nav = within(screen.getByRole("navigation", { name: "" }));
+  expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
+  expect(screen.getByRole("link", { name: "ImageSkinForLLM" }).getAttribute("href")).toBe("#/chat");
+
+  const open = within(pdf).getByRole("link", { name: "Open the PDF" });
+  expect(open.getAttribute("href")).toBe("/api/content/a1");
+  expect(open.getAttribute("target")).toBe("_blank");
+  expect(within(pdf).getByText("How the weather changes.")).toBeTruthy();
+  for (const name of ["Rebuild the wiki", "History", "Load from a file", "Edit"]) {
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  }
+  expect(screen.queryByRole("link", { name: "Save to a file" })).toBeNull();
+  expect(screen.queryByText(/Edited by you/)).toBeNull();
+  expect(screen.queryByText("Old")).toBeNull(); // edits a rebuild left without an entry
+  expect(screen.getByText(/notes\.pdf: its wiki isn't ready yet\.$/)).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
+  expect(screen.queryByText(/You can edit any entry/)).toBeNull();
+
+  window.location.hash = "#/wiki/page/a1-drops";
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  expect(await screen.findByRole("heading", { name: "Drops", level: 1 })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+});
+
+test("in the student view a teacher's page shows the chat instead", async () => {
+  server([], []);
+  withSettings({ ...STUDENT });
+  for (const hash of ["#/", "#/setup", "#/content", "#/guide", "#/consent"]) {
+    window.location.hash = hash;
+    render(<App />);
+    await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+    cleanup();
+  }
+  window.location.hash = "#/wiki";
+  render(<App />);
+  expect(await screen.findByText("There are no PDFs yet.")).toBeTruthy();
+  expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
+});
+
+test("switching the view in the Settings menu shows or hides the teacher's options", async () => {
+  server([GUIDE], [CONTENTS]);
+  const saved = { show_metrics: false, view: "teacher" };
+  withSettings(saved);
+  window.location.hash = "#/wiki";
+  render(<App />);
+  await screen.findByText("How the weather changes.");
+  expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("link", { name: "Manage Content" }).length).toBe(2); // bar and text
+
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("radio", { name: /Student/ }));
+  });
+  expect(saved.view).toBe("student");
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Edit" })).toBeNull());
+  expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("radio", { name: /Teacher/ }));
+  });
+  expect(saved.view).toBe("teacher");
+  expect((await screen.findAllByRole("button", { name: "Edit" })).length).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: "Rebuild the wiki" })).toBeTruthy();
+});
+
+test("a view that can't be saved says so and stays as it was", async () => {
+  server([GUIDE], [CONTENTS]);
+  const wiki = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/settings") return wiki(url, init);
+      if (init?.method === "PATCH") return new Response("", { status: 500 });
+      return Response.json({ show_metrics: false, view: "teacher" });
+    }),
+  );
+  window.location.hash = "#/wiki";
+  render(<App />);
+  await screen.findByText("How the weather changes.");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("radio", { name: /Student/ }));
+  });
+  expect(await screen.findByText("The setting could not be changed. Try again.")).toBeTruthy();
+  expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
+});

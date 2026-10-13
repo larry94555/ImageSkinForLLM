@@ -65,9 +65,16 @@ export function pageFor(hash: string): Page {
   return PAGES[path] ?? "not-found";
 }
 
-// Setup is blocked until the user confirms consent (feature item 22).
-export function resolve(hash: string, consented: boolean): Route {
+// The pages the student view hides (R41b): it has only the chat and the wiki.
+const TEACHER_PAGES: Page[] = ["home", "consent", "setup", "guide", "content"];
+
+// Setup is blocked until the user confirms consent (feature item 22). In the student view a
+// teacher's page, opened by its address, shows the chat instead.
+export function resolve(hash: string, consented: boolean, student = false): Route {
   const page = pageFor(hash);
+  if (student && TEACHER_PAGES.includes(page)) {
+    return { page: "chat", redirect: "#/chat" };
+  }
   if (page === "setup" && !consented) {
     return { page: "consent", redirect: "#/consent" };
   }

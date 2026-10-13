@@ -4,17 +4,19 @@
 
 import type { ComponentChildren } from "preact";
 import { createContext } from "preact";
-import { useContext, useEffect, useState } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
-import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings } from "./api";
+import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
 
 interface Shared {
   settings: UiSettings;
+  loaded: boolean; // the server has answered, or couldn't
   change: (changes: Partial<UiSettings>) => Promise<void>;
 }
 
 const Settings = createContext<Shared>({
   settings: DEFAULT_SETTINGS,
+  loaded: true,
   change: async () => {},
 });
 
@@ -23,13 +25,20 @@ export function useSettings(): UiSettings {
   return useContext(Settings).settings;
 }
 
+// Whether the settings have been read, so a page the view hides isn't shown first (R41b).
+export function useSettingsLoaded(): boolean {
+  return useContext(Settings).loaded;
+}
+
 export function SettingsProvider({ children }: { children: ComponentChildren }) {
   const [settings, setSettings] = useState<UiSettings>(DEFAULT_SETTINGS);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     getSettings()
       .then(setSettings)
-      .catch((e: unknown) => console.error("Could not load the settings", e));
+      .catch((e: unknown) => console.error("Could not load the settings", e))
+      .finally(() => setLoaded(true));
   }, []);
 
   async function change(changes: Partial<UiSettings>) {
@@ -40,13 +49,19 @@ export function SettingsProvider({ children }: { children: ComponentChildren }) 
     console.info(`Settings changed: ${JSON.stringify(changes)} (${took} ms)`);
   }
 
-  return <Settings.Provider value={{ settings, change }}>{children}</Settings.Provider>;
+  return <Settings.Provider value={{ settings, loaded, change }}>{children}</Settings.Provider>;
 }
+
+const VIEWS: [View, string, string][] = [
+  ["teacher", "Teacher", "every page and option"],
+  ["student", "Student", "the chat and a read-only wiki"],
+];
 
 export function SettingsMenu() {
   const { settings, change } = useContext(Settings);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -55,16 +70,24 @@ export function SettingsMenu() {
     return () => window.removeEventListener("keydown", close);
   }, [open]);
 
-  async function toggle(name: keyof UiSettings, box: HTMLInputElement) {
-    const on = box.checked;
+  // Saves the change; if it can't be saved, says so and `undo` puts the box back as it was.
+  async function save(changes: Partial<UiSettings>, undo: () => void) {
     setFailed(false);
     try {
-      await change({ [name]: on });
+      await change(changes);
     } catch (e) {
-      console.error(`Could not change the setting ${name}`, e);
+      console.error(`Could not change the settings ${JSON.stringify(changes)}`, e);
       setFailed(true);
-      box.checked = !on; // the setting stays as it was
+      undo();
     }
+  }
+
+  function chooseView(view: View) {
+    const was = settings.view;
+    save({ view }, () => {
+      const box = menu.current?.querySelector<HTMLInputElement>(`input[value="${was}"]`);
+      if (box) box.checked = true;
+    });
   }
 
   return (
@@ -79,12 +102,39 @@ export function SettingsMenu() {
         Settings
       </button>
       {open && (
-        <div id="settings-menu" className="settings-menu" role="group" aria-label="Settings">
+        <div
+          id="settings-menu"
+          ref={menu}
+          className="settings-menu"
+          role="group"
+          aria-label="Settings"
+        >
+          <fieldset>
+            <legend>View</legend>
+            {VIEWS.map(([view, label, about]) => (
+              <label key={view} className="choice">
+                <input
+                  type="radio"
+                  name="view"
+                  value={view}
+                  checked={settings.view === view}
+                  onChange={() => chooseView(view)}
+                />{" "}
+                <span>
+                  {label}
+                  <span className="muted"> · {about}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
           <label>
             <input
               type="checkbox"
               checked={settings.show_metrics}
-              onChange={(e) => toggle("show_metrics", e.currentTarget)}
+              onChange={(e) => {
+                const box = e.currentTarget;
+                save({ show_metrics: box.checked }, () => (box.checked = !box.checked));
+              }}
             />{" "}
             Show timing metrics
           </label>
