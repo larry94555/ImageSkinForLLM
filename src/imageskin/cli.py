@@ -44,6 +44,17 @@ def voice_engine(voice: str, voice_sample: Path | None) -> tuple[VoiceEngine, st
     return engine, str(voice_sample)
 
 
+def count(value: str) -> int:
+    """A whole number of 0 or more, for an option such as --wiki."""
+    try:
+        number = int(value)
+    except ValueError:
+        number = -1
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be a whole number, 0 or more, not {value!r}")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="imageskin", description="ImageSkinForLLM")
     parser.add_argument("--version", action="version", version=f"imageskin {__version__}")
@@ -124,10 +135,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lookup.add_argument("questions", nargs="+", help="questions to look up, each in quotes")
     lookup.add_argument(
-        "--wiki", type=int, default=WIKI_LIMIT, help=f"wiki entries to show (default {WIKI_LIMIT})"
+        "--wiki",
+        type=count,
+        default=WIKI_LIMIT,
+        help=f"wiki entries to show (default {WIKI_LIMIT})",
     )
     lookup.add_argument(
-        "--pdf", type=int, default=PDF_LIMIT, help=f"PDF passages to show (default {PDF_LIMIT})"
+        "--pdf", type=count, default=PDF_LIMIT, help=f"PDF passages to show (default {PDF_LIMIT})"
     )
     return parser
 
@@ -231,11 +245,11 @@ def print_lookups(questions: list[str], wiki_limit: int, pdf_limit: int) -> int:
     store = ContentStore(default_home())
     readings = ReadingJob(store)
     lookup = ContentLookup(WikiJob(store, readings, no_builds), readings)
-    if not lookup.passages():
-        logger.error("Nothing to look up in: add PDFs on Manage Content and let them be read")
-        return 1
     for question in questions:
         result = lookup.find(question, wiki_limit, pdf_limit)
+        if not result.passages:
+            logger.error("Nothing to look up in: add PDFs on Manage Content and let them be read")
+            return 1
         print(f"\nQuestion: {question}")
         print(f"Looked up in {result.duration_ms} ms")
         print("Wiki:" if result.wiki else "Wiki: nothing found")

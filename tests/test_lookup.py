@@ -1,5 +1,6 @@
 import io
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -186,3 +187,27 @@ def test_shorten_cuts_long_passages() -> None:
     assert cli.shorten("a  b\nc") == "a b c"
     assert cli.shorten("x" * 10, 5) == "xxxx…"
     assert cli.pages_label([1, 2]) == "pages 1, 2"
+
+
+def test_the_time_taken_includes_gathering_the_passages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, readings, wiki = content(tmp_path)
+    lookup = ContentLookup(wiki, readings)
+    gather = lookup.passages
+
+    def slow() -> list[Passage]:
+        time.sleep(0.05)
+        return gather()
+
+    monkeypatch.setattr(lookup, "passages", slow)
+    result = lookup.find("photosynthesis")
+    assert result.duration_ms >= 50 and result.passages == 5
+
+
+@pytest.mark.parametrize("value", ["-1", "two"])
+def test_lookup_limits_must_be_zero_or_more(value: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["lookup", "Anything?", "--wiki", value])
+    assert "must be a whole number, 0 or more" in capsys.readouterr().err
+    assert cli.build_parser().parse_args(["lookup", "q", "--pdf", "0"]).pdf == 0

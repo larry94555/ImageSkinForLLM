@@ -18,7 +18,7 @@ import re
 import time
 from collections import Counter
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from imageskin.reading_job import ReadingJob
@@ -76,6 +76,7 @@ class Lookup:
     wiki: list[Found] = field(default_factory=list)
     pdf: list[Found] = field(default_factory=list)
     duration_ms: float = 0.0
+    passages: int = 0  # how many were searched
 
 
 def words(text: str) -> list[str]:
@@ -174,7 +175,8 @@ def look_up(
     ranked = rank(question, passages)
     wiki = [f for f in ranked if f.passage.source == "wiki"][:wiki_limit]
     pdf = [f for f in ranked if f.passage.source == "pdf"][:pdf_limit]
-    return Lookup(question, wiki, pdf, round((time.perf_counter() - start) * 1000, 1))
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
+    return Lookup(question, wiki, pdf, duration_ms, len(passages))
 
 
 class ContentLookup:
@@ -199,6 +201,8 @@ class ContentLookup:
         start = time.perf_counter()
         passages = self.passages()  # unreadable saved files are logged and left out there
         result = look_up(question, passages, wiki_limit, pdf_limit)
+        # The whole lookup, gathering the passages too, not only ranking them.
+        result = replace(result, duration_ms=round((time.perf_counter() - start) * 1000, 1))
         logger.info(
             "Looked up a question",
             extra={
@@ -206,7 +210,7 @@ class ContentLookup:
                 "passages": len(passages),
                 "wiki_found": [f.passage.id for f in result.wiki],
                 "pdf_found": len(result.pdf),
-                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+                "duration_ms": result.duration_ms,
             },
         )
         return result
