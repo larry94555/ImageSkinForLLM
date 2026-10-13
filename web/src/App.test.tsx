@@ -51,6 +51,18 @@ function serverWithConsent(agreed: boolean, postOk = true) {
   return fetchMock;
 }
 
+// The server's saved settings say to show the timing metrics (R41a); every other request goes to
+// the server the test set up.
+function showMetrics() {
+  const server = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) =>
+      url === "/api/settings" ? Response.json({ show_metrics: true }) : server(url, init),
+    ),
+  );
+}
+
 async function openAt(hash: string) {
   window.location.hash = hash;
   render(<App />);
@@ -812,6 +824,7 @@ function prepareServer(reads: (PrepareStatus | Response)[], started?: Response) 
 
 test("prepare starts the job and shows each step's progress until it is ready", async () => {
   const fetchMock = prepareServer([IDLE, RUNNING, DONE]);
+  showMetrics();
   await openAt("#/setup");
   fireEvent.click(await screen.findByRole("button", { name: "Prepare" }));
   expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
@@ -1531,6 +1544,7 @@ test("a reply that fails takes its clips and timing rows away", async () => {
   // The first clip is made while the LLM writes; once the LLM fails, the server drops the clips.
   let clips: Answer = () => Response.json(clipsMade(["/api/chat/clips/x/1"], false));
   chatServer([], answer, undefined, () => clips());
+  showMetrics();
   await openAt("#/chat");
   await screen.findByText("Say hello to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
@@ -1838,6 +1852,7 @@ test("the chat shows how long each sentence took once it plays", async () => {
     undefined,
     () => Response.json(made),
   );
+  showMetrics();
   await openAt("#/chat");
   await screen.findByText("Say hello to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Count" } });
@@ -2132,4 +2147,59 @@ test("the player plays at full volume when given no sound", () => {
   render(<ClipPlayer clips={["/a"]} />);
   expect(shownVideo().volume).toBe(1);
   expect(shownVideo().muted).toBe(false);
+});
+
+// The prepare job's server, with the settings saved as `saved`, or failing to save them.
+function settingsServer(saved: { show_metrics: boolean }, saves = true) {
+  const server = prepareServer([RUNNING]);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/settings") return server(url, init);
+      if (init?.method !== "PATCH") return Response.json(saved);
+      if (!saves) return new Response("", { status: 500 });
+      Object.assign(saved, JSON.parse(init.body as string));
+      return Response.json(saved);
+    }),
+  );
+}
+
+test("the timing metrics are hidden until turned on in the Settings menu", async () => {
+  const saved = { show_metrics: false };
+  settingsServer(saved);
+  await openAt("#/setup");
+  await screen.findByText("52 of 200 · about 12 min left"); // how long is left stays
+  expect(screen.queryByText("Done in 31 s")).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "Show timing metrics" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  const box = screen.getByRole("checkbox", { name: "Show timing metrics" }) as HTMLInputElement;
+  expect(box.checked).toBe(false);
+  await act(async () => {
+    fireEvent.click(box);
+  });
+  expect(saved.show_metrics).toBe(true);
+  expect(await screen.findByText("Done in 31 s")).toBeTruthy();
+  expect(box.checked).toBe(true);
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("checkbox", { name: "Show timing metrics" })).toBeNull();
+
+  cleanup(); // a reload: the saved setting is read again
+  await openAt("#/setup");
+  expect(await screen.findByText("Done in 31 s")).toBeTruthy();
+});
+
+test("a setting that can't be saved says so and stays as it was", async () => {
+  settingsServer({ show_metrics: false }, false);
+  await openAt("#/setup");
+  await screen.findByText("52 of 200 · about 12 min left");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show timing metrics" }));
+  });
+  expect(await screen.findByText("The setting could not be changed. Try again.")).toBeTruthy();
+  expect(screen.queryByText("Done in 31 s")).toBeNull();
+  const box = screen.getByRole("checkbox", { name: "Show timing metrics" }) as HTMLInputElement;
+  expect(box.checked).toBe(false);
 });

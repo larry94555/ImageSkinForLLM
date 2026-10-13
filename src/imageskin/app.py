@@ -8,9 +8,9 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -55,6 +55,7 @@ from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
+from imageskin.ui_settings import load_ui_settings, save_ui_settings
 from imageskin.uploads import (
     MEDIA_TYPE,
     Kind,
@@ -304,6 +305,22 @@ def create_app(
         if not body.agreed:
             raise HTTPException(status_code=400, detail="Tick the box to confirm consent.")
         return asdict(save_consent(data_home))
+
+    # The Settings menu's settings (R41a): anyone can read and change them for now.
+    @app.get("/api/settings")
+    def get_settings() -> dict[str, object]:
+        return asdict(load_ui_settings(data_home))
+
+    @app.patch("/api/settings")
+    def patch_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, object]:
+        try:
+            return asdict(save_ui_settings(data_home, changes))
+        except ValueError as e:
+            logger.warning("Settings change refused", extra={"error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except OSError as e:
+            logger.error("Could not save the settings", extra={"error": str(e)})
+            raise HTTPException(status_code=500, detail="The settings could not be saved.") from e
 
     def require_consent() -> None:
         if not load_consent(data_home).agreed:

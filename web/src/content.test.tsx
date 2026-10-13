@@ -384,20 +384,29 @@ test("wiki progress reads as a sentence", () => {
     "Building the wiki outline: step 4 of about 9…",
   );
   expect(wikiText({ ...BUILT, detail_pages: 1 })).toBe("Wiki: 7 pages, 1 detail page");
-  expect(wikiText({ ...outline, steps: 2, steps_planned: 2, elapsed_s: 252.4 })).toBe(
+  expect(wikiText({ ...outline, steps: 2, steps_planned: 2, elapsed_s: 252.4 }, true)).toBe(
     "Building the wiki outline: step 2 of about 2… (4 min 12 s so far)",
   );
   expect(
-    wikiText({ ...outline, steps: 2, steps_planned: 5, elapsed_s: 252.4, remaining_s: 90 }),
+    wikiText({ ...outline, steps: 2, steps_planned: 5, elapsed_s: 252.4, remaining_s: 90 }, true),
   ).toBe("Building the wiki outline: step 3 of about 5… (4 min 12 s so far, about 1 min 30 s left)");
-  expect(wikiText({ ...BUILT, state: "building", part: 1, elapsed_s: 40, remaining_s: 40 })).toBe(
+  expect(wikiText({ ...BUILT, state: "building", part: 1, elapsed_s: 40, remaining_s: 40 }, true)).toBe(
     "Building the wiki pages: part 2 of 2… (40 s so far, about 40 s left before the outline)",
   );
-  expect(wikiText({ ...BUILT, state: "building", part: 0, elapsed_s: 5 })).toBe(
+  expect(wikiText({ ...BUILT, state: "building", part: 0, elapsed_s: 5 }, true)).toBe(
     "Building the wiki pages: part 1 of 2… (5 s so far)",
   );
-  expect(wikiText({ ...waiting, error: "down", elapsed_s: 61 })).toBe(
+  expect(wikiText({ ...waiting, error: "down", elapsed_s: 61 }, true)).toBe(
     "Waiting for the LLM to build the wiki pages… (1 min 1 s so far)",
   );
-  expect(wikiText({ ...BUILT, elapsed_s: 3780 })).toBe("Wiki: 7 pages, built in 1 h 3 min");
+  expect(wikiText({ ...BUILT, elapsed_s: 3780 }, true)).toBe("Wiki: 7 pages, built in 1 h 3 min");
+});
+
+test("without the timing metrics, wiki progress says only how long is left", () => {
+  const building: WikiBuild = { ...BUILT, state: "building", part: 1, elapsed_s: 40 };
+  expect(wikiText({ ...building, remaining_s: 40 })).toBe(
+    "Building the wiki pages: part 2 of 2… (about 40 s left before the outline)",
+  );
+  expect(wikiText(building)).toBe("Building the wiki pages: part 2 of 2…");
+  expect(wikiText({ ...BUILT, elapsed_s: 3780 })).toBe("Wiki: 7 pages");
 });

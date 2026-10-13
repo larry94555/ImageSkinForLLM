@@ -1,5 +1,5 @@
 // Generated from web/src/*.tsx by `npm run build` in web/. Do not edit; edit web/src.
-import { a as h, i as d, n as A, o as R, r as _, s as S, t as u } from "./preact.js";
+import { a as h, c as S, i as d, l as X, n as A, o as x, r as _, s as R, t as u } from "./preact.js";
 //#region src/api.ts
 async function json(response) {
 	if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -237,6 +237,106 @@ function pdfPageUrl(id, page) {
 async function listWikiBuilds() {
 	return json(await fetch("/api/wiki/builds"));
 }
+var DEFAULT_SETTINGS = { show_metrics: false };
+function settings(data) {
+	return { show_metrics: data.show_metrics === true };
+}
+async function getSettings() {
+	return settings(await json(await fetch("/api/settings")));
+}
+async function changeSettings(changes) {
+	return settings(await json(await fetch("/api/settings", {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(changes)
+	})));
+}
+//#endregion
+//#region src/settings.tsx
+var Settings = X({
+	settings: DEFAULT_SETTINGS,
+	change: async () => {}
+});
+function useSettings() {
+	return x(Settings).settings;
+}
+function SettingsProvider({ children }) {
+	const [settings, setSettings] = d(DEFAULT_SETTINGS);
+	h(() => {
+		getSettings().then(setSettings).catch((e) => console.error("Could not load the settings", e));
+	}, []);
+	async function change(changes) {
+		const started = performance.now();
+		const saved = await changeSettings(changes);
+		setSettings(saved);
+		const took = Math.round(performance.now() - started);
+		console.info(`Settings changed: ${JSON.stringify(changes)} (${took} ms)`);
+	}
+	return /* @__PURE__ */ u(Settings.Provider, {
+		value: {
+			settings,
+			change
+		},
+		children
+	});
+}
+function SettingsMenu() {
+	const { settings, change } = x(Settings);
+	const [open, setOpen] = d(false);
+	const [failed, setFailed] = d(false);
+	h(() => {
+		if (!open) return;
+		const close = (e) => e.key === "Escape" && setOpen(false);
+		window.addEventListener("keydown", close);
+		return () => window.removeEventListener("keydown", close);
+	}, [open]);
+	async function toggle(name, box) {
+		const on = box.checked;
+		setFailed(false);
+		try {
+			await change({ [name]: on });
+		} catch (e) {
+			console.error(`Could not change the setting ${name}`, e);
+			setFailed(true);
+			box.checked = !on;
+		}
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "settings",
+		children: [/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "link",
+			"aria-expanded": open,
+			"aria-controls": "settings-menu",
+			onClick: () => setOpen(!open),
+			children: "Settings"
+		}), open && /* @__PURE__ */ u("div", {
+			id: "settings-menu",
+			className: "settings-menu",
+			role: "group",
+			"aria-label": "Settings",
+			children: [
+				/* @__PURE__ */ u("label", { children: [
+					/* @__PURE__ */ u("input", {
+						type: "checkbox",
+						checked: settings.show_metrics,
+						onChange: (e) => toggle("show_metrics", e.currentTarget)
+					}),
+					" ",
+					"Show timing metrics"
+				] }),
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: "How long replies and other steps take, under the video and on the pages."
+				}),
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: "The setting could not be changed. Try again."
+				})
+			]
+		})]
+	});
+}
 //#endregion
 //#region src/content.tsx
 var READING_POLL_MS = 1e3;
@@ -471,19 +571,20 @@ function readingText(r) {
 	return `Read ${plural(r.pages, "page")}: ${found.join(", ") || "no text found"}${scanned}`;
 }
 function WikiLine({ id, build }) {
+	const metrics = useSettings().show_metrics;
 	if (!build) return null;
 	if (build.state === "failed") return /* @__PURE__ */ u("span", {
 		className: "error",
-		children: wikiText(build)
+		children: wikiText(build, metrics)
 	});
 	if (build.state !== "done") return /* @__PURE__ */ u("span", {
 		className: "muted busy",
-		children: wikiText(build)
+		children: wikiText(build, metrics)
 	});
 	return /* @__PURE__ */ u("span", {
 		className: "muted",
 		children: [
-			wikiText(build),
+			wikiText(build, metrics),
 			" ·",
 			" ",
 			/* @__PURE__ */ u("a", {
@@ -493,9 +594,13 @@ function WikiLine({ id, build }) {
 		]
 	});
 }
-function wikiText(b) {
-	const left = (what) => b.remaining_s != null ? `, about ${duration$1(b.remaining_s)} left${what}` : "";
-	const time = (what = "") => b.elapsed_s != null ? ` (${duration$1(b.elapsed_s)} so far${left(what)})` : "";
+function wikiText(b, metrics = false) {
+	const time = (what = "") => {
+		const parts = [];
+		if (metrics && b.elapsed_s != null) parts.push(`${duration$1(b.elapsed_s)} so far`);
+		if (b.remaining_s != null) parts.push(`about ${duration$1(b.remaining_s)} left${what}`);
+		return parts.length ? ` (${parts.join(", ")})` : "";
+	};
 	const sofar = time();
 	if (b.state === "waiting") {
 		if (b.error) return `Waiting for the LLM to build the wiki pages…${sofar}`;
@@ -513,7 +618,7 @@ function wikiText(b) {
 	const n = b.skipped_parts?.length ?? 0;
 	const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: the LLM gave no usable answer)` : "";
 	const detail = b.detail_pages ? `, ${plural(b.detail_pages, "detail page")}` : "";
-	const took = b.elapsed_s != null ? `, built in ${duration$1(b.elapsed_s)}` : "";
+	const took = metrics && b.elapsed_s != null ? `, built in ${duration$1(b.elapsed_s)}` : "";
 	return `Wiki: ${plural(b.pages ?? 0, "page")}${detail}${took}${skipped}`;
 }
 function duration$1(seconds) {
@@ -2259,6 +2364,7 @@ function saveSound(sound) {
 	} catch {}
 }
 function Chat() {
+	const metrics = useSettings().show_metrics;
 	const [turns, setTurns] = d(null);
 	const [prompt, setPrompt] = d("");
 	const [sending, setSending] = d(false);
@@ -2447,7 +2553,7 @@ function Chat() {
 				onChange: changeSound,
 				onStop: stoppable ? stop : void 0
 			}),
-			times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
+			metrics && times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
 				times,
 				whole,
 				earlier
@@ -2847,8 +2953,9 @@ function ClipTimes(props) {
 }
 function StepState(props) {
 	const { step, status } = props;
+	const metrics = useSettings().show_metrics;
 	if (step.done >= step.total) {
-		const took = step.seconds !== null ? ` in ${duration(step.seconds)}` : "";
+		const took = metrics && step.seconds !== null ? ` in ${duration(step.seconds)}` : "";
 		return /* @__PURE__ */ u("span", {
 			className: "done",
 			children: ["Done", took]
@@ -3085,11 +3192,12 @@ function Contents({ contents, linked, build, onRebuild, onChanged }) {
 	});
 }
 function Rebuild({ build, onRebuild }) {
+	const metrics = useSettings().show_metrics;
 	const [asking, setAsking] = d(false);
 	const [error, setError] = d(null);
 	if (busy(build)) return /* @__PURE__ */ u("p", {
 		className: "muted busy",
-		children: [wikiText(build), " The pages below stay as they are until it is done."]
+		children: [wikiText(build, metrics), " The pages below stay as they are until it is done."]
 	});
 	const start = () => {
 		setError(null);
@@ -3132,7 +3240,7 @@ function Rebuild({ build, onRebuild }) {
 				className: "error",
 				children: [
 					"The last rebuild didn't finish: ",
-					wikiText(build),
+					wikiText(build, metrics),
 					" The pages below are the ones built before it. You can try again."
 				]
 			}),
@@ -3836,16 +3944,20 @@ function App() {
 		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("header", { children: [/* @__PURE__ */ u("a", {
-			className: "brand",
-			href: "#/",
-			children: "ImageSkinForLLM"
-		}), /* @__PURE__ */ u("nav", { children: NAV.map((item) => /* @__PURE__ */ u("a", {
-			href: item.href,
-			className: current(route?.page) === item.page ? "current" : void 0,
-			children: item.label
-		}, item.page)) })] }),
+	return /* @__PURE__ */ u(SettingsProvider, { children: [
+		/* @__PURE__ */ u("header", { children: [
+			/* @__PURE__ */ u("a", {
+				className: "brand",
+				href: "#/",
+				children: "ImageSkinForLLM"
+			}),
+			/* @__PURE__ */ u("nav", { children: NAV.map((item) => /* @__PURE__ */ u("a", {
+				href: item.href,
+				className: current(route?.page) === item.page ? "current" : void 0,
+				children: item.label
+			}, item.page)) }),
+			/* @__PURE__ */ u(SettingsMenu, {})
+		] }),
 		/* @__PURE__ */ u("main", { children: content }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
 	] });

@@ -15,6 +15,7 @@ var s$1;
 var h$1;
 var p$1;
 var v$1;
+var y$1;
 var d$1 = {};
 var w$1 = [];
 var _$1 = /acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i;
@@ -30,9 +31,9 @@ function k$1(l, u, t) {
 	var i, r, o, e = {};
 	for (o in u) "key" == o ? i = u[o] : "ref" == o ? r = u[o] : e[o] = u[o];
 	if (arguments.length > 2 && (e.children = arguments.length > 3 ? n.call(arguments, 2) : t), "function" == typeof l && null != l.defaultProps) for (o in l.defaultProps) void 0 === e[o] && (e[o] = l.defaultProps[o]);
-	return x(l, e, i, r, null);
+	return x$1(l, e, i, r, null);
 }
-function x(n, t, i, r, o) {
+function x$1(n, t, i, r, o) {
 	var e = {
 		type: n,
 		props: t,
@@ -89,7 +90,7 @@ function L(n, l, u, t, i, r, o, e, f, c, a) {
 }
 function T$1(n, l, u, t, i) {
 	var r, o, e, f, c, a = u.length, s = a, h = 0;
-	for (n.__k = new Array(i), r = 0; r < i; r++) null != (o = l[r]) && "boolean" != typeof o && "function" != typeof o ? ("string" == typeof o || "number" == typeof o || "bigint" == typeof o || o.constructor == String ? o = n.__k[r] = x(null, o, null, null, null) : g(o) ? o = n.__k[r] = x(S, { children: o }, null, null, null) : void 0 === o.constructor && o.__b > 0 ? o = n.__k[r] = x(o.type, o.props, o.key, o.ref ? o.ref : null, o.__v) : n.__k[r] = o, f = r + h, o.__ = n, o.__b = n.__b + 1, e = null, -1 != (c = o.__i = O(o, u, f, s)) && (s--, (e = u[c]) && (e.__u |= 2)), null == e || null == e.__v ? (-1 == c && (i > a ? h-- : i < a && h++), "function" != typeof o.type && (o.__u |= 4)) : c != f && (c == f - 1 ? h-- : c == f + 1 ? h++ : (c > f ? h-- : h++, o.__u |= 4))) : n.__k[r] = null;
+	for (n.__k = new Array(i), r = 0; r < i; r++) null != (o = l[r]) && "boolean" != typeof o && "function" != typeof o ? ("string" == typeof o || "number" == typeof o || "bigint" == typeof o || o.constructor == String ? o = n.__k[r] = x$1(null, o, null, null, null) : g(o) ? o = n.__k[r] = x$1(S, { children: o }, null, null, null) : void 0 === o.constructor && o.__b > 0 ? o = n.__k[r] = x$1(o.type, o.props, o.key, o.ref ? o.ref : null, o.__v) : n.__k[r] = o, f = r + h, o.__ = n, o.__b = n.__b + 1, e = null, -1 != (c = o.__i = O(o, u, f, s)) && (s--, (e = u[c]) && (e.__u |= 2)), null == e || null == e.__v ? (-1 == c && (i > a ? h-- : i < a && h++), "function" != typeof o.type && (o.__u |= 4)) : c != f && (c == f - 1 ? h-- : c == f + 1 ? h++ : (c > f ? h-- : h++, o.__u |= 4))) : n.__k[r] = null;
 	if (s) for (r = 0; r < a; r++) null != (e = u[r]) && 0 == (2 & e.__u) && (e.__e == t && (t = $(e)), K(e, e));
 	return t;
 }
@@ -250,6 +251,29 @@ function R(u, t, i) {
 	var r, o, e, f;
 	t == document && (t = document.documentElement), l$1.__ && l$1.__(u, t), o = (r = "function" == typeof i) ? null : i && i.__k || t.__k, e = [], f = [], q(t, u = (!r && i || t).__k = k$1(S, null, [u]), o || d$1, d$1, t.namespaceURI, !r && i ? [i] : o ? null : t.firstChild ? n.call(t.childNodes) : null, e, !r && i ? i : o ? o.__e : t.firstChild, r, f), D$1(e, u, f), u.props.children = null;
 }
+function X(n) {
+	function l(n) {
+		var u, t;
+		return this.getChildContext || (u = /* @__PURE__ */ new Set(), (t = {})[l.__c] = this, this.getChildContext = function() {
+			return t;
+		}, this.componentWillUnmount = function() {
+			u = null;
+		}, this.shouldComponentUpdate = function(n) {
+			this.props.value != n.value && u.forEach(function(n) {
+				n.__e = !0, A$1(n);
+			});
+		}, this.sub = function(n) {
+			u.add(n);
+			var l = n.componentWillUnmount;
+			n.componentWillUnmount = function() {
+				u && u.delete(n), l && l.call(n);
+			};
+		}), n.children;
+	}
+	return l.__c = "__cC" + y$1++, l.__ = n, l.Provider = l.__l = (l.Consumer = function(n, l) {
+		return n.children(l);
+	}).contextType = l, l;
+}
 n = w$1.slice, l$1 = { __e: function(n, l, u, t) {
 	for (var i, r, o; l = l.__;) if ((i = l.__c) && !i.__) try {
 		if ((r = i.constructor) && null != r.getDerivedStateFromError && (i.setState(r.getDerivedStateFromError(n)), o = i.__d), null != i.componentDidCatch && (i.componentDidCatch(n, t || {}), o = i.__d), o) return i.__E = i;
@@ -264,7 +288,7 @@ n = w$1.slice, l$1 = { __e: function(n, l, u, t) {
 	this.__v && (this.__e = !0, n && this.__h.push(n), A$1(this));
 }, C$1.prototype.render = S, i$2 = [], o$1 = "function" == typeof Promise ? Promise.prototype.then.bind(Promise.resolve()) : setTimeout, e$1 = function(n, l) {
 	return n.__v.__b - l.__v.__b;
-}, H.__r = 0, f$2 = Math.random().toString(8), c$1 = "__d" + f$2, a$1 = "__a" + f$2, s$1 = /(PointerCapture)$|Capture$/i, h$1 = 0, p$1 = V(!1), v$1 = V(!0);
+}, H.__r = 0, f$2 = Math.random().toString(8), c$1 = "__d" + f$2, a$1 = "__a" + f$2, s$1 = /(PointerCapture)$|Capture$/i, h$1 = 0, p$1 = V(!1), v$1 = V(!0), y$1 = 0;
 //#endregion
 //#region node_modules/preact/hooks/dist/hooks.module.js
 var t;
@@ -340,6 +364,10 @@ function A(n) {
 function T(n, r) {
 	var u = s(t++, 7);
 	return C(u.__H, r) && (u.__ = n(), u.__H = r, u.__h = n), u.__;
+}
+function x(n) {
+	var u = r.context[n.__c], i = s(t++, 9);
+	return i.c = n, u ? (i.__ ?? (i.__ = !0, u.sub(r)), u.props.value) : n.__;
 }
 function j() {
 	for (var n; n = f$1.shift();) {
@@ -442,4 +470,4 @@ function u(e, t, n, o, i, u) {
 	return l$1.vnode && l$1.vnode(l), l;
 }
 //#endregion
-export { h as a, d as i, A as n, R as o, _ as r, S as s, u as t };
+export { h as a, S as c, d as i, X as l, A as n, x as o, _ as r, R as s, u as t };

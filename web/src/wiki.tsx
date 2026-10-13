@@ -36,6 +36,7 @@ import {
   wikiPageHref,
 } from "./api";
 import { wikiText } from "./content";
+import { useSettings } from "./settings";
 
 // How often a rebuild's progress is checked.
 export const WIKI_POLL_MS = 2000;
@@ -208,12 +209,13 @@ function Contents({ contents, linked, build, onRebuild, onChanged }: ContentsPro
 
 // "Rebuild the wiki", asked once more before it starts, then how far the rebuild has got.
 function Rebuild({ build, onRebuild }: { build?: WikiBuild; onRebuild: () => Promise<void> }) {
+  const metrics = useSettings().show_metrics;
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (busy(build)) {
     return (
       <p className="muted busy">
-        {wikiText(build!)} The pages below stay as they are until it is done.
+        {wikiText(build!, metrics)} The pages below stay as they are until it is done.
       </p>
     );
   }
@@ -248,7 +250,7 @@ function Rebuild({ build, onRebuild }: { build?: WikiBuild; onRebuild: () => Pro
       )}
       {build?.state === "failed" && !error && (
         <p className="error">
-          The last rebuild didn't finish: {wikiText(build)} The pages below are the ones built
+          The last rebuild didn't finish: {wikiText(build, metrics)} The pages below are the ones built
           before it. You can try again.
         </p>
       )}
