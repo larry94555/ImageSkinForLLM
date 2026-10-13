@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 MAX_TITLE_CHARS = 200
 MAX_SUMMARY_CHARS = 5000
+UNREADABLE = "The saved edits could not be read, so nothing was changed. Try again."
 
 
 class EditError(Exception):
@@ -37,7 +38,16 @@ class WikiEdits:
         self._lock = threading.Lock()
 
     def get(self, pdf_id: str) -> dict[str, dict[str, Any]]:
-        """A PDF's edits by entry id: title, summary, edited_at and review."""
+        """A PDF's edits by entry id: title, summary, edited_at and review. Unreadable edits are
+        logged and shown as none, for reading only: a change refuses them (see _load)."""
+        try:
+            return self._load(pdf_id)
+        except EditError:
+            return {}
+
+    def _load(self, pdf_id: str) -> dict[str, dict[str, Any]]:
+        """The edits to change. Raises EditError (500) when the file can't be read, so a change
+        never replaces edits it couldn't read with fewer."""
         path = self._path(pdf_id)
         try:
             saved = json.loads(path.read_text(encoding="utf-8"))
@@ -47,9 +57,14 @@ class WikiEdits:
             logger.error(
                 "Could not read the wiki edits", extra={"path": str(path), "error": str(e)}
             )
-            return {}
+            raise EditError(UNREADABLE, status=500) from e
         edits = saved.get("edits") if isinstance(saved, dict) else None
-        return edits if isinstance(edits, dict) else {}
+        if not isinstance(edits, dict):
+            logger.error(
+                "Could not read the wiki edits", extra={"path": str(path), "error": "not edits"}
+            )
+            raise EditError(UNREADABLE, status=500)
+        return edits
 
     def save(self, pdf_id: str, entry_id: str, title: str, summary: str) -> dict[str, Any]:
         """Keeps the user's title and summary for an entry; saving it again marks it checked."""
@@ -67,7 +82,7 @@ class WikiEdits:
             "review": False,
         }
         with self._lock:
-            edits = self.get(pdf_id)
+            edits = self._load(pdf_id)
             edits[entry_id] = edit
             self._write(pdf_id, edits)
         return edit
@@ -75,7 +90,7 @@ class WikiEdits:
     def discard(self, pdf_id: str, entry_id: str) -> bool:
         """Back to what the LLM built; whether there was an edit."""
         with self._lock:
-            edits = self.get(pdf_id)
+            edits = self._load(pdf_id)
             if edits.pop(entry_id, None) is None:
                 return False
             self._write(pdf_id, edits)
@@ -84,7 +99,7 @@ class WikiEdits:
     def reviewed(self, pdf_id: str, entry_id: str) -> bool:
         """The user has checked an edit after a rebuild; whether there was one."""
         with self._lock:
-            edits = self.get(pdf_id)
+            edits = self._load(pdf_id)
             if entry_id not in edits:
                 return False
             edits[entry_id] = {**edits[entry_id], "review": False}
@@ -94,7 +109,7 @@ class WikiEdits:
     def flag_all(self, pdf_id: str) -> int:
         """After a rebuild: every edit is to be checked against the new wiki. How many."""
         with self._lock:
-            edits = self.get(pdf_id)
+            edits = self._load(pdf_id)
             if not edits:
                 return 0
             for entry_id, edit in edits.items():

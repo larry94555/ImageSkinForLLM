@@ -168,10 +168,13 @@ class WikiJob:
         EditError when there is no such entry or the edit can't be kept."""
         start = time.perf_counter()
         pdf_id = page_id.split("-", 1)[0]
-        saved = self._saved(pdf_id)
-        if saved is None or find(from_saved(saved["outline"]), page_id) is None:
-            raise EditError("No such wiki page.", status=404)
-        self.edits.save(pdf_id, page_id, title, summary)
+        # Under the lock a new build is saved and its edits flagged with, so an edit belongs
+        # either to the pages before it (and is flagged) or to the new ones (and isn't).
+        with self._lock:
+            saved = self._saved(pdf_id)
+            if saved is None or find(from_saved(saved["outline"]), page_id) is None:
+                raise EditError("No such wiki page.", status=404)
+            self.edits.save(pdf_id, page_id, title, summary)
         logger.info(
             "Wiki entry edited",
             extra={
@@ -426,10 +429,11 @@ class WikiJob:
                 return True  # replaced or removed meanwhile; it is built again, or not needed
             if not self._save(saved):
                 return True
-        try:
-            flagged = self.edits.flag_all(pdf_id)  # to be checked against the new pages
-        except EditError:
-            flagged = 0  # logged; the edits are kept, just not flagged
+            try:
+                # The edits made before these pages are to be checked against them.
+                flagged = self.edits.flag_all(pdf_id)
+            except EditError:
+                flagged = 0  # logged; the edits are kept, just not flagged
         logger.info(
             "Wiki pages built",
             extra={

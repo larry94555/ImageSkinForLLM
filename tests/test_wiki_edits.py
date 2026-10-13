@@ -1,6 +1,8 @@
 import io
 import json
 import logging
+import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -64,12 +66,30 @@ def test_unreadable_or_unwritable_edits_are_logged(
     assert edits.get("a") == {} and edits.get("b") == {}
     assert "Could not read the wiki edits" in caplog.text
 
-    blocked = WikiEdits(tmp_path / "file")
-    (tmp_path / "file").write_text("not a folder")
+    blocked = WikiEdits(tmp_path / "blocked")
+    (tmp_path / "blocked" / "a.edits.writing").mkdir(parents=True)  # where it is written first
     with pytest.raises(EditError, match="could not be saved") as refused:
         blocked.save("a", "a-rain", "Rain", "Rain falls.")
     assert refused.value.status == 500
     assert "Could not save the wiki edits" in caplog.text
+
+
+@pytest.mark.parametrize("stored", ["{ broken", "[]", '{"edits": []}'])
+def test_a_change_never_replaces_edits_it_could_not_read(tmp_path: Path, stored: str) -> None:
+    path = tmp_path / "a.edits.json"
+    path.write_text(stored)
+    edits = WikiEdits(tmp_path)
+    changes: list[Callable[[], object]] = [
+        lambda: edits.save("a", "a-rain", "Rain", "Rain falls."),
+        lambda: edits.discard("a", "a-rain"),
+        lambda: edits.reviewed("a", "a-rain"),
+        lambda: edits.flag_all("a"),
+    ]
+    for change in changes:
+        with pytest.raises(EditError, match="could not be read, so nothing was changed") as refused:
+            change()
+        assert refused.value.status == 500
+    assert path.read_text() == stored  # left as it was, to be recovered
 
 
 def test_an_edit_whose_entry_is_gone_is_listed_as_lost() -> None:
@@ -240,3 +260,37 @@ def test_a_failed_flag_after_a_rebuild_keeps_the_new_pages(
     wiki.rebuild(pdf.id)
     wiki.wait()
     assert wiki.statuses()[pdf.id].state == "done"
+
+
+def test_an_edit_made_as_a_rebuild_is_saved_is_not_flagged(tmp_path: Path) -> None:
+    """The new pages and the flags on the edits made before them go in together: an edit
+    waiting for them is made on the new pages, and not flagged."""
+    store, readings, wiki = jobs(tmp_path)
+    pdf = store.add("weather.pdf", io.BytesIO(PDF))
+    readings.queue(pdf)
+    settle(readings, wiki)
+    wiki.edit(f"{pdf.id}-p1", "Rain", "Before the rebuild.")
+
+    edited = threading.Event()
+    late: list[threading.Thread] = []
+    flag_all = wiki.edits.flag_all
+
+    def late_edit() -> None:
+        wiki.edit(f"{pdf.id}-p2", "Snow", "After the rebuild.")
+        edited.set()
+
+    def flag_after_a_late_edit(pdf_id: str) -> int:
+        # The new pages are saved: an edit now would be on them.
+        thread = threading.Thread(target=late_edit)
+        thread.start()
+        late.append(thread)
+        edited.wait(0.5)  # it waits for the flags, so it isn't done
+        return flag_all(pdf_id)
+
+    wiki.edits.flag_all = flag_after_a_late_edit  # type: ignore[method-assign]
+    wiki.rebuild(pdf.id)
+    wiki.wait()
+    late[0].join(5)
+    edits = wiki.edits.get(pdf.id)
+    assert edits[f"{pdf.id}-p1"]["review"]  # made before the rebuild: to check
+    assert not edits[f"{pdf.id}-p2"]["review"]  # made on the new pages
