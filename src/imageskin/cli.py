@@ -95,7 +95,9 @@ def build_parser() -> argparse.ArgumentParser:
         "spoken-text",
         help="print what the voice will say for a reply: Markdown, code, URLs and emoji left out",
     )
-    spoken.add_argument("text", nargs="?", help="the reply, as shown in the chat")
+    # Several words are joined, so the reply works however the shell splits it: Windows cmd
+    # doesn't treat single quotes as quoting.
+    spoken.add_argument("text", nargs="*", help="the reply, as shown in the chat")
     spoken.add_argument("--file", type=Path, help="read the reply from this UTF-8 text file")
     prepare = commands.add_parser(
         "prepare",
@@ -312,7 +314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Wrote {wav} ({seconds:.1f} seconds) and word and sound timings to {timings}")
         return 0
     if args.command == "spoken-text":
-        return print_spoken_text(args.text, args.file)
+        return print_spoken_text(" ".join(args.text) if args.text else None, args.file)
     if args.command == "lookup":
         return print_lookups(args.questions, args.wiki, args.pdf)
     if args.command == "prepare":

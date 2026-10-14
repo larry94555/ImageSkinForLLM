@@ -291,6 +291,12 @@ def test_spoken_text_prints_what_the_voice_says(
     assert "duration_ms" in vars(record)
 
 
+def test_spoken_text_joins_a_reply_split_into_words(capsys: pytest.CaptureFixture[str]) -> None:
+    # Larry's test on Windows (2026-10-14): cmd passed a reply in single quotes as many words.
+    assert main(["spoken-text", "The", "function", "$\\zeta(s)$", "is", "key."]) == 0
+    assert capsys.readouterr().out == "The function zeta of s is key.\n"
+
+
 def test_spoken_text_reads_a_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     reply = tmp_path / "reply.md"
     reply.write_text("Try:\n\n```\nx = 1\n```\n- `a` is _one_ ✅", encoding="utf-8")
