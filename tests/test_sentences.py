@@ -258,3 +258,18 @@ def test_math_over_several_lines_is_never_cut(opener: str, closer: str, step: in
         holding = [s for s in sentences if opener in s or closer in s]
         assert len(holding) == 1 and opener in holding[0] and closer in holding[0]
         assert all("$" not in spoken_text(s) and "\\" not in spoken_text(s) for s in sentences)
+
+
+@pytest.mark.parametrize("step", [1, 3, 1000])
+def test_a_dollar_in_code_or_a_url_does_not_hold_back_the_sentence(step: int) -> None:
+    # Review on PR #79: a $ in inline code was taken as math still open.
+    assert split("Use `$HOME`. Next.", step) == ["Use `$HOME`.", "Next."]
+    assert split("Run `$$`. Next one.\nAnd more. Done.", step) == [
+        "Run `$$`.",
+        "Next one.",
+        "And more.",
+        "Done.",
+    ]
+    assert split("See https://a.io/$x here. Next.", step) == ["See https://a.io/$x here.", "Next."]
+    code = "Run this:\n\n```\necho $$\n```\n\nThen go. Done."
+    assert split(code, step)[-2:] == ["Then go.", "Done."]

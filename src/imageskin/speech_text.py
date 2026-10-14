@@ -125,10 +125,24 @@ _DISPLAY_OPENED = re.compile(r"\$\$|\\[\[(]")
 _DOLLAR_OPENED = re.compile(r"(?<![\\$\w])\$(?![\s$\d])[^\n]*$")
 
 
+# What isn't math even with a $ in it: code blocks, inline code (or a backtick that may yet
+# start some, on the line still being written) and URLs.
+_NOT_MATH = (_REPLACE[0][0], INLINE_CODE, re.compile(r"`[^`\n]*\Z"), _AUTOLINK, _URL_ONLY)
+
+
+def _without_code(text: str) -> str:
+    """`text` with what isn't math blanked out, so a $ in it opens nothing."""
+    for pattern in _NOT_MATH:
+        text = pattern.sub(lambda m: re.sub(r"[^\n]", " ", m.group()), text)
+    return text
+
+
 def inside_math(text: str, at: int) -> bool:
     """Whether cutting `text` at `at` would split math (roadmap R16b): math that is closed, or
     that has been opened and may yet be closed while the reply is still being written. $$, \\[
-    and \\( count across lines, a single $ only on its own line."""
+    and \\( count across lines, a single $ only on its own line. A $ in code or a URL opens
+    nothing."""
+    text = _without_code(text)
     spans = [m.span() for m in MATH.finditer(text)]
     if any(a < at < b for a, b in spans):
         return True
