@@ -871,9 +871,9 @@ test("prepare says what is missing when it can't start", async () => {
 
 test("a failed job says why, marks where it stopped and can be tried again", async () => {
   const steps = STEPS.map((s) => (s.key === "loop" ? { ...s, left_s: null } : s));
-  prepareServer([{ ...RUNNING, state: "failed", steps, error: "ffmpeg was not found." }]);
+  prepareServer([{ ...RUNNING, state: "failed", steps, error: "The video couldn't be prepared on this computer." }]);
   await openAt("#/setup");
-  expect(await screen.findByText("ffmpeg was not found.")).toBeTruthy();
+  expect(await screen.findByText("The video couldn't be prepared on this computer.")).toBeTruthy();
   expect(screen.getByText("Stopped")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 });
