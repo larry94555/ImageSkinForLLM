@@ -55,6 +55,7 @@ from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
+from imageskin.topics import main_entries
 from imageskin.ui_settings import load_ui_settings, save_ui_settings
 from imageskin.uploads import (
     MEDIA_TYPE,
@@ -688,6 +689,10 @@ def create_app(
 
     logger.info("Question scope", extra={"general_prompts": general_prompts})
 
+    # The topics (R41f): the wiki's main entries, read each time, so they follow the PDFs.
+    def content_topics() -> list[str]:
+        return main_entries(wiki.contents())
+
     if client is not None:
         conversation = Conversation(
             client.ask,
@@ -698,6 +703,7 @@ def create_app(
             llm_busy=core_share.llm,
             find=find_content,
             content_only=content_only,
+            topics=content_topics,
         )
     else:
         assert ask_llm is not None
@@ -709,6 +715,7 @@ def create_app(
             llm_busy=core_share.llm,
             find=find_content,
             content_only=content_only,
+            topics=content_topics,
         )
 
     # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's

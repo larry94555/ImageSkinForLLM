@@ -77,7 +77,11 @@ def test_the_decline_is_spoken_like_a_streamed_reply() -> None:
         Llm(), lambda: 4096, stream=stream, find=find, content_only=lambda: True
     )
     conversation.send("Tell me a joke.", said.append)
-    assert said == [None, OFF_TOPIC]
+    assert said == [
+        None,
+        "Sorry, I can only answer questions about the material I was given.",
+        "Try asking about something in it.",
+    ]
 
 
 def app_with_content(tmp_path: Path, llm: Llm, general_prompts: bool, add_pdf: bool) -> TestClient:
@@ -110,7 +114,13 @@ def app_with_content(tmp_path: Path, llm: Llm, general_prompts: bool, add_pdf: b
 @pytest.mark.parametrize(
     ("general_prompts", "add_pdf", "answer"),
     [
-        (False, True, OFF_TOPIC),  # the default: declined
+        # the default: declined, naming the topic it can answer instead (R41f)
+        (
+            False,
+            True,
+            "Sorry, I can only answer questions about the material I was given."
+            " You could ask me about Moons of Mars.",
+        ),
         (True, True, "Two moons."),  # allowed: answered
         (False, False, "Two moons."),  # no PDFs yet: nothing to keep to, so answered
     ],
