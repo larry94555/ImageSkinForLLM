@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from test_question_scope import PDF, Llm, app_with_content
 
 from imageskin.app import create_app
-from imageskin.chat import Conversation, Message, Turn
+from imageskin.chat import EARLIER, SUMMARY_PROMPT, Conversation, Message, Turn
 from imageskin.lookup import named_topic
 from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.review import Review
@@ -27,6 +27,7 @@ from imageskin.topics import (
     asks_for_topics,
     decline_reply,
     main_entries,
+    referred_topic,
     spoken_list,
     topics_reply,
 )
@@ -418,3 +419,60 @@ def test_while_a_second_pdf_is_built_the_first_s_topics_are_not_all_of_them(
 def test_a_pdf_that_cant_be_read_doesnt_keep_the_topics_waiting(tmp_path: Path) -> None:
     client = app_with_topics(tmp_path, Llm(), ["Rain"], "Rain falls.", pdfs=2, unreadable=True)
     assert ask(client, "What topics can you talk about?").startswith("I can talk about Rain.")
+
+
+def test_the_topics_listed_can_be_referred_to_through_the_app(tmp_path: Path) -> None:
+    """Review on PR #85: with general prompts off, "the second one" after the list is answered
+    from that topic, with the list in the history, rather than declined."""
+    llm = Llm()
+    client = app_with_topics(tmp_path, llm, ["Rain", "Snow", "Hail"], "Weather falls.")
+    with patch("imageskin.chat.random.choice", lambda topics: "Hail"):
+        listed = ask(client, "What topics can you talk about?")
+    assert listed.startswith("I can talk about Rain, Snow and Hail.")
+    assert ask(client, "Tell me about the second one") == "Two moons."
+    sent = llm.sent[-1]
+    assert "About Snow." in sent[-1]["content"]
+    assert sent[-1]["content"].endswith("Tell me about the second one")
+    assert {"role": "assistant", "content": listed} in sent
+    assert ask(client, "OK, and that one?") == "Two moons."
+    assert "About Hail." in llm.sent[-1][-1]["content"]
+    # Not a reference: still declined.
+    assert ask(client, "Who won the first world cup?").startswith("Sorry")
+
+
+@pytest.mark.parametrize(
+    ("prompt", "topic"),
+    [
+        ("Tell me about the second one", "Snow"),
+        ("What about the last one?", "Hail"),
+        ("And the third", "Hail"),
+        ("topic 2 please", "Snow"),
+        ("Tell me more about that one", "Rain"),
+        ("What did the one you suggested mean?", "Rain"),
+        ("What was the first prime number?", None),
+        ("Tell me about the fourth one", None),
+        ("Tell me a joke", None),
+    ],
+)
+def test_a_prompt_can_refer_to_a_listed_topic(prompt: str, topic: str | None) -> None:
+    assert referred_topic(prompt, ["Rain", "Snow", "Hail"], "Rain") == topic
+
+
+def test_a_topics_reply_that_passes_the_history_budget_starts_a_summary() -> None:
+    """Review on PR #85: the reply made here is kept like the LLM's, summary and all."""
+    sent: list[list[Message]] = []
+
+    def llm(messages: list[Message]) -> str:
+        sent.append(messages)
+        return "OK."
+
+    conversation = Conversation(llm, lambda: 4096, topics=lambda: ["Rain"])  # budget 2048
+    for i in range(3):
+        conversation.send(f"Prompt {i} " + "x" * 640)
+        conversation.wait()
+    assert not any(m[0]["content"] == SUMMARY_PROMPT for m in sent)
+    conversation.send("What topics can you talk about?")
+    conversation.wait()
+    assert any(m[0]["content"] == SUMMARY_PROMPT for m in sent)
+    conversation.send("Tell me about the first one")
+    assert sent[-1][0]["content"].endswith(f"{EARLIER}\nOK.")

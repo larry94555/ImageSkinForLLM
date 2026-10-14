@@ -92,9 +92,14 @@ def spoken_list(items: Sequence[str], last: str = "and") -> str:
     return f"{', '.join(items[:-1])} {last} {items[-1]}"
 
 
+def spoken_topics(topics: list[str]) -> list[str]:
+    """The topics named aloud, in order: up to SPOKEN_TOPICS of them."""
+    return topics[:SPOKEN_TOPICS]
+
+
 def listed(topics: list[str]) -> str:
     """The topics said aloud, up to SPOKEN_TOPICS of them, then how many more there are."""
-    named = topics[:SPOKEN_TOPICS]
+    named = spoken_topics(topics)
     more = len(topics) - len(named)
     return spoken_list([*named, f"{more} more on the Wiki page"] if more else named)
 
@@ -132,3 +137,34 @@ def decline_reply(topics: list[str], sample: Sample | None = None) -> list[str]:
     if len(topics) > DECLINE_TOPICS:
         named = (sample or random.sample)(topics, DECLINE_TOPICS)
     return [OFF_TOPIC_START, f"You could ask me about {spoken_list(named, 'or')}."]
+
+
+ORDINALS = {
+    "first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3, "fourth": 4, "4th": 4,
+    "fifth": 5, "5th": 5, "sixth": 6, "6th": 6, "seventh": 7, "7th": 7, "eighth": 8, "8th": 8,
+    "last": -1,
+}  # fmt: skip
+# "the second one", "the last topic", "the third" at the end, "number 2", "topic 2".
+_NTH = re.compile(
+    rf"\bthe ({'|'.join(ORDINALS)})(?: (?:one|topic)\b|(?=\W*$))|\b(?:number|topic) (\d)\b"
+)
+# "that one", "that topic", "the one you suggested", "your suggestion".
+_SUGGESTED = re.compile(
+    r"\b(?:that (?:one|topic)|the (?:one|topic) you (?:suggested|mentioned)|your suggestion)\b"
+)
+
+
+def referred_topic(prompt: str, named: list[str], suggested: str | None) -> str | None:
+    """The topic a prompt refers to after the topics were listed (`named`, in the order said,
+    and the one `suggested`): "Tell me about the second one" is the second named, "that one"
+    the one suggested; None when it refers to none of them."""
+    text = prompt.lower()
+    nth = _NTH.search(text)
+    if nth is not None and named:
+        n = ORDINALS[nth[1]] if nth[1] else int(nth[2])
+        if n == -1:
+            return named[-1]
+        return named[n - 1] if 1 <= n <= len(named) else None
+    if suggested is not None and _SUGGESTED.search(text):
+        return suggested
+    return None

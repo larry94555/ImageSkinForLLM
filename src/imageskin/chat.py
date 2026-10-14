@@ -9,6 +9,7 @@ the older turns are summarized by the LLM, and the summary is sent in their plac
 
 import json
 import logging
+import random
 import threading
 import time
 import urllib.error
@@ -19,7 +20,13 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from imageskin.sentences import SentenceSplitter
-from imageskin.topics import asks_for_topics, decline_reply, topics_reply
+from imageskin.topics import (
+    asks_for_topics,
+    decline_reply,
+    referred_topic,
+    spoken_topics,
+    topics_reply,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +383,8 @@ class Conversation:
         self._find = find
         self._topics = topics
         self._topics_complete = topics_complete
+        # The topics last named, in order, and the one suggested, for "the first one" (R41f).
+        self._told: tuple[list[str], str | None] = ([], None)
         self._content_only = content_only
         self._ask = ask
         self._stream = stream
@@ -427,8 +436,14 @@ class Conversation:
         # couldn't be made, the oldest turns are left out.
         turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
         if asks_for_topics(prompt):
-            return self._tell_topics(prompt, turns, on_sentence)
-        found = self._look_up(prompt)
+            return self._tell_topics(prompt, turns, on_sentence, budget)
+        # "Tell me about the second one" after the topics were listed is about that topic, so
+        # that is what is looked up (review on PR #85); the LLM gets the prompt as it is, with
+        # the list in the history.
+        topic = referred_topic(prompt, *self._told)
+        if topic is not None:
+            logger.info("Prompt refers to a topic listed", extra={"topic": topic})
+        found = self._look_up(prompt if topic is None else topic)
         if found == [] and self._content_only():
             return self._decline(prompt, on_sentence)
         asked = self._with_content(prompt, found, room)
@@ -462,11 +477,6 @@ class Conversation:
                 extra={"error": str(e), "duration_ms": round((time.perf_counter() - start) * 1000)},
             )
             raise
-        said = [Turn("user", prompt), reply]
-        with self._lock:
-            self._turns = [*turns, *said]
-            self._transcript += said
-            place = len(self._transcript) - 1
         logger.info(
             "Chat reply received",
             extra={
@@ -474,14 +484,27 @@ class Conversation:
                 "duration_ms": round((time.perf_counter() - start) * 1000),
             },
         )
-        if history_tokens(self._summary, self._turns, count) > budget:
+        return reply, self._record(prompt, reply, turns, budget)
+
+    def _record(self, prompt: str, reply: Turn, turns: list[Turn] | None, budget: int) -> int:
+        """Keep the prompt and its reply, and return the reply's place. With `turns` (the ones
+        sent with this prompt), they are also sent with later prompts, and the older ones are
+        summarized once the history passes the budget, whether the LLM wrote the reply or it
+        was made here (review on PR #85)."""
+        said = [Turn("user", prompt), reply]
+        with self._lock:
+            if turns is not None:
+                self._turns = [*turns, *said]
+            self._transcript += said
+            place = len(self._transcript) - 1
+        if turns is not None and history_tokens(self._summary, self._turns, self._count) > budget:
             # After the reply rather than before the next prompt, so the reply doesn't wait for
             # it; the next prompt waits for it instead (see send).
             self._summarizer = threading.Thread(
                 target=self._summarize, args=(budget,), name="chat-summary", daemon=True
             )
             self._summarizer.start()
-        return reply, place
+        return place
 
     def _look_up(self, prompt: str) -> list[str] | None:
         """The passages the content has on the prompt, best first, or None when there is no
@@ -503,11 +526,13 @@ class Conversation:
             return []
 
     def _tell_topics(
-        self, prompt: str, turns: list[Turn], on_sentence: OnSentence | None
+        self, prompt: str, turns: list[Turn], on_sentence: OnSentence | None, budget: int
     ) -> tuple[Turn, int]:
         """Answer "What can you talk about?" from the topics, without asking the LLM (R41f).
-        It is sent to the LLM with later prompts, so "Tell me about the first one" works."""
+        It is sent to the LLM with later prompts, and the topics named and the one suggested are
+        kept, so "Tell me about the first one" and "that one" work."""
         topics = self._list_topics()
+        suggested = random.choice(topics) if topics else None
         content_only = self._content_only()
         try:
             complete = self._topics_complete()
@@ -518,7 +543,9 @@ class Conversation:
             "Topics asked for",
             extra={"topics": len(topics), "content_only": content_only, "complete": complete},
         )
-        return self._say(prompt, topics_reply(topics, content_only, complete), on_sentence, turns)
+        sentences = topics_reply(topics, content_only, complete, lambda named: suggested or "")
+        self._told = (spoken_topics(topics), suggested if len(topics) > 1 and complete else None)
+        return self._say(prompt, sentences, on_sentence, turns, budget)
 
     def _decline(self, prompt: str, on_sentence: OnSentence | None) -> tuple[Turn, int]:
         """Say sorry, naming a few topics to ask about instead (R41f), without asking the LLM
@@ -537,20 +564,16 @@ class Conversation:
         sentences: list[str],
         on_sentence: OnSentence | None,
         turns: list[Turn] | None = None,
+        budget: int = 0,
     ) -> tuple[Turn, int]:
         """A reply made here rather than by the LLM, spoken a sentence at a time like a streamed
-        one. With `turns`, it is also sent to the LLM with later prompts."""
+        one. With `turns`, it is also sent to the LLM with later prompts, within `budget`."""
         if self._stream is not None and on_sentence is not None:
             on_sentence(None)
             for sentence in sentences:
                 on_sentence(sentence)
         reply = Turn("assistant", " ".join(sentences))
-        said = [Turn("user", prompt), reply]
-        with self._lock:
-            if turns is not None:
-                self._turns = [*turns, *said]
-            self._transcript += said
-            return reply, len(self._transcript) - 1
+        return reply, self._record(prompt, reply, turns, budget)
 
     def _with_content(self, prompt: str, found: list[str] | None, room: int) -> str:
         """The prompt with what the content has on it quoted before it: as many of the
