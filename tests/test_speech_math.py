@@ -84,6 +84,12 @@ def test_greek_letters_and_symbols_have_names() -> None:
             "The Riemann zeta function zeta of s is key.",
         ),
         ("The Riemann zeta function ζ(s) is key.", "The Riemann zeta function zeta of s is key."),
+        # Larry's reply that was spoken badly (2026-10-14).
+        (
+            "Yes, it does. The integral representation shows a link between ζ(s) and ζ(1-s).",
+            "Yes, it does. The integral representation shows a link between zeta of s and zeta"
+            " of 1 minus s.",
+        ),
         (
             "Here π ≈ 3.14 and 2π is a full turn.",
             "Here pi is approximately 3.14 and 2 pi is a full turn.",
