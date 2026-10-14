@@ -160,6 +160,43 @@ test("the chat's person sticks below the top bar, using its measured height", ()
   expect(rule(".stage")[0]).not.toMatch(/sticky/);
 });
 
+// The text on filled buttons and the user's chat bubble against their fill, in light and dark
+// mode, idle and hovered: at least 4.5:1, the WCAG AA target for normal text (review on PR #83).
+test("filled buttons keep readable white text in both modes, hovered too", () => {
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const light = styles.slice(styles.indexOf(":root {"), styles.indexOf("@media (prefers-color-scheme: dark)"));
+  const dark = styles.slice(styles.indexOf("@media (prefers-color-scheme: dark)"));
+  const token = (block: string, name: string) => block.match(new RegExp(`--${name}: (#[0-9a-f]{6});`))?.[1];
+  const text = token(light, "on-button") ?? "";
+  for (const block of [light, dark]) {
+    for (const fill of ["button", "button-hover"]) {
+      expect(contrast(text, token(block, fill) ?? "#ffffff")).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  // The buttons and the bubble use those tokens, not the accent, which lightens in dark mode.
+  expect(styles).toMatch(/background: var\(--button\);\s*color: var\(--on-button\);\s*font: inherit;/);
+  expect(styles).toMatch(/\.button:hover, button:hover \{ background: var\(--button-hover\); \}/);
+  expect(styles).toMatch(/ol\.turns li\.user \{[^}]*background: var\(--button\);[^}]*color: var\(--on-button\);/);
+});
+
+// A pressed button moves with `translate`, which adds to a `transform` instead of replacing it,
+// so the centred "Play the reply" stays centred when pressed (review on PR #83).
+test("pressing a button doesn't undo the centring of Play the reply", () => {
+  expect(styles).toMatch(/\.button:active, button:active \{ translate: 0 1px; \}/);
+  expect(styles).not.toMatch(/:active[^{]*\{[^}]*transform/);
+  expect(styles).toMatch(/\.play-reply \{[^}]*transform: translate\(-50%, -50%\);/);
+});
+
 test("without ResizeObserver the top bar is measured once and that is logged", async () => {
   serverWithConsent(true);
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(60);

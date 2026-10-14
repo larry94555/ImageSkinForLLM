@@ -29,6 +29,11 @@
   --accent-hover: #4338ca;
   --accent-soft: #eef0fe;
   --accent-ink: #3730a3;
+  /* The filled buttons and the user's chat bubble: white text, at least 4.5:1 in both modes */
+  /* (review on PR #83), so they keep the deeper indigo when the accent lightens in dark mode. */
+  --button: #4f46e5;
+  --button-hover: #4338ca;
+  --on-button: #ffffff;
   --error: #c4282f;
   --error-soft: #fdeeee;
   --ok: #15803d;
@@ -55,6 +60,8 @@
     --accent-hover: #a39eff;
     --accent-soft: rgb(139 132 255 / 0.14);
     --accent-ink: #c4c1ff;
+    --button: #4f46e5;
+    --button-hover: #5b54ea;
     --error: #ff8d8d;
     --error-soft: rgb(255 141 141 / 0.12);
     --ok: #6fdc95;
@@ -148,20 +155,22 @@ footer {
   padding: 8px 18px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #fff;
+  background: var(--button);
+  color: var(--on-button);
   font: inherit;
   font-weight: 600;
   font-size: 0.95rem;
   text-decoration: none;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, translate 0.05s ease;
 }
-.button:hover, button:hover { background: var(--accent-hover); }
-.button:active, button:active { transform: translateY(1px); }
-button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-button:disabled:hover { background: var(--accent); }
+.button:hover, button:hover { background: var(--button-hover); }
+/* Pressed: down 1px. `translate`, not `transform`, so a button placed with a transform (the */
+/* centred "Play the reply", review on PR #83) keeps its place. */
+.button:active, button:active { translate: 0 1px; }
+button:disabled { opacity: 0.5; cursor: not-allowed; translate: none; }
+button:disabled:hover { background: var(--button); }
 form { display: grid; gap: 16px; justify-items: start; }
 .check { display: flex; gap: 8px; align-items: flex-start; }
 .check input { margin-top: 0.3em; width: 1.1em; height: 1.1em; }
@@ -816,8 +825,8 @@ ol.turns li {
 ol.turns li.user {
   border-radius: 18px 18px 6px 18px;
   border-color: transparent;
-  background: #4f46e5; /* the same in dark mode, where white on the light accent is faint */
-  color: #fff;
+  background: var(--button); /* not the accent, which is faint under white in dark mode */
+  color: var(--on-button);
 }
 ol.turns li.user .who { color: rgb(255 255 255 / 0.75); }
 ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
