@@ -18,7 +18,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 8.9% | 8 of 8 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.3% | 3 of 3 |
 | 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e2 | 6 | 6.7% | 6 of 6 |
-| 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.6% | 0 |
+| 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.6% | 1 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.1% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 5.6% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.2% | 0 |
@@ -30,7 +30,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.2% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.1% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.2% | 0 |
-| | **Total** | | **90** | **100%** | **57 of 90** |
+| | **Total** | | **90** | **100%** | **58 of 90** |
 
 Sizes: 21 Simple, 69 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -56,7 +56,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | R32 | How the hosted site restricts access to its one user. features.md says single-user and HTTPS but names no mechanism. The simplest option is one password checked at the HTTPS proxy, with no accounts. R44 later replaces this with the administrator sign-on. |
 | R36 | The PDF tool that reads text, slides and tables. It must be free, run on CPU and allow hosted use. Scanned PDFs (pictures of pages) would also need OCR; whether they must be supported is open. **Picked in R36: pdfplumber** (MIT, on pdfminer.six, MIT), pure Python on the CPU, with table finding built in. Rejected: PyMuPDF (AGPL, which would bind a hosted site), pypdf and pypdfium2 alone (text only, no tables), Camelot (needs Ghostscript or OpenCV for tables). **Scanned PDFs are not read yet:** their pages are listed as having no text; OCR (for example Tesseract) can be a later PR if it's needed. |
 | R39 | How questions are looked up: keyword search over the wiki and PDF text, or a local embedding model. The simplest option is keyword search first, adding embeddings only if answers miss. **Picked in R39: keyword search (BM25)** over the wiki entries and the pieces read from the PDFs, with no model to download; embeddings can be added if answers miss. |
-| R41f | How a question asking what it can talk about is recognized. The simplest option is a short list of phrasings checked before the lookup, so it costs no LLM call and is never declined by item 28. |
+| R41f | How a question asking what it can talk about is recognized. The simplest option is a short list of phrasings checked before the lookup, so it costs no LLM call and is never declined by item 28. **Picked in R41f: that list**, as patterns matched against the whole question (in `topics.py`), so "What do you know about volcanoes?" is still a question about volcanoes. |
 | R41i | How a quiz answer is judged. The simplest option is to ask the chosen LLM with the question, the passages it was drawn from and the student's answer, for right, partly right or wrong and a one-line reason. |
 | R41j | How each question's topic and level are picked within the rule in item 55 (every topic once before any twice, levels split evenly). The simplest option is to deal the topics out in turn and the levels round-robin across them, with the chosen LLM writing each question from that topic's passages at that level (a recall question from its summary, deeper ones from its detail pages). |
 | R43 | Whether a Claude, OpenAI or Grok subscription can be used by a separate app at all. Not checked yet: these subscriptions are mainly for the providers' own apps, and an API key may be the only supported route. If a subscription can't be used, R43 is dropped and features.md updated. |
@@ -447,11 +447,12 @@ Added by Larry on 2026-10-13. The chat must be clean and professional enough to 
 
 Added by Larry on 2026-10-14, to build after the professional look. Today nothing tells a student which topics they can ask about and which they can't, and the app only answers questions. Larry added the assessment (R41j) later that day: Teach me should prepare a student to score 100% on it. The topics are the wiki's main entries, as item 38 later uses them for tagging.
 
-### R41f. "What can you talk about?" (Medium) · items 52, 53
+### R41f. "What can you talk about?" (Medium) · items 52, 53 · Done in [PR #85](https://github.com/larry94555/ImageSkinForLLM/pull/85)
 - A list of the content's topics, taken from the wiki's main entries and named in plain words, kept up to date as PDFs are added, removed or replaced.
 - A question like "What topics can you talk about?" is answered from that list, in a short spoken reply that suggests one to ask about, even when general prompts are off (R41), in which case it also says questions outside these topics can't be answered.
 - A prompt declined by R41 names a few topics it can answer instead.
 - **Can show:** with the guides and the Riemann paper added and general prompts off, ask "What topics can you talk about?" and hear the topics, then ask something off-topic and hear the decline name a few of them.
+- **Built:** the topics are each PDF's first-level wiki entries, with the teacher's edits, read again for every question so they follow the PDFs. "What topics can you talk about?", "What do you know about?", "What can I ask?" and similar questions are answered without the AI: the topics (up to 8, then how many more are on the Wiki page), "I can only answer questions about these topics" when general prompts are off, and one topic to start with, picked at random. The answer is sent to the AI with later questions. Before any PDF is added it says it can talk about anything, and while the PDFs are still being read it says to ask again in a little while. A declined question names three topics, picked at random, to ask about instead.
 
 ### R41g. Topic hints in the chat (Simple) · item 53
 - Under the prompt box, a short line naming a few of the topics, and a few example questions drawn from the wiki that send the question when clicked. When general prompts are off, the line says questions must be about these topics.

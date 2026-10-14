@@ -23,6 +23,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from imageskin.reading_job import ReadingJob
+from imageskin.topics import main_entries
 from imageskin.wiki_job import WikiJob
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,23 @@ STOP_WORDS = frozenset(
     no nor not now of off on once only or other our out over own same she should so some such
     than that the their them then there these they this those through to too under until up very
     was we were what when where which while who whom why will with would you your""".split()
+)
+# How a question can start by asking about something, taken off before it is looked up (R41f):
+# "What can you tell me about the zeta function integral?" is looked up as "the zeta function
+# integral", so a content without "tell" doesn't count it as the question's rarest word and find
+# nothing. Only these opening words go; the same words later on, or in the content ("Learning"),
+# still count (review on PR #85).
+ASKING_ABOUT = re.compile(
+    r"^[\W_]*(?:(?:so|ok|okay|and|hi|hello|hey|well|please)\b[\W_]*)*"
+    r"(?:(?:what|how much) (?:else )?(?:can|could|do|would|will) you (?:tell|teach|explain|say)"
+    r"(?: to)?(?: me| us)?(?: more)? about"
+    r"|(?:can|could|would|will) you (?:please )?(?:tell|teach|explain|describe)(?: to)?(?: me| us)?"
+    r"(?: more)?(?: about)?"
+    r"|(?:please )?(?:tell|teach) (?:me|us)(?: more)?(?: about)?"
+    r"|(?:please )?(?:explain|describe)"
+    r"|(?:i['’]?d|i would|i) (?:like|want|love) to (?:know|learn|hear)(?: more)?(?: about)?"
+    r"|what do you know about)\b",
+    re.IGNORECASE,
 )
 
 
@@ -144,6 +162,13 @@ def spelled_as_in(word: str, content: Counter[str]) -> str:
     return max(near, key=lambda w: content[w]) if near else word
 
 
+def asked_about(question: str) -> str:
+    """The question without the words it opens with to ask about something (ASKING_ABOUT), or
+    the whole question when nothing would be left."""
+    rest = ASKING_ABOUT.sub("", question, count=1)
+    return rest if words(rest) else question
+
+
 def passage_words(passage: Passage) -> list[str]:
     return words(passage.title) * 2 + words(passage.text)
 
@@ -225,7 +250,7 @@ def look_up(
     """The best wiki entries and PDF passages for a question, ranked together so a word's
     rarity is judged across all the content."""
     start = time.perf_counter()
-    ranked = rank(question, passages)
+    ranked = rank(asked_about(question), passages)
     wiki = [f for f in ranked if f.passage.source == "wiki"][:wiki_limit]
     pdf = [f for f in ranked if f.passage.source == "pdf"][:pdf_limit]
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -255,6 +280,21 @@ def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
     return passages
 
 
+def named_topic(question: str, contents: list[dict[str, Any]]) -> str | None:
+    """The topic (a main wiki entry, R41f) the question names: its title's words, together and
+    in order, as in "What's so special about the Zeta Function Integral?", or None. The one with
+    the most words when it names several. Its words scattered through the question don't name
+    it: "Is water safe to drink during my cycle?" isn't about the Water Cycle (review on #85)."""
+    asked = words(asked_about(question))
+
+    def named(title: list[str]) -> bool:
+        n = len(title)
+        return n > 0 and any(asked[i : i + n] == title for i in range(len(asked) - n + 1))
+
+    found = [t for t in main_entries(contents) if named(words(t))]
+    return max(found, key=lambda t: len(words(t)), default=None)
+
+
 class ContentLookup:
     """Looks questions up in the current wiki (with the user's edits) and what was read from the
     PDFs."""
@@ -263,8 +303,8 @@ class ContentLookup:
         self.wiki = wiki
         self.readings = readings
 
-    def passages(self) -> list[Passage]:
-        found = wiki_passages(self.wiki.contents())
+    def passages(self, contents: list[dict[str, Any]] | None = None) -> list[Passage]:
+        found = wiki_passages(self.wiki.contents() if contents is None else contents)
         for pdf in self.wiki.store.list():
             reading = self.readings.reading(pdf.id)
             if reading is not None:
@@ -275,8 +315,15 @@ class ContentLookup:
         self, question: str, wiki_limit: int = WIKI_LIMIT, pdf_limit: int = PDF_LIMIT
     ) -> Lookup:
         start = time.perf_counter()
-        passages = self.passages()  # unreadable saved files are logged and left out there
+        contents = self.wiki.contents()
+        passages = self.passages(contents)  # unreadable saved files are logged and left out there
         result = look_up(question, passages, wiki_limit, pdf_limit)
+        if not result.wiki and not result.pdf:
+            # A topic the person names (R41f) is always answered, however it is asked about.
+            topic = named_topic(question, contents)
+            if topic is not None:
+                logger.info("Question names a topic; looking the topic up", extra={"topic": topic})
+                result = replace(look_up(topic, passages, wiki_limit, pdf_limit), question=question)
         # The whole lookup, gathering the passages too, not only ranking them.
         result = replace(result, duration_ms=round((time.perf_counter() - start) * 1000, 1))
         logger.info(

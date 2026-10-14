@@ -250,9 +250,9 @@ def test_the_time_taken_includes_gathering_the_passages(
     lookup = ContentLookup(wiki, readings)
     gather = lookup.passages
 
-    def slow() -> list[Passage]:
+    def slow(contents: list[dict[str, Any]] | None = None) -> list[Passage]:
         time.sleep(0.05)
-        return gather()
+        return gather(contents)
 
     monkeypatch.setattr(lookup, "passages", slow)
     result = lookup.find("photosynthesis")

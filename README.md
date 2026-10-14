@@ -270,6 +270,8 @@ Under the video, when **Show timing metrics** is ticked in the **Settings** menu
 
 **A designed look** (roadmap R41e2): every page shares one design: the Inter typeface (SIL Open Font License, in `web/public/inter-OFL.txt`, bundled so the app needs no internet for it), white cards with soft shadows on a cool grey page, one indigo accent, a top bar with the app's mark and the pages as tabs, and a dark mode. The layout and the steps are the same as before.
 
+**"What can you talk about?"** (roadmap R41f): ask "What topics can you talk about?" (or "What do you know about?", "What can I ask?") and the person names the topics in the content, the main entries of each PDF's wiki, and suggests one to start with. It is answered straight away, without the AI, even when general prompts are off; then it also says only these topics can be answered. A question that is declined names a few topics to ask about instead.
+
 **Professional teacher pages** (roadmap R41e): Setup, Manage Content and the Wiki look like the chat, each says in a line what it is for, and Setup numbers its four steps. Their messages are in plain words, without technical terms: what went wrong in detail is in the server log.
 
 **A professional chat screen** (roadmap R41d): on a laptop the person is on the left and the conversation on the right; on a tablet held upright the person is above it. One status line says "Thinking…" and then "Getting ready to say it…". When there is no reply, the chat says only "Sorry, I couldn't answer that just now. Please try again in a moment."; why is in the browser console and the server log, not on the screen.
