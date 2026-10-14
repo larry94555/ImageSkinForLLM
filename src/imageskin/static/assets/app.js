@@ -2858,13 +2858,21 @@ function History$1(props) {
 function Stage(props) {
 	const { idle, onIdle, photo } = props;
 	const [still, setStill] = d(true);
+	const [ratio, setRatio] = d(null);
 	return /* @__PURE__ */ u("div", {
 		className: "stage",
+		style: ratio ? { "--ratio": String(ratio) } : void 0,
 		children: [
 			photo && still && /* @__PURE__ */ u("img", {
 				className: "still",
 				src: photo,
 				alt: "",
+				onLoad: (e) => {
+					const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+					if (!w || !h) return;
+					console.info(`Stage shaped to the photo (${w}x${h})`);
+					setRatio(w / h);
+				},
 				onError: () => {
 					console.error(`Could not show the photo under the video: ${photo}`);
 					setStill(false);

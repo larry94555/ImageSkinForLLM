@@ -1830,6 +1830,22 @@ test("without an idle video, the player holds each clip's last frame", () => {
 
 // --- Clean playback (R41c) ---
 
+test("the stage takes the photo's shape, so there are no empty bands around the person", () => {
+  // Larry on PR #80: a wide video left white bands above and below it in a fixed-size box.
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  render(<Stage idle="loading" onIdle={() => {}} photo="/api/uploads/photos/p1" />);
+  const stage = document.querySelector(".stage") as HTMLElement;
+  expect(stage.style.getPropertyValue("--ratio")).toBe(""); // a 4:3 box until it loads
+  const still = stage.querySelector("img.still") as HTMLImageElement;
+  fireEvent.load(still); // not decoded: no size to go by
+  expect(stage.style.getPropertyValue("--ratio")).toBe("");
+  Object.defineProperty(still, "naturalWidth", { value: 1280 });
+  Object.defineProperty(still, "naturalHeight", { value: 720 });
+  fireEvent.load(still);
+  expect(Number(stage.style.getPropertyValue("--ratio"))).toBeCloseTo(16 / 9);
+  expect(info).toHaveBeenCalledWith("Stage shaped to the photo (1280x720)");
+});
+
 test("the stage shows the photo under the videos, and goes without it if it can't load", () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   render(<Stage idle="loading" onIdle={() => {}} photo="/api/uploads/photos/p1" />);

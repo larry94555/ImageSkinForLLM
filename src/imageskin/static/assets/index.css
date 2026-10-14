@@ -198,7 +198,7 @@ main:has(.chat-page) { max-width: 1120px; margin-top: 16px; }
 @media (min-width: 900px) {
   .chat { grid-template-columns: minmax(0, 1.15fr) minmax(340px, 1fr); gap: 24px; align-items: start; }
   .person { position: sticky; top: 16px; }
-  .chat .stage { position: relative; height: min(calc(100vh - 170px), 620px); }
+  .chat .stage { position: relative; --stage-height: min(calc(100vh - 170px), 620px); }
 }
 ol.turns { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 ol.turns li {
@@ -223,10 +223,12 @@ ol.turns .who { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
   position: sticky;
   top: 0;
   z-index: 1;
-  height: 45vh;
-  min-height: 220px;
+  /* The photo's shape (R41d), as large as fits within the width and --stage-height. */
+  aspect-ratio: var(--ratio, 4 / 3);
+  width: min(100%, calc(var(--stage-height) * var(--ratio, 4 / 3)));
+  justify-self: center;
+  --stage-height: 45vh;
   background: var(--card);
-  border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
 }

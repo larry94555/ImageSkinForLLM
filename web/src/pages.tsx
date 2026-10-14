@@ -1257,13 +1257,22 @@ export function Stage(props: {
 }) {
   const { idle, onIdle, photo } = props;
   const [still, setStill] = useState(true); // the photo loaded, or is loading
+  // The photo's width over its height. The videos are made from it, so the stage takes its
+  // shape and has no empty bands beside or above the person (R41d). Until it loads, a 4:3 box.
+  const [ratio, setRatio] = useState<number | null>(null);
   return (
-    <div className="stage">
+    <div className="stage" style={ratio ? { "--ratio": String(ratio) } : undefined}>
       {photo && still && (
         <img
           className="still"
           src={photo}
           alt=""
+          onLoad={(e) => {
+            const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+            if (!w || !h) return;
+            console.info(`Stage shaped to the photo (${w}x${h})`);
+            setRatio(w / h);
+          }}
           onError={() => {
             console.error(`Could not show the photo under the video: ${photo}`);
             setStill(false);
