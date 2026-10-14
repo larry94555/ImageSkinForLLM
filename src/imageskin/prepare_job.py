@@ -93,6 +93,11 @@ STEPS = (
 )
 # Shown when the job fails for an unexpected reason; the log has the details.
 SOMETHING_WRONG = "Something went wrong while preparing. Click Try again."
+# Shown when the voice or video engine fails, such as a program or add-on missing on this computer.
+ENGINE_FAILED = (
+    "The video couldn't be prepared on this computer. Whoever set up the app can find the reason"
+    " in its log."
+)
 NO_PHOTO = "Add a photo that passes the checks first."
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
 CLONES = ("pocket", "clone")
@@ -356,9 +361,15 @@ class PrepareJob:
             self._progress("voice", 1, 1)
             self._prepare_face(photo, self._progress)
             self._render_clips(photo)
-        except (VoiceError, VideoError, PrepareError) as e:  # these say what to do
+        except PrepareError as e:  # says what to do, in plain words
             logger.error("Prepare job failed", extra={"error": str(e)})
             self._finish("failed", str(e))
+            return
+        except (VoiceError, VideoError) as e:
+            # These name programs, packages and files, for whoever runs the app: the log keeps
+            # them, and the teacher is told in plain words (review on PR #82).
+            logger.error("Prepare job failed", extra={"error": str(e)})
+            self._finish("failed", ENGINE_FAILED)
             return
         except Exception:
             logger.exception("Prepare job failed")
