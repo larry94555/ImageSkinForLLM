@@ -778,8 +778,12 @@ def create_app(
         example questions drawn from the wiki, read each time so they follow the PDFs."""
         topics = content_topics()
         examples = content_lookup.examples() if topics else []
-        line = hint_line(topics, content_only())
-        logger.info("Topic hints", extra={"topics": len(topics), "examples": len(examples)})
+        complete = topics_complete()
+        line = hint_line(topics, content_only(), complete)
+        logger.info(
+            "Topic hints",
+            extra={"topics": len(topics), "examples": len(examples), "complete": complete},
+        )
         return {"line": line, "examples": examples}
 
     @app.get("/api/chat/photo", dependencies=needs_consent)

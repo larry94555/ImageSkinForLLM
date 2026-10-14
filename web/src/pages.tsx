@@ -881,7 +881,10 @@ function Chat() {
     if (sending) return;
     getChatHints()
       .then(setHints)
-      .catch((e: unknown) => console.error("Could not load the topic hints", e));
+      .catch((e: unknown) => {
+        console.error("Could not load the topic hints", e);
+        setHints({ line: null, examples: [] }); // hints read before may no longer hold
+      });
   }, [sending]);
   useEffect(() => {
     getChat()

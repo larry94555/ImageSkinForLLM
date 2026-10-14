@@ -106,9 +106,15 @@ def listed(topics: list[str], limit: int = SPOKEN_TOPICS) -> str:
     return spoken_list([*named, f"{more} more on the Wiki page"] if more else named)
 
 
-def hint_line(topics: list[str], content_only: bool) -> str | None:
+def hint_line(topics: list[str], content_only: bool, complete: bool = True) -> str | None:
     """The line under the prompt box naming a few of the topics (R41g), saying questions must be
-    about them when general prompts are off (R41); None when there are none yet."""
+    about them when general prompts are off (R41); None before any PDF is added. While a PDF is
+    still being read or its wiki built (`complete` false), the topics so far are given as only
+    those so far, never as all that can be asked about (review on PR #86)."""
+    if not complete:
+        if not topics:
+            return STILL_READING
+        return f"So far I can talk about {listed(topics, HINT_TOPICS)}. {STILL_READING_REST}"
     if not topics:
         return None
     named = listed(topics, HINT_TOPICS)

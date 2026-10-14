@@ -1403,6 +1403,19 @@ test("hints that can't be read are left out", async () => {
   expect(document.querySelector(".hints")).toBeNull();
 });
 
+test("hints that can't be read again are taken away, not left stale (review on PR #86)", async () => {
+  hintsServer(RIEMANN_HINTS, new Error("broken"));
+  await openAt("#/chat");
+  expect(await screen.findByText(RIEMANN_HINTS.line)).toBeTruthy();
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Primes are counted.");
+  await waitFor(() => expect(document.querySelector(".hints")).toBeNull());
+  expect(screen.queryByRole("button", { name: RIEMANN_HINTS.examples[0] })).toBeNull();
+});
+
 test("the example questions are chips in the design's colours", () => {
   expect(styles).toMatch(/\.hints button\.example \{[^}]*background: var\(--accent-soft\)/);
   expect(styles).toMatch(/\.hints button\.example \{[^}]*color: var\(--accent-ink\)/);

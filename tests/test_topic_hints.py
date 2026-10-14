@@ -1,6 +1,7 @@
 """The topic hints under the prompt box (roadmap R41g, item 53)."""
 
 import logging
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -10,7 +11,7 @@ from test_question_scope import Llm, app_with_content
 from test_topics import app_with_topics, ask, entry, riemann_app
 
 from imageskin.lookup import EXAMPLES, ContentLookup, example_subjects
-from imageskin.topics import HINT_TOPICS, hint_line
+from imageskin.topics import HINT_TOPICS, STILL_READING, STILL_READING_REST, hint_line
 
 
 def test_the_hint_names_a_few_topics_and_says_how_many_more() -> None:
@@ -128,3 +129,30 @@ def test_the_hints_follow_the_pdfs(tmp_path: Path) -> None:
     for pdf in client.get("/api/content").json():
         client.delete(f"/api/content/{pdf['id']}")
     assert hints(client) == {"line": None, "examples": []}
+
+
+def test_while_a_pdf_is_still_read_the_hint_says_so_far() -> None:
+    """Review on PR #86: the topics so far are never given as all that can be asked about."""
+    assert hint_line([], content_only=True, complete=False) == STILL_READING
+    assert hint_line(["Rain"], content_only=True, complete=False) == (
+        f"So far I can talk about Rain. {STILL_READING_REST}"
+    )
+
+
+def test_with_one_pdf_ready_and_one_pending_the_hints_are_only_so_far(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    hold = threading.Event()
+    client = app_with_topics(tmp_path, Llm(), ["Rain"], "Rain falls.", pdfs=2, hold=hold)
+    try:
+        with caplog.at_level(logging.INFO, logger="imageskin.app"):
+            shown = hints(client)
+        assert shown["line"] == f"So far I can talk about Rain. {STILL_READING_REST}"
+        assert "must be about" not in shown["line"]
+        assert shown["examples"] == ["What can you tell me about Rain?"]  # still answerable
+        logged = next(r for r in caplog.records if r.message == "Topic hints")
+        assert logged.complete is False  # type: ignore[attr-defined]
+    finally:
+        hold.set()
+    client.app.state.wiki.wait()
+    assert hints(client)["line"] == "Questions must be about these topics: Rain and Rain 2."

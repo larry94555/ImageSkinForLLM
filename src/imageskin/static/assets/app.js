@@ -2568,7 +2568,13 @@ function Chat() {
 	}, []);
 	h(() => {
 		if (sending) return;
-		getChatHints().then(setHints).catch((e) => console.error("Could not load the topic hints", e));
+		getChatHints().then(setHints).catch((e) => {
+			console.error("Could not load the topic hints", e);
+			setHints({
+				line: null,
+				examples: []
+			});
+		});
 	}, [sending]);
 	h(() => {
 		getChat().then(setTurns).catch((e) => {
