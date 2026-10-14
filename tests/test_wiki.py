@@ -193,7 +193,7 @@ def test_parts_with_no_usable_answer_are_skipped_and_listed() -> None:
 
 
 def test_the_build_fails_when_no_part_has_a_usable_answer() -> None:
-    with pytest.raises(WikiError, match="no usable answer"):
+    with pytest.raises(WikiError, match="couldn't be used"):
         build_wiki(PDF_ID, [piece(1, "a")], lambda m: "no", estimate, WINDOW)
 
 
@@ -203,7 +203,7 @@ def test_a_pdf_with_no_text_has_no_pages() -> None:
 
 
 def test_a_window_too_small_for_the_wiki_is_refused() -> None:
-    with pytest.raises(WikiError, match="too small"):
+    with pytest.raises(WikiError, match="can.t take in enough"):
         build_wiki(PDF_ID, [piece(1, "a")], lambda m: "", estimate, 1500)
 
 

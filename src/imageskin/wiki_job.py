@@ -64,6 +64,8 @@ BuildOutline = Callable[
 WIKI_FORMAT = 4
 # How long to wait before trying again when the LLM can't be reached.
 RETRY_S = 30.0
+# Why a wiki wasn't built, when the LLM refused to build it.
+AI_REFUSED = "The AI couldn't build a wiki from this PDF. Rebuild the wiki to try again."
 
 
 class Superseded(Exception):
@@ -580,7 +582,10 @@ class WikiJob:
             return True
         except (WikiError, LlmError) as e:  # an LlmError here is a refusal, not an outage
             logger.error("Could not build the wiki", extra={"id": pdf_id, "error": str(e)})
-            self._set(pdf_id, WikiStatus("failed", error=str(e)))
+            # A refusal's message names the LLM's address and its error, so the teacher is told
+            # in plain words instead; the log keeps what it said.
+            said = str(e) if isinstance(e, WikiError) else AI_REFUSED
+            self._set(pdf_id, WikiStatus("failed", error=said))
             return True
         saved = {
             "format": WIKI_FORMAT,

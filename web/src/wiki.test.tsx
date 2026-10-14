@@ -267,7 +267,7 @@ test("the wiki says when it can't be loaded", async () => {
     vi.fn(async () => new Response("", { status: 500 })),
   );
   render(<WikiPage />);
-  expect(await screen.findByText(/could not be loaded/)).toBeTruthy();
+  expect(await screen.findByText("The wiki couldn't be loaded. Reload the page to try again.")).toBeTruthy();
   expect(errors).toHaveBeenCalled();
 });
 
@@ -404,19 +404,32 @@ test("rebuilding asks first, shows the progress, then loads the new wiki", async
   );
   render(<WikiPage pdf="a1" />);
   await screen.findByText("How the weather changes.");
+  // The PDF's buttons are in one row (R41e).
+  const row = document.querySelector(".pdf-tools") as HTMLElement;
+  expect(within(row).getAllByRole("button").map((b) => b.textContent)).toEqual([
+    "Rebuild the wiki",
+    "History",
+    "Load from a file",
+  ]);
+  expect(within(row).getAllByRole("link").map((a) => a.textContent)).toEqual([
+    "Open the PDF",
+    "Save to a file",
+  ]);
   fireEvent.click(screen.getByRole("button", { name: "Rebuild the wiki" }));
-  expect(screen.getByText(/Your edits are kept/)).toBeTruthy();
+  const asking = screen.getByText(/Your edits are kept/);
+  expect(asking.textContent).toMatch(/^Build this PDF's wiki again\? The AI reads the PDF again/);
+  expect(asking.textContent).not.toMatch(/LLM/); // no technical words (R41e)
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(changes(fetchMock)).toEqual([]);
 
   fireEvent.click(screen.getByRole("button", { name: "Rebuild the wiki" }));
   fireEvent.click(screen.getByRole("button", { name: "Rebuild" }));
-  expect(await screen.findByText(/Waiting to build the wiki pages/)).toBeTruthy();
+  expect(await screen.findByText(/Waiting to build the wiki/)).toBeTruthy();
   expect(changes(fetchMock)).toEqual([["POST", "/api/content/a1/wiki/rebuild", null]]);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(WIKI_POLL_MS);
   });
-  expect(await screen.findByText(/Building the wiki pages/)).toBeTruthy();
+  expect(await screen.findByText(/Building the wiki/)).toBeTruthy();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(WIKI_POLL_MS);
   });
@@ -494,11 +507,11 @@ test("a rebuild that fails later says so, and can be tried again", async () => {
   await screen.findByText("How the weather changes.");
   fireEvent.click(screen.getByRole("button", { name: "Rebuild the wiki" }));
   fireEvent.click(screen.getByRole("button", { name: "Rebuild" }));
-  expect(await screen.findByText(/Waiting to build the wiki pages/)).toBeTruthy();
+  expect(await screen.findByText(/Waiting to build the wiki/)).toBeTruthy();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(WIKI_POLL_MS);
   });
-  expect(await screen.findByText(/Building the wiki pages/)).toBeTruthy();
+  expect(await screen.findByText(/Building the wiki/)).toBeTruthy();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(WIKI_POLL_MS);
   });

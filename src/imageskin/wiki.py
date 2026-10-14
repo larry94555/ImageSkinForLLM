@@ -112,8 +112,10 @@ def build_wiki(
     there is no `wait_for_llm`."""
     budget = context_tokens - WIKI_REPLY_TOKENS - prompt_tokens(count)
     if budget < 200:
+        logger.error("The LLM's context window is too small", extra={"tokens": context_tokens})
         raise WikiError(
-            f"The LLM's context window ({context_tokens} tokens) is too small to build the wiki."
+            "The AI can't take in enough of the PDF at once to build its wiki. Whoever set up"
+            " the app can give it more room."
         )
     parts = split(pieces, budget, count)
     wiki = Wiki(len(parts))
@@ -152,7 +154,9 @@ def build_wiki(
         if progress:
             progress(number, len(parts))
     if parts and len(wiki.skipped_parts) == len(parts):
-        raise WikiError("The LLM gave no usable answer for this PDF; the log has what it said.")
+        raise WikiError(
+            "The AI's answers for this PDF couldn't be used. Rebuild the wiki to try again."
+        )
     used: set[str] = set()
     for page in topics.values():
         page.id = unique(f"{pdf_id}-{slug(page.title)}", used)

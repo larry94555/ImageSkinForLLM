@@ -141,9 +141,7 @@ class ReviewRequest(BaseModel):
     decision: Literal["accept", "reject-image", "reject-voice", "change-accent"]
 
 
-NEEDS_CLONE = (
-    "Another accent needs the person's own voice installed; see 'Your own voice' in the README."
-)
+NEEDS_CLONE = "Another accent needs the voice add-on, which isn't installed on this computer yet."
 WAIT_FOR_PREPARE = "Wait until Prepare finishes, then choose the accent."
 
 

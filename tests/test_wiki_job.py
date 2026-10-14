@@ -18,7 +18,7 @@ from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.reading_job import ReadingJob
 from imageskin.wiki import WIKI_PROMPT, WaitForLlm, Wiki, WikiError, WikiPage, build_wiki
 from imageskin.wiki import Progress as WikiProgress
-from imageskin.wiki_job import BuildWiki, WikiJob, WikiStatus, remaining
+from imageskin.wiki_job import AI_REFUSED, BuildWiki, WikiJob, WikiStatus, remaining
 from imageskin.wiki_outline import Entry, OutlineProgress
 
 PDF = b"%PDF-1.7\n" + b"x" * 100 + b"\n%%EOF\n"
@@ -236,7 +236,8 @@ def test_a_build_that_fails_says_why_and_the_next_pdf_is_still_built(
     statuses = wiki.statuses()
     assert statuses[pdfs[0].id] == WikiStatus("failed", error="The LLM gave no usable answer.")
     assert statuses[pdfs[1].id].error == "Something went wrong building it."
-    assert statuses[pdfs[2].id].error == "The LLM refused the prompt (400)"
+    # A refusal is told in plain words, without the LLM's own message (R41e).
+    assert statuses[pdfs[2].id].error == AI_REFUSED
     assert statuses[pdfs[3].id].state == "done"
     assert "Could not build the wiki" in caplog.text
 

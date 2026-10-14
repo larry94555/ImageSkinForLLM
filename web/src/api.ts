@@ -81,7 +81,8 @@ async function refusal(response: Response): Promise<string> {
   } catch {
     // Not JSON; fall through to the generic message.
   }
-  return `The server refused it (${response.status}).`;
+  console.error(`Refused with ${response.status} and no reason`);
+  return "That didn't work. Please try again.";
 }
 
 export function uploadUrl(kind: Kind, id: string): string {
@@ -359,11 +360,6 @@ export interface Reading {
   counts: { paragraph: number; slide: number; table: number } | null; // once done
   pages_without_text: number[] | null; // once done: maybe scanned, so not read
   error: string | null;
-}
-
-// What was read from a PDF, as JSON, to open in a new tab.
-export function readingUrl(id: string): string {
-  return `/api/content/${id}/reading`;
 }
 
 // The reading progress of each PDF, by its id. A PDF not read yet may be missing.

@@ -258,12 +258,16 @@ def test_unreadable_sound_is_refused(tmp_path: Path, caplog: pytest.LogCaptureFi
     assert any(r.getMessage() == "Sound conversion failed" for r in caplog.records)
 
 
-def test_heic_without_the_extra_says_how_to_add_it(tmp_path: Path) -> None:
+def test_heic_without_the_extra_says_how_to_add_it(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     heic = b"\0\0\0\x18ftypheic" + b"\0" * 64
     with patch.object(uploads, "heic_supported", return_value=False):
-        with pytest.raises(UploadError, match=r"\.\[heic\]") as e:
+        with pytest.raises(UploadError, match="Save the photo as JPG") as e:
             UploadStore(tmp_path).save("photos", "me.heic", io.BytesIO(heic))
     assert e.value.status == 415
+    # The teacher is told what to do in plain words; how to install it is in the log (R41e).
+    assert "pip" not in str(e.value) and ".[heic]" in caplog.text
 
 
 def test_heic_photo_is_converted_to_jpg(tmp_path: Path) -> None:

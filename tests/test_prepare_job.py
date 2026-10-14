@@ -14,7 +14,9 @@ from imageskin.accent import Accent, AccentEngine
 from imageskin.app import NEEDS_CLONE, WAIT_FOR_PREPARE, create_app
 from imageskin.prepare_job import (
     CLIPS,
+    ENGINE_FAILED,
     NO_PHOTO,
+    SOMETHING_WRONG,
     PrepareError,
     PrepareJob,
     PrepareStatus,
@@ -163,15 +165,31 @@ def test_needs_a_photo_and_enough_voice(tmp_path: Path) -> None:
     assert job.status().state == "idle"
 
 
-def test_a_failure_says_why(tmp_path: Path) -> None:
-    def no_ffmpeg(photo: Path, progress: Progress) -> None:
-        raise VideoError("ffmpeg was not found")
+@pytest.mark.parametrize(
+    "error",
+    [
+        VideoError("ffmpeg was not found"),
+        VideoError('OpenCV is not installed; run: pip install -e ".[video]"'),
+        VoiceError("could not read the voice sample /home/me/.imageskin/voice.wav: denied"),
+    ],
+)
+def test_an_engine_failure_is_told_in_plain_words_and_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, error: Exception
+) -> None:
+    """Regression for the review of PR #82: an engine's error, naming programs, packages or
+    files, reached the Setup page as it was."""
 
-    job, _ = make_job(tmp_path, no_ffmpeg)
-    job.start()
-    job.wait(5)
+    def failing(photo: Path, progress: Progress) -> None:
+        raise error
+
+    job, _ = make_job(tmp_path, failing)
+    with caplog.at_level(logging.ERROR):
+        job.start()
+        job.wait(5)
     status = job.status()
-    assert status.state == "failed" and status.error == "ffmpeg was not found"
+    assert status.state == "failed" and status.error == ENGINE_FAILED
+    # Whoever runs the app can still see why, in the log.
+    assert [vars(r).get("error") for r in caplog.records] == [str(error)]
     voice = (status.steps or [])[0]
     assert voice.done == 1  # the voice step had finished
 
@@ -187,7 +205,7 @@ def test_an_unexpected_error_is_reported_and_logged(
         job.start()
         job.wait(5)
     error = job.status().error or ""
-    assert error.startswith("Something went wrong: boom.")
+    assert error == SOMETHING_WRONG and "boom" not in error  # plain words (R41e); the log has it
     assert "Traceback" in caplog.text
 
 
@@ -570,7 +588,7 @@ def test_a_clip_that_fails_fails_the_job_and_is_not_served(tmp_path: Path) -> No
     job, _ = make_job(tmp_path, clip=broken)
     job.start()
     job.wait(5)
-    assert job.status().error == "ffmpeg failed"
+    assert job.status().error == ENGINE_FAILED  # "ffmpeg failed" is only in the log
     assert job.clip("goodbye") is None
     assert not (tmp_path / "clips" / "goodbye.mp4").exists()
 

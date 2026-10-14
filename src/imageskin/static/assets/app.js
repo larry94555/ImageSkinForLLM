@@ -27,7 +27,8 @@ async function refusal(response) {
 		const body = await response.json();
 		if (typeof body.detail === "string") return body.detail;
 	} catch {}
-	return `The server refused it (${response.status}).`;
+	console.error(`Refused with ${response.status} and no reason`);
+	return "That didn't work. Please try again.";
 }
 function uploadUrl(kind, id) {
 	return `/api/uploads/${kind}/${id}`;
@@ -162,9 +163,6 @@ async function sendPdf(file, id) {
 async function removePdf(id) {
 	const response = await fetch(pdfUrl(id), { method: "DELETE" });
 	if (!response.ok) throw new Error(await refusal(response));
-}
-function readingUrl(id) {
-	return `/api/content/${id}/reading`;
 }
 async function listReadings() {
 	return json(await fetch("/api/content/readings"));
@@ -407,6 +405,7 @@ function ContentPage() {
 	const [loadFailed, setLoadFailed] = d(false);
 	const [sending, setSending] = d(null);
 	const [refused, setRefused] = d([]);
+	const [done, setDone] = d(null);
 	const [readings, setReadings] = d({});
 	const reading = (pdfs ?? []).some((pdf) => [
 		"waiting",
@@ -474,10 +473,16 @@ function ContentPage() {
 		const files = Array.from(input.files ?? []);
 		input.value = "";
 		setRefused([]);
+		setDone(null);
+		const added = [];
 		for (const file of files) {
 			const pdf = await send(file);
-			if (pdf) setPdfs((current) => [...current ?? [], pdf]);
+			if (pdf) {
+				added.push(pdf.name);
+				setPdfs((current) => [...current ?? [], pdf]);
+			}
 		}
+		if (added.length) setDone(`Added ${added.join(", ")}. ${NEXT}`);
 	}
 	async function replace(old, event) {
 		const input = event.currentTarget;
@@ -485,12 +490,16 @@ function ContentPage() {
 		input.value = "";
 		if (!file) return;
 		setRefused([]);
+		setDone(null);
 		const pdf = await send(file, old);
-		if (pdf) setPdfs((current) => (current ?? []).map((p) => p.id === pdf.id ? pdf : p));
+		if (!pdf) return;
+		setPdfs((current) => (current ?? []).map((p) => p.id === pdf.id ? pdf : p));
+		setDone(`Replaced ${old.name} with ${pdf.name}. ${NEXT}`);
 	}
 	async function remove(pdf) {
-		if (!window.confirm(`Remove ${pdf.name}?`)) return;
+		if (!window.confirm(`Remove ${pdf.name}? Its wiki is removed too.`)) return;
 		setRefused([]);
+		setDone(null);
 		try {
 			await removePdf(pdf.id);
 			console.info(`Removed ${pdf.name}`);
@@ -505,95 +514,108 @@ function ContentPage() {
 	}
 	const ready = sending === null && (pdfs !== null || loadFailed);
 	const loading = pdfs === null && !loadFailed;
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("h1", { children: "Manage Content" }),
-		/* @__PURE__ */ u("p", {
-			className: "muted",
-			children: "Add the PDFs the person's answers will come from, up to 100 MB each. Replace a PDF when it has a newer version, or remove it when it no longer applies."
-		}),
-		/* @__PURE__ */ u("label", {
-			className: ready ? "button" : "button busy",
-			children: [sending && !sending.replacing ? `Uploading ${sending.name}…` : loading ? "Loading…" : "Add PDFs", /* @__PURE__ */ u("input", {
-				type: "file",
-				multiple: true,
-				accept: "application/pdf,.pdf",
-				disabled: !ready,
-				onChange: add,
-				className: "file"
-			})]
-		}),
-		refused.map((r) => /* @__PURE__ */ u("p", {
-			className: "error",
-			children: [
-				r.name,
-				": ",
-				r.reason
-			]
-		}, r.name)),
-		loadFailed && /* @__PURE__ */ u("p", {
-			className: "error",
-			children: "Could not load the list. Reload the page to try again."
-		}),
-		loading && /* @__PURE__ */ u("p", {
-			className: "muted busy",
-			children: "Loading the PDFs…"
-		}),
-		pdfs?.length === 0 && /* @__PURE__ */ u("p", {
-			className: "muted",
-			children: "No PDFs yet."
-		}),
-		/* @__PURE__ */ u("ul", {
-			className: "pdfs",
-			children: pdfs?.map((pdf) => /* @__PURE__ */ u("li", { children: [
-				/* @__PURE__ */ u("a", {
-					className: "name",
-					href: pdfUrl(pdf.id),
-					target: "_blank",
-					rel: "noreferrer",
-					children: pdf.name
-				}),
-				/* @__PURE__ */ u("span", {
-					className: "muted",
-					children: [
-						size(pdf.size),
-						" · ",
-						pdf.replaced_at ? "replaced" : "added",
-						" ",
-						day(pdf.replaced_at ?? pdf.added_at)
-					]
-				}),
-				/* @__PURE__ */ u(ReadingLine, {
-					id: pdf.id,
-					reading: readings[pdf.id]
-				}),
-				/* @__PURE__ */ u(WikiLine, {
-					id: pdf.id,
-					build: wiki[pdf.id]
-				}),
-				/* @__PURE__ */ u("span", {
-					className: "actions",
-					children: [/* @__PURE__ */ u("label", {
-						className: sending?.replacing === pdf.id ? "replace busy" : "replace",
-						children: [sending?.replacing === pdf.id ? `Uploading ${sending.name}…` : "Replace", /* @__PURE__ */ u("input", {
-							type: "file",
-							accept: "application/pdf,.pdf",
-							"aria-label": `Replace ${pdf.name}`,
-							disabled: !ready,
-							onChange: (e) => replace(pdf, e),
-							className: "file"
+	return /* @__PURE__ */ u("div", {
+		className: "teacher-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Manage Content" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: [
+					"Add the PDFs the person's answers will come from, up to 100 MB each. Each one is read and turned into a ",
+					/* @__PURE__ */ u("a", {
+						href: wikiHref(),
+						children: "wiki"
+					}),
+					" you can check. Replace a PDF when it has a newer version, or remove it when it no longer applies."
+				]
+			}),
+			/* @__PURE__ */ u("label", {
+				className: ready ? "button" : "button busy",
+				children: [sending && !sending.replacing ? `Uploading ${sending.name}…` : loading ? "Loading…" : "Add PDFs", /* @__PURE__ */ u("input", {
+					type: "file",
+					multiple: true,
+					accept: "application/pdf,.pdf",
+					disabled: !ready,
+					onChange: add,
+					className: "file"
+				})]
+			}),
+			done && /* @__PURE__ */ u("p", {
+				className: "notice",
+				role: "status",
+				children: done
+			}),
+			refused.map((r) => /* @__PURE__ */ u("p", {
+				className: "error",
+				children: [
+					r.name,
+					": ",
+					r.reason
+				]
+			}, r.name)),
+			loadFailed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "Could not load the list. Reload the page to try again."
+			}),
+			loading && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading the PDFs…"
+			}),
+			pdfs?.length === 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "No PDFs yet."
+			}),
+			/* @__PURE__ */ u("ul", {
+				className: "pdfs",
+				children: pdfs?.map((pdf) => /* @__PURE__ */ u("li", { children: [
+					/* @__PURE__ */ u("a", {
+						className: "name",
+						href: pdfUrl(pdf.id),
+						target: "_blank",
+						rel: "noreferrer",
+						children: pdf.name
+					}),
+					/* @__PURE__ */ u("span", {
+						className: "muted",
+						children: [
+							size(pdf.size),
+							" · ",
+							pdf.replaced_at ? "replaced" : "added",
+							" ",
+							day(pdf.replaced_at ?? pdf.added_at)
+						]
+					}),
+					/* @__PURE__ */ u(ReadingLine, { reading: readings[pdf.id] }),
+					/* @__PURE__ */ u(WikiLine, {
+						id: pdf.id,
+						build: wiki[pdf.id]
+					}),
+					/* @__PURE__ */ u("span", {
+						className: "actions",
+						children: [/* @__PURE__ */ u("label", {
+							className: sending?.replacing === pdf.id ? "replace busy" : "replace",
+							children: [sending?.replacing === pdf.id ? `Uploading ${sending.name}…` : "Replace", /* @__PURE__ */ u("input", {
+								type: "file",
+								accept: "application/pdf,.pdf",
+								"aria-label": `Replace ${pdf.name}`,
+								disabled: !ready,
+								onChange: (e) => replace(pdf, e),
+								className: "file"
+							})]
+						}), /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "remove",
+							onClick: () => remove(pdf),
+							children: "Remove"
 						})]
-					}), /* @__PURE__ */ u("button", {
-						type: "button",
-						className: "remove",
-						onClick: () => remove(pdf),
-						children: "Remove"
-					})]
-				})
-			] }, pdf.id))
-		})
-	] });
+					})
+				] }, pdf.id))
+			})
+		]
+	});
 }
-function ReadingLine({ id, reading }) {
+var NEXT = "It is read first, then its wiki is built. Each PDF below shows how far it has got.";
+function ReadingLine({ reading }) {
 	if (!reading) return null;
 	if (reading.state === "failed") return /* @__PURE__ */ u("span", {
 		className: "error",
@@ -605,17 +627,7 @@ function ReadingLine({ id, reading }) {
 	});
 	return /* @__PURE__ */ u("span", {
 		className: "muted",
-		children: [
-			readingText(reading),
-			" ·",
-			" ",
-			/* @__PURE__ */ u("a", {
-				href: readingUrl(id),
-				target: "_blank",
-				rel: "noreferrer",
-				children: "What was read"
-			})
-		]
+		children: readingText(reading)
 	});
 }
 function readingText(r) {
@@ -665,23 +677,23 @@ function wikiText(b, metrics = false) {
 	};
 	const sofar = time();
 	if (b.state === "waiting") {
-		if (b.error) return `Waiting for the LLM to build the wiki pages…${sofar}`;
-		return `Waiting to build the wiki pages…${sofar}`;
+		if (b.error) return `Waiting for the AI to be ready to build the wiki…${sofar}`;
+		return `Waiting to build the wiki…${sofar}`;
 	}
 	if (b.state === "building" && b.stage === "outline") {
 		const step = Math.min(b.steps + 1, b.steps_planned);
-		return b.steps_planned ? `Building the wiki outline: step ${step} of about ${b.steps_planned}…${sofar}` : `Building the wiki outline…${sofar}`;
+		return b.steps_planned ? `Arranging the wiki's topics: step ${step} of about ${b.steps_planned}…${sofar}` : `Arranging the wiki's topics…${sofar}`;
 	}
 	if (b.state === "building") {
 		const part = Math.min(b.part + 1, b.parts);
-		return b.parts ? `Building the wiki pages: part ${part} of ${b.parts}…${time(" before the outline")}` : `Building the wiki pages…${sofar}`;
+		return b.parts ? `Building the wiki: part ${part} of ${b.parts}…${time(" before arranging its topics")}` : `Building the wiki…${sofar}`;
 	}
-	if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";
+	if (b.state === "failed") return b.error ?? "The wiki could not be built.";
 	const n = b.skipped_parts?.length ?? 0;
-	const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: the LLM gave no usable answer)` : "";
+	const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: the AI's answer couldn't be used)` : "";
 	const detail = b.detail_pages ? `, ${plural(b.detail_pages, "detail page")}` : "";
 	const took = metrics && b.elapsed_s != null ? `, built in ${duration$1(b.elapsed_s)}` : "";
-	return `Wiki: ${plural(b.pages ?? 0, "page")}${detail}${took}${skipped}`;
+	return `Wiki ready: ${plural(b.pages ?? 0, "topic")}${detail}${took}${skipped}`;
 }
 function duration$1(seconds) {
 	const s = Math.round(seconds);
@@ -1762,50 +1774,67 @@ function SetupPage() {
 		window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
 	}
 	const notice = (to) => back === to ? BACK_NOTICE[to] : null;
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("h1", { children: "Setup" }),
-		/* @__PURE__ */ u("p", {
-			className: "done",
-			children: "Thank you, consent is confirmed."
-		}),
-		/* @__PURE__ */ u("p", {
-			className: "notice",
-			children: [
-				"New to this? The ",
-				/* @__PURE__ */ u("a", {
-					href: "#/guide",
-					children: "recording guide"
-				}),
-				" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop."
-			]
-		}),
-		/* @__PURE__ */ u(UploadSection, {
-			kind: "photos",
-			title: "Photos",
-			hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
-			accept: "image/jpeg,image/png,image/heic,.heic",
-			notice: notice("photos"),
-			onChange: changed
-		}),
-		/* @__PURE__ */ u(UploadSection, {
-			kind: "sounds",
-			title: "Recordings",
-			hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
-			accept: "audio/*,.m4a,.wav,.mp3",
-			notice: notice("sounds"),
-			onChange: changed
-		}),
-		/* @__PURE__ */ u(AccentSection, {
-			onChange: changed,
-			preparing,
-			notice: notice("accent")
-		}),
-		/* @__PURE__ */ u(PrepareSection, {
-			changes,
-			onRunning: setPreparing,
-			onBack: goBack
-		})
-	] });
+	return /* @__PURE__ */ u("div", {
+		className: "teacher-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Setup" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it."
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: [
+					"New to this? The ",
+					/* @__PURE__ */ u("a", {
+						href: "#/guide",
+						children: "recording guide"
+					}),
+					" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop."
+				]
+			}),
+			/* @__PURE__ */ u(UploadSection, {
+				kind: "photos",
+				step: 1,
+				title: "Photos",
+				button: "Add photos",
+				hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
+				accept: "image/jpeg,image/png,image/heic,.heic",
+				notice: notice("photos"),
+				onChange: changed
+			}),
+			/* @__PURE__ */ u(UploadSection, {
+				kind: "sounds",
+				step: 2,
+				title: "Voice recordings",
+				button: "Add recordings",
+				hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
+				accept: "audio/*,.m4a,.wav,.mp3",
+				notice: notice("sounds"),
+				onChange: changed
+			}),
+			/* @__PURE__ */ u(AccentSection, {
+				onChange: changed,
+				preparing,
+				notice: notice("accent")
+			}),
+			/* @__PURE__ */ u(PrepareSection, {
+				changes,
+				onRunning: setPreparing,
+				onBack: goBack
+			})
+		]
+	});
+}
+function StepOf({ n }) {
+	return /* @__PURE__ */ u("p", {
+		className: "step-of",
+		children: [
+			"Step ",
+			n,
+			" of 4"
+		]
+	});
 }
 function UploadSection(props) {
 	const { kind } = props;
@@ -1925,7 +1954,9 @@ function UploadSection(props) {
 	const loading = items === null && !loadFailed;
 	return /* @__PURE__ */ u("section", {
 		id: kind,
+		className: "panel",
 		children: [
+			/* @__PURE__ */ u(StepOf, { n: props.step }),
 			/* @__PURE__ */ u("h2", { children: props.title }),
 			props.notice && /* @__PURE__ */ u("p", {
 				className: "notice",
@@ -1937,7 +1968,7 @@ function UploadSection(props) {
 			}),
 			/* @__PURE__ */ u("label", {
 				className: ready ? "button" : "button busy",
-				children: [sending ? `Uploading and checking ${sending}…` : loading ? "Loading…" : `Add ${props.title.toLowerCase()}`, /* @__PURE__ */ u("input", {
+				children: [sending ? `Uploading and checking ${sending}…` : loading ? "Loading…" : props.button, /* @__PURE__ */ u("input", {
 					type: "file",
 					multiple: true,
 					accept: props.accept,
@@ -2131,9 +2162,10 @@ function AccentSection(props) {
 		setSaving(null);
 	}
 	return /* @__PURE__ */ u("section", {
-		className: "accent",
+		className: "accent panel",
 		id: "accent",
 		children: [
+			/* @__PURE__ */ u(StepOf, { n: 3 }),
 			/* @__PURE__ */ u("h2", { children: "Accent" }),
 			props.notice && /* @__PURE__ */ u("p", {
 				className: "notice",
@@ -2167,7 +2199,7 @@ function AccentSection(props) {
 			}),
 			choice?.available === false && /* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Another accent needs the person's own voice installed (see \"Your own voice\" in the README). Until then a ready-made voice speaks, with its own accent."
+				children: "Another accent needs the voice add-on, which isn't installed on this computer yet. Until then a ready-made voice speaks, with its own accent."
 			}),
 			failed && /* @__PURE__ */ u("p", {
 				className: "error",
@@ -2219,9 +2251,10 @@ function PrepareSection(props) {
 		return () => window.clearInterval(timer);
 	}, [running]);
 	return /* @__PURE__ */ u("section", {
-		className: "prepare",
+		className: "prepare panel",
 		children: [
-			/* @__PURE__ */ u("h2", { children: "Prepare" }),
+			/* @__PURE__ */ u(StepOf, { n: 4 }),
+			/* @__PURE__ */ u("h2", { children: "Prepare the video" }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
 				children: "Gets the voice and the face ready for the video, then makes a short sample video of the person talking. The first time takes 20 minutes or more. You can leave this page meanwhile; if the app is stopped, it carries on where it left off when the app starts again."
@@ -2240,7 +2273,7 @@ function PrepareSection(props) {
 				onClick: start,
 				disabled: starting,
 				children: starting ? "Starting…" : {
-					idle: "Prepare",
+					idle: "Prepare the video",
 					running: "Preparing…",
 					done: "Prepare again",
 					failed: "Try again"
@@ -2280,7 +2313,7 @@ function PrepareSection(props) {
 				children: [
 					/* @__PURE__ */ u("p", {
 						className: "done",
-						children: "Ready. Here is the sample video:"
+						children: "Done. Watch the sample video, then say whether it is right."
 					}),
 					/* @__PURE__ */ u("video", {
 						controls: true,
@@ -3294,17 +3327,23 @@ function WikiPage({ pdf }) {
 			pdf ? /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				href: wikiHref(),
 				children: "All PDFs"
-			}) }) : student ? /* @__PURE__ */ u("p", { children: "What the PDFs say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own." }) : /* @__PURE__ */ u("p", { children: [
-				"What the PDFs in ",
-				/* @__PURE__ */ u("a", {
-					href: "#/content",
-					children: "Manage Content"
-				}),
-				" say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own. You can edit any entry."
-			] }),
+			}) }) : student ? /* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "What the PDFs say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own."
+			}) : /* @__PURE__ */ u("p", {
+				className: "lead",
+				children: [
+					"What the PDFs in ",
+					/* @__PURE__ */ u("a", {
+						href: "#/content",
+						children: "Manage Content"
+					}),
+					" say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own. You can edit any entry."
+				]
+			}),
 			failed ? /* @__PURE__ */ u("p", {
 				className: "error",
-				children: "The wiki could not be loaded. Check that the app is still running."
+				children: "The wiki couldn't be loaded. Reload the page to try again."
 			}) : wiki === null ? /* @__PURE__ */ u("p", { children: "Loading…" }) : /* @__PURE__ */ u(WikiList, {
 				wiki,
 				pdf,
@@ -3360,29 +3399,29 @@ function Contents({ contents, linked, build, onRebuild, onChanged }) {
 	}) : contents.pdf_name;
 	const student = useSettings().view === "student";
 	return /* @__PURE__ */ u("article", {
-		className: "wiki-pdf",
+		className: "wiki-pdf panel",
 		children: [
 			/* @__PURE__ */ u("h2", { children: name }),
-			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
-				href: pdfUrl(contents.pdf_id),
-				target: "_blank",
-				rel: "noreferrer",
-				children: "Open the PDF"
-			}) }),
-			!student && /* @__PURE__ */ u(S, { children: [
-				/* @__PURE__ */ u(Rebuild, {
+			/* @__PURE__ */ u("div", {
+				className: "pdf-tools",
+				children: [/* @__PURE__ */ u("a", {
+					className: "button secondary",
+					href: pdfUrl(contents.pdf_id),
+					target: "_blank",
+					rel: "noreferrer",
+					children: "Open the PDF"
+				}), !student && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Rebuild, {
 					build,
 					onRebuild
-				}),
-				/* @__PURE__ */ u(WikiTools, {
+				}), /* @__PURE__ */ u(WikiTools, {
 					contents,
 					onChanged
-				}),
-				contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
-					edits: contents.lost_edits,
-					onChanged
-				})
-			] }),
+				})] })]
+			}),
+			!student && contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
+				edits: contents.lost_edits,
+				onChanged
+			}),
 			/* @__PURE__ */ u(Outline, {
 				pdf: contents.pdf_id,
 				entries: contents.entries,
@@ -3412,7 +3451,7 @@ function Rebuild({ build, onRebuild }) {
 			asking ? /* @__PURE__ */ u("p", {
 				className: "notice",
 				children: [
-					"Build this PDF's wiki again with the LLM? It can take a while. Your edits are kept, and each is marked for you to check against the new wiki.",
+					"Build this PDF's wiki again? The AI reads the PDF again, which can take a while. Your edits are kept, and each is marked for you to check against the new wiki.",
 					" ",
 					/* @__PURE__ */ u("button", {
 						type: "button",
@@ -3455,8 +3494,8 @@ function changeText(change) {
 	const entry = `\u201c${change.title ?? ""}\u201d`;
 	switch (change.kind) {
 		case "start": return "The wiki as it was before its history began";
-		case "built": return "Built with the LLM";
-		case "rebuilt": return "Rebuilt with the LLM";
+		case "built": return "Built by the AI";
+		case "rebuilt": return "Rebuilt by the AI";
 		case "edited": return `You edited ${entry}`;
 		case "undone": return `You undid your edit to ${entry}`;
 		case "kept": return `You kept your edit to ${entry} after a rebuild`;

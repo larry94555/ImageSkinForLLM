@@ -304,9 +304,11 @@ class UploadStore:
             return None
         if fmt == "heic":
             if not heic_supported():
+                # How to add it is for whoever runs the app, so it goes in the log.
+                logger.warning('HEIC photo refused: run pip install -e ".[heic]" to read them')
                 raise UploadError(
-                    "HEIC photos need the optional HEIC support"
-                    ' (pip install -e ".[heic]"). Or save the photo as JPG.',
+                    "HEIC photos can't be read on this computer. Save the photo as JPG and add"
+                    " it again.",
                     status=415,
                 )
             convert_heic(src, dst)

@@ -120,18 +120,18 @@ export function WikiPage({ pdf }: { pdf?: string }) {
           <a href={wikiHref()}>All PDFs</a>
         </p>
       ) : student ? (
-        <p>
+        <p className="lead">
           What the PDFs say, topic by topic. Open a topic to see its parts, or follow its title to
           a page of its own.
         </p>
       ) : (
-        <p>
+        <p className="lead">
           What the PDFs in <a href="#/content">Manage Content</a> say, topic by topic. Open a topic
           to see its parts, or follow its title to a page of its own. You can edit any entry.
         </p>
       )}
       {failed ? (
-        <p className="error">The wiki could not be loaded. Check that the app is still running.</p>
+        <p className="error">The wiki couldn&apos;t be loaded. Reload the page to try again.</p>
       ) : wiki === null ? (
         <p>Loading…</p>
       ) : (
@@ -210,21 +210,27 @@ function Contents({ contents, linked, build, onRebuild, onChanged }: ContentsPro
   );
   const student = useSettings().view === "student";
   return (
-    <article className="wiki-pdf">
+    <article className="wiki-pdf panel">
       <h2>{name}</h2>
-      <p>
-        <a href={pdfUrl(contents.pdf_id)} target="_blank" rel="noreferrer">
+      {/* One row of buttons, with any notice from them below it (R41e). */}
+      <div className="pdf-tools">
+        <a
+          className="button secondary"
+          href={pdfUrl(contents.pdf_id)}
+          target="_blank"
+          rel="noreferrer"
+        >
           Open the PDF
         </a>
-      </p>
-      {!student && (
-        <>
-          <Rebuild build={build} onRebuild={onRebuild} />
-          <WikiTools contents={contents} onChanged={onChanged} />
-          {contents.lost_edits.length > 0 && (
-            <LostEdits edits={contents.lost_edits} onChanged={onChanged} />
-          )}
-        </>
+        {!student && (
+          <>
+            <Rebuild build={build} onRebuild={onRebuild} />
+            <WikiTools contents={contents} onChanged={onChanged} />
+          </>
+        )}
+      </div>
+      {!student && contents.lost_edits.length > 0 && (
+        <LostEdits edits={contents.lost_edits} onChanged={onChanged} />
       )}
       <Outline pdf={contents.pdf_id} entries={contents.entries} onChanged={onChanged} />
     </article>
@@ -256,8 +262,8 @@ function Rebuild({ build, onRebuild }: { build?: WikiBuild; onRebuild: () => Pro
     <div className="rebuild">
       {asking ? (
         <p className="notice">
-          Build this PDF's wiki again with the LLM? It can take a while. Your edits are kept, and
-          each is marked for you to check against the new wiki.{" "}
+          Build this PDF&apos;s wiki again? The AI reads the PDF again, which can take a while.
+          Your edits are kept, and each is marked for you to check against the new wiki.{" "}
           <button type="button" onClick={start}>
             Rebuild
           </button>{" "}
@@ -290,9 +296,9 @@ export function changeText(change: WikiChange): string {
     case "start":
       return "The wiki as it was before its history began";
     case "built":
-      return "Built with the LLM";
+      return "Built by the AI";
     case "rebuilt":
-      return "Rebuilt with the LLM";
+      return "Rebuilt by the AI";
     case "edited":
       return `You edited ${entry}`;
     case "undone":
