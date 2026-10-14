@@ -4,8 +4,9 @@ each sentence can be spoken as soon as it is complete. Pure Python, no logging: 
 A sentence ends at ".", "!", "?" or "…" (with any closing quotes or brackets after it) followed by
 a space, at a blank line, and at the end of a heading or list item. The end is only known once the
 next word starts, so "Dr. Smith", "e.g. this", "3.5", "1. First" and "the U.S. team" don't split
-(nor, as a cost of that, does "in the U.S. The"). Code blocks and inline code are kept whole, by
-the same rules as speech_text.py, so each sentence can be cleaned for speech on its own.
+(nor, as a cost of that, does "in the U.S. The"). Code blocks, inline code and math on one line
+are kept whole, by the same rules as speech_text.py, so each sentence can be cleaned for speech
+on its own.
 
 With `first_clause`, the reply's first sentence is cut at its first clause (roadmap R22b), so
 the first clip is short and can be spoken while the LLM is still writing the rest: at a comma,
@@ -17,7 +18,7 @@ FIRST_CLAUSE_LIMIT words.
 
 import re
 
-from imageskin.speech_text import CODE_FENCE, INLINE_CODE, closing_fence, inside_whole
+from imageskin.speech_text import CODE_FENCE, INLINE_CODE, closing_fence, inside_math, inside_whole
 
 # Words that end with a full stop but don't end a sentence.
 ABBREVIATIONS = frozenset(
@@ -182,7 +183,7 @@ class SentenceSplitter:
             if end.re is _END:
                 if not following.strip():
                     return None  # the next word hasn't started: it may be "Dr. Smith"
-                if _in_code(text, end.start(1)):
+                if _in_code(text, end.start(1)) or inside_math(text, end.start(1)):
                     continue
                 if _not_an_end(text, end, following):
                     continue

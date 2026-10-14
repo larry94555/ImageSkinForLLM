@@ -220,3 +220,24 @@ def test_a_cut_by_word_count_waits_for_the_word_after_the_next() -> None:
     assert splitter.feed("One two three four five six") == []  # the sentence may end on "six"
     assert splitter.feed(" s") == ["One two three four five"]
     assert splitter.flush() == ["six s"]
+
+
+@pytest.mark.parametrize("step", [1, 3, 1000])
+def test_math_is_not_cut_while_it_is_still_being_written(step: int) -> None:
+    # Review on PR #79: the first clause's word count was reached inside the open $...$.
+    zeta = r"$\zeta(s) = \sum_{n=1}^{\infty} \frac{1}{n^s}$"
+    text = f"The formula is {zeta} for s above one. Next."
+    sentences = clauses(text, step)
+    assert all(s.count("$") % 2 == 0 for s in sentences)
+    assert "Next." in sentences and "".join(sentences).replace(" ", "") == text.replace(" ", "")
+    assert all("$" not in spoken_text(s) and "\\" not in spoken_text(s) for s in sentences)
+
+
+@pytest.mark.parametrize("step", [1, 3, 1000])
+def test_a_full_stop_inside_math_does_not_end_the_sentence(step: int) -> None:
+    assert split("Use $A=1. B=2$ here. Next.", step) == ["Use $A=1. B=2$ here.", "Next."]
+    assert split("Use \\(A=1. B\\) here. Next.", step) == ["Use \\(A=1. B\\) here.", "Next."]
+
+
+def test_money_does_not_hold_back_the_first_clause() -> None:
+    assert clauses("It costs $5 and more than that today. Bye.", 1000)[0] == "It costs $5"

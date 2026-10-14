@@ -112,11 +112,32 @@ _REPLACE = (
 _URL_ONLY = re.compile(_URL)
 # What is spoken (or left out) whole, on one line: a picture, an autolink, an HTML tag, a link
 # with where it goes, or a URL in brackets. Cut in two, neither part would match its rule.
-_WHOLE = (_PICTURE, _AUTOLINK, _HTML_TAG, _BRACKETED_URL, _LINK, MATH)
+_WHOLE = (_PICTURE, _AUTOLINK, _HTML_TAG, _BRACKETED_URL, _LINK)
 # The start of one of those, not yet closed on a line still being written.
 _OPENED = re.compile(
     r"(?:!?\[[^\]\n]*|\]\([^)\n]*|<[a-zA-Z/][^>\n]*|\((?:https?://|www\.)[^)\s]*)$"
 )
+
+
+# Math opened on a line and not closed yet: $$, \[, \( or a $ that may open math. A $ before
+# a digit is taken as money ("$5"), so it doesn't hold back a cut.
+_MATH_OPENED = re.compile(r"(?:\$\$|\\[\[(]|(?<![\\$\w])\$(?![\s$\d]))[^\n]*$")
+
+
+def inside_math(text: str, at: int) -> bool:
+    """Whether cutting `text` at `at` would split math on one line (roadmap R16b), or math that
+    has been opened and may yet be closed, while the line is still being written."""
+    start = text.rfind("\n", 0, at) + 1
+    end = text.find("\n", at)
+    line = text[start:] if end < 0 else text[start:end]
+    at -= start
+    spans = [m.span() for m in MATH.finditer(line)]
+    if any(a < at < b for a, b in spans):
+        return True
+    if end >= 0:
+        return False
+    outside = "".join(" " if any(a <= i < b for a, b in spans) else c for i, c in enumerate(line))
+    return _MATH_OPENED.search(outside[:at]) is not None
 
 
 def inside_whole(text: str, at: int) -> bool:
@@ -128,7 +149,7 @@ def inside_whole(text: str, at: int) -> bool:
     start = text.rfind("\n", 0, at) + 1
     end = text.find("\n", at)
     line = text[start:] if end < 0 else text[start:end]
-    if "|" in line:
+    if "|" in line or inside_math(text, at):
         return True
     at -= start
     spans = [m.span() for pattern in _WHOLE for m in pattern.finditer(line)]
