@@ -1299,6 +1299,51 @@ test("the status waits for a short streamed reply's only clip to start playing",
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
 });
 
+test("the status stays when the first clip is broken, until a later one plays", async () => {
+  // Review on PR #80: passing over a broken first clip cleared the status before anyone spoke.
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
+    undefined,
+    () => Response.json(clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("One. Two.");
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  fireEvent.error(shownVideo()); // clip 1 can't be played: passed over
+  await waitFor(() => expect(shownVideo().getAttribute("src")).toBe("/api/chat/clips/x/2"));
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy(); // nobody has spoken yet
+  fireEvent.playing(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
+test("the status goes when every clip is broken, as nothing will be said aloud", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "One.", streamed: true }),
+    undefined,
+    () => Response.json(clipsMade(["/api/chat/clips/x/1"], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("One.");
+  await waitFor(() => expect(shownVideo()).not.toBeNull());
+  await act(() => new Promise((done) => setTimeout(done, 20))); // every clip made
+  fireEvent.error(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
 test("a reply with nothing to say aloud leaves no status", async () => {
   chatServer(
     [],
@@ -1695,6 +1740,7 @@ test("a streamed reply starts playing on its first clip, before the reply text",
     );
   });
   await screen.findByText("Once upon a time. The end.");
+  fireEvent.playing(video);
   fireEvent.ended(video); // the first clip ends before the second is made: wait on it
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
   made = clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true);

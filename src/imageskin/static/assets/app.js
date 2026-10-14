@@ -2457,6 +2457,9 @@ function Chat() {
 	const [idle, setIdle] = d("loading");
 	const [photo, setPhoto] = d();
 	const [waiting, setWaiting] = d(false);
+	const clipTotal = A(0);
+	const allMade = A(false);
+	const clipsEnded = A(0);
 	h(() => () => {
 		gone.current = true;
 	}, []);
@@ -2502,6 +2505,7 @@ function Chat() {
 			}));
 			if (made.length) setTimes((t) => [...t, ...made]);
 			setClips(got.clips.map((c) => c.url));
+			clipTotal.current = got.clips.length;
 			if (got.error !== null) throw new Error(got.error);
 			if (got.done) return got.clips.length;
 			if (got.clips.length === known) await sleep(300);
@@ -2517,7 +2521,8 @@ function Chat() {
 		} : c));
 	}
 	function ended(clip, at) {
-		setWaiting(false);
+		clipsEnded.current = Math.max(clipsEnded.current, clip + 1);
+		if (allMade.current && clipsEnded.current >= clipTotal.current) setWaiting(false);
 		setTimes((t) => t.map((c, i) => i === clip && c.ended === null ? {
 			...c,
 			ended: at
@@ -2537,6 +2542,9 @@ function Chat() {
 		setSending(true);
 		setSpeaking(true);
 		setWaiting(true);
+		clipTotal.current = 0;
+		allMade.current = false;
+		clipsEnded.current = 0;
 		setFailed(null);
 		setUnspoken(null);
 		setClips([]);
@@ -2551,6 +2559,7 @@ function Chat() {
 		let clipCount = 0;
 		const following = followClips(replyId, () => replied).then((n) => {
 			clipCount = n;
+			allMade.current = true;
 			return null;
 		}, (e) => e instanceof Error ? e : new Error(String(e)));
 		let reply;
@@ -2584,11 +2593,12 @@ function Chat() {
 			const clipsFailed = await Promise.race([following, stopping]);
 			if (gone.current || clipsFailed === "stopped") return;
 			if (clipsFailed !== null) throw clipsFailed;
-			if (reply.streamed && clipCount === 0) setWaiting(false);
+			if (reply.streamed && clipsEnded.current >= clipCount) setWaiting(false);
 			if (!reply.streamed) {
 				const url = await Promise.race([speakReply(reply.turn, replyId), stopping]);
 				if (url === "stopped") return;
 				setClips(url ? [`${url}?t=${Date.now()}`] : []);
+				clipTotal.current = url ? 1 : 0;
 				if (!url) setWaiting(false);
 				if (url) {
 					setWhole(true);

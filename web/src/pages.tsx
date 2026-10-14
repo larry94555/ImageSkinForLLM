@@ -834,6 +834,9 @@ function Chat() {
   // Between sending a prompt and the person starting to speak, unless the reply has nothing
   // to say aloud, couldn't be spoken, or was stopped (R41d).
   const [waiting, setWaiting] = useState(false);
+  const clipTotal = useRef(0); // how many clips the latest reply has so far
+  const allMade = useRef(false); // and that no more will come
+  const clipsEnded = useRef(0); // how many of them have ended or been passed over
 
   useEffect(
     () => () => {
@@ -885,6 +888,7 @@ function Chat() {
       }));
       if (made.length) setTimes((t) => [...t, ...made]);
       setClips(got.clips.map((c) => c.url));
+      clipTotal.current = got.clips.length;
       if (got.error !== null) throw new Error(got.error);
       if (got.done) return got.clips.length;
       if (got.clips.length === known) await sleep(CLIP_POLL_MS); // its wait ran out
@@ -899,7 +903,9 @@ function Chat() {
     setTimes((t) => t.map((c, i) => (i === clip && c.started === null ? { ...c, started: at } : c)));
   }
   function ended(clip: number, at: number) {
-    setWaiting(false); // a clip passed over as broken ends without starting
+    clipsEnded.current = Math.max(clipsEnded.current, clip + 1);
+    // Every clip passed over as broken, without one starting: nothing will be said aloud.
+    if (allMade.current && clipsEnded.current >= clipTotal.current) setWaiting(false);
     setTimes((t) => t.map((c, i) => (i === clip && c.ended === null ? { ...c, ended: at } : c)));
   }
 
@@ -918,6 +924,9 @@ function Chat() {
     setSending(true);
     setSpeaking(true);
     setWaiting(true);
+    clipTotal.current = 0;
+    allMade.current = false;
+    clipsEnded.current = 0;
     setFailed(null);
     setUnspoken(null);
     setClips([]); // the server replaces the last reply's clips or video with this one's
@@ -932,6 +941,7 @@ function Chat() {
     const following: Promise<Error | null> = followClips(replyId, () => replied).then(
       (n) => {
         clipCount = n;
+        allMade.current = true;
         return null;
       },
       (e: unknown) => (e instanceof Error ? e : new Error(String(e))),
@@ -967,7 +977,8 @@ function Chat() {
       const clipsFailed = await Promise.race([following, stopping]);
       if (gone.current || clipsFailed === "stopped") return; // left or stopped meanwhile
       if (clipsFailed !== null) throw clipsFailed;
-      if (reply.streamed && clipCount === 0) setWaiting(false); // nothing to say aloud
+      // Nothing to say aloud, or every clip already passed over as broken.
+      if (reply.streamed && clipsEnded.current >= clipCount) setWaiting(false);
       if (!reply.streamed) {
         // Not streamed: the whole reply is spoken in one video (roadmap R17), asked for by the
         // server's count, which another tab's replies may have moved on from this tab's.
@@ -975,6 +986,7 @@ function Chat() {
         if (url === "stopped") return; // stopped while it was made
         // A new address each time, so the same reply number after a restart plays afresh.
         setClips(url ? [`${url}?t=${Date.now()}`] : []);
+        clipTotal.current = url ? 1 : 0;
         if (!url) setWaiting(false); // nothing to say aloud
         if (url) {
           setWhole(true);
