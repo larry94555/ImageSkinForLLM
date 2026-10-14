@@ -1,12 +1,17 @@
+import io
 import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
-from test_question_scope import Llm, app_with_content
+from fastapi.testclient import TestClient
+from test_question_scope import PDF, Llm, app_with_content
 
+from imageskin.app import create_app
 from imageskin.chat import NO_TOPICS_YET, Conversation, Message, Turn
+from imageskin.lookup import named_topic
+from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.review import Review
 from imageskin.topics import (
     NO_CONTENT,
@@ -18,6 +23,9 @@ from imageskin.topics import (
     spoken_list,
     topics_reply,
 )
+from imageskin.uploads import PhotoResult
+from imageskin.wiki import Progress as WikiProgress
+from imageskin.wiki import Wiki, WikiPage
 
 
 @pytest.mark.parametrize(
@@ -184,3 +192,89 @@ def test_the_app_answers_with_the_wikis_topics(tmp_path: Path, general_prompts: 
     assert reply.json()["content"].startswith("I can talk about Moons of Mars.")
     assert (ONLY_THESE in reply.json()["content"]) is not general_prompts
     assert llm.sent == []
+
+
+def riemann_app(tmp_path: Path, llm: Llm) -> Any:
+    """A Riemann-like PDF whose words don't include "tell", as in Larry's test (2026-10-14)."""
+
+    def paper(path: Path, progress: Progress) -> Reading:
+        pieces = [
+            Piece(1, "paragraph", "The number of primes below a given size is counted."),
+            Piece(2, "paragraph", "The zeta function is given by an integral over x."),
+        ]
+        return Reading("text", 2, pieces, [])
+
+    def topics(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, w: Any) -> Wiki:
+        return Wiki(
+            2,
+            [
+                WikiPage(f"{pdf_id}-primes", "Prime Number Basics", "Primes are counted.", [1]),
+                WikiPage(
+                    f"{pdf_id}-zeta",
+                    "Zeta Function Integral",
+                    "The zeta function as an integral.",
+                    [2],
+                ),
+            ],
+        )
+
+    app = create_app(
+        tmp_path,
+        check_photo=lambda p: PhotoResult([], 80),
+        prepare_voice=lambda: None,
+        prepare_face=lambda photo, progress: None,
+        render_clip=lambda photo, text, output: None,
+        ask_llm=llm,
+        read_pdf=paper,
+        build_wiki=topics,
+    )
+    client = TestClient(app)
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/content", files={"file": ("riemann.pdf", io.BytesIO(PDF))})
+    app.state.readings.wait()
+    app.state.wiki.wait()
+    return client
+
+
+def test_a_suggested_topic_is_answered_when_asked_about(tmp_path: Path) -> None:
+    """Larry's exchange (2026-10-14): the topic suggested was then declined when asked about."""
+    llm = Llm()
+    client = riemann_app(tmp_path, llm)
+    with (
+        patch("imageskin.app.load_review", return_value=Review(accepted=True)),
+        patch("imageskin.topics.random.choice", lambda topics: "Zeta Function Integral"),
+    ):
+        told = client.post("/api/chat", json={"prompt": "What topics can you talk about?"})
+        asked = client.post(
+            "/api/chat", json={"prompt": "What can you tell me about the zeta function integral?"}
+        )
+    assert told.json()["content"].endswith("asking me about Zeta Function Integral.")
+    assert asked.json()["content"] == "Two moons."  # the LLM's answer, not the decline
+    assert "The zeta function as an integral." in llm.sent[-1][-1]["content"]
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Tell me about Prime Number Basics.",
+        "I'd like to learn about the zeta function integral",
+        "Please explain Zeta Function Integral",
+        # A word the content doesn't have outweighs the rest; the topic it names is looked up.
+        "What's so fascinating about the Zeta Function Integral?",
+    ],
+)
+def test_asking_about_a_named_topic_is_never_declined(tmp_path: Path, prompt: str) -> None:
+    llm = Llm()
+    client = riemann_app(tmp_path, llm)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        reply = client.post("/api/chat", json={"prompt": prompt})
+    assert reply.json()["content"] == "Two moons."
+    assert "Reference text" in llm.sent[-1][-1]["content"]
+
+
+def test_the_topic_named_is_the_longest_one_whose_words_are_all_there() -> None:
+    contents = [{"entries": [entry("Zeta Function"), entry("Zeta Function Integral"), entry("x")]}]
+    asked = "about the integral of the zeta function"
+    assert named_topic(asked, contents) == "Zeta Function Integral"
+    assert named_topic("about the zeta function", contents) == "Zeta Function"
+    assert named_topic("about primes", contents) is None

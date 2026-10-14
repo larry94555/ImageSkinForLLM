@@ -83,9 +83,7 @@ def spoken_list(items: Sequence[str], last: str = "and") -> str:
     return f"{', '.join(items[:-1])} {last} {items[-1]}"
 
 
-def topics_reply(
-    topics: list[str], content_only: bool, choose: Choose = random.choice
-) -> list[str]:
+def topics_reply(topics: list[str], content_only: bool, choose: Choose | None = None) -> list[str]:
     """The answer to "What can you talk about?", as its sentences: the topics, that nothing else
     is answered when general prompts are off (R41), and one to ask about. Before any PDF is
     added it can talk about anything."""
@@ -100,14 +98,16 @@ def topics_reply(
     if len(topics) == 1:
         sentences.append("Ask me anything about it.")
     else:
-        sentences.append(f"You could start by asking me about {choose(topics)}.")
+        sentences.append(f"You could start by asking me about {(choose or random.choice)(topics)}.")
     return sentences
 
 
-def decline_reply(topics: list[str], sample: Sample = random.sample) -> list[str]:
+def decline_reply(topics: list[str], sample: Sample | None = None) -> list[str]:
     """What is said when a prompt is declined (R41): sorry, and a few of the topics it can
     answer questions about instead."""
     if not topics:
         return [OFF_TOPIC_START, "Try asking about something in it."]
-    named = topics if len(topics) <= DECLINE_TOPICS else sample(topics, DECLINE_TOPICS)
+    named = topics
+    if len(topics) > DECLINE_TOPICS:
+        named = (sample or random.sample)(topics, DECLINE_TOPICS)
     return [OFF_TOPIC_START, f"You could ask me about {spoken_list(named, 'or')}."]
