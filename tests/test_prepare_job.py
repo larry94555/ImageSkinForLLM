@@ -15,6 +15,7 @@ from imageskin.app import NEEDS_CLONE, WAIT_FOR_PREPARE, create_app
 from imageskin.prepare_job import (
     CLIPS,
     NO_PHOTO,
+    SOMETHING_WRONG,
     PrepareError,
     PrepareJob,
     PrepareStatus,
@@ -187,7 +188,7 @@ def test_an_unexpected_error_is_reported_and_logged(
         job.start()
         job.wait(5)
     error = job.status().error or ""
-    assert error.startswith("Something went wrong: boom.")
+    assert error == SOMETHING_WRONG and "boom" not in error  # plain words (R41e); the log has it
     assert "Traceback" in caplog.text
 
 

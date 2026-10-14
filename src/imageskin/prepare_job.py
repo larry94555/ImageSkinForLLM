@@ -85,12 +85,14 @@ CLIPS: tuple[tuple[ClipName, str], ...] = (
 # about 2.5 seconds per second of speech; Kokoro is quicker.
 STEPS = (
     ("voice", "Get the voice ready", 40),
-    ("models", "Load the face model", 30),
-    ("shapes", "Render the 10 mouth shapes and the blinking eyes", 70),
-    ("loop", "Render the idle video (head movement)", 250),
+    ("models", "Get ready to animate the face", 30),
+    ("shapes", "Make the mouth shapes and the blinking eyes", 70),
+    ("loop", "Make the video of the person listening", 250),
     ("align", "Line up the mouth with the head", 20),
-    ("clips", "Render the sample video and the fixed lines", 100),
+    ("clips", "Make the sample video and the greetings", 100),
 )
+# Shown when the job fails for an unexpected reason; the log has the details.
+SOMETHING_WRONG = "Something went wrong while preparing. Click Try again."
 NO_PHOTO = "Add a photo that passes the checks first."
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
 CLONES = ("pocket", "clone")
@@ -358,9 +360,9 @@ class PrepareJob:
             logger.error("Prepare job failed", extra={"error": str(e)})
             self._finish("failed", str(e))
             return
-        except Exception as e:
+        except Exception:
             logger.exception("Prepare job failed")
-            self._finish("failed", f"Something went wrong: {e}. The server log has the details.")
+            self._finish("failed", SOMETHING_WRONG)
             return
         self._finish("done", None)
         logger.info(

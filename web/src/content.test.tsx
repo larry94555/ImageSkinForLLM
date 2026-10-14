@@ -145,6 +145,10 @@ test("adds several PDFs, one at a time", async () => {
   const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
   expect(posts).toHaveLength(2);
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Added one\.pdf in \d/));
+  // A done message says what happens next (R41e).
+  expect(screen.getByRole("status").textContent).toBe(
+    "Added one.pdf, two.pdf. It is read first, then its wiki is built. Each PDF below shows how far it has got.",
+  );
 });
 
 test("a refused PDF shows why next to its name", async () => {
@@ -154,6 +158,7 @@ test("a refused PDF shows why next to its name", async () => {
   await choose(screen.getByLabelText("Add PDFs"), pdfFile("notes.txt"));
   expect(await screen.findByText("notes.txt: That file is not a PDF.")).toBeTruthy();
   expect(screen.getByText("No PDFs yet.")).toBeTruthy();
+  expect(screen.queryByRole("status")).toBeNull(); // nothing was added
 });
 
 test("replacing a PDF keeps its place and shows it was replaced", async () => {
@@ -169,6 +174,7 @@ test("replacing a PDF keeps its place and shows it was replaced", async () => {
   expect(console.info).toHaveBeenCalledWith(
     expect.stringMatching(/^Replaced guide\.pdf with guide-v2\.pdf in \d/),
   );
+  expect(screen.getByRole("status").textContent).toMatch(/^Replaced guide\.pdf with guide-v2\.pdf\. It is read first/);
 });
 
 test("a refused replacement keeps the old PDF", async () => {
@@ -178,6 +184,7 @@ test("a refused replacement keeps the old PDF", async () => {
   await choose(screen.getByLabelText("Replace guide.pdf"), pdfFile("bad.pdf"));
   expect(screen.getByRole("link", { name: "guide.pdf" })).toBeTruthy();
   expect(await screen.findByText("bad.pdf: That file is not a PDF.")).toBeTruthy();
+  expect(screen.queryByRole("status")).toBeNull();
 });
 
 test("choosing no file to replace with changes nothing", async () => {
@@ -198,7 +205,7 @@ test("removes a PDF after asking", async () => {
   await act(async () => {
     fireEvent.click(within(item).getByRole("button", { name: "Remove" }));
   });
-  expect(confirm).toHaveBeenCalledWith("Remove guide.pdf?");
+  expect(confirm).toHaveBeenCalledWith("Remove guide.pdf? Its wiki is removed too.");
   expect(fetchMock).toHaveBeenCalledWith("/api/content/a1", { method: "DELETE" });
   await waitFor(() => expect(screen.queryByRole("link", { name: "guide.pdf" })).toBeNull());
   expect(screen.getByRole("link", { name: "other.pdf" })).toBeTruthy();
@@ -242,8 +249,8 @@ test("shows how far each PDF has got being read, checking again until it is done
     await vi.advanceTimersByTimeAsync(READING_POLL_MS);
   });
   expect(await screen.findByText(/Read 3 pages: 12 paragraphs, 1 table/)).toBeTruthy();
-  const link = screen.getByRole("link", { name: "What was read" });
-  expect(link.getAttribute("href")).toBe("/api/content/a1/reading");
+  // What was read is raw data, so the page doesn't link to it (R41e).
+  expect(screen.queryByRole("link", { name: "What was read" })).toBeNull();
 
   // Done: no more checks.
   const checks = fetchMock.mock.calls.length;
@@ -324,7 +331,7 @@ test("shows the wiki pages being built once a PDF is read, checking until they a
   });
   render(<ContentPage />);
   expect(await screen.findByText(/Read 3 pages/)).toBeTruthy();
-  for (const text of ["Building the wiki pages: part 1 of 2…", "part 2 of 2", "Wiki: 7 pages"]) {
+  for (const text of ["Building the wiki: part 1 of 2…", "part 2 of 2", "Wiki ready: 7 topics"]) {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(READING_POLL_MS);
     });
@@ -369,44 +376,44 @@ test("a failed wiki progress check is logged", async () => {
 
 test("wiki progress reads as a sentence", () => {
   const waiting: WikiBuild = { ...BUILT, state: "waiting", parts: 0, pages: null };
-  expect(wikiText(waiting)).toBe("Waiting to build the wiki pages…");
+  expect(wikiText(waiting)).toBe("Waiting to build the wiki…");
   expect(wikiText({ ...waiting, error: "Could not reach the LLM" })).toBe(
-    "Waiting for the LLM to build the wiki pages…",
+    "Waiting for the AI to be ready to build the wiki…",
   );
-  expect(wikiText({ ...waiting, state: "building" })).toBe("Building the wiki pages…");
-  expect(wikiText({ ...BUILT, state: "failed" })).toBe("The wiki pages could not be built.");
+  expect(wikiText({ ...waiting, state: "building" })).toBe("Building the wiki…");
+  expect(wikiText({ ...BUILT, state: "failed" })).toBe("The wiki could not be built.");
   expect(wikiText({ ...BUILT, pages: 1, parts: 5, skipped_parts: [2, 4] })).toBe(
-    "Wiki: 1 page (2 parts of 5 skipped: the LLM gave no usable answer)",
+    "Wiki ready: 1 topic (2 parts of 5 skipped: the AI's answer couldn't be used)",
   );
   const outline: WikiBuild = { ...BUILT, state: "building", stage: "outline", pages: null };
-  expect(wikiText(outline)).toBe("Building the wiki outline…");
+  expect(wikiText(outline)).toBe("Arranging the wiki's topics…");
   expect(wikiText({ ...outline, steps: 3, steps_planned: 9 })).toBe(
-    "Building the wiki outline: step 4 of about 9…",
+    "Arranging the wiki's topics: step 4 of about 9…",
   );
-  expect(wikiText({ ...BUILT, detail_pages: 1 })).toBe("Wiki: 7 pages, 1 detail page");
+  expect(wikiText({ ...BUILT, detail_pages: 1 })).toBe("Wiki ready: 7 topics, 1 detail page");
   expect(wikiText({ ...outline, steps: 2, steps_planned: 2, elapsed_s: 252.4 }, true)).toBe(
-    "Building the wiki outline: step 2 of about 2… (4 min 12 s so far)",
+    "Arranging the wiki's topics: step 2 of about 2… (4 min 12 s so far)",
   );
   expect(
     wikiText({ ...outline, steps: 2, steps_planned: 5, elapsed_s: 252.4, remaining_s: 90 }, true),
-  ).toBe("Building the wiki outline: step 3 of about 5… (4 min 12 s so far, about 1 min 30 s left)");
+  ).toBe("Arranging the wiki's topics: step 3 of about 5… (4 min 12 s so far, about 1 min 30 s left)");
   expect(wikiText({ ...BUILT, state: "building", part: 1, elapsed_s: 40, remaining_s: 40 }, true)).toBe(
-    "Building the wiki pages: part 2 of 2… (40 s so far, about 40 s left before the outline)",
+    "Building the wiki: part 2 of 2… (40 s so far, about 40 s left before arranging its topics)",
   );
   expect(wikiText({ ...BUILT, state: "building", part: 0, elapsed_s: 5 }, true)).toBe(
-    "Building the wiki pages: part 1 of 2… (5 s so far)",
+    "Building the wiki: part 1 of 2… (5 s so far)",
   );
   expect(wikiText({ ...waiting, error: "down", elapsed_s: 61 }, true)).toBe(
-    "Waiting for the LLM to build the wiki pages… (1 min 1 s so far)",
+    "Waiting for the AI to be ready to build the wiki… (1 min 1 s so far)",
   );
-  expect(wikiText({ ...BUILT, elapsed_s: 3780 }, true)).toBe("Wiki: 7 pages, built in 1 h 3 min");
+  expect(wikiText({ ...BUILT, elapsed_s: 3780 }, true)).toBe("Wiki ready: 7 topics, built in 1 h 3 min");
 });
 
 test("without the timing metrics, wiki progress says only how long is left", () => {
   const building: WikiBuild = { ...BUILT, state: "building", part: 1, elapsed_s: 40 };
   expect(wikiText({ ...building, remaining_s: 40 })).toBe(
-    "Building the wiki pages: part 2 of 2… (about 40 s left before the outline)",
+    "Building the wiki: part 2 of 2… (about 40 s left before arranging its topics)",
   );
-  expect(wikiText(building)).toBe("Building the wiki pages: part 2 of 2…");
-  expect(wikiText({ ...BUILT, elapsed_s: 3780 })).toBe("Wiki: 7 pages");
+  expect(wikiText(building)).toBe("Building the wiki: part 2 of 2…");
+  expect(wikiText({ ...BUILT, elapsed_s: 3780 })).toBe("Wiki ready: 7 topics");
 });

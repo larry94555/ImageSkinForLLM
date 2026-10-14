@@ -95,9 +95,9 @@ test("the history lists every version newest first, to read and restore", async 
   const history = await openHistory();
   const items = within(history).getAllByRole("listitem");
   expect(items.map((i) => i.textContent)).toEqual([
-    expect.stringContaining("Rebuilt with the LLM (the wiki now)"),
+    expect.stringContaining("Rebuilt by the AI (the wiki now)"),
     expect.stringContaining("You edited “My rain”"),
-    expect.stringContaining("Built with the LLM"),
+    expect.stringContaining("Built by the AI"),
   ]);
   expect(within(items[0]).queryByRole("button", { name: "Restore" })).toBeNull(); // it is now
 

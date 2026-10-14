@@ -99,7 +99,7 @@ test("ticking the box and continuing saves consent and opens setup", async () =>
   await act(async () => {
     fireEvent.click(button);
   });
-  expect(await screen.findByText("Thank you, consent is confirmed.")).toBeTruthy();
+  expect(await screen.findByText(/^Make the talking person in four steps/)).toBeTruthy();
   expect(window.location.hash).toBe("#/setup");
   expect(fetchMock).toHaveBeenCalledWith("/api/consent", expect.objectContaining({ method: "POST" }));
 });
@@ -120,7 +120,7 @@ test("a failed save shows a message and lets the user try again", async () => {
 test("with consent, setup opens and the nav marks it", async () => {
   serverWithConsent(true);
   await openAt("#/setup");
-  expect(await screen.findByText("Thank you, consent is confirmed.")).toBeTruthy();
+  expect(await screen.findByText(/^Make the talking person in four steps/)).toBeTruthy();
   expect(screen.getByRole("link", { name: "Setup" }).className).toBe("current");
 });
 
@@ -567,7 +567,7 @@ test("a refusal without a JSON reason still says something", async () => {
   await act(async () => {
     chooseFiles("Add recordings", [new File(["x"], "voice1.wav")]);
   });
-  expect(await screen.findByText("voice1.wav: The server refused it (502).")).toBeTruthy();
+  expect(await screen.findByText("voice1.wav: That didn't work. Please try again.")).toBeTruthy();
 });
 
 test("remove asks first, then deletes the file", async () => {
@@ -827,7 +827,7 @@ test("prepare starts the job and shows each step's progress until it is ready", 
   const fetchMock = prepareServer([IDLE, RUNNING, DONE]);
   showMetrics();
   await openAt("#/setup");
-  fireEvent.click(await screen.findByRole("button", { name: "Prepare" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare the video" }));
   expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
   expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
   const bar = screen.getByRole("progressbar", { name: "Preparing" }) as HTMLProgressElement;
@@ -839,7 +839,7 @@ test("prepare starts the job and shows each step's progress until it is ready", 
 
   // The page asks again every second while it runs.
   expect(
-    await screen.findByText("Ready. Here is the sample video:", {}, { timeout: 3000 }),
+    await screen.findByText("Done. Watch the sample video, then say whether it is right.", {}, { timeout: 3000 }),
   ).toBeTruthy();
   expect(screen.getByText("Done in 17 min")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Prepare again" })).toBeTruthy();
@@ -864,9 +864,9 @@ test("prepare says what is missing when it can't start", async () => {
     Response.json({ detail: "Add a photo that passes the checks first." }, { status: 409 }),
   );
   await openAt("#/setup");
-  fireEvent.click(await screen.findByRole("button", { name: "Prepare" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare the video" }));
   expect(await screen.findByText("Add a photo that passes the checks first.")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Prepare" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Prepare the video" })).toBeTruthy();
 });
 
 test("a failed job says why, marks where it stopped and can be tried again", async () => {
@@ -924,18 +924,18 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
   vi.stubGlobal("fetch", fetchMock);
   vi.spyOn(window, "confirm").mockReturnValue(true);
   await openAt("#/setup");
-  expect(await screen.findByText("Ready. Here is the sample video:")).toBeTruthy();
+  expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
 
   fireEvent.click(await screen.findByRole("button", { name: "Use this photo" }));
-  expect(await screen.findByRole("button", { name: "Prepare" })).toBeTruthy();
-  expect(screen.queryByText("Ready. Here is the sample video:")).toBeNull();
+  expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
+  expect(screen.queryByText("Done. Watch the sample video, then say whether it is right.")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Use this photo" })); // back to the first
-  expect(await screen.findByText("Ready. Here is the sample video:")).toBeTruthy();
+  expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
 
   const recording = (await screen.findByText(/voice1\.m4a/)).closest("li") as HTMLElement;
   fireEvent.click(within(recording).getByRole("button", { name: "Remove" }));
-  expect(await screen.findByRole("button", { name: "Prepare" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
 });
 
 // --- Accent (R26) ---
@@ -975,7 +975,7 @@ function accentOption(name: RegExp | string) {
 test("the accent starts as the person's own and another can be chosen", async () => {
   const fetchMock = accentServer({ accent: "own", available: true }, [DONE, RUNNING]);
   await openAt("#/setup");
-  expect(await screen.findByText("Ready. Here is the sample video:")).toBeTruthy();
+  expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
   await waitFor(() => expect(accentOption(/Their own accent/).checked).toBe(true));
   expect(accentOption("British").checked).toBe(false);
   expect(screen.queryByText(/needs the person's own voice installed/)).toBeNull();
@@ -998,10 +998,27 @@ test("the accent starts as the person's own and another can be chosen", async ()
 test("without the person's own voice installed, the accent says it can't change yet", async () => {
   accentServer({ accent: "own", available: false });
   await openAt("#/setup");
-  expect(await screen.findByText(/needs the person's own voice installed/)).toBeTruthy();
+  expect(await screen.findByText(/needs the voice add-on/)).toBeTruthy();
+  expect(document.body.textContent).not.toContain("README"); // no technical words (R41e)
   expect(accentOption("British").matches(":disabled")).toBe(true);
   expect(accentOption("American").matches(":disabled")).toBe(true);
   expect(accentOption(/Their own accent/).matches(":disabled")).toBe(false);
+});
+
+test("setup says what it is for and numbers its four steps", async () => {
+  accentServer({ accent: "own", available: true });
+  await openAt("#/setup");
+  expect(await screen.findByText(/^Make the talking person in four steps/)).toBeTruthy();
+  const steps = Array.from(document.querySelectorAll("section.panel")).map(
+    (s) => `${s.querySelector(".step-of")?.textContent}: ${s.querySelector("h2")?.textContent}`,
+  );
+  expect(steps).toEqual([
+    "Step 1 of 4: Photos",
+    "Step 2 of 4: Voice recordings",
+    "Step 3 of 4: Accent",
+    "Step 4 of 4: Prepare the video",
+  ]);
+  expect(await screen.findByText("Add recordings")).toBeTruthy();
 });
 
 test("an accent that can't be saved says why and keeps the old one", async () => {

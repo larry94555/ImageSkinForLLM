@@ -11,7 +11,6 @@ import {
   type Pdf,
   pdfUrl,
   type Reading,
-  readingUrl,
   removePdf,
   sendPdf,
   type WikiBuild,
@@ -34,6 +33,8 @@ export function ContentPage() {
   // What is being sent now: the file's name, and the id of the PDF it replaces, if any.
   const [sending, setSending] = useState<{ name: string; replacing?: string } | null>(null);
   const [refused, setRefused] = useState<Refused[]>([]);
+  // What was just added or replaced, said once it is sent (R41e).
+  const [done, setDone] = useState<string | null>(null);
   const [readings, setReadings] = useState<Record<string, Reading>>({});
   // Until every PDF is read or has failed. A PDF with no progress yet counts as being read, so
   // a failed check is tried again.
@@ -110,10 +111,16 @@ export function ContentPage() {
     const files = Array.from(input.files ?? []);
     input.value = "";
     setRefused([]);
+    setDone(null);
+    const added: string[] = [];
     for (const file of files) {
       const pdf = await send(file);
-      if (pdf) setPdfs((current) => [...(current ?? []), pdf]);
+      if (pdf) {
+        added.push(pdf.name);
+        setPdfs((current) => [...(current ?? []), pdf]);
+      }
     }
+    if (added.length) setDone(`Added ${added.join(", ")}. ${NEXT}`);
   }
 
   async function replace(old: Pdf, event: Event) {
@@ -122,13 +129,17 @@ export function ContentPage() {
     input.value = "";
     if (!file) return;
     setRefused([]);
+    setDone(null);
     const pdf = await send(file, old);
-    if (pdf) setPdfs((current) => (current ?? []).map((p) => (p.id === pdf.id ? pdf : p)));
+    if (!pdf) return;
+    setPdfs((current) => (current ?? []).map((p) => (p.id === pdf.id ? pdf : p)));
+    setDone(`Replaced ${old.name} with ${pdf.name}. ${NEXT}`);
   }
 
   async function remove(pdf: Pdf) {
-    if (!window.confirm(`Remove ${pdf.name}?`)) return;
+    if (!window.confirm(`Remove ${pdf.name}? Its wiki is removed too.`)) return;
     setRefused([]);
+    setDone(null);
     try {
       await removePdf(pdf.id);
       console.info(`Removed ${pdf.name}`);
@@ -144,11 +155,12 @@ export function ContentPage() {
   const loading = pdfs === null && !loadFailed;
 
   return (
-    <>
+    <div className="teacher-page">
       <h1>Manage Content</h1>
-      <p className="muted">
-        Add the PDFs the person&apos;s answers will come from, up to 100 MB each. Replace a PDF
-        when it has a newer version, or remove it when it no longer applies.
+      <p className="lead">
+        Add the PDFs the person&apos;s answers will come from, up to 100 MB each. Each one is read
+        and turned into a <a href={wikiHref()}>wiki</a> you can check. Replace a PDF when it has a
+        newer version, or remove it when it no longer applies.
       </p>
       <label className={ready ? "button" : "button busy"}>
         {sending && !sending.replacing
@@ -165,6 +177,11 @@ export function ContentPage() {
           className="file"
         />
       </label>
+      {done && (
+        <p className="notice" role="status">
+          {done}
+        </p>
+      )}
       {refused.map((r) => (
         <p key={r.name} className="error">
           {r.name}: {r.reason}
@@ -183,7 +200,7 @@ export function ContentPage() {
               {size(pdf.size)} · {pdf.replaced_at ? "replaced" : "added"}{" "}
               {day(pdf.replaced_at ?? pdf.added_at)}
             </span>
-            <ReadingLine id={pdf.id} reading={readings[pdf.id]} />
+            <ReadingLine reading={readings[pdf.id]} />
             <WikiLine id={pdf.id} build={wiki[pdf.id]} />
             <span className="actions">
               <label className={sending?.replacing === pdf.id ? "replace busy" : "replace"}>
@@ -204,22 +221,18 @@ export function ContentPage() {
           </li>
         ))}
       </ul>
-    </>
+    </div>
   );
 }
 
-function ReadingLine({ id, reading }: { id: string; reading?: Reading }) {
+// After a PDF is sent: what happens next.
+const NEXT = "It is read first, then its wiki is built. Each PDF below shows how far it has got.";
+
+function ReadingLine({ reading }: { reading?: Reading }) {
   if (!reading) return null;
   if (reading.state === "failed") return <span className="error">{readingText(reading)}</span>;
   if (reading.state !== "done") return <span className="muted busy">{readingText(reading)}</span>;
-  return (
-    <span className="muted">
-      {readingText(reading)} ·{" "}
-      <a href={readingUrl(id)} target="_blank" rel="noreferrer">
-        What was read
-      </a>
-    </span>
-  );
+  return <span className="muted">{readingText(reading)}</span>;
 }
 
 // "Read 3 pages: 12 paragraphs, 1 table", or how far reading has got.
@@ -251,7 +264,7 @@ function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
   );
 }
 
-// "Wiki: 7 pages", or how far building them has got. How long it has taken is shown only with
+// "Wiki ready: 7 topics", or how far building them has got. How long it has taken is shown only with
 // `metrics` (R41a); how long is left is always shown.
 export function wikiText(b: WikiBuild, metrics = false): string {
   const time = (what = "") => {
@@ -262,28 +275,28 @@ export function wikiText(b: WikiBuild, metrics = false): string {
   };
   const sofar = time();
   if (b.state === "waiting") {
-    if (b.error) return `Waiting for the LLM to build the wiki pages…${sofar}`;
-    return `Waiting to build the wiki pages…${sofar}`;
+    if (b.error) return `Waiting for the AI to be ready to build the wiki…${sofar}`;
+    return `Waiting to build the wiki…${sofar}`;
   }
   if (b.state === "building" && b.stage === "outline") {
     const step = Math.min(b.steps + 1, b.steps_planned);
     return b.steps_planned
-      ? `Building the wiki outline: step ${step} of about ${b.steps_planned}…${sofar}`
-      : `Building the wiki outline…${sofar}`;
+      ? `Arranging the wiki's topics: step ${step} of about ${b.steps_planned}…${sofar}`
+      : `Arranging the wiki's topics…${sofar}`;
   }
   if (b.state === "building") {
     const part = Math.min(b.part + 1, b.parts);
     return b.parts
-      ? `Building the wiki pages: part ${part} of ${b.parts}…${time(" before the outline")}`
-      : `Building the wiki pages…${sofar}`;
+      ? `Building the wiki: part ${part} of ${b.parts}…${time(" before arranging its topics")}`
+      : `Building the wiki…${sofar}`;
   }
-  if (b.state === "failed") return b.error ?? "The wiki pages could not be built.";
+  if (b.state === "failed") return b.error ?? "The wiki could not be built.";
   const n = b.skipped_parts?.length ?? 0;
-  const why = "the LLM gave no usable answer";
+  const why = "the AI's answer couldn't be used";
   const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: ${why})` : "";
   const detail = b.detail_pages ? `, ${plural(b.detail_pages, "detail page")}` : "";
   const took = metrics && b.elapsed_s != null ? `, built in ${duration(b.elapsed_s)}` : "";
-  return `Wiki: ${plural(b.pages ?? 0, "page")}${detail}${took}${skipped}`;
+  return `Wiki ready: ${plural(b.pages ?? 0, "topic")}${detail}${took}${skipped}`;
 }
 
 // 45 -> "45 s", 252 -> "4 min 12 s", 3780 -> "1 h 3 min"

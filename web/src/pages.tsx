@@ -113,16 +113,21 @@ export function SetupPage() {
   }
   const notice = (to: Back) => (back === to ? BACK_NOTICE[to] : null);
   return (
-    <>
+    <div className="teacher-page">
       <h1>Setup</h1>
-      <p className="done">Thank you, consent is confirmed.</p>
+      <p className="lead">
+        Make the talking person in four steps: add photos, add voice recordings, choose an
+        accent, then prepare a sample video and check it.
+      </p>
       <p className="notice">
         New to this? The <a href="#/guide">recording guide</a> walks you step by step through
         taking the photos and making the voice recordings on a Windows or Mac laptop.
       </p>
       <UploadSection
         kind="photos"
+        step={1}
         title="Photos"
+        button="Add photos"
         hint="Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best."
         accept="image/jpeg,image/png,image/heic,.heic"
         notice={notice("photos")}
@@ -130,7 +135,9 @@ export function SetupPage() {
       />
       <UploadSection
         kind="sounds"
-        title="Recordings"
+        step={2}
+        title="Voice recordings"
+        button="Add recordings"
         hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
         accept="audio/*,.m4a,.wav,.mp3"
         notice={notice("sounds")}
@@ -138,7 +145,7 @@ export function SetupPage() {
       />
       <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
       <PrepareSection changes={changes} onRunning={setPreparing} onBack={goBack} />
-    </>
+    </div>
   );
 }
 
@@ -147,9 +154,16 @@ interface Refused {
   reason: string;
 }
 
+// "Step 2 of 4" over a Setup section's heading.
+function StepOf({ n }: { n: number }) {
+  return <p className="step-of">Step {n} of 4</p>;
+}
+
 function UploadSection(props: {
   kind: Kind;
+  step: number;
   title: string;
+  button: string; // the add button's words
   hint: string;
   accept: string;
   notice: string | null; // what to do after rejecting the sample (roadmap R14)
@@ -290,7 +304,8 @@ function UploadSection(props: {
   const loading = items === null && !loadFailed;
 
   return (
-    <section id={kind}>
+    <section id={kind} className="panel">
+      <StepOf n={props.step} />
       <h2>{props.title}</h2>
       {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">{props.hint}</p>
@@ -299,7 +314,7 @@ function UploadSection(props: {
           ? `Uploading and checking ${sending}…`
           : loading
             ? "Loading…"
-            : `Add ${props.title.toLowerCase()}`}
+            : props.button}
         <input
           type="file"
           multiple
@@ -471,7 +486,8 @@ function AccentSection(props: {
   }
 
   return (
-    <section className="accent" id="accent">
+    <section className="accent panel" id="accent">
+      <StepOf n={3} />
       <h2>Accent</h2>
       {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">
@@ -500,8 +516,8 @@ function AccentSection(props: {
       )}
       {choice?.available === false && (
         <p className="muted">
-          Another accent needs the person&apos;s own voice installed (see &quot;Your own
-          voice&quot; in the README). Until then a ready-made voice speaks, with its own accent.
+          Another accent needs the voice add-on, which isn&apos;t installed on this computer yet.
+          Until then a ready-made voice speaks, with its own accent.
         </p>
       )}
       {failed && <p className="error">{failed}</p>}
@@ -571,14 +587,15 @@ function PrepareSection(props: {
   }, [running]);
 
   const label: Record<PrepareStatus["state"], string> = {
-    idle: "Prepare",
+    idle: "Prepare the video",
     running: "Preparing…",
     done: "Prepare again",
     failed: "Try again",
   };
   return (
-    <section className="prepare">
-      <h2>Prepare</h2>
+    <section className="prepare panel">
+      <StepOf n={4} />
+      <h2>Prepare the video</h2>
       <p className="muted">
         Gets the voice and the face ready for the video, then makes a short sample video of the
         person talking. The first time takes 20 minutes or more.
@@ -619,7 +636,7 @@ function PrepareSection(props: {
       )}
       {status?.state === "done" && (
         <div className="sample-video">
-          <p className="done">Ready. Here is the sample video:</p>
+          <p className="done">Done. Watch the sample video, then say whether it is right.</p>
           <video
             controls
             preload="metadata"
