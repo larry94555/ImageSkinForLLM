@@ -452,7 +452,7 @@ Added by Larry on 2026-10-14, to build after the professional look. Today nothin
 
 ### R41h. Teach me (Medium) · item 54
 - A **Teach me** button by the prompt box, also started by typing "teach me about …", starts at the named topic, or the first one when none is named, and explains it in short parts from the wiki and PDFs, main ideas first, then the detail. After each part the student can ask about it, say "next", or ask for it again more simply.
-- It goes on for as long as the student wants: at the end of each topic it gives a one-line summary, offers a quick quiz, and moves on to the next, until all the content is taught. What was covered is kept on that browser, so a student who stops picks up where they left off.
+- It goes on for as long as the student wants: at the end of each topic it gives a one-line summary, offers a quick quiz, and moves on to the next, until all the content is taught. What was covered is kept on that browser, so a student who stops picks up where they left off. Once accounts exist, R46 keeps it for each signed-in student instead, and R45 leaves Teach me, Quiz me and the assessment out for anonymous visitors (item 51).
 - **Can show:** a lesson on the Riemann paper with a question asked partway through and "say it more simply" used once, the move to the next topic, and picking up again after a reload.
 
 ### R41i. Quiz me (Medium) · item 54
@@ -524,10 +524,12 @@ Added by Larry on 2026-10-14, to build after the professional look. Today nothin
 
 ### R45. Question and answer screen for visitors (Simple) · item 31
 - Without sign-on, the app shows only the question box and the person's spoken answers, with no links to setup, content or settings.
+- Visitors get the topic hints and "What can you talk about?" (R41f, R41g), but not Teach me, Quiz me or the assessment (R41h to R41j).
 - **Can show:** an anonymous visitor asks a question and gets a spoken answer, with nothing else reachable.
 
 ### R46. Student sign-up and login (Medium) · item 32
 - A sign-up page and the login link for students; a cookie keeps a student logged in on that browser. Students never see settings.
+- Teach me's progress (R41h) is kept for each signed-in student rather than for the browser.
 - **Can show:** sign up, close the browser, come back still logged in, and see no settings.
 
 ### R47. Require sign-up setting (Simple) · item 33
