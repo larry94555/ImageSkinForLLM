@@ -66,6 +66,7 @@ from imageskin.uploads import (
     UploadError,
     UploadStore,
     VoiceSample,
+    shown_size,
 )
 from imageskin.wiki import (
     TOPICS_SCHEMA,
@@ -748,6 +749,19 @@ def create_app(
 
     def chosen_photo() -> Path | None:
         return store.path("photos", job.status().photo_id or "")
+
+    @app.get("/api/chat/photo", dependencies=needs_consent)
+    def get_chat_photo() -> dict[str, str | int | None]:
+        """The photo the videos are made from, with its size as shown, so the chat can give the
+        person's frame its shape before anything is drawn (roadmap R41d)."""
+        photo_id = job.status().photo_id
+        photo = store.path("photos", photo_id or "")
+        size = None if photo is None else shown_size(photo)
+        return {
+            "url": None if photo is None else f"/api/uploads/photos/{photo_id}",
+            "width": size[0] if size else None,
+            "height": size[1] if size else None,
+        }
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_chat(body: ChatRequest) -> dict[str, str | int | bool]:

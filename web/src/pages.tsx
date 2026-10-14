@@ -15,6 +15,7 @@ import {
   getChat,
   getClips,
   IDLE_VIDEO_URL,
+  getChatPhoto,
   getPhotoChoice,
   clipUrl,
   getPrepare,
@@ -29,6 +30,7 @@ import {
   removeUpload,
   type Review,
   review,
+  ServerRefusal,
   sendPrompt,
   speakReply,
   startPrepare,
@@ -739,12 +741,16 @@ export function ChatPage() {
     );
   }
   return (
-    <>
-      <h1>Chat</h1>
+    <div className="chat-page">
+      <h1 className="sr-only">Chat</h1>
       <Chat />
-    </>
+    </div>
   );
 }
+
+// What the chat says when there is no reply, whatever the reason; the reason goes to the
+// browser console and the server log, not to the student (R41d).
+export const CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 
 // How often the chat asks for a reply's new clips while they are being made.
 export const CLIP_POLL_MS = 300;
@@ -813,7 +819,7 @@ function Chat() {
   const [earlier, setEarlier] = useState<number[]>([]); // the waits of the replies before it
   const [whole, setWhole] = useState(false); // the latest reply is one video, not clips
   // Why the latest reply could not be spoken, by its place in the turns shown.
-  const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
+  const [unspoken, setUnspoken] = useState<{ turn: number } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const gone = useRef(false); // the page was left: stop following clips
   const replying = useRef<string | null>(null); // the latest reply's id
@@ -822,7 +828,15 @@ function Chat() {
   const [halted, setHalted] = useState(false); // the latest reply was stopped
   const [sound, setSound] = useState<Sound>(loadSound);
   const [idle, setIdle] = useState<Idle>("loading"); // the idle video (roadmap R23)
-  const [photo, setPhoto] = useState<string | null>(null); // shown until the idle video plays
+  // The photo, shown until the idle video plays, and its shape, which the person's frame takes
+  // from its first drawing (R41d); undefined until the server has answered.
+  const [photo, setPhoto] = useState<{ url: string | null; ratio: number | null }>();
+  // Between sending a prompt and the person starting to speak, unless the reply has nothing
+  // to say aloud, couldn't be spoken, or was stopped (R41d).
+  const [waiting, setWaiting] = useState(false);
+  const clipTotal = useRef(0); // how many clips the latest reply has so far
+  const allMade = useRef(false); // and that no more will come
+  const clipsEnded = useRef(0); // how many of them have ended or been passed over
 
   useEffect(
     () => () => {
@@ -831,9 +845,15 @@ function Chat() {
     [],
   );
   useEffect(() => {
-    getPhotoChoice()
-      .then((choice) => setPhoto(choice.id ? uploadUrl("photos", choice.id) : null))
-      .catch((e: unknown) => console.error("Could not find the photo for the chat", e));
+    getChatPhoto()
+      .then(({ url, width, height }) => {
+        setPhoto({ url: url ?? null, ratio: width && height ? width / height : null });
+        if (url && width && height) console.info(`Chat photo ${width}x${height}`);
+      })
+      .catch((e: unknown) => {
+        console.error("Could not find the photo for the chat", e);
+        setPhoto({ url: null, ratio: null });
+      });
   }, []);
   useEffect(() => {
     getChat()
@@ -841,21 +861,21 @@ function Chat() {
       .catch((e: unknown) => {
         console.error("Could not load the conversation", e);
         setTurns([]);
-        setFailed("Could not load the conversation. Reload the page to try again.");
+        setFailed("The conversation couldn't be loaded. Reload the page to try again.");
       });
   }, []);
 
   // Follow the reply's clips until the last one is made, or until the server has none to tell
   // of once the reply is in: it wasn't streamed, or a newer prompt (from another tab, say) took
-  // its clips. Throws when a clip failed.
-  async function followClips(replyId: string, replied: () => boolean): Promise<void> {
+  // its clips. Returns how many clips there were; throws when a clip failed.
+  async function followClips(replyId: string, replied: () => boolean): Promise<number> {
     let known = 0;
     while (!gone.current && stopped.current !== replyId) {
       const answered = replied(); // read first: the clips may be dropped once it has replied
       const got = await getClips(replyId, known);
-      if (stopped.current === replyId) return; // stopped while it asked
+      if (stopped.current === replyId) return known; // stopped while it asked
       if (got === null) {
-        if (answered) return;
+        if (answered) return known;
         await sleep(CLIP_POLL_MS);
         continue;
       }
@@ -868,18 +888,24 @@ function Chat() {
       }));
       if (made.length) setTimes((t) => [...t, ...made]);
       setClips(got.clips.map((c) => c.url));
+      clipTotal.current = got.clips.length;
       if (got.error !== null) throw new Error(got.error);
-      if (got.done) return;
+      if (got.done) return got.clips.length;
       if (got.clips.length === known) await sleep(CLIP_POLL_MS); // its wait ran out
       known = got.clips.length;
     }
+    return known;
   }
 
   // The player says when each clip starts and ends, for the timing readout.
   function started(clip: number, at: number) {
+    setWaiting(false);
     setTimes((t) => t.map((c, i) => (i === clip && c.started === null ? { ...c, started: at } : c)));
   }
   function ended(clip: number, at: number) {
+    clipsEnded.current = Math.max(clipsEnded.current, clip + 1);
+    // Every clip passed over as broken, without one starting: nothing will be said aloud.
+    if (allMade.current && clipsEnded.current >= clipTotal.current) setWaiting(false);
     setTimes((t) => t.map((c, i) => (i === clip && c.ended === null ? { ...c, ended: at } : c)));
   }
 
@@ -897,6 +923,10 @@ function Chat() {
     setHalted(false);
     setSending(true);
     setSpeaking(true);
+    setWaiting(true);
+    clipTotal.current = 0;
+    allMade.current = false;
+    clipsEnded.current = 0;
     setFailed(null);
     setUnspoken(null);
     setClips([]); // the server replaces the last reply's clips or video with this one's
@@ -907,8 +937,13 @@ function Chat() {
     setPrompt("");
     // Why the clips failed, if they did, kept until the reply is in: a clip can fail long
     // before, and a rejection with nothing waiting on it would be reported as unhandled.
+    let clipCount = 0;
     const following: Promise<Error | null> = followClips(replyId, () => replied).then(
-      () => null,
+      (n) => {
+        clipCount = n;
+        allMade.current = true;
+        return null;
+      },
       (e: unknown) => (e instanceof Error ? e : new Error(String(e))),
     );
     let reply: Reply;
@@ -923,13 +958,16 @@ function Chat() {
       // The server forgets a prompt that got no reply, so it goes back in the box.
       setTurns((t) => (t ?? []).slice(0, -1));
       setPrompt(text);
-      setFailed(e instanceof Error ? e.message : String(e));
+      // A prompt the server can't use (empty, too long) says why in plain words; any other
+      // trouble gets the same short apology (R41d).
+      setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
       replied = true;
       await Promise.race([following, stopping]);
       setClips([]); // with any clip made before the LLM failed, and its timing row
       setTimes([]);
       setWhole(false);
       setSpeaking(false);
+      setWaiting(false);
       return;
     } finally {
       replied = true;
@@ -939,6 +977,8 @@ function Chat() {
       const clipsFailed = await Promise.race([following, stopping]);
       if (gone.current || clipsFailed === "stopped") return; // left or stopped meanwhile
       if (clipsFailed !== null) throw clipsFailed;
+      // Nothing to say aloud, or every clip already passed over as broken.
+      if (reply.streamed && clipsEnded.current >= clipCount) setWaiting(false);
       if (!reply.streamed) {
         // Not streamed: the whole reply is spoken in one video (roadmap R17), asked for by the
         // server's count, which another tab's replies may have moved on from this tab's.
@@ -946,6 +986,8 @@ function Chat() {
         if (url === "stopped") return; // stopped while it was made
         // A new address each time, so the same reply number after a restart plays afresh.
         setClips(url ? [`${url}?t=${Date.now()}`] : []);
+        clipTotal.current = url ? 1 : 0;
+        if (!url) setWaiting(false); // nothing to say aloud
         if (url) {
           setWhole(true);
           setTimes([{ text: repliedAt, ready: performance.now(), started: null, ended: null }]);
@@ -953,7 +995,8 @@ function Chat() {
       }
     } catch (e) {
       console.error("Could not speak the reply", e);
-      setUnspoken({ turn: shownAt, why: e instanceof Error ? e.message : String(e) });
+      setUnspoken({ turn: shownAt }); // why is in the console above, not shown (R41d)
+      setWaiting(false);
     } finally {
       setSpeaking(false);
     }
@@ -967,6 +1010,7 @@ function Chat() {
     stopped.current = replyId;
     wakeOnStop.current();
     setHalted(true); // the player pauses and fades back to the idle video (R41c)
+    setWaiting(false);
     setTimes([]);
     setWhole(false);
     console.info(`Reply stopped (${clips.length} clips so far)`);
@@ -982,7 +1026,7 @@ function Chat() {
   // Something to stop: a reply still being made, or a clip that hasn't finished playing.
   const stoppable = !halted && (speaking || times.some((t) => t.ended === null));
   const stage = (
-    <Stage idle={idle} onIdle={setIdle} photo={photo}>
+    <Stage idle={idle} onIdle={setIdle} photo={photo?.url} ratio={photo?.ratio}>
       {clips.length > 0 && (
         <ClipPlayer
           clips={clips}
@@ -995,31 +1039,48 @@ function Chat() {
       )}
     </Stage>
   );
-  // The person shows from the start, while the conversation loads (R41c).
+  // The person shows from the start, while the conversation loads (R41c). On a wide screen
+  // they are on the left and the conversation on the right; on a narrow one, above it (R41d).
+  // Nothing is drawn until the photo's shape is known, so the frame never changes size (R41d).
+  if (photo === undefined) return <p className="muted busy">Loading…</p>;
   if (turns === null)
     return (
       <div className="chat">
-        {stage}
-        <p className="muted busy">Loading…</p>
+        <div className="person">{stage}</div>
+        <div className="talk">
+          <p className="muted busy">Loading…</p>
+        </div>
       </div>
     );
+  // One line saying what is happening, until the person starts to speak (R41d).
+  const status = sending ? "Thinking…" : waiting ? "Getting ready to say it…" : null;
   return (
     <div className="chat">
-      {stage}
-      <SoundControls
-        sound={sound}
-        onChange={changeSound}
-        onStop={stoppable ? stop : undefined}
-      />
-      {metrics && times.length > 0 && (
-        <ClipTimes times={times} whole={whole} earlier={earlier} />
-      )}
-      {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
-      <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
-      {sending && <p className="muted busy">Thinking…</p>}
-      {speaking && !halted && <p className="muted busy">Getting ready to say it…</p>}
-      {failed && <p className="error">{failed}</p>}
-      <form
+      <div className="person">
+        {stage}
+        <SoundControls
+          sound={sound}
+          onChange={changeSound}
+          onStop={stoppable ? stop : undefined}
+        />
+        {metrics && times.length > 0 && (
+          <ClipTimes times={times} whole={whole} earlier={earlier} />
+        )}
+      </div>
+      <div className="talk">
+        {turns.length === 0 && (
+          <p className="muted hint">Ask a question to start the conversation.</p>
+        )}
+        <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
+        <p className="status muted" aria-live="polite">
+          {status && <span className="busy">{status}</span>}
+        </p>
+        {failed && (
+          <p className="error" role="alert">
+            {failed}
+          </p>
+        )}
+        <form
         onSubmit={(e) => {
           e.preventDefault();
           void send();
@@ -1028,7 +1089,8 @@ function Chat() {
         <label className="prompt">
           <span>Your message</span>
           <textarea
-            rows={3}
+            rows={2}
+            placeholder="Type your question here"
             value={prompt}
             onInput={(e) => setPrompt(e.currentTarget.value)}
             onKeyDown={(e) => {
@@ -1045,6 +1107,7 @@ function Chat() {
         </button>
       </form>
       {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
+      </div>
     </div>
   );
 }
@@ -1061,7 +1124,7 @@ export function latestExchange(turns: Turn[]): number {
 function TurnList(props: {
   turns: Turn[];
   from?: number;
-  unspoken: { turn: number; why: string } | null;
+  unspoken: { turn: number } | null;
   search?: { query: string; current: number };
 }) {
   const { turns, from = 0, unspoken, search } = props;
@@ -1094,7 +1157,7 @@ function TurnList(props: {
             )}
             {unspoken?.turn === i && (
               <span className="note">
-                I couldn&apos;t say this one aloud, so here it is as text. {unspoken.why}
+                I couldn&apos;t say this one aloud, so here it is as text.
               </span>
             )}
           </li>
@@ -1129,7 +1192,7 @@ export function countMatches(turns: Turn[], query: string): number {
 // video stays the focus (roadmap R18a). Opened, it is a box of limited height with its own
 // scrollbar, kept scrolled to the newest turn, and a search box that marks every match and steps
 // through them with Next and Previous, or Enter and Shift+Enter (roadmap R18).
-export function History(props: { turns: Turn[]; unspoken: { turn: number; why: string } | null }) {
+export function History(props: { turns: Turn[]; unspoken: { turn: number } | null }) {
   const { turns, unspoken } = props;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1225,12 +1288,15 @@ export function Stage(props: {
   idle: Idle;
   onIdle: (idle: Idle) => void;
   photo?: string | null;
+  // The photo's width over its height. The videos are made from it, so the stage takes its
+  // shape and has no empty bands beside or above the person (R41d); a 4:3 box without it.
+  ratio?: number | null;
   children?: ComponentChildren;
 }) {
-  const { idle, onIdle, photo } = props;
+  const { idle, onIdle, photo, ratio } = props;
   const [still, setStill] = useState(true); // the photo loaded, or is loading
   return (
-    <div className="stage">
+    <div className="stage" style={ratio ? { "--ratio": String(ratio) } : undefined}>
       {photo && still && (
         <img
           className="still"

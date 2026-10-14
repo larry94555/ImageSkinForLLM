@@ -63,6 +63,17 @@ export interface VoiceSample {
 export const voiceSampleAudioUrl = "/api/voice-sample/audio";
 
 // The server's explanation for a refused request, meant for the person using the app.
+// A request the server refused, with its status: 400 when what was sent can't be used, as
+// the message says; anything else is the server's own trouble.
+export class ServerRefusal extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function refusal(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { detail?: unknown };
@@ -234,7 +245,7 @@ export async function sendPrompt(prompt: string, replyId?: string): Promise<Repl
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(replyId ? { prompt, reply_id: replyId } : { prompt }),
   });
-  if (!response.ok) throw new Error(await refusal(response));
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Reply;
 }
 
@@ -286,6 +297,18 @@ export async function getClips(replyId: string, known?: number): Promise<Clips |
 export async function stopReply(replyId: string): Promise<boolean> {
   const response = await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" });
   return (await json<{ stopped: boolean }>(response)).stopped;
+}
+
+// The photo the chat's videos are made from, with its size as shown (roadmap R41d); url null
+// when there is none, and width and height null when its size couldn't be read.
+export interface ChatPhoto {
+  url: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export async function getChatPhoto(): Promise<ChatPhoto> {
+  return json<ChatPhoto>(await fetch("/api/chat/photo"));
 }
 
 // The person at rest, blinking and moving slightly, played on a loop between replies (roadmap

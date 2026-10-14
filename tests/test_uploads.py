@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from PIL import Image
 from sound_fakes import speechlike, wav_of
 
 from imageskin import sound_checks, uploads
@@ -22,6 +23,7 @@ from imageskin.uploads import (
     VoiceSample,
     detect_format,
     display_name,
+    shown_size,
 )
 
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
@@ -592,3 +594,17 @@ def test_removing_a_photo_does_not_wait_for_the_voice_sample(tmp_path: Path) -> 
     photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
     with store._sounds_lock:  # a voice sample is being joined
         assert store.remove("photos", photo.id)
+
+
+def test_a_photo_is_sized_as_shown_after_its_exif_turn(tmp_path: Path) -> None:
+    """R41d: a phone photo stored on its side with an EXIF turn is shown, and made into the
+    videos, upright, with its sides swapped."""
+    upright = tmp_path / "upright.jpg"
+    Image.new("RGB", (640, 480)).save(upright, "JPEG")
+    assert shown_size(upright) == (640, 480)
+    turned = tmp_path / "turned.jpg"
+    exif = Image.Exif()
+    exif[0x0112] = 6  # turn a quarter clockwise to show
+    Image.new("RGB", (640, 480)).save(turned, "JPEG", exif=exif)
+    assert shown_size(turned) == (480, 640)
+    assert shown_size(tmp_path / "missing.jpg") is None
