@@ -57,10 +57,23 @@ STOP_WORDS = frozenset(
     no nor not now of off on once only or other our out over own same she should so some such
     than that the their them then there these they this those through to too under until up very
     was we were what when where which while who whom why will with would you your""".split()
-    # Words that ask about something rather than say what it is (R41f): "Tell me about the zeta
-    # function integral" is about the zeta function integral, and a content without "tell"
-    # mustn't count it as the question's rarest word and so find nothing.
-    + "tell explain describe learn know like want please talk".split()
+)
+# How a question can start by asking about something, taken off before it is looked up (R41f):
+# "What can you tell me about the zeta function integral?" is looked up as "the zeta function
+# integral", so a content without "tell" doesn't count it as the question's rarest word and find
+# nothing. Only these opening words go; the same words later on, or in the content ("Learning"),
+# still count (review on PR #85).
+ASKING_ABOUT = re.compile(
+    r"^[\W_]*(?:(?:so|ok|okay|and|hi|hello|hey|well|please)\b[\W_]*)*"
+    r"(?:(?:what|how much) (?:else )?(?:can|could|do|would|will) you (?:tell|teach|explain|say)"
+    r"(?: to)?(?: me| us)?(?: more)? about"
+    r"|(?:can|could|would|will) you (?:please )?(?:tell|teach|explain|describe)(?: to)?(?: me| us)?"
+    r"(?: more)?(?: about)?"
+    r"|(?:please )?(?:tell|teach) (?:me|us)(?: more)?(?: about)?"
+    r"|(?:please )?(?:explain|describe)"
+    r"|(?:i['’]?d|i would|i) (?:like|want|love) to (?:know|learn|hear)(?: more)?(?: about)?"
+    r"|what do you know about)\b",
+    re.IGNORECASE,
 )
 
 
@@ -149,6 +162,13 @@ def spelled_as_in(word: str, content: Counter[str]) -> str:
     return max(near, key=lambda w: content[w]) if near else word
 
 
+def asked_about(question: str) -> str:
+    """The question without the words it opens with to ask about something (ASKING_ABOUT), or
+    the whole question when nothing would be left."""
+    rest = ASKING_ABOUT.sub("", question, count=1)
+    return rest if words(rest) else question
+
+
 def passage_words(passage: Passage) -> list[str]:
     return words(passage.title) * 2 + words(passage.text)
 
@@ -230,7 +250,7 @@ def look_up(
     """The best wiki entries and PDF passages for a question, ranked together so a word's
     rarity is judged across all the content."""
     start = time.perf_counter()
-    ranked = rank(question, passages)
+    ranked = rank(asked_about(question), passages)
     wiki = [f for f in ranked if f.passage.source == "wiki"][:wiki_limit]
     pdf = [f for f in ranked if f.passage.source == "pdf"][:pdf_limit]
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -261,11 +281,18 @@ def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
 
 
 def named_topic(question: str, contents: list[dict[str, Any]]) -> str | None:
-    """The topic (a main wiki entry, R41f) the question names, every word of its title in it,
-    or None; the one with the most words when it names several."""
-    asked = set(words(question))
-    named = [t for t in main_entries(contents) if words(t) and set(words(t)) <= asked]
-    return max(named, key=lambda t: len(words(t)), default=None)
+    """The topic (a main wiki entry, R41f) the question names: its title's words, together and
+    in order, as in "What's so special about the Zeta Function Integral?", or None. The one with
+    the most words when it names several. Its words scattered through the question don't name
+    it: "Is water safe to drink during my cycle?" isn't about the Water Cycle (review on #85)."""
+    asked = words(asked_about(question))
+
+    def named(title: list[str]) -> bool:
+        n = len(title)
+        return n > 0 and any(asked[i : i + n] == title for i in range(len(asked) - n + 1))
+
+    found = [t for t in main_entries(contents) if named(words(t))]
+    return max(found, key=lambda t: len(words(t)), default=None)
 
 
 class ContentLookup:

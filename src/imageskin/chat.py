@@ -77,11 +77,6 @@ MIN_PASSAGE_CHARS = 80
 # matches the prompt (roadmap R41), when there are no topics to name (R41f). It is spoken, so it
 # is short and plain.
 OFF_TOPIC = " ".join(decline_reply([]))
-# Said when asked what it can talk about while the PDFs added are still being read (R41f).
-NO_TOPICS_YET = (
-    "I'm still reading the material I was given, so I can't say what's in it yet. Ask me again"
-    " in a little while."
-)
 
 
 @dataclass(frozen=True)
@@ -374,9 +369,13 @@ class Conversation:
         content_only: Callable[[], bool] = lambda: False,
         # The content's topics, for "What can you talk about?" and the decline (R41f).
         topics: Callable[[], list[str]] = list,
+        # Whether every PDF has been read and its wiki built (or given up on), so the topics
+        # are all of them (review on PR #85).
+        topics_complete: Callable[[], bool] = lambda: True,
     ) -> None:
         self._find = find
         self._topics = topics
+        self._topics_complete = topics_complete
         self._content_only = content_only
         self._ask = ask
         self._stream = stream
@@ -510,12 +509,16 @@ class Conversation:
         It is sent to the LLM with later prompts, so "Tell me about the first one" works."""
         topics = self._list_topics()
         content_only = self._content_only()
-        logger.info("Topics asked for", extra={"topics": len(topics), "content_only": content_only})
-        if not topics and content_only:  # PDFs added, but no wiki built yet
-            sentences = [NO_TOPICS_YET]
-        else:
-            sentences = topics_reply(topics, content_only)
-        return self._say(prompt, sentences, on_sentence, turns)
+        try:
+            complete = self._topics_complete()
+        except Exception:
+            logger.exception("Could not tell whether the content is all read")
+            complete = False
+        logger.info(
+            "Topics asked for",
+            extra={"topics": len(topics), "content_only": content_only, "complete": complete},
+        )
+        return self._say(prompt, topics_reply(topics, content_only, complete), on_sentence, turns)
 
     def _decline(self, prompt: str, on_sentence: OnSentence | None) -> tuple[Turn, int]:
         """Say sorry, naming a few topics to ask about instead (R41f), without asking the LLM

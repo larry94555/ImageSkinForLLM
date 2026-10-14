@@ -47,6 +47,15 @@ DECLINE_TOPICS = 3
 
 NO_CONTENT = "I can talk about anything you like. Ask me whatever you want to know."
 ONLY_THESE = "I can only answer questions about these topics."
+# While a PDF added is still being read or its wiki built, the topics so far aren't all of them
+# (review on PR #85).
+STILL_READING = "I'm still reading the material I was given, so I can't say what's in it yet."
+STILL_READING_REST = "I'm still reading the rest of the material I was given."
+ASK_AGAIN = "Ask me again in a little while."
+ASK_AGAIN_FOR_ALL = "Ask me again in a little while to hear all of it."
+# PDFs were added, but no wiki could be built from them.
+NO_TOPICS = "I couldn't work out the topics in the material I was given."
+ASK_ABOUT_IT = "Ask me about something in it."
 OFF_TOPIC_START = "Sorry, I can only answer questions about the material I was given."
 # Choose one topic to suggest, and a few to name when declining. Random by default, so the
 # suggestion changes; tests pass their own.
@@ -83,16 +92,28 @@ def spoken_list(items: Sequence[str], last: str = "and") -> str:
     return f"{', '.join(items[:-1])} {last} {items[-1]}"
 
 
-def topics_reply(topics: list[str], content_only: bool, choose: Choose | None = None) -> list[str]:
-    """The answer to "What can you talk about?", as its sentences: the topics, that nothing else
-    is answered when general prompts are off (R41), and one to ask about. Before any PDF is
-    added it can talk about anything."""
-    if not topics:
-        return [NO_CONTENT]
+def listed(topics: list[str]) -> str:
+    """The topics said aloud, up to SPOKEN_TOPICS of them, then how many more there are."""
     named = topics[:SPOKEN_TOPICS]
     more = len(topics) - len(named)
-    listed = spoken_list([*named, f"{more} more on the Wiki page"] if more else named)
-    sentences = [f"I can talk about {listed}."]
+    return spoken_list([*named, f"{more} more on the Wiki page"] if more else named)
+
+
+def topics_reply(
+    topics: list[str], content_only: bool, complete: bool = True, choose: Choose | None = None
+) -> list[str]:
+    """The answer to "What can you talk about?", as its sentences: the topics, that nothing else
+    is answered when general prompts are off (R41), and one to ask about. Before any PDF is
+    added it can talk about anything. While a PDF is still being read or its wiki built
+    (`complete` false), the topics so far are given as only those so far, and it says to ask
+    again."""
+    if not complete:
+        if not topics:
+            return [STILL_READING, ASK_AGAIN]
+        return [f"So far I can talk about {listed(topics)}.", STILL_READING_REST, ASK_AGAIN_FOR_ALL]
+    if not topics:
+        return [NO_TOPICS, ASK_ABOUT_IT] if content_only else [NO_CONTENT]
+    sentences = [f"I can talk about {listed(topics)}."]
     if content_only:
         sentences.append(ONLY_THESE)
     if len(topics) == 1:

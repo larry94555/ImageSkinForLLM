@@ -693,6 +693,21 @@ def create_app(
     def content_topics() -> list[str]:
         return main_entries(wiki.contents())
 
+    # Whether every PDF has been read and its wiki built, or failed, so the topics are all of
+    # them (review on PR #85).
+    def topics_complete() -> bool:
+        wikis = wiki.statuses()
+        reads = readings.statuses()
+        for pdf in wiki.store.list():
+            built = wikis.get(pdf.id)
+            read = reads.get(pdf.id)
+            if built is not None and built.state in ("done", "failed"):
+                continue
+            if read is not None and read.state == "failed":
+                continue
+            return False
+        return True
+
     if client is not None:
         conversation = Conversation(
             client.ask,
@@ -704,6 +719,7 @@ def create_app(
             find=find_content,
             content_only=content_only,
             topics=content_topics,
+            topics_complete=topics_complete,
         )
     else:
         assert ask_llm is not None
@@ -716,6 +732,7 @@ def create_app(
             find=find_content,
             content_only=content_only,
             topics=content_topics,
+            topics_complete=topics_complete,
         )
 
     # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's
