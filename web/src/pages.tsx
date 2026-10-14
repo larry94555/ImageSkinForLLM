@@ -1352,6 +1352,10 @@ export function ClipPlayer(props: {
     if (rest) setOn(false);
     setRefused(false);
   }, [stopped]);
+  useEffect(() => {
+    // The idle video came after the reply ended or was stopped, so its held frame fades to it.
+    if (rest && (stopped || playing >= clips.length)) setOn(false);
+  }, [rest]);
 
   function begins(at: number) {
     setOn(true);

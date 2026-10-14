@@ -2913,6 +2913,9 @@ function ClipPlayer(props) {
 		if (rest) setOn(false);
 		setRefused(false);
 	}, [stopped]);
+	h(() => {
+		if (rest && (stopped || playing >= clips.length)) setOn(false);
+	}, [rest]);
 	function begins(at) {
 		setOn(true);
 		if (playing < clips.length && !begun.current.has(playing)) {

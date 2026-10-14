@@ -1818,6 +1818,32 @@ test("a clip that failed while it waited its turn is passed over when its turn c
   expect(play).toHaveBeenCalledTimes(2); // /a, then /c; never /b
 });
 
+test("an idle video that comes after the reply ended or was stopped takes over from it", () => {
+  // Review on PR #78: the held frame stayed over the idle video once it arrived.
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const ended = render(<ClipPlayer clips={["/a"]} />);
+  fireEvent.playing(shownVideo());
+  fireEvent.ended(shownVideo()); // no idle video yet: holds the last frame
+  expect(shownVideo().className).toBe("reply-video");
+  ended.rerender(<ClipPlayer clips={["/a"]} rest />);
+  expect(shownVideo().className).toBe("reply-video resting");
+  ended.unmount();
+
+  const stopped = render(<ClipPlayer clips={["/a", "/b"]} />);
+  fireEvent.playing(shownVideo());
+  stopped.rerender(<ClipPlayer clips={["/a", "/b"]} stopped />);
+  expect(shownVideo().className).toBe("reply-video"); // holds the frame
+  stopped.rerender(<ClipPlayer clips={["/a", "/b"]} stopped rest />);
+  expect(shownVideo().className).toBe("reply-video resting");
+  stopped.unmount();
+
+  const speaking = render(<ClipPlayer clips={["/a", "/b"]} />);
+  fireEvent.playing(shownVideo());
+  speaking.rerender(<ClipPlayer clips={["/a", "/b"]} rest />);
+  expect(shownVideo().className).toBe("reply-video"); // still speaking: stays in front
+});
+
 test("without an idle video, Stop holds the clip's frame and shows no Play button", async () => {
   const refused = new DOMException("needs a click first", "NotAllowedError");
   vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(refused);
