@@ -241,3 +241,20 @@ def test_a_full_stop_inside_math_does_not_end_the_sentence(step: int) -> None:
 
 def test_money_does_not_hold_back_the_first_clause() -> None:
     assert clauses("It costs $5 and more than that today. Bye.", 1000)[0] == "It costs $5"
+
+
+@pytest.mark.parametrize("step", [1, 3, 1000])
+@pytest.mark.parametrize(("opener", "closer"), [("$$", "$$"), ("\\[", "\\]"), ("\\(", "\\)")])
+def test_math_over_several_lines_is_never_cut(opener: str, closer: str, step: int) -> None:
+    # Review on PR #79: a cut on a later line than the opener split display math.
+    math = f"{opener}\nA = 1. B = 2. And then c equals d plus e plus f\n{closer}"
+    for first_clause in (False, True):
+        splitter = SentenceSplitter(first_clause=first_clause)
+        text = f"Here it is:\n{math}\nNext one. Done."
+        sentences: list[str] = []
+        for i in range(0, len(text), step):
+            sentences += splitter.feed(text[i : i + step])
+        sentences += splitter.flush()
+        holding = [s for s in sentences if opener in s or closer in s]
+        assert len(holding) == 1 and opener in holding[0] and closer in holding[0]
+        assert all("$" not in spoken_text(s) and "\\" not in spoken_text(s) for s in sentences)

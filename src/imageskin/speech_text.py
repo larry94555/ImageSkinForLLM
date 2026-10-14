@@ -119,25 +119,27 @@ _OPENED = re.compile(
 )
 
 
-# Math opened on a line and not closed yet: $$, \[, \( or a $ that may open math. A $ before
-# a digit is taken as money ("$5"), so it doesn't hold back a cut.
-_MATH_OPENED = re.compile(r"(?:\$\$|\\[\[(]|(?<![\\$\w])\$(?![\s$\d]))[^\n]*$")
+# Math opened and not closed yet. $$, \[ and \( may run over several lines, so they stay open
+# until closed; a $ only to the end of its line, and a $ before a digit is money ("$5").
+_DISPLAY_OPENED = re.compile(r"\$\$|\\[\[(]")
+_DOLLAR_OPENED = re.compile(r"(?<![\\$\w])\$(?![\s$\d])[^\n]*$")
 
 
 def inside_math(text: str, at: int) -> bool:
-    """Whether cutting `text` at `at` would split math on one line (roadmap R16b), or math that
-    has been opened and may yet be closed, while the line is still being written."""
-    start = text.rfind("\n", 0, at) + 1
-    end = text.find("\n", at)
-    line = text[start:] if end < 0 else text[start:end]
-    at -= start
-    spans = [m.span() for m in MATH.finditer(line)]
+    """Whether cutting `text` at `at` would split math (roadmap R16b): math that is closed, or
+    that has been opened and may yet be closed while the reply is still being written. $$, \\[
+    and \\( count across lines, a single $ only on its own line."""
+    spans = [m.span() for m in MATH.finditer(text)]
     if any(a < at < b for a, b in spans):
         return True
-    if end >= 0:
-        return False
-    outside = "".join(" " if any(a <= i < b for a, b in spans) else c for i, c in enumerate(line))
-    return _MATH_OPENED.search(outside[:at]) is not None
+    before = "".join(
+        " " if any(a <= i < b for a, b in spans) else c for i, c in enumerate(text[:at])
+    )
+    if _DISPLAY_OPENED.search(before):
+        return True
+    if text.find("\n", at) >= 0:
+        return False  # a $ closes on its own line, and this line is complete
+    return _DOLLAR_OPENED.search(before[before.rfind("\n") + 1 :]) is not None
 
 
 def inside_whole(text: str, at: int) -> bool:
