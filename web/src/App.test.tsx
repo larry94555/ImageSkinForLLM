@@ -1259,6 +1259,63 @@ test("one status line says what is happening until the person speaks", async () 
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
 });
 
+test("the status waits for a reply's one video to start playing, not just to be made", async () => {
+  // Review on PR #80: the status went as soon as the video was made, before it played.
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "Hi there.", turn: 1, streamed: false }),
+    () => Response.json({ video: "/api/chat/videos/1" }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/1/));
+  await act(() => new Promise((done) => setTimeout(done, 20))); // made and handed to the player
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
+  fireEvent.playing(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
+test("the status waits for a short streamed reply's only clip to start playing", async () => {
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "Yes.", streamed: true }),
+    undefined,
+    () => Response.json(clipsMade(["/api/chat/clips/x/1"], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Ready?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Yes.");
+  await act(() => new Promise((done) => setTimeout(done, 20))); // every clip made
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
+  fireEvent.playing(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
+test("a reply with nothing to say aloud leaves no status", async () => {
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "```code```", turn: 1, streamed: false }),
+    () => Response.json({ video: null }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Code?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("```code```");
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  expect(screen.queryByText("Thinking…")).toBeNull();
+});
+
 test("a prompt the server can't use says why in its own words", async () => {
   chatServer([], () =>
     Response.json({ detail: "That message is too long. Shorten it or split it in two." }, { status: 400 }),
@@ -1508,7 +1565,9 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
   });
   expect(video.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/3\?t=\d+$/);
   expect(video.autoplay).toBe(true);
-  expect(screen.queryByText("Getting ready to say it…")).toBeNull();
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy(); // until it plays (R41d)
+  fireEvent.playing(video);
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
   const asked = fetchMock.mock.calls.filter(([url]) => url === "/api/chat/video");
   expect(asked).toHaveLength(1);
 
@@ -1675,6 +1734,7 @@ test("a reply whose clips a newer prompt took is not spoken again as one video",
     );
   });
   await screen.findByText("Once upon a time.");
+  fireEvent.playing(video); // its first clip, already here, plays
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
   expect(fetchMock).not.toHaveBeenCalledWith("/api/chat/video", expect.anything());
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
@@ -1832,18 +1892,36 @@ test("without an idle video, the player holds each clip's last frame", () => {
 
 test("the stage takes the photo's shape, so there are no empty bands around the person", () => {
   // Larry on PR #80: a wide video left white bands above and below it in a fixed-size box.
-  const info = vi.spyOn(console, "info").mockImplementation(() => {});
-  render(<Stage idle="loading" onIdle={() => {}} photo="/api/uploads/photos/p1" />);
+  const { rerender } = render(<Stage idle="loading" onIdle={() => {}} ratio={16 / 9} />);
   const stage = document.querySelector(".stage") as HTMLElement;
-  expect(stage.style.getPropertyValue("--ratio")).toBe(""); // a 4:3 box until it loads
-  const still = stage.querySelector("img.still") as HTMLImageElement;
-  fireEvent.load(still); // not decoded: no size to go by
-  expect(stage.style.getPropertyValue("--ratio")).toBe("");
-  Object.defineProperty(still, "naturalWidth", { value: 1280 });
-  Object.defineProperty(still, "naturalHeight", { value: 720 });
-  fireEvent.load(still);
   expect(Number(stage.style.getPropertyValue("--ratio"))).toBeCloseTo(16 / 9);
-  expect(info).toHaveBeenCalledWith("Stage shaped to the photo (1280x720)");
+  rerender(<Stage idle="loading" onIdle={() => {}} />); // no size known: a 4:3 box
+  expect(stage.style.getPropertyValue("--ratio")).toBe("");
+});
+
+test("the chat draws the person's frame only once it knows the photo's shape", async () => {
+  // Review on PR #80: the frame was drawn 4:3 and then took the photo's shape, changing size.
+  const [photo, answerPhoto] = later();
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/photo" ? photo() : answers(url, init),
+  );
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  await act(() => new Promise((done) => setTimeout(done, 20)));
+  expect(document.querySelector(".stage")).toBeNull(); // not drawn at a guessed size
+  await act(async () =>
+    answerPhoto(Response.json({ url: "/api/uploads/photos/p1", width: 1280, height: 720 })),
+  );
+  const stage = (await waitFor(() => {
+    const found = document.querySelector(".stage");
+    expect(found).not.toBeNull();
+    return found;
+  })) as HTMLElement;
+  expect(Number(stage.style.getPropertyValue("--ratio"))).toBeCloseTo(16 / 9); // from the start
+  expect(stage.querySelector("img.still")?.getAttribute("src")).toBe("/api/uploads/photos/p1");
+  expect(info).toHaveBeenCalledWith("Chat photo 1280x720");
 });
 
 test("the stage shows the photo under the videos, and goes without it if it can't load", () => {
@@ -2259,9 +2337,10 @@ test("Stop shows until the last clip has played", async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   await screen.findByText("One.");
+  await waitFor(() => expect(shownVideo()).not.toBeNull());
+  fireEvent.playing(shownVideo());
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
   expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy(); // still playing
-  fireEvent.playing(shownVideo());
   fireEvent.ended(shownVideo());
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
 });

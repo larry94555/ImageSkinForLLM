@@ -161,6 +161,26 @@ SHORT_VOICE = (
 )
 
 
+# EXIF orientations that turn the photo a quarter turn, so it is shown with its sides swapped.
+QUARTER_TURNS = {5, 6, 7, 8}
+
+
+def shown_size(photo: Path) -> tuple[int, int] | None:
+    """The photo's width and height as shown, after its EXIF orientation, as the videos made
+    from it are; None when it can't be read. Reads only the header."""
+    try:
+        from PIL import Image
+
+        with Image.open(photo) as image:
+            width, height = image.size
+            turned = image.getexif().get(0x0112) in QUARTER_TURNS
+    except Exception as e:  # Pillow raises many kinds for a file it can't read
+        extra = {"photo": photo.name, "error": str(e)}
+        logger.error("Could not read the photo's size", extra=extra)
+        return None
+    return (height, width) if turned else (width, height)
+
+
 def checks_version(kind: Kind) -> int:
     return FACE_CHECKS if kind == "photos" else SOUND_CHECKS
 

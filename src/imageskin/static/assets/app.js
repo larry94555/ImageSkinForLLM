@@ -140,6 +140,9 @@ async function getClips(replyId, known) {
 async function stopReply(replyId) {
 	return (await json(await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" }))).stopped;
 }
+async function getChatPhoto() {
+	return json(await fetch("/api/chat/photo"));
+}
 function pdfUrl(id) {
 	return `/api/content/${id}`;
 }
@@ -2452,12 +2455,25 @@ function Chat() {
 	const [halted, setHalted] = d(false);
 	const [sound, setSound] = d(loadSound);
 	const [idle, setIdle] = d("loading");
-	const [photo, setPhoto] = d(null);
+	const [photo, setPhoto] = d();
+	const [waiting, setWaiting] = d(false);
 	h(() => () => {
 		gone.current = true;
 	}, []);
 	h(() => {
-		getPhotoChoice().then((choice) => setPhoto(choice.id ? uploadUrl("photos", choice.id) : null)).catch((e) => console.error("Could not find the photo for the chat", e));
+		getChatPhoto().then(({ url, width, height }) => {
+			setPhoto({
+				url: url ?? null,
+				ratio: width && height ? width / height : null
+			});
+			if (url && width && height) console.info(`Chat photo ${width}x${height}`);
+		}).catch((e) => {
+			console.error("Could not find the photo for the chat", e);
+			setPhoto({
+				url: null,
+				ratio: null
+			});
+		});
 	}, []);
 	h(() => {
 		getChat().then(setTurns).catch((e) => {
@@ -2471,9 +2487,9 @@ function Chat() {
 		while (!gone.current && stopped.current !== replyId) {
 			const answered = replied();
 			const got = await getClips(replyId, known);
-			if (stopped.current === replyId) return;
+			if (stopped.current === replyId) return known;
 			if (got === null) {
-				if (answered) return;
+				if (answered) return known;
 				await sleep(300);
 				continue;
 			}
@@ -2487,18 +2503,21 @@ function Chat() {
 			if (made.length) setTimes((t) => [...t, ...made]);
 			setClips(got.clips.map((c) => c.url));
 			if (got.error !== null) throw new Error(got.error);
-			if (got.done) return;
+			if (got.done) return got.clips.length;
 			if (got.clips.length === known) await sleep(300);
 			known = got.clips.length;
 		}
+		return known;
 	}
 	function started(clip, at) {
+		setWaiting(false);
 		setTimes((t) => t.map((c, i) => i === clip && c.started === null ? {
 			...c,
 			started: at
 		} : c));
 	}
 	function ended(clip, at) {
+		setWaiting(false);
 		setTimes((t) => t.map((c, i) => i === clip && c.ended === null ? {
 			...c,
 			ended: at
@@ -2517,6 +2536,7 @@ function Chat() {
 		setHalted(false);
 		setSending(true);
 		setSpeaking(true);
+		setWaiting(true);
 		setFailed(null);
 		setUnspoken(null);
 		setClips([]);
@@ -2528,7 +2548,11 @@ function Chat() {
 			content: text
 		}]);
 		setPrompt("");
-		const following = followClips(replyId, () => replied).then(() => null, (e) => e instanceof Error ? e : new Error(String(e)));
+		let clipCount = 0;
+		const following = followClips(replyId, () => replied).then((n) => {
+			clipCount = n;
+			return null;
+		}, (e) => e instanceof Error ? e : new Error(String(e)));
 		let reply;
 		let repliedAt = 0;
 		try {
@@ -2550,6 +2574,7 @@ function Chat() {
 			setTimes([]);
 			setWhole(false);
 			setSpeaking(false);
+			setWaiting(false);
 			return;
 		} finally {
 			replied = true;
@@ -2559,10 +2584,12 @@ function Chat() {
 			const clipsFailed = await Promise.race([following, stopping]);
 			if (gone.current || clipsFailed === "stopped") return;
 			if (clipsFailed !== null) throw clipsFailed;
+			if (reply.streamed && clipCount === 0) setWaiting(false);
 			if (!reply.streamed) {
 				const url = await Promise.race([speakReply(reply.turn, replyId), stopping]);
 				if (url === "stopped") return;
 				setClips(url ? [`${url}?t=${Date.now()}`] : []);
+				if (!url) setWaiting(false);
 				if (url) {
 					setWhole(true);
 					setTimes([{
@@ -2576,6 +2603,7 @@ function Chat() {
 		} catch (e) {
 			console.error("Could not speak the reply", e);
 			setUnspoken({ turn: shownAt });
+			setWaiting(false);
 		} finally {
 			setSpeaking(false);
 		}
@@ -2586,6 +2614,7 @@ function Chat() {
 		stopped.current = replyId;
 		wakeOnStop.current();
 		setHalted(true);
+		setWaiting(false);
 		setTimes([]);
 		setWhole(false);
 		console.info(`Reply stopped (${clips.length} clips so far)`);
@@ -2603,7 +2632,8 @@ function Chat() {
 	const stage = /* @__PURE__ */ u(Stage, {
 		idle,
 		onIdle: setIdle,
-		photo,
+		photo: photo?.url,
+		ratio: photo?.ratio,
 		children: clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
 			clips,
 			onStarted: started,
@@ -2612,6 +2642,10 @@ function Chat() {
 			rest: idle === "ready",
 			stopped: halted
 		})
+	});
+	if (photo === void 0) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Loading…"
 	});
 	if (turns === null) return /* @__PURE__ */ u("div", {
 		className: "chat",
@@ -2626,7 +2660,7 @@ function Chat() {
 			})
 		})]
 	});
-	const status = sending ? "Thinking…" : speaking && !halted && times.every((t) => t.started === null) ? "Getting ready to say it…" : null;
+	const status = sending ? "Thinking…" : waiting ? "Getting ready to say it…" : null;
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [/* @__PURE__ */ u("div", {
@@ -2856,9 +2890,8 @@ function History$1(props) {
 	});
 }
 function Stage(props) {
-	const { idle, onIdle, photo } = props;
+	const { idle, onIdle, photo, ratio } = props;
 	const [still, setStill] = d(true);
-	const [ratio, setRatio] = d(null);
 	return /* @__PURE__ */ u("div", {
 		className: "stage",
 		style: ratio ? { "--ratio": String(ratio) } : void 0,
@@ -2867,12 +2900,6 @@ function Stage(props) {
 				className: "still",
 				src: photo,
 				alt: "",
-				onLoad: (e) => {
-					const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
-					if (!w || !h) return;
-					console.info(`Stage shaped to the photo (${w}x${h})`);
-					setRatio(w / h);
-				},
 				onError: () => {
 					console.error(`Could not show the photo under the video: ${photo}`);
 					setStill(false);

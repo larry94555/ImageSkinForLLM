@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from imageskin.app import CHAT_LOCKED, NO_SUCH_REPLY, create_app
 from imageskin.chat import LlmError
@@ -1434,3 +1435,30 @@ def test_the_api_says_when_the_photo_was_removed(tmp_path: Path) -> None:
         client.post("/api/chat", json={"prompt": "Hi"})
         removed = client.post("/api/chat/video", json={"turn": 1})
     assert removed.status_code == 409
+
+
+def test_the_chat_is_told_the_photo_and_its_shown_size(tmp_path: Path) -> None:
+    """R41d: the chat shapes the person's frame from this before drawing it, so it never
+    changes size once shown."""
+    client = video_app(tmp_path, None)
+    photo_id = client.get("/api/uploads/photos").json()[0]["id"]
+    path = UploadStore(tmp_path).path("photos", photo_id)
+    assert path is not None
+    Image.new("RGB", (1280, 720)).save(path, "JPEG")  # a real photo in place of the stand-in
+    assert client.get("/api/chat/photo").json() == {
+        "url": f"/api/uploads/photos/{photo_id}",
+        "width": 1280,
+        "height": 720,
+    }
+
+
+def test_the_chat_photo_without_a_readable_size_or_a_photo(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = video_app(tmp_path, None)  # its photo is a JPEG header with nothing after it
+    answer = client.get("/api/chat/photo").json()
+    assert answer["url"].startswith("/api/uploads/photos/")
+    assert answer["width"] is None and answer["height"] is None
+    assert "Could not read the photo's size" in caplog.text
+    patch.object(PrepareJob, "status", return_value=PrepareStatus("idle")).start()
+    assert client.get("/api/chat/photo").json() == {"url": None, "width": None, "height": None}

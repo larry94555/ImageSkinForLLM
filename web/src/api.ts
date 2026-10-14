@@ -299,6 +299,18 @@ export async function stopReply(replyId: string): Promise<boolean> {
   return (await json<{ stopped: boolean }>(response)).stopped;
 }
 
+// The photo the chat's videos are made from, with its size as shown (roadmap R41d); url null
+// when there is none, and width and height null when its size couldn't be read.
+export interface ChatPhoto {
+  url: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export async function getChatPhoto(): Promise<ChatPhoto> {
+  return json<ChatPhoto>(await fetch("/api/chat/photo"));
+}
+
 // The person at rest, blinking and moving slightly, played on a loop between replies (roadmap
 // R23). The server answers once its warm-up has made it, and 404 when there is none.
 export const IDLE_VIDEO_URL = "/api/chat/idle";
