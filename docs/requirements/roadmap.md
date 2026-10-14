@@ -18,7 +18,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 8.9% | 8 of 8 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.3% | 3 of 3 |
 | 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e2 | 6 | 6.7% | 6 of 6 |
-| 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.6% | 1 of 5 |
+| 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.6% | 2 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.1% | 0 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 5.6% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.2% | 0 |
@@ -30,7 +30,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.2% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.1% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.2% | 0 |
-| | **Total** | | **90** | **100%** | **58 of 90** |
+| | **Total** | | **90** | **100%** | **59 of 90** |
 
 Sizes: 21 Simple, 69 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -454,9 +454,10 @@ Added by Larry on 2026-10-14, to build after the professional look. Today nothin
 - **Can show:** with the guides and the Riemann paper added and general prompts off, ask "What topics can you talk about?" and hear the topics, then ask something off-topic and hear the decline name a few of them.
 - **Built:** the topics are each PDF's first-level wiki entries, with the teacher's edits, read again for every question so they follow the PDFs. "What topics can you talk about?", "What do you know about?", "What can I ask?" and similar questions are answered without the AI: the topics (up to 8, then how many more are on the Wiki page), "I can only answer questions about these topics" when general prompts are off, and one topic to start with, picked at random. The answer is sent to the AI with later questions. Before any PDF is added it says it can talk about anything, and while the PDFs are still being read it says to ask again in a little while. A declined question names three topics, picked at random, to ask about instead.
 
-### R41g. Topic hints in the chat (Simple) · item 53
+### R41g. Topic hints in the chat (Simple) · item 53 · Done in [PR #86](https://github.com/larry94555/ImageSkinForLLM/pull/86)
 - Under the prompt box, a short line naming a few of the topics, and a few example questions drawn from the wiki that send the question when clicked. When general prompts are off, the line says questions must be about these topics.
 - **Can show:** screenshots of the chat with its hints before and after a PDF is added, and an answer to a clicked example question.
+- **Built:** the line names the first three topics, then how many more are on the Wiki page: "Questions must be about these topics: …" when general prompts are off, "You can ask me about …" when they are on. While a PDF is still being read or its wiki built, it says "So far I can talk about …" and that the rest is still being read, so a partial list is never given as all that can be asked. Up to three example questions ask about each topic's first part (its first sub-entry on the wiki), or the topic itself when it has none, in turn as "What can you tell me about …?", "Can you explain …?" and "Tell me about ….". Each is looked up as the chat would look it up, and only those that find something are shown, so a clicked example is never declined. Clicking one sends it at once. The hints are read again after every reply, so they follow the PDFs; before any PDF is added there are none.
 
 ### R41h. Teach me (Medium) · item 54
 - A **Teach me** button by the prompt box, also started by typing "teach me about …", starts at the named topic. When none is named, it asks the student to choose one from the list in R41f, or **Everything, from the start** to teach the topics in order. It explains each topic in short parts from the wiki and PDFs, main ideas first, then the detail. After each part the student can ask about it, say "next", or ask for it again more simply.

@@ -15,6 +15,8 @@ import {
   getChat,
   getClips,
   IDLE_VIDEO_URL,
+  type ChatHints,
+  getChatHints,
   getChatPhoto,
   getPhotoChoice,
   clipUrl,
@@ -851,6 +853,9 @@ function Chat() {
   // Between sending a prompt and the person starting to speak, unless the reply has nothing
   // to say aloud, couldn't be spoken, or was stopped (R41d).
   const [waiting, setWaiting] = useState(false);
+  // The topics line and example questions under the prompt box (R41g), read again after each
+  // reply so they follow the PDFs.
+  const [hints, setHints] = useState<ChatHints>({ line: null, examples: [] });
   const clipTotal = useRef(0); // how many clips the latest reply has so far
   const allMade = useRef(false); // and that no more will come
   const clipsEnded = useRef(0); // how many of them have ended or been passed over
@@ -872,6 +877,15 @@ function Chat() {
         setPhoto({ url: null, ratio: null });
       });
   }, []);
+  useEffect(() => {
+    if (sending) return;
+    getChatHints()
+      .then(setHints)
+      .catch((e: unknown) => {
+        console.error("Could not load the topic hints", e);
+        setHints({ line: null, examples: [] }); // hints read before may no longer hold
+      });
+  }, [sending]);
   useEffect(() => {
     getChat()
       .then(setTurns)
@@ -926,8 +940,9 @@ function Chat() {
     setTimes((t) => t.map((c, i) => (i === clip && c.ended === null ? { ...c, ended: at } : c)));
   }
 
-  async function send() {
-    const text = prompt.trim();
+  // Sends what is typed, or an example question that was clicked (R41g).
+  async function send(asked?: string) {
+    const text = (asked ?? prompt).trim();
     if (!text || sending || speaking) return;
     const shownAt = (turns ?? []).length + 1; // where the reply shows, after the prompt
     const replyId = newReplyId();
@@ -1123,8 +1138,40 @@ function Chat() {
           Send
         </button>
       </form>
+      <Hints hints={hints} disabled={sending || speaking} onAsk={(q) => void send(q)} />
       {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
       </div>
+    </div>
+  );
+}
+
+// Under the prompt box (R41g): a line naming a few of the topics, and example questions that
+// are sent when clicked.
+function Hints(props: { hints: ChatHints; disabled: boolean; onAsk: (question: string) => void }) {
+  const { line, examples } = props.hints;
+  if (!line && examples.length === 0) return null;
+  return (
+    <div className="hints">
+      {line && <p className="muted">{line}</p>}
+      {examples.length > 0 && (
+        <ul aria-label="Example questions">
+          {examples.map((question) => (
+            <li key={question}>
+              <button
+                type="button"
+                className="example"
+                disabled={props.disabled}
+                onClick={() => {
+                  console.info("Example question asked");
+                  props.onAsk(question);
+                }}
+              >
+                {question}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

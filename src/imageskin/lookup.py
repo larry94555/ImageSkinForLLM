@@ -33,6 +33,10 @@ Source = Literal["wiki", "pdf"]
 # How many of each kind are found for a question.
 WIKI_LIMIT = 3
 PDF_LIMIT = 5
+# How many example questions the chat shows under the prompt box (R41g), and how they are asked:
+# each in turn, all opening with words ASKING_ABOUT takes off, so only the subject is looked up.
+EXAMPLES = 3
+EXAMPLE_ASKS = ("What can you tell me about {}?", "Can you explain {}?", "Tell me about {}.")
 # The most of a passage the LLM is given to answer from (R40).
 PASSAGE_CHARS = 400
 # BM25's usual settings: how fast more of the same word stops adding to the score, and how much
@@ -295,6 +299,45 @@ def named_topic(question: str, contents: list[dict[str, Any]]) -> str | None:
     return max(found, key=lambda t: len(words(t)), default=None)
 
 
+def look_up_named(
+    question: str,
+    contents: list[dict[str, Any]],
+    passages: list[Passage],
+    wiki_limit: int = WIKI_LIMIT,
+    pdf_limit: int = PDF_LIMIT,
+) -> Lookup:
+    """look_up, and when it finds nothing, the topic the question names (R41f) instead, so a
+    topic is always answered, however it is asked about."""
+    result = look_up(question, passages, wiki_limit, pdf_limit)
+    if not result.wiki and not result.pdf:
+        topic = named_topic(question, contents)
+        if topic is not None:
+            logger.info("Question names a topic; looking the topic up", extra={"topic": topic})
+            result = replace(look_up(topic, passages, wiki_limit, pdf_limit), question=question)
+    return result
+
+
+def example_subjects(contents: list[dict[str, Any]]) -> list[str]:
+    """What the example questions can ask about (R41g), best first: each topic's first part (more
+    particular than the topic), or the topic when it has no parts; then the topics that had
+    parts. Each title once, without the punctuation it ends with."""
+    first, then = [], []
+    for pdf in contents:
+        for topic in pdf["entries"]:
+            parts = topic.get("entries") or []
+            first.append(parts[0]["title"] if parts else topic["title"])
+            if parts:
+                then.append(topic["title"])
+    seen: set[str] = set()
+    subjects = []
+    for title in first + then:
+        subject = " ".join(str(title).split()).rstrip(".:;,!?")
+        if subject and subject.casefold() not in seen:
+            seen.add(subject.casefold())
+            subjects.append(subject)
+    return subjects
+
+
 class ContentLookup:
     """Looks questions up in the current wiki (with the user's edits) and what was read from the
     PDFs."""
@@ -317,13 +360,7 @@ class ContentLookup:
         start = time.perf_counter()
         contents = self.wiki.contents()
         passages = self.passages(contents)  # unreadable saved files are logged and left out there
-        result = look_up(question, passages, wiki_limit, pdf_limit)
-        if not result.wiki and not result.pdf:
-            # A topic the person names (R41f) is always answered, however it is asked about.
-            topic = named_topic(question, contents)
-            if topic is not None:
-                logger.info("Question names a topic; looking the topic up", extra={"topic": topic})
-                result = replace(look_up(topic, passages, wiki_limit, pdf_limit), question=question)
+        result = look_up_named(question, contents, passages, wiki_limit, pdf_limit)
         # The whole lookup, gathering the passages too, not only ranking them.
         result = replace(result, duration_ms=round((time.perf_counter() - start) * 1000, 1))
         logger.info(
@@ -337,3 +374,18 @@ class ContentLookup:
             },
         )
         return result
+
+    def examples(self, limit: int = EXAMPLES) -> list[str]:
+        """A few questions to show under the prompt box (R41g), drawn from the wiki, each one
+        that finds something, so clicking it is never declined (R41)."""
+        contents = self.wiki.contents()
+        passages = self.passages(contents)
+        found: list[str] = []
+        for subject in example_subjects(contents):
+            question = EXAMPLE_ASKS[len(found) % len(EXAMPLE_ASKS)].format(subject)
+            result = look_up_named(question, contents, passages)
+            if result.wiki or result.pdf:
+                found.append(question)
+                if len(found) == limit:
+                    break
+        return found
