@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
 import {
+  CANT_ANSWER,
   ClipPlayer,
   type Idle,
   Stage,
@@ -1066,7 +1067,7 @@ test("accepting the sample video unlocks the chat", async () => {
     expect.objectContaining({ method: "POST", body: JSON.stringify({ decision: "accept" }) }),
   );
   await waitFor(() => expect(window.location.hash).toBe("#/chat"));
-  expect(await screen.findByText("Say hello to start the conversation.")).toBeTruthy();
+  expect(await screen.findByText("Ask a question to start the conversation.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Chat" }).className).toBe("current");
 });
 
@@ -1186,7 +1187,7 @@ test("sending a prompt shows it and then the reply", async () => {
   const [answer, reply] = later();
   const fetchMock = chatServer([], answer);
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "  Hello!  " } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(await screen.findByText("Hello!")).toBeTruthy();
@@ -1208,7 +1209,7 @@ test("Enter sends and Shift+Enter does not", async () => {
     Response.json({ role: "assistant", content: "Got it." }),
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Line one" } });
   fireEvent.keyDown(promptBox(), { key: "Enter", shiftKey: true });
   expect(fetchMock).not.toHaveBeenCalledWith("/api/chat", expect.anything());
@@ -1218,7 +1219,7 @@ test("Enter sends and Shift+Enter does not", async () => {
   expect(await screen.findByText("Got it.")).toBeTruthy();
 });
 
-test("when the LLM fails, the message says so and the prompt goes back in the box", async () => {
+test("when the LLM fails, a short apology shows and the prompt goes back in the box", async () => {
   chatServer([], () =>
     Response.json(
       { detail: "Could not reach the LLM at http://127.0.0.1:8080/v1. Is llama-server running?" },
@@ -1226,14 +1227,166 @@ test("when the LLM fails, the message says so and the prompt goes back in the bo
     ),
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Hello?" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
-  expect(await screen.findByText(/Is llama-server running\?/)).toBeTruthy();
+  // R41d: no addresses or program names for the student; the details go to the console.
+  expect((await screen.findByRole("alert")).textContent).toBe(CANT_ANSWER);
+  expect(screen.queryByText(/llama-server|127\.0\.0\.1/)).toBeNull();
   expect(promptBox().value).toBe("Hello?");
   expect(screen.queryByText("Hello?", { selector: "li" })).toBeNull();
+});
+
+test("one status line says what is happening until the person speaks", async () => {
+  const [answer, reply] = later();
+  const made = clipsMade(["/api/chat/clips/x/1"], false);
+  chatServer([], answer, undefined, () => Response.json(made));
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Thinking…");
+  expect(screen.queryByText("Getting ready to say it…")).toBeNull(); // one line, not two
+  await act(async () => {
+    reply(Response.json({ role: "assistant", content: "Once upon a time.", streamed: true }));
+  });
+  await screen.findByText("Getting ready to say it…");
+  expect(screen.queryByText("Thinking…")).toBeNull();
+  await waitFor(() => expect(shownVideo()).not.toBeNull());
+  fireEvent.playing(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
+test("the status waits for a reply's one video to start playing, not just to be made", async () => {
+  // Review on PR #80: the status went as soon as the video was made, before it played.
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "Hi there.", turn: 1, streamed: false }),
+    () => Response.json({ video: "/api/chat/videos/1" }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/1/));
+  await act(() => new Promise((done) => setTimeout(done, 20))); // made and handed to the player
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
+  fireEvent.playing(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
+test("the status waits for a short streamed reply's only clip to start playing", async () => {
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "Yes.", streamed: true }),
+    undefined,
+    () => Response.json(clipsMade(["/api/chat/clips/x/1"], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Ready?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Yes.");
+  await act(() => new Promise((done) => setTimeout(done, 20))); // every clip made
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
+  fireEvent.playing(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
+test("the status stays when the first clip is broken, until a later one plays", async () => {
+  // Review on PR #80: passing over a broken first clip cleared the status before anyone spoke.
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
+    undefined,
+    () => Response.json(clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("One. Two.");
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  fireEvent.error(shownVideo()); // clip 1 can't be played: passed over
+  await waitFor(() => expect(shownVideo().getAttribute("src")).toBe("/api/chat/clips/x/2"));
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy(); // nobody has spoken yet
+  fireEvent.playing(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
+test("the status goes when every clip is broken, as nothing will be said aloud", async () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "One.", streamed: true }),
+    undefined,
+    () => Response.json(clipsMade(["/api/chat/clips/x/1"], true)),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Count" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("One.");
+  await waitFor(() => expect(shownVideo()).not.toBeNull());
+  await act(() => new Promise((done) => setTimeout(done, 20))); // every clip made
+  fireEvent.error(shownVideo());
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+});
+
+test("a reply with nothing to say aloud leaves no status", async () => {
+  chatServer(
+    [],
+    () => Response.json({ role: "assistant", content: "```code```", turn: 1, streamed: false }),
+    () => Response.json({ video: null }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Code?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("```code```");
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  expect(screen.queryByText("Thinking…")).toBeNull();
+});
+
+test("a prompt the server can't use says why in its own words", async () => {
+  chatServer([], () =>
+    Response.json({ detail: "That message is too long. Shorten it or split it in two." }, { status: 400 }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "A very long question" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "That message is too long. Shorten it or split it in two.",
+  );
+});
+
+test("when the server can't be reached at all, the same apology shows", async () => {
+  chatServer([], () => {
+    throw new TypeError("Failed to fetch");
+  });
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  expect((await screen.findByRole("alert")).textContent).toBe(CANT_ANSWER);
 });
 
 // --- Video stays the focus: history closed by default (R18a) ---
@@ -1366,7 +1519,7 @@ test("the current match stays valid when a failed prompt is taken back", async (
   await act(async () => {
     reply(Response.json({ detail: "The LLM failed." }, { status: 502 }));
   });
-  expect(await screen.findByText("The LLM failed.")).toBeTruthy();
+  expect(await screen.findByText(CANT_ANSWER)).toBeTruthy();
   expect(screen.getByText("2 of 2")).toBeTruthy();
   const box = screen.getByLabelText("Conversation history");
   expect(box.querySelector("mark.current")?.getAttribute("data-match")).toBe("1");
@@ -1402,7 +1555,7 @@ test("matches are found ignoring case and kept as written", () => {
 test("an empty conversation has no history link", async () => {
   chatServer([], () => Response.json({}));
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   expect(screen.queryByRole("button", { name: "Show history" })).toBeNull();
 });
 
@@ -1457,7 +1610,9 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
   });
   expect(video.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/3\?t=\d+$/);
   expect(video.autoplay).toBe(true);
-  expect(screen.queryByText("Getting ready to say it…")).toBeNull();
+  expect(screen.getByText("Getting ready to say it…")).toBeTruthy(); // until it plays (R41d)
+  fireEvent.playing(video);
+  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
   const asked = fetchMock.mock.calls.filter(([url]) => url === "/api/chat/video");
   expect(asked).toHaveLength(1);
 
@@ -1482,7 +1637,7 @@ test("a reply's video is asked for by the server's count, not this page's", asyn
     Response.json({ role: "assistant", content: "Hi again.", turn: 3 }),
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Hello" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -1524,7 +1679,7 @@ test("a reply done with no clips is spoken in one video", async () => {
     () => Response.json(clipsMade([], true)),
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Hello" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -1546,7 +1701,7 @@ test("a reply that fails takes its clips and timing rows away", async () => {
   chatServer([], answer, undefined, () => clips());
   showMetrics();
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
@@ -1555,7 +1710,7 @@ test("a reply that fails takes its clips and timing rows away", async () => {
   await act(async () => {
     reply(Response.json({ detail: "The LLM stopped." }, { status: 502 }));
   });
-  await screen.findByText("The LLM stopped.");
+  await screen.findByText(CANT_ANSWER);
   await waitFor(() => expect(document.querySelector("video.reply-video")).toBeNull());
   expect(screen.queryByText(/^Clip 1:/)).toBeNull();
 });
@@ -1565,7 +1720,7 @@ test("a streamed reply starts playing on its first clip, before the reply text",
   let made = clipsMade([], false);
   const fetchMock = chatServer([], answer, undefined, () => Response.json(made));
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await screen.findByText("Thinking…");
@@ -1585,6 +1740,7 @@ test("a streamed reply starts playing on its first clip, before the reply text",
     );
   });
   await screen.findByText("Once upon a time. The end.");
+  fireEvent.playing(video);
   fireEvent.ended(video); // the first clip ends before the second is made: wait on it
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
   made = clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true);
@@ -1607,7 +1763,7 @@ test("a reply whose clips a newer prompt took is not spoken again as one video",
   let clipsNow: Answer = () => Response.json(clipsMade(["/api/chat/clips/x/1"], false));
   const fetchMock = chatServer([], answer, undefined, () => clipsNow());
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   const video = await waitFor(() => {
@@ -1624,6 +1780,7 @@ test("a reply whose clips a newer prompt took is not spoken again as one video",
     );
   });
   await screen.findByText("Once upon a time.");
+  fireEvent.playing(video); // its first clip, already here, plays
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
   expect(fetchMock).not.toHaveBeenCalledWith("/api/chat/video", expect.anything());
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
@@ -1644,7 +1801,7 @@ test("a clip that fails before the reply is in is reported with the reply", asyn
   process.on("unhandledRejection", unhandled);
   try {
     await openAt("#/chat");
-    await screen.findByText("Say hello to start the conversation.");
+    await screen.findByText("Ask a question to start the conversation.");
     fireEvent.input(promptBox(), { target: { value: "Count" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await screen.findByText("Thinking…");
@@ -1655,7 +1812,7 @@ test("a clip that fails before the reply is in is reported with the reply", asyn
       reply(Response.json({ role: "assistant", content: "One. Two.", turn: 1, streamed: true }));
     });
     const note = await screen.findByText(/I couldn.t say this one aloud/);
-    expect(note.textContent).toContain("ffmpeg is not installed");
+    expect(note.textContent).not.toContain("ffmpeg"); // R41d: the cause goes to the console
     expect(unhandled).not.toHaveBeenCalled();
   } finally {
     process.off("unhandledRejection", unhandled);
@@ -1778,6 +1935,40 @@ test("without an idle video, the player holds each clip's last frame", () => {
 });
 
 // --- Clean playback (R41c) ---
+
+test("the stage takes the photo's shape, so there are no empty bands around the person", () => {
+  // Larry on PR #80: a wide video left white bands above and below it in a fixed-size box.
+  const { rerender } = render(<Stage idle="loading" onIdle={() => {}} ratio={16 / 9} />);
+  const stage = document.querySelector(".stage") as HTMLElement;
+  expect(Number(stage.style.getPropertyValue("--ratio"))).toBeCloseTo(16 / 9);
+  rerender(<Stage idle="loading" onIdle={() => {}} />); // no size known: a 4:3 box
+  expect(stage.style.getPropertyValue("--ratio")).toBe("");
+});
+
+test("the chat draws the person's frame only once it knows the photo's shape", async () => {
+  // Review on PR #80: the frame was drawn 4:3 and then took the photo's shape, changing size.
+  const [photo, answerPhoto] = later();
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/photo" ? photo() : answers(url, init),
+  );
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  await act(() => new Promise((done) => setTimeout(done, 20)));
+  expect(document.querySelector(".stage")).toBeNull(); // not drawn at a guessed size
+  await act(async () =>
+    answerPhoto(Response.json({ url: "/api/uploads/photos/p1", width: 1280, height: 720 })),
+  );
+  const stage = (await waitFor(() => {
+    const found = document.querySelector(".stage");
+    expect(found).not.toBeNull();
+    return found;
+  })) as HTMLElement;
+  expect(Number(stage.style.getPropertyValue("--ratio"))).toBeCloseTo(16 / 9); // from the start
+  expect(stage.querySelector("img.still")?.getAttribute("src")).toBe("/api/uploads/photos/p1");
+  expect(info).toHaveBeenCalledWith("Chat photo 1280x720");
+});
 
 test("the stage shows the photo under the videos, and goes without it if it can't load", () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1967,7 +2158,7 @@ test("the chat shows how long each sentence took once it plays", async () => {
   );
   showMetrics();
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Count" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -1984,7 +2175,7 @@ test("the chat shows how long each sentence took once it plays", async () => {
   ).toBeTruthy();
 });
 
-test("when a clip fails, the clips so far stay and the note says why", async () => {
+test("when a clip fails, the clips so far stay and a plain note says so", async () => {
   chatServer(
     [],
     () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
@@ -1992,13 +2183,13 @@ test("when a clip fails, the clips so far stay and the note says why", async () 
     () => Response.json(clipsMade(["/api/chat/clips/x/1"], true, "ffmpeg is not installed")),
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Count" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   const note = await screen.findByText(/I couldn.t say this one aloud/);
-  expect(note.textContent).toContain("ffmpeg is not installed");
+  expect(note.textContent).toBe("I couldn't say this one aloud, so here it is as text.");
   expect(document.querySelector("video.reply-video")?.getAttribute("src")).toBe("/api/chat/clips/x/1");
 });
 
@@ -2009,13 +2200,13 @@ test("when the voice or video fails, the reply stays as text with a note", async
     () => Response.json({ detail: "ffmpeg is not installed" }, { status: 502 }),
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Hello" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   const note = await screen.findByText(/I couldn.t say this one aloud/);
-  expect(note.textContent).toContain("ffmpeg is not installed");
+  expect(note.textContent).not.toContain("ffmpeg");
   expect(note.closest("li")?.textContent).toContain("Hi there.");
   expect(document.querySelector("video.reply-video")).toBeNull();
   expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
@@ -2032,7 +2223,7 @@ test("if the conversation can't be loaded, the chat says so", async () => {
   );
   await openAt("#/chat");
   expect(
-    await screen.findByText("Could not load the conversation. Reload the page to try again."),
+    await screen.findByText("The conversation couldn't be loaded. Reload the page to try again."),
   ).toBeTruthy();
 });
 
@@ -2044,7 +2235,7 @@ test("the chat shows the idle video, with the reply's clips over it", async () =
   chatServer([], answer, undefined, () => Response.json(made));
   vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   const idle = document.querySelector(".stage video.idle-video") as HTMLVideoElement;
   fireEvent.playing(idle);
   await waitFor(() => expect(idle.className).toBe("idle-video")); // the person waits
@@ -2070,7 +2261,7 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   const fetchMock = chatServer([], answer, undefined, () => Response.json(made));
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull(); // nothing to stop yet
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -2109,7 +2300,7 @@ test("Stop frees the chat at once while a reply's one video is still being made"
     speak,
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Hi" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -2142,7 +2333,7 @@ test("Stop frees the chat at once while a clip request is still waiting", async 
   const [answer, reply] = later();
   chatServer([], answer, undefined, (/* the long wait */) => new Promise<Response>(() => {}));
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Count" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await act(async () => {
@@ -2163,7 +2354,7 @@ test("a stop the server refuses is logged", async () => {
   const [answer] = later();
   const fetchMock = chatServer([], answer);
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   const original = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (url, init) =>
     url.endsWith("/stop") ? new Response("", { status: 500 }) : original(url, init),
@@ -2186,15 +2377,16 @@ test("Stop shows until the last clip has played", async () => {
     () => Response.json(clipsMade(["/api/chat/clips/x/1"], true)),
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Count" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   await screen.findByText("One.");
+  await waitFor(() => expect(shownVideo()).not.toBeNull());
+  fireEvent.playing(shownVideo());
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
   expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy(); // still playing
-  fireEvent.playing(shownVideo());
   fireEvent.ended(shownVideo());
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
 });
@@ -2208,7 +2400,7 @@ test("mute and volume reach both players and are kept for the next visit", async
     () => Response.json(clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true)),
   );
   await openAt("#/chat");
-  await screen.findByText("Say hello to start the conversation.");
+  await screen.findByText("Ask a question to start the conversation.");
   const volume = screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement;
   expect(volume.value).toBe("100");
   fireEvent.input(volume, { target: { value: "40" } });

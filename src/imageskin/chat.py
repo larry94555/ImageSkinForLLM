@@ -416,7 +416,7 @@ class Conversation:
         room = window - budget - REPLY_TOKENS - tokens(system_message(None), count)
         if tokens({"role": "user", "content": prompt}, count) > room:
             logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
-            raise ValueError("That message is too long for the LLM. Shorten it or split it in two.")
+            raise ValueError("That message is too long. Shorten it or split it in two.")
         # Normally the summary made after the last reply keeps this within budget; if it
         # couldn't be made, the oldest turns are left out.
         turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)

@@ -15,6 +15,13 @@ async function confirmConsent() {
 		body: JSON.stringify({ agreed: true })
 	}));
 }
+var ServerRefusal = class extends Error {
+	status;
+	constructor(message, status) {
+		super(message);
+		this.status = status;
+	}
+};
 async function refusal(response) {
 	try {
 		const body = await response.json();
@@ -109,7 +116,7 @@ async function sendPrompt(prompt, replyId) {
 			reply_id: replyId
 		} : { prompt })
 	});
-	if (!response.ok) throw new Error(await refusal(response));
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
 async function speakReply(turn, replyId) {
@@ -132,6 +139,9 @@ async function getClips(replyId, known) {
 }
 async function stopReply(replyId) {
 	return (await json(await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" }))).stopped;
+}
+async function getChatPhoto() {
+	return json(await fetch("/api/chat/photo"));
 }
 function pdfUrl(id) {
 	return `/api/content/${id}`;
@@ -2390,8 +2400,15 @@ function ChatPage() {
 			})
 		] });
 	}
-	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u(Chat, {})] });
+	return /* @__PURE__ */ u("div", {
+		className: "chat-page",
+		children: [/* @__PURE__ */ u("h1", {
+			className: "sr-only",
+			children: "Chat"
+		}), /* @__PURE__ */ u(Chat, {})]
+	});
 }
+var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 function newReplyId() {
 	return Array.from(crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -2438,18 +2455,34 @@ function Chat() {
 	const [halted, setHalted] = d(false);
 	const [sound, setSound] = d(loadSound);
 	const [idle, setIdle] = d("loading");
-	const [photo, setPhoto] = d(null);
+	const [photo, setPhoto] = d();
+	const [waiting, setWaiting] = d(false);
+	const clipTotal = A(0);
+	const allMade = A(false);
+	const clipsEnded = A(0);
 	h(() => () => {
 		gone.current = true;
 	}, []);
 	h(() => {
-		getPhotoChoice().then((choice) => setPhoto(choice.id ? uploadUrl("photos", choice.id) : null)).catch((e) => console.error("Could not find the photo for the chat", e));
+		getChatPhoto().then(({ url, width, height }) => {
+			setPhoto({
+				url: url ?? null,
+				ratio: width && height ? width / height : null
+			});
+			if (url && width && height) console.info(`Chat photo ${width}x${height}`);
+		}).catch((e) => {
+			console.error("Could not find the photo for the chat", e);
+			setPhoto({
+				url: null,
+				ratio: null
+			});
+		});
 	}, []);
 	h(() => {
 		getChat().then(setTurns).catch((e) => {
 			console.error("Could not load the conversation", e);
 			setTurns([]);
-			setFailed("Could not load the conversation. Reload the page to try again.");
+			setFailed("The conversation couldn't be loaded. Reload the page to try again.");
 		});
 	}, []);
 	async function followClips(replyId, replied) {
@@ -2457,9 +2490,9 @@ function Chat() {
 		while (!gone.current && stopped.current !== replyId) {
 			const answered = replied();
 			const got = await getClips(replyId, known);
-			if (stopped.current === replyId) return;
+			if (stopped.current === replyId) return known;
 			if (got === null) {
-				if (answered) return;
+				if (answered) return known;
 				await sleep(300);
 				continue;
 			}
@@ -2472,19 +2505,24 @@ function Chat() {
 			}));
 			if (made.length) setTimes((t) => [...t, ...made]);
 			setClips(got.clips.map((c) => c.url));
+			clipTotal.current = got.clips.length;
 			if (got.error !== null) throw new Error(got.error);
-			if (got.done) return;
+			if (got.done) return got.clips.length;
 			if (got.clips.length === known) await sleep(300);
 			known = got.clips.length;
 		}
+		return known;
 	}
 	function started(clip, at) {
+		setWaiting(false);
 		setTimes((t) => t.map((c, i) => i === clip && c.started === null ? {
 			...c,
 			started: at
 		} : c));
 	}
 	function ended(clip, at) {
+		clipsEnded.current = Math.max(clipsEnded.current, clip + 1);
+		if (allMade.current && clipsEnded.current >= clipTotal.current) setWaiting(false);
 		setTimes((t) => t.map((c, i) => i === clip && c.ended === null ? {
 			...c,
 			ended: at
@@ -2503,6 +2541,10 @@ function Chat() {
 		setHalted(false);
 		setSending(true);
 		setSpeaking(true);
+		setWaiting(true);
+		clipTotal.current = 0;
+		allMade.current = false;
+		clipsEnded.current = 0;
 		setFailed(null);
 		setUnspoken(null);
 		setClips([]);
@@ -2514,7 +2556,12 @@ function Chat() {
 			content: text
 		}]);
 		setPrompt("");
-		const following = followClips(replyId, () => replied).then(() => null, (e) => e instanceof Error ? e : new Error(String(e)));
+		let clipCount = 0;
+		const following = followClips(replyId, () => replied).then((n) => {
+			clipCount = n;
+			allMade.current = true;
+			return null;
+		}, (e) => e instanceof Error ? e : new Error(String(e)));
 		let reply;
 		let repliedAt = 0;
 		try {
@@ -2529,13 +2576,14 @@ function Chat() {
 			console.error("Could not get a reply", e);
 			setTurns((t) => (t ?? []).slice(0, -1));
 			setPrompt(text);
-			setFailed(e instanceof Error ? e.message : String(e));
+			setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
 			replied = true;
 			await Promise.race([following, stopping]);
 			setClips([]);
 			setTimes([]);
 			setWhole(false);
 			setSpeaking(false);
+			setWaiting(false);
 			return;
 		} finally {
 			replied = true;
@@ -2545,10 +2593,13 @@ function Chat() {
 			const clipsFailed = await Promise.race([following, stopping]);
 			if (gone.current || clipsFailed === "stopped") return;
 			if (clipsFailed !== null) throw clipsFailed;
+			if (reply.streamed && clipsEnded.current >= clipCount) setWaiting(false);
 			if (!reply.streamed) {
 				const url = await Promise.race([speakReply(reply.turn, replyId), stopping]);
 				if (url === "stopped") return;
 				setClips(url ? [`${url}?t=${Date.now()}`] : []);
+				clipTotal.current = url ? 1 : 0;
+				if (!url) setWaiting(false);
 				if (url) {
 					setWhole(true);
 					setTimes([{
@@ -2561,10 +2612,8 @@ function Chat() {
 			}
 		} catch (e) {
 			console.error("Could not speak the reply", e);
-			setUnspoken({
-				turn: shownAt,
-				why: e instanceof Error ? e.message : String(e)
-			});
+			setUnspoken({ turn: shownAt });
+			setWaiting(false);
 		} finally {
 			setSpeaking(false);
 		}
@@ -2575,6 +2624,7 @@ function Chat() {
 		stopped.current = replyId;
 		wakeOnStop.current();
 		setHalted(true);
+		setWaiting(false);
 		setTimes([]);
 		setWhole(false);
 		console.info(`Reply stopped (${clips.length} clips so far)`);
@@ -2592,7 +2642,8 @@ function Chat() {
 	const stage = /* @__PURE__ */ u(Stage, {
 		idle,
 		onIdle: setIdle,
-		photo,
+		photo: photo?.url,
+		ratio: photo?.ratio,
 		children: clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
 			clips,
 			onStarted: started,
@@ -2602,77 +2653,97 @@ function Chat() {
 			stopped: halted
 		})
 	});
+	if (photo === void 0) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Loading…"
+	});
 	if (turns === null) return /* @__PURE__ */ u("div", {
 		className: "chat",
-		children: [stage, /* @__PURE__ */ u("p", {
-			className: "muted busy",
-			children: "Loading…"
+		children: [/* @__PURE__ */ u("div", {
+			className: "person",
+			children: stage
+		}), /* @__PURE__ */ u("div", {
+			className: "talk",
+			children: /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			})
 		})]
 	});
+	const status = sending ? "Thinking…" : waiting ? "Getting ready to say it…" : null;
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
-		children: [
-			stage,
-			/* @__PURE__ */ u(SoundControls, {
-				sound,
-				onChange: changeSound,
-				onStop: stoppable ? stop : void 0
-			}),
-			metrics && times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
-				times,
-				whole,
-				earlier
-			}),
-			turns.length === 0 && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "Say hello to start the conversation."
-			}),
-			/* @__PURE__ */ u(TurnList, {
-				turns,
-				from: latestExchange(turns),
-				unspoken
-			}),
-			sending && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Thinking…"
-			}),
-			speaking && !halted && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Getting ready to say it…"
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: failed
-			}),
-			/* @__PURE__ */ u("form", {
-				onSubmit: (e) => {
-					e.preventDefault();
-					send();
-				},
-				children: [/* @__PURE__ */ u("label", {
-					className: "prompt",
-					children: [/* @__PURE__ */ u("span", { children: "Your message" }), /* @__PURE__ */ u("textarea", {
-						rows: 3,
-						value: prompt,
-						onInput: (e) => setPrompt(e.currentTarget.value),
-						onKeyDown: (e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								send();
+		children: [/* @__PURE__ */ u("div", {
+			className: "person",
+			children: [
+				stage,
+				/* @__PURE__ */ u(SoundControls, {
+					sound,
+					onChange: changeSound,
+					onStop: stoppable ? stop : void 0
+				}),
+				metrics && times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
+					times,
+					whole,
+					earlier
+				})
+			]
+		}), /* @__PURE__ */ u("div", {
+			className: "talk",
+			children: [
+				turns.length === 0 && /* @__PURE__ */ u("p", {
+					className: "muted hint",
+					children: "Ask a question to start the conversation."
+				}),
+				/* @__PURE__ */ u(TurnList, {
+					turns,
+					from: latestExchange(turns),
+					unspoken
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "status muted",
+					"aria-live": "polite",
+					children: status && /* @__PURE__ */ u("span", {
+						className: "busy",
+						children: status
+					})
+				}),
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					role: "alert",
+					children: failed
+				}),
+				/* @__PURE__ */ u("form", {
+					onSubmit: (e) => {
+						e.preventDefault();
+						send();
+					},
+					children: [/* @__PURE__ */ u("label", {
+						className: "prompt",
+						children: [/* @__PURE__ */ u("span", { children: "Your message" }), /* @__PURE__ */ u("textarea", {
+							rows: 2,
+							placeholder: "Type your question here",
+							value: prompt,
+							onInput: (e) => setPrompt(e.currentTarget.value),
+							onKeyDown: (e) => {
+								if (e.key === "Enter" && !e.shiftKey) {
+									e.preventDefault();
+									send();
+								}
 							}
-						}
+						})]
+					}), /* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: sending || speaking || !prompt.trim(),
+						children: "Send"
 					})]
-				}), /* @__PURE__ */ u("button", {
-					type: "submit",
-					disabled: sending || speaking || !prompt.trim(),
-					children: "Send"
-				})]
-			}),
-			turns.length > 0 && /* @__PURE__ */ u(History$1, {
-				turns,
-				unspoken
-			})
-		]
+				}),
+				turns.length > 0 && /* @__PURE__ */ u(History$1, {
+					turns,
+					unspoken
+				})
+			]
+		})]
 	});
 }
 function latestExchange(turns) {
@@ -2708,7 +2779,7 @@ function TurnList(props) {
 					}) }) : turn.content,
 					unspoken?.turn === i && /* @__PURE__ */ u("span", {
 						className: "note",
-						children: ["I couldn't say this one aloud, so here it is as text. ", unspoken.why]
+						children: "I couldn't say this one aloud, so here it is as text."
 					})
 				]
 			}, i);
@@ -2829,10 +2900,11 @@ function History$1(props) {
 	});
 }
 function Stage(props) {
-	const { idle, onIdle, photo } = props;
+	const { idle, onIdle, photo, ratio } = props;
 	const [still, setStill] = d(true);
 	return /* @__PURE__ */ u("div", {
 		className: "stage",
+		style: ratio ? { "--ratio": String(ratio) } : void 0,
 		children: [
 			photo && still && /* @__PURE__ */ u("img", {
 				className: "still",
