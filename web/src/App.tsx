@@ -1,6 +1,6 @@
 // The shared layout and the page for the current URL hash.
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import { getConsent } from "./api";
 import { ContentPage } from "./content";
@@ -61,6 +61,8 @@ function Shell() {
     }
   }, [route?.redirect]);
 
+  const header = useHeaderHeight();
+
   let content = <p>Loading…</p>;
   if (route) {
     content = {
@@ -85,7 +87,7 @@ function Shell() {
 
   return (
     <>
-      <header>
+      <header ref={header}>
         <a className="brand" href={teacher ? "#/" : "#/chat"}>
           <Mark />
           ImageSkinForLLM
@@ -107,6 +109,28 @@ function Shell() {
       <footer>Photos and recordings stay on the computer that runs this app.</footer>
     </>
   );
+}
+
+// The top bar's height as --header-h on the page (review on PR #83), so what sticks under it
+// (the person on the chat page) sticks below it instead of behind it. It is measured, not fixed,
+// because on a phone the tabs wrap to a second row.
+export function useHeaderHeight() {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const header = ref.current;
+    if (!header) return;
+    const root = document.documentElement;
+    const measure = () => root.style.setProperty("--header-h", `${header.offsetHeight}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      console.warn("No ResizeObserver; the top bar's height is measured once");
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+  return ref;
 }
 
 // The app's mark (R41e2): a speech bubble with eyes, for a person who talks.

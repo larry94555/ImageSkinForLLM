@@ -4223,6 +4223,7 @@ function Shell() {
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
 	}, [route?.redirect]);
+	const header = useHeaderHeight();
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
 	if (route) content = {
 		home: /* @__PURE__ */ u(HomePage, { consented: consented === true }),
@@ -4239,22 +4240,43 @@ function Shell() {
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u("header", { children: [
-			/* @__PURE__ */ u("a", {
-				className: "brand",
-				href: teacher ? "#/" : "#/chat",
-				children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
-			}),
-			/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => /* @__PURE__ */ u("a", {
-				href: item.href,
-				className: current(route?.page) === item.page ? "current" : void 0,
-				children: item.label
-			}, item.page)) }),
-			/* @__PURE__ */ u(SettingsMenu, {})
-		] }),
+		/* @__PURE__ */ u("header", {
+			ref: header,
+			children: [
+				/* @__PURE__ */ u("a", {
+					className: "brand",
+					href: teacher ? "#/" : "#/chat",
+					children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
+				}),
+				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => /* @__PURE__ */ u("a", {
+					href: item.href,
+					className: current(route?.page) === item.page ? "current" : void 0,
+					children: item.label
+				}, item.page)) }),
+				/* @__PURE__ */ u(SettingsMenu, {})
+			]
+		}),
 		/* @__PURE__ */ u("main", { children: content }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
 	] });
+}
+function useHeaderHeight() {
+	const ref = A(null);
+	h(() => {
+		const header = ref.current;
+		if (!header) return;
+		const root = document.documentElement;
+		const measure = () => root.style.setProperty("--header-h", `${header.offsetHeight}px`);
+		measure();
+		if (typeof ResizeObserver === "undefined") {
+			console.warn("No ResizeObserver; the top bar's height is measured once");
+			return;
+		}
+		const observer = new ResizeObserver(measure);
+		observer.observe(header);
+		return () => observer.disconnect();
+	}, []);
+	return ref;
 }
 function Mark() {
 	return /* @__PURE__ */ u("svg", {

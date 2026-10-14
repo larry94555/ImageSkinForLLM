@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
+import styles from "./styles.css?raw";
 import {
   CANT_ANSWER,
   ClipPlayer,
@@ -115,6 +116,58 @@ test("a failed save shows a message and lets the user try again", async () => {
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(
     false,
   );
+});
+
+test("the top bar's height is given to the page, and kept up to date (review on PR #83)", async () => {
+  serverWithConsent(true);
+  let height = 52;
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(() => height);
+  let resized = () => {};
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: () => void) {
+        resized = callback;
+      }
+      observe() {}
+      disconnect = disconnect;
+    },
+  );
+  const root = document.documentElement.style;
+  await openAt("#/setup");
+  expect(root.getPropertyValue("--header-h")).toBe("52px");
+  // On a phone the tabs wrap to a second row.
+  height = 96;
+  resized();
+  expect(root.getPropertyValue("--header-h")).toBe("96px");
+  cleanup();
+  expect(disconnect).toHaveBeenCalled();
+});
+
+// The browser lays the page out, which this test runner can't, so this checks the rules that
+// keep the person below the sticky top bar on the chat page (review on PR #83).
+test("the chat's person sticks below the top bar, using its measured height", () => {
+  const rule = (selector: string) =>
+    [...styles.matchAll(new RegExp(`${selector.replace(/\./g, "\\.")} \\{([^}]*)\\}`, "g"))].map(
+      (m) => m[1],
+    );
+  expect(rule("header")[0]).toMatch(/position: sticky;\s*top: 0;/);
+  const person = rule(".chat .person");
+  expect(person[0]).toMatch(/position: sticky;\s*top: var\(--header-h, 0px\);/);
+  expect(person[1]).toMatch(/top: calc\(var\(--header-h, 0px\) \+ 16px\)/);
+  // The stage itself no longer sticks on its own, at the top of the window, under the bar.
+  expect(rule(".stage")[0]).not.toMatch(/sticky/);
+});
+
+test("without ResizeObserver the top bar is measured once and that is logged", async () => {
+  serverWithConsent(true);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(60);
+  vi.stubGlobal("ResizeObserver", undefined);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  await openAt("#/setup");
+  expect(document.documentElement.style.getPropertyValue("--header-h")).toBe("60px");
+  expect(warn).toHaveBeenCalledWith("No ResizeObserver; the top bar's height is measured once");
 });
 
 test("with consent, setup opens and the nav marks it", async () => {
