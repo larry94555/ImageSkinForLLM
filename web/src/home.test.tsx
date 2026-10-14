@@ -95,3 +95,15 @@ test("the choices keep the same order: chat, manage content, setup", () => {
     ["Setup", "#/consent"],
   ]);
 });
+
+test("each choice has its own picture, hidden from screen readers (R41e2)", async () => {
+  server(true);
+  render(<HomePage consented />);
+  await screen.findByText("Welcome back");
+  const pictures = screen
+    .getAllByRole("link")
+    .map((a) => a.querySelector(".icon[aria-hidden='true'] path")?.getAttribute("d"));
+  expect(pictures).toHaveLength(3);
+  expect(new Set(pictures).size).toBe(3); // the chat, the content and setup differ
+  expect(screen.getByRole("link", { name: /^Chat/ })).toBeTruthy(); // the name is still the words
+});
