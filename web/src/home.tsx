@@ -96,6 +96,7 @@ export function HomePage({ consented }: { consented: boolean }) {
         {choices(state.done, consented).map((c) => (
           <li key={c.title}>
             <a href={c.href}>
+              <ChoiceIcon href={c.href} />
               <span className="title">{c.title}</span>
               <span className="text">{c.text}</span>
             </a>
@@ -103,5 +104,23 @@ export function HomePage({ consented }: { consented: boolean }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+// A small picture for each choice (R41e2): a speech bubble for the chat, a page for the
+// content, and sliders for setup.
+const ICONS: Record<string, string> = {
+  "#/chat": "M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6a2.5 2.5 0 0 1-2.5 2.5H11l-4 3.5V15h0.5A2.5 2.5 0 0 1 5 12.5z",
+  "#/content": "M7 3.5h6.5L18 8v12.5H7zM13.5 3.5V8H18M9.5 12h6M9.5 15.5h6",
+  setup: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4",
+};
+
+function ChoiceIcon({ href }: { href: string }) {
+  return (
+    <span className="icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+        <path d={ICONS[href] ?? ICONS.setup} />
+      </svg>
+    </span>
   );
 }

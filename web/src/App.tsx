@@ -1,6 +1,6 @@
 // The shared layout and the page for the current URL hash.
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import { getConsent } from "./api";
 import { ContentPage } from "./content";
@@ -61,6 +61,8 @@ function Shell() {
     }
   }, [route?.redirect]);
 
+  const header = useHeaderHeight();
+
   let content = <p>Loading…</p>;
   if (route) {
     content = {
@@ -85,8 +87,9 @@ function Shell() {
 
   return (
     <>
-      <header>
+      <header ref={header}>
         <a className="brand" href={teacher ? "#/" : "#/chat"}>
+          <Mark />
           ImageSkinForLLM
         </a>
         <nav>
@@ -105,5 +108,48 @@ function Shell() {
       <main>{content}</main>
       <footer>Photos and recordings stay on the computer that runs this app.</footer>
     </>
+  );
+}
+
+// The top bar's height as --header-h on the page (review on PR #83), so what sticks under it
+// (the person on the chat page) sticks below it instead of behind it. It is measured, not fixed,
+// because on a phone the tabs wrap to a second row.
+export function useHeaderHeight() {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const header = ref.current;
+    if (!header) return;
+    const root = document.documentElement;
+    const measure = () => root.style.setProperty("--header-h", `${header.offsetHeight}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      console.warn("No ResizeObserver; the top bar's height is measured once");
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+  return ref;
+}
+
+// The app's mark (R41e2): a speech bubble with eyes, for a person who talks.
+function Mark() {
+  return (
+    <svg className="mark" viewBox="0 0 32 32" aria-hidden="true">
+      <defs>
+        <linearGradient id="mark-fill" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#6366f1" />
+          <stop offset="1" stop-color="#a855f7" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="9" fill="url(#mark-fill)" />
+      <path
+        d="M8.5 11.5A3.5 3.5 0 0 1 12 8h8a3.5 3.5 0 0 1 3.5 3.5v5A3.5 3.5 0 0 1 20 20h-5l-4.5 3.8V19.6a3.5 3.5 0 0 1-2-3.1z"
+        fill="#fff"
+      />
+      <circle cx="13.2" cy="14" r="1.4" fill="#5b4ee6" />
+      <circle cx="18.8" cy="14" r="1.4" fill="#5b4ee6" />
+    </svg>
   );
 }
