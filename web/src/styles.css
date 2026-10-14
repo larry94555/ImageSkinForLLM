@@ -834,6 +834,25 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 .chat form button[type="submit"] { min-height: 48px; padding: 10px 24px; border-radius: 12px; }
 .sound-controls button { min-height: 34px; padding: 4px 14px; font-size: 0.85rem; }
 .talk .status { color: var(--muted); }
+/* Topic hints under the prompt box (R41g): the topics line, and example questions as chips. */
+.hints { display: grid; gap: 8px; }
+.hints p { margin: 0; font-size: 0.9rem; }
+.hints ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.hints li { display: block; padding: 0; border: 0; background: none; box-shadow: none; }
+.hints button.example {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  box-shadow: none;
+}
+.hints button.example:hover:not(:disabled) { border-color: var(--accent); }
+.hints button.example:disabled { opacity: 0.6; cursor: default; }
 .history-box { border-radius: 12px; background: var(--card); }
 /* The recording guide. */
 .guide progress { height: 6px; }

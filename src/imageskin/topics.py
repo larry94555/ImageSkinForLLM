@@ -44,6 +44,8 @@ _PUNCTUATION = re.compile(r"[^\w\s']+")
 SPOKEN_TOPICS = 8
 # Topics named when a prompt is declined.
 DECLINE_TOPICS = 3
+# Topics named in the hint under the prompt box (R41g).
+HINT_TOPICS = 3
 
 NO_CONTENT = "I can talk about anything you like. Ask me whatever you want to know."
 ONLY_THESE = "I can only answer questions about these topics."
@@ -97,11 +99,22 @@ def spoken_topics(topics: list[str]) -> list[str]:
     return topics[:SPOKEN_TOPICS]
 
 
-def listed(topics: list[str]) -> str:
-    """The topics said aloud, up to SPOKEN_TOPICS of them, then how many more there are."""
-    named = spoken_topics(topics)
+def listed(topics: list[str], limit: int = SPOKEN_TOPICS) -> str:
+    """The topics named, up to `limit` of them, then how many more there are."""
+    named = topics[:limit]
     more = len(topics) - len(named)
     return spoken_list([*named, f"{more} more on the Wiki page"] if more else named)
+
+
+def hint_line(topics: list[str], content_only: bool) -> str | None:
+    """The line under the prompt box naming a few of the topics (R41g), saying questions must be
+    about them when general prompts are off (R41); None when there are none yet."""
+    if not topics:
+        return None
+    named = listed(topics, HINT_TOPICS)
+    if content_only:
+        return f"Questions must be about these topics: {named}."
+    return f"You can ask me about {named}."
 
 
 def topics_reply(

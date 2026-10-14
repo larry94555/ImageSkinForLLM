@@ -55,7 +55,7 @@ from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
-from imageskin.topics import main_entries
+from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import load_ui_settings, save_ui_settings
 from imageskin.uploads import (
     MEDIA_TYPE,
@@ -771,6 +771,16 @@ def create_app(
 
     def chosen_photo() -> Path | None:
         return store.path("photos", job.status().photo_id or "")
+
+    @app.get("/api/chat/hints", dependencies=needs_consent)
+    def get_chat_hints() -> dict[str, object]:
+        """What to show under the prompt box (R41g): a line naming a few of the topics, and a few
+        example questions drawn from the wiki, read each time so they follow the PDFs."""
+        topics = content_topics()
+        examples = content_lookup.examples() if topics else []
+        line = hint_line(topics, content_only())
+        logger.info("Topic hints", extra={"topics": len(topics), "examples": len(examples)})
+        return {"line": line, "examples": examples}
 
     @app.get("/api/chat/photo", dependencies=needs_consent)
     def get_chat_photo() -> dict[str, str | int | None]:

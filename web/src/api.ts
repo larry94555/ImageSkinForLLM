@@ -312,6 +312,21 @@ export async function getChatPhoto(): Promise<ChatPhoto> {
   return json<ChatPhoto>(await fetch("/api/chat/photo"));
 }
 
+// What the chat shows under the prompt box (roadmap R41g): a line naming a few of the topics,
+// null before any PDF is added, and a few example questions to send with a click.
+export interface ChatHints {
+  line: string | null;
+  examples: string[];
+}
+
+export async function getChatHints(): Promise<ChatHints> {
+  const hints = await json<Partial<ChatHints> | null>(await fetch("/api/chat/hints"));
+  return {
+    line: typeof hints?.line === "string" ? hints.line : null,
+    examples: Array.isArray(hints?.examples) ? hints.examples : [],
+  };
+}
+
 // The person at rest, blinking and moving slightly, played on a loop between replies (roadmap
 // R23). The server answers once its warm-up has made it, and 404 when there is none.
 export const IDLE_VIDEO_URL = "/api/chat/idle";

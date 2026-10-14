@@ -1311,6 +1311,105 @@ test("sending a prompt shows it and then the reply", async () => {
   expect(screen.queryByText("Thinking…")).toBeNull();
 });
 
+// --- Topic hints (R41g) ---
+
+// The chat's server, answering the hints with `hints`, one per call and then the last again.
+function hintsServer(...hints: (object | Error)[]) {
+  const server = chatServer([], () =>
+    Response.json({ role: "assistant", content: "Primes are counted." }),
+  );
+  const answers = server.getMockImplementation()!;
+  let calls = 0;
+  server.mockImplementation(async (url, init) => {
+    if (url !== "/api/chat/hints") return answers(url, init);
+    const hint = hints[Math.min(calls++, hints.length - 1)];
+    if (hint instanceof Error) return Response.json({ detail: hint.message }, { status: 500 });
+    return Response.json(hint);
+  });
+  return server;
+}
+
+const RIEMANN_HINTS = {
+  line: "Questions must be about these topics: Prime Number Basics and Zeta Function Integral.",
+  examples: [
+    "What can you tell me about Prime Number Basics?",
+    "Can you explain Zeta Function Integral?",
+  ],
+};
+
+test("under the prompt box, the topics and example questions are shown", async () => {
+  hintsServer(RIEMANN_HINTS);
+  await openAt("#/chat");
+  expect(await screen.findByText(RIEMANN_HINTS.line)).toBeTruthy();
+  const examples = within(screen.getByRole("list", { name: "Example questions" }));
+  expect(examples.getAllByRole("button").map((b) => b.textContent)).toEqual(
+    RIEMANN_HINTS.examples,
+  );
+});
+
+test("clicking an example question sends it", async () => {
+  const server = hintsServer(RIEMANN_HINTS);
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  const example = await screen.findByRole("button", { name: RIEMANN_HINTS.examples[0] });
+  fireEvent.input(promptBox(), { target: { value: "half typed" } });
+  await act(async () => {
+    fireEvent.click(example);
+  });
+  expect(await screen.findByText("Primes are counted.")).toBeTruthy();
+  const sent = server.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
+  expect(JSON.parse(sent![1]!.body as string).prompt).toBe(RIEMANN_HINTS.examples[0]);
+  expect(screen.getByText(RIEMANN_HINTS.examples[0], { selector: "li.user" })).toBeTruthy();
+  expect(promptBox().value).toBe(""); // the box is cleared, as when Send is pressed
+  expect(info).toHaveBeenCalledWith("Example question asked");
+});
+
+test("the example questions can't be clicked while a reply is coming", async () => {
+  const [answer] = later();
+  const server = hintsServer(RIEMANN_HINTS);
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat" && init?.method === "POST" ? answer() : answers(url, init),
+  );
+  await openAt("#/chat");
+  const first = await screen.findByRole("button", { name: RIEMANN_HINTS.examples[0] });
+  await act(async () => {
+    fireEvent.click(first);
+  });
+  const other = screen.getByRole("button", { name: RIEMANN_HINTS.examples[1] });
+  expect((other as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("the hints are read again after each reply, so they follow the PDFs", async () => {
+  const server = hintsServer({ line: null, examples: [] }, RIEMANN_HINTS);
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  expect(document.querySelector(".hints")).toBeNull(); // no PDF yet: nothing to hint
+  fireEvent.input(promptBox(), { target: { value: "Hello" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  expect(await screen.findByText(RIEMANN_HINTS.line)).toBeTruthy();
+  expect(server.mock.calls.filter(([url]) => url === "/api/chat/hints")).toHaveLength(2);
+});
+
+test("hints that can't be read are left out", async () => {
+  hintsServer(new Error("broken"));
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  await waitFor(() =>
+    expect(console.error).toHaveBeenCalledWith("Could not load the topic hints", expect.anything()),
+  );
+  expect(document.querySelector(".hints")).toBeNull();
+});
+
+test("the example questions are chips in the design's colours", () => {
+  expect(styles).toMatch(/\.hints button\.example \{[^}]*background: var\(--accent-soft\)/);
+  expect(styles).toMatch(/\.hints button\.example \{[^}]*color: var\(--accent-ink\)/);
+  // Not boxed like the other lists' items.
+  expect(styles).toMatch(/\.hints li \{[^}]*border: 0;[^}]*background: none/);
+});
+
 test("Enter sends and Shift+Enter does not", async () => {
   const fetchMock = chatServer([], () =>
     Response.json({ role: "assistant", content: "Got it." }),

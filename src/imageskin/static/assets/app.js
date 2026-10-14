@@ -144,6 +144,13 @@ async function stopReply(replyId) {
 async function getChatPhoto() {
 	return json(await fetch("/api/chat/photo"));
 }
+async function getChatHints() {
+	const hints = await json(await fetch("/api/chat/hints"));
+	return {
+		line: typeof hints?.line === "string" ? hints.line : null,
+		examples: Array.isArray(hints?.examples) ? hints.examples : []
+	};
+}
 function pdfUrl(id) {
 	return `/api/content/${id}`;
 }
@@ -2534,6 +2541,10 @@ function Chat() {
 	const [idle, setIdle] = d("loading");
 	const [photo, setPhoto] = d();
 	const [waiting, setWaiting] = d(false);
+	const [hints, setHints] = d({
+		line: null,
+		examples: []
+	});
 	const clipTotal = A(0);
 	const allMade = A(false);
 	const clipsEnded = A(0);
@@ -2555,6 +2566,10 @@ function Chat() {
 			});
 		});
 	}, []);
+	h(() => {
+		if (sending) return;
+		getChatHints().then(setHints).catch((e) => console.error("Could not load the topic hints", e));
+	}, [sending]);
 	h(() => {
 		getChat().then(setTurns).catch((e) => {
 			console.error("Could not load the conversation", e);
@@ -2605,8 +2620,8 @@ function Chat() {
 			ended: at
 		} : c));
 	}
-	async function send() {
-		const text = prompt.trim();
+	async function send(asked) {
+		const text = (asked ?? prompt).trim();
 		if (!text || sending || speaking) return;
 		const shownAt = (turns ?? []).length + 1;
 		const replyId = newReplyId();
@@ -2815,11 +2830,39 @@ function Chat() {
 						children: "Send"
 					})]
 				}),
+				/* @__PURE__ */ u(Hints, {
+					hints,
+					disabled: sending || speaking,
+					onAsk: (q) => void send(q)
+				}),
 				turns.length > 0 && /* @__PURE__ */ u(History$1, {
 					turns,
 					unspoken
 				})
 			]
+		})]
+	});
+}
+function Hints(props) {
+	const { line, examples } = props.hints;
+	if (!line && examples.length === 0) return null;
+	return /* @__PURE__ */ u("div", {
+		className: "hints",
+		children: [line && /* @__PURE__ */ u("p", {
+			className: "muted",
+			children: line
+		}), examples.length > 0 && /* @__PURE__ */ u("ul", {
+			"aria-label": "Example questions",
+			children: examples.map((question) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "example",
+				disabled: props.disabled,
+				onClick: () => {
+					console.info("Example question asked");
+					props.onAsk(question);
+				},
+				children: question
+			}) }, question))
 		})]
 	});
 }
