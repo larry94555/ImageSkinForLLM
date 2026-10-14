@@ -108,14 +108,18 @@ async function review(decision) {
 async function getChat() {
 	return (await json(await fetch("/api/chat"))).turns;
 }
-async function sendPrompt(prompt, replyId) {
+async function sendPrompt(prompt, replyId, lesson) {
+	const body = { prompt };
+	if (replyId) body.reply_id = replyId;
+	if (lesson) body.lesson = {
+		topic: lesson.topic,
+		part: lesson.part,
+		active: lesson.active
+	};
 	const response = await fetch("/api/chat", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(replyId ? {
-			prompt,
-			reply_id: replyId
-		} : { prompt })
+		body: JSON.stringify(body)
 	});
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
@@ -2500,6 +2504,30 @@ function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 var SOUND_KEY = "imageskin.sound";
+var LESSON_KEY = "imageskin.lesson";
+function loadLesson() {
+	try {
+		const saved = JSON.parse(localStorage.getItem(LESSON_KEY) ?? "null");
+		if (typeof saved?.topic !== "string" || !Number.isInteger(saved.part) || saved.part < 0) return null;
+		const parts = Number.isInteger(saved.parts) ? saved.parts : void 0;
+		return {
+			topic: saved.topic,
+			part: saved.part,
+			active: saved.active !== false,
+			parts
+		};
+	} catch {
+		return null;
+	}
+}
+function saveLesson(lesson) {
+	try {
+		if (lesson) localStorage.setItem(LESSON_KEY, JSON.stringify(lesson));
+		else localStorage.removeItem(LESSON_KEY);
+	} catch (e) {
+		console.error("Could not keep the lesson", e);
+	}
+}
 function loadSound() {
 	try {
 		const saved = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "null");
@@ -2545,6 +2573,8 @@ function Chat() {
 		line: null,
 		examples: []
 	});
+	const [lesson, setLesson] = d(loadLesson);
+	const [choices, setChoices] = d([]);
 	const clipTotal = A(0);
 	const allMade = A(false);
 	const clipsEnded = A(0);
@@ -2654,6 +2684,7 @@ function Chat() {
 			content: text
 		}]);
 		setPrompt("");
+		setChoices([]);
 		let clipCount = 0;
 		const following = followClips(replyId, () => replied).then((n) => {
 			clipCount = n;
@@ -2663,8 +2694,15 @@ function Chat() {
 		let reply;
 		let repliedAt = 0;
 		try {
-			reply = await sendPrompt(text, replyId);
+			reply = await sendPrompt(text, replyId, lesson);
 			repliedAt = performance.now();
+			if (reply.lesson !== void 0) {
+				const next = reply.lesson;
+				setLesson(next);
+				saveLesson(next);
+				if (next) console.info(`Lesson: ${next.topic}, part ${next.part + 1}`);
+			}
+			setChoices(reply.choices ?? []);
 			const { role, content } = reply;
 			setTurns((t) => [...t ?? [], {
 				role,
@@ -2830,11 +2868,30 @@ function Chat() {
 								}
 							}
 						})]
-					}), /* @__PURE__ */ u("button", {
-						type: "submit",
-						disabled: sending || speaking || !prompt.trim(),
-						children: "Send"
+					}), /* @__PURE__ */ u("div", {
+						className: "send-buttons",
+						children: [/* @__PURE__ */ u("button", {
+							type: "submit",
+							disabled: sending || speaking || !prompt.trim(),
+							children: "Send"
+						}), /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							disabled: sending || speaking,
+							onClick: () => void send(TEACH_ME),
+							children: "Teach me"
+						})]
 					})]
+				}),
+				/* @__PURE__ */ u(Choices, {
+					choices,
+					disabled: sending || speaking,
+					onAsk: (q) => void send(q)
+				}),
+				lesson?.active && /* @__PURE__ */ u(LessonControls, {
+					lesson,
+					disabled: sending || speaking,
+					onAsk: (q) => void send(q)
 				}),
 				/* @__PURE__ */ u(Hints, {
 					hints,
@@ -2846,6 +2903,49 @@ function Chat() {
 					unspoken
 				})
 			]
+		})]
+	});
+}
+var TEACH_ME = "Teach me";
+function Choices(props) {
+	if (props.choices.length === 0) return null;
+	return /* @__PURE__ */ u("ul", {
+		className: "choices-row",
+		"aria-label": "Choices",
+		children: props.choices.map((choice) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("button", {
+			type: "button",
+			className: "example",
+			disabled: props.disabled,
+			onClick: () => props.onAsk(choice.prompt),
+			children: choice.label
+		}) }, choice.prompt))
+	});
+}
+function LessonControls(props) {
+	const { topic, part, parts } = props.lesson;
+	const where = parts === void 0 ? "" : part >= parts ? " · summary" : ` · part ${part + 1} of ${parts}`;
+	return /* @__PURE__ */ u("div", {
+		className: "lesson",
+		children: [/* @__PURE__ */ u("p", {
+			className: "muted",
+			children: [
+				"Lesson: ",
+				topic,
+				where
+			]
+		}), /* @__PURE__ */ u("div", {
+			className: "lesson-buttons",
+			children: [
+				"Next",
+				"Say it more simply",
+				"Stop the lesson"
+			].map((label) => /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				disabled: props.disabled,
+				onClick: () => props.onAsk(label),
+				children: label
+			}, label))
 		})]
 	});
 }

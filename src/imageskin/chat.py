@@ -87,6 +87,16 @@ OFF_TOPIC = " ".join(decline_reply([]))
 
 
 @dataclass(frozen=True)
+class Teach:
+    """A lesson step for the LLM (R41h): what it is asked in place of the prompt, and the
+    material to teach from, best first, quoted before it as reference text like content found
+    for a question (R40). The prompt as typed is what the conversation keeps."""
+
+    instruction: str
+    material: list[str]
+
+
+@dataclass(frozen=True)
 class LlmSettings:
     # llama-server's OpenAI-compatible API (started with --port 8080).
     url: str = "http://127.0.0.1:8080/v1"
@@ -410,19 +420,36 @@ class Conversation:
         if self._warm_up is not None:
             self._warm_up()
 
-    def send(self, prompt: str, on_sentence: OnSentence | None = None) -> tuple[Turn, int]:
+    def send(
+        self, prompt: str, on_sentence: OnSentence | None = None, teach: Teach | None = None
+    ) -> tuple[Turn, int]:
         """Send the prompt with the conversation so far; the reply is kept with it. Returns the
         reply and its place in the conversation (from 0), which other requests can't change.
         When the reply is streamed, `on_sentence` is told when the LLM starts writing (None)
-        and is then given each sentence as soon as it is complete (roadmap R21)."""
+        and is then given each sentence as soon as it is complete (roadmap R21). With `teach`,
+        the LLM is asked its instruction from its material instead (R41h)."""
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("Type something to send.")
         with self._busy:
             self.wait()  # for a summary still being made after the last reply
-            return self._send(prompt, on_sentence)
+            return self._send(prompt, on_sentence, teach)
 
-    def _send(self, prompt: str, on_sentence: OnSentence | None) -> tuple[Turn, int]:
+    def say(
+        self, prompt: str, sentences: list[str], on_sentence: OnSentence | None = None
+    ) -> tuple[Turn, int]:
+        """Reply to the prompt with these sentences, made outside the LLM (a lesson's choices,
+        R41h), spoken and kept like any reply."""
+        with self._busy:
+            self.wait()
+            budget = int(self._context_tokens() * HISTORY_SHARE)
+            count = self._count
+            turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
+            return self._say(prompt.strip(), sentences, on_sentence, turns, budget)
+
+    def _send(
+        self, prompt: str, on_sentence: OnSentence | None, teach: Teach | None = None
+    ) -> tuple[Turn, int]:
         # Only this send (holding _busy, with no summary running) changes the turns or summary,
         # so reading them here is safe; changes are made under _lock for turns().
         window = self._context_tokens()
@@ -435,6 +462,9 @@ class Conversation:
         # Normally the summary made after the last reply keeps this within budget; if it
         # couldn't be made, the oldest turns are left out.
         turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
+        if teach is not None:
+            asked = self._with_content(teach.instruction, teach.material, room)
+            return self._ask_llm(prompt, asked, turns, budget, window, on_sentence)
         if asks_for_topics(prompt):
             return self._tell_topics(prompt, turns, on_sentence, budget)
         # "Tell me about the second one" after the topics were listed is about that topic, so
@@ -447,6 +477,20 @@ class Conversation:
         if found == [] and self._content_only():
             return self._decline(prompt, on_sentence)
         asked = self._with_content(prompt, found, room)
+        return self._ask_llm(prompt, asked, turns, budget, window, on_sentence)
+
+    def _ask_llm(
+        self,
+        prompt: str,
+        asked: str,
+        turns: list[Turn],
+        budget: int,
+        window: int,
+        on_sentence: OnSentence | None = None,
+    ) -> tuple[Turn, int]:
+        """Ask the LLM `asked` after the conversation so far, and keep its reply with the prompt
+        as typed."""
+        count = self._count
         messages = [
             system_message(self._summary),
             *map(as_message, turns),

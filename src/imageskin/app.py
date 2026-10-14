@@ -55,6 +55,7 @@ from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
+from imageskin.teach import Choice, Explain, Lesson, Say, Teacher, lesson_topics
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import load_ui_settings, save_ui_settings
 from imageskin.uploads import (
@@ -118,11 +119,20 @@ class WikiEditRequest(BaseModel):
     summary: str
 
 
+class LessonState(BaseModel):
+    """Where a lesson is (R41h), kept by the browser and sent with each prompt."""
+
+    topic: str = Field(max_length=500)
+    part: int = Field(ge=0)
+    active: bool = True
+
+
 class ChatRequest(BaseModel):
     prompt: str
     # Chosen by the browser, so it can ask for the reply's clips while the LLM is still writing
     # (roadmap R22).
     reply_id: str | None = Field(default=None, pattern=REPLY_ID_PATTERN)
+    lesson: LessonState | None = None
 
 
 class ReplyVideoRequest(BaseModel):
@@ -800,7 +810,7 @@ def create_app(
         }
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
-    def post_chat(body: ChatRequest) -> dict[str, str | int | bool]:
+    def post_chat(body: ChatRequest) -> dict[str, Any]:
         """The reply, with its place in the conversation to ask for its video by, and whether it
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
         browser follows those, even once a newer prompt has taken them, rather than asking for
@@ -820,7 +830,13 @@ def create_app(
             thread.join()
             logger.info(f"{what} waited for the warm-up", extra={"wait_ms": ms_since(start)})
 
-    def chat(body: ChatRequest) -> dict[str, str | int | bool]:
+    teacher = Teacher(wiki.contents, find_content)
+
+    def lesson_parts(lesson: Lesson) -> int:
+        """How many parts the lesson's topic has, its summary not counted."""
+        return len(lesson_topics(wiki.contents()).get(lesson.topic, []))
+
+    def chat(body: ChatRequest) -> dict[str, Any]:
         with clips_lock:
             unasked = list(sentence_clips.values())  # only the latest reply is played
             sentence_clips.clear()
@@ -837,7 +853,17 @@ def create_app(
                 else:
                     sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
-            reply, turn = conversation.send(body.prompt, clips)
+            lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())
+            step = teacher.step(body.prompt, lesson)
+            choices: list[Choice] = []
+            if isinstance(step, Say):
+                reply, turn = conversation.say(body.prompt, step.sentences, clips)
+                lesson, choices = step.lesson, step.choices
+            elif isinstance(step, Explain):
+                reply, turn = conversation.send(body.prompt, clips, step.teach)
+                lesson = step.lesson
+            else:
+                reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError) as e:
             if clips is not None:
                 with clips_lock:
@@ -851,7 +877,15 @@ def create_app(
                 with clips_lock:
                     sentence_clips.pop(body.reply_id or "", None)
         streamed = clips is not None and clips.sentences > 0
-        return {**asdict(reply), "turn": turn, "streamed": streamed}
+        # The lesson after this prompt, for the browser to keep, with how many parts its topic
+        # has, and any choices to show as buttons (R41h).
+        return {
+            **asdict(reply),
+            "turn": turn,
+            "streamed": streamed,
+            "lesson": None if lesson is None else {**asdict(lesson), "parts": lesson_parts(lesson)},
+            "choices": [asdict(c) for c in choices],
+        }
 
     @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_consent)
     def stop_clips(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, bool]:

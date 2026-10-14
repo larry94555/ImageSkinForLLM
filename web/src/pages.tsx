@@ -16,6 +16,8 @@ import {
   getClips,
   IDLE_VIDEO_URL,
   type ChatHints,
+  type Choice,
+  type Lesson,
   getChatHints,
   getChatPhoto,
   getPhotoChoice,
@@ -803,6 +805,31 @@ export interface Sound {
 
 const SOUND_KEY = "imageskin.sound";
 
+// The lesson this browser has (roadmap R41h), kept so a student who stops picks up where they
+// left off.
+const LESSON_KEY = "imageskin.lesson";
+
+export function loadLesson(): Lesson | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LESSON_KEY) ?? "null") as Partial<Lesson> | null;
+    if (typeof saved?.topic !== "string" || !Number.isInteger(saved.part) || saved.part! < 0)
+      return null;
+    const parts = Number.isInteger(saved.parts) ? saved.parts : undefined;
+    return { topic: saved.topic, part: saved.part!, active: saved.active !== false, parts };
+  } catch {
+    return null; // storage blocked, or something else saved there
+  }
+}
+
+function saveLesson(lesson: Lesson | null) {
+  try {
+    if (lesson) localStorage.setItem(LESSON_KEY, JSON.stringify(lesson));
+    else localStorage.removeItem(LESSON_KEY);
+  } catch (e) {
+    console.error("Could not keep the lesson", e);
+  }
+}
+
 export function loadSound(): Sound {
   try {
     const saved = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "null") as Partial<Sound> | null;
@@ -856,6 +883,8 @@ function Chat() {
   // The topics line and example questions under the prompt box (R41g), read again after each
   // reply so they follow the PDFs.
   const [hints, setHints] = useState<ChatHints>({ line: null, examples: [] });
+  const [lesson, setLesson] = useState<Lesson | null>(loadLesson); // Teach me (R41h)
+  const [choices, setChoices] = useState<Choice[]>([]); // offered with the latest reply
   const clipTotal = useRef(0); // how many clips the latest reply has so far
   const allMade = useRef(false); // and that no more will come
   const clipsEnded = useRef(0); // how many of them have ended or been passed over
@@ -967,6 +996,7 @@ function Chat() {
     setWhole(false);
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
     setPrompt("");
+    setChoices([]);
     // Why the clips failed, if they did, kept until the reply is in: a clip can fail long
     // before, and a rejection with nothing waiting on it would be reported as unhandled.
     let clipCount = 0;
@@ -981,8 +1011,15 @@ function Chat() {
     let reply: Reply;
     let repliedAt = 0;
     try {
-      reply = await sendPrompt(text, replyId);
+      reply = await sendPrompt(text, replyId, lesson);
       repliedAt = performance.now();
+      if (reply.lesson !== undefined) {
+        const next = reply.lesson;
+        setLesson(next);
+        saveLesson(next);
+        if (next) console.info(`Lesson: ${next.topic}, part ${next.part + 1}`);
+      }
+      setChoices(reply.choices ?? []);
       const { role, content } = reply;
       setTurns((t) => [...(t ?? []), { role, content }]);
     } catch (e) {
@@ -1134,12 +1171,86 @@ function Chat() {
             }}
           />
         </label>
-        <button type="submit" disabled={sending || speaking || !prompt.trim()}>
-          Send
-        </button>
+        <div className="send-buttons">
+          <button type="submit" disabled={sending || speaking || !prompt.trim()}>
+            Send
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={sending || speaking}
+            onClick={() => void send(TEACH_ME)}
+          >
+            Teach me
+          </button>
+        </div>
       </form>
+      <Choices choices={choices} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+      {lesson?.active && (
+        <LessonControls
+          lesson={lesson}
+          disabled={sending || speaking}
+          onAsk={(q) => void send(q)}
+        />
+      )}
       <Hints hints={hints} disabled={sending || speaking} onAsk={(q) => void send(q)} />
       {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
+      </div>
+    </div>
+  );
+}
+
+// What the Teach me button sends (R41h); typing it does the same.
+const TEACH_ME = "Teach me";
+
+// Buttons offered with the latest reply, such as which topic to learn (R41h).
+function Choices(props: { choices: Choice[]; disabled: boolean; onAsk: (prompt: string) => void }) {
+  if (props.choices.length === 0) return null;
+  return (
+    <ul className="choices-row" aria-label="Choices">
+      {props.choices.map((choice) => (
+        <li key={choice.prompt}>
+          <button
+            type="button"
+            className="example"
+            disabled={props.disabled}
+            onClick={() => props.onAsk(choice.prompt)}
+          >
+            {choice.label}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// While a lesson is going (R41h): where it is, and Next, more simply and Stop.
+function LessonControls(props: {
+  lesson: Lesson;
+  disabled: boolean;
+  onAsk: (prompt: string) => void;
+}) {
+  const { topic, part, parts } = props.lesson;
+  const where =
+    parts === undefined ? "" : part >= parts ? " · summary" : ` · part ${part + 1} of ${parts}`;
+  return (
+    <div className="lesson">
+      <p className="muted">
+        Lesson: {topic}
+        {where}
+      </p>
+      <div className="lesson-buttons">
+        {["Next", "Say it more simply", "Stop the lesson"].map((label) => (
+          <button
+            key={label}
+            type="button"
+            className="secondary"
+            disabled={props.disabled}
+            onClick={() => props.onAsk(label)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );

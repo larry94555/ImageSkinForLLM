@@ -274,6 +274,8 @@ Under the video, when **Show timing metrics** is ticked in the **Settings** menu
 
 **Topic hints** (roadmap R41g): under the prompt box, the chat names a few of the topics, and says questions must be about them when general prompts are off. Below that are a few example questions drawn from the wiki; click one to send it. Each example is checked against the content first, so it is always answered.
 
+**Teach me** (roadmap R41h): click **Teach me** (or type "Teach me about …") and the person teaches the content a part at a time: a topic's main ideas, then each entry under it on the wiki, then a one-line summary, then the next topic. Click **Next** to go on, **Say it more simply** to hear the part again more simply, or type a question about it. The browser remembers where you are, so **Teach me** offers to carry on after a reload or **Stop the lesson**. The log has `Lesson topic asked for`, `Lesson part` (with the topic, the part, how many parts and why: start, resume, next, simpler or summary), `Lesson question`, `Lesson stopped` and `Lesson finished`.
+
 **Professional teacher pages** (roadmap R41e): Setup, Manage Content and the Wiki look like the chat, each says in a line what it is for, and Setup numbers its four steps. Their messages are in plain words, without technical terms: what went wrong in detail is in the server log.
 
 **A professional chat screen** (roadmap R41d): on a laptop the person is on the left and the conversation on the right; on a tablet held upright the person is above it. One status line says "Thinking…" and then "Getting ready to say it…". When there is no reply, the chat says only "Sorry, I couldn't answer that just now. Please try again in a moment."; why is in the browser console and the server log, not on the screen.

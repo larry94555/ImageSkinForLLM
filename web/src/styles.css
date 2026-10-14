@@ -839,6 +839,32 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 .hints p { margin: 0; font-size: 0.9rem; }
 .hints ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .hints li { display: block; padding: 0; border: 0; background: none; box-shadow: none; }
+/* Teach me (R41h): the buttons beside the prompt box, the choices offered with a reply, and */
+/* the lesson's place with Next, more simply and Stop. */
+.send-buttons { display: grid; gap: 8px; }
+.send-buttons button.secondary { min-height: 40px; padding: 6px 16px; border-radius: 12px; }
+.choices-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.choices-row li { display: block; padding: 0; border: 0; background: none; box-shadow: none; }
+.choices-row button.example {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.lesson {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+}
+.lesson p { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--fg); }
+.lesson-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.lesson-buttons button { min-height: 36px; padding: 4px 14px; font-size: 0.875rem; }
 .hints button.example {
   min-height: 36px;
   padding: 6px 14px;
