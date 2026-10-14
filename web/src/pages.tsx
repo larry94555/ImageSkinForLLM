@@ -1368,8 +1368,12 @@ export function ClipPlayer(props: {
   function ends(at: number) {
     if (playing >= clips.length) return; // played again by hand, after the last clip so far
     onEnded?.(playing, at);
-    if (next !== undefined) setActive((a) => 1 - a); // the next clip is loaded there already
-    else if (rest) setOn(false); // back to the idle video until the next clip comes
+    if (next !== undefined) {
+      // The next clip is loaded there already; one that failed to load is passed over out of
+      // sight, so its empty player is never shown (R41c).
+      if (broken.current.has(next)) setOn(false);
+      setActive((a) => 1 - a);
+    } else if (rest) setOn(false); // back to the idle video until the next clip comes
     setPlaying(playing + 1);
   }
 

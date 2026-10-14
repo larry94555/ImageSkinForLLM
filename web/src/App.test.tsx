@@ -1812,11 +1812,39 @@ test("a clip that failed while it waited its turn is passed over when its turn c
   const waiting = container.querySelectorAll("video")[1];
   fireEvent.error(waiting); // /b failed to load, out of sight
   rerender(<ClipPlayer clips={["/a", "/b", "/c"]} />);
-  fireEvent.ended(shownVideo());
+  const seen = shownStates(container, () => fireEvent.ended(shownVideo()));
   expect(error).toHaveBeenCalledWith("Could not play a clip of the reply, so it was skipped: /b");
   expect(shownVideo().getAttribute("src")).toBe("/c");
   expect(play).toHaveBeenCalledTimes(2); // /a, then /c; never /b
+  // Review on PR #78: the broken clip is never in sight, not even for a moment.
+  expect(seen.filter((v) => v.src === "/b" && v.className === "reply-video")).toEqual([]);
 });
+
+// Every state the players passed through while `run` ran, from the attribute changes made to
+// them in order: their src and class after each change.
+function shownStates(container: Element, run: () => void): { src: string; className: string }[] {
+  const now = new Map<Element, Record<string, string>>();
+  for (const v of container.querySelectorAll("video"))
+    now.set(v, { src: v.getAttribute("src") ?? "", class: v.getAttribute("class") ?? "" });
+  const watch = new MutationObserver(() => {});
+  watch.observe(container, { attributes: true, attributeOldValue: true, attributeFilter: ["src", "class"], subtree: true });
+  run();
+  const records = watch.takeRecords();
+  watch.disconnect();
+  // Each record has the value before its change; the value after is the next record's for the
+  // same element and attribute, or the value now.
+  const states: { src: string; className: string }[] = [];
+  records.forEach((r, i) => {
+    const name = r.attributeName!;
+    const later = records.slice(i + 1).find((o) => o.target === r.target && o.attributeName === name);
+    const el = r.target as Element;
+    const state = now.get(el) ?? { src: "", class: "" };
+    state[name] = later ? (later.oldValue ?? "") : (el.getAttribute(name) ?? "");
+    now.set(el, state);
+    states.push({ src: state.src, className: state.class });
+  });
+  return states;
+}
 
 test("an idle video that comes after the reply ended or was stopped takes over from it", () => {
   // Review on PR #78: the held frame stayed over the idle video once it arrived.

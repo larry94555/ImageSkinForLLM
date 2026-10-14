@@ -2926,8 +2926,10 @@ function ClipPlayer(props) {
 	function ends(at) {
 		if (playing >= clips.length) return;
 		onEnded?.(playing, at);
-		if (next !== void 0) setActive((a) => 1 - a);
-		else if (rest) setOn(false);
+		if (next !== void 0) {
+			if (broken.current.has(next)) setOn(false);
+			setActive((a) => 1 - a);
+		} else if (rest) setOn(false);
 		setPlaying(playing + 1);
 	}
 	function skip(url) {
