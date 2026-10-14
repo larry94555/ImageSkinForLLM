@@ -56,7 +56,7 @@ llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 
 - `--threads 2` gives the AI 2 of the 4 cores and leaves the other 2 for the voice and the video. Without it they fight over the cores and both become very slow.
 - `--no-mmproj` skips the model's image part, which the app doesn't use. `--ctx-size 4096` is how much of the conversation and content it can read at once.
 
-**Check:** it is ready when its terminal says `server is listening on http://127.0.0.1:8080`. Opening http://127.0.0.1:8080/health in a browser then shows `{"status":"ok"}`.
+**Check:** it is ready when its terminal shows a line ending `listening on http://127.0.0.1:8080`. Opening http://127.0.0.1:8080/health in a browser then shows `{"status":"ok"}`.
 
 **Then** start the app in a second terminal (`imageskin serve`, after activating `.venv` as usual).
 
