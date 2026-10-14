@@ -29,6 +29,7 @@ import {
   removeUpload,
   type Review,
   review,
+  ServerRefusal,
   sendPrompt,
   speakReply,
   startPrepare,
@@ -739,12 +740,16 @@ export function ChatPage() {
     );
   }
   return (
-    <>
-      <h1>Chat</h1>
+    <div className="chat-page">
+      <h1 className="sr-only">Chat</h1>
       <Chat />
-    </>
+    </div>
   );
 }
+
+// What the chat says when there is no reply, whatever the reason; the reason goes to the
+// browser console and the server log, not to the student (R41d).
+export const CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 
 // How often the chat asks for a reply's new clips while they are being made.
 export const CLIP_POLL_MS = 300;
@@ -813,7 +818,7 @@ function Chat() {
   const [earlier, setEarlier] = useState<number[]>([]); // the waits of the replies before it
   const [whole, setWhole] = useState(false); // the latest reply is one video, not clips
   // Why the latest reply could not be spoken, by its place in the turns shown.
-  const [unspoken, setUnspoken] = useState<{ turn: number; why: string } | null>(null);
+  const [unspoken, setUnspoken] = useState<{ turn: number } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const gone = useRef(false); // the page was left: stop following clips
   const replying = useRef<string | null>(null); // the latest reply's id
@@ -841,7 +846,7 @@ function Chat() {
       .catch((e: unknown) => {
         console.error("Could not load the conversation", e);
         setTurns([]);
-        setFailed("Could not load the conversation. Reload the page to try again.");
+        setFailed("The conversation couldn't be loaded. Reload the page to try again.");
       });
   }, []);
 
@@ -923,7 +928,9 @@ function Chat() {
       // The server forgets a prompt that got no reply, so it goes back in the box.
       setTurns((t) => (t ?? []).slice(0, -1));
       setPrompt(text);
-      setFailed(e instanceof Error ? e.message : String(e));
+      // A prompt the server can't use (empty, too long) says why in plain words; any other
+      // trouble gets the same short apology (R41d).
+      setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
       replied = true;
       await Promise.race([following, stopping]);
       setClips([]); // with any clip made before the LLM failed, and its timing row
@@ -953,7 +960,7 @@ function Chat() {
       }
     } catch (e) {
       console.error("Could not speak the reply", e);
-      setUnspoken({ turn: shownAt, why: e instanceof Error ? e.message : String(e) });
+      setUnspoken({ turn: shownAt }); // why is in the console above, not shown (R41d)
     } finally {
       setSpeaking(false);
     }
@@ -995,31 +1002,50 @@ function Chat() {
       )}
     </Stage>
   );
-  // The person shows from the start, while the conversation loads (R41c).
+  // The person shows from the start, while the conversation loads (R41c). On a wide screen
+  // they are on the left and the conversation on the right; on a narrow one, above it (R41d).
   if (turns === null)
     return (
       <div className="chat">
-        {stage}
-        <p className="muted busy">Loading…</p>
+        <div className="person">{stage}</div>
+        <div className="talk">
+          <p className="muted busy">Loading…</p>
+        </div>
       </div>
     );
+  // One line saying what is happening, until the person starts to speak (R41d).
+  const status = sending
+    ? "Thinking…"
+    : speaking && !halted && times.every((t) => t.started === null)
+      ? "Getting ready to say it…"
+      : null;
   return (
     <div className="chat">
-      {stage}
-      <SoundControls
-        sound={sound}
-        onChange={changeSound}
-        onStop={stoppable ? stop : undefined}
-      />
-      {metrics && times.length > 0 && (
-        <ClipTimes times={times} whole={whole} earlier={earlier} />
-      )}
-      {turns.length === 0 && <p className="muted">Say hello to start the conversation.</p>}
-      <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
-      {sending && <p className="muted busy">Thinking…</p>}
-      {speaking && !halted && <p className="muted busy">Getting ready to say it…</p>}
-      {failed && <p className="error">{failed}</p>}
-      <form
+      <div className="person">
+        {stage}
+        <SoundControls
+          sound={sound}
+          onChange={changeSound}
+          onStop={stoppable ? stop : undefined}
+        />
+        {metrics && times.length > 0 && (
+          <ClipTimes times={times} whole={whole} earlier={earlier} />
+        )}
+      </div>
+      <div className="talk">
+        {turns.length === 0 && (
+          <p className="muted hint">Ask a question to start the conversation.</p>
+        )}
+        <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
+        <p className="status muted" aria-live="polite">
+          {status && <span className="busy">{status}</span>}
+        </p>
+        {failed && (
+          <p className="error" role="alert">
+            {failed}
+          </p>
+        )}
+        <form
         onSubmit={(e) => {
           e.preventDefault();
           void send();
@@ -1028,7 +1054,8 @@ function Chat() {
         <label className="prompt">
           <span>Your message</span>
           <textarea
-            rows={3}
+            rows={2}
+            placeholder="Type your question here"
             value={prompt}
             onInput={(e) => setPrompt(e.currentTarget.value)}
             onKeyDown={(e) => {
@@ -1045,6 +1072,7 @@ function Chat() {
         </button>
       </form>
       {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
+      </div>
     </div>
   );
 }
@@ -1061,7 +1089,7 @@ export function latestExchange(turns: Turn[]): number {
 function TurnList(props: {
   turns: Turn[];
   from?: number;
-  unspoken: { turn: number; why: string } | null;
+  unspoken: { turn: number } | null;
   search?: { query: string; current: number };
 }) {
   const { turns, from = 0, unspoken, search } = props;
@@ -1094,7 +1122,7 @@ function TurnList(props: {
             )}
             {unspoken?.turn === i && (
               <span className="note">
-                I couldn&apos;t say this one aloud, so here it is as text. {unspoken.why}
+                I couldn&apos;t say this one aloud, so here it is as text.
               </span>
             )}
           </li>
@@ -1129,7 +1157,7 @@ export function countMatches(turns: Turn[], query: string): number {
 // video stays the focus (roadmap R18a). Opened, it is a box of limited height with its own
 // scrollbar, kept scrolled to the newest turn, and a search box that marks every match and steps
 // through them with Next and Previous, or Enter and Shift+Enter (roadmap R18).
-export function History(props: { turns: Turn[]; unspoken: { turn: number; why: string } | null }) {
+export function History(props: { turns: Turn[]; unspoken: { turn: number } | null }) {
   const { turns, unspoken } = props;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");

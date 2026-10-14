@@ -15,6 +15,13 @@ async function confirmConsent() {
 		body: JSON.stringify({ agreed: true })
 	}));
 }
+var ServerRefusal = class extends Error {
+	status;
+	constructor(message, status) {
+		super(message);
+		this.status = status;
+	}
+};
 async function refusal(response) {
 	try {
 		const body = await response.json();
@@ -109,7 +116,7 @@ async function sendPrompt(prompt, replyId) {
 			reply_id: replyId
 		} : { prompt })
 	});
-	if (!response.ok) throw new Error(await refusal(response));
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
 async function speakReply(turn, replyId) {
@@ -2390,8 +2397,15 @@ function ChatPage() {
 			})
 		] });
 	}
-	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u(Chat, {})] });
+	return /* @__PURE__ */ u("div", {
+		className: "chat-page",
+		children: [/* @__PURE__ */ u("h1", {
+			className: "sr-only",
+			children: "Chat"
+		}), /* @__PURE__ */ u(Chat, {})]
+	});
 }
+var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 function newReplyId() {
 	return Array.from(crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -2449,7 +2463,7 @@ function Chat() {
 		getChat().then(setTurns).catch((e) => {
 			console.error("Could not load the conversation", e);
 			setTurns([]);
-			setFailed("Could not load the conversation. Reload the page to try again.");
+			setFailed("The conversation couldn't be loaded. Reload the page to try again.");
 		});
 	}, []);
 	async function followClips(replyId, replied) {
@@ -2529,7 +2543,7 @@ function Chat() {
 			console.error("Could not get a reply", e);
 			setTurns((t) => (t ?? []).slice(0, -1));
 			setPrompt(text);
-			setFailed(e instanceof Error ? e.message : String(e));
+			setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
 			replied = true;
 			await Promise.race([following, stopping]);
 			setClips([]);
@@ -2561,10 +2575,7 @@ function Chat() {
 			}
 		} catch (e) {
 			console.error("Could not speak the reply", e);
-			setUnspoken({
-				turn: shownAt,
-				why: e instanceof Error ? e.message : String(e)
-			});
+			setUnspoken({ turn: shownAt });
 		} finally {
 			setSpeaking(false);
 		}
@@ -2604,75 +2615,91 @@ function Chat() {
 	});
 	if (turns === null) return /* @__PURE__ */ u("div", {
 		className: "chat",
-		children: [stage, /* @__PURE__ */ u("p", {
-			className: "muted busy",
-			children: "Loading…"
+		children: [/* @__PURE__ */ u("div", {
+			className: "person",
+			children: stage
+		}), /* @__PURE__ */ u("div", {
+			className: "talk",
+			children: /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			})
 		})]
 	});
+	const status = sending ? "Thinking…" : speaking && !halted && times.every((t) => t.started === null) ? "Getting ready to say it…" : null;
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
-		children: [
-			stage,
-			/* @__PURE__ */ u(SoundControls, {
-				sound,
-				onChange: changeSound,
-				onStop: stoppable ? stop : void 0
-			}),
-			metrics && times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
-				times,
-				whole,
-				earlier
-			}),
-			turns.length === 0 && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "Say hello to start the conversation."
-			}),
-			/* @__PURE__ */ u(TurnList, {
-				turns,
-				from: latestExchange(turns),
-				unspoken
-			}),
-			sending && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Thinking…"
-			}),
-			speaking && !halted && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Getting ready to say it…"
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: failed
-			}),
-			/* @__PURE__ */ u("form", {
-				onSubmit: (e) => {
-					e.preventDefault();
-					send();
-				},
-				children: [/* @__PURE__ */ u("label", {
-					className: "prompt",
-					children: [/* @__PURE__ */ u("span", { children: "Your message" }), /* @__PURE__ */ u("textarea", {
-						rows: 3,
-						value: prompt,
-						onInput: (e) => setPrompt(e.currentTarget.value),
-						onKeyDown: (e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								send();
+		children: [/* @__PURE__ */ u("div", {
+			className: "person",
+			children: [
+				stage,
+				/* @__PURE__ */ u(SoundControls, {
+					sound,
+					onChange: changeSound,
+					onStop: stoppable ? stop : void 0
+				}),
+				metrics && times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
+					times,
+					whole,
+					earlier
+				})
+			]
+		}), /* @__PURE__ */ u("div", {
+			className: "talk",
+			children: [
+				turns.length === 0 && /* @__PURE__ */ u("p", {
+					className: "muted hint",
+					children: "Ask a question to start the conversation."
+				}),
+				/* @__PURE__ */ u(TurnList, {
+					turns,
+					from: latestExchange(turns),
+					unspoken
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "status muted",
+					"aria-live": "polite",
+					children: status && /* @__PURE__ */ u("span", {
+						className: "busy",
+						children: status
+					})
+				}),
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					role: "alert",
+					children: failed
+				}),
+				/* @__PURE__ */ u("form", {
+					onSubmit: (e) => {
+						e.preventDefault();
+						send();
+					},
+					children: [/* @__PURE__ */ u("label", {
+						className: "prompt",
+						children: [/* @__PURE__ */ u("span", { children: "Your message" }), /* @__PURE__ */ u("textarea", {
+							rows: 2,
+							placeholder: "Type your question here",
+							value: prompt,
+							onInput: (e) => setPrompt(e.currentTarget.value),
+							onKeyDown: (e) => {
+								if (e.key === "Enter" && !e.shiftKey) {
+									e.preventDefault();
+									send();
+								}
 							}
-						}
+						})]
+					}), /* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: sending || speaking || !prompt.trim(),
+						children: "Send"
 					})]
-				}), /* @__PURE__ */ u("button", {
-					type: "submit",
-					disabled: sending || speaking || !prompt.trim(),
-					children: "Send"
-				})]
-			}),
-			turns.length > 0 && /* @__PURE__ */ u(History$1, {
-				turns,
-				unspoken
-			})
-		]
+				}),
+				turns.length > 0 && /* @__PURE__ */ u(History$1, {
+					turns,
+					unspoken
+				})
+			]
+		})]
 	});
 }
 function latestExchange(turns) {
@@ -2708,7 +2735,7 @@ function TurnList(props) {
 					}) }) : turn.content,
 					unspoken?.turn === i && /* @__PURE__ */ u("span", {
 						className: "note",
-						children: ["I couldn't say this one aloud, so here it is as text. ", unspoken.why]
+						children: "I couldn't say this one aloud, so here it is as text."
 					})
 				]
 			}, i);

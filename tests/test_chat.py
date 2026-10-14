@@ -112,7 +112,8 @@ def test_token_dense_turns_stay_within_half_the_window(dense: str, server_counts
 
 def test_a_token_dense_prompt_too_long_is_refused_by_its_real_count() -> None:
     # 300 characters would pass at 3 characters a token; at 4 bytes each it can't fit.
-    with pytest.raises(ValueError, match="too long"):
+    # The student sees this message (R41d): plain words, no "LLM".
+    with pytest.raises(ValueError, match=r"^That message is too long\. Shorten it or split"):
         Conversation(FakeLlm2(), lambda: 2048, count=utf8_bytes).send("🐶" * 300)
     with pytest.raises(ValueError, match="too long"):
         Conversation(FakeLlm2(), lambda: 2048).send("🐶" * 300)
