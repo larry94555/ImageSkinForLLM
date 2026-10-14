@@ -8,6 +8,20 @@ Python, no logging: the callers log.
 
 import re
 import unicodedata
+from collections.abc import Callable
+
+from imageskin.speech_math import (
+    EQUATION,
+    EQUATION_BLOCK,
+    MATH,
+    SUBSCRIPT_RUN,
+    SUPERSCRIPT_RUN,
+    greek_name,
+    math_parts,
+    power,
+    say_math,
+    symbol_words,
+)
 
 LINK = "the link in the text below"
 LINKS = "the links in the text below"
@@ -15,7 +29,7 @@ CODE = "the code shown below"
 PICTURE = "the picture in the text below"
 CODE_BLOCK = "See the code shown below."
 TABLE = "See the table in the text below."
-_BLOCKS = {CODE_BLOCK, TABLE}  # said as a sentence of their own
+_BLOCKS = {CODE_BLOCK, TABLE, EQUATION_BLOCK}  # said as a sentence of their own
 # Emoji that stand for a word, as in "I ❤️ it". Others are decoration and stay silent.
 _EMOJI_WORDS = {"❤": "love", "♥": "love"}
 # Inline code of up to this many words is spoken as is, such as `main()`.
@@ -105,15 +119,53 @@ _OPENED = re.compile(
 )
 
 
+# Math opened and not closed yet. $$, \[ and \( may run over several lines, so they stay open
+# until closed; a $ only to the end of its line, and a $ before a digit is money ("$5").
+_DISPLAY_OPENED = re.compile(r"\$\$|\\[\[(]")
+_DOLLAR_OPENED = re.compile(r"(?<![\\$\w])\$(?![\s$\d])[^\n]*$")
+
+
+# What isn't math even with a $ in it: code blocks, inline code (or a backtick that may yet
+# start some, on the line still being written) and URLs.
+_NOT_MATH = (_REPLACE[0][0], INLINE_CODE, re.compile(r"`[^`\n]*\Z"), _AUTOLINK, _URL_ONLY)
+
+
+def _without_code(text: str) -> str:
+    """`text` with what isn't math blanked out, so a $ in it opens nothing."""
+    for pattern in _NOT_MATH:
+        text = pattern.sub(lambda m: re.sub(r"[^\n]", " ", m.group()), text)
+    return text
+
+
+def inside_math(text: str, at: int) -> bool:
+    """Whether cutting `text` at `at` would split math (roadmap R16b): math that is closed, or
+    that has been opened and may yet be closed while the reply is still being written. $$, \\[
+    and \\( count across lines, a single $ only on its own line. A $ in code or a URL opens
+    nothing."""
+    text = _without_code(text)
+    spans = [m.span() for m in MATH.finditer(text)]
+    if any(a < at < b for a, b in spans):
+        return True
+    before = "".join(
+        " " if any(a <= i < b for a, b in spans) else c for i, c in enumerate(text[:at])
+    )
+    if _DISPLAY_OPENED.search(before):
+        return True
+    if text.find("\n", at) >= 0:
+        return False  # a $ closes on its own line, and this line is complete
+    return _DOLLAR_OPENED.search(before[before.rfind("\n") + 1 :]) is not None
+
+
 def inside_whole(text: str, at: int) -> bool:
-    """Whether cutting `text` at `at` would split a picture, link, autolink, HTML tag or
-    bracketed URL, which speech_text replaces whole; or one that has been opened and may yet
-    be closed, while the line is still being written (roadmap R22b). A line with a `|` may be
-    a table's row, and a table is replaced whole too, so no cut falls on it."""
+    """Whether cutting `text` at `at` would split a picture, link, autolink, HTML tag,
+    bracketed URL or math (roadmap R16b), which speech_text replaces whole; or one that has
+    been opened and may yet be closed, while the line is still being written (roadmap R22b). A
+    line with a `|` may be a table's row, and a table is replaced whole too, so no cut falls
+    on it."""
     start = text.rfind("\n", 0, at) + 1
     end = text.find("\n", at)
     line = text[start:] if end < 0 else text[start:end]
-    if "|" in line:
+    if "|" in line or inside_math(text, at):
         return True
     at -= start
     spans = [m.span() for pattern in _WHOLE for m in pattern.finditer(line)]
@@ -173,6 +225,50 @@ def _emoji_words(display: str, keep: list[bool]) -> dict[int, str]:
     return said
 
 
+def _own_line(display: str, m: re.Match[str]) -> bool:
+    """Whether the match is all there is on its lines, so it reads as a sentence of its own."""
+    start = display.rfind("\n", 0, m.start()) + 1
+    end = display.find("\n", m.end())
+    return not (
+        display[start : m.start()].strip() or display[m.end() : end if end >= 0 else None].strip()
+    )
+
+
+def _spaced(display: str, start: int, end: int, words: str) -> str:
+    """Words said in place of display[start:end], set apart from a word joined to it, as in
+    "2π" ("2 pi") or "x²" ("x squared")."""
+    if start and display[start - 1].isalnum():
+        words = " " + words
+    if end < len(display) and display[end].isalnum():
+        words += " "
+    return words
+
+
+_GREEK = "\u0391-\u03a9\u03b1-\u03c9"
+_SYMBOL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str | None]], ...] = (
+    # A Greek letter used as a function: "ζ(s)" is "zeta of s".
+    (
+        re.compile(rf"(?<![^\W\d_])([{_GREEK}])\(([^()\n]{{1,40}})\)"),
+        lambda m: f"{greek_name(m[1])} of {say_math(m[2]) or m[2]}",
+    ),
+    # A Greek letter on its own, not part of a Greek word.
+    (re.compile(rf"(?<![\u0370-\u03ff])[{_GREEK}](?![\u0370-\u03ff])"), lambda m: greek_name(m[0])),
+    (SUPERSCRIPT_RUN, lambda m: say_math(m[0])),  # "x²" is "x squared"
+    (SUBSCRIPT_RUN, lambda m: say_math(m[0])),  # "x₁" is "x sub 1"
+    # A power written with a caret after a word or bracket: "n^s", "2^{10}".
+    (
+        re.compile(r"(?<=[\w)])\^(?:\{([^{}\n]+)\}|(-?\w+))"),
+        lambda m: " ".join(power((say_math(m[1] or m[2]) or m[1] or m[2]).split())),
+    ),
+    # A comparison between two words or numbers, as in "s > 1" or "x = 2".
+    (
+        re.compile(r"(?<=[\w)][ \t])(<=|>=|[<>=])(?=[ \t]+[\w(-])"),
+        lambda m: say_math(m[1].replace("<=", "≤").replace(">=", "≥")),
+    ),
+    (re.compile("[∞≤≥≠≈≡∝∈∉⊂⊆∪∩∀∃∂∇→⇒⇔×÷±∓°∑∏∫√∛−⋅⋯]"), lambda m: symbol_words(m[0])),
+)
+
+
 def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
     """Which characters of the reply are spoken, and the phrases said in place of the rest."""
     keep = [True] * len(display)
@@ -202,6 +298,15 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
             drop(m.start(1), m.end(1))
             drop(m.end(2), m.end())
             done[m.start(2) : m.end(2)] = [True] * (m.end(2) - m.start(2))
+    # Math is said in words when it is short, and pointed to when it is not (roadmap R16b).
+    for m in MATH.finditer(display):
+        if done[m.start()]:
+            continue
+        tex, block = math_parts(m)
+        words = say_math(tex)
+        if words is None:
+            words = EQUATION_BLOCK if block and _own_line(display, m) else EQUATION
+        drop(m.start(), m.end(), _spaced(display, m.start(), m.end(), words))
     for pattern, phrase in _REPLACE[1:]:
         for m in pattern.finditer(display):
             if done[m.start()]:
@@ -220,6 +325,14 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
         short = m.group(1).lower()
         ends = short not in _GO_ON and _SENTENCE_AFTER.match(display, m.end())
         drop(m.start(), m.end() - 1 if ends else m.end(), _SHORT_FORMS[short])
+    # Greek letters and math symbols outside LaTeX, as in "ζ(s)" and "π ≈ 3.14", by name.
+    for pattern, saying in _SYMBOL_RULES:
+        for m in pattern.finditer(display):
+            if any(done[m.start() : m.end()]) or not all(keep[m.start() : m.end()]):
+                continue
+            said = saying(m)
+            if said:
+                drop(m.start(), m.end(), _spaced(display, m.start(), m.end(), said))
     say.update(_emoji_words(display, keep))
     return keep, say
 

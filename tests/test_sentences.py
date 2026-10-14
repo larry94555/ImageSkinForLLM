@@ -220,3 +220,56 @@ def test_a_cut_by_word_count_waits_for_the_word_after_the_next() -> None:
     assert splitter.feed("One two three four five six") == []  # the sentence may end on "six"
     assert splitter.feed(" s") == ["One two three four five"]
     assert splitter.flush() == ["six s"]
+
+
+@pytest.mark.parametrize("step", [1, 3, 1000])
+def test_math_is_not_cut_while_it_is_still_being_written(step: int) -> None:
+    # Review on PR #79: the first clause's word count was reached inside the open $...$.
+    zeta = r"$\zeta(s) = \sum_{n=1}^{\infty} \frac{1}{n^s}$"
+    text = f"The formula is {zeta} for s above one. Next."
+    sentences = clauses(text, step)
+    assert all(s.count("$") % 2 == 0 for s in sentences)
+    assert "Next." in sentences and "".join(sentences).replace(" ", "") == text.replace(" ", "")
+    assert all("$" not in spoken_text(s) and "\\" not in spoken_text(s) for s in sentences)
+
+
+@pytest.mark.parametrize("step", [1, 3, 1000])
+def test_a_full_stop_inside_math_does_not_end_the_sentence(step: int) -> None:
+    assert split("Use $A=1. B=2$ here. Next.", step) == ["Use $A=1. B=2$ here.", "Next."]
+    assert split("Use \\(A=1. B\\) here. Next.", step) == ["Use \\(A=1. B\\) here.", "Next."]
+
+
+def test_money_does_not_hold_back_the_first_clause() -> None:
+    assert clauses("It costs $5 and more than that today. Bye.", 1000)[0] == "It costs $5"
+
+
+@pytest.mark.parametrize("step", [1, 3, 1000])
+@pytest.mark.parametrize(("opener", "closer"), [("$$", "$$"), ("\\[", "\\]"), ("\\(", "\\)")])
+def test_math_over_several_lines_is_never_cut(opener: str, closer: str, step: int) -> None:
+    # Review on PR #79: a cut on a later line than the opener split display math.
+    math = f"{opener}\nA = 1. B = 2. And then c equals d plus e plus f\n{closer}"
+    for first_clause in (False, True):
+        splitter = SentenceSplitter(first_clause=first_clause)
+        text = f"Here it is:\n{math}\nNext one. Done."
+        sentences: list[str] = []
+        for i in range(0, len(text), step):
+            sentences += splitter.feed(text[i : i + step])
+        sentences += splitter.flush()
+        holding = [s for s in sentences if opener in s or closer in s]
+        assert len(holding) == 1 and opener in holding[0] and closer in holding[0]
+        assert all("$" not in spoken_text(s) and "\\" not in spoken_text(s) for s in sentences)
+
+
+@pytest.mark.parametrize("step", [1, 3, 1000])
+def test_a_dollar_in_code_or_a_url_does_not_hold_back_the_sentence(step: int) -> None:
+    # Review on PR #79: a $ in inline code was taken as math still open.
+    assert split("Use `$HOME`. Next.", step) == ["Use `$HOME`.", "Next."]
+    assert split("Run `$$`. Next one.\nAnd more. Done.", step) == [
+        "Run `$$`.",
+        "Next one.",
+        "And more.",
+        "Done.",
+    ]
+    assert split("See https://a.io/$x here. Next.", step) == ["See https://a.io/$x here.", "Next."]
+    code = "Run this:\n\n```\necho $$\n```\n\nThen go. Done."
+    assert split(code, step)[-2:] == ["Then go.", "Done."]
