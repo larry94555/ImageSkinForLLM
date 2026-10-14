@@ -102,6 +102,11 @@ export function SettingsMenu() {
         disabled={!loaded} // a change before the first read could be undone by it (PR #77 review)
         onClick={() => setOpen(!open)}
       >
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+          <circle cx="16" cy="7" r="2" />
+          <circle cx="10" cy="17" r="2" />
+        </svg>
         Settings
       </button>
       {open && (

@@ -1,25 +1,68 @@
+/* The app's design (R41e2): Inter, a cool neutral page with white cards and soft shadows, one */
+/* indigo accent, and rounded controls. The colours are tokens, redefined for dark mode. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(./fonts/inter-latin-wght-normal.woff2) format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(./fonts/inter-latin-ext-wght-normal.woff2) format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF,
+    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
 :root {
-  --bg: #f7f7f5;
-  --fg: #1f2328;
-  --muted: #5c636b;
-  --accent: #2f6fbd;
-  --error: #b42318;
-  --ok: #1a7f37;
+  --bg: #f5f6fa;
   --card: #ffffff;
-  --line: #d9dcdf;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sunken: #f0f2f7;
+  --fg: #111827;
+  --muted: #5f6878;
+  --line: #e3e6ee;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef0fe;
+  --accent-ink: #3730a3;
+  --error: #c4282f;
+  --error-soft: #fdeeee;
+  --ok: #15803d;
+  --ok-soft: #e9f7ef;
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow: 0 1px 3px rgb(16 24 40 / 0.06), 0 6px 20px rgb(16 24 40 / 0.06);
+  --shadow-lg: 0 4px 10px rgb(16 24 40 / 0.06), 0 18px 40px rgb(16 24 40 / 0.12);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --ring: 0 0 0 4px rgb(79 70 229 / 0.18);
+  font-family: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "cv11", "ss01";
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16181b;
-    --fg: #e6e8ea;
-    --muted: #9aa1a8;
-    --accent: #6ea8ef;
-    --error: #ff8a80;
-    --ok: #6fdd8b;
-    --card: #1f2226;
-    --line: #33383d;
+    --bg: #0c0e15;
+    --card: #151925;
+    --sunken: #1b2030;
+    --fg: #e8eaf1;
+    --muted: #9ba3b6;
+    --line: #272d3f;
+    --accent: #8b84ff;
+    --accent-hover: #a39eff;
+    --accent-soft: rgb(139 132 255 / 0.14);
+    --accent-ink: #c4c1ff;
+    --error: #ff8d8d;
+    --error-soft: rgb(255 141 141 / 0.12);
+    --ok: #6fdc95;
+    --ok-soft: rgb(111 220 149 / 0.12);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow: 0 1px 3px rgb(0 0 0 / 0.4), 0 6px 20px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 4px 10px rgb(0 0 0 / 0.4), 0 18px 40px rgb(0 0 0 / 0.5);
+    --ring: 0 0 0 4px rgb(139 132 255 / 0.28);
   }
 }
 * { box-sizing: border-box; }
@@ -27,53 +70,104 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  line-height: 1.5;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 #root {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
+h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
+h2, h3 { letter-spacing: -0.015em; }
+input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--accent); }
+/* The top bar: the app's mark and name, the pages as tabs, and Settings. It stays at the top, */
+/* frosted over what scrolls under it. */
 header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px 16px;
-  padding: 12px 16px;
+  padding: 10px 24px;
   border-bottom: 1px solid var(--line);
-  background: var(--card);
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
 }
-.brand { font-weight: 600; color: var(--fg); text-decoration: none; }
-nav { display: flex; flex-wrap: wrap; gap: 4px 16px; }
-nav a { color: var(--muted); text-decoration: none; }
-nav a.current { color: var(--accent); font-weight: 600; }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  text-decoration: none;
+}
+.brand .mark { width: 30px; height: 30px; flex: none; }
+nav { display: flex; flex-wrap: wrap; gap: 4px; }
+nav a {
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+nav a:hover { background: var(--sunken); color: var(--fg); }
+nav a.current { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+/* On a phone the tabs get a row of their own, under the name and Settings. */
+@media (max-width: 640px) {
+  header { padding: 10px 16px; }
+  nav { order: 1; width: 100%; flex-wrap: nowrap; overflow-x: auto; margin: 0 -4px; }
+  nav a { white-space: nowrap; padding: 6px 8px; font-size: 0.85rem; }
+}
 main {
   flex: 1;
   width: 100%;
-  max-width: 640px;
-  margin: 32px auto;
-  padding: 0 16px;
+  max-width: 720px;
+  margin: 40px auto;
+  padding: 0 20px;
 }
-footer { padding: 12px 16px; color: var(--muted); font-size: 0.875rem; text-align: center; }
+footer {
+  padding: 20px 16px 28px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+/* Buttons: the main action filled with the accent, the others white with a border. */
 .button, button {
-  display: inline-block;
-  padding: 8px 16px;
-  border: 0;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   color: #fff;
   font: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
   text-decoration: none;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
 }
-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.button:hover, button:hover { background: var(--accent-hover); }
+.button:active, button:active { transform: translateY(1px); }
+button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+button:disabled:hover { background: var(--accent); }
 form { display: grid; gap: 16px; justify-items: start; }
 .check { display: flex; gap: 8px; align-items: flex-start; }
 .check input { margin-top: 0.3em; width: 1.1em; height: 1.1em; }
 .error { color: var(--error); }
-.done { color: var(--ok); }
-h2 { margin: 32px 0 4px; font-size: 1.15rem; }
+.done { color: var(--ok); font-weight: 500; }
+h2 { margin: 32px 0 4px; font-size: 1.2rem; font-weight: 650; }
 .muted { color: var(--muted); margin-top: 0; }
 /* The file box is hidden but still reachable with the keyboard; the label is the button. */
 input.file { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -523,3 +617,236 @@ ul.pdfs .name { font-size: 1rem; font-weight: 600; }
 .pdf-tools .button, .pdf-tools button { padding: 4px 12px; font-size: 0.875rem; }
 .pdf-tools > * > :not(.outline-buttons) { order: 1; flex-basis: 100%; margin: 0; }
 .pdf-tools .notice button { padding: 2px 10px; }
+
+/* ---- The design's components (R41e2) ---- */
+/* Secondary buttons: white with a border; small ones in lists; Remove in the error colour. */
+button.secondary, .button.secondary, button.use, label.replace, button.remove {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+button.secondary:hover, .button.secondary:hover, button.use:hover, label.replace:hover {
+  background: var(--sunken);
+  border-color: color-mix(in srgb, var(--line) 60%, var(--muted));
+}
+button.secondary:disabled:hover { background: var(--card); }
+button.use, label.replace, button.remove {
+  min-height: 32px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+button.use { color: var(--accent-ink); }
+label.replace { display: inline-flex; align-items: center; color: var(--fg); }
+button.remove { color: var(--error); }
+button.remove:hover { background: var(--error-soft); border-color: color-mix(in srgb, var(--error) 35%, var(--line)); }
+/* A button that reads as a link. */
+button.link, .history button.link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+button.link:hover, .history button.link:hover { background: none; text-decoration: underline; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:hover { color: var(--accent-hover); }
+/* The keyboard ring, on everything that can be reached with Tab. */
+:is(a, button, input, textarea, select, summary, label.button, label.replace):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+label.button:focus-within, label.replace:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Text boxes and lists to pick from. */
+textarea, input[type="text"], input[type="search"], select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+textarea:focus, input[type="text"]:focus, input[type="search"]:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+select { padding: 6px 10px; }
+/* Notes on the page: soft and tinted, the accent for what to know, red for what went wrong. */
+.notice {
+  margin: 4px 0 12px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+.teacher-page .error:is(p), .wiki .error:is(p), .talk .error {
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--error) 25%, transparent);
+  border-radius: 12px;
+  background: var(--error-soft);
+}
+/* Cards: white, rounded, with a soft shadow. */
+:is(ul.photos, ul.sounds, ul.pdfs) > li, ul.outline > li {
+  border-color: var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.panel {
+  padding: 24px 28px 28px;
+  border-radius: var(--radius);
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+}
+.panel ul li, .panel .notice:not(.lost-edits) { background: var(--card); }
+.panel .notice { background: var(--accent-soft); }
+.panel h2 { font-size: 1.25rem; }
+.step-of {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+}
+.lead { font-size: 1.1rem; line-height: 1.6; }
+.teacher-page h1, .wiki h1 { font-size: 2.1rem; margin-bottom: 6px; }
+main:has(.teacher-page, .wiki) { max-width: 920px; margin-top: 40px; }
+/* Progress bars: a thin rounded track. */
+progress {
+  appearance: none;
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+progress::-webkit-progress-bar { background: var(--sunken); border-radius: 999px; }
+progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+progress::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+.prepare progress { height: 8px; }
+ol.steps { gap: 6px; margin-top: 12px; }
+.sample-video video { border-radius: 14px; box-shadow: var(--shadow); }
+ul.photos li.chosen { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-sm); }
+ul.photos img { border-radius: 8px; }
+/* The Settings menu: a gear and the word, opening a card. */
+.settings > button.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-weight: 500;
+  text-decoration: none;
+}
+.settings > button.link:hover { background: var(--sunken); color: var(--fg); text-decoration: none; }
+.settings > button.link svg { width: 18px; height: 18px; }
+.settings-menu { border-radius: 14px; box-shadow: var(--shadow-lg); padding: 16px 18px; }
+/* The home page: a welcome card with the person, then the places to go. */
+.home .hero {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background:
+    radial-gradient(120% 140% at 100% 0%, var(--accent-soft) 0%, transparent 60%),
+    var(--card);
+  box-shadow: var(--shadow);
+}
+.home h1 { font-size: 2.1rem; }
+.home .portrait { width: 96px; height: 96px; border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--line), var(--shadow); }
+ul.choices { gap: 16px; }
+ul.choices li { box-shadow: none; }
+ul.choices a {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+ul.choices a:hover, ul.choices a:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+ul.choices .title { font-size: 1.05rem; color: var(--fg); }
+ul.choices .title::after { color: var(--accent); }
+/* The chat: the person in a soft frame, the questions as accent bubbles on the right and the */
+/* replies as white bubbles on the left, and a rounded question box. */
+.stage { border-radius: 20px; box-shadow: var(--shadow-lg); }
+.person { justify-items: center; }
+.sound-controls { justify-content: center; }
+/* The conversation in a card of its own beside (or under) the person. */
+.talk {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.talk ol.turns li:not(.user) { background: var(--sunken); border-color: transparent; box-shadow: none; }
+ol.turns { gap: 10px; }
+ol.turns li {
+  padding: 12px 16px;
+  border-radius: 18px 18px 18px 6px;
+  box-shadow: var(--shadow-sm);
+}
+ol.turns li.user {
+  border-radius: 18px 18px 6px 18px;
+  border-color: transparent;
+  background: #4f46e5; /* the same in dark mode, where white on the light accent is faint */
+  color: #fff;
+}
+ol.turns li.user .who { color: rgb(255 255 255 / 0.75); }
+ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
+.chat textarea { border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow-sm); }
+.chat form button[type="submit"] { min-height: 48px; padding: 10px 24px; border-radius: 12px; }
+.sound-controls button { min-height: 34px; padding: 4px 14px; font-size: 0.85rem; }
+.talk .status { color: var(--muted); }
+.history-box { border-radius: 12px; background: var(--card); }
+/* The recording guide. */
+.guide progress { height: 6px; }
+fieldset.laptops label { border-radius: 12px; box-shadow: var(--shadow-sm); transition: border-color 0.15s ease; }
+fieldset.laptops label:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+fieldset.laptops label.picked { background: var(--accent-soft); }
+.guide ol.script, .guide .story { border-radius: 14px; box-shadow: var(--shadow-sm); }
+/* The wiki: the PDF's topics as cards on a sunken panel. */
+.wiki .outline-buttons button, .pdf-tools .button, .pdf-tools button { min-height: 34px; border-radius: 8px; }
+.wiki .outline-buttons button.secondary, .pdf-tools .button.secondary, .pdf-tools button.secondary { font-weight: 600; }
+ul.outline > li { border-radius: 12px; }
+.wiki-history, .wiki-version { border-radius: 12px; }
+.wiki .trail { font-size: 0.85rem; }
+ul.choices .icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+ul.choices .icon svg { width: 22px; height: 22px; }
+.wiki h2 a { color: var(--fg); text-decoration: none; }
+.wiki h2 a:hover { color: var(--accent); text-decoration: underline; }
+.wiki article.wiki-pdf h2 { margin-top: 0; font-size: 1.3rem; }
+@media (max-width: 640px) {
+  .home .hero { flex-direction: column; text-align: center; padding: 24px 20px; }
+  .home h1 { font-size: 1.75rem; }
+  nav { scrollbar-width: none; }
+  main { margin-top: 24px; }
+  .panel { padding: 20px 18px 22px; }
+}
+ul.pdfs a.name { color: var(--fg); text-decoration: none; }
+ul.pdfs a.name:hover { color: var(--accent); text-decoration: underline; }

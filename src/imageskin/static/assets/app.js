@@ -348,7 +348,27 @@ function SettingsMenu() {
 			"aria-controls": "settings-menu",
 			disabled: !loaded,
 			onClick: () => setOpen(!open),
-			children: "Settings"
+			children: [/* @__PURE__ */ u("svg", {
+				viewBox: "0 0 24 24",
+				"aria-hidden": "true",
+				fill: "none",
+				stroke: "currentColor",
+				"stroke-width": "2",
+				"stroke-linecap": "round",
+				children: [
+					/* @__PURE__ */ u("path", { d: "M4 7h10M18 7h2M4 17h4M12 17h8" }),
+					/* @__PURE__ */ u("circle", {
+						cx: "16",
+						cy: "7",
+						r: "2"
+					}),
+					/* @__PURE__ */ u("circle", {
+						cx: "10",
+						cy: "17",
+						r: "2"
+					})
+				]
+			}), "Settings"]
 		}), open && /* @__PURE__ */ u("div", {
 			id: "settings-menu",
 			ref: menu,
@@ -1698,15 +1718,39 @@ function HomePage({ consented }) {
 			className: state.done ? "choices three" : "choices",
 			children: choices(state.done, consented).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
 				href: c.href,
-				children: [/* @__PURE__ */ u("span", {
-					className: "title",
-					children: c.title
-				}), /* @__PURE__ */ u("span", {
-					className: "text",
-					children: c.text
-				})]
+				children: [
+					/* @__PURE__ */ u(ChoiceIcon, { href: c.href }),
+					/* @__PURE__ */ u("span", {
+						className: "title",
+						children: c.title
+					}),
+					/* @__PURE__ */ u("span", {
+						className: "text",
+						children: c.text
+					})
+				]
 			}) }, c.title))
 		})]
+	});
+}
+var ICONS = {
+	"#/chat": "M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6a2.5 2.5 0 0 1-2.5 2.5H11l-4 3.5V15h0.5A2.5 2.5 0 0 1 5 12.5z",
+	"#/content": "M7 3.5h6.5L18 8v12.5H7zM13.5 3.5V8H18M9.5 12h6M9.5 15.5h6",
+	setup: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4"
+};
+function ChoiceIcon({ href }) {
+	return /* @__PURE__ */ u("span", {
+		className: "icon",
+		"aria-hidden": "true",
+		children: /* @__PURE__ */ u("svg", {
+			viewBox: "0 0 24 24",
+			fill: "none",
+			stroke: "currentColor",
+			"stroke-width": "1.8",
+			"stroke-linejoin": "round",
+			"stroke-linecap": "round",
+			children: /* @__PURE__ */ u("path", { d: ICONS[href] ?? ICONS.setup })
+		})
 	});
 }
 //#endregion
@@ -4199,7 +4243,7 @@ function Shell() {
 			/* @__PURE__ */ u("a", {
 				className: "brand",
 				href: teacher ? "#/" : "#/chat",
-				children: "ImageSkinForLLM"
+				children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
 			}),
 			/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => /* @__PURE__ */ u("a", {
 				href: item.href,
@@ -4211,6 +4255,51 @@ function Shell() {
 		/* @__PURE__ */ u("main", { children: content }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
 	] });
+}
+function Mark() {
+	return /* @__PURE__ */ u("svg", {
+		className: "mark",
+		viewBox: "0 0 32 32",
+		"aria-hidden": "true",
+		children: [
+			/* @__PURE__ */ u("defs", { children: /* @__PURE__ */ u("linearGradient", {
+				id: "mark-fill",
+				x1: "0",
+				y1: "0",
+				x2: "1",
+				y2: "1",
+				children: [/* @__PURE__ */ u("stop", {
+					offset: "0",
+					"stop-color": "#6366f1"
+				}), /* @__PURE__ */ u("stop", {
+					offset: "1",
+					"stop-color": "#a855f7"
+				})]
+			}) }),
+			/* @__PURE__ */ u("rect", {
+				width: "32",
+				height: "32",
+				rx: "9",
+				fill: "url(#mark-fill)"
+			}),
+			/* @__PURE__ */ u("path", {
+				d: "M8.5 11.5A3.5 3.5 0 0 1 12 8h8a3.5 3.5 0 0 1 3.5 3.5v5A3.5 3.5 0 0 1 20 20h-5l-4.5 3.8V19.6a3.5 3.5 0 0 1-2-3.1z",
+				fill: "#fff"
+			}),
+			/* @__PURE__ */ u("circle", {
+				cx: "13.2",
+				cy: "14",
+				r: "1.4",
+				fill: "#5b4ee6"
+			}),
+			/* @__PURE__ */ u("circle", {
+				cx: "18.8",
+				cy: "14",
+				r: "1.4",
+				fill: "#5b4ee6"
+			})
+		]
+	});
 }
 //#endregion
 //#region src/main.tsx
