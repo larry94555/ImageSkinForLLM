@@ -763,6 +763,7 @@ def test_the_api_speaks_a_reply_and_serves_its_video(tmp_path: Path) -> None:
             "streamed": False,
             "lesson": None,  # no lesson going (R41h)
             "choices": [],
+            "quiz": None,
         }
         made = client.post("/api/chat/video", json={"turn": reply["turn"]})
         assert made.json() == {"video": "/api/chat/videos/1"}

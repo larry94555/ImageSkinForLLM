@@ -94,6 +94,9 @@ class Teach:
 
     instruction: str
     material: list[str]
+    # Given the LLM's reply, more sentences said after it, made here: the next quiz question
+    # once an answer is judged, say (R41i).
+    then: Callable[[str], list[str]] | None = None
 
 
 @dataclass(frozen=True)
@@ -461,6 +464,14 @@ class Conversation:
             fit = self._fit(prompt)
             return self._say(prompt, sentences, on_sentence, fit.turns, fit.budget)
 
+    def check(self, prompt: str) -> None:
+        """Refuse the prompt now, as `send` and `say` would, before anything else is done
+        about it: a quiz or lesson may ask the LLM for something first (review on PR #88)."""
+        prompt = checked(prompt)
+        with self._busy:
+            self.wait()
+            self._fit(prompt)
+
     def _fit(self, prompt: str) -> _Fit:
         """How the prompt fits the context window, with the turns sent before it. A prompt that
         doesn't leave room for a reply is refused."""
@@ -484,7 +495,7 @@ class Conversation:
         window, budget, room, turns = self._fit(prompt)
         if teach is not None:
             asked = self._with_content(teach.instruction, teach.material, room)
-            return self._ask_llm(prompt, asked, turns, budget, window, on_sentence)
+            return self._ask_llm(prompt, asked, turns, budget, window, on_sentence, teach.then)
         if asks_for_topics(prompt):
             return self._tell_topics(prompt, turns, on_sentence, budget)
         # "Tell me about the second one" after the topics were listed is about that topic, so
@@ -507,9 +518,10 @@ class Conversation:
         budget: int,
         window: int,
         on_sentence: OnSentence | None = None,
+        then: Callable[[str], list[str]] | None = None,
     ) -> tuple[Turn, int]:
         """Ask the LLM `asked` after the conversation so far, and keep its reply with the prompt
-        as typed."""
+        as typed, with what `then` adds after it."""
         count = self._count
         messages = [
             system_message(self._summary),
@@ -548,7 +560,26 @@ class Conversation:
                 "duration_ms": round((time.perf_counter() - start) * 1000),
             },
         )
+        if then is not None:
+            more = then(reply.content)
+            if self._stream is not None and on_sentence is not None:
+                for sentence in more:
+                    on_sentence(sentence)
+            reply = Turn("assistant", " ".join([reply.content, *more]))
         return reply, self._record(prompt, reply, turns, budget)
+
+    def write(self, instruction: str, material: list[str]) -> str:
+        """A one-off answer from the LLM to `instruction`, with the material quoted before it
+        and none of the conversation, which it doesn't change: a quiz question, say (R41i)."""
+        asked = self._with_content(instruction, material, self._fit(instruction).room)
+        start = time.perf_counter()
+        with self._llm_busy():
+            content = self._ask([{"role": "user", "content": asked}])
+        logger.info(
+            "One-off LLM answer received",
+            extra={"reply_chars": len(content), "duration_ms": ms_since(start)},
+        )
+        return content
 
     def _record(self, prompt: str, reply: Turn, turns: list[Turn] | None, budget: int) -> int:
         """Keep the prompt and its reply, and return the reply's place. With `turns` (the ones
