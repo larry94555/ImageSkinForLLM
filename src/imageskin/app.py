@@ -210,8 +210,8 @@ class AccentChoice(BaseModel):
     available: bool
 
 
-# The last line `imageskin serve` logs at the start, once everything below has loaded (the
-# FAQ quotes it; Larry, 2026-10-15).
+# What `imageskin serve` logs once the app can take input: the models below and the replies'
+# warm-up have loaded (the FAQ quotes it; Larry, 2026-10-15).
 READY_MESSAGE = "Loading has completed. The application is ready for use."
 
 

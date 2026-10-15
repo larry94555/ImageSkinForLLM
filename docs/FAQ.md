@@ -4,7 +4,7 @@ Problems seen while running the app, and how to fix them. Add a new entry each t
 
 ## How do I know `imageskin serve` has finished loading and is ready?
 
-**Wait for this line.** It is always the last line `imageskin serve` logs when it starts:
+**Wait for this line.** `imageskin serve` logs it once everything the app needs before it can take input has loaded:
 
 ```
 Loading has completed. The application is ready for use.
@@ -13,14 +13,14 @@ Loading has completed. The application is ready for use.
 In the terminal it is one JSON line like this (the time, `url` and `duration_ms` will differ):
 
 ```
-{"time": "...", "level": "INFO", "logger": "imageskin.cli", "message": "Loading has completed. The application is ready for use.", "url": "http://127.0.0.1:8000", "duration_ms": 1924.7}
+{"time": "...", "level": "INFO", "logger": "imageskin.cli", "message": "Loading has completed. The application is ready for use.", "url": "http://127.0.0.1:8000", "duration_ms": 1924.7, "background_jobs": []}
 ```
 
 **Why it matters:** the app loads a lot at the start, on purpose, so the first photo, recording and reply are as quick as the later ones. After each change (a new PR, a new photo or voice, a restart), expect it to take a while: the face and speaker models load first, and once a sample is accepted, the voice, the video and the LLM are warmed up by speaking and rendering a word that is thrown away, and the idle video is made. On a 4-core CPU that can take minutes.
 
 **Don't go by uvicorn's lines.** `Application startup complete.` and `Uvicorn running on http://127.0.0.1:8000` come early, before the loading has finished. A page opened or a prompt sent then still works, but waits for the loading, so it looks stuck. Lines such as `Speaker model ready`, `Replies warmed up`, `LLM warmed up` and `Idle video ready` are steps along the way; the ready line comes after all of them.
 
-**After it:** open http://127.0.0.1:8000. Lines logged later come from what you do in the app (each request, a reply, the wiki being built), not from the start. A step that fails doesn't stop the ready line: it is logged above it as an `ERROR` or `WARNING`, such as `Could not warm up replies` or `Could not warm up the LLM`, so look there if the app misbehaves (for the LLM, see "How do I start the local AI" below).
+**After it:** open http://127.0.0.1:8000. When `background_jobs` is empty, the lines that follow come from what you do in the app (each request, a reply). If the server was stopped in the middle of reading a PDF, building the wiki or Prepare, that job carries on after a restart and `background_jobs` names it (`pdf-reading`, `wiki`, `prepare`). Its lines, such as `PDF read` or `Prepare job finished`, can then come after the ready line. The ready line doesn't wait for them, because building the wiki waits on the LLM and can take many minutes; the app takes input meanwhile and shows their progress. A step that fails doesn't stop the ready line: it is logged above it as an `ERROR` or `WARNING`, such as `Could not warm up replies` or `Could not warm up the LLM`, so look there if the app misbehaves (for the LLM, see "How do I start the local AI" below).
 
 ## Setup shows fewer (or different) photos and recordings than before
 

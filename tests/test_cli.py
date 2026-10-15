@@ -84,6 +84,37 @@ def test_the_ready_line_waits_for_the_server_and_the_loading(
         ready.join(5)
     record = next(r for r in caplog.records if r.getMessage() == READY_MESSAGE)
     assert vars(record)["url"] == "http://h:1" and vars(record)["duration_ms"] > 0
+    assert vars(record)["background_jobs"] == []
+
+
+def test_the_ready_line_names_jobs_carried_on_from_before(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A resumed Prepare (or a PDF reading, or a wiki build waiting on the LLM) doesn't hold the
+    ready line back: it is named, as its lines come after (a review finding on PR #92)."""
+    server = SimpleNamespace(started=True, should_exit=False)
+    app = SimpleNamespace(state=SimpleNamespace(loading=[]))
+    done = threading.Event()
+    prepare = threading.Thread(target=done.wait, args=(5,), name="prepare")
+    prepare.start()
+    with caplog.at_level(logging.INFO, logger="imageskin.cli"):
+        announce_ready(server, app, "http://h:1", 0.0)
+    done.set()
+    prepare.join(5)
+    record = next(r for r in caplog.records if r.getMessage() == READY_MESSAGE)
+    assert vars(record)["background_jobs"] == ["prepare"]
+
+
+def test_ctrl_c_stops_serve_quietly(tmp_path: Path) -> None:
+    """As uvicorn.run() did: a KeyboardInterrupt out of the server ends serve cleanly (a review
+    finding on PR #92)."""
+    with (
+        patch("uvicorn.Server") as server,
+        patch("imageskin.app.create_app"),
+        patch("imageskin.cli.announce_ready"),
+    ):
+        server.return_value.run.side_effect = KeyboardInterrupt
+        assert main(["serve"]) == 0
 
 
 def test_no_ready_line_when_the_server_stops_first(caplog: pytest.LogCaptureFixture) -> None:
