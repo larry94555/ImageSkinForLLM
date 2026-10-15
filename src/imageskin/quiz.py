@@ -180,6 +180,27 @@ def _alone(text: str) -> str | None:
     return next((kind for kind, word in _ALONE.items() if word.fullmatch(bare)), None)
 
 
+def first_question(written: str) -> str:
+    """The first question the LLM wrote, without a lead such as "Question 1:"; "" when it
+    wrote none."""
+    for line in written.splitlines():
+        found = _QUESTION.search(_LEAD.sub("", line.strip()).replace("**", ""))
+        if found:
+            return found.group().strip(" \"'*")
+    return ""
+
+
+def asked_for(text: str) -> str | None:
+    """What a short reply asks for, when its words say so plainly: the question again (AGAIN),
+    what it means (EXPLAIN) or the answer (REVEAL). `text` is the reply made plain."""
+    if (alone := _alone(text)) is not None:
+        return alone
+    for kind, phrase in ((EXPLAIN, _EXPLAIN), (REVEAL, _REVEAL), (AGAIN, _AGAIN)):
+        if phrase.search(text):
+            return kind
+    return None
+
+
 def fingerprint(material: list[str]) -> str:
     """A short key for the material a question was written from, kept with the quiz, so the
     answer is judged from the same material (review on PR #88)."""
@@ -262,14 +283,8 @@ class Quizzer:
         how = "words"
         if len(text.split()) > LONGEST_REQUEST:
             kind = ANSWER
-        elif (alone := _alone(text)) is not None:
-            kind = alone
-        elif _EXPLAIN.search(text):
-            kind = EXPLAIN
-        elif _REVEAL.search(text):
-            kind = REVEAL
-        elif _AGAIN.search(text):
-            kind = AGAIN
+        elif (asked := asked_for(text)) is not None:
+            kind = asked
         elif _ABOUT_THE_QUIZ.search(text):
             kind, how = self._sorted(prompt, quiz), "llm"
         else:
@@ -355,12 +370,7 @@ class Quizzer:
         except LlmError as e:
             logger.error("Could not write a quiz question", extra={"error": str(e)})
             written = ""
-        question = ""
-        for line in written.splitlines():  # the first one the LLM wrote, without "Question 1:"
-            found = _QUESTION.search(_LEAD.sub("", line.strip()).replace("**", ""))
-            if found:
-                question = found.group().strip(" \"'*")
-                break
+        question = first_question(written)
         if not question and written.strip():  # a statement isn't a question (Larry, 2026-10-15)
             logger.info("Quiz question was not a question", extra={"topic": topic, "part": part})
         if plain(question) in {plain(a) for a in asked}:  # a small LLM may ask again

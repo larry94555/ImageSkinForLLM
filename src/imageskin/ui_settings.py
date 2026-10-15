@@ -33,6 +33,8 @@ class UiSettings:
     teach_me: bool = False
     # The Quiz me button and quizzes in the chat (R41i); off like Teach me until turned on.
     quiz_me: bool = False
+    # The Assessment button and assessments in the chat (R41j); off like Quiz me until turned on.
+    assessment: bool = False
     # Tools for looking into problems, such as copying the chat to paste it elsewhere; off unless
     # turned on (Larry, 2026-10-15).
     debug: bool = False
@@ -44,6 +46,7 @@ CHOICES: dict[str, tuple[object, ...]] = {
     "view": ("teacher", "student"),
     "teach_me": (True, False),
     "quiz_me": (True, False),
+    "assessment": (True, False),
     "debug": (True, False),
 }
 

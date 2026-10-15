@@ -19,6 +19,7 @@ import {
   type Choice,
   type Lesson,
   type Quiz,
+  type Assessment,
   getChatHints,
   getChatPhoto,
   getPhotoChoice,
@@ -855,6 +856,33 @@ export function loadQuiz(): Quiz | null {
   }
 }
 
+// The assessment this browser has (roadmap R41j), kept so a reload doesn't lose it.
+const ASSESSMENT_KEY = "imageskin.assessment";
+
+export function loadAssessment(): Assessment | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ASSESSMENT_KEY) ?? "null") as Assessment | null;
+    const whole =
+      typeof saved?.topic === "string" &&
+      typeof saved.question === "string" &&
+      typeof saved.source === "string" &&
+      [saved.total, saved.number, saved.level, saved.part].every(Number.isInteger) &&
+      Array.isArray(saved.answers);
+    return whole ? saved : null; // the server checks the rest
+  } catch {
+    return null; // storage blocked, or something else saved there
+  }
+}
+
+function saveAssessment(assessment: Assessment | null) {
+  try {
+    if (assessment) localStorage.setItem(ASSESSMENT_KEY, JSON.stringify(assessment));
+    else localStorage.removeItem(ASSESSMENT_KEY);
+  } catch (e) {
+    console.error("Could not keep the assessment", e);
+  }
+}
+
 function saveQuiz(quiz: Quiz | null) {
   try {
     if (quiz) localStorage.setItem(QUIZ_KEY, JSON.stringify(quiz));
@@ -899,8 +927,9 @@ function saveSound(sound: Sound) {
 // (roadmap R22); if that fails, the reply stays as text with a short note.
 function Chat() {
   const metrics = useSettings().show_metrics; // the timing readout (R41a)
-  // The Teach me and Quiz me buttons, lessons and quizzes (R41h, R41i), and Copy chat.
-  const { teach_me: teachMe, quiz_me: quizMe, debug } = useSettings();
+  // The Teach me, Quiz me and Assessment buttons, lessons, quizzes and assessments (R41h, R41i,
+  // R41j), and Copy chat.
+  const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
@@ -931,12 +960,15 @@ function Chat() {
   const [lesson, setLesson] = useState<Lesson | null>(loadLesson); // Teach me (R41h)
   const [quiz, setQuiz] = useState<Quiz | null>(loadQuiz); // Quiz me (R41i)
   const [choices, setChoices] = useState<Choice[]>([]); // offered with the latest reply
-  const quizGoing = quizMe && quiz !== null;
-  // Choices belong to Teach me or Quiz me, so turning either on or off drops them: a lesson's
-  // or a quiz's choice can't be sent once its setting is off (review on PR #88).
+  const [assessment, setAssessment] = useState<Assessment | null>(loadAssessment); // R41j
+  // While a quiz or an assessment is going, whatever is sent is taken as the answer.
+  const assessing = assessOn && assessment !== null;
+  const quizGoing = (quizMe && quiz !== null) || assessing;
+  // Choices belong to Teach me, Quiz me or the assessment, so turning any of them on or off drops
+  // them: a choice can't be sent once its setting is off (review on PR #88).
   useEffect(() => {
     setChoices([]);
-  }, [teachMe, quizMe]);
+  }, [teachMe, quizMe, assessOn]);
   const clipTotal = useRef(0); // how many clips the latest reply has so far
   const allMade = useRef(false); // and that no more will come
   const clipsEnded = useRef(0); // how many of them have ended or been passed over
@@ -1063,7 +1095,13 @@ function Chat() {
     let reply: Reply;
     let repliedAt = 0;
     try {
-      reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null);
+      reply = await sendPrompt(
+        text,
+        replyId,
+        teachMe ? lesson : null,
+        quizMe ? quiz : null,
+        assessOn ? assessment : null,
+      );
       repliedAt = performance.now();
       // With Teach me off, the lesson isn't sent, so the one kept stays for when it is back on.
       if (teachMe && reply.lesson !== undefined) {
@@ -1078,6 +1116,13 @@ function Chat() {
         setQuiz(next);
         saveQuiz(next);
         if (next) console.info(`Quiz: ${next.topic}, question ${next.number}`);
+      }
+      // The same for the assessment (R41j).
+      if (assessOn && reply.assessment !== undefined) {
+        const next = reply.assessment;
+        setAssessment(next);
+        saveAssessment(next);
+        if (next) console.info(`Assessment: question ${next.number} of ${next.total}`);
       }
       setChoices(reply.choices ?? []);
       const { role, content } = reply;
@@ -1255,12 +1300,22 @@ function Chat() {
               Quiz me
             </button>
           )}
+          {assessOn && !quizGoing && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={sending || speaking}
+              onClick={() => void send(ASSESS_ME)}
+            >
+              Assessment
+            </button>
+          )}
         </div>
       </form>
       {/* The choices are a lesson's or a quiz's, so they go with the settings (review on PR
           #87). While a quiz is going, whatever is sent is taken as the answer, so only the quiz's
           own controls are shown (review on PR #88). */}
-      {(teachMe || quizMe) && !quizGoing && (
+      {(teachMe || quizMe || assessOn) && !quizGoing && (
         <Choices choices={choices} disabled={sending || speaking} onAsk={(q) => void send(q)} />
       )}
       {teachMe && lesson?.active && !quizGoing && (
@@ -1270,8 +1325,15 @@ function Chat() {
           onAsk={(q) => void send(q)}
         />
       )}
-      {quizGoing && quiz && (
+      {quizGoing && !assessing && quiz && (
         <QuizControls quiz={quiz} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+      )}
+      {assessing && assessment && (
+        <AssessmentControls
+          assessment={assessment}
+          disabled={sending || speaking}
+          onAsk={(q) => void send(q)}
+        />
       )}
       {!quizGoing && (
         <Hints hints={hints} disabled={sending || speaking} onAsk={(q) => void send(q)} />
@@ -1288,6 +1350,36 @@ const TEACH_ME = "Teach me";
 
 // What the Quiz me button sends (R41i); typing it does the same.
 const QUIZ_ME = "Quiz me";
+
+// What the Assessment button sends (R41j); typing it does the same.
+const ASSESS_ME = "Assess me";
+
+// While an assessment is going (R41j): the question being asked, and Stop. The answer is typed
+// in the prompt box.
+function AssessmentControls(props: {
+  assessment: Assessment;
+  disabled: boolean;
+  onAsk: (prompt: string) => void;
+}) {
+  const { number, total } = props.assessment;
+  return (
+    <div className="lesson">
+      <p className="muted">
+        Assessment · question {number} of {total}
+      </p>
+      <div className="lesson-buttons">
+        <button
+          type="button"
+          className="secondary"
+          disabled={props.disabled}
+          onClick={() => props.onAsk("Stop the assessment")}
+        >
+          Stop the assessment
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // While a quiz is going (R41i): its topic, the question being asked, and Stop. The answer is
 // typed in the prompt box.
