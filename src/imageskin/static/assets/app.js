@@ -264,14 +264,16 @@ var DEFAULT_SETTINGS = {
 	show_metrics: false,
 	view: "teacher",
 	teach_me: false,
-	quiz_me: false
+	quiz_me: false,
+	debug: false
 };
 function settings(data) {
 	return {
 		show_metrics: data.show_metrics === true,
 		view: data.view === "student" ? "student" : "teacher",
 		teach_me: data.teach_me === true,
-		quiz_me: data.quiz_me === true
+		quiz_me: data.quiz_me === true,
+		debug: data.debug === true
 	};
 }
 async function getSettings() {
@@ -459,6 +461,22 @@ function SettingsMenu() {
 				/* @__PURE__ */ u("p", {
 					className: "muted",
 					children: "A Quiz me button in the chat that asks five questions on a topic and judges each answer."
+				}),
+				/* @__PURE__ */ u("label", { children: [
+					/* @__PURE__ */ u("input", {
+						type: "checkbox",
+						checked: settings.debug,
+						onChange: (e) => {
+							const box = e.currentTarget;
+							save({ debug: box.checked }, () => box.checked = !box.checked);
+						}
+					}),
+					" ",
+					"Debug"
+				] }),
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: "Copy chat under the conversation, to paste the latest exchanges somewhere else."
 				}),
 				failed && /* @__PURE__ */ u("p", {
 					className: "error",
@@ -2621,7 +2639,7 @@ function saveSound(sound) {
 }
 function Chat() {
 	const metrics = useSettings().show_metrics;
-	const { teach_me: teachMe, quiz_me: quizMe } = useSettings();
+	const { teach_me: teachMe, quiz_me: quizMe, debug } = useSettings();
 	const [turns, setTurns] = d(null);
 	const [prompt, setPrompt] = d("");
 	const [sending, setSending] = d(false);
@@ -2999,7 +3017,8 @@ function Chat() {
 				turns.length > 0 && /* @__PURE__ */ u(History$1, {
 					turns,
 					unspoken
-				})
+				}),
+				debug && /* @__PURE__ */ u(CopyChat, { turns })
 			]
 		})]
 	});
@@ -3151,6 +3170,86 @@ function splitMatches(text, query) {
 }
 function countMatches(turns, query) {
 	return turns.reduce((n, turn) => n + (splitMatches(turn.content, query).length - 1) / 2, 0);
+}
+function exchanges(turns) {
+	const found = [];
+	for (const turn of turns) if (turn.role === "user" || found.length === 0) found.push([turn]);
+	else found[found.length - 1].push(turn);
+	const last = found[found.length - 1];
+	if (last?.length === 1 && last[0].role === "user") found.pop();
+	return found;
+}
+function chatText(turns, count) {
+	const all = exchanges(turns);
+	const kept = all.slice(Math.max(all.length - count, 0));
+	return [`Chat: the last ${kept.length} of ${all.length} exchanges`, ...kept.flat().map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`)].join("\n\n");
+}
+function CopyChat(props) {
+	const all = exchanges(props.turns).length;
+	const [count, setCount] = d(null);
+	const [done, setDone] = d();
+	if (all === 0) return null;
+	const shown = Math.min(count ?? all, all);
+	const current = done?.turns === props.turns && done.shown === shown ? done : void 0;
+	async function copy() {
+		const { turns } = props;
+		const text = chatText(turns, shown);
+		try {
+			await navigator.clipboard.writeText(text);
+			console.info(`Chat copied (${shown} of ${all} exchanges, ${text.length} characters)`);
+			setDone({
+				turns,
+				shown,
+				byHand: null
+			});
+		} catch (e) {
+			console.error("Could not copy the chat", e);
+			setDone({
+				turns,
+				shown,
+				byHand: text
+			});
+		}
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "copy-chat",
+		children: [
+			/* @__PURE__ */ u("label", { children: [
+				"Copy the last",
+				" ",
+				/* @__PURE__ */ u("input", {
+					type: "number",
+					min: 1,
+					max: all,
+					value: shown,
+					onChange: (e) => {
+						const n = Math.round(Number(e.currentTarget.value));
+						setCount(Number.isFinite(n) ? Math.min(Math.max(n, 1), all) : null);
+					}
+				}),
+				" ",
+				"of ",
+				all,
+				" exchanges"
+			] }),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: () => void copy(),
+				children: "Copy chat"
+			}),
+			current && current.byHand === null && /* @__PURE__ */ u("span", {
+				className: "muted",
+				children: "Copied"
+			}),
+			current?.byHand != null && /* @__PURE__ */ u("textarea", {
+				readOnly: true,
+				"aria-label": "Chat to copy",
+				value: current.byHand,
+				onFocus: (e) => e.currentTarget.select()
+			})
+		]
+	});
 }
 function History$1(props) {
 	const { turns, unspoken } = props;

@@ -178,6 +178,20 @@ export function SettingsMenu() {
             A Quiz me button in the chat that asks five questions on a topic and judges each
             answer.
           </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.debug}
+              onChange={(e) => {
+                const box = e.currentTarget;
+                save({ debug: box.checked }, () => (box.checked = !box.checked));
+              }}
+            />{" "}
+            Debug
+          </label>
+          <p className="muted">
+            Copy chat under the conversation, to paste the latest exchanges somewhere else.
+          </p>
           {failed && <p className="error">The setting could not be changed. Try again.</p>}
         </div>
       )}

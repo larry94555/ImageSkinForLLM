@@ -931,3 +931,8 @@ ul.choices .icon svg { width: 22px; height: 22px; }
 }
 ul.pdfs a.name { color: var(--fg); text-decoration: none; }
 ul.pdfs a.name:hover { color: var(--accent); text-decoration: underline; }
+
+/* Copy chat (Debug in the settings). */
+.copy-chat { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.875rem; }
+.copy-chat input[type="number"] { width: 4.5em; }
+.copy-chat textarea { flex-basis: 100%; min-height: 8em; }

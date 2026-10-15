@@ -630,6 +630,7 @@ export interface UiSettings {
   view: View;
   teach_me: boolean; // the Teach me button and lessons in the chat (R41h); off by default
   quiz_me: boolean; // the Quiz me button and quizzes in the chat (R41i); off by default
+  debug: boolean; // tools for looking into problems, such as Copy chat; off by default
 }
 
 export const DEFAULT_SETTINGS: UiSettings = {
@@ -637,6 +638,7 @@ export const DEFAULT_SETTINGS: UiSettings = {
   view: "teacher",
   teach_me: false,
   quiz_me: false,
+  debug: false,
 };
 
 // Any value the server didn't send as one the setting can take is the default.
@@ -646,6 +648,7 @@ function settings(data: Partial<UiSettings>): UiSettings {
     view: data.view === "student" ? "student" : "teacher",
     teach_me: data.teach_me === true,
     quiz_me: data.quiz_me === true,
+    debug: data.debug === true,
   };
 }
 
