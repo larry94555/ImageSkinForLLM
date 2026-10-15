@@ -96,13 +96,15 @@ NOTHING_TO_GO_OVER = "Well done: there's nothing to go over again!"
 RIGHT, PARTLY, WRONG = "right", "partly right", "wrong"
 CHANGED = "The material for this question has changed since it was asked, so here's a new one."
 
-# The questions asked when the LLM can't write one, in turn: one per question a quiz has.
+# The questions asked when the LLM can't write one, in turn: one per question a quiz has. Each
+# only asks what the part says, so any part's material answers it, however little it has (review
+# on PR #88: "Why does it matter?" asked for what the material may not say).
 _PLAIN = (
     "What can you tell me about {}?",
-    "What is one important idea in {}?",
-    "Why does {} matter?",
-    "Can you give an example from {}?",
-    "How would you explain {} to a friend?",
+    "What is the main idea of {}?",
+    "How would you describe {} in your own words?",
+    "What is one thing you have learned about {}?",
+    "In a sentence, what do you know about {}?",
 )
 
 

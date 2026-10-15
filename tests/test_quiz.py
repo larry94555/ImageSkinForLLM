@@ -1,6 +1,7 @@
 """Quiz me (roadmap R41i, item 54)."""
 
 import logging
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from test_topics import riemann_app
 
 from imageskin.chat import Conversation, LlmError, Message, Teach, Turn
 from imageskin.quiz import (
+    _PLAIN,
     CHANGED,
     CHOOSE,
     NO_QUIZ,
@@ -29,6 +31,7 @@ from imageskin.quiz import (
     Said,
     fingerprint,
     part_for,
+    plain_question,
     verdict,
 )
 from imageskin.review import Review
@@ -607,7 +610,7 @@ def test_a_one_part_topic_never_asks_the_same_plain_question_twice() -> None:
         assert len({a.casefold() for a in quiz.asked}) == QUESTIONS
         assert quiz.asked[:2] == (
             "What can you tell me about Rain?",
-            "What is one important idea in Rain?",
+            "What is the main idea of Rain?",
         )
 
 
@@ -659,3 +662,15 @@ def test_a_question_with_no_material_now_is_asked_anew(kept_quiz: dict[str, Any]
     assert step.sentences == [CHANGED, "Question 2 of 5: Is rain wet?"]
     assert step.quiz is not None
     assert (step.quiz.part, step.quiz.asked) == (0, ("Q0?", "Is rain wet?"))
+
+
+def test_every_plain_question_asks_only_what_the_material_says() -> None:
+    """Review on PR #88: with material as small as "Rain: It falls.", a plain question must still
+    be answerable from it, so none asks why, for an example, or anything beyond the part."""
+    asked: tuple[str, ...] = ()
+    for _ in range(QUESTIONS):
+        asked = (*asked, plain_question("Rain", asked))
+    assert asked == tuple(p.format("Rain") for p in _PLAIN)
+    for question in asked:
+        assert re.search(r"\b(?:why|example|how does|matter)\b", question.lower()) is None
+        assert re.search(r"\b(?:tell|main idea|describe|learned|know)\b", question) is not None
