@@ -2644,6 +2644,10 @@ test("if the conversation can't be loaded, the chat says so", async () => {
 
 // --- Stop, volume and mute (R19) ---
 
+function stopButton(): HTMLButtonElement {
+  return screen.getByRole("button", { name: "Stop" }) as HTMLButtonElement;
+}
+
 test("the chat shows the idle video, with the reply's clips over it", async () => {
   const [answer, reply] = later();
   const made = clipsMade(["/api/chat/clips/x/1"], false);
@@ -2677,7 +2681,10 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
-  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull(); // nothing to stop yet
+  // Always shown, first and in red, so it is easy to find; nothing to stop yet.
+  expect(stopButton().disabled).toBe(true);
+  expect(stopButton().className).toBe("stop");
+  expect(document.querySelector(".sound-controls button")).toBe(stopButton());
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(document.querySelector("video.reply-video")).not.toBeNull());
@@ -2685,7 +2692,7 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
   expect(pause).toHaveBeenCalled(); // the clip stops at once
   expect(shownVideo().autoplay).toBe(false); // and doesn't start again
-  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  expect(stopButton().disabled).toBe(true);
   expect(screen.queryByText("Getting ready to say it…")).toBeNull();
   const stops = fetchMock.mock.calls.filter(([url]) => url.endsWith("/stop"));
   expect(stops).toHaveLength(1);
@@ -2787,7 +2794,7 @@ test("a stop the server refuses is logged", async () => {
   );
 });
 
-test("Stop shows until the last clip has played", async () => {
+test("Stop can be clicked until the last clip has played", async () => {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   chatServer(
     [],
@@ -2805,9 +2812,9 @@ test("Stop shows until the last clip has played", async () => {
   await waitFor(() => expect(shownVideo()).not.toBeNull());
   fireEvent.playing(shownVideo());
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
-  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy(); // still playing
+  expect(stopButton().disabled).toBe(false); // still playing
   fireEvent.ended(shownVideo());
-  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  expect(stopButton().disabled).toBe(true);
 });
 
 test("mute and volume reach both players and are kept for the next visit", async () => {

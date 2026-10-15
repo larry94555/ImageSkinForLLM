@@ -833,6 +833,20 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 .chat textarea { border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow-sm); }
 .chat form button[type="submit"] { min-height: 48px; padding: 10px 24px; border-radius: 12px; }
 .sound-controls button { min-height: 34px; padding: 4px 14px; font-size: 0.85rem; }
+.sound-controls button.stop {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  /* The same red in dark mode, where --error is too pale for white text. */
+  background: #c4282f;
+  border-color: #c4282f;
+  color: #fff;
+  font-weight: 600;
+}
+.sound-controls button.stop:hover { background: #a71f25; }
+.sound-controls button.stop:disabled,
+.sound-controls button.stop:disabled:hover { background: #c4282f; opacity: 0.45; }
+.stop-icon { width: 10px; height: 10px; background: currentColor; border-radius: 2px; }
 .talk .status { color: var(--muted); }
 /* Topic hints under the prompt box (R41g): the topics line, and example questions as chips. */
 .hints { display: grid; gap: 8px; }

@@ -1669,8 +1669,8 @@ export function ClipPlayer(props: {
   );
 }
 
-// Stop, mute and volume for the person speaking (roadmap R19). Stop shows only while there is
-// something to stop.
+// Stop, mute and volume for the person speaking (roadmap R19). Stop is always shown, first and in
+// red, so it is easy to find; it can be clicked only while there is something to stop.
 export function SoundControls(props: {
   sound: Sound;
   onChange: (change: Partial<Sound>) => void;
@@ -1679,11 +1679,10 @@ export function SoundControls(props: {
   const { sound, onChange, onStop } = props;
   return (
     <div className="sound-controls">
-      {onStop && (
-        <button type="button" className="secondary" onClick={onStop}>
-          Stop
-        </button>
-      )}
+      <button type="button" className="stop" onClick={onStop} disabled={onStop === undefined}>
+        <span className="stop-icon" aria-hidden="true" />
+        Stop
+      </button>
       <button
         type="button"
         className="secondary"

@@ -3283,11 +3283,15 @@ function SoundControls(props) {
 	return /* @__PURE__ */ u("div", {
 		className: "sound-controls",
 		children: [
-			onStop && /* @__PURE__ */ u("button", {
+			/* @__PURE__ */ u("button", {
 				type: "button",
-				className: "secondary",
+				className: "stop",
 				onClick: onStop,
-				children: "Stop"
+				disabled: onStop === void 0,
+				children: [/* @__PURE__ */ u("span", {
+					className: "stop-icon",
+					"aria-hidden": "true"
+				}), "Stop"]
 			}),
 			/* @__PURE__ */ u("button", {
 				type: "button",
