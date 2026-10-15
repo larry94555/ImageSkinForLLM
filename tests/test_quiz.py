@@ -1,17 +1,19 @@
 """Quiz me (roadmap R41i, item 54)."""
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from test_question_scope import Llm
-from test_teach import CONTENTS
+from test_teach import CONTENTS, entry
 from test_topics import riemann_app
 
 from imageskin.chat import Conversation, LlmError, Message, Teach, Turn
 from imageskin.quiz import (
+    CHANGED,
     CHOOSE,
     NO_QUIZ,
     NOTHING_TO_GO_OVER,
@@ -25,11 +27,12 @@ from imageskin.quiz import (
     Quiz,
     Quizzer,
     Said,
+    fingerprint,
     part_for,
     verdict,
 )
 from imageskin.review import Review
-from imageskin.teach import Choice
+from imageskin.teach import Choice, Teacher, lesson_topics
 
 
 class Writer:
@@ -58,6 +61,20 @@ def quizzer(
         write or Writer(),
         lambda: complete,
     )
+
+
+def kept(
+    topic: str, number: int, question: str, part: int, *args: Any, found: Any = None, **kw: Any
+) -> Quiz:
+    """A quiz as the browser keeps it, with the fingerprint of the material its question was
+    written from, as it is now."""
+    material = Teacher(lambda: CONTENTS, lambda q: list(found or [])).material(
+        topic, lesson_topics(CONTENTS)[topic], part
+    )
+    return Quiz(topic, number, question, part, *args, **{"source": fingerprint(material), **kw})
+
+
+FOUND = ["(book.pdf, page 2): 2 is prime."]
 
 
 def said(step: Any) -> Said:
@@ -129,13 +146,15 @@ def test_with_no_material_there_is_nothing_to_quiz() -> None:
 )
 def test_quiz_me_on_a_topic_asks_the_first_question(prompt: str) -> None:
     write = Writer("Question 1: **What is a prime?**\nIt has two divisors.")
-    step = said(quizzer(write=write, found=["(book.pdf, page 2): 2 is prime."]).step(prompt, None))
+    step = said(quizzer(write=write, found=FOUND).step(prompt, None))
     assert step.sentences == [
         "Let's see what you know about Prime Numbers. I'll ask you 5 questions, one at a time;"
         " say stop to end the quiz.",
         "Question 1 of 5: What is a prime?",
     ]
-    assert step.quiz == Quiz("Prime Numbers", 1, "What is a prime?", 0, ("What is a prime?",))
+    assert step.quiz == kept(
+        "Prime Numbers", 1, "What is a prime?", 0, ("What is a prime?",), found=FOUND
+    )
     instruction, material = write.asked[0]
     assert 'about the main ideas of "Prime Numbers"' in instruction
     assert material == [
@@ -211,8 +230,15 @@ def test_a_statement_is_never_asked_as_a_question(caplog: pytest.LogCaptureFixtu
         ("What's the answer?", "reveal"),
         ("I give up", "reveal"),
         ("Skip this one", "reveal"),
+        ("Pass", "reveal"),
+        ("Repeat, please", "again"),
+        ("Explain it", "explain"),
         # answers
         ("Evaporation", "answer"),
+        # answers with a word a request may have (review on PR #88)
+        ("Water can pass through soil.", "answer"),
+        ("It gives a hint of how clouds form", "answer"),
+        ("Skipping stones make ripples", "answer"),
         ("It cools and condenses into tiny drops that make clouds.", "answer"),
         ("The water cycle repeats itself, again and again, forever. " * 3, "answer"),
     ],
@@ -224,7 +250,7 @@ def test_a_reply_that_isn_t_an_answer_is_sorted_by_its_words(
     requests are sorted without asking the LLM."""
     write = Writer()
     with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
-        quizzer(write=write).step(prompt, Quiz("Rain", 2, "How does rain form?", 0))
+        quizzer(write=write).step(prompt, kept("Rain", 2, "How does rain form?", 0))
     logged = next(r for r in caplog.records if r.message == "Quiz reply sorted")
     assert (logged.kind, logged.by) == (kind, "words")  # type: ignore[attr-defined]
     assert write.asked == []
@@ -237,7 +263,9 @@ def test_a_reply_that_isn_t_an_answer_is_sorted_by_its_words(
         ("Help, which one do you mean by that?", "C.", "explain"),
         ("Could you say the whole question once more?", "B", "again"),
         ("I am lost here, sorry, can you help", "Letter: D", "reveal"),
-        ("Is the answer clouds?", "Hmm.", "answer"),  # can't tell: taken as an answer
+        ("Is the answer clouds?", "Hmm.", "answer"),
+        # its words don't make it a request (review on PR #88)
+        ("The water cycle can repeat itself.", "A", "answer"),  # can't tell: taken as an answer
     ],
 )
 def test_a_reply_its_words_don_t_settle_is_sorted_by_the_llm(
@@ -245,7 +273,7 @@ def test_a_reply_its_words_don_t_settle_is_sorted_by_the_llm(
 ) -> None:
     write = Writer(said)
     with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
-        quizzer(write=write).step(prompt, Quiz("Rain", 2, "How does rain form?", 0))
+        quizzer(write=write).step(prompt, kept("Rain", 2, "How does rain form?", 0))
     logged = next(r for r in caplog.records if r.message == "Quiz reply sorted")
     assert (logged.kind, logged.by) == (kind, "llm")  # type: ignore[attr-defined]
     instruction, material = write.asked[0]
@@ -260,12 +288,12 @@ def test_a_reply_the_llm_can_t_sort_is_taken_as_an_answer(
         raise LlmError("The LLM is not running.")
 
     with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
-        step = quizzer(write=fails).step("Maybe, I'm not sure", Quiz("Rain", 2, "Q?", 0))
+        step = quizzer(write=fails).step("Maybe, I'm not sure", kept("Rain", 2, "Q?", 0))
     assert isinstance(step, Judge) and "Could not sort a quiz reply" in caplog.text
 
 
 def test_asking_for_the_question_again_says_it_again(caplog: pytest.LogCaptureFixture) -> None:
-    quiz = Quiz("Rain", 2, "How does rain form?", 0, right=1)
+    quiz = kept("Rain", 2, "How does rain form?", 0, right=1)
     with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
         step = said(quizzer().step("Please ask the question again", quiz))
     assert step.sentences == ["Question 2 of 5: How does rain form?"]
@@ -274,7 +302,7 @@ def test_asking_for_the_question_again_says_it_again(caplog: pytest.LogCaptureFi
 
 
 def test_asking_what_the_question_means_explains_it_then_asks_it_again() -> None:
-    quiz = Quiz("Rain", 2, "How does rain form?", 0, right=1)
+    quiz = kept("Rain", 2, "How does rain form?", 0, right=1)
     step = judged(quizzer().step("Can you explain the question?", quiz))
     assert "explain what the question is asking for, in simpler words, without answering" in (
         step.teach.instruction
@@ -290,7 +318,7 @@ def test_asking_what_the_question_means_explains_it_then_asks_it_again() -> None
 def test_not_knowing_gives_the_answer_then_the_next_question(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    quiz = Quiz("Rain", 2, "How does rain form?", 0, ("Q1?", "How does rain form?"))
+    quiz = kept("Rain", 2, "How does rain form?", 0, ("Q1?", "How does rain form?"))
     write = Writer("Where does it fall?")
     step = judged(quizzer(write=write).step("I don't know, can you just give me the answer?", quiz))
     assert "doesn't know the answer" in step.teach.instruction
@@ -312,7 +340,7 @@ def test_a_question_asked_already_is_asked_plainly_instead(
     """With the real AI (Qwen 2.5 1.5B), the same question sometimes came again."""
     step = judged(
         quizzer(write=Writer("what is rain?")).step(
-            "Wet", Quiz("Rain", 1, "What is rain?", 0, ("What is rain?",))
+            "Wet", kept("Rain", 1, "What is rain?", 0, ("What is rain?",))
         )
     )
     assert step.teach.then is not None
@@ -326,7 +354,7 @@ def test_an_answer_is_judged_from_the_question_s_part_then_the_next_is_asked(
 ) -> None:
     write = Writer()
     q = quizzer(write=write)
-    quiz = Quiz("Prime Numbers", 2, "What is a sieve?", 1, ("Q0?", "What is a sieve?"))
+    quiz = kept("Prime Numbers", 2, "What is a sieve?", 1, ("Q0?", "What is a sieve?"))
     step = judged(q.step("It crosses out multiples", quiz))
     assert step.quiz == quiz  # until the reply is in
     assert (
@@ -337,7 +365,7 @@ def test_an_answer_is_judged_from_the_question_s_part_then_the_next_is_asked(
     assert step.teach.then is not None
     with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
         assert step.teach.then("Right! It does.") == ["Question 3 of 5: Q1?"]
-    assert step.quiz == Quiz(
+    assert step.quiz == kept(
         "Prime Numbers", 3, "Q1?", 1, ("Q0?", "What is a sieve?", "Q1?"), right=1
     )
     assert 'about "Sieves", part of "Prime Numbers"' in write.asked[0][0]
@@ -347,7 +375,7 @@ def test_an_answer_is_judged_from_the_question_s_part_then_the_next_is_asked(
 
 
 def test_the_last_answer_ends_the_quiz_with_the_score_and_what_to_go_over() -> None:
-    quiz = Quiz("Prime Numbers", 5, "Q?", 3, right=2, partly=1, review=("Sieves",))
+    quiz = kept("Prime Numbers", 5, "Q?", 3, right=2, partly=1, review=("Sieves",))
     step = judged(quizzer().step("No idea", quiz))
     assert step.teach.then is not None
     assert step.teach.then("Not quite. Primes thin out.") == [
@@ -359,13 +387,13 @@ def test_the_last_answer_ends_the_quiz_with_the_score_and_what_to_go_over() -> N
 
 
 def test_all_right_means_nothing_to_go_over() -> None:
-    step = judged(quizzer().step("2", Quiz("Rain", 5, "Q?", 0, right=4)))
+    step = judged(quizzer().step("2", kept("Rain", 5, "Q?", 0, right=4)))
     assert step.teach.then is not None
     assert step.teach.then("Right!")[1:] == ["You got 5 of 5 right.", NOTHING_TO_GO_OVER]
 
 
 def test_a_part_already_to_go_over_is_named_once() -> None:
-    step = judged(quizzer().step("?", Quiz("Rain", 2, "Q?", 0, review=("Rain",))))
+    step = judged(quizzer().step("?", kept("Rain", 2, "Q?", 0, review=("Rain",))))
     assert step.teach.then is not None
     step.teach.then("Partly right.")
     assert step.quiz is not None
@@ -374,10 +402,10 @@ def test_a_part_already_to_go_over_is_named_once() -> None:
 
 def test_stop_ends_the_quiz_with_the_score_so_far(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
-        step = said(quizzer().step("Stop the quiz", Quiz("Rain", 3, "Q?", 0, right=1)))
+        step = said(quizzer().step("Stop the quiz", kept("Rain", 3, "Q?", 0, right=1)))
     assert step.sentences == [STOPPED, "You got 1 of 2 right."]
     assert step.quiz is None and "Quiz stopped" in caplog.text
-    assert said(quizzer().step("stop", Quiz("Rain", 1, "Q?", 0))).sentences == [STOPPED]
+    assert said(quizzer().step("stop", kept("Rain", 1, "Q?", 0))).sentences == [STOPPED]
 
 
 def test_a_quiz_whose_topic_is_gone_asks_again() -> None:
@@ -440,6 +468,15 @@ def chat(client: Any, prompt: str, **kept: Any) -> dict[str, Any]:
     return dict(response.json())
 
 
+def started(client: Any, llm: QuizLlm, topic: str, **changed: Any) -> dict[str, Any]:
+    """A quiz started on the topic, as the browser sends it back, with what the test changes;
+    the LLM's messages so far are forgotten."""
+    quiz = dict(chat(client, f"Quiz me on {topic}")["quiz"])
+    del quiz["questions"]
+    llm.sent.clear()
+    return {**quiz, **changed}
+
+
 def test_with_quiz_me_off_quiz_me_is_an_ordinary_prompt(tmp_path: Path) -> None:
     llm = QuizLlm()
     client = riemann_app(tmp_path, llm)
@@ -471,14 +508,14 @@ def test_a_quiz_through_the_chat(tmp_path: Path) -> None:
     assert (quiz["right"], quiz["partly"], quiz["review"]) == (2, 1, ["Prime Number Basics"])
 
     llm.verdicts.append("Not quite.")
-    reply = chat(client, "Dunno", quiz={k: v for k, v in quiz.items() if k != "questions"})
+    reply = chat(client, "Sixes", quiz={k: v for k, v in quiz.items() if k != "questions"})
     assert reply["quiz"] is None
     assert reply["content"] == (
         "Not quite. That's the end of the quiz on Prime Number Basics. You got 2 of 5 right,"
         " and 1 partly right. Go over Prime Number Basics again."
     )
     turns = client.get("/api/chat").json()["turns"]
-    assert [t["content"] for t in turns if t["role"] == "user"][-2:] == ["Counting", "Dunno"]
+    assert [t["content"] for t in turns if t["role"] == "user"][-2:] == ["Counting", "Sixes"]
 
 
 def test_a_quiz_answer_isn_t_taken_by_a_lesson_going(tmp_path: Path) -> None:
@@ -486,7 +523,7 @@ def test_a_quiz_answer_isn_t_taken_by_a_lesson_going(tmp_path: Path) -> None:
     client = riemann_app(tmp_path, llm)
     client.patch("/api/settings", json={"quiz_me": True, "teach_me": True})
     lesson = {"topic": "Zeta Function Integral", "part": 0, "active": True}
-    quiz = {"topic": "Zeta Function Integral", "number": 1, "question": "Q?", "part": 0}
+    quiz = started(client, llm, "Zeta Function Integral")
     reply = chat(client, "Next", lesson=lesson, quiz=quiz)
     assert reply["content"].startswith("Right!") and reply["quiz"]["number"] == 2
     assert reply["lesson"] == {**lesson, "parts": 1}  # where it was
@@ -527,8 +564,8 @@ def test_larrys_whats_the_question_through_the_chat(tmp_path: Path) -> None:
     llm = QuizLlm()
     client = riemann_app(tmp_path, llm)
     client.patch("/api/settings", json={"quiz_me": True})
-    quiz = {"topic": "Prime Number Basics", "number": 1, "question": "How are primes counted?"}
-    reply = chat(client, "What's the question?", quiz={**quiz, "part": 0})
+    quiz = started(client, llm, "Prime Number Basics", question="How are primes counted?")
+    reply = chat(client, "What's the question?", quiz=quiz)
     assert reply["content"] == "Question 1 of 5: How are primes counted?"
     assert reply["quiz"]["number"] == 1 and llm.sent == []  # not judged
 
@@ -537,7 +574,7 @@ def test_larrys_other_replies_through_the_chat(tmp_path: Path) -> None:
     llm = QuizLlm()
     client = riemann_app(tmp_path, llm)
     client.patch("/api/settings", json={"quiz_me": True})
-    quiz = {"topic": "Prime Number Basics", "number": 1, "question": "How?", "part": 0}
+    quiz = started(client, llm, "Prime Number Basics", question="How?")
     reply = chat(client, "Can you explain the question?", quiz=quiz)
     assert reply["content"] == "Two moons. Question 1 of 5: How?"
     assert reply["quiz"]["number"] == 1  # still on it
@@ -547,5 +584,79 @@ def test_larrys_other_replies_through_the_chat(tmp_path: Path) -> None:
         "I don't know the answer to the question, can you just give me the answer?",
         quiz=quiz,
     )
-    assert reply["content"] == "Two moons. Question 2 of 5: Question 1?"
+    assert reply["content"] == "Two moons. Question 2 of 5: Question 2?"
     assert (reply["quiz"]["right"], reply["quiz"]["review"]) == (0, ["Prime Number Basics"])
+
+
+def test_a_one_part_topic_never_asks_the_same_plain_question_twice() -> None:
+    """Review on PR #88: with the LLM down, or writing statements, a quiz on a one-part topic
+    asked "What can you tell me about Rain?" five times."""
+
+    def fails(instruction: str, material: list[str]) -> str:
+        raise LlmError("The LLM is not running.")
+
+    for write in [fails, lambda instruction, material: LARRYS_QUESTION_1]:
+        q = quizzer(write=write)
+        quiz = said(q.step("Quiz me on rain", None)).quiz
+        assert quiz is not None
+        for _ in range(QUESTIONS - 1):
+            step = judged(q.step("It falls", quiz))
+            assert step.teach.then is not None
+            step.teach.then("Right!")
+            assert step.quiz is not None
+            quiz = step.quiz
+        assert len({a.casefold() for a in quiz.asked}) == QUESTIONS
+        assert quiz.asked[:2] == (
+            "What can you tell me about Rain?",
+            "What is one important idea in Rain?",
+        )
+
+
+def test_a_question_asked_already_with_other_spacing_or_punctuation_is_not_asked_again(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    step = judged(
+        quizzer(write=Writer("  What   is RAIN ?!")).step(
+            "Wet", kept("Rain", 1, "What is rain?", 0, ("What is rain?",))
+        )
+    )
+    assert step.teach.then is not None
+    with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
+        assert step.teach.then("Right!") == ["Question 2 of 5: What can you tell me about Rain?"]
+    assert "Quiz question repeated" in caplog.text
+
+
+def rain_contents(summary: str) -> list[dict[str, Any]]:
+    return [{"entries": [entry("Rain", summary)]}]
+
+
+def test_an_answer_is_judged_from_the_material_its_question_was_written_from(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Review on PR #88: the wiki rebuilt between asking and answering (the quiz is kept over a
+    reload) judged the answer from material the question wasn't written from."""
+    contents = rain_contents("It falls.")
+    q = quizzer(contents=contents, write=Writer("Where does rain fall?", "Why is rain wet?"))
+    quiz = said(q.step("Quiz me on rain", None)).quiz
+    assert quiz is not None
+    assert judged(q.step("Down", quiz)).teach.material == ["Rain: It falls."]  # unchanged
+
+    contents[:] = rain_contents("It is water from clouds.")
+    with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
+        step = said(q.step("Down", quiz))
+    assert step.sentences == [CHANGED, "Question 1 of 5: Why is rain wet?"]
+    assert step.quiz is not None
+    assert (step.quiz.number, step.quiz.asked) == (1, ("Why is rain wet?",))
+    assert step.quiz.source == fingerprint(["Rain: It is water from clouds."]) != quiz.source
+    assert "Quiz material changed" in caplog.text
+    assert judged(q.step("Clouds", step.quiz)).teach.material == ["Rain: It is water from clouds."]
+
+
+@pytest.mark.parametrize("kept_quiz", [{"source": ""}, {"part": 3}])
+def test_a_question_with_no_material_now_is_asked_anew(kept_quiz: dict[str, Any]) -> None:
+    """A quiz kept by a browser before questions had a fingerprint, or whose part is gone."""
+    quiz = kept("Rain", 2, "Q?", 0, ("Q0?", "Q?"))
+    step = said(quizzer(write=Writer("Is rain wet?")).step("Wet", replace(quiz, **kept_quiz)))
+    assert step.sentences == [CHANGED, "Question 2 of 5: Is rain wet?"]
+    assert step.quiz is not None
+    assert (step.quiz.part, step.quiz.asked) == (0, ("Q0?", "Is rain wet?"))

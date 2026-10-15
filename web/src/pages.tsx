@@ -848,6 +848,7 @@ export function loadQuiz(): Quiz | null {
       partly: count(saved.partly),
       review: strings(saved.review),
       active: saved.active !== false,
+      source: typeof saved.source === "string" ? saved.source : "",
       questions: Number.isInteger(saved.questions) ? saved.questions : undefined,
     };
   } catch {
@@ -931,6 +932,12 @@ function Chat() {
   const [lesson, setLesson] = useState<Lesson | null>(loadLesson); // Teach me (R41h)
   const [quiz, setQuiz] = useState<Quiz | null>(loadQuiz); // Quiz me (R41i)
   const [choices, setChoices] = useState<Choice[]>([]); // offered with the latest reply
+  const quizGoing = quizMe && quiz?.active === true;
+  // Choices belong to Teach me or Quiz me, so turning either on or off drops them: a lesson's
+  // or a quiz's choice can't be sent once its setting is off (review on PR #88).
+  useEffect(() => {
+    setChoices([]);
+  }, [teachMe, quizMe]);
   const clipTotal = useRef(0); // how many clips the latest reply has so far
   const allMade = useRef(false); // and that no more will come
   const clipsEnded = useRef(0); // how many of them have ended or been passed over
@@ -1229,7 +1236,7 @@ function Chat() {
           <button type="submit" disabled={sending || speaking || !prompt.trim()}>
             Send
           </button>
-          {teachMe && (
+          {teachMe && !quizGoing && (
             <button
               type="button"
               className="secondary"
@@ -1239,7 +1246,7 @@ function Chat() {
               Teach me
             </button>
           )}
-          {quizMe && (
+          {quizMe && !quizGoing && (
             <button
               type="button"
               className="secondary"
@@ -1252,21 +1259,24 @@ function Chat() {
         </div>
       </form>
       {/* The choices are a lesson's or a quiz's, so they go with the settings (review on PR
-          #87). */}
-      {(teachMe || quizMe) && (
+          #87). While a quiz is going, whatever is sent is taken as the answer, so only the quiz's
+          own controls are shown (review on PR #88). */}
+      {(teachMe || quizMe) && !quizGoing && (
         <Choices choices={choices} disabled={sending || speaking} onAsk={(q) => void send(q)} />
       )}
-      {teachMe && lesson?.active && (
+      {teachMe && lesson?.active && !quizGoing && (
         <LessonControls
           lesson={lesson}
           disabled={sending || speaking}
           onAsk={(q) => void send(q)}
         />
       )}
-      {quizMe && quiz?.active && (
+      {quizGoing && quiz && (
         <QuizControls quiz={quiz} disabled={sending || speaking} onAsk={(q) => void send(q)} />
       )}
-      <Hints hints={hints} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+      {!quizGoing && (
+        <Hints hints={hints} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+      )}
       {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
       </div>
     </div>

@@ -13,6 +13,7 @@ Each prompt is given to `Quizzer.step`, which says what to do with it: nothing (
 prompt), a reply made here (`Said`), or an answer for the LLM to judge (`Judge`).
 """
 
+import hashlib
 import logging
 import re
 from collections.abc import Callable
@@ -35,22 +36,38 @@ _QUIZ = re.compile(
 _STOP = re.compile(r"stop(?: the quiz| quizzing(?: me)?)?|end the quiz|that'?s enough")
 # A reply to a quiz question that isn't an answer to it (Larry, 2026-10-15: "What's the
 # question?" was judged as a wrong answer). Said plainly and briefly, these are clear enough to
-# go by their words; anything else that may be one is sorted by the LLM (`Quizzer._kind`).
+# go by their words; anything else that may be one is sorted by the LLM (`Quizzer._kind`). The
+# phrases are found anywhere in a short reply; a bare word ("pass", "repeat", "hint") only counts
+# as the whole reply, as an answer may have it ("Water can pass through soil", review on PR #88).
 _REVEAL = re.compile(
-    r"\b(?:(?:i )?(?:don'?t|do not|dont) know|no idea|(?:not a|no) clue|i give up|i pass|pass|skip"
-    r"(?: it| this one)?|(?:give|tell|show) me the answer|what'?s the answer|what is the answer"
+    r"\b(?:(?:don'?t|do not|dont) know|no idea|(?:not a|no) clue|i give up|i'?ll pass"
+    r"|pass on (?:this|that|it)|skip (?:this|that|the) (?:one|question)|skip the question"
+    r"|(?:give|tell|show) me the answer|what'?s the answer|what is the answer"
     r"|just (?:give|tell) me(?: it)?)\b"
 )
 _EXPLAIN = re.compile(
-    r"\b(?:explain|clarify|what does (?:the|that|this|it) (?:question )?mean|what do you mean"
-    r"|(?:don'?t|do not) (?:understand|get) the question|what is (?:the|that) question asking"
-    r"|i'?m confused|in other words|(?:put|say|ask) (?:it|that|the question)"
-    r" (?:differently|another way)|hint|(?<!not )a clue|any clues?)\b"
+    r"\b(?:(?:explain|clarify) (?:the question|that question|this question|your question|it"
+    r"|that|this|what you mean)|what does (?:the|that|this|it) (?:question )?mean"
+    r"|what do you mean|(?:don'?t|do not) (?:understand|get) (?:the|that|this|your) question"
+    r"|what is (?:the|that) question asking|i'?m confused|in other words"
+    r"|(?:put|say|ask) (?:it|that|the question) (?:differently|another way)"
+    r"|(?:give me|can i (?:have|get)|i need|any) (?:a |some )?(?:hint|clue)s?)\b"
 )
 _AGAIN = re.compile(
-    r"\b(?:what(?:'s| is| was) (?:the|that) question|(?:repeat|restate|rephrase|reread)\b.*"
+    r"\b(?:what(?:'s| is| was) (?:the|that) question"
+    r"|(?:repeat|restate|rephrase|reread|reask) (?:(?:the|that|this|your) )?(?:question|it|that)"
     r"|(?:say|ask|read) (?:the question|that|it|this)(?: once more| again)|again please"
-    r"|pardon|(?:didn'?t|did not) (?:get|catch|hear) (?:the question|that|it))"
+    r"|pardon|(?:didn'?t|did not) (?:get|catch|hear) (?:the question|that|it))\b"
+)
+# Bare words that are a request only when they are the whole reply, give or take a "please".
+_ALONE = {
+    "reveal": re.compile(r"pass|i pass|skip(?: it| this(?: one)?)?|dunno|next question"),
+    "explain": re.compile(r"explain|clarify|(?:a )?hint|(?:a )?clue"),
+    "again": re.compile(r"repeat|restate|rephrase|again|what|huh|come again|say again"),
+}
+_POLITE = re.compile(
+    r"^(?:(?:um+|uh+|hmm+|er+|ok|okay|sorry|so|well|please|can you|could you|would you"
+    r"|will you)\s+)*|(?:\s+(?:please|again|then|sorry|thanks|thank you))*$"
 )
 # Words that may mean a reply is about the quiz rather than an answer; such a reply is sorted by
 # the LLM when the patterns above don't settle it.
@@ -77,13 +94,24 @@ STOPPED = "OK, we'll stop the quiz here."
 NOTHING_TO_GO_OVER = "Well done: there's nothing to go over again!"
 
 RIGHT, PARTLY, WRONG = "right", "partly right", "wrong"
+CHANGED = "The material for this question has changed since it was asked, so here's a new one."
+
+# The questions asked when the LLM can't write one, in turn: one per question a quiz has.
+_PLAIN = (
+    "What can you tell me about {}?",
+    "What is one important idea in {}?",
+    "Why does {} matter?",
+    "Can you give an example from {}?",
+    "How would you explain {} to a friend?",
+)
 
 
 @dataclass(frozen=True)
 class Quiz:
     """Where a quiz is: its topic, the question being asked (from 1) and the part of the topic
     it was written from, the questions asked so far, the answers right and partly right so far,
-    and the parts to go over again. `active` is false once it is over or stopped."""
+    and the parts to go over again. `active` is false once it is over or stopped. `source` is
+    the fingerprint of the material the question was written from."""
 
     topic: str
     number: int
@@ -94,6 +122,7 @@ class Quiz:
     partly: int = 0
     review: tuple[str, ...] = ()
     active: bool = True
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -144,6 +173,25 @@ def asked_line(number: int, question: str) -> str:
     return f"Question {number} of {QUESTIONS}: {question}"
 
 
+def _alone(text: str) -> str | None:
+    """The request a reply is when it is only a bare word for one ("Repeat, please")."""
+    bare = _POLITE.sub("", text).strip(" ,")
+    return next((kind for kind, word in _ALONE.items() if word.fullmatch(bare)), None)
+
+
+def fingerprint(material: list[str]) -> str:
+    """A short key for the material a question was written from, kept with the quiz, so the
+    answer is judged from the same material (review on PR #88)."""
+    return hashlib.sha256("\n".join(material).encode()).hexdigest()[:16]
+
+
+def plain_question(title: str, asked: tuple[str, ...]) -> str:
+    """A plain question on the part, one not asked yet: there are as many as a quiz has
+    questions, so one is always left (review on PR #88)."""
+    keys = {plain(a) for a in asked}
+    return next(q for q in (p.format(title) for p in _PLAIN) if plain(q) not in keys)
+
+
 class Quizzer:
     """Decides what each prompt does to the quiz, from the wiki as it is now. `write` asks the
     LLM for a one-off answer from some material (`Conversation.write`)."""
@@ -179,13 +227,32 @@ class Quizzer:
         if parts is None:  # its topic is gone from the wiki: start again from the choices
             logger.info("Quiz topic gone", extra={"topic": quiz.topic})
             return self._choose(topics, f'"{quiz.topic}" is no longer in the material.')
+        material = self._material(quiz.topic, parts, quiz.part)
+        if material is None or fingerprint(material) != quiz.source:
+            return self._rewritten(quiz, parts)
         kind = self._kind(prompt, text, quiz)
         if kind == AGAIN:
             logger.info("Quiz question asked again", extra={"question": quiz.number})
             return Said([asked_line(quiz.number, quiz.question)], quiz)
         if kind == EXPLAIN:
             return self._explain(prompt, quiz, parts)
-        return self._judge(prompt, quiz, parts, gave_up=kind == REVEAL)
+        return self._judge(prompt, quiz, parts, material, gave_up=kind == REVEAL)
+
+    def _material(self, topic: str, parts: list[Part], part: int) -> list[str] | None:
+        """What the part is taught from now; None when the topic no longer has the part."""
+        return self._teacher.material(topic, parts, part) if part < len(parts) else None
+
+    def _rewritten(self, quiz: Quiz, parts: list[Part]) -> Said:
+        """A new question in place of one whose material has changed since it was asked (the
+        wiki rebuilt, or a PDF replaced): it can't be judged from what it was written from."""
+        logger.info("Quiz material changed", extra={"topic": quiz.topic, "question": quiz.number})
+        part = part_for(quiz.number, len(parts))
+        before = quiz.asked[: quiz.number - 1]
+        question, source = self._question(quiz.topic, parts, part, before)
+        changed = replace(
+            quiz, question=question, part=part, asked=(*before, question), source=source
+        )
+        return Said([CHANGED, asked_line(quiz.number, question)], changed)
 
     def _kind(self, prompt: str, text: str, quiz: Quiz) -> str:
         """What a reply to the question is: an answer, or asking for the question again, for
@@ -194,6 +261,8 @@ class Quizzer:
         how = "words"
         if len(text.split()) > LONGEST_REQUEST:
             kind = ANSWER
+        elif (alone := _alone(text)) is not None:
+            kind = alone
         elif _EXPLAIN.search(text):
             kind = EXPLAIN
         elif _REVEAL.search(text):
@@ -253,13 +322,13 @@ class Quizzer:
             return self._choose(topics, f"I don't have a topic called {about}.")
         parts = topics[topic]
         part = part_for(1, len(parts))
-        question = self._question(topic, parts, part, ())
+        question, source = self._question(topic, parts, part, ())
         logger.info("Quiz started", extra={"topic": topic, "parts": len(parts)})
         opening = (
             f"Let's see what you know about {topic}. I'll ask you {QUESTIONS} questions, one at"
             " a time; say stop to end the quiz."
         )
-        quiz = Quiz(topic, 1, question, part, (question,))
+        quiz = Quiz(topic, 1, question, part, (question,), source=source)
         return Said([opening, asked_line(1, question)], quiz)
 
     def _choose(self, topics: dict[str, list[Part]], first: str | None = None) -> Said:
@@ -267,9 +336,11 @@ class Quizzer:
         logger.info("Quiz topic asked for", extra={"topics": len(topics)})
         return Said(([first] if first else []) + [CHOOSE], None, choices)
 
-    def _question(self, topic: str, parts: list[Part], part: int, asked: tuple[str, ...]) -> str:
+    def _question(
+        self, topic: str, parts: list[Part], part: int, asked: tuple[str, ...]
+    ) -> tuple[str, str]:
         """A question written by the LLM from the part's material, or a plain one when it
-        can't."""
+        can't; and the material's fingerprint."""
         instruction = (
             f"Write one short quiz question about {what(topic, parts, part)} that can be"
             " answered in a sentence from the reference text. Say only the question, ending with a"
@@ -277,8 +348,9 @@ class Quizzer:
         )
         if asked:
             instruction += " Don't ask any of these again: " + " ".join(asked)
+        material = self._teacher.material(topic, parts, part)
         try:
-            written = self._write(instruction, self._teacher.material(topic, parts, part))
+            written = self._write(instruction, material)
         except LlmError as e:
             logger.error("Could not write a quiz question", extra={"error": str(e)})
             written = ""
@@ -290,18 +362,20 @@ class Quizzer:
                 break
         if not question and written.strip():  # a statement isn't a question (Larry, 2026-10-15)
             logger.info("Quiz question was not a question", extra={"topic": topic, "part": part})
-        if question.casefold() in {a.casefold() for a in asked}:  # a small LLM may ask again
+        if plain(question) in {plain(a) for a in asked}:  # a small LLM may ask again
             logger.info("Quiz question repeated", extra={"topic": topic, "part": part})
             question = ""
         if not question:
-            question = f"What can you tell me about {parts[part].title}?"
+            question = plain_question(parts[part].title, asked)
         logger.info("Quiz question written", extra={"topic": topic, "part": part})
-        return question
+        return question, fingerprint(material)
 
-    def _judge(self, answer: str, quiz: Quiz, parts: list[Part], gave_up: bool = False) -> Judge:
-        """The answer judged, or, when the student doesn't know, the answer given; then the
-        next question, or the end."""
-        part = min(quiz.part, len(parts) - 1)
+    def _judge(
+        self, answer: str, quiz: Quiz, parts: list[Part], material: list[str], gave_up: bool
+    ) -> Judge:
+        """The answer judged from the material the question was written from, or, when the
+        student doesn't know, the answer given; then the next question, or the end."""
+        part = quiz.part
         instruction = (
             f'The student was asked: "{quiz.question}" The student answered: "{answer}". Judge'
             ' the answer from the reference text, talking to the student as "you". Start with'
@@ -316,7 +390,7 @@ class Quizzer:
                 " in at most two sentences. Don't mention the reference text, and don't ask"
                 " anything."
             )
-        judged = Judge(Teach(instruction, self._teacher.material(quiz.topic, parts, part)), quiz)
+        judged = Judge(Teach(instruction, material), quiz)
 
         def then(reply: str) -> list[str]:
             found = WRONG if gave_up else verdict(reply)
@@ -352,9 +426,14 @@ class Quizzer:
                 ]
             number = quiz.number + 1
             nxt = part_for(number, len(parts))
-            question = self._question(quiz.topic, parts, nxt, quiz.asked)
+            question, source = self._question(quiz.topic, parts, nxt, quiz.asked)
             judged.quiz = replace(
-                after, number=number, question=question, part=nxt, asked=(*quiz.asked, question)
+                after,
+                number=number,
+                question=question,
+                part=nxt,
+                asked=(*quiz.asked, question),
+                source=source,
             )
             return [asked_line(number, question)]
 

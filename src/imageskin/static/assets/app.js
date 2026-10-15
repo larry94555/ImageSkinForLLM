@@ -2577,6 +2577,7 @@ function loadQuiz() {
 			partly: count(saved.partly),
 			review: strings(saved.review),
 			active: saved.active !== false,
+			source: typeof saved.source === "string" ? saved.source : "",
 			questions: Number.isInteger(saved.questions) ? saved.questions : void 0
 		};
 	} catch {
@@ -2648,6 +2649,10 @@ function Chat() {
 	const [lesson, setLesson] = d(loadLesson);
 	const [quiz, setQuiz] = d(loadQuiz);
 	const [choices, setChoices] = d([]);
+	const quizGoing = quizMe && quiz?.active === true;
+	h(() => {
+		setChoices([]);
+	}, [teachMe, quizMe]);
 	const clipTotal = A(0);
 	const allMade = A(false);
 	const clipsEnded = A(0);
@@ -2955,14 +2960,14 @@ function Chat() {
 								disabled: sending || speaking || !prompt.trim(),
 								children: "Send"
 							}),
-							teachMe && /* @__PURE__ */ u("button", {
+							teachMe && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",
 								className: "secondary",
 								disabled: sending || speaking,
 								onClick: () => void send(TEACH_ME),
 								children: "Teach me"
 							}),
-							quizMe && /* @__PURE__ */ u("button", {
+							quizMe && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",
 								className: "secondary",
 								disabled: sending || speaking,
@@ -2972,22 +2977,22 @@ function Chat() {
 						]
 					})]
 				}),
-				(teachMe || quizMe) && /* @__PURE__ */ u(Choices, {
+				(teachMe || quizMe) && !quizGoing && /* @__PURE__ */ u(Choices, {
 					choices,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
 				}),
-				teachMe && lesson?.active && /* @__PURE__ */ u(LessonControls, {
+				teachMe && lesson?.active && !quizGoing && /* @__PURE__ */ u(LessonControls, {
 					lesson,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
 				}),
-				quizMe && quiz?.active && /* @__PURE__ */ u(QuizControls, {
+				quizGoing && quiz && /* @__PURE__ */ u(QuizControls, {
 					quiz,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
 				}),
-				/* @__PURE__ */ u(Hints, {
+				!quizGoing && /* @__PURE__ */ u(Hints, {
 					hints,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)

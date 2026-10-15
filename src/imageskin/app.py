@@ -140,6 +140,7 @@ class QuizState(BaseModel):
     partly: int = Field(default=0, ge=0, le=QUESTIONS)
     review: list[str] = Field(default=[], max_length=QUESTIONS)
     active: bool = True
+    source: str = Field(default="", max_length=100)
 
 
 class ChatRequest(BaseModel):

@@ -1544,6 +1544,7 @@ const RAIN_QUIZ = {
   partly: 0,
   review: [],
   active: true,
+  source: "3f1c",
   questions: 5,
 };
 
@@ -1642,8 +1643,87 @@ test("a quiz kept that can't be read is dropped", () => {
     partly: 0,
     review: [],
     active: true,
+    source: "",
     questions: undefined,
   });
+});
+
+// The server's saved settings turn both Teach me and Quiz me on, and the hints have examples.
+function teachAndQuizOn(...replies: object[]) {
+  const server = lessonServer(...replies);
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) => {
+    if (url === "/api/settings") return Response.json({ teach_me: true, quiz_me: true });
+    if (url === "/api/chat/hints") return Response.json(RIEMANN_HINTS);
+    return answers(url, init);
+  });
+  return server;
+}
+
+test("a quiz started from a lesson's summary shows only the quiz's own controls", async () => {
+  localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
+  const zetaQuiz = { ...RAIN_QUIZ, topic: "Zeta Function", question: "What is zeta?" };
+  const server = teachAndQuizOn(
+    {
+      content: "In short, zeta.",
+      lesson: ZETA,
+      choices: [{ label: "Quiz me on Zeta Function", prompt: "Quiz me on Zeta Function" }],
+    },
+    { content: "Question 1 of 5: What is zeta?", lesson: ZETA, quiz: zetaQuiz, choices: [] },
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  expect(await screen.findByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
+  expect(await screen.findByRole("button", { name: RIEMANN_HINTS.examples[0] })).toBeTruthy();
+  const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
+  await waitFor(() => expect(next.disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(next);
+  });
+  const choices = within(await screen.findByRole("list", { name: "Choices" }));
+  const quizMe = choices.getByRole("button", { name: "Quiz me on Zeta Function" });
+  await waitFor(() => expect((quizMe as HTMLButtonElement).disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(quizMe);
+  });
+  expect(await screen.findByText("Quiz: Zeta Function · question 1 of 5")).toBeTruthy();
+  // Whatever is sent now is taken as the answer, so nothing else that sends a prompt is shown.
+  for (const name of ["Next", "Say it more simply", "Stop the lesson", "Teach me", "Quiz me"]) {
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  }
+  expect(screen.queryByText("Lesson: Zeta Function · part 1 of 3")).toBeNull();
+  expect(screen.queryByRole("button", { name: RIEMANN_HINTS.examples[0] })).toBeNull();
+  expect(screen.queryByRole("list", { name: "Choices" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Stop the quiz" })).toBeTruthy();
+  expect(sentBodies(server).map((b) => b.prompt)).toEqual(["Next", "Quiz me on Zeta Function"]);
+});
+
+test("turning Quiz me off drops its choices, though Teach me is still on", async () => {
+  const server = teachAndQuizOn({
+    content: "What would you like to be quizzed on?",
+    quiz: null,
+    choices: [{ label: "Rain", prompt: "Quiz me on Rain" }],
+  });
+  const answers = server.getMockImplementation()!;
+  let quizMe = true;
+  server.mockImplementation(async (url, init) => {
+    if (url !== "/api/settings") return answers(url, init);
+    if (init?.method === "PATCH") quizMe = JSON.parse(String(init.body)).quiz_me;
+    return Response.json({ teach_me: true, quiz_me: quizMe });
+  });
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Quiz me" }));
+  });
+  expect(await screen.findByRole("list", { name: "Choices" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("checkbox", { name: "Quiz me" }));
+  });
+  expect(quizMe).toBe(false);
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Choices" })).toBeNull());
+  expect(screen.getByRole("button", { name: "Teach me" })).toBeTruthy(); // still on
 });
 
 test("Next and more simply send the lesson along, and the place shown follows it", async () => {
