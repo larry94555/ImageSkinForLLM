@@ -13,7 +13,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 7.8% | 7 of 7 |
 | 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 10.0% | 9 of 9 |
 | 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 6.7% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 8 | 8.9% | 7 of 8 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 8 | 8.9% | 8 of 8 |
 | 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 12.2% | 11 of 11 |
 | 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 8.9% | 8 of 8 |
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.3% | 3 of 3 |
@@ -30,7 +30,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.2% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.1% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.2% | 0 |
-| | **Total** | | **90** | **100%** | **61 of 90** |
+| | **Total** | | **90** | **100%** | **62 of 90** |
 
 Sizes: 21 Simple, 69 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -233,7 +233,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Can show:** `imageskin spoken-text` prints whole sentences for replies with links, code, pictures and tables.
 - Built as proposed, with these choices to check by ear: a code block or table is a sentence of its own ("See the code shown below.", "See the table in the text below."); bare URLs separated only by commas, spaces or "and" are one "the links in the text below"; a URL in brackets or angle brackets also says "the link in the text below", while a Markdown link speaks its text; inline code of up to two words is spoken exactly as written, without its backticks (stars and underscores kept), unless it holds a URL; only ❤️ and ♥ between two words count as a word ("love"), every other emoji stays silent.
 
-### R16b. Saying math (Simple) · item 11
+### R16b. Saying math (Simple) · item 11 · Done in [PR #79](https://github.com/larry94555/ImageSkinForLLM/pull/79)
 - Added after Larry's test (2026-10-14): replies about the zeta function were spoken badly, with "ζ(s)" or LaTeX such as `$\zeta(s)$` read out symbol by symbol. Math is said the way links are: only the spoken version changes, and the reply on screen stays as written.
 - **Can show:** `imageskin spoken-text` says "The Riemann zeta function zeta of s is key." for "The Riemann zeta function $\zeta(s)$ is key."
 - **Built:** `speech_math.py` reads LaTeX between `$...$`, `$$...$$`, `\(...\)` and `\[...\]` aloud when it takes at most 30 words: symbols by name ("pi", "zeta of s"), powers as "squared", "cubed" or "to the power of", fractions as "over", and sums, integrals and limits with where they run ("the sum from n equals 1 to infinity of 1 over n to the power of s"). Longer math, or math with a command it doesn't know, says "the equation in the text below" ("See the equation in the text below." on lines of its own). Outside LaTeX, a lone Greek letter, a Greek letter used as a function ("ζ(s)"), superscripts and subscripts ("x²", "x₁"), a caret power ("n^s"), a comparison between spaces ("s > 1") and symbols such as ≈, ≤, ∞ and ° are said in words. A $ before a number is money ("$5 and $10" is unchanged), Greek words are not spelled out, and code and URLs are handled as before. The sentence splitter doesn't cut inside math, whether it is still being written or already closed, and `$$`, `\\[` and `\\(` math is kept whole over several lines (review on PR #79).
