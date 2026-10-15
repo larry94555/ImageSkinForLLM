@@ -139,7 +139,6 @@ class QuizState(BaseModel):
     right: int = Field(default=0, ge=0, le=QUESTIONS)
     partly: int = Field(default=0, ge=0, le=QUESTIONS)
     review: list[str] = Field(default=[], max_length=QUESTIONS)
-    active: bool = True
     source: str = Field(default="", max_length=100)
 
 

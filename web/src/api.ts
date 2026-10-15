@@ -266,7 +266,6 @@ export interface Quiz {
   right: number;
   partly: number;
   review: string[];
-  active: boolean;
   // What the question was written from (its material's fingerprint), so the answer is judged
   // from the same (review on PR #88).
   source: string;

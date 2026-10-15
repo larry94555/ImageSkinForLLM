@@ -114,7 +114,6 @@ def test_the_questions_are_spread_over_the_topic_s_parts_main_ideas_first() -> N
 @pytest.mark.parametrize("prompt", ["Hello", "Teach me", "Quiz", "quiz me now and then"])
 def test_a_prompt_with_no_quiz_going_is_left_alone(prompt: str) -> None:
     assert quizzer().step(prompt, None) is None
-    assert quizzer().step(prompt, Quiz("Rain", 2, "Q?", 0, active=False)) is None
 
 
 def test_quiz_me_with_no_topic_asks_which_one(caplog: pytest.LogCaptureFixture) -> None:

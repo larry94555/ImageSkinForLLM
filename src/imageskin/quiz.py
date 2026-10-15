@@ -110,8 +110,8 @@ _PLAIN = (
 class Quiz:
     """Where a quiz is: its topic, the question being asked (from 1) and the part of the topic
     it was written from, the questions asked so far, the answers right and partly right so far,
-    and the parts to go over again. `active` is false once it is over or stopped. `source` is
-    the fingerprint of the material the question was written from."""
+    and the parts to go over again. A quiz over or stopped is None. `source` is the
+    fingerprint of the material the question was written from."""
 
     topic: str
     number: int
@@ -121,7 +121,6 @@ class Quiz:
     right: int = 0
     partly: int = 0
     review: tuple[str, ...] = ()
-    active: bool = True
     source: str = ""
 
 
@@ -213,7 +212,7 @@ class Quizzer:
         none)."""
         text = plain(prompt)
         asked = _QUIZ.fullmatch(text)
-        if asked is None and (quiz is None or not quiz.active):
+        if asked is None and quiz is None:
             return None
         topics = lesson_topics(self._contents())
         if asked is not None:

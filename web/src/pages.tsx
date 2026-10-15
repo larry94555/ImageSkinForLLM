@@ -847,7 +847,6 @@ export function loadQuiz(): Quiz | null {
       right: count(saved.right),
       partly: count(saved.partly),
       review: strings(saved.review),
-      active: saved.active !== false,
       source: typeof saved.source === "string" ? saved.source : "",
       questions: Number.isInteger(saved.questions) ? saved.questions : undefined,
     };
@@ -932,7 +931,7 @@ function Chat() {
   const [lesson, setLesson] = useState<Lesson | null>(loadLesson); // Teach me (R41h)
   const [quiz, setQuiz] = useState<Quiz | null>(loadQuiz); // Quiz me (R41i)
   const [choices, setChoices] = useState<Choice[]>([]); // offered with the latest reply
-  const quizGoing = quizMe && quiz?.active === true;
+  const quizGoing = quizMe && quiz !== null;
   // Choices belong to Teach me or Quiz me, so turning either on or off drops them: a lesson's
   // or a quiz's choice can't be sent once its setting is off (review on PR #88).
   useEffect(() => {

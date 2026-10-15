@@ -2576,7 +2576,6 @@ function loadQuiz() {
 			right: count(saved.right),
 			partly: count(saved.partly),
 			review: strings(saved.review),
-			active: saved.active !== false,
 			source: typeof saved.source === "string" ? saved.source : "",
 			questions: Number.isInteger(saved.questions) ? saved.questions : void 0
 		};
@@ -2649,7 +2648,7 @@ function Chat() {
 	const [lesson, setLesson] = d(loadLesson);
 	const [quiz, setQuiz] = d(loadQuiz);
 	const [choices, setChoices] = d([]);
-	const quizGoing = quizMe && quiz?.active === true;
+	const quizGoing = quizMe && quiz !== null;
 	h(() => {
 		setChoices([]);
 	}, [teachMe, quizMe]);

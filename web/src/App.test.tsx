@@ -1543,7 +1543,6 @@ const RAIN_QUIZ = {
   right: 0,
   partly: 0,
   review: [],
-  active: true,
   source: "3f1c",
   questions: 5,
 };
@@ -1642,7 +1641,6 @@ test("a quiz kept that can't be read is dropped", () => {
     right: 0,
     partly: 0,
     review: [],
-    active: true,
     source: "",
     questions: undefined,
   });
