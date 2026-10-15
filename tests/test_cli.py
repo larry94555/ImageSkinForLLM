@@ -1,12 +1,15 @@
 import json
 import logging
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from imageskin import __version__
-from imageskin.cli import main
+from imageskin.app import READY_MESSAGE
+from imageskin.cli import announce_ready, main
 
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -33,11 +36,16 @@ def test_bad_config_logs_error_and_exits_2(
 def test_serve_runs_uvicorn_with_config(tmp_path: Path) -> None:
     config = tmp_path / "config.toml"
     config.write_text("port = 9123\ngeneral_prompts = true\n")
-    with patch("uvicorn.run") as run, patch("imageskin.app.create_app") as create_app:
+    with (
+        patch("uvicorn.Server") as server,
+        patch("imageskin.app.create_app") as create_app,
+        patch("imageskin.cli.announce_ready"),
+    ):
         assert main(["--config", str(config), "serve"]) == 0
     assert create_app.call_args.kwargs["general_prompts"] is True
-    assert run.call_args.kwargs["host"] == "127.0.0.1"
-    assert run.call_args.kwargs["port"] == 9123
+    config_used = server.call_args.args[0]
+    assert (config_used.host, config_used.port) == ("127.0.0.1", 9123)
+    server.return_value.run.assert_called_once()
 
 
 def test_serve_logs_the_data_folder(
@@ -46,13 +54,93 @@ def test_serve_logs_the_data_folder(
     monkeypatch.setenv("IMAGESKIN_HOME", str(tmp_path / "data"))
     # setup_logging would replace the handler caplog listens on.
     with (
-        patch("uvicorn.run"),
+        patch("uvicorn.Server"),
+        patch("imageskin.cli.announce_ready"),
         patch("imageskin.cli.setup_logging"),
         caplog.at_level(logging.INFO, logger="imageskin.cli"),
     ):
         assert main(["serve"]) == 0
     record = next(r for r in caplog.records if r.getMessage() == "App data folder")
     assert vars(record)["path"] == str((tmp_path / "data").resolve())
+
+
+def test_the_ready_line_waits_for_the_server_and_the_loading(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    server = SimpleNamespace(started=False, should_exit=False)
+    loaded = threading.Event()
+    loading = threading.Thread(target=loaded.wait, args=(5,))
+    loading.start()
+    app = SimpleNamespace(state=SimpleNamespace(loading=[loading]))
+    with caplog.at_level(logging.INFO, logger="imageskin.cli"):
+        ready = threading.Thread(target=announce_ready, args=(server, app, "http://h:1", 0.0))
+        ready.start()
+        ready.join(0.3)
+        assert ready.is_alive()  # not listening yet
+        server.started = True
+        ready.join(0.3)
+        assert ready.is_alive()  # still loading
+        loaded.set()
+        ready.join(5)
+    record = next(r for r in caplog.records if r.getMessage() == READY_MESSAGE)
+    assert vars(record)["url"] == "http://h:1" and vars(record)["duration_ms"] > 0
+    assert vars(record)["background_jobs"] == []
+
+
+def test_no_ready_line_when_the_server_stops_while_loading(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A review finding on PR #92: stopped after it was listening, before the loading ended."""
+    server = SimpleNamespace(started=True, should_exit=False)
+    loaded = threading.Event()
+    loading = threading.Thread(target=loaded.wait, args=(5,))
+    loading.start()
+    app = SimpleNamespace(state=SimpleNamespace(loading=[loading]))
+    with caplog.at_level(logging.INFO, logger="imageskin.cli"):
+        ready = threading.Thread(target=announce_ready, args=(server, app, "http://h:1", 0.0))
+        ready.start()
+        server.should_exit = True
+        loaded.set()
+        ready.join(5)
+    assert READY_MESSAGE not in caplog.text
+
+
+def test_the_ready_line_names_jobs_carried_on_from_before(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A resumed Prepare (or a PDF reading, or a wiki build waiting on the LLM) doesn't hold the
+    ready line back: it is named, as its lines come after (a review finding on PR #92)."""
+    server = SimpleNamespace(started=True, should_exit=False)
+    app = SimpleNamespace(state=SimpleNamespace(loading=[]))
+    done = threading.Event()
+    prepare = threading.Thread(target=done.wait, args=(5,), name="prepare")
+    prepare.start()
+    with caplog.at_level(logging.INFO, logger="imageskin.cli"):
+        announce_ready(server, app, "http://h:1", 0.0)
+    done.set()
+    prepare.join(5)
+    record = next(r for r in caplog.records if r.getMessage() == READY_MESSAGE)
+    assert vars(record)["background_jobs"] == ["prepare"]
+
+
+def test_ctrl_c_stops_serve_quietly(tmp_path: Path) -> None:
+    """As uvicorn.run() did: a KeyboardInterrupt out of the server ends serve cleanly (a review
+    finding on PR #92)."""
+    with (
+        patch("uvicorn.Server") as server,
+        patch("imageskin.app.create_app"),
+        patch("imageskin.cli.announce_ready"),
+    ):
+        server.return_value.run.side_effect = KeyboardInterrupt
+        assert main(["serve"]) == 0
+
+
+def test_no_ready_line_when_the_server_stops_first(caplog: pytest.LogCaptureFixture) -> None:
+    server = SimpleNamespace(started=False, should_exit=True)
+    app = SimpleNamespace(state=SimpleNamespace(loading=[]))
+    with caplog.at_level(logging.INFO, logger="imageskin.cli"):
+        announce_ready(server, app, "http://h:1", 0.0)
+    assert READY_MESSAGE not in caplog.text
 
 
 def test_voice_sample_writes_wav(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

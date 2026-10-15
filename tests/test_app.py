@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sound_fakes import speechlike, wav_of
 
 from imageskin import __version__
-from imageskin.app import STATIC_DIR, create_app, face_checker
+from imageskin.app import STATIC_DIR, create_app, face_checker, wait_until_loaded
 from imageskin.speaker_checks import TWO_VOICES
 from imageskin.uploads import SOUND_CHECKS, PhotoResult, UploadStore
 
@@ -156,6 +156,20 @@ def test_face_checks_are_on_with_mediapipe(tmp_path: Path) -> None:
         check = face_checker(tmp_path)
     assert check is not None
     prepare.assert_called_once()  # the models are fetched in the background at startup
+
+
+def test_the_app_waits_for_its_models_and_warm_up_to_load(tmp_path: Path) -> None:
+    """What `imageskin serve` waits for before it logs that it is ready (the FAQ quotes it)."""
+    with (
+        patch("importlib.util.find_spec", return_value=object()),
+        patch("imageskin.face_checks.FaceChecker.prepare"),
+        patch("imageskin.app.SpeakerChecker.prepare"),
+    ):
+        app = create_app(tmp_path)
+    names = [t.name for t in app.state.loading]
+    assert names == ["face-models", "speaker-model", "reply-warm-up"]
+    wait_until_loaded(app)
+    assert not any(t.is_alive() for t in app.state.loading)
 
 
 def test_a_photo_uploaded_before_the_checks_can_be_checked(tmp_path: Path) -> None:
