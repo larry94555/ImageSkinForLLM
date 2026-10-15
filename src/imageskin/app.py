@@ -880,6 +880,8 @@ def create_app(
             # With Teach me or Quiz me off in the settings, "Teach me" or "Quiz me" is an
             # ordinary prompt (R41h, R41i). A quiz going takes the answer before a lesson does.
             settings = load_ui_settings(data_home)
+            if settings.quiz_me or settings.teach_me:  # before a quiz or lesson asks the LLM
+                conversation.check(body.prompt)
             asking = quizzer.step(body.prompt, quiz) if settings.quiz_me else None
             step = None
             if asking is None and settings.teach_me:

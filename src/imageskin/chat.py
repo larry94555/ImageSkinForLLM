@@ -464,6 +464,14 @@ class Conversation:
             fit = self._fit(prompt)
             return self._say(prompt, sentences, on_sentence, fit.turns, fit.budget)
 
+    def check(self, prompt: str) -> None:
+        """Refuse the prompt now, as `send` and `say` would, before anything else is done
+        about it: a quiz or lesson may ask the LLM for something first (review on PR #88)."""
+        prompt = checked(prompt)
+        with self._busy:
+            self.wait()
+            self._fit(prompt)
+
     def _fit(self, prompt: str) -> _Fit:
         """How the prompt fits the context window, with the turns sent before it. A prompt that
         doesn't leave room for a reply is refused."""

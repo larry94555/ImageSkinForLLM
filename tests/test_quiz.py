@@ -674,3 +674,18 @@ def test_every_plain_question_asks_only_what_the_material_says() -> None:
     for question in asked:
         assert re.search(r"\b(?:why|example|how does|matter)\b", question.lower()) is None
         assert re.search(r"\b(?:tell|main idea|describe|learned|know)\b", question) is not None
+
+
+def test_a_prompt_too_long_is_refused_before_a_quiz_asks_the_llm(tmp_path: Path) -> None:
+    """Review on PR #88: "Quiz me on <a known topic in a very long text>" had question 1 written
+    before the prompt was found too long."""
+    llm = QuizLlm()
+    client = riemann_app(tmp_path, llm)
+    client.patch("/api/settings", json={"quiz_me": True})
+    prompt = "Quiz me on Prime Number Basics " + "and more words " * 20000
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        response = client.post("/api/chat", json={"prompt": prompt})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "That message is too long. Shorten it or split it in two."
+    assert llm.sent == []  # no question was written
+    assert chat(client, "Quiz me on Prime Number Basics")["quiz"]["number"] == 1  # still works
