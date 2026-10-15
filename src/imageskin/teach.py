@@ -49,6 +49,11 @@ CHOOSE = "What would you like to learn about?"
 ALL_DONE = "That's everything in the material I was given. Well done for getting through it all!"
 STOPPED = "OK, we'll stop here. Click Teach me any time to carry on where we left off."
 NO_LESSON = "There's nothing to teach yet: no material has been added."
+# Said when the PDFs added are still being read and none has a topic yet (review on PR #87).
+STILL_READING_LESSON = (
+    "I'm still reading the material I was given, so there's nothing to teach yet. Click Teach"
+    " me again in a little while."
+)
 # Said when a lesson reaches the last topic so far while more material is still being read.
 NOT_YET = (
     "That's all I have so far: more material is still being read. Say next again in a moment"
@@ -251,7 +256,9 @@ class Teacher:
         self, asked: re.Match[str], topics: dict[str, list[Part]], lesson: Lesson | None
     ) -> Step:
         if not topics:
-            return Say([NO_LESSON], lesson, [])
+            waiting = not self._complete()
+            logger.info("No lesson to give", extra={"still_reading": waiting})
+            return Say([STILL_READING_LESSON if waiting else NO_LESSON], lesson, [])
         if asked["all"]:
             first = next(iter(topics))
             return self._explain(Lesson(first, 0), topics[first], "start")

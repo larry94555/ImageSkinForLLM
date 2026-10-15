@@ -20,6 +20,7 @@ from imageskin.teach import (
     MORE_COMING,
     NO_LESSON,
     NOT_YET,
+    STILL_READING_LESSON,
     STOPPED,
     Choice,
     Explain,
@@ -317,6 +318,15 @@ def test_while_material_is_still_read_the_lesson_never_says_that_is_everything(
     assert "Lesson waiting for material" in caplog.text
 
 
+def test_with_no_topic_yet_while_material_is_read_teach_me_says_so() -> None:
+    """Review on PR #87: "no material has been added" only when that is true."""
+    assert said(teacher([], complete=False).step("Teach me", None)) == Say(
+        [STILL_READING_LESSON], None, []
+    )
+    assert said(teacher([], complete=False).step("Teach me everything", None)).choices == []
+    assert said(teacher([]).step("Teach me", None)).sentences == [NO_LESSON]
+
+
 def test_a_question_on_the_summary_is_answered_from_the_whole_topic() -> None:
     """Review on PR #87: the material the summary was made from, not the last part's."""
     t = teacher(found=["(book.pdf, page 2): More."])
@@ -462,3 +472,18 @@ def test_a_lesson_cannot_finish_while_a_pdf_is_still_read(tmp_path: Path) -> Non
     assert reply["lesson"] == {"topic": "Rain 2", "part": 0, "active": True, "parts": 1}
     reply = chat(client, "Next", chat(client, "Next", reply["lesson"])["lesson"])
     assert reply["content"] == ALL_DONE
+
+
+def test_teach_me_while_the_first_pdf_is_still_read(tmp_path: Path) -> None:
+    hold = threading.Event()
+    llm = Llm()
+    client = app_with_topics(tmp_path, llm, ["Rain"], "Rain.", hold=hold, hold_first=True)
+    try:
+        assert client.patch("/api/settings", json={"teach_me": True}).status_code == 200
+        reply = chat(client, "Teach me")
+        assert (reply["content"], reply["choices"]) == (STILL_READING_LESSON, [])
+    finally:
+        hold.set()
+    client.app.state.wiki.wait()
+    assert [c["label"] for c in chat(client, "Teach me")["choices"]] == ["Rain", EVERYTHING]
+    assert llm.sent == []

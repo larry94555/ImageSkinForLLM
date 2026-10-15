@@ -327,10 +327,12 @@ def app_with_topics(
     pdfs: int = 1,
     hold: threading.Event | None = None,
     unreadable: bool = False,
+    hold_first: bool = False,
 ) -> Any:
     """An app with `pdfs` PDFs, each a wiki of `titles` (made unique per PDF after the first)
     over one paragraph of `text`. With `hold`, every wiki after the first waits for it; with
-    `unreadable`, every PDF after the first can't be read."""
+    `unreadable`, every PDF after the first can't be read. With `hold_first` too, the first
+    waits as well."""
     built: list[str] = []
     read_so_far: list[Path] = []
 
@@ -343,7 +345,7 @@ def app_with_topics(
     def topics(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, w: Any) -> Wiki:
         built.append(pdf_id)
         n = len(built)
-        if n > 1 and hold is not None:
+        if hold is not None and (n > 1 or hold_first):
             hold.wait(10)
         suffix = "" if n == 1 else f" {n}"
         pages = [
@@ -367,7 +369,7 @@ def app_with_topics(
     for n in range(pdfs):
         client.post("/api/content", files={"file": (f"{n}.pdf", io.BytesIO(PDF))})
         app.state.readings.wait()
-        if n == 0 or hold is None:
+        if hold is None or (n == 0 and not hold_first):
             app.state.wiki.wait()
     return client
 
