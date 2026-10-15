@@ -17,6 +17,8 @@ from typing import Any, Literal
 
 import pdfplumber
 
+from imageskin.pdf_math import WORD_GAP, find_formulas
+
 logger = logging.getLogger(__name__)
 
 PdfKind = Literal["text", "slides", "tables"]
@@ -25,6 +27,8 @@ Progress = Callable[[int, int], None]  # pages read, pages in all
 
 # A gap between two lines taller than this share of a line's height starts a new paragraph.
 PARAGRAPH_GAP = 0.6
+# A formula on lines of its own starts a new paragraph only after a gap this many lines high.
+FORMULA_GAP = 4
 UNKNOWN_CHARACTER = re.compile(r"\(cid:\d+\)")
 
 
@@ -53,13 +57,14 @@ def read_pdf(path: Path, progress: Progress | None = None) -> Reading:
     pieces: list[Piece] = []
     landscape = 0
     without_text: list[int] = []
+    formulas: list[int] = []  # the page of each formula read as one line
     try:
         with pdfplumber.open(path) as pdf:
             total = len(pdf.pages)
             for number, page in enumerate(pdf.pages, start=1):
                 slide = page.width > page.height
                 landscape += slide
-                found = read_page(page, number, slide)
+                found = read_page(page, number, slide, formulas)
                 if not found and not page.chars:
                     without_text.append(number)
                 pieces += found
@@ -75,11 +80,19 @@ def read_pdf(path: Path, progress: Progress | None = None) -> Reading:
             "PDF pages with no text, maybe scanned; they are skipped",
             extra={"path": str(path), "pages": without_text},
         )
+    if formulas:
+        logger.info(
+            "Formulas read as one line",
+            extra={"path": str(path), "formulas": len(formulas), "pages": sorted(set(formulas))},
+        )
     return Reading(pdf_kind(pieces, landscape, total), total, pieces, without_text)
 
 
-def read_page(page: Any, number: int, slide: bool) -> list[Piece]:
-    """A page's tables and its text around them, top to bottom."""
+def read_page(
+    page: Any, number: int, slide: bool, formulas: list[int] | None = None
+) -> list[Piece]:
+    """A page's tables and its text around them, top to bottom. The page's number is added to
+    `formulas` for each formula found."""
     found: list[tuple[float, Piece]] = []
     boxes = []
     for table in page.find_tables():
@@ -91,7 +104,19 @@ def read_page(page: Any, number: int, slide: bool) -> list[Piece]:
         text = "\n".join(" | ".join(row) for row in rows)
         found.append((table.bbox[1], Piece(number, "table", text, rows)))
     rest = page.filter(lambda obj: not any(inside(obj, box) for box in boxes)) if boxes else page
-    lines = [line for line in rest.extract_text_lines() if line["text"].strip()]
+    found_formulas = find_formulas(rest.chars, rest.lines + rest.rects)
+    if found_formulas:
+        if formulas is not None:
+            formulas += [number] * len(found_formulas)
+        used = {id(c) for f in found_formulas for c in f.chars}
+        rest = rest.filter(lambda obj: id(obj) not in used)
+    lines = [
+        line for line in rest.extract_text_lines(x_tolerance_ratio=WORD_GAP) if line["text"].strip()
+    ]
+    lines += [
+        {"text": f.text, "top": f.top, "bottom": f.bottom, "formula": True} for f in found_formulas
+    ]
+    lines.sort(key=lambda line: line["top"])
     if slide and lines:
         text = "\n".join(clean(line["text"]) for line in lines)
         found.append((lines[0]["top"], Piece(number, "slide", text)))
@@ -105,8 +130,13 @@ def paragraphs(lines: list[dict[str, Any]]) -> list[tuple[float, str]]:
     """Lines joined into paragraphs, each with where it starts on the page."""
     found: list[tuple[float, list[str]]] = []
     previous: dict[str, Any] | None = None
+    text_height = min((line["bottom"] - line["top"] for line in lines), default=0.0)
     for line in lines:
         height = line["bottom"] - line["top"]
+        if line.get("formula") or (previous and previous.get("formula")):
+            height = FORMULA_GAP * text_height  # a formula is set off from its sentence
+        else:
+            text_height = height
         if previous is None or line["top"] - previous["bottom"] > PARAGRAPH_GAP * height:
             found.append((line["top"], []))
         found[-1][1].append(clean(line["text"]))

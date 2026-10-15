@@ -11,7 +11,7 @@ from pdf_samples import TABLE, slides_pdf, table_pdf, text_pdf
 from imageskin.app import create_app
 from imageskin.content import ContentStore
 from imageskin.pdf_reading import Piece, Progress, Reading, ReadingError
-from imageskin.reading_job import ReadingJob, ReadingStatus
+from imageskin.reading_job import READING_FORMAT, ReadingJob, ReadingStatus
 
 PDF = b"%PDF-1.7\n" + b"x" * 100 + b"\n%%EOF\n"
 
@@ -34,6 +34,7 @@ def test_an_added_pdf_is_read_and_saved(tmp_path: Path, caplog: pytest.LogCaptur
     saved = json.loads((tmp_path / "content" / "read" / f"{pdf.id}.json").read_text())
     assert saved == job.reading(pdf.id)
     assert saved["name"] == "notes.pdf" and saved["version"] == pdf.added_at
+    assert saved["format"] == READING_FORMAT
     assert saved["pieces"] == [{"page": 1, "kind": "paragraph", "text": "Hello.", "rows": None}]
     read = [r for r in caplog.records if r.message == "PDF read"][0]
     assert read.__dict__["pages"] == 1 and read.__dict__["duration_ms"] >= 0
@@ -97,6 +98,24 @@ def test_catch_up_reads_only_pdfs_with_no_up_to_date_reading(tmp_path: Path) -> 
     # The second was never read, and the third's reading is broken; the first is up to date.
     assert read == [b"%PDF-1.4" + PDF, b"%PDF-1.3" + PDF]
     assert set(later.statuses()) == {first.id, second.id, third.id}
+
+
+def test_a_reading_in_an_older_format_is_not_used_and_is_read_again(tmp_path: Path) -> None:
+    store = ContentStore(tmp_path)
+    pdf = store.add("riemann.pdf", io.BytesIO(PDF))
+    job = ReadingJob(store, one_paragraph)
+    job.queue(pdf)
+    job.wait()
+    path = tmp_path / "content" / "read" / f"{pdf.id}.json"
+    older = json.loads(path.read_text())
+    del older["format"]  # as saved before formulas were read as one line
+    path.write_text(json.dumps(older))
+
+    later = ReadingJob(store, one_paragraph)  # as after updating the app
+    assert later.reading(pdf.id) is None
+    later.catch_up()
+    later.wait()
+    assert later.reading(pdf.id)["format"] == READING_FORMAT  # type: ignore[index]
 
 
 def test_progress_is_reported_and_a_removed_pdf_is_forgotten(tmp_path: Path) -> None:

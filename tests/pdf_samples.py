@@ -59,3 +59,23 @@ def table_pdf(path: Path, blank_page: bool = False) -> Path:
         pdf.showPage()
     pdf.save()
     return path
+
+
+def formula_pdf(path: Path) -> Path:
+    """A sentence with a fraction set on lines of its own in its middle, like a displayed
+    formula, and a line with its words set close together."""
+    pdf = canvas.Canvas(str(path), pagesize=letter)
+    pdf.setFont("Helvetica", 12)
+    pdf.drawString(72, 700, "Euler noticed that the sum")
+    pdf.drawString(200, 676, "1")  # over the rule
+    pdf.line(196, 671, 210, 671)
+    pdf.drawString(198, 660, "n")  # under it
+    pdf.drawString(216, 668, "= S")
+    pdf.drawString(72, 640, "grows without end.")
+    text = pdf.beginText(72, 600)
+    text.setWordSpace(-2.2)  # as in a tightly justified line
+    text.textLine("of its correspondents")
+    pdf.drawText(text)
+    pdf.showPage()
+    pdf.save()
+    return path
