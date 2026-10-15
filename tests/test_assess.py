@@ -164,6 +164,36 @@ def test_with_too_many_topics_it_says_so_rather_than_leave_some_out(
         assert step.sentences == [TOO_MANY.format(201, 200)] and step.assessment is None
 
 
+def test_stopping_after_the_topics_changed_ends_it_as_changed() -> None:
+    """Review on PR #90: stopping went by the new topics, saying "1 of 4 topics" for 3."""
+    contents = [{"entries": [entry(name, "Some.") for name in ["Rain", "Snow", "Hail"]]}]
+    a = assessor(contents=contents)
+    second = assessed(a.step("Wet", started(a))).assessment
+    contents[0]["entries"].append(entry("Fog", "Some."))
+    step = assessed(a.step("Stop the assessment", second))
+    assert (step.sentences, step.assessment) == ([GONE], None)
+
+
+def test_plain_questions_never_run_out_when_parts_share_a_title() -> None:
+    """Review on PR #90: 17 topics, each with a first part called "Overview", ran out of plain
+    questions when the LLM couldn't write any."""
+
+    def fails(instruction: str, material: list[str]) -> str:
+        if instruction.startswith("Write"):
+            raise LlmError("The LLM is not running.")
+        return "Verdict: Right\nAnswer: Yes."
+
+    topics = [entry(f"T{n}", "Some.", entry("Overview", "More.")) for n in range(17)]
+    a = assessor(contents=[{"entries": topics}], write=fails)
+    step = assessed(a.step("Assess me", None))
+    questions = []
+    while step.assessment is not None:
+        questions.append(step.assessment.question)
+        step = assessed(a.step("Yes", step.assessment))
+    assert len(questions) == 17 == len(set(questions))
+    assert "the Overview part of T1" in " ".join(questions)
+
+
 def test_it_waits_until_all_the_material_is_read() -> None:
     """Review on PR #90: it covers all the content, so topics from some files aren't enough."""
     some = assessed(assessor(complete=False).step("Assess me", None))

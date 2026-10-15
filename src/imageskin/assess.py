@@ -344,10 +344,6 @@ class Assessor:
         if assessment is None:
             return None
         topics = lesson_topics(self._contents())
-        if _STOP.fullmatch(text):
-            logger.info("Assessment stopped", extra={"question": assessment.number})
-            done = evaluation(assessment.answers, len(topics))[0] if assessment.answers else []
-            return Assessed([STOPPED, *done], None)
         parts = topics.get(assessment.topic)
         # Topics added, removed, renamed or reordered: the plan would change under it.
         if (
@@ -357,6 +353,10 @@ class Assessor:
         ):
             logger.info("Assessment topics changed", extra={"question": assessment.number})
             return Assessed([GONE], None)
+        if _STOP.fullmatch(text):
+            logger.info("Assessment stopped", extra={"question": assessment.number})
+            done = evaluation(assessment.answers, len(topics))[0] if assessment.answers else []
+            return Assessed([STOPPED, *done], None)
         material = None
         if assessment.part < len(parts):
             material = self._teacher.material(assessment.topic, parts, assessment.part)
@@ -582,6 +582,8 @@ class Assessor:
         if not question or plain(question) in keys:
             logger.info("Assessment question asked plainly", extra={"topic": topic})
             title = parts[part].title
+            if part and title != topic:  # an "Overview" under each topic is told apart
+                title = f"the {title} part of {topic}"
             question = next(
                 q for q in (p.format(title) for p in PLAIN[level]) if plain(q) not in keys
             )
