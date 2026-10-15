@@ -3240,9 +3240,9 @@ test("the chat as text is the last N exchanges, oldest first", () => {
   expect(chatText(TALK, 9).startsWith("Chat: the last 3 of 3 exchanges\n\nYou: Quiz me")).toBe(
     true,
   );
-  // A prompt still waiting for its reply is an exchange of its own.
+  // A prompt still waiting for its reply isn't an exchange yet (review on PR #89).
   expect(chatText([...TALK, { role: "user", content: "More?" }], 1)).toBe(
-    "Chat: the last 1 of 4 exchanges\n\nYou: More?",
+    "Chat: the last 1 of 3 exchanges\n\nYou: Hello\n\nReply: Hi.",
   );
 });
 
@@ -3299,6 +3299,93 @@ test("where the browser won't copy, the chat is shown to copy by hand", async ()
   const box = screen.getByRole("textbox", { name: "Chat to copy" }) as HTMLTextAreaElement;
   expect(box.value).toBe(chatText(TALK, 3));
   expect(error).toHaveBeenCalledWith("Could not copy the chat", expect.any(Error));
+});
+
+test("a copy is no longer shown as done once the chat moves on", async () => {
+  const [answer, reply] = later();
+  chatServer(TALK, answer);
+  const writeText = vi.fn(async (_text: string) => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  debugOn();
+  await openAt("#/chat");
+  const copy = await screen.findByRole("button", { name: "Copy chat" });
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  expect(screen.getByText("Copied")).toBeTruthy();
+
+  // A question asked: while it waits for its reply, it isn't copied, and the copy before it is
+  // no longer the chat as it is.
+  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  fireEvent.input(promptBox(), { target: { value: "More?" } });
+  await waitFor(() => expect(send.disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(send);
+  });
+  expect(screen.queryByText("Copied")).toBeNull();
+  expect((screen.getByRole("spinbutton") as HTMLInputElement).value).toBe("3");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy chat" }));
+  });
+  expect(writeText).toHaveBeenLastCalledWith(chatText(TALK, 3)); // not the waiting prompt
+  expect(writeText.mock.calls[1][0]).not.toContain("More?");
+
+  await act(async () => {
+    reply(Response.json({ role: "assistant", content: "Lots more.", turn: 7 }));
+  });
+  expect(await screen.findByText("Lots more.")).toBeTruthy();
+  expect(screen.queryByText("Copied")).toBeNull(); // copied before the reply came
+  expect((screen.getByRole("spinbutton") as HTMLInputElement).value).toBe("4");
+});
+
+test("text to copy by hand goes once the chat moves on", async () => {
+  chatServer(TALK, () => Response.json({ role: "assistant", content: "Lots more.", turn: 7 }));
+  const writeText = vi.fn(async () => {
+    throw new Error("Not allowed");
+  });
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  debugOn();
+  await openAt("#/chat");
+  const copy = await screen.findByRole("button", { name: "Copy chat" });
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  expect(screen.getByRole("textbox", { name: "Chat to copy" })).toBeTruthy();
+  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  fireEvent.input(promptBox(), { target: { value: "More?" } });
+  await waitFor(() => expect(send.disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(send);
+  });
+  expect(await screen.findByText("Lots more.")).toBeTruthy();
+  expect(screen.queryByRole("textbox", { name: "Chat to copy" })).toBeNull();
+});
+
+test("a copy that finishes after the chat moved on isn't shown as done", async () => {
+  chatServer(TALK, () => Response.json({ role: "assistant", content: "Lots more.", turn: 7 }));
+  let finish: () => void = () => {};
+  const writeText = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  debugOn();
+  await openAt("#/chat");
+  const copy = await screen.findByRole("button", { name: "Copy chat" });
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  fireEvent.input(promptBox(), { target: { value: "More?" } });
+  await waitFor(() => expect(send.disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(send);
+  });
+  expect(await screen.findByText("Lots more.")).toBeTruthy();
+  await act(async () => {
+    finish();
+  });
+  expect(screen.queryByText("Copied")).toBeNull();
 });
 
 test("Copy chat shows only with Debug on, and once there is something to copy", async () => {

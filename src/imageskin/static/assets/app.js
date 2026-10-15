@@ -3171,31 +3171,44 @@ function splitMatches(text, query) {
 function countMatches(turns, query) {
 	return turns.reduce((n, turn) => n + (splitMatches(turn.content, query).length - 1) / 2, 0);
 }
+function exchanges(turns) {
+	const found = [];
+	for (const turn of turns) if (turn.role === "user" || found.length === 0) found.push([turn]);
+	else found[found.length - 1].push(turn);
+	const last = found[found.length - 1];
+	if (last?.length === 1 && last[0].role === "user") found.pop();
+	return found;
+}
 function chatText(turns, count) {
-	const exchanges = [];
-	for (const turn of turns) if (turn.role === "user" || exchanges.length === 0) exchanges.push([turn]);
-	else exchanges[exchanges.length - 1].push(turn);
-	const kept = exchanges.slice(Math.max(exchanges.length - count, 0));
-	return [`Chat: the last ${kept.length} of ${exchanges.length} exchanges`, ...kept.flat().map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`)].join("\n\n");
+	const all = exchanges(turns);
+	const kept = all.slice(Math.max(all.length - count, 0));
+	return [`Chat: the last ${kept.length} of ${all.length} exchanges`, ...kept.flat().map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`)].join("\n\n");
 }
 function CopyChat(props) {
-	const all = props.turns.filter((t) => t.role === "user").length;
+	const all = exchanges(props.turns).length;
 	const [count, setCount] = d(null);
-	const [copied, setCopied] = d(false);
-	const [byHand, setByHand] = d(null);
+	const [done, setDone] = d();
 	if (all === 0) return null;
 	const shown = Math.min(count ?? all, all);
+	const current = done?.turns === props.turns && done.shown === shown ? done : void 0;
 	async function copy() {
-		const text = chatText(props.turns, shown);
+		const { turns } = props;
+		const text = chatText(turns, shown);
 		try {
 			await navigator.clipboard.writeText(text);
 			console.info(`Chat copied (${shown} of ${all} exchanges, ${text.length} characters)`);
-			setCopied(true);
-			setByHand(null);
+			setDone({
+				turns,
+				shown,
+				byHand: null
+			});
 		} catch (e) {
 			console.error("Could not copy the chat", e);
-			setCopied(false);
-			setByHand(text);
+			setDone({
+				turns,
+				shown,
+				byHand: text
+			});
 		}
 	}
 	return /* @__PURE__ */ u("div", {
@@ -3212,8 +3225,6 @@ function CopyChat(props) {
 					onChange: (e) => {
 						const n = Math.round(Number(e.currentTarget.value));
 						setCount(Number.isFinite(n) ? Math.min(Math.max(n, 1), all) : null);
-						setCopied(false);
-						setByHand(null);
 					}
 				}),
 				" ",
@@ -3227,14 +3238,14 @@ function CopyChat(props) {
 				onClick: () => void copy(),
 				children: "Copy chat"
 			}),
-			copied && /* @__PURE__ */ u("span", {
+			current && current.byHand === null && /* @__PURE__ */ u("span", {
 				className: "muted",
 				children: "Copied"
 			}),
-			byHand !== null && /* @__PURE__ */ u("textarea", {
+			current?.byHand != null && /* @__PURE__ */ u("textarea", {
 				readOnly: true,
 				"aria-label": "Chat to copy",
-				value: byHand,
+				value: current.byHand,
 				onFocus: (e) => e.currentTarget.select()
 			})
 		]

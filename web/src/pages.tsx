@@ -1479,40 +1479,51 @@ export function countMatches(turns: Turn[], query: string): number {
 // through them with Next and Previous, or Enter and Shift+Enter (roadmap R18).
 // The conversation as text to paste somewhere else: the last `count` exchanges (a prompt and its
 // reply), oldest first.
-export function chatText(turns: Turn[], count: number): string {
-  const exchanges: Turn[][] = [];
+// The chat's exchanges, a prompt and its reply each. A prompt still waiting for its reply isn't
+// one yet, so it isn't copied (review on PR #89).
+export function exchanges(turns: Turn[]): Turn[][] {
+  const found: Turn[][] = [];
   for (const turn of turns) {
-    if (turn.role === "user" || exchanges.length === 0) exchanges.push([turn]);
-    else exchanges[exchanges.length - 1].push(turn);
+    if (turn.role === "user" || found.length === 0) found.push([turn]);
+    else found[found.length - 1].push(turn);
   }
-  const kept = exchanges.slice(Math.max(exchanges.length - count, 0));
-  const head = `Chat: the last ${kept.length} of ${exchanges.length} exchanges`;
+  const last = found[found.length - 1];
+  if (last?.length === 1 && last[0].role === "user") found.pop();
+  return found;
+}
+
+export function chatText(turns: Turn[], count: number): string {
+  const all = exchanges(turns);
+  const kept = all.slice(Math.max(all.length - count, 0));
+  const head = `Chat: the last ${kept.length} of ${all.length} exchanges`;
   const lines = kept.flat().map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`);
   return [head, ...lines].join("\n\n");
 }
 
 // With Debug on in the settings: copies the last N exchanges, all of them unless N is lowered, so
 // they can be pasted elsewhere for review (Larry, 2026-10-15). Where the browser won't copy, the
-// text is shown to copy by hand.
+// text is shown to copy by hand. What a copy did is shown only while the chat is the one it
+// copied: a new turn, or a copy still under way when one comes, makes it out of date (review on
+// PR #89).
 function CopyChat(props: { turns: Turn[] }) {
-  const all = props.turns.filter((t) => t.role === "user").length;
+  const all = exchanges(props.turns).length;
   const [count, setCount] = useState<number | null>(null); // null: every exchange
-  const [copied, setCopied] = useState(false);
-  const [byHand, setByHand] = useState<string | null>(null); // the text, when it couldn't copy
+  // What the last copy did, and the chat (and count) it copied.
+  const [done, setDone] = useState<{ turns: Turn[]; shown: number; byHand: string | null }>();
   if (all === 0) return null;
   const shown = Math.min(count ?? all, all);
+  const current = done?.turns === props.turns && done.shown === shown ? done : undefined;
 
   async function copy() {
-    const text = chatText(props.turns, shown);
+    const { turns } = props;
+    const text = chatText(turns, shown);
     try {
       await navigator.clipboard.writeText(text);
       console.info(`Chat copied (${shown} of ${all} exchanges, ${text.length} characters)`);
-      setCopied(true);
-      setByHand(null);
+      setDone({ turns, shown, byHand: null });
     } catch (e) {
       console.error("Could not copy the chat", e);
-      setCopied(false);
-      setByHand(text);
+      setDone({ turns, shown, byHand: text });
     }
   }
 
@@ -1528,8 +1539,6 @@ function CopyChat(props: { turns: Turn[] }) {
           onChange={(e) => {
             const n = Math.round(Number(e.currentTarget.value));
             setCount(Number.isFinite(n) ? Math.min(Math.max(n, 1), all) : null);
-            setCopied(false);
-            setByHand(null);
           }}
         />{" "}
         of {all} exchanges
@@ -1537,12 +1546,12 @@ function CopyChat(props: { turns: Turn[] }) {
       <button type="button" className="secondary" onClick={() => void copy()}>
         Copy chat
       </button>
-      {copied && <span className="muted">Copied</span>}
-      {byHand !== null && (
+      {current && current.byHand === null && <span className="muted">Copied</span>}
+      {current?.byHand != null && (
         <textarea
           readOnly
           aria-label="Chat to copy"
-          value={byHand}
+          value={current.byHand}
           onFocus={(e) => e.currentTarget.select()}
         />
       )}
