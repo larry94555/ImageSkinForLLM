@@ -854,7 +854,9 @@ def create_app(
                     sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())
-            step = teacher.step(body.prompt, lesson)
+            # With Teach me off in the settings, "Teach me" is an ordinary prompt (R41h).
+            teaching = load_ui_settings(data_home).teach_me
+            step = teacher.step(body.prompt, lesson) if teaching else None
             choices: list[Choice] = []
             if isinstance(step, Say):
                 reply, turn = conversation.say(body.prompt, step.sentences, clips)

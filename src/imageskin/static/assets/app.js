@@ -258,12 +258,14 @@ async function listWikiBuilds() {
 }
 var DEFAULT_SETTINGS = {
 	show_metrics: false,
-	view: "teacher"
+	view: "teacher",
+	teach_me: false
 };
 function settings(data) {
 	return {
 		show_metrics: data.show_metrics === true,
-		view: data.view === "student" ? "student" : "teacher"
+		view: data.view === "student" ? "student" : "teacher",
+		teach_me: data.teach_me === true
 	};
 }
 async function getSettings() {
@@ -419,6 +421,22 @@ function SettingsMenu() {
 				/* @__PURE__ */ u("p", {
 					className: "muted",
 					children: "How long replies and other steps take, under the video and on the pages."
+				}),
+				/* @__PURE__ */ u("label", { children: [
+					/* @__PURE__ */ u("input", {
+						type: "checkbox",
+						checked: settings.teach_me,
+						onChange: (e) => {
+							const box = e.currentTarget;
+							save({ teach_me: box.checked }, () => box.checked = !box.checked);
+						}
+					}),
+					" ",
+					"Teach me"
+				] }),
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: "A Teach me button in the chat that teaches the content a part at a time."
 				}),
 				failed && /* @__PURE__ */ u("p", {
 					className: "error",
@@ -2550,6 +2568,7 @@ function saveSound(sound) {
 }
 function Chat() {
 	const metrics = useSettings().show_metrics;
+	const teachMe = useSettings().teach_me;
 	const [turns, setTurns] = d(null);
 	const [prompt, setPrompt] = d("");
 	const [sending, setSending] = d(false);
@@ -2694,9 +2713,9 @@ function Chat() {
 		let reply;
 		let repliedAt = 0;
 		try {
-			reply = await sendPrompt(text, replyId, lesson);
+			reply = await sendPrompt(text, replyId, teachMe ? lesson : null);
 			repliedAt = performance.now();
-			if (reply.lesson !== void 0) {
+			if (teachMe && reply.lesson !== void 0) {
 				const next = reply.lesson;
 				setLesson(next);
 				saveLesson(next);
@@ -2874,7 +2893,7 @@ function Chat() {
 							type: "submit",
 							disabled: sending || speaking || !prompt.trim(),
 							children: "Send"
-						}), /* @__PURE__ */ u("button", {
+						}), teachMe && /* @__PURE__ */ u("button", {
 							type: "button",
 							className: "secondary",
 							disabled: sending || speaking,
@@ -2888,7 +2907,7 @@ function Chat() {
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
 				}),
-				lesson?.active && /* @__PURE__ */ u(LessonControls, {
+				teachMe && lesson?.active && /* @__PURE__ */ u(LessonControls, {
 					lesson,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)

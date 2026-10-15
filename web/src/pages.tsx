@@ -856,6 +856,7 @@ function saveSound(sound: Sound) {
 // (roadmap R22); if that fails, the reply stays as text with a short note.
 function Chat() {
   const metrics = useSettings().show_metrics; // the timing readout (R41a)
+  const teachMe = useSettings().teach_me; // the Teach me button and lessons (R41h)
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
@@ -1011,9 +1012,10 @@ function Chat() {
     let reply: Reply;
     let repliedAt = 0;
     try {
-      reply = await sendPrompt(text, replyId, lesson);
+      reply = await sendPrompt(text, replyId, teachMe ? lesson : null);
       repliedAt = performance.now();
-      if (reply.lesson !== undefined) {
+      // With Teach me off, the lesson isn't sent, so the one kept stays for when it is back on.
+      if (teachMe && reply.lesson !== undefined) {
         const next = reply.lesson;
         setLesson(next);
         saveLesson(next);
@@ -1175,18 +1177,20 @@ function Chat() {
           <button type="submit" disabled={sending || speaking || !prompt.trim()}>
             Send
           </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={sending || speaking}
-            onClick={() => void send(TEACH_ME)}
-          >
-            Teach me
-          </button>
+          {teachMe && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={sending || speaking}
+              onClick={() => void send(TEACH_ME)}
+            >
+              Teach me
+            </button>
+          )}
         </div>
       </form>
       <Choices choices={choices} disabled={sending || speaking} onAsk={(q) => void send(q)} />
-      {lesson?.active && (
+      {teachMe && lesson?.active && (
         <LessonControls
           lesson={lesson}
           disabled={sending || speaking}

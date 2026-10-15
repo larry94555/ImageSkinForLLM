@@ -149,6 +149,20 @@ export function SettingsMenu() {
           <p className="muted">
             How long replies and other steps take, under the video and on the pages.
           </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.teach_me}
+              onChange={(e) => {
+                const box = e.currentTarget;
+                save({ teach_me: box.checked }, () => (box.checked = !box.checked));
+              }}
+            />{" "}
+            Teach me
+          </label>
+          <p className="muted">
+            A Teach me button in the chat that teaches the content a part at a time.
+          </p>
           {failed && <p className="error">The setting could not be changed. Try again.</p>}
         </div>
       )}

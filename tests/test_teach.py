@@ -259,9 +259,22 @@ def chat(client: Any, prompt: str, lesson: dict[str, Any] | None = None) -> dict
     return dict(response.json())
 
 
+def test_with_teach_me_off_teach_me_is_an_ordinary_prompt(tmp_path: Path) -> None:
+    """Off unless it is turned on in the settings (Larry, 2026-10-15)."""
+    llm = Llm()
+    client = riemann_app(tmp_path, llm)
+    lesson = {"topic": "Zeta Function Integral", "part": 0, "active": True}
+    reply = chat(client, "Teach me about Zeta Function Integral", lesson)
+    assert reply["content"] == "Two moons." and reply["choices"] == []
+    assert llm.sent[-1][-1]["content"].endswith("Teach me about Zeta Function Integral")
+    assert "Teach me the main ideas" not in llm.sent[-1][-1]["content"]
+    assert reply["lesson"] == {**lesson, "parts": 1}  # kept as it was, for when it is on again
+
+
 def test_a_lesson_through_the_chat(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     llm = Llm()
     client = riemann_app(tmp_path, llm)
+    assert client.patch("/api/settings", json={"teach_me": True}).status_code == 200
     reply = chat(client, "Teach me")
     assert reply["content"].startswith(CHOOSE)
     assert [c["label"] for c in reply["choices"]] == [

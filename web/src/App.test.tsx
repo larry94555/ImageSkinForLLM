@@ -1446,6 +1446,18 @@ function sentBodies(server: ReturnType<typeof chatServer>) {
 
 const ZETA = { topic: "Zeta Function", part: 0, active: true, parts: 3 };
 
+// The server's saved settings turn Teach me on (it is off by default); every other request goes
+// to the server the test set up.
+function teachMeOn() {
+  const server = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) =>
+      url === "/api/settings" ? Response.json({ teach_me: true }) : server(url, init),
+    ),
+  );
+}
+
 test("Teach me asks which topic, and clicking one starts the lesson", async () => {
   const server = lessonServer(
     {
@@ -1459,6 +1471,7 @@ test("Teach me asks which topic, and clicking one starts the lesson", async () =
     { content: "The zeta function adds up powers.", lesson: ZETA, choices: [] },
   );
   vi.spyOn(console, "info").mockImplementation(() => {});
+  teachMeOn();
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
   await act(async () => {
@@ -1492,6 +1505,7 @@ test("Next and more simply send the lesson along, and the place shown follows it
     { content: "Part two, simply.", lesson: { ...ZETA, part: 1 } },
     { content: "In short, zeta.", lesson: { ...ZETA, part: 3 } },
   );
+  teachMeOn();
   await openAt("#/chat");
   expect(await screen.findByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
   for (const label of ["Next", "Say it more simply", "Next"]) {
@@ -1523,6 +1537,7 @@ test("stopping hides the lesson but keeps its place; finishing forgets it", asyn
     { content: "OK, we'll stop here.", lesson: { ...ZETA, active: false } },
     { content: "That's everything.", lesson: null },
   );
+  teachMeOn();
   await openAt("#/chat");
   const stop = await screen.findByRole("button", { name: "Stop the lesson" });
   await act(async () => {
@@ -1547,6 +1562,7 @@ test("stopping hides the lesson but keeps its place; finishing forgets it", asyn
 test("a reply that says nothing about lessons leaves the lesson as it was", async () => {
   localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
   chatServer([], () => Response.json({ role: "assistant", content: "Hi." }));
+  teachMeOn();
   await openAt("#/chat");
   fireEvent.input(await screen.findByRole("textbox", { name: "Your message" }), {
     target: { value: "Hello" },
@@ -1577,6 +1593,7 @@ test("a lesson that can't be kept is logged, and the chat goes on", async () => 
     throw new Error("full");
   });
   vi.spyOn(console, "info").mockImplementation(() => {});
+  teachMeOn();
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
   await act(async () => {
@@ -1584,6 +1601,22 @@ test("a lesson that can't be kept is logged, and the chat goes on", async () => 
   });
   expect(await screen.findByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not keep the lesson", expect.any(Error));
+});
+
+test("with Teach me off, there's no Teach me button and the saved lesson stays", async () => {
+  localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
+  const server = lessonServer({ content: "Hi.", lesson: null });
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  expect(screen.queryByRole("button", { name: "Teach me" })).toBeNull();
+  expect(screen.queryByText(/^Lesson:/)).toBeNull();
+  fireEvent.input(promptBox(), { target: { value: "Teach me" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Hi.");
+  expect(sentBodies(server)[0].lesson).toBeUndefined();
+  expect(loadLesson()).toEqual(ZETA); // still there for when Teach me is turned on
 });
 
 test("Enter sends and Shift+Enter does not", async () => {
@@ -2885,6 +2918,21 @@ test("the timing metrics are hidden until turned on in the Settings menu", async
   cleanup(); // a reload: the saved setting is read again
   await openAt("#/setup");
   expect(await screen.findByText("Done in 31 s")).toBeTruthy();
+});
+
+test("Teach me is off until turned on in the Settings menu (Larry, 2026-10-15)", async () => {
+  const saved: { show_metrics: boolean; teach_me?: boolean } = { show_metrics: false };
+  settingsServer(saved);
+  await openAt("#/setup");
+  await screen.findByText("52 of 200 · about 12 min left");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  const box = screen.getByRole("checkbox", { name: "Teach me" }) as HTMLInputElement;
+  expect(box.checked).toBe(false);
+  await act(async () => {
+    fireEvent.click(box);
+  });
+  expect(saved.teach_me).toBe(true);
+  expect(box.checked).toBe(true);
 });
 
 test("a setting that can't be saved says so and stays as it was", async () => {

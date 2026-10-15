@@ -28,12 +28,16 @@ class UiSettings:
     # wiki with its PDFs. Only the screens change: the server doesn't check it, since anyone can
     # switch it for now.
     view: str = "teacher"
+    # The Teach me button and lessons in the chat (R41h); off unless a teacher turns it on
+    # (Larry, 2026-10-15).
+    teach_me: bool = False
 
 
 # The values each setting can take.
 CHOICES: dict[str, tuple[object, ...]] = {
     "show_metrics": (True, False),
     "view": ("teacher", "student"),
+    "teach_me": (True, False),
 }
 
 
