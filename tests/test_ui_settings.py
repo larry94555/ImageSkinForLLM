@@ -57,7 +57,13 @@ def test_an_unreadable_settings_file_gives_the_defaults(
 
 def test_the_settings_api_reads_and_changes_them(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
-    defaults = {"show_metrics": False, "view": "teacher", "teach_me": False, "debug": False}
+    defaults = {
+        "show_metrics": False,
+        "view": "teacher",
+        "teach_me": False,
+        "quiz_me": False,
+        "debug": False,
+    }
     assert client.get("/api/settings").json() == defaults  # no consent needed
     changed = client.patch("/api/settings", json={"show_metrics": True})
     assert changed.status_code == 200 and changed.json() == {**defaults, "show_metrics": True}

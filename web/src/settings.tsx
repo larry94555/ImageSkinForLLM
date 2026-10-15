@@ -166,6 +166,21 @@ export function SettingsMenu() {
           <label>
             <input
               type="checkbox"
+              checked={settings.quiz_me}
+              onChange={(e) => {
+                const box = e.currentTarget;
+                save({ quiz_me: box.checked }, () => (box.checked = !box.checked));
+              }}
+            />{" "}
+            Quiz me
+          </label>
+          <p className="muted">
+            A Quiz me button in the chat that asks five questions on a topic and judges each
+            answer.
+          </p>
+          <label>
+            <input
+              type="checkbox"
               checked={settings.debug}
               onChange={(e) => {
                 const box = e.currentTarget;

@@ -245,8 +245,8 @@ class Teacher:
         if part >= len(parts):
             material = summed_up(parts)
         else:
-            material = self._material(lesson.topic, parts, part)
-        material += self._found(prompt)
+            material = self.material(lesson.topic, parts, part)
+        material += self.found(prompt)
         return Explain(Teach(prompt, material), here, "question")
 
     def _topics(self) -> dict[str, list[Part]]:
@@ -264,7 +264,7 @@ class Teacher:
             return self._explain(Lesson(first, 0), topics[first], "start")
         if asked["about"] is None:
             return self._choose(topics, lesson)
-        topic = self._topic(asked["about"], topics)
+        topic = self.topic_named(asked["about"], topics)
         if topic is None:
             return self._choose(topics, lesson, f"I don't have a topic called {asked['about']}.")
         if lesson is not None and lesson.topic == topic:  # carry on where they left off
@@ -273,7 +273,7 @@ class Teacher:
         return self._explain(Lesson(topic, 0), topics[topic], "start")
 
     @staticmethod
-    def _topic(about: str, topics: dict[str, list[Part]]) -> str | None:
+    def topic_named(about: str, topics: dict[str, list[Part]]) -> str | None:
         """The topic `about` names: one whose title it is, or names (R41f)."""
         about = about.strip(" ,").removeprefix("the ")
         for title in topics:
@@ -310,18 +310,18 @@ class Teacher:
         if part >= len(parts):
             teach = Teach(explain(lesson.topic, parts, part), summed_up(parts))
             return Explain(teach, lesson, "summary")
-        material = self._material(lesson.topic, parts, part)
+        material = self.material(lesson.topic, parts, part)
         teach = Teach(explain(lesson.topic, parts, part, kind == "simpler"), material)
         return Explain(teach, lesson, kind)
 
-    def _material(self, topic: str, parts: list[Part], part: int) -> list[str]:
+    def material(self, topic: str, parts: list[Part], part: int) -> list[str]:
         """The part's own wiki entry, then what else the content has on it: the lookup finds
         that entry too, so it is left out there, not given twice (review on PR #87)."""
         p = parts[part]
-        found = self._found(p.title if part else topic)
+        found = self.found(p.title if part else topic)
         return [f"{p.title}: {p.summary}", *[f for f in found if not same_entry(f, p)]]
 
-    def _found(self, question: str) -> list[str]:
+    def found(self, question: str) -> list[str]:
         try:
             return self._find(question)
         except Exception:

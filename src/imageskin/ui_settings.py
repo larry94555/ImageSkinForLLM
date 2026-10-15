@@ -31,6 +31,8 @@ class UiSettings:
     # The Teach me button and lessons in the chat (R41h); off unless a teacher turns it on
     # (Larry, 2026-10-15).
     teach_me: bool = False
+    # The Quiz me button and quizzes in the chat (R41i); off like Teach me until turned on.
+    quiz_me: bool = False
     # Tools for looking into problems, such as copying the chat to paste it elsewhere; off unless
     # turned on (Larry, 2026-10-15).
     debug: bool = False
@@ -41,6 +43,7 @@ CHOICES: dict[str, tuple[object, ...]] = {
     "show_metrics": (True, False),
     "view": ("teacher", "student"),
     "teach_me": (True, False),
+    "quiz_me": (True, False),
     "debug": (True, False),
 }
 
