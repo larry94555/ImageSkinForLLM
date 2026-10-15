@@ -181,6 +181,21 @@ export function SettingsMenu() {
           <label>
             <input
               type="checkbox"
+              checked={settings.assessment}
+              onChange={(e) => {
+                const box = e.currentTarget;
+                save({ assessment: box.checked }, () => (box.checked = !box.checked));
+              }}
+            />{" "}
+            Assessment
+          </label>
+          <p className="muted">
+            An Assessment button in the chat that asks questions across all the content, then
+            says how broad and deep your knowledge is.
+          </p>
+          <label>
+            <input
+              type="checkbox"
               checked={settings.debug}
               onChange={(e) => {
                 const box = e.currentTarget;

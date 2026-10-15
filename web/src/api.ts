@@ -241,6 +241,7 @@ export interface Reply extends Turn {
   lesson?: Lesson | null;
   choices?: Choice[];
   quiz?: Quiz | null; // the quiz after this prompt (R41i), null when there is none or it is over
+  assessment?: Assessment | null; // the assessment after this prompt (R41j), the same way
 }
 
 // Where a lesson is (roadmap R41h): its topic, the part being taught (from 0; the part after
@@ -272,6 +273,30 @@ export interface Quiz {
   questions?: number;
 }
 
+// An answer in an assessment (roadmap R41j): its question's topic and level (0 recall, 1 explain,
+// 2 apply), how it was judged and the correct answer, kept for the evaluation at the end.
+export interface AssessmentAnswer {
+  topic: string;
+  level: number;
+  question: string;
+  verdict: string;
+  correct: string;
+}
+
+// Where an assessment is (roadmap R41j): how many questions it has, the question being asked
+// (from 1), its topic, level and part, the fingerprint of the part's material, and the answers so
+// far. The browser keeps it and sends it back with the next prompt, the answer.
+export interface Assessment {
+  total: number;
+  number: number;
+  topic: string;
+  level: number;
+  part: number;
+  question: string;
+  source: string;
+  answers: AssessmentAnswer[];
+}
+
 // A button offered with a reply, which sends `prompt` when clicked.
 export interface Choice {
   label: string;
@@ -280,12 +305,13 @@ export interface Choice {
 
 // Sends a prompt and returns the LLM's reply. Throws an Error saying why when it fails.
 // `replyId` names the reply, so its clips can be asked for while the LLM writes (roadmap R22).
-// `lesson` and `quiz` are the lesson and quiz this browser has, if any (R41h, R41i).
+// `lesson`, `quiz` and `assessment` are the ones this browser has, if any (R41h, R41i, R41j).
 export async function sendPrompt(
   prompt: string,
   replyId?: string,
   lesson?: Lesson | null,
   quiz?: Quiz | null,
+  assessment?: Assessment | null,
 ): Promise<Reply> {
   const body: Record<string, unknown> = { prompt };
   if (replyId) body.reply_id = replyId;
@@ -294,6 +320,7 @@ export async function sendPrompt(
     const { questions: _, ...kept } = quiz; // the server's own count, not sent back
     body.quiz = kept;
   }
+  if (assessment) body.assessment = assessment;
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -630,6 +657,7 @@ export interface UiSettings {
   view: View;
   teach_me: boolean; // the Teach me button and lessons in the chat (R41h); off by default
   quiz_me: boolean; // the Quiz me button and quizzes in the chat (R41i); off by default
+  assessment: boolean; // the Assessment button and assessments in the chat (R41j); off by default
   debug: boolean; // tools for looking into problems, such as Copy chat; off by default
 }
 
@@ -638,6 +666,7 @@ export const DEFAULT_SETTINGS: UiSettings = {
   view: "teacher",
   teach_me: false,
   quiz_me: false,
+  assessment: false,
   debug: false,
 };
 
@@ -648,6 +677,7 @@ function settings(data: Partial<UiSettings>): UiSettings {
     view: data.view === "student" ? "student" : "teacher",
     teach_me: data.teach_me === true,
     quiz_me: data.quiz_me === true,
+    assessment: data.assessment === true,
     debug: data.debug === true,
   };
 }

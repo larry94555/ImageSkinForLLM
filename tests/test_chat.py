@@ -637,6 +637,7 @@ def test_the_api_chats_once_the_sample_is_accepted(tmp_path: Path) -> None:
             "lesson": None,  # no lesson going (R41h)
             "choices": [],
             "quiz": None,
+            "assessment": None,
         }
         assert client.post("/api/chat", json={"prompt": " "}).status_code == 400
     assert client.get("/api/chat").json()["turns"] == [

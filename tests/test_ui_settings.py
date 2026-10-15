@@ -62,6 +62,7 @@ def test_the_settings_api_reads_and_changes_them(tmp_path: Path) -> None:
         "view": "teacher",
         "teach_me": False,
         "quiz_me": False,
+        "assessment": False,
         "debug": False,
     }
     assert client.get("/api/settings").json() == defaults  # no consent needed

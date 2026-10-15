@@ -15,10 +15,11 @@ from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from imageskin import __version__, pdf_reading
 from imageskin.accent import Accent, load_accent, save_accent
+from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
     Conversation,
@@ -142,6 +143,35 @@ class QuizState(BaseModel):
     source: str = Field(default="", max_length=100)
 
 
+class AnswerState(BaseModel):
+    """An answer in an assessment (R41j), kept by the browser for the evaluation at the end."""
+
+    topic: str = Field(max_length=500)
+    level: int = Field(ge=0, le=2)
+    question: str = Field(max_length=2000)
+    verdict: str = Field(pattern="^(right|partly right|wrong)$")
+    correct: str = Field(max_length=2000)
+
+
+class AssessmentState(BaseModel):
+    """Where an assessment is (R41j), kept by the browser and sent with each prompt."""
+
+    total: int = Field(ge=1, le=MOST_QUESTIONS)
+    number: int = Field(ge=1, le=MOST_QUESTIONS)
+    topic: str = Field(max_length=500)
+    level: int = Field(ge=0, le=2)
+    part: int = Field(ge=0)
+    question: str = Field(max_length=2000)
+    source: str = Field(default="", max_length=100)
+    answers: list[AnswerState] = Field(default=[], max_length=MOST_QUESTIONS)
+
+    @model_validator(mode="after")
+    def answered_so_far(self) -> "AssessmentState":
+        if self.number > self.total or len(self.answers) != self.number - 1:
+            raise ValueError("an answer for each question before this one")
+        return self
+
+
 class ChatRequest(BaseModel):
     prompt: str
     # Chosen by the browser, so it can ask for the reply's clips while the LLM is still writing
@@ -149,6 +179,7 @@ class ChatRequest(BaseModel):
     reply_id: str | None = Field(default=None, pattern=REPLY_ID_PATTERN)
     lesson: LessonState | None = None
     quiz: QuizState | None = None
+    assessment: AssessmentState | None = None
 
 
 class ReplyVideoRequest(BaseModel):
@@ -848,6 +879,7 @@ def create_app(
 
     teacher = Teacher(wiki.contents, find_content, topics_complete)
     quizzer = Quizzer(wiki.contents, find_content, conversation.write, topics_complete)
+    assessor = Assessor(wiki.contents, find_content, conversation.write, topics_complete)
 
     def lesson_parts(lesson: Lesson) -> int:
         """How many parts the lesson's topic has, its summary not counted."""
@@ -877,17 +909,32 @@ def create_app(
                 quiz = Quiz(
                     **{**kept, "asked": tuple(kept["asked"]), "review": tuple(kept["review"])}
                 )
-            # With Teach me or Quiz me off in the settings, "Teach me" or "Quiz me" is an
-            # ordinary prompt (R41h, R41i). A quiz going takes the answer before a lesson does.
+            assessment = None
+            if body.assessment is not None:
+                kept = body.assessment.model_dump()
+                answers = tuple(Answer(**a) for a in kept.pop("answers"))
+                assessment = Assessment(**kept, answers=answers)
+            # With Teach me, Quiz me or Assessment off in the settings, "Teach me", "Quiz me" or
+            # "Assess me" is an ordinary prompt (R41h, R41i, R41j). An assessment going takes the
+            # answer before a quiz does, and a quiz before a lesson.
             settings = load_ui_settings(data_home)
-            if settings.quiz_me or settings.teach_me:  # before a quiz or lesson asks the LLM
-                conversation.check(body.prompt)
-            asking = quizzer.step(body.prompt, quiz) if settings.quiz_me else None
+            if settings.quiz_me or settings.teach_me or settings.assessment:
+                conversation.check(body.prompt)  # before any of them asks the LLM
+            assessed = None
+            if settings.assessment:
+                assessed = assessor.step(body.prompt, assessment)
+            asking = None
+            if assessed is None and settings.quiz_me:
+                asking = quizzer.step(body.prompt, quiz)
             step = None
             if asking is None and settings.teach_me:
                 step = teacher.step(body.prompt, lesson)
             choices: list[Choice] = []
-            if isinstance(asking, Said):
+            if assessed is not None:
+                reply, turn = conversation.say(body.prompt, assessed.sentences, clips)
+                assessment = assessed.assessment
+                choices = assessed.choices if settings.teach_me else []
+            elif isinstance(asking, Said):
                 reply, turn = conversation.say(body.prompt, asking.sentences, clips)
                 quiz, choices = asking.quiz, asking.choices
             elif isinstance(asking, Judge):
@@ -928,6 +975,8 @@ def create_app(
             # The quiz after this prompt, for the browser to keep, with how many questions a
             # quiz has (R41i).
             "quiz": None if quiz is None else {**asdict(quiz), "questions": QUESTIONS},
+            # The assessment after this prompt, for the browser to keep (R41j).
+            "assessment": None if assessment is None else asdict(assessment),
         }
 
     @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_consent)

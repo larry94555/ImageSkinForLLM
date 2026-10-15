@@ -108,7 +108,7 @@ async function review(decision) {
 async function getChat() {
 	return (await json(await fetch("/api/chat"))).turns;
 }
-async function sendPrompt(prompt, replyId, lesson, quiz) {
+async function sendPrompt(prompt, replyId, lesson, quiz, assessment) {
 	const body = { prompt };
 	if (replyId) body.reply_id = replyId;
 	if (lesson) body.lesson = {
@@ -120,6 +120,7 @@ async function sendPrompt(prompt, replyId, lesson, quiz) {
 		const { questions: _, ...kept } = quiz;
 		body.quiz = kept;
 	}
+	if (assessment) body.assessment = assessment;
 	const response = await fetch("/api/chat", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -265,6 +266,7 @@ var DEFAULT_SETTINGS = {
 	view: "teacher",
 	teach_me: false,
 	quiz_me: false,
+	assessment: false,
 	debug: false
 };
 function settings(data) {
@@ -273,6 +275,7 @@ function settings(data) {
 		view: data.view === "student" ? "student" : "teacher",
 		teach_me: data.teach_me === true,
 		quiz_me: data.quiz_me === true,
+		assessment: data.assessment === true,
 		debug: data.debug === true
 	};
 }
@@ -461,6 +464,22 @@ function SettingsMenu() {
 				/* @__PURE__ */ u("p", {
 					className: "muted",
 					children: "A Quiz me button in the chat that asks five questions on a topic and judges each answer."
+				}),
+				/* @__PURE__ */ u("label", { children: [
+					/* @__PURE__ */ u("input", {
+						type: "checkbox",
+						checked: settings.assessment,
+						onChange: (e) => {
+							const box = e.currentTarget;
+							save({ assessment: box.checked }, () => box.checked = !box.checked);
+						}
+					}),
+					" ",
+					"Assessment"
+				] }),
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: "An Assessment button in the chat that asks questions across all the content, then says how broad and deep your knowledge is."
 				}),
 				/* @__PURE__ */ u("label", { children: [
 					/* @__PURE__ */ u("input", {
@@ -2601,6 +2620,28 @@ function loadQuiz() {
 		return null;
 	}
 }
+var ASSESSMENT_KEY = "imageskin.assessment";
+function loadAssessment() {
+	try {
+		const saved = JSON.parse(localStorage.getItem(ASSESSMENT_KEY) ?? "null");
+		return typeof saved?.topic === "string" && typeof saved.question === "string" && typeof saved.source === "string" && [
+			saved.total,
+			saved.number,
+			saved.level,
+			saved.part
+		].every(Number.isInteger) && Array.isArray(saved.answers) ? saved : null;
+	} catch {
+		return null;
+	}
+}
+function saveAssessment(assessment) {
+	try {
+		if (assessment) localStorage.setItem(ASSESSMENT_KEY, JSON.stringify(assessment));
+		else localStorage.removeItem(ASSESSMENT_KEY);
+	} catch (e) {
+		console.error("Could not keep the assessment", e);
+	}
+}
 function saveQuiz(quiz) {
 	try {
 		if (quiz) localStorage.setItem(QUIZ_KEY, JSON.stringify(quiz));
@@ -2639,7 +2680,7 @@ function saveSound(sound) {
 }
 function Chat() {
 	const metrics = useSettings().show_metrics;
-	const { teach_me: teachMe, quiz_me: quizMe, debug } = useSettings();
+	const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
 	const [turns, setTurns] = d(null);
 	const [prompt, setPrompt] = d("");
 	const [sending, setSending] = d(false);
@@ -2666,10 +2707,16 @@ function Chat() {
 	const [lesson, setLesson] = d(loadLesson);
 	const [quiz, setQuiz] = d(loadQuiz);
 	const [choices, setChoices] = d([]);
-	const quizGoing = quizMe && quiz !== null;
+	const [assessment, setAssessment] = d(loadAssessment);
+	const assessing = assessOn && assessment !== null;
+	const quizGoing = quizMe && quiz !== null || assessing;
 	h(() => {
 		setChoices([]);
-	}, [teachMe, quizMe]);
+	}, [
+		teachMe,
+		quizMe,
+		assessOn
+	]);
 	const clipTotal = A(0);
 	const allMade = A(false);
 	const clipsEnded = A(0);
@@ -2789,7 +2836,7 @@ function Chat() {
 		let reply;
 		let repliedAt = 0;
 		try {
-			reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null);
+			reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null, assessOn ? assessment : null);
 			repliedAt = performance.now();
 			if (teachMe && reply.lesson !== void 0) {
 				const next = reply.lesson;
@@ -2802,6 +2849,12 @@ function Chat() {
 				setQuiz(next);
 				saveQuiz(next);
 				if (next) console.info(`Quiz: ${next.topic}, question ${next.number}`);
+			}
+			if (assessOn && reply.assessment !== void 0) {
+				const next = reply.assessment;
+				setAssessment(next);
+				saveAssessment(next);
+				if (next) console.info(`Assessment: question ${next.number} of ${next.total}`);
 			}
 			setChoices(reply.choices ?? []);
 			const { role, content } = reply;
@@ -2990,11 +3043,18 @@ function Chat() {
 								disabled: sending || speaking,
 								onClick: () => void send(QUIZ_ME),
 								children: "Quiz me"
+							}),
+							assessOn && !quizGoing && /* @__PURE__ */ u("button", {
+								type: "button",
+								className: "secondary",
+								disabled: sending || speaking,
+								onClick: () => void send(ASSESS_ME),
+								children: "Assessment"
 							})
 						]
 					})]
 				}),
-				(teachMe || quizMe) && !quizGoing && /* @__PURE__ */ u(Choices, {
+				(teachMe || quizMe || assessOn) && !quizGoing && /* @__PURE__ */ u(Choices, {
 					choices,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
@@ -3004,8 +3064,13 @@ function Chat() {
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
 				}),
-				quizGoing && quiz && /* @__PURE__ */ u(QuizControls, {
+				quizGoing && !assessing && quiz && /* @__PURE__ */ u(QuizControls, {
 					quiz,
+					disabled: sending || speaking,
+					onAsk: (q) => void send(q)
+				}),
+				assessing && assessment && /* @__PURE__ */ u(AssessmentControls, {
+					assessment,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
 				}),
@@ -3025,6 +3090,31 @@ function Chat() {
 }
 var TEACH_ME = "Teach me";
 var QUIZ_ME = "Quiz me";
+var ASSESS_ME = "Assess me";
+function AssessmentControls(props) {
+	const { number, total } = props.assessment;
+	return /* @__PURE__ */ u("div", {
+		className: "lesson",
+		children: [/* @__PURE__ */ u("p", {
+			className: "muted",
+			children: [
+				"Assessment · question ",
+				number,
+				" of ",
+				total
+			]
+		}), /* @__PURE__ */ u("div", {
+			className: "lesson-buttons",
+			children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				disabled: props.disabled,
+				onClick: () => props.onAsk("Stop the assessment"),
+				children: "Stop the assessment"
+			})
+		})]
+	});
+}
 function QuizControls(props) {
 	const { topic, number, questions } = props.quiz;
 	return /* @__PURE__ */ u("div", {

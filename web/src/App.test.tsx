@@ -26,6 +26,7 @@ import {
   latestExchange,
   loadLesson,
   loadQuiz,
+  loadAssessment,
   loadSound,
   minutes,
   splitMatches,
@@ -3184,6 +3185,21 @@ test("Quiz me is off until turned on in the Settings menu", async () => {
   expect(box.checked).toBe(true);
 });
 
+test("Assessment is off until turned on in the Settings menu", async () => {
+  const saved: { show_metrics: boolean; assessment?: boolean } = { show_metrics: false };
+  settingsServer(saved);
+  await openAt("#/setup");
+  await screen.findByText("52 of 200 · about 12 min left");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  const box = screen.getByRole("checkbox", { name: "Assessment" }) as HTMLInputElement;
+  expect(box.checked).toBe(false);
+  await act(async () => {
+    fireEvent.click(box);
+  });
+  expect(saved.assessment).toBe(true);
+  expect(box.checked).toBe(true);
+});
+
 test("a setting that can't be saved says so and stays as it was", async () => {
   settingsServer({ show_metrics: false }, false);
   await openAt("#/setup");
@@ -3414,4 +3430,105 @@ test("Debug is off until turned on in the Settings menu", async () => {
   });
   expect(saved.debug).toBe(true);
   expect(box.checked).toBe(true);
+});
+
+// --- Assessment (R41j) ---
+
+const ASSESSMENT = {
+  total: 15,
+  number: 1,
+  topic: "Rain",
+  level: 0,
+  part: 0,
+  question: "What is one fact about Rain?",
+  source: "3f1c",
+  answers: [],
+};
+
+test("the Assessment button asks the questions, and only its own controls show", async () => {
+  const second = {
+    ...ASSESSMENT,
+    number: 2,
+    level: 1,
+    question: "How would you explain Rain?",
+    answers: [{ topic: "Rain", level: 0, question: "Q?", verdict: "right", correct: "It falls." }],
+  };
+  const server = teachAndQuizOn(
+    { content: "Let's see. Question 1 of 15: …", assessment: ASSESSMENT, choices: [] },
+    { content: "Thanks. Question 2 of 15: …", assessment: second, choices: [] },
+    {
+      content: "OK, we'll stop the assessment here. Go over Rain again.",
+      assessment: null,
+      choices: [{ label: "Teach me about Rain", prompt: "Teach me about Rain" }],
+    },
+  );
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/settings"
+      ? Response.json({ teach_me: true, quiz_me: true, assessment: true })
+      : answers(url, init),
+  );
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  const start = screen.getByRole("button", { name: "Assessment" }) as HTMLButtonElement;
+  await waitFor(() => expect(start.disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(start);
+  });
+  expect(await screen.findByText("Assessment · question 1 of 15")).toBeTruthy();
+  expect(loadAssessment()).toEqual(ASSESSMENT); // kept on this browser
+  expect(info).toHaveBeenCalledWith("Assessment: question 1 of 15");
+  for (const name of ["Teach me", "Quiz me", "Assessment", RIEMANN_HINTS.examples[0]]) {
+    expect(screen.queryByRole("button", { name })).toBeNull();
+  }
+
+  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  fireEvent.input(promptBox(), { target: { value: "It falls" } });
+  await waitFor(() => expect(send.disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(send);
+  });
+  expect(await screen.findByText("Assessment · question 2 of 15")).toBeTruthy();
+  const stop = screen.getByRole("button", { name: "Stop the assessment" }) as HTMLButtonElement;
+  await waitFor(() => expect(stop.disabled).toBe(false));
+  await act(async () => {
+    fireEvent.click(stop);
+  });
+  await waitFor(() => expect(screen.queryByText(/^Assessment ·/)).toBeNull());
+  expect(loadAssessment()).toBeNull();
+  const choices = within(await screen.findByRole("list", { name: "Choices" }));
+  expect(choices.getByRole("button", { name: "Teach me about Rain" })).toBeTruthy();
+  expect(sentBodies(server).map((b) => [b.prompt, b.assessment])).toEqual([
+    ["Assess me", undefined],
+    ["It falls", ASSESSMENT],
+    ["Stop the assessment", second],
+  ]);
+});
+
+test("an assessment kept on this browser shows only with Assessment on", async () => {
+  localStorage.setItem("imageskin.assessment", JSON.stringify({ ...ASSESSMENT, number: 4 }));
+  lessonServer({ content: "Hi" });
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  expect(screen.queryByText(/^Assessment ·/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Assessment" })).toBeNull();
+  cleanup();
+  const server = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) =>
+      url === "/api/settings" ? Response.json({ assessment: true }) : server(url, init),
+    ),
+  );
+  await openAt("#/chat");
+  expect(await screen.findByText("Assessment · question 4 of 15")).toBeTruthy();
+});
+
+test("an assessment kept that can't be read is dropped", () => {
+  const bad = { ...ASSESSMENT, answers: 1 };
+  for (const kept of ["{", JSON.stringify({ topic: "Rain" }), JSON.stringify(bad)]) {
+    localStorage.setItem("imageskin.assessment", kept);
+    expect(loadAssessment()).toBeNull();
+  }
 });
