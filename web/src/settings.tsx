@@ -163,6 +163,20 @@ export function SettingsMenu() {
           <p className="muted">
             A Teach me button in the chat that teaches the content a part at a time.
           </p>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.debug}
+              onChange={(e) => {
+                const box = e.currentTarget;
+                save({ debug: box.checked }, () => (box.checked = !box.checked));
+              }}
+            />{" "}
+            Debug
+          </label>
+          <p className="muted">
+            Copy chat under the conversation, to paste the latest exchanges somewhere else.
+          </p>
           {failed && <p className="error">The setting could not be changed. Try again.</p>}
         </div>
       )}

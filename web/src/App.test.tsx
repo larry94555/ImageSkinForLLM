@@ -20,6 +20,7 @@ import {
   type ClipTime,
   ClipTimes,
   clipWaits,
+  chatText,
   countMatches,
   duration,
   latestExchange,
@@ -3005,4 +3006,117 @@ test("in the student view a chat that isn't set up asks for the teacher, not set
     await screen.findByText("The chat isn't ready yet. Ask your teacher to finish setting it up."),
   ).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Go to setup" })).toBeNull();
+});
+
+// --- Copy chat, with Debug on (Larry, 2026-10-15) ---
+
+const TALK: Turn[] = [
+  { role: "user", content: "Quiz me on primes" },
+  { role: "assistant", content: "Question 1 of 5: Euler's approach." },
+  { role: "user", content: "What's the question?" },
+  { role: "assistant", content: "Not quite." },
+  { role: "user", content: "Hello" },
+  { role: "assistant", content: "Hi." },
+];
+
+test("the chat as text is the last N exchanges, oldest first", () => {
+  expect(chatText(TALK, 2)).toBe(
+    [
+      "Chat: the last 2 of 3 exchanges",
+      "You: What's the question?",
+      "Reply: Not quite.",
+      "You: Hello",
+      "Reply: Hi.",
+    ].join("\n\n"),
+  );
+  expect(chatText(TALK, 9).startsWith("Chat: the last 3 of 3 exchanges\n\nYou: Quiz me")).toBe(
+    true,
+  );
+  // A prompt still waiting for its reply is an exchange of its own.
+  expect(chatText([...TALK, { role: "user", content: "More?" }], 1)).toBe(
+    "Chat: the last 1 of 4 exchanges\n\nYou: More?",
+  );
+});
+
+function debugOn() {
+  const server = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) =>
+      url === "/api/settings" ? Response.json({ debug: true }) : server(url, init),
+    ),
+  );
+}
+
+test("Copy chat copies every exchange unless fewer are asked for", async () => {
+  chatServer(TALK, () => Response.json({}));
+  const writeText = vi.fn(async (_text: string) => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  debugOn();
+  await openAt("#/chat");
+  const copy = await screen.findByRole("button", { name: "Copy chat" });
+  const count = screen.getByRole("spinbutton") as HTMLInputElement;
+  expect(count.value).toBe("3"); // all of them
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  expect(writeText).toHaveBeenLastCalledWith(chatText(TALK, 3));
+  expect(screen.getByText("Copied")).toBeTruthy();
+  expect(info).toHaveBeenCalledWith(expect.stringMatching(/^Chat copied \(3 of 3 exchanges/));
+
+  fireEvent.change(count, { target: { value: "1" } });
+  expect(screen.queryByText("Copied")).toBeNull();
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  expect(writeText).toHaveBeenLastCalledWith(chatText(TALK, 1));
+  fireEvent.change(count, { target: { value: "50" } });
+  expect(count.value).toBe("3"); // no more than there are
+});
+
+test("where the browser won't copy, the chat is shown to copy by hand", async () => {
+  chatServer(TALK, () => Response.json({}));
+  const writeText = vi.fn(async () => {
+    throw new Error("Not allowed");
+  });
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  debugOn();
+  await openAt("#/chat");
+  const copy = await screen.findByRole("button", { name: "Copy chat" });
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+  const box = screen.getByRole("textbox", { name: "Chat to copy" }) as HTMLTextAreaElement;
+  expect(box.value).toBe(chatText(TALK, 3));
+  expect(error).toHaveBeenCalledWith("Could not copy the chat", expect.any(Error));
+});
+
+test("Copy chat shows only with Debug on, and once there is something to copy", async () => {
+  chatServer(TALK, () => Response.json({}));
+  await openAt("#/chat");
+  await screen.findByText("Hi.");
+  expect(screen.queryByRole("button", { name: "Copy chat" })).toBeNull();
+  cleanup();
+  chatServer([], () => Response.json({}));
+  debugOn();
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  expect(screen.queryByRole("button", { name: "Copy chat" })).toBeNull();
+});
+
+test("Debug is off until turned on in the Settings menu", async () => {
+  const saved: { show_metrics: boolean; debug?: boolean } = { show_metrics: false };
+  settingsServer(saved);
+  await openAt("#/setup");
+  await screen.findByText("52 of 200 · about 12 min left");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  const box = screen.getByRole("checkbox", { name: "Debug" }) as HTMLInputElement;
+  expect(box.checked).toBe(false);
+  await act(async () => {
+    fireEvent.click(box);
+  });
+  expect(saved.debug).toBe(true);
+  expect(box.checked).toBe(true);
 });

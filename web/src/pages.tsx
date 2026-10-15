@@ -856,7 +856,7 @@ function saveSound(sound: Sound) {
 // (roadmap R22); if that fails, the reply stays as text with a short note.
 function Chat() {
   const metrics = useSettings().show_metrics; // the timing readout (R41a)
-  const teachMe = useSettings().teach_me; // the Teach me button and lessons (R41h)
+  const { teach_me: teachMe, debug } = useSettings(); // Teach me (R41h) and Copy chat
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
@@ -1202,6 +1202,7 @@ function Chat() {
       )}
       <Hints hints={hints} disabled={sending || speaking} onAsk={(q) => void send(q)} />
       {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
+      {debug && <CopyChat turns={turns} />}
       </div>
     </div>
   );
@@ -1374,6 +1375,79 @@ export function countMatches(turns: Turn[], query: string): number {
 // video stays the focus (roadmap R18a). Opened, it is a box of limited height with its own
 // scrollbar, kept scrolled to the newest turn, and a search box that marks every match and steps
 // through them with Next and Previous, or Enter and Shift+Enter (roadmap R18).
+// The conversation as text to paste somewhere else: the last `count` exchanges (a prompt and its
+// reply), oldest first.
+export function chatText(turns: Turn[], count: number): string {
+  const exchanges: Turn[][] = [];
+  for (const turn of turns) {
+    if (turn.role === "user" || exchanges.length === 0) exchanges.push([turn]);
+    else exchanges[exchanges.length - 1].push(turn);
+  }
+  const kept = exchanges.slice(Math.max(exchanges.length - count, 0));
+  const head = `Chat: the last ${kept.length} of ${exchanges.length} exchanges`;
+  const lines = kept.flat().map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`);
+  return [head, ...lines].join("\n\n");
+}
+
+// With Debug on in the settings: copies the last N exchanges, all of them unless N is lowered, so
+// they can be pasted elsewhere for review (Larry, 2026-10-15). Where the browser won't copy, the
+// text is shown to copy by hand.
+function CopyChat(props: { turns: Turn[] }) {
+  const all = props.turns.filter((t) => t.role === "user").length;
+  const [count, setCount] = useState<number | null>(null); // null: every exchange
+  const [copied, setCopied] = useState(false);
+  const [byHand, setByHand] = useState<string | null>(null); // the text, when it couldn't copy
+  if (all === 0) return null;
+  const shown = Math.min(count ?? all, all);
+
+  async function copy() {
+    const text = chatText(props.turns, shown);
+    try {
+      await navigator.clipboard.writeText(text);
+      console.info(`Chat copied (${shown} of ${all} exchanges, ${text.length} characters)`);
+      setCopied(true);
+      setByHand(null);
+    } catch (e) {
+      console.error("Could not copy the chat", e);
+      setCopied(false);
+      setByHand(text);
+    }
+  }
+
+  return (
+    <div className="copy-chat">
+      <label>
+        Copy the last{" "}
+        <input
+          type="number"
+          min={1}
+          max={all}
+          value={shown}
+          onChange={(e) => {
+            const n = Math.round(Number(e.currentTarget.value));
+            setCount(Number.isFinite(n) ? Math.min(Math.max(n, 1), all) : null);
+            setCopied(false);
+            setByHand(null);
+          }}
+        />{" "}
+        of {all} exchanges
+      </label>
+      <button type="button" className="secondary" onClick={() => void copy()}>
+        Copy chat
+      </button>
+      {copied && <span className="muted">Copied</span>}
+      {byHand !== null && (
+        <textarea
+          readOnly
+          aria-label="Chat to copy"
+          value={byHand}
+          onFocus={(e) => e.currentTarget.select()}
+        />
+      )}
+    </div>
+  );
+}
+
 export function History(props: { turns: Turn[]; unspoken: { turn: number } | null }) {
   const { turns, unspoken } = props;
   const [open, setOpen] = useState(false);
