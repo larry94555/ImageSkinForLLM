@@ -19,6 +19,7 @@ import logging
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from functools import cache
 from typing import Any
 
 from imageskin.chat import LlmError
@@ -40,7 +41,8 @@ from imageskin.topics import spoken_list
 logger = logging.getLogger(__name__)
 
 AT_LEAST = 15
-MOST_QUESTIONS = 200  # so a browser can't send an endless one; more topics than this is unlikely
+# So a browser can't send an endless one; with more topics than this, none is given.
+MOST_QUESTIONS = 200
 RECALL, EXPLAIN_IT, APPLY = 0, 1, 2
 LEVELS = ("recalling facts", "explaining ideas", "applying and connecting ideas")
 
@@ -56,6 +58,12 @@ _TALK = re.compile(
     r"\b(?:(?:give|tell|show) me the answers?|what(?:'s| is| was) the (?:right |correct )?answer"
     r"|(?:talk|chat) about (?:the |that |this |question|it)"
     r"|discuss (?:the |that |this |question|it))"
+)
+# Saying not to give the answer ("Don't give me the answer, just a hint"), which isn't asking
+# for it (review on PR #90).
+_NOT_TALK = re.compile(
+    r"\b(?:don'?t|do not|dont|never)\s+(?:(?:want|need)\s+(?:you\s+)?(?:to\s+)?)?(?:just\s+)?"
+    r"(?:give|tell|show)\b"
 )
 # Words that may mean a short reply is about the question or the assessment rather than an
 # answer; such a reply, or one asked as a question, is sorted by the LLM.
@@ -89,8 +97,9 @@ _PROCESS = (
     ),
     (
         re.compile(r"\bcan i stop\b|\bwhat happens if i stop\b"),
-        "Yes: say stop at any time to stop the assessment and talk about the questions and"
-        " their answers.",
+        "Yes: say stop at any time to end the assessment and hear how you did so far, but it"
+        " can't be picked up again after that. If you just leave or reload the page, it stays"
+        " where it is for when you come back.",
     ),
     (
         re.compile(rf"\bhow does {_ON} work\b|\bwhat happens at the end\b"),
@@ -113,14 +122,17 @@ LONGEST_REQUEST = 40  # words: a reply this long is an answer
 # What a reply to a question is (Larry, 2026-10-15: every reply was taken as an answer).
 ANSWER, CLARIFY, PROCESS, TALK, DONT_KNOW = "answer", "clarify", "process", "talk", "don't know"
 
-# What each level asks the LLM for, and the questions asked when it can't write one, in turn:
-# as many as a level can have on one part (AT_LEAST / 3), each answerable from any material.
+# What each level asks the LLM for, and the questions asked when it can't write one, in turn,
+# each answerable from any material, however little: one for recall, as many as a topic can
+# have on one part (AT_LEAST / 3), and one for explaining, twice that, as an apply question it
+# can't write is asked as an explain question instead, since one can't be sure of being
+# answerable from a sentence like "Rain: It falls." (review on PR #90).
 _ASK = (
     "asks the student to recall one fact from",
     "asks the student to explain one idea from, in their own words,",
     "asks the student to apply or connect ideas from",
 )
-_PLAIN = (
+PLAIN = (
     (
         "What is one fact about {}?",
         "What can you tell me about {}?",
@@ -134,16 +146,18 @@ _PLAIN = (
         "What does {} mean, in your own words?",
         "How would you sum up {} simply?",
         "In your own words, what is {} about?",
-    ),
-    (
-        "How do the ideas in {} fit together?",
-        "How does one idea in {} lead to another?",
-        "How are the ideas in {} connected?",
-        "What follows from the ideas in {}?",
-        "How would you use the ideas in {}?",
+        "What would you tell someone who asked about {}?",
+        "How would you explain {} to someone new to it?",
+        "What is the gist of {}, in your own words?",
+        "How would you put {} in one sentence of your own?",
+        "How would you retell what {} says?",
     ),
 )
 
+TOO_MANY = (
+    "There are {} topics, more than the {} an assessment can ask about one question each, so I"
+    " can't give one that covers them all."
+)
 CHOOSE_NOTHING = "There's nothing to assess you on yet: no material has been added."
 STILL_READING = (
     "I'm still reading the material I was given, so there's nothing to assess you on yet. Ask"
@@ -202,13 +216,35 @@ class Assessed:
 
 def size(topics: int) -> int:
     """How many questions an assessment has: AT_LEAST, or one per topic when there are more."""
-    return min(max(AT_LEAST, topics), MOST_QUESTIONS)
+    return max(AT_LEAST, topics)
+
+
+@cache
+def plan(topics: int) -> tuple[tuple[int, int], ...]:
+    """The topic and level of each question: the topics in turn, so every topic is asked once
+    before any twice. Each question takes the level asked least so far that its topic didn't
+    have last time, preferring one the topic has had least, so the levels stay even and a topic
+    asked again moves to another level (review on PR #90)."""
+    counts = [0] * len(LEVELS)
+    had = [[0] * len(LEVELS) for _ in range(topics)]
+    last: list[int | None] = [None] * topics
+    planned_ = []
+    for index in range(size(topics)):
+        t, round_ = index % topics, index // topics
+        level = min(
+            (n for n in range(len(LEVELS)) if n != last[t]),
+            key=lambda n: (counts[n], had[t][n], (n - t - round_) % len(LEVELS)),
+        )
+        counts[level] += 1
+        had[t][level] += 1
+        last[t] = level
+        planned_.append((t, level))
+    return tuple(planned_)
 
 
 def planned(index: int, topics: int) -> tuple[int, int]:
-    """The topic and level of question `index` (from 0): the topics in turn, each round
-    starting one topic later so a topic doesn't keep the same level, and the levels in turn."""
-    return (index + index // topics) % topics, index % len(LEVELS)
+    """The topic and level of question `index` (from 0)."""
+    return plan(topics)[index]
 
 
 def part_for(level: int, index: int, topics: int, parts: int) -> int:
@@ -346,6 +382,9 @@ class Assessor:
         how = "words"
         if len(text.split()) > LONGEST_REQUEST:
             kind = ANSWER
+        elif _NOT_TALK.search(text):  # a hint, or the LLM sorts it, but never the answer
+            kind = CLARIFY if _HINT.search(text) else self._sorted(prompt, assessment)
+            how = "words" if kind == CLARIFY else "llm"
         elif _TALK.search(text):
             kind = TALK
         elif known_answer(text, assessment) is not None:
@@ -474,6 +513,9 @@ class Assessor:
         if waiting or not topics:
             logger.info("No assessment to give", extra={"still_reading": waiting})
             return Assessed([STILL_READING if waiting else CHOOSE_NOTHING], None)
+        if len(topics) > MOST_QUESTIONS:  # it would leave topics out (review on PR #90)
+            logger.info("Too many topics to assess", extra={"topics": len(topics)})
+            return Assessed([TOO_MANY.format(len(topics), MOST_QUESTIONS)], None)
         assessment = self._asked(1, topics, ())
         logger.info(
             "Assessment started", extra={"topics": len(topics), "questions": assessment.total}
@@ -496,7 +538,7 @@ class Assessor:
         part = part_for(level, index, len(names), len(parts))
         material = self._teacher.material(topic, parts, part)
         asked = tuple(a.question for a in answers)
-        question = self._question(topic, parts, part, level, material, asked)
+        question, level = self._question(topic, parts, part, level, material, asked)
         return Assessment(
             size(len(names)),
             number,
@@ -517,9 +559,10 @@ class Assessor:
         level: int,
         material: list[str],
         asked: tuple[str, ...],
-    ) -> str:
+    ) -> tuple[str, int]:
         """A question at the level written by the LLM from the material, or a plain one, not
-        asked already, when it can't."""
+        asked already, when it can't; and its level, as a plain one asked instead of an apply
+        question explains."""
         instruction = (
             f"Write one short quiz question that {_ASK[level]} {what(topic, parts, part)}, and"
             " that can be answered in a sentence or two from the reference text. Say only the"
@@ -537,11 +580,24 @@ class Assessor:
         if not question or plain(question) in keys:
             logger.info("Assessment question asked plainly", extra={"topic": topic})
             title = parts[part].title
+            level = min(level, EXPLAIN_IT)
             question = next(
-                q for q in (p.format(title) for p in _PLAIN[level]) if plain(q) not in keys
+                q for q in (p.format(title) for p in PLAIN[level]) if plain(q) not in keys
             )
         logger.info("Assessment question written", extra={"topic": topic, "level": level})
-        return question
+        return question, level
+
+    def _correct(self, assessment: Assessment, material: list[str]) -> str:
+        """The correct answer when the judgement left it out, so the evaluation can give it: asked
+        for again, or the material's first sentence when the LLM still says nothing (review on
+        PR #90)."""
+        logger.warning("Assessment judgement had no answer", extra={"question": assessment.number})
+        instruction = (
+            f'In one short sentence, give the correct answer to "{assessment.question}" from the'
+            " reference text. Say only the answer."
+        )
+        said = first_sentence(self._write(instruction, material))
+        return said or first_sentence(" ".join(material))
 
     def _judge(
         self,
@@ -562,7 +618,8 @@ class Assessor:
         said = self._write(instruction, material)
         found = re.search(r"verdict\W*(.+)", said, re.IGNORECASE)
         judged = WRONG if gave_up else verdict(found[1] if found else said)
-        correct = re.search(r"answer\W*(.+)", said, re.IGNORECASE)
+        found = re.search(r"answer\W*(.+)", said, re.IGNORECASE)
+        correct = first_sentence(found[1]) if found else self._correct(assessment, material)
         logger.info(
             "Assessment answer judged",
             extra={
@@ -579,7 +636,7 @@ class Assessor:
                 assessment.level,
                 assessment.question,
                 judged,
-                first_sentence(correct[1]) if correct else "",
+                correct,
             ),
         )
         if assessment.number < assessment.total:

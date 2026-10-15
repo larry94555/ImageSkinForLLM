@@ -20,10 +20,13 @@ from imageskin.assess import (
     EXPLAIN_IT,
     GONE,
     HELP,
+    MOST_QUESTIONS,
     NOTHING_TO_GO_OVER,
+    PLAIN,
     RECALL,
     STILL_READING,
     STOPPED,
+    TOO_MANY,
     Answer,
     Assessed,
     Assessment,
@@ -97,7 +100,17 @@ def test_every_topic_is_asked_once_before_any_twice_and_the_levels_are_even(topi
     counts = Counter(t for t, _ in plan)
     assert max(counts.values()) - min(counts.values()) <= 1 and len(counts) == topics
     levels = Counter(level for _, level in plan)
-    assert min(levels.values()) >= total // 3 and len(levels) == 3
+    assert max(levels.values()) - min(levels.values()) <= 1 and len(levels) == 3
+
+
+@pytest.mark.parametrize("topics", [1, 2, 4, 5, 7, 10, 14])
+def test_a_topic_asked_again_moves_to_another_level(topics: int) -> None:
+    """Review on PR #90: with 4 topics, the fourth was asked to recall four times."""
+    plan = [planned(i, topics) for i in range(size(topics))]
+    for topic in range(topics):
+        levels = [level for t, level in plan if t == topic]
+        assert all(a != b for a, b in zip(levels, levels[1:], strict=False)), levels
+        assert len(set(levels)) == min(len(levels), 3), levels
 
 
 def test_deeper_questions_come_from_the_entries_under_a_topic() -> None:
@@ -134,6 +147,21 @@ def test_with_nothing_to_assess_it_says_so() -> None:
     assert assessed(assessor(contents=[]).step("Assess me", None)).sentences == [CHOOSE_NOTHING]
     still = assessed(assessor(contents=[], complete=False).step("Assess me", None))
     assert (still.sentences, still.assessment) == ([STILL_READING], None)
+
+
+@pytest.mark.parametrize(
+    ("topics", "starts"), [(MOST_QUESTIONS, True), (MOST_QUESTIONS + 1, False)]
+)
+def test_with_too_many_topics_it_says_so_rather_than_leave_some_out(
+    topics: int, starts: bool
+) -> None:
+    """Review on PR #90: with 201 topics, one was never asked about."""
+    many = [{"entries": [entry(f"T{n}", "Some.") for n in range(topics)]}]
+    step = assessed(assessor(contents=many).step("Assess me", None))
+    if starts:
+        assert step.assessment is not None and step.assessment.total == topics
+    else:
+        assert step.sentences == [TOO_MANY.format(201, 200)] and step.assessment is None
 
 
 def test_it_waits_until_all_the_material_is_read() -> None:
@@ -289,6 +317,60 @@ def test_a_question_about_what_the_question_means_is_answered_by_the_llm(prompt:
     assert step.sentences == ["It asks what Euler set out to do.", "Question 1 of 15: Q1?"]
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Don't give me the answer, just give me a hint",
+        "Don't give me the answer, just a hint",
+        "I don't want you to tell me the answer; can I have a clue?",
+    ],
+)
+def test_saying_not_to_give_the_answer_is_a_hint_not_a_stop(prompt: str) -> None:
+    """Review on PR #90: these stopped the assessment and gave the answer away."""
+    write = Writer()
+    a = assessor(write=write)
+    first = started(a)
+    step = assessed(a.step(prompt, first))
+    assert step.assessment == first
+    instruction, material = write.asked[-1]
+    assert "Never state the answer" in instruction and material
+
+
+def test_saying_not_to_give_the_answer_without_a_hint_is_sorted_by_the_llm() -> None:
+    write = Writer(sorts=["B"])
+    a = assessor(write=write)
+    first = started(a)
+    step = assessed(a.step("Don't tell me the answer yet", first))
+    assert step.assessment == first  # not "I don't know", and not a stop
+    assert write.asked[-2][0].startswith("In an assessment, a student was asked")
+
+
+@pytest.mark.parametrize(
+    ("again", "correct"), [("Euler multiplied.", "Euler multiplied."), ("", "")]
+)
+def test_a_judgement_with_no_answer_still_keeps_the_correct_one(
+    again: str, correct: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #90: a "Verdict: Not quite" with no "Answer:" left the answer out of the
+    evaluation; it is asked for again, or the material's first sentence is kept."""
+
+    def judge(instruction: str, material: list[str]) -> str:
+        if instruction.startswith("Write"):
+            return "Q?"
+        if instruction.startswith("In one short sentence, give the correct answer"):
+            return again
+        return "Verdict: Not quite"
+
+    a = assessor(contents=[{"entries": [entry("Rain", "It falls. It is wet.")]}], write=judge)
+    first = started(a)
+    with caplog.at_level(logging.INFO, logger="imageskin.assess"):
+        step = assessed(a.step("Up", first))
+    assert step.assessment is not None
+    kept = step.assessment.answers[0].correct
+    assert kept == (correct or "Rain: It falls.")  # never empty
+    assert "Assessment judgement had no answer" in caplog.text
+
+
 def test_a_hint_is_written_from_the_material_without_the_answer() -> None:
     """Larry's run (2026-10-15): without the material a hint guessed, and guessed wrong."""
     write = Writer()
@@ -308,6 +390,12 @@ def test_a_hint_is_written_from_the_material_without_the_answer() -> None:
         ("What question am I on?", "This is question 1 of 15."),
         ("Is this assessment marked?", "Each answer is judged right, partly right or wrong,"),
         ("Can I stop if I want to?", "Yes: say stop at any time"),
+        (
+            "Can I stop and come back later?",  # review on PR #90: stopping ends it
+            "Yes: say stop at any time to end the assessment and hear how you did so far, but"
+            " it can't be picked up again after that. If you just leave or reload the page, it"
+            " stays where it is",
+        ),
         ("How does this work?", "There are 15 questions across every topic"),
     ],
 )
@@ -462,8 +550,33 @@ def test_a_question_the_llm_can_t_write_is_asked_plainly_never_twice() -> None:
     assert questions[:3] == [
         "What is one fact about Rain?",
         "How would you explain Rain in your own words?",
-        "How do the ideas in Rain fit together?",
+        "How would you describe Rain to a friend?",  # explain, not apply: see below
     ]
+
+
+def test_a_plain_question_can_be_answered_from_the_least_material() -> None:
+    """Review on PR #90: "How do the ideas in Rain fit together?" can't be answered from "Rain:
+    It falls.", so an apply question the LLM can't write is asked as an explain question, and
+    counted as one."""
+    judged: list[list[str]] = []
+
+    def fails(instruction: str, material: list[str]) -> str:
+        if instruction.startswith("Write"):
+            raise LlmError("The LLM is not running.")
+        judged.append(material)
+        return "Verdict: Right\nAnswer: It falls."
+
+    a = assessor(contents=[{"entries": [entry("Rain", "It falls.")]}], write=fails)
+    step = assessed(a.step("Assess me", None))
+    answers: tuple[Answer, ...] = ()
+    while step.assessment is not None:
+        question = step.assessment.question
+        assert step.assessment.level != APPLY
+        assert question.split("Rain")[0] in {q.split("{}")[0] for pool in PLAIN for q in pool}
+        answers = (*step.assessment.answers,)
+        step = assessed(a.step("It falls", step.assessment))
+    assert all(m == judged[0] for m in judged) and "It falls." in judged[0][0]
+    assert {a.level for a in answers} == {RECALL, EXPLAIN_IT}
     statement = assessor(write=Writer(questions=["Primes are counted."]))
     assert started(statement).question == "What is one fact about Prime Numbers?"
 
