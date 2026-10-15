@@ -295,7 +295,34 @@ def say_slash_fraction(m: re.Match[str]) -> str | None:
     return say_math(slash_tex(m[0]), in_expression(m.string, m.start(), m.end()))
 
 
+_LIMIT = r"\([^()\n]{1,20}\)|[\w∞]+"
+# A sum, product or integral with where it runs, as a PDF's formula is read (pdf_math.py):
+# "∫_0^∞" is "the integral from 0 to infinity of".
+BIG_WITH_LIMITS = re.compile(rf"([∑∏∫])_({_LIMIT})(?:\^({_LIMIT}))?")
+
+
+def say_big_with_limits(m: re.Match[str]) -> str:
+    words = [symbol_words(m[1]) or m[1], "from", say_math(m[2].strip("()")) or m[2]]
+    if m[3]:
+        words += ["to", say_math(m[3].strip("()")) or m[3]]
+    return " ".join([*words, "of"])
+
+
+BIG_SIGN = re.compile("[∑∏∫]")
+
+
+def say_big_sign(m: re.Match[str]) -> str:
+    """A sum, product or integral sign: "the sum", or "the sum of" before what it adds up, and
+    "of" alone after the same word ("the product ∏ 1/p" is "the product of 1 over p")."""
+    words = symbol_words(m[0]) or m[0]
+    if not re.match(r"[ \t]+[\w(]", m.string[m.end() :]):
+        return words  # nothing after it to add up
+    before = m.string[: m.start()].split()
+    return "of" if before and before[-1].lower() == words.split()[-1] else f"{words} of"
+
+
 _SYMBOL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str | None]], ...] = (
+    (BIG_WITH_LIMITS, say_big_with_limits),
     (SLASH_FRACTION, say_slash_fraction),
     (_MINUS_BEFORE, lambda m: "minus"),
     # A Greek letter used as a function: "ζ(s)" is "zeta of s".
@@ -307,18 +334,41 @@ _SYMBOL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str | None
     (re.compile(rf"(?<![\u0370-\u03ff])[{_GREEK}](?![\u0370-\u03ff])"), lambda m: greek_name(m[0])),
     (SUPERSCRIPT_RUN, lambda m: say_math(m[0])),  # "x²" is "x squared"
     (SUBSCRIPT_RUN, lambda m: say_math(m[0])),  # "x₁" is "x sub 1"
-    # A power written with a caret after a word or bracket: "n^s", "2^{10}".
+    # A power written with a caret after a word or bracket: "n^s", "2^{10}", "e^(−nx)".
     (
-        re.compile(r"(?<=[\w)])\^(?:\{([^{}\n]+)\}|(-?\w+))"),
-        lambda m: " ".join(power((say_math(m[1] or m[2]) or m[1] or m[2]).split())),
+        re.compile(r"(?<=[\w)])\^(?:\{([^{}\n]+)\}|\(([^()\n]+)\)|(-?\w+))"),
+        lambda m: " ".join(power((say_math(m[1] or m[2] or m[3]) or m[0][1:]).split())),
     ),
     # A comparison between two words or numbers, as in "s > 1" or "x = 2".
     (
         re.compile(r"(?<=[\w)][ \t])(<=|>=|[<>=])(?=[ \t]+[\w(\-−∑∏∫√∞])"),
         lambda m: say_math(m[1].replace("<=", "≤").replace(">=", "≥")),
     ),
-    (re.compile("[∞≤≥≠≈≡∝∈∉⊂⊆∪∩∀∃∂∇→⇒⇔×÷±∓°∑∏∫√∛−⋅⋯]"), lambda m: symbol_words(m[0])),
+    (BIG_SIGN, say_big_sign),
+    (re.compile("[∞≤≥≠≈≡∝∈∉⊂⊆∪∩∀∃∂∇→⇒⇔×÷±∓°√∛−⋅⋯]"), lambda m: symbol_words(m[0])),
 )
+
+
+def math_in_words(text: str) -> str:
+    """The math symbols, powers and fractions in plain text said in words, as the voice says
+    them, and the rest left as it is. A PDF's formula, given to the chat's LLM like this, is
+    worded by the LLM in full (Gemma 3 4B dropped most of "∏ 1/(1 − 1/p^s) = ∑ 1/n^s")."""
+    done = [False] * len(text)
+    said: dict[int, tuple[int, str]] = {}  # where a replacement starts: where it ends, words
+    for pattern, saying in _SYMBOL_RULES:
+        for m in pattern.finditer(text):
+            if any(done[m.start() : m.end()]):
+                continue
+            words = saying(m)
+            if words:
+                said[m.start()] = (m.end(), _spaced(text, m.start(), m.end(), words))
+                done[m.start() : m.end()] = [True] * (m.end() - m.start())
+    out, at = [], 0
+    for start in sorted(said):
+        end, words = said[start]
+        out += [text[at:start], words]
+        at = end
+    return "".join([*out, text[at:]])
 
 
 def _replace(display: str) -> tuple[list[bool], dict[int, str]]:

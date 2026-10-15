@@ -400,7 +400,7 @@ class _Reader:
             top = ["the", "quantity", *top, ","]
         if not bottom_simple:
             bottom = ["the", "quantity", *bottom]
-            if self.peek() is not None and self.peek() not in ")]}":
+            if (after := self.peek()) is not None and after not in ")]}":
                 bottom.append(",")  # where the quantity ends
         return [*top, "divided", "by", *bottom]
 
