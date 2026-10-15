@@ -245,7 +245,59 @@ def _spaced(display: str, start: int, end: int, words: str) -> str:
 
 
 _GREEK = "\u0391-\u03a9\u03b1-\u03c9"
+# A fraction written with a slash, with a number, a letter or a bracket on each side and maybe a
+# power: "1/p", "1/n^s", "1/(1 − 1/p^s)". Numbers on both sides ("24/7", a date) and words
+# ("and/or", "n/a") are left as written.
+_BRACKETED = r"\((?:[^()\n]|\([^()\n]*\)){1,60}\)"
+_TERM = (
+    rf"(?:\d+(?:\.\d+)?|[A-Za-z{_GREEK}]|{_BRACKETED})"
+    rf"(?:\^(?:\{{[^{{}}\n]+\}}|\([^()\n]{{1,20}}\)|-?\w+))?"
+)
+SLASH_FRACTION = re.compile(rf"(?<![\w/.^])({_TERM})/({_TERM})(?![\w/])")
+# A minus sign before one: "1 - 1/p" is "1 minus the fraction 1 over p".
+_MINUS_BEFORE = re.compile(rf"(?<=[\w)][ \t])[-−](?=[ \t]+{_TERM}/{_TERM})")
+_OPERATOR_BEFORE = re.compile(r"(?:[-−+×*]|\b(?:minus|plus|times))\s*\Z")
+_OPERATOR_AFTER = re.compile(r"\s*(?:[-−+×*^]|(?:minus|plus|times)\b)")
+
+
+def in_expression(display: str, start: int, end: int) -> bool:
+    """Whether the math from `start` to `end` is next to a "+", "-" or the like, so a fraction
+    that is all of it still needs saying as "the fraction" to be heard one way."""
+    return bool(
+        _OPERATOR_BEFORE.search(display[max(0, start - 8) : start])
+        or _OPERATOR_AFTER.match(display, end)
+    )
+
+
+def slash_tex(text: str) -> str:
+    """Slash fractions as LaTeX, innermost first: "1/(1 − 1/p^s)" is
+    "\\frac{1}{1 − \\frac{1}{p^s}}"."""
+
+    def frac(m: re.Match[str]) -> str:
+        top, bottom = (
+            part[1:-1] if part[:1] == "(" and part[-1:] == ")" else part for part in m.groups()
+        )
+        return rf"\frac{{{top}}}{{{bottom}}}"
+
+    while True:
+        inner = re.sub(rf"(?<![\w/.^])({_TERM})/({_TERM})", frac, text)
+        if inner == text:
+            return text
+        text = inner
+
+
+def say_slash_fraction(m: re.Match[str]) -> str | None:
+    top, bottom = (part.strip("()") for part in m.groups())
+    if top.isdigit() and bottom.isdigit():
+        return None  # "24/7" or a date, not a formula
+    if top.isalpha() and bottom.isalpha():
+        return None  # "n/a", "w/o"
+    return say_math(slash_tex(m[0]), in_expression(m.string, m.start(), m.end()))
+
+
 _SYMBOL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str | None]], ...] = (
+    (SLASH_FRACTION, say_slash_fraction),
+    (_MINUS_BEFORE, lambda m: "minus"),
     # A Greek letter used as a function: "ζ(s)" is "zeta of s".
     (
         re.compile(rf"(?<![^\W\d_])([{_GREEK}])\(([^()\n]{{1,40}})\)"),
@@ -262,7 +314,7 @@ _SYMBOL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str | None
     ),
     # A comparison between two words or numbers, as in "s > 1" or "x = 2".
     (
-        re.compile(r"(?<=[\w)][ \t])(<=|>=|[<>=])(?=[ \t]+[\w(-])"),
+        re.compile(r"(?<=[\w)][ \t])(<=|>=|[<>=])(?=[ \t]+[\w(\-−∑∏∫√∞])"),
         lambda m: say_math(m[1].replace("<=", "≤").replace(">=", "≥")),
     ),
     (re.compile("[∞≤≥≠≈≡∝∈∉⊂⊆∪∩∀∃∂∇→⇒⇔×÷±∓°∑∏∫√∛−⋅⋯]"), lambda m: symbol_words(m[0])),
@@ -303,7 +355,7 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
         if done[m.start()]:
             continue
         tex, block = math_parts(m)
-        words = say_math(tex)
+        words = say_math(tex, in_expression(display, m.start(), m.end()))
         if words is None:
             words = EQUATION_BLOCK if block and _own_line(display, m) else EQUATION
         drop(m.start(), m.end(), _spaced(display, m.start(), m.end(), words))

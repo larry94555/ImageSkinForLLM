@@ -102,7 +102,7 @@ def test_greek_letters_and_symbols_have_names() -> None:
         ),
         (
             "Sum 1/n^s for x ≤ 3, at 30°.",
-            "Sum 1/n to the power of s for x is less than or equal to 3, at 30 degrees.",
+            "Sum 1 over n to the power of s for x is less than or equal to 3, at 30 degrees.",
         ),
         ("Area is πr² and 2^{10} is big.", "Area is pi r squared and 2 to the power of 10 is big."),
         ("$\\pi$ is a number.", "Pi is a number."),
@@ -142,3 +142,31 @@ def test_a_cut_inside_math_is_known() -> None:
     assert inside_whole(line, line.index(",") + 1)
     assert inside_whole(line, line.index("c,") + 2)
     assert not inside_whole(line, line.index(" and"))
+
+
+@pytest.mark.parametrize(
+    ("tex", "said"),
+    [
+        # Larry heard "1 minus 1 over p" as (1 minus 1) over p (2026-10-15).
+        (r"1 - \frac{1}{p}", "1 minus the fraction 1 over p"),
+        (r"\frac{1}{p} + 1", "the fraction 1 over p, plus 1"),
+        (r"\frac{x+1}{2}", "the quantity x plus 1, divided by 2"),
+        (
+            r"\prod_p \frac{1}{1 - p^{-s}} = \zeta(s)",
+            "the product from p of 1 divided by the quantity 1 minus p to the power of minus s,"
+            " equals zeta of s",
+        ),
+        (
+            r"\frac{1}{1 - \frac{1}{p^s}}",
+            "1 divided by the quantity 1 minus the fraction 1 over p to the power of s",
+        ),
+        (r"\frac{\sin x}{x}", "sine of x over x"),  # one term over one term
+    ],
+)
+def test_a_fraction_is_said_so_it_can_be_heard_only_one_way(tex: str, said: str) -> None:
+    assert say_math(tex) == said
+
+
+def test_a_fraction_next_to_text_that_goes_on_with_it_is_the_fraction() -> None:
+    assert say_math(r"\frac{1}{p}") == "1 over p"
+    assert say_math(r"\frac{1}{p}", in_expression=True) == "the fraction 1 over p"

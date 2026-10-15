@@ -165,3 +165,32 @@ def test_a_cut_inside_what_is_replaced_whole_is_known() -> None:
     assert inside_whole("| Name of the person | Age", 12)
     assert inside_whole("| a | b |\n|---|---|\n| one two | three", 30)
     assert not inside_whole("| a | b |\nThen more words", 20)
+
+
+@pytest.mark.parametrize(
+    ("display", "said"),
+    [
+        # Larry's transcript (2026-10-15): heard as (1 minus 1) over p.
+        (
+            "the product of 1 - 1/p for all primes p.",
+            "the product of 1 minus the fraction 1 over p for all primes p.",
+        ),
+        (
+            "Euler: ∏ 1/(1 − 1/p^s) = ∑ 1/n^s.",
+            "Euler: the product 1 divided by the quantity 1 minus the fraction 1 over p to the"
+            " power of s equals the sum 1 over n to the power of s.",
+        ),
+        (
+            "the product of 1/(1 - p^(-s)) over primes",
+            "the product of 1 divided by the quantity 1 minus p to the power of minus s over"
+            " primes",
+        ),
+        ("It is $1 - \\frac{1}{p}$.", "It is 1 minus the fraction 1 over p."),
+        ("It is $\\frac{1}{p}$ - 1.", "It is the fraction 1 over p - 1."),
+        ("Open 24/7, n/a, and/or on 10/15/2026.", "Open 24/7, n/a, and/or on 10/15/2026."),
+    ],
+)
+def test_fractions_with_a_slash_are_said_so_they_can_be_heard_only_one_way(
+    display: str, said: str
+) -> None:
+    assert spoken(display) == said

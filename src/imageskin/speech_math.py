@@ -204,6 +204,10 @@ _SYMBOLS = {
     ";": [","],
 }
 _QUIET = set(".:|&~")  # said as nothing
+# What splits an expression into terms, so a fraction's top or bottom with one is a quantity.
+_TERM_BREAKS = {"+", "-", "=", "pm", "mp", "<", ">", "le", "ge", "ne", "approx"}
+# A term after a fraction that would run into it: "the fraction 1 over p plus 1".
+_NEXT_TERM = {"+", "-", "−", "*", "/", "\\cdot", "\\times", "\\pm", "\\mp", "^"}
 
 
 def greek_name(ch: str) -> str | None:
@@ -244,11 +248,15 @@ class _Unsayable(Exception):
 
 
 class _Reader:
-    def __init__(self, tex: str) -> None:
+    def __init__(self, tex: str, in_expression: bool = False) -> None:
         self.tokens: list[str] = _TOKEN.findall(tex)
         self.at = 0
         self.function = False  # whether the last thing said takes "of" before brackets
         self.in_limit = False  # under \lim, where "\to" is "goes to"
+        self.before: list[str] = []  # what was said before the item being read
+        # Whether the text around the LaTeX goes on with the expression ("1 - 1/p"), so a
+        # fraction that is all of it is still said as "the fraction".
+        self.in_expression = in_expression
 
     def peek(self) -> str | None:
         return self.tokens[self.at] if self.at < len(self.tokens) else None
@@ -279,6 +287,7 @@ class _Reader:
         return self.item([])
 
     def item(self, before: list[str]) -> list[str]:
+        self.before = before
         was_function, self.function = self.function, False
         token = self.take()
         if token in _UNICODE:  # a symbol, as the command or character it stands for
@@ -343,8 +352,7 @@ class _Reader:
         if name in _FUNCTIONS:
             return self.function_words(_FUNCTIONS[name])
         if name in ("frac", "dfrac", "tfrac"):
-            top = self.argument()
-            return [*top, "over", *self.argument()]
+            return self.fraction()
         if name == "binom":
             top = self.argument()
             return [*top, "choose", *self.argument()]
@@ -367,6 +375,45 @@ class _Reader:
             self.function = name in _GREEK_NAMES or name.lower() in _GREEK_NAMES
             return _SAY[name].split()
         raise _Unsayable(name)
+
+    def fraction(self) -> list[str]:
+        """A fraction said so it can only be heard one way (Larry, on "1 minus 1 over p"):
+        "1 minus the fraction 1 over p", and "1 divided by the quantity 1 minus p" when the
+        top or bottom is more than one term."""
+        before = self.before
+        first = self.at == 1  # the fraction is the first thing in the LaTeX
+        start = self.at
+        top = self.argument()
+        top_simple = self.simple(start)
+        start = self.at
+        bottom = self.argument()
+        bottom_simple = self.simple(start)
+        if top_simple and bottom_simple:
+            beside = before[-1:] in (["minus"], ["plus"], ["times"], ["over"], ["by"])
+            words = [*top, "over", *bottom]
+            if self.peek() in _NEXT_TERM:
+                return ["the", "fraction", *words, ","]
+            if beside or (self.in_expression and first and self.peek() is None):
+                return ["the", "fraction", *words]
+            return words
+        if not top_simple:
+            top = ["the", "quantity", *top, ","]
+        if not bottom_simple:
+            bottom = ["the", "quantity", *bottom]
+            if self.peek() is not None and self.peek() not in ")]}":
+                bottom.append(",")  # where the quantity ends
+        return [*top, "divided", "by", *bottom]
+
+    def simple(self, start: int) -> bool:
+        """Whether the tokens from `start` to here are one term: no "+", "-" or "=" outside
+        brackets, so "p^{-s}" is one but "1 - p" isn't."""
+        depth = 0
+        for token in self.tokens[start : self.at]:
+            depth += token in "{([" or token in ("\\left",)
+            depth -= token in "})]"
+            if depth <= 1 and (token in _TERM_BREAKS or _UNICODE.get(token) in _TERM_BREAKS):
+                return False
+        return True
 
     def big(self, name: str) -> list[str]:
         """A sum, product, integral or limit with where it runs: "the sum from n equals 1 to
@@ -397,11 +444,12 @@ class _Reader:
         return words
 
 
-def say_math(tex: str) -> str | None:
+def say_math(tex: str, in_expression: bool = False) -> str | None:
     """LaTeX said in words, or None when it is too long to say or has a command this module
-    doesn't know: the caller then points to the text instead."""
+    doesn't know: the caller then points to the text instead. With `in_expression`, the text
+    around it goes on with the expression, so a fraction is said as "the fraction"."""
     try:
-        words = _Reader(tex).run()
+        words = _Reader(tex, in_expression).run()
     except _Unsayable:
         return None
     if words[-1:] == ["of"]:
