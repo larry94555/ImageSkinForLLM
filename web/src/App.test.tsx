@@ -23,6 +23,7 @@ import {
   countMatches,
   duration,
   latestExchange,
+  loadLesson,
   loadSound,
   minutes,
   splitMatches,
@@ -1423,6 +1424,234 @@ test("the example questions are chips in the design's colours", () => {
   expect(styles).toMatch(/\.hints li \{[^}]*border: 0;[^}]*background: none/);
 });
 
+// --- Teach me (R41h) ---
+
+// The chat's server, answering each prompt with the next of `replies`.
+function lessonServer(...replies: object[]) {
+  let n = 0;
+  return chatServer([], () =>
+    Response.json({
+      role: "assistant",
+      turn: 2 * n + 1,
+      ...replies[Math.min(n++, replies.length - 1)],
+    }),
+  );
+}
+
+function sentBodies(server: ReturnType<typeof chatServer>) {
+  return server.mock.calls
+    .filter(([url, init]) => url === "/api/chat" && init?.method === "POST")
+    .map(([, init]) => JSON.parse(init!.body as string) as Record<string, unknown>);
+}
+
+const ZETA = { topic: "Zeta Function", part: 0, active: true, parts: 3 };
+
+// The server's saved settings turn Teach me on (it is off by default); every other request goes
+// to the server the test set up.
+function teachMeOn() {
+  const server = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) =>
+      url === "/api/settings" ? Response.json({ teach_me: true }) : server(url, init),
+    ),
+  );
+}
+
+test("Teach me asks which topic, and clicking one starts the lesson", async () => {
+  const server = lessonServer(
+    {
+      content: "What would you like to learn about?",
+      lesson: null,
+      choices: [
+        { label: "Zeta Function", prompt: "Teach me about Zeta Function" },
+        { label: "Everything, from the start", prompt: "Teach me everything from the start" },
+      ],
+    },
+    { content: "The zeta function adds up powers.", lesson: ZETA, choices: [] },
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  teachMeOn();
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Teach me" }));
+  });
+  const choices = within(await screen.findByRole("list", { name: "Choices" }));
+  await waitFor(() =>
+    expect((choices.getAllByRole("button")[0] as HTMLButtonElement).disabled).toBe(false),
+  );
+  expect(choices.getAllByRole("button").map((b) => b.textContent)).toEqual([
+    "Zeta Function",
+    "Everything, from the start",
+  ]);
+  await act(async () => {
+    fireEvent.click(choices.getByRole("button", { name: "Zeta Function" }));
+  });
+  expect(await screen.findByText("The zeta function adds up powers.")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Choices" })).toBeNull(); // gone once one is picked
+  expect(screen.getByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
+  expect(sentBodies(server).map((b) => [b.prompt, b.lesson])).toEqual([
+    ["Teach me", undefined],
+    ["Teach me about Zeta Function", undefined],
+  ]);
+  expect(loadLesson()).toEqual(ZETA); // kept on this browser
+});
+
+test("turning Teach me off hides its choices and keeps the lesson's place", async () => {
+  localStorage.setItem("imageskin.lesson", JSON.stringify({ ...ZETA, active: false }));
+  lessonServer({
+    content: "What would you like to learn about?",
+    lesson: { ...ZETA, active: false },
+    choices: [{ label: "Carry on with Zeta Function", prompt: "Teach me about Zeta Function" }],
+  });
+  let teachMe = true;
+  const server = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/settings") return server(url, init);
+      if (init?.method === "PATCH") teachMe = JSON.parse(String(init.body)).teach_me;
+      return Response.json({ teach_me: teachMe });
+    }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Teach me" }));
+  });
+  expect(await screen.findByRole("list", { name: "Choices" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("checkbox", { name: "Teach me" }));
+  });
+  expect(teachMe).toBe(false);
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Choices" })).toBeNull());
+  expect(screen.queryByRole("button", { name: "Teach me" })).toBeNull();
+  expect(loadLesson()).toEqual({ ...ZETA, active: false }); // kept for when it is back on
+});
+
+test("Next and more simply send the lesson along, and the place shown follows it", async () => {
+  localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
+  const server = lessonServer(
+    { content: "Part two.", lesson: { ...ZETA, part: 1 } },
+    { content: "Part two, simply.", lesson: { ...ZETA, part: 1 } },
+    { content: "In short, zeta.", lesson: { ...ZETA, part: 3 } },
+  );
+  teachMeOn();
+  await openAt("#/chat");
+  expect(await screen.findByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
+  for (const label of ["Next", "Say it more simply", "Next"]) {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: label }));
+    });
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+  }
+  expect(screen.getByText("Lesson: Zeta Function · summary")).toBeTruthy();
+  const sent = (prompt: string, part: number) => ({
+    prompt,
+    reply_id: expect.any(String),
+    lesson: { topic: "Zeta Function", part, active: true }, // without the count of parts
+  });
+  expect(sentBodies(server)).toEqual([
+    sent("Next", 0),
+    sent("Say it more simply", 1),
+    sent("Next", 1),
+  ]);
+});
+
+test("stopping hides the lesson but keeps its place; finishing forgets it", async () => {
+  localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
+  lessonServer(
+    { content: "OK, we'll stop here.", lesson: { ...ZETA, active: false } },
+    { content: "That's everything.", lesson: null },
+  );
+  teachMeOn();
+  await openAt("#/chat");
+  const stop = await screen.findByRole("button", { name: "Stop the lesson" });
+  await act(async () => {
+    fireEvent.click(stop);
+  });
+  await screen.findByText("OK, we'll stop here.");
+  expect(screen.queryByText(/^Lesson:/)).toBeNull();
+  expect(loadLesson()).toEqual({ ...ZETA, active: false });
+  fireEvent.input(promptBox(), { target: { value: "Teach me about Zeta Function" } });
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("That's everything.");
+  expect(loadLesson()).toBeNull();
+});
+
+test("a reply that says nothing about lessons leaves the lesson as it was", async () => {
+  localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
+  chatServer([], () => Response.json({ role: "assistant", content: "Hi." }));
+  teachMeOn();
+  await openAt("#/chat");
+  fireEvent.input(await screen.findByRole("textbox", { name: "Your message" }), {
+    target: { value: "Hello" },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Hi.");
+  expect(loadLesson()).toEqual(ZETA);
+});
+
+test("a lesson saved wrongly, or storage that can't be read, means no lesson", () => {
+  for (const saved of ["{", '"text"', '{"topic": 3, "part": 0}', '{"topic": "A", "part": -1}']) {
+    localStorage.setItem("imageskin.lesson", saved);
+    expect(loadLesson()).toBeNull();
+  }
+  localStorage.setItem("imageskin.lesson", '{"topic": "A", "part": 2}');
+  expect(loadLesson()).toEqual({ topic: "A", part: 2, active: true, parts: undefined });
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    throw new Error("blocked");
+  });
+  expect(loadLesson()).toBeNull();
+});
+
+test("a lesson that can't be kept is logged, and the chat goes on", async () => {
+  lessonServer({ content: "Zeta.", lesson: ZETA });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("full");
+  });
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  teachMeOn();
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Teach me" }));
+  });
+  expect(await screen.findByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
+  expect(console.error).toHaveBeenCalledWith("Could not keep the lesson", expect.any(Error));
+});
+
+test("with Teach me off, there's no Teach me button and the saved lesson stays", async () => {
+  localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
+  const server = lessonServer({ content: "Hi.", lesson: null });
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  expect(screen.queryByRole("button", { name: "Teach me" })).toBeNull();
+  expect(screen.queryByText(/^Lesson:/)).toBeNull();
+  fireEvent.input(promptBox(), { target: { value: "Teach me" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  });
+  await screen.findByText("Hi.");
+  expect(sentBodies(server)[0].lesson).toBeUndefined();
+  expect(loadLesson()).toEqual(ZETA); // still there for when Teach me is turned on
+});
+
 test("Enter sends and Shift+Enter does not", async () => {
   const fetchMock = chatServer([], () =>
     Response.json({ role: "assistant", content: "Got it." }),
@@ -2448,6 +2677,10 @@ test("if the conversation can't be loaded, the chat says so", async () => {
 
 // --- Stop, volume and mute (R19) ---
 
+function stopButton(): HTMLButtonElement {
+  return screen.getByRole("button", { name: "Stop" }) as HTMLButtonElement;
+}
+
 test("the chat shows the idle video, with the reply's clips over it", async () => {
   const [answer, reply] = later();
   const made = clipsMade(["/api/chat/clips/x/1"], false);
@@ -2481,7 +2714,10 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
-  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull(); // nothing to stop yet
+  // Always shown, first and in red, so it is easy to find; nothing to stop yet.
+  expect(stopButton().disabled).toBe(true);
+  expect(stopButton().className).toBe("stop");
+  expect(document.querySelector(".sound-controls button")).toBe(stopButton());
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(document.querySelector("video.reply-video")).not.toBeNull());
@@ -2489,7 +2725,7 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
   expect(pause).toHaveBeenCalled(); // the clip stops at once
   expect(shownVideo().autoplay).toBe(false); // and doesn't start again
-  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  expect(stopButton().disabled).toBe(true);
   expect(screen.queryByText("Getting ready to say it…")).toBeNull();
   const stops = fetchMock.mock.calls.filter(([url]) => url.endsWith("/stop"));
   expect(stops).toHaveLength(1);
@@ -2507,7 +2743,9 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   await screen.findByText("Once upon a time.");
   fireEvent.input(promptBox(), { target: { value: "Again" } });
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false),
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
   ); // the next prompt can be sent
 });
 
@@ -2565,7 +2803,9 @@ test("Stop frees the chat at once while a clip request is still waiting", async 
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
   fireEvent.input(promptBox(), { target: { value: "Again" } });
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false),
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
   );
 });
 
@@ -2587,7 +2827,7 @@ test("a stop the server refuses is logged", async () => {
   );
 });
 
-test("Stop shows until the last clip has played", async () => {
+test("Stop can be clicked until the last clip has played", async () => {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   chatServer(
     [],
@@ -2605,9 +2845,9 @@ test("Stop shows until the last clip has played", async () => {
   await waitFor(() => expect(shownVideo()).not.toBeNull());
   fireEvent.playing(shownVideo());
   await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
-  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy(); // still playing
+  expect(stopButton().disabled).toBe(false); // still playing
   fireEvent.ended(shownVideo());
-  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  expect(stopButton().disabled).toBe(true);
 });
 
 test("mute and volume reach both players and are kept for the next visit", async () => {
@@ -2718,6 +2958,21 @@ test("the timing metrics are hidden until turned on in the Settings menu", async
   cleanup(); // a reload: the saved setting is read again
   await openAt("#/setup");
   expect(await screen.findByText("Done in 31 s")).toBeTruthy();
+});
+
+test("Teach me is off until turned on in the Settings menu (Larry, 2026-10-15)", async () => {
+  const saved: { show_metrics: boolean; teach_me?: boolean } = { show_metrics: false };
+  settingsServer(saved);
+  await openAt("#/setup");
+  await screen.findByText("52 of 200 · about 12 min left");
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  const box = screen.getByRole("checkbox", { name: "Teach me" }) as HTMLInputElement;
+  expect(box.checked).toBe(false);
+  await act(async () => {
+    fireEvent.click(box);
+  });
+  expect(saved.teach_me).toBe(true);
+  expect(box.checked).toBe(true);
 });
 
 test("a setting that can't be saved says so and stays as it was", async () => {

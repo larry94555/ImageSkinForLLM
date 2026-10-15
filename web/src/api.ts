@@ -236,15 +236,43 @@ export interface Reply extends Turn {
   // video. A streamed reply whose clips went away is not spoken again: a newer prompt, perhaps
   // from another tab, took them, and that one is the reply to hear.
   streamed: boolean;
+  // The lesson after this prompt (roadmap R41h), null when there is none or it is over, and
+  // choices to show as buttons, such as which topic to learn.
+  lesson?: Lesson | null;
+  choices?: Choice[];
+}
+
+// Where a lesson is (roadmap R41h): its topic, the part being taught (from 0; the part after
+// the last is the topic's summary) and, from the server, how many parts the topic has. The
+// browser keeps it, so a student who stops picks up where they left off.
+export interface Lesson {
+  topic: string;
+  part: number;
+  active: boolean;
+  parts?: number;
+}
+
+// A button offered with a reply, which sends `prompt` when clicked.
+export interface Choice {
+  label: string;
+  prompt: string;
 }
 
 // Sends a prompt and returns the LLM's reply. Throws an Error saying why when it fails.
 // `replyId` names the reply, so its clips can be asked for while the LLM writes (roadmap R22).
-export async function sendPrompt(prompt: string, replyId?: string): Promise<Reply> {
+// `lesson` is the lesson this browser has, if any (R41h).
+export async function sendPrompt(
+  prompt: string,
+  replyId?: string,
+  lesson?: Lesson | null,
+): Promise<Reply> {
+  const body: Record<string, unknown> = { prompt };
+  if (replyId) body.reply_id = replyId;
+  if (lesson) body.lesson = { topic: lesson.topic, part: lesson.part, active: lesson.active };
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(replyId ? { prompt, reply_id: replyId } : { prompt }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Reply;
@@ -575,15 +603,21 @@ export interface UiSettings {
   show_metrics: boolean; // the timing readout under the video and the other timings
   // Every page and option, or the chat and a read-only wiki with its PDFs (R41b).
   view: View;
+  teach_me: boolean; // the Teach me button and lessons in the chat (R41h); off by default
 }
 
-export const DEFAULT_SETTINGS: UiSettings = { show_metrics: false, view: "teacher" };
+export const DEFAULT_SETTINGS: UiSettings = {
+  show_metrics: false,
+  view: "teacher",
+  teach_me: false,
+};
 
 // Any value the server didn't send as one the setting can take is the default.
 function settings(data: Partial<UiSettings>): UiSettings {
   return {
     show_metrics: data.show_metrics === true,
     view: data.view === "student" ? "student" : "teacher",
+    teach_me: data.teach_me === true,
   };
 }
 

@@ -16,6 +16,8 @@ import {
   getClips,
   IDLE_VIDEO_URL,
   type ChatHints,
+  type Choice,
+  type Lesson,
   getChatHints,
   getChatPhoto,
   getPhotoChoice,
@@ -803,6 +805,31 @@ export interface Sound {
 
 const SOUND_KEY = "imageskin.sound";
 
+// The lesson this browser has (roadmap R41h), kept so a student who stops picks up where they
+// left off.
+const LESSON_KEY = "imageskin.lesson";
+
+export function loadLesson(): Lesson | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LESSON_KEY) ?? "null") as Partial<Lesson> | null;
+    if (typeof saved?.topic !== "string" || !Number.isInteger(saved.part) || saved.part! < 0)
+      return null;
+    const parts = Number.isInteger(saved.parts) ? saved.parts : undefined;
+    return { topic: saved.topic, part: saved.part!, active: saved.active !== false, parts };
+  } catch {
+    return null; // storage blocked, or something else saved there
+  }
+}
+
+function saveLesson(lesson: Lesson | null) {
+  try {
+    if (lesson) localStorage.setItem(LESSON_KEY, JSON.stringify(lesson));
+    else localStorage.removeItem(LESSON_KEY);
+  } catch (e) {
+    console.error("Could not keep the lesson", e);
+  }
+}
+
 export function loadSound(): Sound {
   try {
     const saved = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "null") as Partial<Sound> | null;
@@ -829,6 +856,7 @@ function saveSound(sound: Sound) {
 // (roadmap R22); if that fails, the reply stays as text with a short note.
 function Chat() {
   const metrics = useSettings().show_metrics; // the timing readout (R41a)
+  const teachMe = useSettings().teach_me; // the Teach me button and lessons (R41h)
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
@@ -856,6 +884,8 @@ function Chat() {
   // The topics line and example questions under the prompt box (R41g), read again after each
   // reply so they follow the PDFs.
   const [hints, setHints] = useState<ChatHints>({ line: null, examples: [] });
+  const [lesson, setLesson] = useState<Lesson | null>(loadLesson); // Teach me (R41h)
+  const [choices, setChoices] = useState<Choice[]>([]); // offered with the latest reply
   const clipTotal = useRef(0); // how many clips the latest reply has so far
   const allMade = useRef(false); // and that no more will come
   const clipsEnded = useRef(0); // how many of them have ended or been passed over
@@ -967,6 +997,7 @@ function Chat() {
     setWhole(false);
     setTurns((t) => [...(t ?? []), { role: "user", content: text }]);
     setPrompt("");
+    setChoices([]);
     // Why the clips failed, if they did, kept until the reply is in: a clip can fail long
     // before, and a rejection with nothing waiting on it would be reported as unhandled.
     let clipCount = 0;
@@ -981,8 +1012,16 @@ function Chat() {
     let reply: Reply;
     let repliedAt = 0;
     try {
-      reply = await sendPrompt(text, replyId);
+      reply = await sendPrompt(text, replyId, teachMe ? lesson : null);
       repliedAt = performance.now();
+      // With Teach me off, the lesson isn't sent, so the one kept stays for when it is back on.
+      if (teachMe && reply.lesson !== undefined) {
+        const next = reply.lesson;
+        setLesson(next);
+        saveLesson(next);
+        if (next) console.info(`Lesson: ${next.topic}, part ${next.part + 1}`);
+      }
+      setChoices(reply.choices ?? []);
       const { role, content } = reply;
       setTurns((t) => [...(t ?? []), { role, content }]);
     } catch (e) {
@@ -1134,12 +1173,91 @@ function Chat() {
             }}
           />
         </label>
-        <button type="submit" disabled={sending || speaking || !prompt.trim()}>
-          Send
-        </button>
+        <div className="send-buttons">
+          <button type="submit" disabled={sending || speaking || !prompt.trim()}>
+            Send
+          </button>
+          {teachMe && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={sending || speaking}
+              onClick={() => void send(TEACH_ME)}
+            >
+              Teach me
+            </button>
+          )}
+        </div>
       </form>
+      {/* The choices are a lesson's, so they go with the setting (review on PR #87). */}
+      {teachMe && (
+        <Choices choices={choices} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+      )}
+      {teachMe && lesson?.active && (
+        <LessonControls
+          lesson={lesson}
+          disabled={sending || speaking}
+          onAsk={(q) => void send(q)}
+        />
+      )}
       <Hints hints={hints} disabled={sending || speaking} onAsk={(q) => void send(q)} />
       {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
+      </div>
+    </div>
+  );
+}
+
+// What the Teach me button sends (R41h); typing it does the same.
+const TEACH_ME = "Teach me";
+
+// Buttons offered with the latest reply, such as which topic to learn (R41h).
+function Choices(props: { choices: Choice[]; disabled: boolean; onAsk: (prompt: string) => void }) {
+  if (props.choices.length === 0) return null;
+  return (
+    <ul className="choices-row" aria-label="Choices">
+      {props.choices.map((choice) => (
+        <li key={choice.prompt}>
+          <button
+            type="button"
+            className="example"
+            disabled={props.disabled}
+            onClick={() => props.onAsk(choice.prompt)}
+          >
+            {choice.label}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// While a lesson is going (R41h): where it is, and Next, more simply and Stop.
+function LessonControls(props: {
+  lesson: Lesson;
+  disabled: boolean;
+  onAsk: (prompt: string) => void;
+}) {
+  const { topic, part, parts } = props.lesson;
+  const where =
+    parts === undefined ? "" : part >= parts ? " · summary" : ` · part ${part + 1} of ${parts}`;
+  return (
+    <div className="lesson">
+      <p className="muted">
+        Lesson: {topic}
+        {where}
+      </p>
+      <div className="lesson-buttons">
+        {["Next", "Say it more simply", "Stop the lesson"].map((label) => (
+          <button
+            key={label}
+            type="button"
+            className="secondary"
+            disabled={props.disabled}
+            onClick={() => props.onAsk(label)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -1554,8 +1672,8 @@ export function ClipPlayer(props: {
   );
 }
 
-// Stop, mute and volume for the person speaking (roadmap R19). Stop shows only while there is
-// something to stop.
+// Stop, mute and volume for the person speaking (roadmap R19). Stop is always shown, first and in
+// red, so it is easy to find; it can be clicked only while there is something to stop.
 export function SoundControls(props: {
   sound: Sound;
   onChange: (change: Partial<Sound>) => void;
@@ -1564,11 +1682,10 @@ export function SoundControls(props: {
   const { sound, onChange, onStop } = props;
   return (
     <div className="sound-controls">
-      {onStop && (
-        <button type="button" className="secondary" onClick={onStop}>
-          Stop
-        </button>
-      )}
+      <button type="button" className="stop" onClick={onStop} disabled={onStop === undefined}>
+        <span className="stop-icon" aria-hidden="true" />
+        Stop
+      </button>
       <button
         type="button"
         className="secondary"

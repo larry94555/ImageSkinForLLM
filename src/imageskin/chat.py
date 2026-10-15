@@ -17,7 +17,7 @@ import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from imageskin.sentences import SentenceSplitter
 from imageskin.topics import (
@@ -84,6 +84,16 @@ MIN_PASSAGE_CHARS = 80
 # matches the prompt (roadmap R41), when there are no topics to name (R41f). It is spoken, so it
 # is short and plain.
 OFF_TOPIC = " ".join(decline_reply([]))
+
+
+@dataclass(frozen=True)
+class Teach:
+    """A lesson step for the LLM (R41h): what it is asked in place of the prompt, and the
+    material to teach from, best first, quoted before it as reference text like content found
+    for a question (R40). The prompt as typed is what the conversation keeps."""
+
+    instruction: str
+    material: list[str]
 
 
 @dataclass(frozen=True)
@@ -159,6 +169,23 @@ def latest(turns: list[Turn], budget: int, count: Count = estimate) -> list[Turn
     if kept and kept[-1].role == "assistant":
         kept.pop()
     return list(reversed(kept))
+
+
+def checked(prompt: str) -> str:
+    """The prompt without the spaces around it; an empty one is refused."""
+    prompt = prompt.strip()
+    if not prompt:
+        raise ValueError("Type something to send.")
+    return prompt
+
+
+class _Fit(NamedTuple):
+    """How a prompt fits the context window (`Conversation._fit`)."""
+
+    window: int
+    budget: int
+    room: int  # for the prompt and the content quoted with it
+    turns: list[Turn]  # the latest turns that fit the history's budget
 
 
 def ms_since(start: float) -> float:
@@ -410,21 +437,35 @@ class Conversation:
         if self._warm_up is not None:
             self._warm_up()
 
-    def send(self, prompt: str, on_sentence: OnSentence | None = None) -> tuple[Turn, int]:
+    def send(
+        self, prompt: str, on_sentence: OnSentence | None = None, teach: Teach | None = None
+    ) -> tuple[Turn, int]:
         """Send the prompt with the conversation so far; the reply is kept with it. Returns the
         reply and its place in the conversation (from 0), which other requests can't change.
         When the reply is streamed, `on_sentence` is told when the LLM starts writing (None)
-        and is then given each sentence as soon as it is complete (roadmap R21)."""
-        prompt = prompt.strip()
-        if not prompt:
-            raise ValueError("Type something to send.")
+        and is then given each sentence as soon as it is complete (roadmap R21). With `teach`,
+        the LLM is asked its instruction from its material instead (R41h)."""
+        prompt = checked(prompt)
         with self._busy:
             self.wait()  # for a summary still being made after the last reply
-            return self._send(prompt, on_sentence)
+            return self._send(prompt, on_sentence, teach)
 
-    def _send(self, prompt: str, on_sentence: OnSentence | None) -> tuple[Turn, int]:
-        # Only this send (holding _busy, with no summary running) changes the turns or summary,
-        # so reading them here is safe; changes are made under _lock for turns().
+    def say(
+        self, prompt: str, sentences: list[str], on_sentence: OnSentence | None = None
+    ) -> tuple[Turn, int]:
+        """Reply to the prompt with these sentences, made outside the LLM (a lesson's choices,
+        R41h), spoken and kept like any reply. The prompt is checked as `send` checks it."""
+        prompt = checked(prompt)
+        with self._busy:
+            self.wait()
+            fit = self._fit(prompt)
+            return self._say(prompt, sentences, on_sentence, fit.turns, fit.budget)
+
+    def _fit(self, prompt: str) -> _Fit:
+        """How the prompt fits the context window, with the turns sent before it. A prompt that
+        doesn't leave room for a reply is refused."""
+        # Only the caller (holding _busy, with no summary running) changes the turns or
+        # summary, so reading them here is safe; changes are made under _lock for turns().
         window = self._context_tokens()
         budget = int(window * HISTORY_SHARE)
         count = self._count
@@ -435,6 +476,15 @@ class Conversation:
         # Normally the summary made after the last reply keeps this within budget; if it
         # couldn't be made, the oldest turns are left out.
         turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
+        return _Fit(window, budget, room, turns)
+
+    def _send(
+        self, prompt: str, on_sentence: OnSentence | None, teach: Teach | None = None
+    ) -> tuple[Turn, int]:
+        window, budget, room, turns = self._fit(prompt)
+        if teach is not None:
+            asked = self._with_content(teach.instruction, teach.material, room)
+            return self._ask_llm(prompt, asked, turns, budget, window, on_sentence)
         if asks_for_topics(prompt):
             return self._tell_topics(prompt, turns, on_sentence, budget)
         # "Tell me about the second one" after the topics were listed is about that topic, so
@@ -447,6 +497,20 @@ class Conversation:
         if found == [] and self._content_only():
             return self._decline(prompt, on_sentence)
         asked = self._with_content(prompt, found, room)
+        return self._ask_llm(prompt, asked, turns, budget, window, on_sentence)
+
+    def _ask_llm(
+        self,
+        prompt: str,
+        asked: str,
+        turns: list[Turn],
+        budget: int,
+        window: int,
+        on_sentence: OnSentence | None = None,
+    ) -> tuple[Turn, int]:
+        """Ask the LLM `asked` after the conversation so far, and keep its reply with the prompt
+        as typed."""
+        count = self._count
         messages = [
             system_message(self._summary),
             *map(as_message, turns),
