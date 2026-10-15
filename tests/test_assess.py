@@ -69,6 +69,22 @@ class Writer:
         return self.verdicts.pop(0) if self.verdicts else "Verdict: Right\nAnswer: Yes."
 
 
+def only_applies(answer: str = "Verdict: Right\nAnswer: Yes.") -> Any:
+    """An LLM that can't write a recall or explain question, so they are asked plainly, but
+    writes each apply question (there is no plain one), and judges with `answer`."""
+    written = []
+
+    def write(instruction: str, material: list[str]) -> str:
+        if instruction.startswith("Write"):
+            if "apply or connect" not in instruction:
+                raise LlmError("The LLM is not running.")
+            written.append(instruction)
+            return f"How does it apply, case {len(written)}?"
+        return answer
+
+    return write
+
+
 def assessor(contents: Any = None, write: Any = None, complete: bool = True) -> Assessor:
     return Assessor(
         lambda: CONTENTS if contents is None else contents,
@@ -178,13 +194,8 @@ def test_plain_questions_never_run_out_when_parts_share_a_title() -> None:
     """Review on PR #90: 17 topics, each with a first part called "Overview", ran out of plain
     questions when the LLM couldn't write any."""
 
-    def fails(instruction: str, material: list[str]) -> str:
-        if instruction.startswith("Write"):
-            raise LlmError("The LLM is not running.")
-        return "Verdict: Right\nAnswer: Yes."
-
     topics = [entry(f"T{n}", "Some.", entry("Overview", "More.")) for n in range(17)]
-    a = assessor(contents=[{"entries": topics}], write=fails)
+    a = assessor(contents=[{"entries": topics}], write=only_applies())
     step = assessed(a.step("Assess me", None))
     questions = []
     while step.assessment is not None:
@@ -578,12 +589,7 @@ def test_a_question_whose_material_changed_is_asked_anew(caplog: pytest.LogCaptu
 
 
 def test_a_question_the_llm_can_t_write_is_asked_plainly_never_twice() -> None:
-    def fails(instruction: str, material: list[str]) -> str:
-        if instruction.startswith("Write"):
-            raise LlmError("The LLM is not running.")
-        return "Verdict: Right\nAnswer: Yes."
-
-    a = assessor(contents=[{"entries": [entry("Rain", "It falls.")]}], write=fails)
+    a = assessor(contents=[{"entries": [entry("Rain", "It falls.")]}], write=only_applies())
     step = assessed(a.step("Assess me", None))
     questions = []
     while step.assessment is not None:
@@ -593,34 +599,60 @@ def test_a_question_the_llm_can_t_write_is_asked_plainly_never_twice() -> None:
     assert questions[:3] == [
         "What is one fact about Rain?",
         "How would you explain Rain in your own words?",
-        "What is an example of your own of what Rain says?",
+        "How does it apply, case 1?",
     ]
 
 
 def test_a_plain_question_can_be_answered_from_the_least_material() -> None:
     """Review on PR #90: "How do the ideas in Rain fit together?" can't be answered from "Rain:
-    It falls.", so a plain apply question asks for an example of it instead, and the levels
-    are still split evenly."""
-    judged: list[list[str]] = []
-
-    def fails(instruction: str, material: list[str]) -> str:
-        if instruction.startswith("Write"):
-            raise LlmError("The LLM is not running.")
-        judged.append(material)
-        return "Verdict: Right\nAnswer: It falls."
-
-    a = assessor(contents=[{"entries": [entry("Rain", "It falls.")]}], write=fails)
+    It falls.", so plain questions only restate the material, and the levels are still split
+    evenly."""
+    a = assessor(
+        contents=[{"entries": [entry("Rain", "It falls.")]}],
+        write=only_applies("Verdict: Right\nAnswer: It falls."),
+    )
     step = assessed(a.step("Assess me", None))
     levels = []
     while step.assessment is not None:
         question = step.assessment.question
         levels.append(step.assessment.level)
-        assert question.split("Rain")[0] in {q.split("{}")[0] for pool in PLAIN for q in pool}
+        if step.assessment.level != APPLY:
+            assert question.split("Rain")[0] in {q.split("{}")[0] for p in PLAIN for q in p}
         step = assessed(a.step("It falls", step.assessment))
-    assert all(m == judged[0] for m in judged) and "It falls." in judged[0][0]
     assert Counter(levels) == {RECALL: 5, EXPLAIN_IT: 5, APPLY: 5}
     statement = assessor(write=Writer(questions=["Primes are counted."]))
     assert started(statement).question == "What is one fact about Prime Numbers?"
+
+
+def test_an_apply_question_is_never_asked_plainly(caplog: pytest.LogCaptureFixture) -> None:
+    """Review on PR #90: "Continuum Hypothesis: It is independent of ZFC." says nothing about
+    how it applies, so no plain apply question can be answered from it. The LLM is asked twice,
+    and then the request fails, so it can be sent again; nothing is taken."""
+    asked: list[str] = []
+
+    def fails(instruction: str, material: list[str]) -> str:
+        if instruction.startswith("Write"):
+            asked.append(instruction)
+            raise LlmError("The LLM is not running.")
+        return "Verdict: Right\nAnswer: Yes."
+
+    abstract = [{"entries": [entry("Continuum Hypothesis", "It is independent of ZFC.")]}]
+    a = assessor(contents=abstract, write=fails)
+    first = started(a)
+    second = assessed(a.step("It can't be proved", first)).assessment
+    assert second is not None and second.level == EXPLAIN_IT
+    asked.clear()
+    with pytest.raises(LlmError, match="couldn't write the next question"):
+        a.step("Neither", second)
+    assert len(asked) == 2 and all("apply or connect" in i for i in asked)
+
+
+def test_an_apply_question_written_again_is_used() -> None:
+    write = Writer(questions=["Q1?", "Q2?", "", "How would you use it?"])
+    a = assessor(contents=[{"entries": [entry("Rain", "It falls.")]}], write=write)
+    step = assessed(a.step("Wet", assessed(a.step("Wet", started(a))).assessment))
+    assert step.assessment is not None and step.assessment.question == "How would you use it?"
+    assert step.assessment.level == APPLY
 
 
 def test_a_judgement_the_llm_can_t_give_is_an_error() -> None:

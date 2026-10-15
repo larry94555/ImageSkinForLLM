@@ -122,11 +122,10 @@ LONGEST_REQUEST = 40  # words: a reply this long is an answer
 # What a reply to a question is (Larry, 2026-10-15: every reply was taken as an answer).
 ANSWER, CLARIFY, PROCESS, TALK, DONT_KNOW = "answer", "clarify", "process", "talk", "don't know"
 
-# What each level asks the LLM for, and the questions asked when it can't write one, in turn:
-# as many as a level can have on one part (AT_LEAST / 3). Each can be answered from any
-# material, however little ("Rain: It falls."): recall and explain questions restate it, and
-# apply questions ask for an example of it, which the material can be checked against (review
-# on PR #90).
+# What each level asks the LLM for, and the questions asked when it can't write a recall or
+# explain one, in turn: as many as a level can have on one part (AT_LEAST / 3). Each restates
+# the material, so any material can answer it, however little ("Rain: It falls."); there are
+# none for applying ideas, as the material may not say how they apply (review on PR #90).
 _ASK = (
     "asks the student to recall one fact from",
     "asks the student to explain one idea from, in their own words,",
@@ -147,15 +146,9 @@ PLAIN = (
         "How would you sum up {} simply?",
         "In your own words, what is {} about?",
     ),
-    (
-        "What is an example of your own of what {} says?",
-        "Can you describe a situation where what {} says applies?",
-        "What would you point to as a case of what {} says?",
-        "How would you show someone what {} says with an example?",
-        "Where might you see what {} says in real life?",
-    ),
 )
 
+NO_QUESTION = "The AI couldn't write the next question. Please try again."
 NO_CORRECT_ANSWER = "The AI didn't say what the correct answer is. Please send your answer again."
 TOO_MANY = (
     "There are {} topics, more than the {} an assessment can ask about one question each, so I"
@@ -564,7 +557,9 @@ class Assessor:
         asked: tuple[str, ...],
     ) -> str:
         """A question at the level written by the LLM from the material, or a plain one, not
-        asked already, when it can't."""
+        asked already, when it can't. There is no plain apply question, since the material
+        may not say how it applies (review on PR #90): the LLM is asked twice, and then the
+        request fails, so it can be sent again."""
         instruction = (
             f"Write one short quiz question that {_ASK[level]} {what(topic, parts, part)}, and"
             " that can be answered in a sentence or two from the reference text. Say only the"
@@ -572,14 +567,20 @@ class Assessor:
         )
         if asked:
             instruction += " Don't ask any of these again: " + " ".join(asked)
-        try:
-            written = self._write(instruction, material)
-        except LlmError as e:
-            logger.error("Could not write an assessment question", extra={"error": str(e)})
-            written = ""
         keys = {plain(a) for a in asked}
-        question = first_question(written)
-        if not question or plain(question) in keys:
+        question = ""
+        for _ in range(2 if level == APPLY else 1):
+            try:
+                written = first_question(self._write(instruction, material))
+            except LlmError as e:
+                logger.error("Could not write an assessment question", extra={"error": str(e)})
+                written = ""
+            if written and plain(written) not in keys:
+                question = written
+                break
+        if not question and level == APPLY:
+            raise LlmError(NO_QUESTION)
+        if not question:
             logger.info("Assessment question asked plainly", extra={"topic": topic})
             title = parts[part].title
             if part and title != topic:  # an "Overview" under each topic is told apart
