@@ -11,7 +11,11 @@ from imageskin import cli
 from imageskin.content import ContentStore
 from imageskin.lookup import (
     ContentLookup,
+    Found,
+    Lookup,
     Passage,
+    as_passages,
+    excerpt,
     look_up,
     names_in,
     one_typo_apart,
@@ -183,6 +187,22 @@ def test_a_name_from_the_content_finds_its_passage_whatever_else_is_asked() -> N
     water = [wiki("About Water Cycle. How rain falls."), *(wiki(f"Clouds {n}.") for n in range(4))]
     assert names_in(water) == set()
     assert rank("Is water safe to drink during my cycle?", water) == []
+
+
+def test_a_long_passage_is_cut_where_it_has_the_question_s_words() -> None:
+    """Larry (2026-10-15): the paragraph naming Euler opens with 500 characters of thanks."""
+    thanks = "I believe that I can best convey my thanks to the Academy. " * 9
+    text = f"{thanks}My point of departure is the observation of Euler that the product"
+    cut = excerpt(text, 400, "What did Euler notice?")
+    assert cut.startswith("… ") and cut.endswith("observation of Euler that the product")
+    assert len(cut) <= 402
+    # When the start has the question's words, or none are there, the start is kept.
+    assert excerpt(text, 400, "What thanks did he convey?").startswith("I believe")
+    assert excerpt(text, 400, "Who won the World Cup?").startswith("I believe")
+    assert excerpt("Short.", 400, "Euler?") == "Short."
+    euler = Passage("pdf", "p", "a.pdf", "", text, [2])
+    found = Lookup("What did Euler notice?", pdf=[Found(euler, 1.0)])
+    assert "observation of Euler" in as_passages(found)[0]
 
 
 def test_a_wiki_title_counts_twice() -> None:

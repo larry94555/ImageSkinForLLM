@@ -39,6 +39,8 @@ EXAMPLES = 3
 EXAMPLE_ASKS = ("What can you tell me about {}?", "Can you explain {}?", "Tell me about {}.")
 # The most of a passage the LLM is given to answer from (R40).
 PASSAGE_CHARS = 400
+# How much comes before the question's first word when a passage is cut to show it.
+LEAD_CHARS = 120
 # BM25's usual settings: how fast more of the same word stops adding to the score, and how much
 # a long passage is held back.
 K1 = 1.5
@@ -291,6 +293,25 @@ def shorten(text: str, chars: int) -> str:
     return text if len(text) <= chars else text[:chars].rsplit(" ", 1)[0] + " …"
 
 
+def excerpt(text: str, chars: int, question: str) -> str:
+    """The text on one line, cut to at most about `chars` characters where it has the most of the
+    question's words: the start, unless they come later. The paragraph where the Riemann paper
+    names Euler opens with 500 characters of thanks, so the cut start left Euler out and
+    "What did Euler notice?" got a vague answer (Larry, 2026-10-15)."""
+    text = " ".join(text.split())
+    if len(text) <= chars:
+        return text
+    asked = set(words(question))
+    hits = [(m.span(), w) for m in WORD.finditer(text) for w in words(m.group()) if w in asked]
+
+    def has(start: int) -> int:
+        return len({w for (at, end), w in hits if start <= at and end <= start + chars})
+
+    starts = [0, *(text.rfind(" ", 0, max(0, at - LEAD_CHARS)) + 1 for (at, _), _ in hits)]
+    best = max(starts, key=lambda start: (has(start), -start))
+    return shorten(text, chars) if best == 0 else "… " + shorten(text[best:], chars)
+
+
 def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
     """What was found, best first, each with where it came from, for the LLM to answer from
     (roadmap R40). A long passage (a big table, say) is cut at a word to `chars` characters."""
@@ -299,7 +320,7 @@ def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
     for f in found:
         p = f.passage
         where = f"{p.pdf_name}, {pages_label(p.pages)}"
-        text = shorten(p.text, chars)
+        text = excerpt(p.text, chars, result.question)
         passages.append(f"{p.title} ({where}): {text}" if p.title else f"({where}): {text}")
     return passages
 
