@@ -1054,8 +1054,9 @@ function Chat() {
     setTimes((t) => t.map((c, i) => (i === clip && c.ended === null ? { ...c, ended: at } : c)));
   }
 
-  // Sends what is typed, or an example question that was clicked (R41g).
-  async function send(asked?: string) {
+  // Sends what is typed, or an example question that was clicked (R41g), or what was said with
+  // Hold to talk (R24).
+  async function send(asked?: string, spoken = false) {
     const text = (asked ?? prompt).trim();
     if (!text || sending || speaking) return;
     const shownAt = (turns ?? []).length + 1; // where the reply shows, after the prompt
@@ -1102,6 +1103,7 @@ function Chat() {
         teachMe ? lesson : null,
         quizMe ? quiz : null,
         assessOn ? assessment : null,
+        spoken,
       );
       repliedAt = performance.now();
       // With Teach me off, the lesson isn't sent, so the one kept stays for when it is back on.
@@ -1127,7 +1129,15 @@ function Chat() {
       }
       setChoices(reply.choices ?? []);
       const { role, content } = reply;
-      setTurns((t) => [...(t ?? []), { role, content }]);
+      // A spoken prompt shows as it was answered, with any misheard words put back (R24).
+      const meant = reply.prompt;
+      if (meant && meant !== text) console.info(`Push-to-talk: "${text}" taken as "${meant}"`);
+      setTurns((t) => [
+        ...(t ?? []).map((turn, i, all) =>
+          meant && i === all.length - 1 ? { ...turn, content: meant } : turn,
+        ),
+        { role, content },
+      ]);
     } catch (e) {
       console.error("Could not get a reply", e);
       // The server forgets a prompt that got no reply, so it goes back in the box.
@@ -1284,7 +1294,7 @@ function Chat() {
           <TalkButton
             disabled={sending || speaking}
             onHearing={setPrompt}
-            onHeard={(text) => void send(text)}
+            onHeard={(text) => void send(text, true)}
             onProblem={setFailed}
           />
           {teachMe && !quizGoing && (

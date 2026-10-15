@@ -108,8 +108,9 @@ async function review(decision) {
 async function getChat() {
 	return (await json(await fetch("/api/chat"))).turns;
 }
-async function sendPrompt(prompt, replyId, lesson, quiz, assessment) {
+async function sendPrompt(prompt, replyId, lesson, quiz, assessment, spoken) {
 	const body = { prompt };
+	if (spoken) body.spoken = true;
 	if (replyId) body.reply_id = replyId;
 	if (lesson) body.lesson = {
 		topic: lesson.topic,
@@ -2894,7 +2895,7 @@ function Chat() {
 			ended: at
 		} : c));
 	}
-	async function send(asked) {
+	async function send(asked, spoken = false) {
 		const text = (asked ?? prompt).trim();
 		if (!text || sending || speaking) return;
 		const shownAt = (turns ?? []).length + 1;
@@ -2932,7 +2933,7 @@ function Chat() {
 		let reply;
 		let repliedAt = 0;
 		try {
-			reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null, assessOn ? assessment : null);
+			reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null, assessOn ? assessment : null, spoken);
 			repliedAt = performance.now();
 			if (teachMe && reply.lesson !== void 0) {
 				const next = reply.lesson;
@@ -2954,7 +2955,12 @@ function Chat() {
 			}
 			setChoices(reply.choices ?? []);
 			const { role, content } = reply;
-			setTurns((t) => [...t ?? [], {
+			const meant = reply.prompt;
+			if (meant && meant !== text) console.info(`Push-to-talk: "${text}" taken as "${meant}"`);
+			setTurns((t) => [...(t ?? []).map((turn, i, all) => meant && i === all.length - 1 ? {
+				...turn,
+				content: meant
+			} : turn), {
 				role,
 				content
 			}]);
@@ -3129,7 +3135,7 @@ function Chat() {
 							/* @__PURE__ */ u(TalkButton, {
 								disabled: sending || speaking,
 								onHearing: setPrompt,
-								onHeard: (text) => void send(text),
+								onHeard: (text) => void send(text, true),
 								onProblem: setFailed
 							}),
 							teachMe && !quizGoing && /* @__PURE__ */ u("button", {
