@@ -210,8 +210,14 @@ class AccentChoice(BaseModel):
     available: bool
 
 
-def face_checker(home: Path) -> PhotoCheck | None:
-    """The face checks when MediaPipe is installed; photos are then checked as they arrive."""
+# The last line `imageskin serve` logs at the start, once everything below has loaded (the
+# FAQ quotes it; Larry, 2026-10-15).
+READY_MESSAGE = "Loading has completed. The application is ready for use."
+
+
+def face_checker(home: Path, loading: list[threading.Thread] | None = None) -> PhotoCheck | None:
+    """The face checks when MediaPipe is installed; photos are then checked as they arrive.
+    The thread loading their models is added to `loading`."""
     if importlib.util.find_spec("mediapipe") is None:
         logger.warning(
             'Face checks are off: MediaPipe is not installed. Run: pip install -e ".[faces]"'
@@ -222,16 +228,25 @@ def face_checker(home: Path) -> PhotoCheck | None:
     logger.info("Face checks are on")
     checker = FaceChecker(home / "models" / "faces")
     # Download the models now, so the first photo isn't held up by it.
-    threading.Thread(target=checker.prepare, name="face-models", daemon=True).start()
+    thread = threading.Thread(target=checker.prepare, name="face-models", daemon=True)
+    thread.start()
+    if loading is not None:
+        loading.append(thread)
     return checker.check
 
 
-def sound_checker(speakers: SpeakerChecker) -> SoundCheck:
-    """The sound checks, with the check for a second voice (roadmap R11)."""
+def sound_checker(
+    speakers: SpeakerChecker, loading: list[threading.Thread] | None = None
+) -> SoundCheck:
+    """The sound checks, with the check for a second voice (roadmap R11). The thread loading
+    the speaker model is added to `loading`."""
     from imageskin import sound_checks
 
     # Download the model now, so the first recording isn't held up by it.
-    threading.Thread(target=speakers.prepare, name="speaker-model", daemon=True).start()
+    thread = threading.Thread(target=speakers.prepare, name="speaker-model", daemon=True)
+    thread.start()
+    if loading is not None:
+        loading.append(thread)
     return functools.partial(sound_checks.check, voices=speakers.check)
 
 
@@ -297,6 +312,13 @@ def outline_builder(
         return Outliner(pdf_id, ask, count, window(), progress, wait).outline(topics, pieces)
 
     return build
+
+
+def wait_until_loaded(app: FastAPI) -> None:
+    """Wait for what the app loads in the background at the start: the face and speaker models
+    and, once a sample is accepted, the replies' warm-up (the voice, the video and the LLM)."""
+    for thread in app.state.loading:
+        thread.join()
 
 
 def create_app(
@@ -391,10 +413,12 @@ def create_app(
 
     # One speaker model for the one-speaker check and for picking an accent's base voice.
     speakers = SpeakerChecker(data_home / "models" / "speakers")
+    # What loads in the background at the start; wait_until_loaded waits for it.
+    app.state.loading = []
     store = UploadStore(
         data_home,
-        check_photo or face_checker(data_home),
-        check_sound or sound_checker(speakers),
+        check_photo or face_checker(data_home, app.state.loading),
+        check_sound or sound_checker(speakers, app.state.loading),
     )
     uploads_api = "/api/uploads/{kind}"
     needs_consent = [Depends(require_consent)]
@@ -1103,6 +1127,7 @@ def create_app(
             app.state.reply_warm_up.start()
 
     start_reply_warm_up()
+    app.state.loading.append(app.state.reply_warm_up)
 
     @app.post("/api/chat/video", dependencies=[*needs_consent, Depends(require_accepted)])
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:

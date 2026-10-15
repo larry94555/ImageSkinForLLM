@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import sys
+import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,6 +22,8 @@ from imageskin.video import INSTALL_HINT, VideoEngine, VideoError, find_ffmpeg
 from imageskin.voice import VoiceEngine, VoiceError, write_speech
 
 logger = logging.getLogger(__name__)
+
+READY_POLL_S = 0.1  # how often the ready line checks whether the server is listening yet
 
 ENGINES = ("opencv", "photoreal")
 PRINTED_CHARS = 160  # of each passage the lookup command prints
@@ -258,12 +261,30 @@ def print_lookups(questions: list[str], wiki_limit: int, pdf_limit: int) -> int:
     return 0
 
 
+def announce_ready(server: Any, app: Any, url: str, start: float) -> None:
+    """Log the ready line once the server is listening and everything the app loads at the
+    start has loaded, so it is the last line of the start. Nothing is logged if the server
+    stops first."""
+    from imageskin.app import READY_MESSAGE, wait_until_loaded
+
+    while not server.started:
+        if server.should_exit:
+            return
+        time.sleep(READY_POLL_S)
+    wait_until_loaded(app)
+    logger.info(
+        READY_MESSAGE,
+        extra={"url": url, "duration_ms": round((time.perf_counter() - start) * 1000, 1)},
+    )
+
+
 def serve(settings: Settings) -> None:
     import uvicorn
 
     from imageskin.app import create_app
     from imageskin.chat import LlmSettings
 
+    start = time.perf_counter()
     host, port = settings.host, settings.port
 
     logger.info("Starting server", extra={"host": host, "port": port, "version": __version__})
@@ -272,7 +293,13 @@ def serve(settings: Settings) -> None:
     # access_log=False: the app's own middleware logs each request with its duration.
     llm = LlmSettings(settings.llm_url, settings.llm_model, settings.llm_context_tokens)
     app = create_app(llm=llm, general_prompts=settings.general_prompts)
-    uvicorn.run(app, host=host, port=port, log_config=None, access_log=False)
+    config = uvicorn.Config(app, host=host, port=port, log_config=None, access_log=False)
+    server = uvicorn.Server(config)
+    url = f"http://{host}:{port}"
+    threading.Thread(
+        target=announce_ready, args=(server, app, url, start), name="ready", daemon=True
+    ).start()
+    server.run()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
