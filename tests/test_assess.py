@@ -15,10 +15,11 @@ from imageskin.assess import (
     APPLY,
     AT_LEAST,
     CHANGED,
+    CHECKING,
     CHOOSE_NOTHING,
     EXPLAIN_IT,
     GONE,
-    NO_EXPLAINING,
+    HELP,
     NOTHING_TO_GO_OVER,
     RECALL,
     STILL_READING,
@@ -42,9 +43,12 @@ class Writer:
     """The LLM: writes "Q<n>?" for each question, and judges each answer with the next
     verdict given (Right by default)."""
 
-    def __init__(self, *verdicts: str, questions: list[str] | None = None) -> None:
+    def __init__(
+        self, *verdicts: str, questions: list[str] | None = None, sorts: list[str] | None = None
+    ) -> None:
         self.verdicts = list(verdicts)
         self.questions = list(questions or [])
+        self.sorts = list(sorts or [])  # how each reply the words don't settle is sorted
         self.asked: list[tuple[str, list[str]]] = []
         self.written = 0
 
@@ -53,6 +57,12 @@ class Writer:
         if instruction.startswith("Write one short quiz question"):
             self.written += 1
             return self.questions.pop(0) if self.questions else f"Q{self.written}?"
+        if instruction.startswith("In an assessment, a student was asked"):
+            return self.sorts.pop(0) if self.sorts else "A"
+        if instruction.startswith("In an assessment, the student"):
+            return "It asks what Euler set out to do."
+        if instruction.startswith("The student stopped an assessment"):
+            return "Euler started by counting the primes."
         return self.verdicts.pop(0) if self.verdicts else "Verdict: Right\nAnswer: Yes."
 
 
@@ -143,7 +153,7 @@ def test_a_whole_assessment_then_its_evaluation(caplog: pytest.LogCaptureFixture
             assessment = step.assessment
             assert assessment is not None and assessment.number == n
             asked.append((assessment.topic, assessment.level, assessment.part))
-            step = assessed(a.step(f"Answer {n}", assessment))
+            step = assessed(a.step(f"Reply {n}", assessment))
             if n < 15:
                 assert step.sentences == ["Thanks.", f"Question {n + 1} of 15: Q{n + 1}?"]
     assert step.assessment is None
@@ -168,7 +178,7 @@ def test_a_whole_assessment_then_its_evaluation(caplog: pytest.LogCaptureFixture
     assert [r.verdict for r in judged[:3]] == [RIGHT, PARTLY, WRONG]  # type: ignore[attr-defined]
     assert "Assessment finished" in caplog.text
     instruction, material = write.asked[1]  # the first answer judged from its question's part
-    assert 'The student answered: "Answer 1"' in instruction and "Verdict:" in instruction
+    assert 'The student answered: "Reply 1"' in instruction and "Verdict:" in instruction
     assert material[0].startswith("Prime Numbers: ")
     # Each question asked so far is given, so it isn't asked again.
     assert "Don't ask any of these again: Q1? Q2?" in write.asked[-2][0]
@@ -203,13 +213,172 @@ def test_not_knowing_counts_as_wrong_with_the_answer_kept() -> None:
 
 
 def test_asking_again_or_for_an_explanation_doesn_t_count_as_an_answer() -> None:
-    a = assessor()
+    write = Writer()
+    a = assessor(write=write)
     first = started(a)
     again = assessed(a.step("What's the question?", first))
     assert again.sentences == ["Question 1 of 15: Q1?"] and again.assessment == first
     explain = assessed(a.step("Can you explain the question?", first))
-    assert explain.sentences == [NO_EXPLAINING, "Question 1 of 15: Q1?"]
+    assert explain.sentences == ["It asks what Euler set out to do.", "Question 1 of 15: Q1?"]
     assert explain.assessment == first
+    instruction, material = write.asked[-1]
+    assert "without answering it and without saying whether any guess is right" in instruction
+    assert material == []  # so the answer can't be given away
+
+
+LARRYS_DIALOGUE = [  # Larry's test (2026-10-15): each of these was taken as an answer
+    ("Was his initial approach to attempt to count the number of primes?", "B", "clarify"),
+    ("Can you give me the answer to question 1?", None, "talk"),
+]
+
+
+@pytest.mark.parametrize(
+    ("prompt", "sorted_as", "kind"),
+    [
+        *LARRYS_DIALOGUE,
+        ("Can I have a hint?", None, "clarify"),
+        ("How many questions are left?", None, "process"),
+        ("Is this assessment marked?", None, "process"),
+        ("How does this work?", None, "process"),
+        ("Can I stop and come back later?", None, "process"),
+        ("Will I get a score at the end?", None, "process"),
+        ("Which part of the course is this from?", "C.", "process"),
+        ("What was the answer to question 2?", None, "talk"),
+        ("Could we talk about that question?", None, "talk"),
+        ("Hmm, I'd rather go over the one before, help", "Letter: D", "talk"),
+        ("I don't know", None, "don't know"),
+        ("Is it the sun?", "A", "answer"),  # a guess the LLM takes as an answer
+        ("Euler counted the primes by a product over them.", None, "answer"),
+        ("It's about primes, question everything " * 12, None, "answer"),  # long: an answer
+    ],
+)
+def test_each_reply_is_sorted_before_it_counts_as_an_answer(
+    prompt: str, sorted_as: str | None, kind: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    write = Writer(sorts=[sorted_as] if sorted_as else [])
+    a = assessor(write=write)
+    first = started(a)
+    with caplog.at_level(logging.INFO, logger="imageskin.assess"):
+        a.step(prompt, first)
+    logged = next(r for r in caplog.records if r.message == "Assessment reply sorted")
+    by = "llm" if sorted_as else "words"
+    assert (logged.kind, logged.by) == (kind, by)  # type: ignore[attr-defined]
+
+
+def test_larrys_clarifying_question_isn_t_taken_as_an_answer() -> None:
+    a = assessor(write=Writer(sorts=["B"]))
+    first = started(a)
+    step = assessed(a.step(LARRYS_DIALOGUE[0][0], first))
+    assert step.assessment == first  # still on question 1, nothing counted
+    assert step.sentences == [CHECKING, "Question 1 of 15: Q1?"]  # neither confirmed nor denied
+
+
+@pytest.mark.parametrize(
+    "prompt", ["Do you mean the first one?", "Is the question about Euler or Riemann?"]
+)
+def test_a_question_about_what_the_question_means_is_answered_by_the_llm(prompt: str) -> None:
+    a = assessor(write=Writer(sorts=["B"]))
+    first = started(a)
+    step = assessed(a.step(prompt, first))
+    assert step.sentences == ["It asks what Euler set out to do.", "Question 1 of 15: Q1?"]
+
+
+def test_a_hint_is_written_from_the_material_without_the_answer() -> None:
+    """Larry's run (2026-10-15): without the material a hint guessed, and guessed wrong."""
+    write = Writer()
+    a = assessor(write=write)
+    first = started(a)
+    step = assessed(a.step("Can I have a hint?", first))
+    assert step.assessment == first  # still on question 1, nothing counted
+    instruction, material = write.asked[-1]
+    assert "Never state the answer or any part of it" in instruction
+    assert material  # the question's material, so the hint points the right way
+
+
+@pytest.mark.parametrize(
+    ("prompt", "said"),
+    [
+        ("How many questions are left?", "This is question 1 of 15, so 14 more come after it."),
+        ("What question am I on?", "This is question 1 of 15."),
+        ("Is this assessment marked?", "Each answer is judged right, partly right or wrong,"),
+        ("Can I stop if I want to?", "Yes: say stop at any time"),
+        ("How does this work?", "There are 15 questions across every topic"),
+    ],
+)
+def test_a_clear_question_about_the_assessment_is_answered_without_the_llm(
+    prompt: str, said: str
+) -> None:
+    """Larry's run (2026-10-15): the small LLM said 14 of 15 were answered on question 1."""
+    write = Writer()
+    a = assessor(write=write)
+    first = started(a)
+    asked = len(write.asked)
+    step = assessed(a.step(prompt, first))
+    assert step.assessment == first  # still on question 1, nothing counted
+    assert step.sentences[0].startswith(said)
+    assert step.sentences[1] == "Question 1 of 15: Q1?"
+    assert len(write.asked) == asked
+
+
+def test_a_question_about_the_assessment_is_answered_and_it_carries_on() -> None:
+    write = Writer(sorts=["C"])
+    a = assessor(write=write)
+    first = started(a)
+    step = assessed(a.step("Which part of the course is this from?", first))
+    assert step.assessment == first
+    instruction, material = write.asked[-1]
+    assert "this is question 1 of 15, so 14 more come after it" in instruction
+    assert 'it is fine to say "stop" at any time to stop the assessment and talk' in instruction
+    assert material == []
+
+
+def test_asking_for_an_answer_stops_the_assessment_to_talk_about_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Larry (2026-10-15): it is fine to stop the assessment and talk about the questions."""
+    write = Writer("Verdict: Not quite\nAnswer: He multiplied over the primes.")
+    a = assessor(write=write)
+    second = assessed(a.step("Primes", started(a))).assessment
+    with caplog.at_level(logging.INFO, logger="imageskin.assess"):
+        step = assessed(a.step(LARRYS_DIALOGUE[1][0], second))
+    assert step.assessment is None
+    assert step.sentences[:3] == [
+        "OK, we'll stop the assessment here so we can talk about it.",
+        "Euler started by counting the primes.",
+        "You got 0 of 1 right.",
+    ]
+    instruction, material = write.asked[-1]
+    assert '"Can you give me the answer to question 1?"' in instruction
+    assert material[:2] == [
+        "Question 1 was: Q1? The correct answer: He multiplied over the primes.",
+        "Question 2, not answered yet, was: Q2?",
+    ]
+    assert "Assessment stopped to talk" in caplog.text
+
+
+def test_when_the_llm_can_t_help_a_plain_reply_is_given(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    calls = []
+
+    def flaky(instruction: str, material: list[str]) -> str:
+        calls.append(instruction)
+        if instruction.startswith("Write"):
+            return "Q?"
+        raise LlmError("The LLM is not running.")
+
+    a = assessor(write=flaky)
+    first = started(a)
+    with caplog.at_level(logging.INFO, logger="imageskin.assess"):
+        sorted_as = assessed(a.step("Can you explain the question?", first))
+        assert sorted_as.sentences == [HELP, "Question 1 of 15: Q?"]
+        talk = assessed(a.step("Tell me the answer", first))
+        assert talk.sentences == ["OK, we'll stop the assessment here so we can talk about it."]
+        with pytest.raises(LlmError):  # not sortable: an answer, which can't be judged
+            a.step("Is it the sun?", first)
+    assert "Could not answer an assessment question" in caplog.text
+    assert "Could not talk about the assessment" in caplog.text
+    assert "Could not sort an assessment reply" in caplog.text
 
 
 def test_stop_ends_it_with_the_evaluation_so_far(caplog: pytest.LogCaptureFixture) -> None:
@@ -354,3 +523,18 @@ def test_an_assessment_sent_by_the_browser_is_checked(tmp_path: Path) -> None:
                 "/api/chat", json={"prompt": "Two", "assessment": {**good, **bad}}
             )
         assert response.status_code == 422, bad
+
+
+def test_larrys_dialogue_through_the_chat(tmp_path: Path) -> None:
+    llm = QuizLlm()
+    client = riemann_app(tmp_path, llm)
+    assessment_on(client)
+    first = chat(client, "Assess me")["assessment"]
+    reply = chat(client, "Can you explain the question?", assessment=first)
+    assert reply["content"] == "Two moons. Question 1 of 15: Question 1?"
+    assert reply["assessment"] == first  # not taken as an answer
+    reply = chat(client, "Can you give me the answer to question 1?", assessment=first)
+    assert reply["assessment"] is None
+    assert (
+        reply["content"] == "OK, we'll stop the assessment here so we can talk about it. Two moons."
+    )

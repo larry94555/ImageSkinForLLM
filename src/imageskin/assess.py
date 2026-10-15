@@ -50,6 +50,68 @@ _ASSESS = re.compile(
     r"(?:assess me|test me on everything|give me an assessment|assessment)(?:\s+please)?"
 )
 _STOP = re.compile(r"stop(?: the assessment)?|end the assessment|that'?s enough")
+# Wanting an answer, or to talk about a question: the assessment stops so they can (Larry,
+# 2026-10-15).
+_TALK = re.compile(
+    r"\b(?:(?:give|tell|show) me the answers?|what(?:'s| is| was) the (?:right |correct )?answer"
+    r"|(?:talk|chat) about (?:the |that |this |question|it)"
+    r"|discuss (?:the |that |this |question|it))"
+)
+# Words that may mean a short reply is about the question or the assessment rather than an
+# answer; such a reply, or one asked as a question, is sorted by the LLM.
+_ABOUT = re.compile(
+    r"\b(?:question|answer|assessment|test|quiz|hint|clue|mean|explain|understand|help|score"
+    r"|how many|left|skip|stop|talk)\b"
+)
+# Clear questions about the assessment itself, which keep it going, and their answers, so a
+# small LLM can't get them wrong (Larry, 2026-10-15).
+_ON = r"(?:this|it|the)(?: assessment| test| quiz)?"
+_PROCESS = (
+    (
+        re.compile(
+            r"\bhow many (?:more )?(?:questions )?(?:are )?(?:there )?(?:left|to go|remain|more)"
+            rf"|\bhow (?:long|many questions) is {_ON}\b"
+        ),
+        "This is question {number} of {total}, so {left} more come after it.",
+    ),
+    (
+        re.compile(r"\bwhat (?:question|number) (?:is this|am i on)\b"),
+        "This is question {number} of {total}.",
+    ),
+    (
+        re.compile(
+            rf"\b(?:is|will) {_ON} (?:be )?(?:marked|scored|graded)\b"
+            r"|\b(?:will|do|can) (?:i|you) (?:get|see|have) (?:a |my |the )?"
+            r"(?:score|mark|grade|results?)\b"
+        ),
+        "Each answer is judged right, partly right or wrong, and at the end you get your score,"
+        " the correct answers and the topics to go over.",
+    ),
+    (
+        re.compile(r"\bcan i stop\b|\bwhat happens if i stop\b"),
+        "Yes: say stop at any time to stop the assessment and talk about the questions and"
+        " their answers.",
+    ),
+    (
+        re.compile(rf"\bhow does {_ON} work\b|\bwhat happens at the end\b"),
+        "There are {total} questions across every topic, at three levels: recalling facts,"
+        " explaining ideas, and applying and connecting them. At the end you get your score,"
+        " the correct answers and the topics to go over.",
+    ),
+)
+# A yes-or-no question about the question is checking a guess ("Was his approach to count the
+# primes?"): a small LLM confirms or denies it, so it gets this instead (Larry, 2026-10-15).
+_GUESS = re.compile(r"(?:is|was|are|were|does|did|has|had) (?!(?:the|this|that) question\b)\S")
+CHECKING = (
+    "I can't say whether that's right while the question is open. If you think it is, give it as"
+    " your answer, or say stop to stop the assessment and talk about the question."
+)
+# Asking for a hint: the LLM is given the material, so a hint points the right way.
+_HINT = re.compile(r"\b(?:hint|clue)s?\b")
+LONGEST_REQUEST = 40  # words: a reply this long is an answer
+
+# What a reply to a question is (Larry, 2026-10-15: every reply was taken as an answer).
+ANSWER, CLARIFY, PROCESS, TALK, DONT_KNOW = "answer", "clarify", "process", "talk", "don't know"
 
 # What each level asks the LLM for, and the questions asked when it can't write one, in turn:
 # as many as a level can have on one part (AT_LEAST / 3), each answerable from any material.
@@ -90,9 +152,10 @@ STILL_READING = (
 STOPPED = "OK, we'll stop the assessment here."
 CHANGED = "The material has changed since this question was asked, so here's a new one."
 GONE = "The material has changed, so the assessment can't go on."
-NO_EXPLAINING = (
-    "In an assessment I can't explain the questions, so answer as best you can, or say you"
-    " don't know."
+TALKING = "OK, we'll stop the assessment here so we can talk about it."
+HELP = (
+    'Answer as best you can, or say "I don\'t know" to move on. You can say stop at any time to'
+    " stop the assessment and talk about the questions."
 )
 NOTHING_TO_GO_OVER = "Well done: there's nothing to go over again!"
 
@@ -193,6 +256,22 @@ def first_sentence(text: str) -> str:
     return re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0]
 
 
+def known_answer(text: str, assessment: Assessment) -> str | None:
+    """The answer to a clear question about the assessment, or None."""
+    for asked, answer in _PROCESS:
+        if asked.search(text):
+            n, total = assessment.number, assessment.total
+            return answer.format(number=n, total=total, left=total - n)
+    return None
+
+
+def kept_short(text: str, most: int) -> str:
+    """At most `most` sentences of a help reply, dropping any question it asks back: a small
+    LLM may go on, or ask the student something while a question is waiting."""
+    said = [t for t in re.split(r"(?<=[.!?])\s+", text.strip()) if t and not t.endswith("?")]
+    return " ".join(said[:most])
+
+
 class Assessor:
     """Decides what each prompt does to the assessment, from the wiki as it is now. `write` asks
     the LLM for a one-off answer from some material (`Conversation.write`)."""
@@ -233,13 +312,148 @@ class Assessor:
             logger.info("Assessment material changed", extra={"question": assessment.number})
             asked = self._asked(assessment.number, topics, assessment.answers)
             return Assessed([CHANGED, asked_line(asked)], asked)
-        kind = asked_for(text)
-        logger.info("Assessment reply sorted", extra={"kind": kind or "answer"})
+        kind = self._kind(prompt, text, assessment)
         if kind == AGAIN:
             return Assessed([asked_line(assessment)], assessment)
-        if kind == EXPLAIN:
-            return Assessed([NO_EXPLAINING, asked_line(assessment)], assessment)
-        return self._judge(prompt, assessment, material, topics, gave_up=kind == REVEAL)
+        if kind in (CLARIFY, PROCESS):
+            return Assessed(
+                [self._helped(prompt, assessment, kind, material), asked_line(assessment)],
+                assessment,
+            )
+        if kind == TALK:
+            return self._talk(prompt, assessment, material, len(topics))
+        return self._judge(prompt, assessment, material, topics, gave_up=kind == DONT_KNOW)
+
+    def _kind(self, prompt: str, text: str, assessment: Assessment) -> str:
+        """What a reply is: an answer, or asking for the question again, about the question (a
+        hint, what it means, whether a guess is right), about the assessment, for an answer or
+        to talk about a question, or not knowing. Only an answer, or not knowing, moves on.
+        Clear phrasings go by their words; a short reply that is a question, or that may be
+        about the question or the assessment, is sorted by the LLM (Larry, 2026-10-15)."""
+        how = "words"
+        if len(text.split()) > LONGEST_REQUEST:
+            kind = ANSWER
+        elif _TALK.search(text):
+            kind = TALK
+        elif known_answer(text, assessment) is not None:
+            kind = PROCESS
+        elif (asked := asked_for(text)) is not None:
+            kind = {AGAIN: AGAIN, EXPLAIN: CLARIFY, REVEAL: DONT_KNOW}[asked]
+        elif prompt.strip().endswith("?") or _ABOUT.search(text):
+            kind, how = self._sorted(prompt, assessment), "llm"
+        else:
+            kind = ANSWER
+        logger.info(
+            "Assessment reply sorted",
+            extra={"question": assessment.number, "kind": kind, "by": how},
+        )
+        return kind
+
+    def _sorted(self, reply: str, assessment: Assessment) -> str:
+        """What the LLM takes the reply to be; an answer when it can't say."""
+        instruction = (
+            f'In an assessment, a student was asked: "{assessment.question}" The student'
+            f' replied: "{reply}". Which is the reply? A: an answer, even a guess said as a'
+            ' statement ("Clouds form"). B: a question about the question: what it means, a'
+            ' hint, or whether a guess is right ("Is it the sun?", "Do you mean the first'
+            ' one?"). C: a question or remark about the assessment itself ("How many are'
+            ' left?", "Is this marked?"). D: wants to be told an answer, or to stop and talk'
+            ' about a question ("What was the answer to question 1?"). E: doesn\'t know ("No'
+            ' idea"). Say only the letter.'
+        )
+        try:
+            said = self._write(instruction, [])
+        except LlmError as e:
+            logger.error("Could not sort an assessment reply", extra={"error": str(e)})
+            return ANSWER
+        letter = re.search(r"\b([ABCDE])\b", said.upper())
+        kinds = {"B": CLARIFY, "C": PROCESS, "D": TALK, "E": DONT_KNOW}
+        return kinds.get(letter[1] if letter else "", ANSWER)
+
+    def _helped(self, reply: str, assessment: Assessment, kind: str, material: list[str]) -> str:
+        """A short reply to a question about the question, which doesn't give the answer away
+        (the LLM is given the material only for a hint, so a hint points the right way), or
+        about the assessment; the question stays."""
+        if kind == PROCESS and (known := known_answer(plain(reply), assessment)) is not None:
+            logger.info(
+                "Assessment question answered",
+                extra={"question": assessment.number, "kind": kind, "by": "words"},
+            )
+            return known
+        reference: list[str] = []
+        text = plain(reply)
+        if kind == CLARIFY and _GUESS.match(text) and not _HINT.search(text):
+            logger.info(
+                "Assessment question answered",
+                extra={"question": assessment.number, "kind": "guess", "by": "words"},
+            )
+            return CHECKING
+        if kind == CLARIFY and _HINT.search(text):
+            reference = material
+            instruction = (
+                f'In an assessment, the student was asked: "{assessment.question}" and asked'
+                f' for a hint: "{reply}". Talking to the student as "you", give one hint of at'
+                " most twelve words from the reference text that points them toward the answer"
+                ' by naming what to think about, like "Think about what he multiplied." Never'
+                " state the answer or any part of it, and don't mention the reference text."
+            )
+        elif kind == CLARIFY:
+            instruction = (
+                f'In an assessment, the student was asked: "{assessment.question}" and said:'
+                f' "{reply}". In one or two short sentences, talking to the student as "you",'
+                " help them see what the question is asking for, without answering it and"
+                " without saying whether any guess is right; if they guessed, say to give it as"
+                " their answer if they think it is right. Don't say the question again, don't"
+                " say what the answer might be, and don't ask anything."
+            )
+        else:
+            instruction = (
+                f'In an assessment, the student said: "{reply}". These are the facts about it:'
+                f" this is question {assessment.number} of {assessment.total}, so"
+                f" {assessment.total - assessment.number} more come after it; the questions"
+                " cover every topic at three levels (recalling facts, explaining ideas, applying"
+                " and connecting them); each answer is judged right, partly right or wrong, and"
+                " the score, the correct answers and the topics to go over are given at the end;"
+                ' "I don\'t know" moves on to the next question; and it is fine to say "stop" at'
+                " any time to stop the assessment and talk about the questions and their"
+                ' answers. Talking to the student as "you",'
+                " reply in one or two short sentences from these facts. Don't ask anything."
+            )
+        try:
+            said = kept_short(self._write(instruction, reference), 1 if reference else 2)
+        except LlmError as e:
+            logger.error("Could not answer an assessment question", extra={"error": str(e)})
+            said = ""
+        logger.info(
+            "Assessment question answered",
+            extra={"question": assessment.number, "kind": kind, "by": "llm"},
+        )
+        return said or HELP
+
+    def _talk(
+        self, reply: str, assessment: Assessment, material: list[str], topics: int
+    ) -> Assessed:
+        """The assessment stopped, with the evaluation so far, and the reply talked about: the
+        LLM is given the questions so far with their correct answers, and the material of the
+        question being asked (Larry, 2026-10-15)."""
+        logger.info("Assessment stopped to talk", extra={"question": assessment.number})
+        asked = [
+            f"Question {n} was: {a.question} The correct answer: {a.correct or 'not kept'}"
+            for n, a in enumerate(assessment.answers, 1)
+        ]
+        asked.append(f"Question {assessment.number}, not answered yet, was: {assessment.question}")
+        instruction = (
+            f'The student stopped an assessment and said: "{reply}". Talking to the student as'
+            ' "you", answer them from the reference text in at most three short sentences.'
+            " Don't mention the reference text."
+        )
+        try:
+            said = self._write(instruction, [*asked, *material]).strip()
+        except LlmError as e:
+            logger.error("Could not talk about the assessment", extra={"error": str(e)})
+            said = ""
+        done = evaluation(assessment.answers, topics)[0] if assessment.answers else []
+        return Assessed([TALKING, *([said] if said else []), *done], None)
 
     def _start(self) -> Assessed:
         topics = lesson_topics(self._contents())
