@@ -276,6 +276,8 @@ def announce_ready(server: Any, app: Any, url: str, start: float) -> None:
             return
         time.sleep(READY_POLL_S)
     wait_until_loaded(app)
+    if server.should_exit:  # stopped while the loading finished
+        return
     running = sorted({t.name for t in threading.enumerate()} & BACKGROUND_JOBS)
     logger.info(
         READY_MESSAGE,

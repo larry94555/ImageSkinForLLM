@@ -87,6 +87,24 @@ def test_the_ready_line_waits_for_the_server_and_the_loading(
     assert vars(record)["background_jobs"] == []
 
 
+def test_no_ready_line_when_the_server_stops_while_loading(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A review finding on PR #92: stopped after it was listening, before the loading ended."""
+    server = SimpleNamespace(started=True, should_exit=False)
+    loaded = threading.Event()
+    loading = threading.Thread(target=loaded.wait, args=(5,))
+    loading.start()
+    app = SimpleNamespace(state=SimpleNamespace(loading=[loading]))
+    with caplog.at_level(logging.INFO, logger="imageskin.cli"):
+        ready = threading.Thread(target=announce_ready, args=(server, app, "http://h:1", 0.0))
+        ready.start()
+        server.should_exit = True
+        loaded.set()
+        ready.join(5)
+    assert READY_MESSAGE not in caplog.text
+
+
 def test_the_ready_line_names_jobs_carried_on_from_before(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
