@@ -33,13 +33,35 @@ _QUIZ = re.compile(
     r"(?:\s+(?:on|about)\s+(?P<about>.+?))?(?:\s+please)?"
 )
 _STOP = re.compile(r"stop(?: the quiz| quizzing(?: me)?)?|end the quiz|that'?s enough")
-# Asking for the question again (Larry, 2026-10-15: "What's the question?" was judged as a wrong
-# answer), so it is said again rather than taken as the answer.
-_AGAIN = re.compile(
-    r"(?:sorry,? )?(?:what(?:'s| is| was) (?:the|that) question"
-    r"|(?:can you |could you |please )?(?:repeat|say) (?:the question|that|it)(?: again)?"
-    r"(?: please)?|repeat(?: please)?|pardon|i didn'?t (?:get|catch|hear) (?:the question|that|it))"
+# A reply to a quiz question that isn't an answer to it (Larry, 2026-10-15: "What's the
+# question?" was judged as a wrong answer). Said plainly and briefly, these are clear enough to
+# go by their words; anything else that may be one is sorted by the LLM (`Quizzer._kind`).
+_REVEAL = re.compile(
+    r"\b(?:(?:i )?(?:don'?t|do not|dont) know|no idea|(?:not a|no) clue|i give up|i pass|pass|skip"
+    r"(?: it| this one)?|(?:give|tell|show) me the answer|what'?s the answer|what is the answer"
+    r"|just (?:give|tell) me(?: it)?)\b"
 )
+_EXPLAIN = re.compile(
+    r"\b(?:explain|clarify|what does (?:the|that|this|it) (?:question )?mean|what do you mean"
+    r"|(?:don'?t|do not) (?:understand|get) the question|what is (?:the|that) question asking"
+    r"|i'?m confused|in other words|(?:put|say|ask) (?:it|that|the question)"
+    r" (?:differently|another way)|hint|(?<!not )a clue|any clues?)\b"
+)
+_AGAIN = re.compile(
+    r"\b(?:what(?:'s| is| was) (?:the|that) question|(?:repeat|restate|rephrase|reread)\b.*"
+    r"|(?:say|ask|read) (?:the question|that|it|this)(?: once more| again)|again please"
+    r"|pardon|(?:didn'?t|did not) (?:get|catch|hear) (?:the question|that|it))"
+)
+# Words that may mean a reply is about the quiz rather than an answer; such a reply is sorted by
+# the LLM when the patterns above don't settle it.
+_ABOUT_THE_QUIZ = re.compile(
+    r"\b(?:question|answer|know|sure|explain|mean|repeat|again|skip|understand|help"
+    r"|idea|confus\w*|tell me|give me)\b"
+)
+# A reply this long is an answer, whatever words it has.
+LONGEST_REQUEST = 25
+ANSWER, AGAIN, EXPLAIN, REVEAL = "answer", "again", "explain", "reveal"
+
 # A question: the words up to a question mark, after any sentence before it.
 _QUESTION = re.compile(r"[^.!?]*\?")
 # What a question written by the LLM may start with, left out: "Question:", "Q1.", quotes.
@@ -153,14 +175,71 @@ class Quizzer:
             logger.info("Quiz stopped", extra={"topic": quiz.topic, "question": quiz.number})
             done = [score(quiz, quiz.number - 1)] if quiz.number > 1 else []
             return Said([STOPPED, *done], None)
-        if _AGAIN.fullmatch(text):
-            logger.info("Quiz question asked again", extra={"question": quiz.number})
-            return Said([asked_line(quiz.number, quiz.question)], quiz)
         parts = topics.get(quiz.topic)
         if parts is None:  # its topic is gone from the wiki: start again from the choices
             logger.info("Quiz topic gone", extra={"topic": quiz.topic})
             return self._choose(topics, f'"{quiz.topic}" is no longer in the material.')
-        return self._judge(prompt, quiz, parts)
+        kind = self._kind(prompt, text, quiz)
+        if kind == AGAIN:
+            logger.info("Quiz question asked again", extra={"question": quiz.number})
+            return Said([asked_line(quiz.number, quiz.question)], quiz)
+        if kind == EXPLAIN:
+            return self._explain(prompt, quiz, parts)
+        return self._judge(prompt, quiz, parts, gave_up=kind == REVEAL)
+
+    def _kind(self, prompt: str, text: str, quiz: Quiz) -> str:
+        """What a reply to the question is: an answer, or asking for the question again, for
+        what it means, or for the answer (Larry, 2026-10-15). A short reply is sorted by its
+        words, or by the LLM when its words may be about the quiz but don't settle it."""
+        how = "words"
+        if len(text.split()) > LONGEST_REQUEST:
+            kind = ANSWER
+        elif _EXPLAIN.search(text):
+            kind = EXPLAIN
+        elif _REVEAL.search(text):
+            kind = REVEAL
+        elif _AGAIN.search(text):
+            kind = AGAIN
+        elif _ABOUT_THE_QUIZ.search(text):
+            kind, how = self._sorted(prompt, quiz), "llm"
+        else:
+            kind = ANSWER
+        logger.info(
+            "Quiz reply sorted",
+            extra={"topic": quiz.topic, "question": quiz.number, "kind": kind, "by": how},
+        )
+        return kind
+
+    def _sorted(self, reply: str, quiz: Quiz) -> str:
+        """What the LLM takes the reply to be; an answer when it can't say."""
+        instruction = (
+            f'In a quiz, a student was asked: "{quiz.question}" The student replied: "{reply}".'
+            ' Which is the reply? A: an answer, even a guess ("Clouds form", "Is it the sun?").'
+            ' B: wants to hear the question again ("Say it again"). C: wants the question'
+            ' explained or put another way ("What do you mean?"). D: doesn\'t know, or wants to'
+            ' be told the answer ("No idea, tell me"). Say only the letter.'
+        )
+        try:
+            said = self._write(instruction, [])
+        except LlmError as e:
+            logger.error("Could not sort a quiz reply", extra={"error": str(e)})
+            return ANSWER
+        letter = re.search(r"\b([ABCD])\b", said.upper())
+        return {"B": AGAIN, "C": EXPLAIN, "D": REVEAL}.get(letter[1] if letter else "", ANSWER)
+
+    def _explain(self, asked: str, quiz: Quiz, parts: list[Part]) -> Judge:
+        """What the question is asking, in other words, then the question again; the quiz stays
+        where it is. The LLM isn't given the material, so it can't give the answer away (with
+        it, the small local model did)."""
+        instruction = (
+            f'The student was asked: "{quiz.question}" and said: "{asked}". In one or two short'
+            ' sentences, talking to the student as "you", explain what the question is asking'
+            " for, in simpler words, without answering it. Don't say the question again, and"
+            " don't ask anything."
+        )
+        logger.info("Quiz question explained", extra={"question": quiz.number})
+        teach = Teach(instruction, [], lambda reply: [asked_line(quiz.number, quiz.question)])
+        return Judge(teach, quiz)
 
     def _start(self, about: str | None, topics: dict[str, list[Part]]) -> Said:
         if not topics:
@@ -219,7 +298,9 @@ class Quizzer:
         logger.info("Quiz question written", extra={"topic": topic, "part": part})
         return question
 
-    def _judge(self, answer: str, quiz: Quiz, parts: list[Part]) -> Judge:
+    def _judge(self, answer: str, quiz: Quiz, parts: list[Part], gave_up: bool = False) -> Judge:
+        """The answer judged, or, when the student doesn't know, the answer given; then the
+        next question, or the end."""
         part = min(quiz.part, len(parts) - 1)
         instruction = (
             f'The student was asked: "{quiz.question}" The student answered: "{answer}". Judge'
@@ -228,13 +309,24 @@ class Quizzer:
             " answer and a one-line reason, kindly, in at most two more sentences. Don't mention"
             " the reference text, and don't ask anything."
         )
+        if gave_up:
+            instruction = (
+                f'The student was asked: "{quiz.question}" and doesn\'t know the answer. Talking'
+                ' to the student as "you", kindly give the correct answer and a one-line reason,'
+                " in at most two sentences. Don't mention the reference text, and don't ask"
+                " anything."
+            )
         judged = Judge(Teach(instruction, self._teacher.material(quiz.topic, parts, part)), quiz)
 
         def then(reply: str) -> list[str]:
-            found = verdict(reply)
+            found = WRONG if gave_up else verdict(reply)
             logger.info(
                 "Quiz answer judged",
-                extra={"topic": quiz.topic, "question": quiz.number, "verdict": found},
+                extra={
+                    "topic": quiz.topic,
+                    "question": quiz.number,
+                    "verdict": "answer given" if gave_up else found,
+                },
             )
             review = quiz.review
             title = parts[part].title

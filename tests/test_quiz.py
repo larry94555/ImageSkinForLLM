@@ -177,28 +177,133 @@ def test_a_statement_is_never_asked_as_a_question(caplog: pytest.LogCaptureFixtu
 
 
 @pytest.mark.parametrize(
-    "prompt",
+    ("prompt", "kind"),
     [
-        "What's the question?",
-        "what is the question",
-        "Sorry, what was that question?",
-        "Can you repeat the question please?",
-        "Say that again",
-        "repeat",
-        "Pardon?",
-        "I didn't catch that",
+        # Larry's (2026-10-15)
+        ("What's the question?", "again"),
+        ("Please ask the question again", "again"),
+        ("Restate the question", "again"),
+        ("Can you explain the question?", "explain"),
+        (
+            "I don't know the answer to the question, can you just give me the answer?",
+            "reveal",
+        ),
+        # and others like them
+        ("what is the question", "again"),
+        ("Sorry, what was that question?", "again"),
+        ("Can you repeat the question please?", "again"),
+        ("Could you rephrase that?", "again"),
+        ("Say that again", "again"),
+        ("Ask it again", "again"),
+        ("repeat", "again"),
+        ("Pardon?", "again"),
+        ("I didn't catch that", "again"),
+        ("What does that question mean?", "explain"),
+        ("I don't understand the question", "explain"),
+        ("Can you give me a hint?", "explain"),
+        ("Can you clarify?", "explain"),
+        ("Could you put it differently?", "explain"),
+        ("I don't know", "reveal"),
+        ("No idea", "reveal"),
+        ("Not a clue!", "reveal"),
+        ("No clue, sorry.", "reveal"),
+        ("Just tell me the answer", "reveal"),
+        ("What's the answer?", "reveal"),
+        ("I give up", "reveal"),
+        ("Skip this one", "reveal"),
+        # answers
+        ("Evaporation", "answer"),
+        ("It cools and condenses into tiny drops that make clouds.", "answer"),
+        ("The water cycle repeats itself, again and again, forever. " * 3, "answer"),
     ],
 )
-def test_asking_for_the_question_again_says_it_again(
-    prompt: str, caplog: pytest.LogCaptureFixture
+def test_a_reply_that_isn_t_an_answer_is_sorted_by_its_words(
+    prompt: str, kind: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Larry's test (2026-10-15): "What's the question?" was judged as a wrong answer."""
+    """Larry's test (2026-10-15): "What's the question?" was judged as a wrong answer. Clear
+    requests are sorted without asking the LLM."""
+    write = Writer()
+    with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
+        quizzer(write=write).step(prompt, Quiz("Rain", 2, "How does rain form?", 0))
+    logged = next(r for r in caplog.records if r.message == "Quiz reply sorted")
+    assert (logged.kind, logged.by) == (kind, "words")  # type: ignore[attr-defined]
+    assert write.asked == []
+
+
+@pytest.mark.parametrize(
+    ("prompt", "said", "kind"),
+    [
+        ("I'm not sure, maybe clouds?", "A", "answer"),
+        ("Help, which one do you mean by that?", "C.", "explain"),
+        ("Could you say the whole question once more?", "B", "again"),
+        ("I am lost here, sorry, can you help", "Letter: D", "reveal"),
+        ("Is the answer clouds?", "Hmm.", "answer"),  # can't tell: taken as an answer
+    ],
+)
+def test_a_reply_its_words_don_t_settle_is_sorted_by_the_llm(
+    prompt: str, said: str, kind: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    write = Writer(said)
+    with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
+        quizzer(write=write).step(prompt, Quiz("Rain", 2, "How does rain form?", 0))
+    logged = next(r for r in caplog.records if r.message == "Quiz reply sorted")
+    assert (logged.kind, logged.by) == (kind, "llm")  # type: ignore[attr-defined]
+    instruction, material = write.asked[0]
+    assert '"How does rain form?"' in instruction and f'"{prompt}"' in instruction
+    assert material == []
+
+
+def test_a_reply_the_llm_can_t_sort_is_taken_as_an_answer(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fails(instruction: str, material: list[str]) -> str:
+        raise LlmError("The LLM is not running.")
+
+    with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
+        step = quizzer(write=fails).step("Maybe, I'm not sure", Quiz("Rain", 2, "Q?", 0))
+    assert isinstance(step, Judge) and "Could not sort a quiz reply" in caplog.text
+
+
+def test_asking_for_the_question_again_says_it_again(caplog: pytest.LogCaptureFixture) -> None:
     quiz = Quiz("Rain", 2, "How does rain form?", 0, right=1)
     with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
-        step = said(quizzer().step(prompt, quiz))
+        step = said(quizzer().step("Please ask the question again", quiz))
     assert step.sentences == ["Question 2 of 5: How does rain form?"]
     assert step.quiz == quiz  # still on the same question
     assert "Quiz question asked again" in caplog.text
+
+
+def test_asking_what_the_question_means_explains_it_then_asks_it_again() -> None:
+    quiz = Quiz("Rain", 2, "How does rain form?", 0, right=1)
+    step = judged(quizzer().step("Can you explain the question?", quiz))
+    assert "explain what the question is asking for, in simpler words, without answering" in (
+        step.teach.instruction
+    )
+    assert step.teach.material == []  # so the answer can't be given away
+    assert step.teach.then is not None
+    assert step.teach.then("It asks where rain comes from.") == [
+        "Question 2 of 5: How does rain form?"
+    ]
+    assert step.quiz == quiz  # still on the same question, nothing counted
+
+
+def test_not_knowing_gives_the_answer_then_the_next_question(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    quiz = Quiz("Rain", 2, "How does rain form?", 0, ("Q1?", "How does rain form?"))
+    write = Writer("Where does it fall?")
+    step = judged(quizzer(write=write).step("I don't know, can you just give me the answer?", quiz))
+    assert "doesn't know the answer" in step.teach.instruction
+    assert step.teach.then is not None
+    with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
+        # Even when the LLM starts kindly with "Right", it isn't counted as right.
+        assert step.teach.then("Right, no problem: drops join in clouds.") == [
+            "Question 3 of 5: Where does it fall?"
+        ]
+    assert step.quiz is not None
+    assert (step.quiz.right, step.quiz.review) == (0, ("Rain",))
+    logged = next(r for r in caplog.records if r.message == "Quiz answer judged")
+    assert logged.verdict == "answer given"  # type: ignore[attr-defined]
 
 
 def test_a_question_asked_already_is_asked_plainly_instead(
@@ -426,3 +531,21 @@ def test_larrys_whats_the_question_through_the_chat(tmp_path: Path) -> None:
     reply = chat(client, "What's the question?", quiz={**quiz, "part": 0})
     assert reply["content"] == "Question 1 of 5: How are primes counted?"
     assert reply["quiz"]["number"] == 1 and llm.sent == []  # not judged
+
+
+def test_larrys_other_replies_through_the_chat(tmp_path: Path) -> None:
+    llm = QuizLlm()
+    client = riemann_app(tmp_path, llm)
+    client.patch("/api/settings", json={"quiz_me": True})
+    quiz = {"topic": "Prime Number Basics", "number": 1, "question": "How?", "part": 0}
+    reply = chat(client, "Can you explain the question?", quiz=quiz)
+    assert reply["content"] == "Two moons. Question 1 of 5: How?"
+    assert reply["quiz"]["number"] == 1  # still on it
+    assert "explain what the question is asking" in llm.sent[-1][-1]["content"]
+    reply = chat(
+        client,
+        "I don't know the answer to the question, can you just give me the answer?",
+        quiz=quiz,
+    )
+    assert reply["content"] == "Two moons. Question 2 of 5: Question 1?"
+    assert (reply["quiz"]["right"], reply["quiz"]["review"]) == (0, ["Prime Number Basics"])
