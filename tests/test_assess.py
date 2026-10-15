@@ -345,30 +345,43 @@ def test_saying_not_to_give_the_answer_without_a_hint_is_sorted_by_the_llm() -> 
     assert write.asked[-2][0].startswith("In an assessment, a student was asked")
 
 
-@pytest.mark.parametrize(
-    ("again", "correct"), [("Euler multiplied.", "Euler multiplied."), ("", "")]
-)
-def test_a_judgement_with_no_answer_still_keeps_the_correct_one(
-    again: str, correct: str, caplog: pytest.LogCaptureFixture
+def test_a_judgement_with_no_answer_asks_for_the_correct_one(
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Review on PR #90: a "Verdict: Not quite" with no "Answer:" left the answer out of the
-    evaluation; it is asked for again, or the material's first sentence is kept."""
+    evaluation, so it is asked for again."""
 
     def judge(instruction: str, material: list[str]) -> str:
         if instruction.startswith("Write"):
-            return "Q?"
+            return "Is rain wet?"
         if instruction.startswith("In one short sentence, give the correct answer"):
-            return again
+            return "Yes, rain is wet. It is water."
         return "Verdict: Not quite"
 
     a = assessor(contents=[{"entries": [entry("Rain", "It falls. It is wet.")]}], write=judge)
     first = started(a)
     with caplog.at_level(logging.INFO, logger="imageskin.assess"):
-        step = assessed(a.step("Up", first))
+        step = assessed(a.step("No", first))
     assert step.assessment is not None
-    kept = step.assessment.answers[0].correct
-    assert kept == (correct or "Rain: It falls.")  # never empty
+    assert step.assessment.answers[0].correct == "Yes, rain is wet."
     assert "Assessment judgement had no answer" in caplog.text
+
+
+def test_with_no_correct_answer_at_all_the_answer_isn_t_taken() -> None:
+    """Review on PR #90: the material's first sentence ("Rain: It falls.") doesn't answer "Is
+    rain wet?", so nothing is kept; the answer can be sent again."""
+
+    def judge(instruction: str, material: list[str]) -> str:
+        if instruction.startswith("Write"):
+            return "Is rain wet?"
+        if instruction.startswith("In one short sentence, give the correct answer"):
+            return ""
+        return "Verdict: Not quite"
+
+    a = assessor(contents=[{"entries": [entry("Rain", "It falls. It is wet.")]}], write=judge)
+    first = started(a)
+    with pytest.raises(LlmError, match="Please send your answer again"):
+        a.step("No", first)
 
 
 def test_a_hint_is_written_from_the_material_without_the_answer() -> None:
@@ -550,14 +563,14 @@ def test_a_question_the_llm_can_t_write_is_asked_plainly_never_twice() -> None:
     assert questions[:3] == [
         "What is one fact about Rain?",
         "How would you explain Rain in your own words?",
-        "How would you describe Rain to a friend?",  # explain, not apply: see below
+        "What is an example of your own of what Rain says?",
     ]
 
 
 def test_a_plain_question_can_be_answered_from_the_least_material() -> None:
     """Review on PR #90: "How do the ideas in Rain fit together?" can't be answered from "Rain:
-    It falls.", so an apply question the LLM can't write is asked as an explain question, and
-    counted as one."""
+    It falls.", so a plain apply question asks for an example of it instead, and the levels
+    are still split evenly."""
     judged: list[list[str]] = []
 
     def fails(instruction: str, material: list[str]) -> str:
@@ -568,15 +581,14 @@ def test_a_plain_question_can_be_answered_from_the_least_material() -> None:
 
     a = assessor(contents=[{"entries": [entry("Rain", "It falls.")]}], write=fails)
     step = assessed(a.step("Assess me", None))
-    answers: tuple[Answer, ...] = ()
+    levels = []
     while step.assessment is not None:
         question = step.assessment.question
-        assert step.assessment.level != APPLY
+        levels.append(step.assessment.level)
         assert question.split("Rain")[0] in {q.split("{}")[0] for pool in PLAIN for q in pool}
-        answers = (*step.assessment.answers,)
         step = assessed(a.step("It falls", step.assessment))
     assert all(m == judged[0] for m in judged) and "It falls." in judged[0][0]
-    assert {a.level for a in answers} == {RECALL, EXPLAIN_IT}
+    assert Counter(levels) == {RECALL: 5, EXPLAIN_IT: 5, APPLY: 5}
     statement = assessor(write=Writer(questions=["Primes are counted."]))
     assert started(statement).question == "What is one fact about Prime Numbers?"
 

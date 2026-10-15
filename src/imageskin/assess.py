@@ -122,11 +122,11 @@ LONGEST_REQUEST = 40  # words: a reply this long is an answer
 # What a reply to a question is (Larry, 2026-10-15: every reply was taken as an answer).
 ANSWER, CLARIFY, PROCESS, TALK, DONT_KNOW = "answer", "clarify", "process", "talk", "don't know"
 
-# What each level asks the LLM for, and the questions asked when it can't write one, in turn,
-# each answerable from any material, however little: one for recall, as many as a topic can
-# have on one part (AT_LEAST / 3), and one for explaining, twice that, as an apply question it
-# can't write is asked as an explain question instead, since one can't be sure of being
-# answerable from a sentence like "Rain: It falls." (review on PR #90).
+# What each level asks the LLM for, and the questions asked when it can't write one, in turn:
+# as many as a level can have on one part (AT_LEAST / 3). Each can be answered from any
+# material, however little ("Rain: It falls."): recall and explain questions restate it, and
+# apply questions ask for an example of it, which the material can be checked against (review
+# on PR #90).
 _ASK = (
     "asks the student to recall one fact from",
     "asks the student to explain one idea from, in their own words,",
@@ -146,14 +146,17 @@ PLAIN = (
         "What does {} mean, in your own words?",
         "How would you sum up {} simply?",
         "In your own words, what is {} about?",
-        "What would you tell someone who asked about {}?",
-        "How would you explain {} to someone new to it?",
-        "What is the gist of {}, in your own words?",
-        "How would you put {} in one sentence of your own?",
-        "How would you retell what {} says?",
+    ),
+    (
+        "What is an example of your own of what {} says?",
+        "Can you describe a situation where what {} says applies?",
+        "What would you point to as a case of what {} says?",
+        "How would you show someone what {} says with an example?",
+        "Where might you see what {} says in real life?",
     ),
 )
 
+NO_CORRECT_ANSWER = "The AI didn't say what the correct answer is. Please send your answer again."
 TOO_MANY = (
     "There are {} topics, more than the {} an assessment can ask about one question each, so I"
     " can't give one that covers them all."
@@ -538,7 +541,7 @@ class Assessor:
         part = part_for(level, index, len(names), len(parts))
         material = self._teacher.material(topic, parts, part)
         asked = tuple(a.question for a in answers)
-        question, level = self._question(topic, parts, part, level, material, asked)
+        question = self._question(topic, parts, part, level, material, asked)
         return Assessment(
             size(len(names)),
             number,
@@ -559,10 +562,9 @@ class Assessor:
         level: int,
         material: list[str],
         asked: tuple[str, ...],
-    ) -> tuple[str, int]:
+    ) -> str:
         """A question at the level written by the LLM from the material, or a plain one, not
-        asked already, when it can't; and its level, as a plain one asked instead of an apply
-        question explains."""
+        asked already, when it can't."""
         instruction = (
             f"Write one short quiz question that {_ASK[level]} {what(topic, parts, part)}, and"
             " that can be answered in a sentence or two from the reference text. Say only the"
@@ -580,24 +582,25 @@ class Assessor:
         if not question or plain(question) in keys:
             logger.info("Assessment question asked plainly", extra={"topic": topic})
             title = parts[part].title
-            level = min(level, EXPLAIN_IT)
             question = next(
                 q for q in (p.format(title) for p in PLAIN[level]) if plain(q) not in keys
             )
         logger.info("Assessment question written", extra={"topic": topic, "level": level})
-        return question, level
+        return question
 
     def _correct(self, assessment: Assessment, material: list[str]) -> str:
-        """The correct answer when the judgement left it out, so the evaluation can give it: asked
-        for again, or the material's first sentence when the LLM still says nothing (review on
-        PR #90)."""
+        """The correct answer when the judgement left it out, so the evaluation can give it, asked
+        for again; when the LLM still says nothing, the answer isn't taken, so it can be sent
+        again (review on PR #90)."""
         logger.warning("Assessment judgement had no answer", extra={"question": assessment.number})
         instruction = (
             f'In one short sentence, give the correct answer to "{assessment.question}" from the'
             " reference text. Say only the answer."
         )
         said = first_sentence(self._write(instruction, material))
-        return said or first_sentence(" ".join(material))
+        if not said:
+            raise LlmError(NO_CORRECT_ANSWER)
+        return said
 
     def _judge(
         self,
