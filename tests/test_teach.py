@@ -1,13 +1,14 @@
 """Teach me (roadmap R41h, item 54)."""
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from test_question_scope import Llm
-from test_topics import riemann_app
+from test_topics import app_with_topics, riemann_app
 
 from imageskin.chat import Conversation, Turn
 from imageskin.review import Review
@@ -15,7 +16,10 @@ from imageskin.teach import (
     ALL_DONE,
     CHOOSE,
     EVERYTHING,
+    EVERYTHING_SO_FAR,
+    MORE_COMING,
     NO_LESSON,
+    NOT_YET,
     STOPPED,
     Choice,
     Explain,
@@ -48,7 +52,9 @@ CONTENTS = [
 
 
 def teacher(
-    contents: list[dict[str, Any]] | None = None, found: list[str] | None = None
+    contents: list[dict[str, Any]] | None = None,
+    found: list[str] | None = None,
+    complete: bool = True,
 ) -> Teacher:
     asked: list[str] = []
 
@@ -56,7 +62,7 @@ def teacher(
         asked.append(question)
         return list(found or [])
 
-    t = Teacher(lambda: CONTENTS if contents is None else contents, find)
+    t = Teacher(lambda: CONTENTS if contents is None else contents, find, lambda: complete)
     t.asked = asked  # type: ignore[attr-defined]
     return t
 
@@ -297,6 +303,42 @@ def test_a_reply_made_outside_the_llm_checks_the_prompt_as_send_does() -> None:
     assert conversation.turns() == []
 
 
+def test_while_material_is_still_read_the_lesson_never_says_that_is_everything(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Review on PR #87: the topics so far are never given as all there is."""
+    asked = said(teacher(complete=False).step("Teach me", None))
+    assert asked.sentences[-1] == MORE_COMING
+    assert asked.choices[-1] == Choice(EVERYTHING_SO_FAR, "Teach me everything from the start")
+    with caplog.at_level(logging.INFO, logger="imageskin.teach"):
+        waiting = said(teacher(complete=False).step("Next", Lesson("Rain", 1)))
+    assert waiting.sentences == [NOT_YET]
+    assert waiting.lesson == Lesson("Rain", 1)  # still on the summary, to carry on from
+    assert "Lesson waiting for material" in caplog.text
+
+
+def test_a_question_on_the_summary_is_answered_from_the_whole_topic() -> None:
+    """Review on PR #87: the material the summary was made from, not the last part's."""
+    t = teacher(found=["(book.pdf, page 2): More."])
+    summary = explained(t.step("Next", Lesson("Prime Numbers", 3)))
+    step = explained(t.step("Why does that matter?", summary.lesson))
+    assert step.kind == "question" and step.lesson == Lesson("Prime Numbers", 4)
+    assert step.teach.material == [*summary.teach.material, "(book.pdf, page 2): More."]
+    assert "Sieves: A sieve crosses out multiples." in step.teach.material
+
+
+def test_a_part_s_own_wiki_entry_is_given_once() -> None:
+    """Review on PR #87: the lookup finds the part's own entry too; it isn't given twice."""
+    found = [
+        "Sieves (book.pdf, page 3): A sieve crosses out multiples.",
+        "Sieves (other.pdf, page 1): Something else about sieves.",
+        "Gaps (book.pdf, page 4): Primes thin out.",
+        "(book.pdf, page 3): The sieve of Eratosthenes.",
+    ]
+    step = explained(teacher(found=found).step("Next", Lesson("Prime Numbers", 0)))
+    assert step.teach.material == ["Sieves: A sieve crosses out multiples.", *found[1:]]
+
+
 # --- Through the app ---
 
 
@@ -386,3 +428,37 @@ def test_a_teach_me_prompt_too_long_is_refused_like_any_other(tmp_path: Path) ->
     assert lesson.json() == ordinary.json()
     assert "too long" in lesson.json()["detail"]
     assert client.get("/api/chat").json()["turns"] == []
+
+
+def test_a_lesson_part_through_the_app_gives_its_wiki_entry_once(tmp_path: Path) -> None:
+    llm = Llm()
+    client = riemann_app(tmp_path, llm)
+    assert client.patch("/api/settings", json={"teach_me": True}).status_code == 200
+    chat(client, "Teach me about Zeta Function Integral")
+    asked = llm.sent[-1][-1]["content"]
+    assert asked.count("The zeta function as an integral.") == 1
+    assert "The zeta function is given by an integral over x." in asked  # the PDF, still there
+
+
+def test_a_lesson_cannot_finish_while_a_pdf_is_still_read(tmp_path: Path) -> None:
+    """Review on PR #87: with one PDF ready and one still being built, the last topic so far
+    is not the end; once the second is ready, Next carries on into it."""
+    hold = threading.Event()
+    llm = Llm()
+    client = app_with_topics(tmp_path, llm, ["Rain"], "Rain falls.", pdfs=2, hold=hold)
+    try:
+        assert client.patch("/api/settings", json={"teach_me": True}).status_code == 200
+        asked = chat(client, "Teach me")
+        assert asked["content"].endswith(MORE_COMING)
+        assert [c["label"] for c in asked["choices"]] == ["Rain", EVERYTHING_SO_FAR]
+        lesson = chat(client, "Teach me about Rain")["lesson"]
+        lesson = chat(client, "Next", lesson)["lesson"]  # the summary
+        reply = chat(client, "Next", lesson)
+        assert reply["content"] == NOT_YET and reply["lesson"] == lesson
+    finally:
+        hold.set()
+    client.app.state.wiki.wait()
+    reply = chat(client, "Next", lesson)
+    assert reply["lesson"] == {"topic": "Rain 2", "part": 0, "active": True, "parts": 1}
+    reply = chat(client, "Next", chat(client, "Next", reply["lesson"])["lesson"])
+    assert reply["content"] == ALL_DONE

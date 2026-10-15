@@ -830,7 +830,7 @@ def create_app(
             thread.join()
             logger.info(f"{what} waited for the warm-up", extra={"wait_ms": ms_since(start)})
 
-    teacher = Teacher(wiki.contents, find_content)
+    teacher = Teacher(wiki.contents, find_content, topics_complete)
 
     def lesson_parts(lesson: Lesson) -> int:
         """How many parts the lesson's topic has, its summary not counted."""

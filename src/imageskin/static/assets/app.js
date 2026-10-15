@@ -2902,7 +2902,7 @@ function Chat() {
 						})]
 					})]
 				}),
-				/* @__PURE__ */ u(Choices, {
+				teachMe && /* @__PURE__ */ u(Choices, {
 					choices,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)

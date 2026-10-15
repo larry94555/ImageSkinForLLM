@@ -1498,6 +1498,39 @@ test("Teach me asks which topic, and clicking one starts the lesson", async () =
   expect(loadLesson()).toEqual(ZETA); // kept on this browser
 });
 
+test("turning Teach me off hides its choices and keeps the lesson's place", async () => {
+  localStorage.setItem("imageskin.lesson", JSON.stringify({ ...ZETA, active: false }));
+  lessonServer({
+    content: "What would you like to learn about?",
+    lesson: { ...ZETA, active: false },
+    choices: [{ label: "Carry on with Zeta Function", prompt: "Teach me about Zeta Function" }],
+  });
+  let teachMe = true;
+  const server = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/settings") return server(url, init);
+      if (init?.method === "PATCH") teachMe = JSON.parse(String(init.body)).teach_me;
+      return Response.json({ teach_me: teachMe });
+    }),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Teach me" }));
+  });
+  expect(await screen.findByRole("list", { name: "Choices" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("checkbox", { name: "Teach me" }));
+  });
+  expect(teachMe).toBe(false);
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Choices" })).toBeNull());
+  expect(screen.queryByRole("button", { name: "Teach me" })).toBeNull();
+  expect(loadLesson()).toEqual({ ...ZETA, active: false }); // kept for when it is back on
+});
+
 test("Next and more simply send the lesson along, and the place shown follows it", async () => {
   localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
   const server = lessonServer(

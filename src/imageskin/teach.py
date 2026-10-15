@@ -41,11 +41,19 @@ _STOP = re.compile(r"stop(?: the lesson| teaching(?: me)?)?|end the lesson|that'
 _PUNCTUATION = re.compile(r"[^\w\s',]+")
 
 EVERYTHING = "Everything, from the start"
+# While a PDF is still being read, everything is only what there is so far (review on PR #87).
+EVERYTHING_SO_FAR = "Everything so far, from the start"
+MORE_COMING = "More material is still being read, so more topics will come."
 CHOOSE = "What would you like to learn about?"
 # Said when a lesson goes past the last topic.
 ALL_DONE = "That's everything in the material I was given. Well done for getting through it all!"
 STOPPED = "OK, we'll stop here. Click Teach me any time to carry on where we left off."
 NO_LESSON = "There's nothing to teach yet: no material has been added."
+# Said when a lesson reaches the last topic so far while more material is still being read.
+NOT_YET = (
+    "That's all I have so far: more material is still being read. Say next again in a moment"
+    " to carry on."
+)
 
 
 @dataclass(frozen=True)
@@ -136,6 +144,21 @@ def lesson_topics(contents: list[dict[str, Any]]) -> dict[str, list[Part]]:
     return topics
 
 
+def summed_up(parts: list[Part]) -> list[str]:
+    """The material a topic's summary is made from: every part's wiki entry."""
+    return [f"{p.title}: {p.summary}" for p in parts]
+
+
+def same_entry(found: str, part: Part) -> bool:
+    """Whether a passage found ("Title (book.pdf, page 2): text") is the part's own wiki entry,
+    or one with the same title whose summary the part already has."""
+    found = " ".join(found.split())
+    if not found.casefold().startswith(f"{part.title} (".casefold()) or "): " not in found:
+        return False
+    text = found.split("): ", 1)[1].removesuffix(" …")
+    return text in " ".join(part.summary.split())
+
+
 def what(topic: str, parts: list[Part], part: int) -> str:
     """The part named for the LLM."""
     if part == 0:
@@ -168,9 +191,12 @@ class Teacher:
         self,
         contents: Callable[[], list[dict[str, Any]]],
         find: Callable[[str], list[str]],
+        complete: Callable[[], bool] = lambda: True,
     ) -> None:
         self._contents = contents
         self._find = find
+        # Whether every PDF has been read and its wiki built, so the topics are all of them.
+        self._complete = complete
 
     def step(self, prompt: str, lesson: Lesson | None) -> Step:
         """What to do with the prompt, given the lesson the browser has (None when there was
@@ -200,14 +226,21 @@ class Teacher:
                 return self._explain(Lesson(lesson.topic, part + 1), parts, "next")
             names = list(topics)
             after = names[names.index(lesson.topic) + 1 :]
+            if not after and not self._complete():  # stays on the summary until there is more
+                logger.info("Lesson waiting for material", extra={"topic": lesson.topic})
+                return Say([NOT_YET], here, [])
             if not after:
                 logger.info("Lesson finished", extra={"topic": lesson.topic})
                 return Say([ALL_DONE], None, [])
             return self._explain(Lesson(after[0], 0), topics[after[0]], "next")
         # A question about the part being taught ("Why is that?" names nothing to look up),
-        # answered from that part's material; the lesson stays where it is.
+        # answered from that part's material (on the summary, the whole topic's, as the summary
+        # was made from); the lesson stays where it is.
         logger.info("Lesson question", extra={"topic": lesson.topic, "part": part})
-        material = self._material(lesson.topic, parts, min(part, len(parts) - 1))
+        if part >= len(parts):
+            material = summed_up(parts)
+        else:
+            material = self._material(lesson.topic, parts, part)
         material += self._found(prompt)
         return Explain(Teach(prompt, material), here, "question")
 
@@ -247,13 +280,17 @@ class Teacher:
     ) -> Say:
         """Ask which topic to learn: the topics, everything from the start, and carrying on
         with the one left off, if any."""
+        complete = self._complete()
         choices = [Choice(t, f"Teach me about {t}") for t in topics]
-        choices.append(Choice(EVERYTHING, "Teach me everything from the start"))
+        everything = EVERYTHING if complete else EVERYTHING_SO_FAR
+        choices.append(Choice(everything, "Teach me everything from the start"))
         if lesson is not None and lesson.topic in topics:
             carry_on = Choice(f"Carry on with {lesson.topic}", f"Teach me about {lesson.topic}")
             choices.insert(0, carry_on)
         sentences = [first] if first else []
         sentences += [CHOOSE, "Pick one of the topics, or everything from the start."]
+        if not complete:
+            sentences.append(MORE_COMING)
         logger.info("Lesson topic asked for", extra={"topics": len(topics)})
         return Say(sentences, lesson, choices)
 
@@ -264,16 +301,18 @@ class Teacher:
             extra={"topic": lesson.topic, "part": part, "parts": len(parts), "kind": kind},
         )
         if part >= len(parts):
-            material = [f"{p.title}: {p.summary}" for p in parts]
-            return Explain(Teach(explain(lesson.topic, parts, part), material), lesson, "summary")
+            teach = Teach(explain(lesson.topic, parts, part), summed_up(parts))
+            return Explain(teach, lesson, "summary")
         material = self._material(lesson.topic, parts, part)
         teach = Teach(explain(lesson.topic, parts, part, kind == "simpler"), material)
         return Explain(teach, lesson, kind)
 
     def _material(self, topic: str, parts: list[Part], part: int) -> list[str]:
-        """The part's own wiki entry, then what the PDFs say about it."""
+        """The part's own wiki entry, then what else the content has on it: the lookup finds
+        that entry too, so it is left out there, not given twice (review on PR #87)."""
         p = parts[part]
-        return [f"{p.title}: {p.summary}", *self._found(p.title if part else topic)]
+        found = self._found(p.title if part else topic)
+        return [f"{p.title}: {p.summary}", *[f for f in found if not same_entry(f, p)]]
 
     def _found(self, question: str) -> list[str]:
         try:

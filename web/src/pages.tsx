@@ -1189,7 +1189,10 @@ function Chat() {
           )}
         </div>
       </form>
-      <Choices choices={choices} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+      {/* The choices are a lesson's, so they go with the setting (review on PR #87). */}
+      {teachMe && (
+        <Choices choices={choices} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+      )}
       {teachMe && lesson?.active && (
         <LessonControls
           lesson={lesson}
