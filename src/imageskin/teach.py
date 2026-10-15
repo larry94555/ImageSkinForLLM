@@ -19,7 +19,6 @@ from typing import Any
 
 from imageskin.chat import Teach
 from imageskin.lookup import named_topic
-from imageskin.topics import main_entries
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +101,9 @@ def plain(prompt: str) -> str:
 
 def lesson_topics(contents: list[dict[str, Any]]) -> dict[str, list[Part]]:
     """Each topic's parts, in the order the wiki has them: the topic's own entry (its main
-    ideas), then every entry under it, depth first."""
+    ideas), then every entry under it, depth first. A topic several PDFs have (the same title,
+    shown once, R41f) is taught from all of them: an entry already taught takes the later PDF's
+    summary as well, and every other entry under it follows (review on PR #87)."""
 
     def walk(entries: list[dict[str, Any]]) -> list[Part]:
         found = []
@@ -112,14 +113,26 @@ def lesson_topics(contents: list[dict[str, Any]]) -> dict[str, list[Part]]:
         return found
 
     topics: dict[str, list[Part]] = {}
-    for title in main_entries(contents):
-        entry = next(
-            e
-            for pdf in contents
-            for e in pdf["entries"]
-            if " ".join(str(e["title"]).split()).casefold() == title.casefold()
-        )
-        topics[title] = walk([entry])
+    named: dict[str, str] = {}  # each topic's title, by its casefolded title
+    for pdf in contents:
+        for entry in pdf["entries"]:
+            parts = walk([entry])
+            key = parts[0].title.casefold()
+            if not key:
+                continue
+            if key not in named:
+                named[key] = parts[0].title
+                topics[parts[0].title] = parts
+                continue
+            have = topics[named[key]]
+            places = {p.title.casefold(): i for i, p in reversed(list(enumerate(have)))}
+            for part in parts:
+                i = places.get(part.title.casefold())
+                if i is None:
+                    places[part.title.casefold()] = len(have)
+                    have.append(part)
+                elif part.summary and part.summary not in have[i].summary:
+                    have[i] = replace(have[i], summary=f"{have[i].summary} {part.summary}".strip())
     return topics
 
 

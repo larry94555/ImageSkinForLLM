@@ -17,7 +17,7 @@ import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from imageskin.sentences import SentenceSplitter
 from imageskin.topics import (
@@ -169,6 +169,23 @@ def latest(turns: list[Turn], budget: int, count: Count = estimate) -> list[Turn
     if kept and kept[-1].role == "assistant":
         kept.pop()
     return list(reversed(kept))
+
+
+def checked(prompt: str) -> str:
+    """The prompt without the spaces around it; an empty one is refused."""
+    prompt = prompt.strip()
+    if not prompt:
+        raise ValueError("Type something to send.")
+    return prompt
+
+
+class _Fit(NamedTuple):
+    """How a prompt fits the context window (`Conversation._fit`)."""
+
+    window: int
+    budget: int
+    room: int  # for the prompt and the content quoted with it
+    turns: list[Turn]  # the latest turns that fit the history's budget
 
 
 def ms_since(start: float) -> float:
@@ -428,9 +445,7 @@ class Conversation:
         When the reply is streamed, `on_sentence` is told when the LLM starts writing (None)
         and is then given each sentence as soon as it is complete (roadmap R21). With `teach`,
         the LLM is asked its instruction from its material instead (R41h)."""
-        prompt = prompt.strip()
-        if not prompt:
-            raise ValueError("Type something to send.")
+        prompt = checked(prompt)
         with self._busy:
             self.wait()  # for a summary still being made after the last reply
             return self._send(prompt, on_sentence, teach)
@@ -439,19 +454,18 @@ class Conversation:
         self, prompt: str, sentences: list[str], on_sentence: OnSentence | None = None
     ) -> tuple[Turn, int]:
         """Reply to the prompt with these sentences, made outside the LLM (a lesson's choices,
-        R41h), spoken and kept like any reply."""
+        R41h), spoken and kept like any reply. The prompt is checked as `send` checks it."""
+        prompt = checked(prompt)
         with self._busy:
             self.wait()
-            budget = int(self._context_tokens() * HISTORY_SHARE)
-            count = self._count
-            turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
-            return self._say(prompt.strip(), sentences, on_sentence, turns, budget)
+            fit = self._fit(prompt)
+            return self._say(prompt, sentences, on_sentence, fit.turns, fit.budget)
 
-    def _send(
-        self, prompt: str, on_sentence: OnSentence | None, teach: Teach | None = None
-    ) -> tuple[Turn, int]:
-        # Only this send (holding _busy, with no summary running) changes the turns or summary,
-        # so reading them here is safe; changes are made under _lock for turns().
+    def _fit(self, prompt: str) -> _Fit:
+        """How the prompt fits the context window, with the turns sent before it. A prompt that
+        doesn't leave room for a reply is refused."""
+        # Only the caller (holding _busy, with no summary running) changes the turns or
+        # summary, so reading them here is safe; changes are made under _lock for turns().
         window = self._context_tokens()
         budget = int(window * HISTORY_SHARE)
         count = self._count
@@ -462,6 +476,12 @@ class Conversation:
         # Normally the summary made after the last reply keeps this within budget; if it
         # couldn't be made, the oldest turns are left out.
         turns = latest(self._turns, budget - history_tokens(self._summary, [], count), count)
+        return _Fit(window, budget, room, turns)
+
+    def _send(
+        self, prompt: str, on_sentence: OnSentence | None, teach: Teach | None = None
+    ) -> tuple[Turn, int]:
+        window, budget, room, turns = self._fit(prompt)
         if teach is not None:
             asked = self._with_content(teach.instruction, teach.material, room)
             return self._ask_llm(prompt, asked, turns, budget, window, on_sentence)

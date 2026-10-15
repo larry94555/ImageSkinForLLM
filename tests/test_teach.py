@@ -74,7 +74,11 @@ def said(step: Any) -> Say:
 def test_each_topic_is_taught_in_parts_main_ideas_first_then_each_entry_under_it() -> None:
     assert lesson_topics(CONTENTS) == {
         "Prime Numbers": [
-            Part("Prime Numbers", "Primes have no divisors but 1 and themselves."),
+            # The second PDF's "prime numbers" is the same topic: its summary is taught too.
+            Part(
+                "Prime Numbers",
+                "Primes have no divisors but 1 and themselves. A repeat in a second PDF.",
+            ),
             Part("Sieves", "A sieve crosses out multiples."),
             Part("Eratosthenes", "Oldest."),
             Part("Gaps", "Primes thin out."),
@@ -82,6 +86,38 @@ def test_each_topic_is_taught_in_parts_main_ideas_first_then_each_entry_under_it
         "Zeta Function": [Part("Zeta Function", "Zeta sums 1/n^s.")],
         "Rain": [Part("Rain", "It falls.")],
     }
+
+
+def test_a_topic_in_several_pdfs_is_taught_from_all_of_them() -> None:
+    """Review on PR #87: what a later PDF has under the same topic is never left out."""
+    contents = [
+        {"entries": [entry("Primes", "Have two divisors.", entry("Gaps", "Primes thin out."))]},
+        {"entries": [entry("Rain", "It falls.")]},
+        {
+            "entries": [
+                entry(
+                    " primes ",
+                    "Have two divisors.",  # already said: not said twice
+                    entry("Gaps", "Primes thin out."),
+                    entry("gaps", "Twin primes have a gap of 2."),
+                    entry("Twin Primes", "Pairs two apart.", entry("Cousins", "Four apart.")),
+                ),
+                entry("  ", "No title: not a topic."),
+            ]
+        },
+    ]
+    assert lesson_topics(contents) == {
+        "Primes": [
+            Part("Primes", "Have two divisors."),
+            Part("Gaps", "Primes thin out. Twin primes have a gap of 2."),
+            Part("Twin Primes", "Pairs two apart."),
+            Part("Cousins", "Four apart."),
+        ],
+        "Rain": [Part("Rain", "It falls.")],
+    }
+    step = explained(teacher(contents).step("Next", Lesson("Primes", 1)))
+    assert step.lesson == Lesson("Primes", 2)
+    assert step.teach.material[0] == "Twin Primes: Pairs two apart."
 
 
 @pytest.mark.parametrize(
@@ -121,7 +157,7 @@ def test_teach_me_about_a_topic_starts_at_its_main_ideas(prompt: str) -> None:
     assert step.kind == "start"
     assert step.teach.instruction.startswith('Teach me the main ideas of "Prime Numbers"')
     assert step.teach.material == [
-        "Prime Numbers: Primes have no divisors but 1 and themselves.",
+        "Prime Numbers: Primes have no divisors but 1 and themselves. A repeat in a second PDF.",
         "Primes (book.pdf, page 2): 2, 3, 5 and 7 are prime.",
     ]
     assert t.asked == ["Prime Numbers"]  # type: ignore[attr-defined]
@@ -249,6 +285,18 @@ def test_a_reply_made_outside_the_llm_is_spoken_and_kept() -> None:
     assert conversation.turns()[0] == Turn("user", "Teach me")
 
 
+def test_a_reply_made_outside_the_llm_checks_the_prompt_as_send_does() -> None:
+    """Review on PR #87: a prompt too long for the context is refused, never kept."""
+    conversation = Conversation(Llm(), lambda: 2048)
+    for prompt in ["🐶" * 300, "  "]:
+        with pytest.raises(ValueError) as said_:
+            conversation.say(prompt, ["Which one?"])
+        with pytest.raises(ValueError) as sent:
+            conversation.send(prompt)
+        assert str(said_.value) == str(sent.value)
+    assert conversation.turns() == []
+
+
 # --- Through the app ---
 
 
@@ -323,3 +371,18 @@ def test_a_lesson_sent_by_the_browser_is_checked(tmp_path: Path) -> None:
             "/api/chat", json={"prompt": "Next", "lesson": {"topic": "A", "part": -1}}
         )
     assert bad.status_code == 422
+
+
+def test_a_teach_me_prompt_too_long_is_refused_like_any_other(tmp_path: Path) -> None:
+    """Review on PR #87: "Teach me about <a huge unknown topic>" is answered here, not by the
+    LLM, and is refused for its length all the same."""
+    client = riemann_app(tmp_path, Llm())
+    assert client.patch("/api/settings", json={"teach_me": True}).status_code == 200
+    huge = " ".join(["zeta"] * 40000)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        lesson = client.post("/api/chat", json={"prompt": f"Teach me about {huge}"})
+        ordinary = client.post("/api/chat", json={"prompt": f"Tell me about {huge}"})
+    assert lesson.status_code == ordinary.status_code == 400
+    assert lesson.json() == ordinary.json()
+    assert "too long" in lesson.json()["detail"]
+    assert client.get("/api/chat").json()["turns"] == []
