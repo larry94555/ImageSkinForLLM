@@ -1349,7 +1349,7 @@ test("a question said with Hold to talk is shown in the box, sent, and shown as 
   await act(async () => {
     fireEvent.pointerUp(talk);
   });
-  expect(await screen.findByText("Hi!")).toBeTruthy();
+  expect(await screen.findByText("Hi!", undefined, { timeout: 3000 })).toBeTruthy();
   expect(screen.getByText("Who was Euler?").className).toBe("user");
   expect(screen.queryByText("Who was Oiler?")).toBeNull();
   expect(promptBox().value).toBe("");

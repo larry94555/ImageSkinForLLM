@@ -1842,8 +1842,6 @@ function ChoiceIcon({ href }) {
 		})
 	});
 }
-//#endregion
-//#region src/talk.tsx
 function speechRecognition() {
 	const w = window;
 	return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
@@ -1865,7 +1863,11 @@ function TalkButton(props) {
 	const said = A("");
 	const started = A(0);
 	const failed = A(false);
-	h(() => () => recognition.current?.stop(), []);
+	const stopping = A(null);
+	h(() => () => {
+		if (stopping.current !== null) window.clearTimeout(stopping.current);
+		recognition.current?.stop();
+	}, []);
 	if (!Maker) return null;
 	function start() {
 		if (props.disabled || recognition.current || !Maker) return;
@@ -1912,7 +1914,11 @@ function TalkButton(props) {
 		}
 	}
 	function stop() {
-		recognition.current?.stop();
+		if (!recognition.current || stopping.current !== null) return;
+		stopping.current = window.setTimeout(() => {
+			stopping.current = null;
+			recognition.current?.stop();
+		}, 600);
 	}
 	return /* @__PURE__ */ u("button", {
 		type: "button",

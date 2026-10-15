@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { heard, type Recognition, TalkButton, talkProblem } from "./talk";
+import { heard, type Recognition, TAIL_MS, TalkButton, talkProblem } from "./talk";
 
 // The browser's speech recognition, driven by the test: `say` gives what was heard so far,
 // `fail` an error, and stop() ends it as the browser does.
@@ -49,6 +49,7 @@ function talk(disabled = false) {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   FakeRecognition.made = [];
   vi.stubGlobal("webkitSpeechRecognition", FakeRecognition);
   vi.spyOn(console, "info").mockImplementation(() => {});
@@ -56,6 +57,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -85,11 +87,17 @@ test("holding the button listens, and letting go sends what was heard", async ()
   expect(calls.hearing).toEqual(["What is a", "What is a prime number?"]);
   await act(async () => {
     fireEvent.pointerUp(button);
+    fireEvent.pointerLeave(button); // let go and moved off: stopped once
+    r.say("What is a", " prime number", " exactly?"); // said as the button came up
   });
-  expect(calls.heard).toEqual(["What is a prime number?"]);
+  expect(calls.heard).toEqual([]); // still listening for the last word
+  await act(async () => {
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(calls.heard).toEqual(["What is a prime number exactly?"]);
   expect(button.textContent).toBe("Hold to talk");
   expect(console.info).toHaveBeenCalledWith(
-    expect.stringMatching(/^Push-to-talk: heard 5 words in \d+ ms$/),
+    expect.stringMatching(/^Push-to-talk: heard 6 words in \d+ ms$/),
   );
 });
 
@@ -104,6 +112,7 @@ test("the space bar works like holding the button", async () => {
   await act(async () => {
     FakeRecognition.made[0]!.say("Hello");
     fireEvent.keyUp(button, { key: " " });
+    vi.advanceTimersByTime(TAIL_MS);
   });
   expect(calls.heard).toEqual(["Hello"]);
 });
@@ -114,6 +123,7 @@ test("nothing heard sends nothing and says so", async () => {
   await act(async () => {
     fireEvent.pointerDown(button);
     fireEvent.pointerUp(button);
+    vi.advanceTimersByTime(TAIL_MS);
   });
   expect(calls.heard).toEqual([]);
   expect(calls.problems).toEqual([null, talkProblem("no-speech")]);
@@ -163,4 +173,19 @@ test("each recognition error gets plain words, and a deliberate stop none", () =
     expect(talkProblem(e)).toMatch(/\.$/);
   }
   expect(heard([[{ transcript: " a  b " }], [{ transcript: "c" }]])).toBe("a b c");
+});
+
+test("leaving the page while listening stops listening", async () => {
+  talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button);
+  });
+  const r = FakeRecognition.made[0]!;
+  const stopped = vi.spyOn(r, "stop");
+  cleanup();
+  expect(stopped).toHaveBeenCalledTimes(1);
+  vi.advanceTimersByTime(TAIL_MS); // the pending stop was cleared
+  expect(stopped).toHaveBeenCalledTimes(1);
 });

@@ -4,6 +4,10 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
+// How long it keeps listening after the button is let go, so the last word, said as the button
+// comes up, isn't cut off (Larry's "can you explain what Euler noticed about", 2026-10-15).
+export const TAIL_MS = 600;
+
 // The part of the Web Speech API used here; TypeScript's DOM types don't include it.
 export interface Recognition {
   lang: string;
@@ -58,8 +62,15 @@ export function TalkButton(props: {
   const said = useRef("");
   const started = useRef(0);
   const failed = useRef(false);
+  const stopping = useRef<number | null>(null);
 
-  useEffect(() => () => recognition.current?.stop(), []);
+  useEffect(
+    () => () => {
+      if (stopping.current !== null) window.clearTimeout(stopping.current);
+      recognition.current?.stop();
+    },
+    [],
+  );
   if (!Maker) return null;
 
   function start() {
@@ -108,7 +119,11 @@ export function TalkButton(props: {
   }
 
   function stop() {
-    recognition.current?.stop(); // what was heard is sent when it ends
+    if (!recognition.current || stopping.current !== null) return;
+    stopping.current = window.setTimeout(() => {
+      stopping.current = null;
+      recognition.current?.stop(); // what was heard is sent when it ends
+    }, TAIL_MS);
   }
 
   return (

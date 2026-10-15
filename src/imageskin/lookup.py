@@ -50,6 +50,8 @@ MIN_SHARE = 0.4
 # that also has another of the question's words as typed (review on PR #74).
 MIN_TYPO_CHARS = 5
 WORD = re.compile(r"[^\W_]+")
+# A capitalised word after a word, a comma or a bracket, not at the start of a sentence.
+MID_SENTENCE_NAME = re.compile(r"(?:(?<=[^\W_] )|(?<=[,;:)] ))[A-Z][^\W_]+")
 # A contraction like "can't" or "don't" is a common word, so it goes whole; the ending of
 # "what's", "you're" or "student's" is left off. Straight and curly apostrophes alike.
 NOT_CONTRACTION = re.compile(r"[^\W_]+n['’]t\b")
@@ -177,6 +179,19 @@ def passage_words(passage: Passage) -> list[str]:
     return words(passage.title) * 2 + words(passage.text)
 
 
+def names_in(passages: list[Passage]) -> set[str]:
+    """The names in the content, as `words` gives them: words capitalised mid-sentence in the
+    text read from its PDFs ("Euler" in "the product Euler found"). Not the wiki's, whose titles
+    and summaries ("About Water Cycle.") capitalise every word of a topic."""
+    return {
+        w
+        for p in passages
+        if p.source == "pdf"
+        for name in MID_SENTENCE_NAME.findall(p.text)
+        for w in words(name)
+    }
+
+
 def wiki_passages(contents: list[dict[str, Any]]) -> list[Passage]:
     """Every entry of every table of contents (as `WikiJob.contents` gives them), parts too."""
 
@@ -212,7 +227,10 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
     is in the content; a word the content doesn't have at all weighs the most (after a word one
     typo from a content word is taken as that word, in a passage with a word as typed). So a
     passage that shares only a common word ("best" in "What lighting is best for the photo?")
-    is left out, and a question about something the content doesn't cover finds nothing."""
+    is left out, and a question about something the content doesn't cover finds nothing. A
+    passage with a name from the content that the question has ("Euler") is found whatever
+    else the question says, since the name says what it is about ("What did Euler notice?";
+    Larry, 2026-10-15)."""
     if not words(question) or not passages:
         return []
     counted = [Counter(passage_words(p)) for p in passages]
@@ -229,13 +247,15 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
         having = sum(1 for c in counted if w in c)
         idf[w] = math.log(1 + (total - having + 0.5) / (having + 0.5))
     weight = sum(idf.values())
+    named = typed & names_in(passages)
     found = []
     for passage, counts, length in zip(passages, counted, lengths, strict=True):
         matched = [w for w in asked if w in counts]
         # A typo corrected helps only a passage that has a question word as typed, so a
         # correction is never the only reason a passage, or an off-topic prompt, is found
         # ("polar energy" isn't found by a passage on solar flares; review on PR #74).
-        if not typed.intersection(matched) or sum(idf[w] for w in matched) < MIN_SHARE * weight:
+        enough = sum(idf[w] for w in matched) >= MIN_SHARE * weight
+        if not typed.intersection(matched) or not (enough or named.intersection(matched)):
             continue
         score = 0.0
         for w in matched:
