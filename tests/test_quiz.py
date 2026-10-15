@@ -158,6 +158,49 @@ def test_a_question_that_can_t_be_written_is_asked_plainly(
     assert blank.sentences[-1] == "Question 1 of 5: What can you tell me about Rain?"
 
 
+LARRYS_QUESTION_1 = (
+    "Euler's initial approach focused on the problem of determining how many prime numbers there"
+    " are."
+)
+
+
+def test_a_statement_is_never_asked_as_a_question(caplog: pytest.LogCaptureFixture) -> None:
+    """Larry's test (2026-10-15): question 1 was a statement, so he couldn't tell what to
+    answer."""
+    with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
+        step = said(quizzer(write=Writer(LARRYS_QUESTION_1)).step("Quiz me on rain", None))
+    assert step.sentences[-1] == "Question 1 of 5: What can you tell me about Rain?"
+    assert "Quiz question was not a question" in caplog.text
+    mixed = Writer("Here's one. **How does rain form?** It's from clouds.")
+    step = said(quizzer(write=mixed).step("Quiz me on rain", None))
+    assert step.sentences[-1] == "Question 1 of 5: How does rain form?"
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "What's the question?",
+        "what is the question",
+        "Sorry, what was that question?",
+        "Can you repeat the question please?",
+        "Say that again",
+        "repeat",
+        "Pardon?",
+        "I didn't catch that",
+    ],
+)
+def test_asking_for_the_question_again_says_it_again(
+    prompt: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry's test (2026-10-15): "What's the question?" was judged as a wrong answer."""
+    quiz = Quiz("Rain", 2, "How does rain form?", 0, right=1)
+    with caplog.at_level(logging.INFO, logger="imageskin.quiz"):
+        step = said(quizzer().step(prompt, quiz))
+    assert step.sentences == ["Question 2 of 5: How does rain form?"]
+    assert step.quiz == quiz  # still on the same question
+    assert "Quiz question asked again" in caplog.text
+
+
 def test_a_question_asked_already_is_asked_plainly_instead(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -373,3 +416,13 @@ def test_a_quiz_sent_by_the_browser_is_checked(tmp_path: Path) -> None:
         with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
             response = client.post("/api/chat", json={"prompt": "Two", "quiz": quiz})
         assert response.status_code == 422, bad
+
+
+def test_larrys_whats_the_question_through_the_chat(tmp_path: Path) -> None:
+    llm = QuizLlm()
+    client = riemann_app(tmp_path, llm)
+    client.patch("/api/settings", json={"quiz_me": True})
+    quiz = {"topic": "Prime Number Basics", "number": 1, "question": "How are primes counted?"}
+    reply = chat(client, "What's the question?", quiz={**quiz, "part": 0})
+    assert reply["content"] == "Question 1 of 5: How are primes counted?"
+    assert reply["quiz"]["number"] == 1 and llm.sent == []  # not judged

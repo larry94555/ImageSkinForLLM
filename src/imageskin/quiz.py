@@ -33,6 +33,15 @@ _QUIZ = re.compile(
     r"(?:\s+(?:on|about)\s+(?P<about>.+?))?(?:\s+please)?"
 )
 _STOP = re.compile(r"stop(?: the quiz| quizzing(?: me)?)?|end the quiz|that'?s enough")
+# Asking for the question again (Larry, 2026-10-15: "What's the question?" was judged as a wrong
+# answer), so it is said again rather than taken as the answer.
+_AGAIN = re.compile(
+    r"(?:sorry,? )?(?:what(?:'s| is| was) (?:the|that) question"
+    r"|(?:can you |could you |please )?(?:repeat|say) (?:the question|that|it)(?: again)?"
+    r"(?: please)?|repeat(?: please)?|pardon|i didn'?t (?:get|catch|hear) (?:the question|that|it))"
+)
+# A question: the words up to a question mark, after any sentence before it.
+_QUESTION = re.compile(r"[^.!?]*\?")
 # What a question written by the LLM may start with, left out: "Question:", "Q1.", quotes.
 _LEAD = re.compile(r"^(?:\**\s*(?:question|q)\s*\d*\s*[:.)-]\s*\**\s*)", re.IGNORECASE)
 
@@ -144,6 +153,9 @@ class Quizzer:
             logger.info("Quiz stopped", extra={"topic": quiz.topic, "question": quiz.number})
             done = [score(quiz, quiz.number - 1)] if quiz.number > 1 else []
             return Said([STOPPED, *done], None)
+        if _AGAIN.fullmatch(text):
+            logger.info("Quiz question asked again", extra={"question": quiz.number})
+            return Said([asked_line(quiz.number, quiz.question)], quiz)
         parts = topics.get(quiz.topic)
         if parts is None:  # its topic is gone from the wiki: start again from the choices
             logger.info("Quiz topic gone", extra={"topic": quiz.topic})
@@ -181,7 +193,8 @@ class Quizzer:
         can't."""
         instruction = (
             f"Write one short quiz question about {what(topic, parts, part)} that can be"
-            " answered in a sentence from the reference text. Say only the question."
+            " answered in a sentence from the reference text. Say only the question, ending with a"
+            " question mark, and don't mention the reference text."
         )
         if asked:
             instruction += " Don't ask any of these again: " + " ".join(asked)
@@ -190,8 +203,14 @@ class Quizzer:
         except LlmError as e:
             logger.error("Could not write a quiz question", extra={"error": str(e)})
             written = ""
-        lines = [ln.strip() for ln in written.splitlines() if ln.strip()]
-        question = _LEAD.sub("", lines[0]).strip(" \"'*") if lines else ""
+        question = ""
+        for line in written.splitlines():  # the first one the LLM wrote, without "Question 1:"
+            found = _QUESTION.search(_LEAD.sub("", line.strip()).replace("**", ""))
+            if found:
+                question = found.group().strip(" \"'*")
+                break
+        if not question and written.strip():  # a statement isn't a question (Larry, 2026-10-15)
+            logger.info("Quiz question was not a question", extra={"topic": topic, "part": part})
         if question.casefold() in {a.casefold() for a in asked}:  # a small LLM may ask again
             logger.info("Quiz question repeated", extra={"topic": topic, "part": part})
             question = ""
