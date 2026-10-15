@@ -163,6 +163,7 @@ class AssessmentState(BaseModel):
     part: int = Field(ge=0)
     question: str = Field(max_length=2000)
     source: str = Field(default="", max_length=100)
+    plan: str = Field(default="", max_length=100)  # the topics' fingerprint (review on PR #90)
     answers: list[AnswerState] = Field(default=[], max_length=MOST_QUESTIONS)
 
     @model_validator(mode="after")

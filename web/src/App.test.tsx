@@ -3442,6 +3442,7 @@ const ASSESSMENT = {
   part: 0,
   question: "What is one fact about Rain?",
   source: "3f1c",
+  plan: "9a2e",
   answers: [],
 };
 

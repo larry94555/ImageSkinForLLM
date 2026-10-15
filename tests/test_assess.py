@@ -136,6 +136,12 @@ def test_with_nothing_to_assess_it_says_so() -> None:
     assert (still.sentences, still.assessment) == ([STILL_READING], None)
 
 
+def test_it_waits_until_all_the_material_is_read() -> None:
+    """Review on PR #90: it covers all the content, so topics from some files aren't enough."""
+    some = assessed(assessor(complete=False).step("Assess me", None))
+    assert (some.sentences, some.assessment) == ([STILL_READING], None)
+
+
 def test_a_prompt_with_no_assessment_going_is_left_alone() -> None:
     assert assessor().step("Quiz me", None) is None
 
@@ -406,6 +412,26 @@ def test_a_change_in_the_topics_ends_it() -> None:
     assert (step.sentences, step.assessment) == ([GONE], None)
 
 
+@pytest.mark.parametrize(
+    "now",
+    [
+        ["Rain", "Snow", "Hail", "Fog"],  # one added, still 15 questions
+        ["Rain", "Snow"],  # one removed
+        ["Rain", "Snow", "Fog"],  # one replaced, same count
+        ["Snow", "Rain", "Hail"],  # reordered
+    ],
+)
+def test_any_change_in_the_topics_ends_it_even_at_the_same_size(now: list[str]) -> None:
+    """Review on PR #90: the plan comes from the topics in order, so it can't change under it."""
+    contents = [{"entries": [entry(name, "Some.") for name in ["Rain", "Snow", "Hail"]]}]
+    a = assessor(contents=contents)
+    first = started(a)
+    assert first.topic == "Rain"  # the current topic is still there in every case
+    contents[:] = [{"entries": [entry(name, "Some.") for name in now]}]
+    step = assessed(a.step("Wet", first))
+    assert (step.sentences, step.assessment) == ([GONE], None)
+
+
 def test_a_question_whose_material_changed_is_asked_anew(caplog: pytest.LogCaptureFixture) -> None:
     contents = [{"entries": [entry("Rain", "It falls.")]}]
     a = assessor(contents=contents, write=Writer(questions=["Does it fall?", "Is it wet?"]))
@@ -416,7 +442,7 @@ def test_a_question_whose_material_changed_is_asked_anew(caplog: pytest.LogCaptu
     assert step.sentences == [CHANGED, "Question 1 of 15: Is it wet?"]
     assert step.assessment is not None and step.assessment.source != first.source
     assert "Assessment material changed" in caplog.text
-    gone = Assessment(first.total, 1, "Rain", RECALL, 4, "Q?", first.source)
+    gone = Assessment(first.total, 1, "Rain", RECALL, 4, "Q?", first.source, first.plan)
     assert assessed(a.step("Down", gone)).sentences[0] == CHANGED  # its part is gone
 
 

@@ -284,8 +284,9 @@ export interface AssessmentAnswer {
 }
 
 // Where an assessment is (roadmap R41j): how many questions it has, the question being asked
-// (from 1), its topic, level and part, the fingerprint of the part's material, and the answers so
-// far. The browser keeps it and sends it back with the next prompt, the answer.
+// (from 1), its topic, level and part, the fingerprint of the part's material, the fingerprint of
+// the topics in order, and the answers so far. The browser keeps it and sends it back with the
+// next prompt, the answer.
 export interface Assessment {
   total: number;
   number: number;
@@ -294,6 +295,7 @@ export interface Assessment {
   part: number;
   question: string;
   source: string;
+  plan: string;
   answers: AssessmentAnswer[];
 }
 

@@ -17,7 +17,7 @@ reply made here (`Assessed`), with the assessment after it.
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -176,7 +176,8 @@ class Answer:
 class Assessment:
     """Where an assessment is: how many questions it has, the question being asked (from 1),
     its topic, level and the part of the topic it was written from, the fingerprint of that
-    part's material, and the answers so far."""
+    part's material, the fingerprint of the topics in order (its plan), and the answers so
+    far."""
 
     total: int
     number: int
@@ -185,6 +186,7 @@ class Assessment:
     part: int
     question: str
     source: str = ""
+    plan: str = ""
     answers: tuple[Answer, ...] = ()
 
 
@@ -251,6 +253,12 @@ def evaluation(answers: tuple[Answer, ...], topics: int) -> tuple[list[str], lis
     return sentences, review
 
 
+def plan_of(topics: Iterable[str]) -> str:
+    """The fingerprint of the topics in order, which the plan of questions comes from, so any
+    change to them ends the assessment (review on PR #90)."""
+    return fingerprint(list(topics))
+
+
 def first_sentence(text: str) -> str:
     """The first sentence of the correct answer the LLM gave: a small one may say much more."""
     return re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0]
@@ -302,7 +310,12 @@ class Assessor:
             done = evaluation(assessment.answers, len(topics))[0] if assessment.answers else []
             return Assessed([STOPPED, *done], None)
         parts = topics.get(assessment.topic)
-        if parts is None or size(len(topics)) != assessment.total:  # topics added or removed
+        # Topics added, removed, renamed or reordered: the plan would change under it.
+        if (
+            parts is None
+            or plan_of(topics) != assessment.plan
+            or size(len(topics)) != assessment.total
+        ):
             logger.info("Assessment topics changed", extra={"question": assessment.number})
             return Assessed([GONE], None)
         material = None
@@ -457,8 +470,8 @@ class Assessor:
 
     def _start(self) -> Assessed:
         topics = lesson_topics(self._contents())
-        if not topics:
-            waiting = not self._complete()
+        waiting = not self._complete()  # it covers all the content, so it waits for all of it
+        if waiting or not topics:
             logger.info("No assessment to give", extra={"still_reading": waiting})
             return Assessed([STILL_READING if waiting else CHOOSE_NOTHING], None)
         assessment = self._asked(1, topics, ())
@@ -485,7 +498,15 @@ class Assessor:
         asked = tuple(a.question for a in answers)
         question = self._question(topic, parts, part, level, material, asked)
         return Assessment(
-            size(len(names)), number, topic, level, part, question, fingerprint(material), answers
+            size(len(names)),
+            number,
+            topic,
+            level,
+            part,
+            question,
+            fingerprint(material),
+            plan_of(names),
+            answers,
         )
 
     def _question(
