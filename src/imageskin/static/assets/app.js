@@ -108,7 +108,7 @@ async function review(decision) {
 async function getChat() {
 	return (await json(await fetch("/api/chat"))).turns;
 }
-async function sendPrompt(prompt, replyId, lesson) {
+async function sendPrompt(prompt, replyId, lesson, quiz) {
 	const body = { prompt };
 	if (replyId) body.reply_id = replyId;
 	if (lesson) body.lesson = {
@@ -116,6 +116,10 @@ async function sendPrompt(prompt, replyId, lesson) {
 		part: lesson.part,
 		active: lesson.active
 	};
+	if (quiz) {
+		const { questions: _, ...kept } = quiz;
+		body.quiz = kept;
+	}
 	const response = await fetch("/api/chat", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -259,13 +263,15 @@ async function listWikiBuilds() {
 var DEFAULT_SETTINGS = {
 	show_metrics: false,
 	view: "teacher",
-	teach_me: false
+	teach_me: false,
+	quiz_me: false
 };
 function settings(data) {
 	return {
 		show_metrics: data.show_metrics === true,
 		view: data.view === "student" ? "student" : "teacher",
-		teach_me: data.teach_me === true
+		teach_me: data.teach_me === true,
+		quiz_me: data.quiz_me === true
 	};
 }
 async function getSettings() {
@@ -437,6 +443,22 @@ function SettingsMenu() {
 				/* @__PURE__ */ u("p", {
 					className: "muted",
 					children: "A Teach me button in the chat that teaches the content a part at a time."
+				}),
+				/* @__PURE__ */ u("label", { children: [
+					/* @__PURE__ */ u("input", {
+						type: "checkbox",
+						checked: settings.quiz_me,
+						onChange: (e) => {
+							const box = e.currentTarget;
+							save({ quiz_me: box.checked }, () => box.checked = !box.checked);
+						}
+					}),
+					" ",
+					"Quiz me"
+				] }),
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: "A Quiz me button in the chat that asks five questions on a topic and judges each answer."
 				}),
 				failed && /* @__PURE__ */ u("p", {
 					className: "error",
@@ -2538,6 +2560,37 @@ function loadLesson() {
 		return null;
 	}
 }
+var QUIZ_KEY = "imageskin.quiz";
+function loadQuiz() {
+	try {
+		const saved = JSON.parse(localStorage.getItem(QUIZ_KEY) ?? "null");
+		if (typeof saved?.topic !== "string" || typeof saved.question !== "string" || !Number.isInteger(saved.number) || !Number.isInteger(saved.part)) return null;
+		const strings = (v) => Array.isArray(v) ? v.filter((s) => typeof s === "string") : [];
+		const count = (v) => Number.isInteger(v) ? v : 0;
+		return {
+			topic: saved.topic,
+			number: saved.number,
+			question: saved.question,
+			part: saved.part,
+			asked: strings(saved.asked),
+			right: count(saved.right),
+			partly: count(saved.partly),
+			review: strings(saved.review),
+			active: saved.active !== false,
+			questions: Number.isInteger(saved.questions) ? saved.questions : void 0
+		};
+	} catch {
+		return null;
+	}
+}
+function saveQuiz(quiz) {
+	try {
+		if (quiz) localStorage.setItem(QUIZ_KEY, JSON.stringify(quiz));
+		else localStorage.removeItem(QUIZ_KEY);
+	} catch (e) {
+		console.error("Could not keep the quiz", e);
+	}
+}
 function saveLesson(lesson) {
 	try {
 		if (lesson) localStorage.setItem(LESSON_KEY, JSON.stringify(lesson));
@@ -2568,7 +2621,7 @@ function saveSound(sound) {
 }
 function Chat() {
 	const metrics = useSettings().show_metrics;
-	const teachMe = useSettings().teach_me;
+	const { teach_me: teachMe, quiz_me: quizMe } = useSettings();
 	const [turns, setTurns] = d(null);
 	const [prompt, setPrompt] = d("");
 	const [sending, setSending] = d(false);
@@ -2593,6 +2646,7 @@ function Chat() {
 		examples: []
 	});
 	const [lesson, setLesson] = d(loadLesson);
+	const [quiz, setQuiz] = d(loadQuiz);
 	const [choices, setChoices] = d([]);
 	const clipTotal = A(0);
 	const allMade = A(false);
@@ -2713,13 +2767,19 @@ function Chat() {
 		let reply;
 		let repliedAt = 0;
 		try {
-			reply = await sendPrompt(text, replyId, teachMe ? lesson : null);
+			reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null);
 			repliedAt = performance.now();
 			if (teachMe && reply.lesson !== void 0) {
 				const next = reply.lesson;
 				setLesson(next);
 				saveLesson(next);
 				if (next) console.info(`Lesson: ${next.topic}, part ${next.part + 1}`);
+			}
+			if (quizMe && reply.quiz !== void 0) {
+				const next = reply.quiz;
+				setQuiz(next);
+				saveQuiz(next);
+				if (next) console.info(`Quiz: ${next.topic}, question ${next.number}`);
 			}
 			setChoices(reply.choices ?? []);
 			const { role, content } = reply;
@@ -2889,26 +2949,41 @@ function Chat() {
 						})]
 					}), /* @__PURE__ */ u("div", {
 						className: "send-buttons",
-						children: [/* @__PURE__ */ u("button", {
-							type: "submit",
-							disabled: sending || speaking || !prompt.trim(),
-							children: "Send"
-						}), teachMe && /* @__PURE__ */ u("button", {
-							type: "button",
-							className: "secondary",
-							disabled: sending || speaking,
-							onClick: () => void send(TEACH_ME),
-							children: "Teach me"
-						})]
+						children: [
+							/* @__PURE__ */ u("button", {
+								type: "submit",
+								disabled: sending || speaking || !prompt.trim(),
+								children: "Send"
+							}),
+							teachMe && /* @__PURE__ */ u("button", {
+								type: "button",
+								className: "secondary",
+								disabled: sending || speaking,
+								onClick: () => void send(TEACH_ME),
+								children: "Teach me"
+							}),
+							quizMe && /* @__PURE__ */ u("button", {
+								type: "button",
+								className: "secondary",
+								disabled: sending || speaking,
+								onClick: () => void send(QUIZ_ME),
+								children: "Quiz me"
+							})
+						]
 					})]
 				}),
-				teachMe && /* @__PURE__ */ u(Choices, {
+				(teachMe || quizMe) && /* @__PURE__ */ u(Choices, {
 					choices,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
 				}),
 				teachMe && lesson?.active && /* @__PURE__ */ u(LessonControls, {
 					lesson,
+					disabled: sending || speaking,
+					onAsk: (q) => void send(q)
+				}),
+				quizMe && quiz?.active && /* @__PURE__ */ u(QuizControls, {
+					quiz,
 					disabled: sending || speaking,
 					onAsk: (q) => void send(q)
 				}),
@@ -2926,6 +3001,32 @@ function Chat() {
 	});
 }
 var TEACH_ME = "Teach me";
+var QUIZ_ME = "Quiz me";
+function QuizControls(props) {
+	const { topic, number, questions } = props.quiz;
+	return /* @__PURE__ */ u("div", {
+		className: "lesson",
+		children: [/* @__PURE__ */ u("p", {
+			className: "muted",
+			children: [
+				"Quiz: ",
+				topic,
+				" · question ",
+				number,
+				questions === void 0 ? "" : ` of ${questions}`
+			]
+		}), /* @__PURE__ */ u("div", {
+			className: "lesson-buttons",
+			children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				disabled: props.disabled,
+				onClick: () => props.onAsk("Stop the quiz"),
+				children: "Stop the quiz"
+			})
+		})]
+	});
+}
 function Choices(props) {
 	if (props.choices.length === 0) return null;
 	return /* @__PURE__ */ u("ul", {

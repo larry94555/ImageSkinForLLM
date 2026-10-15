@@ -240,6 +240,7 @@ export interface Reply extends Turn {
   // choices to show as buttons, such as which topic to learn.
   lesson?: Lesson | null;
   choices?: Choice[];
+  quiz?: Quiz | null; // the quiz after this prompt (R41i), null when there is none or it is over
 }
 
 // Where a lesson is (roadmap R41h): its topic, the part being taught (from 0; the part after
@@ -252,6 +253,23 @@ export interface Lesson {
   parts?: number;
 }
 
+// Where a quiz is (roadmap R41i): its topic, the question being asked (from 1), the part of
+// the topic it was written from, the questions asked so far, the answers right and partly right
+// so far and the parts to go over again, and, from the server, how many questions a quiz has.
+// The browser keeps it and sends it back with the next prompt, the answer.
+export interface Quiz {
+  topic: string;
+  number: number;
+  question: string;
+  part: number;
+  asked: string[];
+  right: number;
+  partly: number;
+  review: string[];
+  active: boolean;
+  questions?: number;
+}
+
 // A button offered with a reply, which sends `prompt` when clicked.
 export interface Choice {
   label: string;
@@ -260,15 +278,20 @@ export interface Choice {
 
 // Sends a prompt and returns the LLM's reply. Throws an Error saying why when it fails.
 // `replyId` names the reply, so its clips can be asked for while the LLM writes (roadmap R22).
-// `lesson` is the lesson this browser has, if any (R41h).
+// `lesson` and `quiz` are the lesson and quiz this browser has, if any (R41h, R41i).
 export async function sendPrompt(
   prompt: string,
   replyId?: string,
   lesson?: Lesson | null,
+  quiz?: Quiz | null,
 ): Promise<Reply> {
   const body: Record<string, unknown> = { prompt };
   if (replyId) body.reply_id = replyId;
   if (lesson) body.lesson = { topic: lesson.topic, part: lesson.part, active: lesson.active };
+  if (quiz) {
+    const { questions: _, ...kept } = quiz; // the server's own count, not sent back
+    body.quiz = kept;
+  }
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -604,12 +627,14 @@ export interface UiSettings {
   // Every page and option, or the chat and a read-only wiki with its PDFs (R41b).
   view: View;
   teach_me: boolean; // the Teach me button and lessons in the chat (R41h); off by default
+  quiz_me: boolean; // the Quiz me button and quizzes in the chat (R41i); off by default
 }
 
 export const DEFAULT_SETTINGS: UiSettings = {
   show_metrics: false,
   view: "teacher",
   teach_me: false,
+  quiz_me: false,
 };
 
 // Any value the server didn't send as one the setting can take is the default.
@@ -618,6 +643,7 @@ function settings(data: Partial<UiSettings>): UiSettings {
     show_metrics: data.show_metrics === true,
     view: data.view === "student" ? "student" : "teacher",
     teach_me: data.teach_me === true,
+    quiz_me: data.quiz_me === true,
   };
 }
 

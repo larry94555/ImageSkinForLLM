@@ -51,6 +51,7 @@ from imageskin.prepare_job import (
     photoreal_steps,
     steps_clip,
 )
+from imageskin.quiz import QUESTIONS, Judge, Quiz, Quizzer, Said
 from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
@@ -127,12 +128,27 @@ class LessonState(BaseModel):
     active: bool = True
 
 
+class QuizState(BaseModel):
+    """Where a quiz is (R41i), kept by the browser and sent with each prompt."""
+
+    topic: str = Field(max_length=500)
+    number: int = Field(ge=1, le=QUESTIONS)
+    question: str = Field(max_length=2000)
+    part: int = Field(ge=0)
+    asked: list[str] = Field(default=[], max_length=QUESTIONS)
+    right: int = Field(default=0, ge=0, le=QUESTIONS)
+    partly: int = Field(default=0, ge=0, le=QUESTIONS)
+    review: list[str] = Field(default=[], max_length=QUESTIONS)
+    active: bool = True
+
+
 class ChatRequest(BaseModel):
     prompt: str
     # Chosen by the browser, so it can ask for the reply's clips while the LLM is still writing
     # (roadmap R22).
     reply_id: str | None = Field(default=None, pattern=REPLY_ID_PATTERN)
     lesson: LessonState | None = None
+    quiz: QuizState | None = None
 
 
 class ReplyVideoRequest(BaseModel):
@@ -831,6 +847,7 @@ def create_app(
             logger.info(f"{what} waited for the warm-up", extra={"wait_ms": ms_since(start)})
 
     teacher = Teacher(wiki.contents, find_content, topics_complete)
+    quizzer = Quizzer(wiki.contents, find_content, conversation.write, topics_complete)
 
     def lesson_parts(lesson: Lesson) -> int:
         """How many parts the lesson's topic has, its summary not counted."""
@@ -854,16 +871,35 @@ def create_app(
                     sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())
-            # With Teach me off in the settings, "Teach me" is an ordinary prompt (R41h).
-            teaching = load_ui_settings(data_home).teach_me
-            step = teacher.step(body.prompt, lesson) if teaching else None
+            quiz = None
+            if body.quiz is not None:
+                kept = body.quiz.model_dump()
+                quiz = Quiz(
+                    **{**kept, "asked": tuple(kept["asked"]), "review": tuple(kept["review"])}
+                )
+            # With Teach me or Quiz me off in the settings, "Teach me" or "Quiz me" is an
+            # ordinary prompt (R41h, R41i). A quiz going takes the answer before a lesson does.
+            settings = load_ui_settings(data_home)
+            asking = quizzer.step(body.prompt, quiz) if settings.quiz_me else None
+            step = None
+            if asking is None and settings.teach_me:
+                step = teacher.step(body.prompt, lesson)
             choices: list[Choice] = []
-            if isinstance(step, Say):
+            if isinstance(asking, Said):
+                reply, turn = conversation.say(body.prompt, asking.sentences, clips)
+                quiz, choices = asking.quiz, asking.choices
+            elif isinstance(asking, Judge):
+                reply, turn = conversation.send(body.prompt, clips, asking.teach)
+                quiz = asking.quiz  # set by the judging, once the reply is in
+            elif isinstance(step, Say):
                 reply, turn = conversation.say(body.prompt, step.sentences, clips)
                 lesson, choices = step.lesson, step.choices
             elif isinstance(step, Explain):
                 reply, turn = conversation.send(body.prompt, clips, step.teach)
                 lesson = step.lesson
+                if step.kind == "summary" and settings.quiz_me:  # a quick quiz on the topic
+                    topic = step.lesson.topic
+                    choices = [Choice(f"Quiz me on {topic}", f"Quiz me on {topic}")]
             else:
                 reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError) as e:
@@ -887,6 +923,9 @@ def create_app(
             "streamed": streamed,
             "lesson": None if lesson is None else {**asdict(lesson), "parts": lesson_parts(lesson)},
             "choices": [asdict(c) for c in choices],
+            # The quiz after this prompt, for the browser to keep, with how many questions a
+            # quiz has (R41i).
+            "quiz": None if quiz is None else {**asdict(quiz), "questions": QUESTIONS},
         }
 
     @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_consent)
