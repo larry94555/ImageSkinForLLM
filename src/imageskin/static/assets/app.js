@@ -1842,6 +1842,102 @@ function ChoiceIcon({ href }) {
 	});
 }
 //#endregion
+//#region src/talk.tsx
+function speechRecognition() {
+	const w = window;
+	return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+function talkProblem(error) {
+	if (error === "aborted") return null;
+	if (error === "no-speech") return "I didn't hear anything. Hold the button while you speak.";
+	if (error === "not-allowed" || error === "service-not-allowed") return "The browser isn't allowed to use the microphone. Allow it in the address bar.";
+	if (error === "audio-capture") return "No microphone was found.";
+	return "Speech recognition didn't work. Try again, or type your question.";
+}
+function heard(results) {
+	return Array.from(results, (r) => r[0]?.transcript ?? "").join(" ").replace(/\s+/g, " ").trim();
+}
+function TalkButton(props) {
+	const Maker = speechRecognition();
+	const [listening, setListening] = d(false);
+	const recognition = A(null);
+	const said = A("");
+	const started = A(0);
+	const failed = A(false);
+	h(() => () => recognition.current?.stop(), []);
+	if (!Maker) return null;
+	function start() {
+		if (props.disabled || recognition.current || !Maker) return;
+		const r = new Maker();
+		r.lang = navigator.language || "en-US";
+		r.continuous = true;
+		r.interimResults = true;
+		said.current = "";
+		failed.current = false;
+		started.current = performance.now();
+		r.onresult = (e) => {
+			said.current = heard(e.results);
+			props.onHearing(said.current);
+		};
+		r.onerror = (e) => {
+			const problem = talkProblem(e.error);
+			if (problem) {
+				failed.current = true;
+				console.error("Push-to-talk failed", e.error);
+				props.onProblem(problem);
+			}
+		};
+		r.onend = () => {
+			recognition.current = null;
+			setListening(false);
+			const text = said.current;
+			const ms = Math.round(performance.now() - started.current);
+			const words = text.split(" ").filter(Boolean).length;
+			console.info(`Push-to-talk: heard ${words} words in ${ms} ms`);
+			if (text) props.onHeard(text);
+			else if (!failed.current) props.onProblem(talkProblem("no-speech"));
+		};
+		recognition.current = r;
+		props.onProblem(null);
+		setListening(true);
+		console.info("Push-to-talk: listening");
+		try {
+			r.start();
+		} catch (e) {
+			console.error("Push-to-talk could not start", e);
+			recognition.current = null;
+			setListening(false);
+			props.onProblem(talkProblem("start"));
+		}
+	}
+	function stop() {
+		recognition.current?.stop();
+	}
+	return /* @__PURE__ */ u("button", {
+		type: "button",
+		className: listening ? "secondary talk listening" : "secondary talk",
+		disabled: props.disabled && !listening,
+		"aria-pressed": listening,
+		onPointerDown: (e) => {
+			e.preventDefault();
+			start();
+		},
+		onPointerUp: stop,
+		onPointerLeave: stop,
+		onPointerCancel: stop,
+		onKeyDown: (e) => {
+			if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+				e.preventDefault();
+				start();
+			}
+		},
+		onKeyUp: (e) => {
+			if (e.key === " " || e.key === "Enter") stop();
+		},
+		children: listening ? "Listening… let go to send" : "Hold to talk"
+	});
+}
+//#endregion
 //#region src/pages.tsx
 function ConsentPage({ onConfirmed }) {
 	const [checked, setChecked] = d(false);
@@ -3029,6 +3125,12 @@ function Chat() {
 								type: "submit",
 								disabled: sending || speaking || !prompt.trim(),
 								children: "Send"
+							}),
+							/* @__PURE__ */ u(TalkButton, {
+								disabled: sending || speaking,
+								onHearing: setPrompt,
+								onHeard: (text) => void send(text),
+								onProblem: setFailed
 							}),
 							teachMe && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",

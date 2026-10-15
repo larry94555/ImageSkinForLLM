@@ -1,0 +1,166 @@
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+
+import { heard, type Recognition, TalkButton, talkProblem } from "./talk";
+
+// The browser's speech recognition, driven by the test: `say` gives what was heard so far,
+// `fail` an error, and stop() ends it as the browser does.
+class FakeRecognition implements Recognition {
+  static made: FakeRecognition[] = [];
+  lang = "";
+  continuous = false;
+  interimResults = false;
+  onresult: Recognition["onresult"] = null;
+  onerror: Recognition["onerror"] = null;
+  onend: Recognition["onend"] = null;
+  started = false;
+  constructor() {
+    FakeRecognition.made.push(this);
+  }
+  start() {
+    this.started = true;
+  }
+  stop() {
+    this.onend?.();
+  }
+  say(...parts: string[]) {
+    this.onresult?.({ results: parts.map((transcript) => [{ transcript }]) });
+  }
+  fail(error: string) {
+    this.onerror?.({ error });
+  }
+}
+
+function talk(disabled = false) {
+  const calls = {
+    hearing: [] as string[],
+    heard: [] as string[],
+    problems: [] as (string | null)[],
+  };
+  render(
+    <TalkButton
+      disabled={disabled}
+      onHearing={(t) => calls.hearing.push(t)}
+      onHeard={(t) => calls.heard.push(t)}
+      onProblem={(p) => calls.problems.push(p)}
+    />,
+  );
+  return calls;
+}
+
+beforeEach(() => {
+  FakeRecognition.made = [];
+  vi.stubGlobal("webkitSpeechRecognition", FakeRecognition);
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+test("with no speech recognition in the browser, there is no button", () => {
+  vi.stubGlobal("webkitSpeechRecognition", undefined);
+  talk();
+  expect(screen.queryByRole("button")).toBeNull();
+});
+
+test("holding the button listens, and letting go sends what was heard", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  const r = FakeRecognition.made[0]!;
+  expect([r.started, r.continuous, r.interimResults]).toEqual([true, true, true]);
+  expect(button.textContent).toBe("Listening… let go to send");
+  expect(button.getAttribute("aria-pressed")).toBe("true");
+  expect(console.info).toHaveBeenCalledWith("Push-to-talk: listening");
+  await act(async () => {
+    r.say("What is a ");
+    r.say("What is a", " prime number?");
+  });
+  expect(calls.hearing).toEqual(["What is a", "What is a prime number?"]);
+  await act(async () => {
+    fireEvent.pointerUp(button);
+  });
+  expect(calls.heard).toEqual(["What is a prime number?"]);
+  expect(button.textContent).toBe("Hold to talk");
+  expect(console.info).toHaveBeenCalledWith(
+    expect.stringMatching(/^Push-to-talk: heard 5 words in \d+ ms$/),
+  );
+});
+
+test("the space bar works like holding the button", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.keyDown(button, { key: " " });
+    fireEvent.keyDown(button, { key: " ", repeat: true }); // held: not started again
+  });
+  expect(FakeRecognition.made).toHaveLength(1);
+  await act(async () => {
+    FakeRecognition.made[0]!.say("Hello");
+    fireEvent.keyUp(button, { key: " " });
+  });
+  expect(calls.heard).toEqual(["Hello"]);
+});
+
+test("nothing heard sends nothing and says so", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button);
+  });
+  expect(calls.heard).toEqual([]);
+  expect(calls.problems).toEqual([null, talkProblem("no-speech")]);
+});
+
+test("a microphone the browser may not use is explained", async () => {
+  const calls = talk();
+  await act(async () => {
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Hold to talk" }));
+  });
+  await act(async () => {
+    FakeRecognition.made[0]!.fail("not-allowed");
+    FakeRecognition.made[0]!.stop();
+  });
+  expect(calls.problems).toEqual([null, talkProblem("not-allowed")]); // said once
+  expect(calls.heard).toEqual([]);
+  expect(console.error).toHaveBeenCalledWith("Push-to-talk failed", "not-allowed");
+});
+
+test("recognition that can't start says so", async () => {
+  class Broken extends FakeRecognition {
+    override start() {
+      throw new Error("already started");
+    }
+  }
+  vi.stubGlobal("webkitSpeechRecognition", Broken);
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  expect(calls.problems.at(-1)).toBe(talkProblem("start"));
+  expect(button.textContent).toBe("Hold to talk");
+});
+
+test("while a reply is coming, the button can't start listening", async () => {
+  talk(true);
+  const button = screen.getByRole("button", { name: "Hold to talk" }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  fireEvent.keyDown(button, { key: "Enter" });
+  expect(FakeRecognition.made).toHaveLength(0);
+});
+
+test("each recognition error gets plain words, and a deliberate stop none", () => {
+  expect(talkProblem("aborted")).toBeNull();
+  for (const e of ["no-speech", "not-allowed", "service-not-allowed", "audio-capture", "x"]) {
+    expect(talkProblem(e)).toMatch(/\.$/);
+  }
+  expect(heard([[{ transcript: " a  b " }], [{ transcript: "c" }]])).toBe("a b c");
+});

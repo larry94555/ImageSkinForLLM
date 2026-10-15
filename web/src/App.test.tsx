@@ -1315,6 +1315,45 @@ test("sending a prompt shows it and then the reply", async () => {
   expect(screen.queryByText("Thinking…")).toBeNull();
 });
 
+test("a question said with Hold to talk is shown in the box, then sent as typed", async () => {
+  // The browser's speech recognition (R24), heard as the test says.
+  let recognition: { onresult: (e: object) => void; onend: () => void } | null = null;
+  vi.stubGlobal(
+    "webkitSpeechRecognition",
+    class {
+      onresult = (_: object) => {};
+      onend = () => {};
+      constructor() {
+        recognition = this;
+      }
+      start() {}
+      stop() {
+        this.onend();
+      }
+    },
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  const fetchMock = chatServer([], () => Response.json({ role: "assistant", content: "Hi!" }));
+  await openAt("#/chat");
+  const talk = await screen.findByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(talk);
+  });
+  await act(async () => {
+    recognition!.onresult({ results: [[{ transcript: "Hello there" }]] });
+  });
+  expect(promptBox().value).toBe("Hello there");
+  await act(async () => {
+    fireEvent.pointerUp(talk);
+  });
+  expect(await screen.findByText("Hi!")).toBeTruthy();
+  expect(screen.getByText("Hello there").className).toBe("user");
+  expect(promptBox().value).toBe("");
+  const sent = fetchMock.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
+  expect(JSON.parse(sent![1]!.body as string).prompt).toBe("Hello there");
+  vi.unstubAllGlobals();
+});
+
 // --- Topic hints (R41g) ---
 
 // The chat's server, answering the hints with `hints`, one per call and then the last again.

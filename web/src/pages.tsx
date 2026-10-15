@@ -49,6 +49,7 @@ import {
   voiceSampleAudioUrl,
 } from "./api";
 import { useSettings } from "./settings";
+import { TalkButton } from "./talk";
 
 export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   const [checked, setChecked] = useState(false);
@@ -1280,6 +1281,12 @@ function Chat() {
           <button type="submit" disabled={sending || speaking || !prompt.trim()}>
             Send
           </button>
+          <TalkButton
+            disabled={sending || speaking}
+            onHearing={setPrompt}
+            onHeard={(text) => void send(text)}
+            onProblem={setFailed}
+          />
           {teachMe && !quizGoing && (
             <button
               type="button"
