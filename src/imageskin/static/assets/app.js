@@ -1929,9 +1929,9 @@ function TalkButton(props) {
 	}
 	function stop() {
 		if (!recognition.current || stopping.current !== null) return;
+		sending.current = true;
 		stopping.current = window.setTimeout(() => {
 			stopping.current = null;
-			sending.current = true;
 			recognition.current?.stop();
 		}, 600);
 	}

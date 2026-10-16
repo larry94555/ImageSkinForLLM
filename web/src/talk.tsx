@@ -63,8 +63,8 @@ export function TalkButton(props: {
   const started = useRef(0);
   const failed = useRef(false);
   const stopping = useRef<number | null>(null);
-  // Set when the button was let go and listening ended to send: what was heard is sent only
-  // then, not when recognition fails, ends on its own or the page is left (review on PR #91).
+  // Set when the button is let go: what was heard is sent only then, not when recognition
+  // fails, ends on its own while held or the page is left (review on PR #91).
   const sending = useRef(false);
 
   function clearTail() {
@@ -138,9 +138,9 @@ export function TalkButton(props: {
 
   function stop() {
     if (!recognition.current || stopping.current !== null) return;
+    sending.current = true; // let go: sent when listening ends, even before the tail is up
     stopping.current = window.setTimeout(() => {
       stopping.current = null;
-      sending.current = true;
       recognition.current?.stop(); // what was heard is sent when it ends
     }, TAIL_MS);
   }

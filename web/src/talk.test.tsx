@@ -202,6 +202,27 @@ test("recognition that fails or ends on its own while held sends nothing", async
   expect(calls.problems.at(-1)).toBe(talkProblem("network"));
 });
 
+test("recognition that ends on its own after the button is let go sends once", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  const r = FakeRecognition.made[0]!;
+  const stopped = vi.spyOn(r, "stop");
+  await act(async () => {
+    r.say("What is a prime?");
+    fireEvent.pointerUp(button);
+    r.onend?.(); // ended by the browser before the tail is up
+  });
+  expect(calls.heard).toEqual(["What is a prime?"]);
+  await act(async () => {
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(calls.heard).toEqual(["What is a prime?"]); // not sent again
+  expect(stopped).not.toHaveBeenCalled();
+});
+
 test("leaving the page while listening stops listening", async () => {
   const calls = talk();
   const button = screen.getByRole("button", { name: "Hold to talk" });
