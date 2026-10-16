@@ -1,0 +1,9 @@
+# R24a default person test: the picture model's packages, at the versions of the functional run
+# (Python 3.12, 2026-10-16). Installs into the app's own virtual environment, which already has
+# the voice, photoreal and faces extras (torch, Kokoro, MediaPipe):
+#   pip install -r experiments/default_person/requirements.txt
+# Diffusers (Apache 2.0) runs Segmind SSD-1B; Transformers (Apache 2.0) its two text encoders;
+# Accelerate (Apache 2.0) loads the weights without a second copy in memory.
+diffusers==0.41.0
+transformers==5.20.0
+accelerate==1.15.0
