@@ -105,7 +105,9 @@ or 5.19) if it isn't already, for example after an earlier version of these step
 5.20, and otherwise does nothing. The next saves every installed package as a constraint, so the
 third adds only Accelerate (and psutil) and stops with a conflict rather than change anything.
 pip's warnings that `chatterbox-tts` wants older torch, numpy and other packages are expected:
-it is installed without its own pins (see `clone-requirements.txt`).
+it is installed without its own pins (see `clone-requirements.txt`). They print as a red "ERROR: pip's
+dependency resolver ..." block, but the step worked if it ends with `Successfully installed ...`
+or only `Requirement already satisfied` lines; a real failure ends with `ResolutionImpossible`.
 
 It takes about 17 minutes a person on a 4-core CPU:
 about 11 to make the picture and 6 to prepare it. Pictures and prepared people are kept, so a
