@@ -99,12 +99,15 @@ animated faces were found by the photoreal engine's face finder like the photore
 Uses the app's own virtual environment (`.venv`, already set up with the `voice`, `photoreal`
 and `faces` extras), Python 3.11 or 3.12, and ffmpeg. The first run downloads about 4.2 GB for
 SSD-1B (its half-size weights), plus Kokoro's and the photoreal engine's models if not already
-there; they are cached for later runs. The install adds only Accelerate (and psutil) to a
-venv already set up for the cloned voice: the first command saves every installed package as a
-constraint, so pip stops with a conflict rather than change one (an earlier version of these
-steps upgraded transformers to 5.20, outside the cloned voice's tested range). pip's warnings
-that `chatterbox-tts` wants older torch, numpy and other packages are expected: it is installed
-without its own pins (see `clone-requirements.txt`). It takes about 17 minutes a person on a 4-core CPU:
+there; they are cached for later runs. The install changes nothing the app or the
+cloned voice uses. Its first command puts transformers in the cloned voice's tested range (5.18
+or 5.19) if it isn't already, for example after an earlier version of these steps upgraded it to
+5.20, and otherwise does nothing. The next saves every installed package as a constraint, so the
+third adds only Accelerate (and psutil) and stops with a conflict rather than change anything.
+pip's warnings that `chatterbox-tts` wants older torch, numpy and other packages are expected:
+it is installed without its own pins (see `clone-requirements.txt`).
+
+It takes about 17 minutes a person on a 4-core CPU:
 about 11 to make the picture and 6 to prepare it. Pictures and prepared people are kept, so a
 rerun after an interruption skips what is done. `--pictures-only` makes and checks the pictures
 without preparing them. On Linux without a desktop, MediaPipe needs `libegl1`
@@ -113,6 +116,7 @@ without preparing them. On Linux without a desktop, MediaPipe needs `libegl1`
 macOS / Linux:
 ```
 source .venv/bin/activate
+pip install "transformers>=5.18,<5.20"
 pip freeze --all --exclude-editable > app-constraints.txt
 pip install -r experiments/default_person/requirements.txt -c app-constraints.txt
 cd experiments/default_person
@@ -122,6 +126,7 @@ python default_person.py -o ../../default-person-test
 Windows 11, Command Prompt:
 ```
 .venv\Scripts\activate.bat
+pip install "transformers>=5.18,<5.20"
 pip freeze --all --exclude-editable > app-constraints.txt
 pip install -r experiments\default_person\requirements.txt -c app-constraints.txt
 cd experiments\default_person
@@ -131,6 +136,7 @@ python default_person.py -o ..\..\default-person-test
 Windows 11, PowerShell:
 ```
 .venv\Scripts\Activate.ps1
+pip install "transformers>=5.18,<5.20"
 pip freeze --all --exclude-editable | Set-Content -Encoding ascii app-constraints.txt
 pip install -r experiments\default_person\requirements.txt -c app-constraints.txt
 cd experiments\default_person
