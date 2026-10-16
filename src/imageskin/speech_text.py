@@ -372,6 +372,10 @@ def math_in_words(text: str) -> str:
     them, and the rest left as it is. A PDF's formula, given to the chat's LLM like this, is
     worded by the LLM in full (Gemma 3 4B dropped most of "∏ 1/(1 − 1/p^s) = ∑ 1/n^s")."""
     done = [False] * len(text)
+    # Code, links and web addresses are left exactly as they are: "https://example.org/x^2".
+    for pattern in [*(p for p, _ in _REPLACE), INLINE_CODE, _URL_ONLY]:
+        for m in pattern.finditer(text):
+            done[m.start() : m.end()] = [True] * (m.end() - m.start())
     said: dict[int, tuple[int, str]] = {}  # where a replacement starts: where it ends, words
     for pattern, saying in _SYMBOL_RULES:
         for m in pattern.finditer(text):

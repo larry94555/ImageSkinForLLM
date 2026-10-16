@@ -151,6 +151,10 @@ def test_a_cut_inside_math_is_known() -> None:
         (r"1 - \frac{1}{p}", "1 minus the fraction 1 over p"),
         (r"\frac{1}{p} + 1", "the fraction 1 over p, plus 1"),
         (r"\frac{x+1}{2}", "the quantity x plus 1, divided by 2"),
+        (r"\frac{x \pm y}{2}", "the quantity x plus or minus y, divided by 2"),
+        (r"\frac{a \le b}{2}", "the quantity a is less than or equal to b, divided by 2"),
+        (r"\frac{1}{\frac{1}{p}}", "1 divided by the quantity 1 over p"),
+        (r"\frac{\frac{a}{b}}{c}", "the quantity a over b, divided by c"),
         (
             r"\prod_p \frac{1}{1 - p^{-s}} = \zeta(s)",
             "the product from p of 1 divided by the quantity 1 minus p to the power of minus s,"

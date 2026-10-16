@@ -205,7 +205,25 @@ _SYMBOLS = {
 }
 _QUIET = set(".:|&~")  # said as nothing
 # What splits an expression into terms, so a fraction's top or bottom with one is a quantity.
-_TERM_BREAKS = {"+", "-", "=", "pm", "mp", "<", ">", "le", "ge", "ne", "approx"}
+_TERM_BREAKS = {
+    "+",
+    "-",
+    "=",
+    "pm",
+    "mp",
+    "<",
+    ">",
+    "le",
+    "ge",
+    "ne",
+    "approx",
+    "leq",
+    "geq",
+    "neq",
+}
+# A fraction or division inside a fraction's top or bottom: "1 over 1 over p" could be heard
+# two ways, so it is said as "the quantity".
+_DIVISIONS = {"frac", "dfrac", "tfrac", "/", "div"}
 # A term after a fraction that would run into it: "the fraction 1 over p plus 1".
 _NEXT_TERM = {"+", "-", "−", "*", "/", "\\cdot", "\\times", "\\pm", "\\mp", "^"}
 
@@ -405,13 +423,17 @@ class _Reader:
         return [*top, "divided", "by", *bottom]
 
     def simple(self, start: int) -> bool:
-        """Whether the tokens from `start` to here are one term: no "+", "-" or "=" outside
-        brackets, so "p^{-s}" is one but "1 - p" isn't."""
+        """Whether the tokens from `start` to here are one term: no "+", "-", "=", "\\pm" or the
+        like, and no fraction, outside brackets, so "p^{-s}" is one but "1 - p" and
+        "\\frac{1}{p}" aren't."""
         depth = 0
         for token in self.tokens[start : self.at]:
             depth += token in "{([" or token in ("\\left",)
             depth -= token in "})]"
-            if depth <= 1 and (token in _TERM_BREAKS or _UNICODE.get(token) in _TERM_BREAKS):
+            name = token.removeprefix("\\")  # "\\pm" is "pm"
+            if depth <= 1 and (
+                name in _TERM_BREAKS or _UNICODE.get(token) in _TERM_BREAKS or name in _DIVISIONS
+            ):
                 return False
         return True
 

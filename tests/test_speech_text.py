@@ -230,3 +230,10 @@ def test_a_pdf_formula_is_put_in_words_for_the_llm_and_the_rest_left_as_it_is() 
     )
     assert math_in_words("∏_p 1/p") == "the product from p of 1 over p"
     assert math_in_words("The sum ∑.") == "The sum the sum."  # nothing after it to add up
+    # Web addresses, links and code are left exactly as they are.
+    assert math_in_words("See https://example.org/x^2 and `x^2`, but x^2 = 1/p.") == (
+        "See https://example.org/x^2 and `x^2`, but x squared equals 1 over p."
+    )
+    assert math_in_words("[n^2](https://example.org/n^2)\n```\ny = x^2\n```") == (
+        "[n squared](https://example.org/n^2)\n```\ny = x^2\n```"
+    )
