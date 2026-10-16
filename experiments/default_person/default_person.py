@@ -313,8 +313,19 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
             write_results(args.output, results)
     passed = sum(1 for r in results if r.picture and not r.problems and not r.error)
     talked = sum(1 for r in results if len(r.videos) == 2)
+    page = (args.output / "index.html").resolve()
+    logger.info(
+        "Default person test done",
+        extra={
+            "people": n,
+            "passed_photo_checks": passed,
+            "talked_in_both_voices": talked,
+            "page": str(page),
+            "duration_ms": _ms(start),
+        },
+    )
     print(f"Done: {passed} of {n} passed the photo checks, {talked} talked in both voices.")
-    print(f"Wrote {(args.output / 'index.html').resolve()}")
+    print(f"Wrote {page}")
     return 0
 
 
