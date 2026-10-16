@@ -19,7 +19,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.3% | 3 of 3 |
 | 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e2 | 6 | 6.7% | 6 of 6 |
 | 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.6% | 5 of 5 |
-| 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.1% | 0 |
+| 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.1% | 1 of 1 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 5.6% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.2% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.2% | 0 |
@@ -30,9 +30,9 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.2% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.1% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.2% | 0 |
-| | **Total** | | **90** | **100%** | **63 of 90** |
+| | **Total** | | **90** | **71.1% done** | **64 of 90** |
 
-Sizes: 21 Simple, 69 Medium, no Large or Very large. Percentages are rounded to one decimal. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 21 Simple, 69 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -478,9 +478,10 @@ Added by Larry on 2026-10-14, to build after the professional look. Today nothin
 
 ## Milestone 8: Spoken prompts
 
-### R24. Push-to-talk microphone (Medium) · item 9
+### R24. Push-to-talk microphone (Medium) · item 9 · Done
 - Microphone button, push-to-talk, transcribed with browser speech recognition (whisper.cpp can be added later as a separate PR if needed); the transcribed prompt is shown as sent.
 - **Can show:** hold the button, ask a question out loud, and the person answers on video.
+- **Built:** a **Hold to talk** button by Send. Holding it (with the mouse, a finger, or the space bar or Enter) listens with the browser's own speech recognition, showing the words in the prompt box as they are heard; letting go sends them as if typed. Speech recognition doesn't know the content's names and terms (it heard "Euler" as "Oiler" or "Boiler"), so before a spoken question is answered, the AI is given the content's own names and terms (from its titles, and the capitalised words of its summaries) and puts back any word it misheard; the change is kept only when each word it puts in is one of those and is spelled like the word it replaces, and the question then shows as it was answered. A question about something in the article ("What did Euler notice?") is no longer refused as off topic because its asking words ("notice", "explain") aren't in the content; they no longer count against a passage that lacks them. It keeps listening for 0.6 seconds after the button is let go, so the last word isn't cut off. Asked for an example ("Can you give me an example?"), the AI gives one or two particular ones for the question before it, from the content when it has them; and a long paragraph is cut to the part with the question's words, so the paragraph naming Euler shows him. Where the browser has no speech recognition (Firefox), the button isn't shown. Nothing heard, a microphone the browser may not use, or no microphone each get a plain message. The browser console has `Push-to-talk: listening`, `Push-to-talk: heard N words in N ms` and `Push-to-talk failed`.
 
 ## Milestone 9: Settings, exit and return
 

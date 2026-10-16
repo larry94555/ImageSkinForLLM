@@ -1315,6 +1315,53 @@ test("sending a prompt shows it and then the reply", async () => {
   expect(screen.queryByText("Thinking…")).toBeNull();
 });
 
+test("a question said with Hold to talk is shown in the box, sent, and shown as meant", async () => {
+  // The browser's speech recognition (R24), heard as the test says.
+  let recognition: { onresult: (e: object) => void; onend: () => void } | null = null;
+  vi.stubGlobal(
+    "webkitSpeechRecognition",
+    class {
+      onresult = (_: object) => {};
+      onend = () => {};
+      constructor() {
+        recognition = this;
+      }
+      start() {}
+      stop() {
+        this.onend();
+      }
+    },
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  // The server put back a name the browser misheard (Larry's "Oiler" for "Euler").
+  const fetchMock = chatServer([], () =>
+    Response.json({ role: "assistant", content: "Hi!", prompt: "Who was Euler?" }),
+  );
+  await openAt("#/chat");
+  const talk = await screen.findByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(talk);
+  });
+  await act(async () => {
+    recognition!.onresult({ results: [[{ transcript: "Who was Oiler?" }]] });
+  });
+  expect(promptBox().value).toBe("Who was Oiler?");
+  await act(async () => {
+    fireEvent.pointerUp(talk);
+  });
+  expect(await screen.findByText("Hi!", undefined, { timeout: 3000 })).toBeTruthy();
+  expect(screen.getByText("Who was Euler?").className).toBe("user");
+  expect(screen.queryByText("Who was Oiler?")).toBeNull();
+  expect(promptBox().value).toBe("");
+  const sent = fetchMock.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
+  expect(JSON.parse(sent![1]!.body as string)).toMatchObject({
+    prompt: "Who was Oiler?",
+    spoken: true,
+  });
+  expect(console.info).toHaveBeenCalledWith('Push-to-talk: "Who was Oiler?" taken as "Who was Euler?"');
+  vi.unstubAllGlobals();
+});
+
 // --- Topic hints (R41g) ---
 
 // The chat's server, answering the hints with `hints`, one per call and then the last again.

@@ -19,6 +19,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal, NamedTuple
 
+from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.sentences import SentenceSplitter
 from imageskin.topics import (
     asks_for_topics,
@@ -504,10 +505,23 @@ class Conversation:
         topic = referred_topic(prompt, *self._told)
         if topic is not None:
             logger.info("Prompt refers to a topic listed", extra={"topic": topic})
-        found = self._look_up(prompt if topic is None else topic)
+        looked_up = prompt if topic is None else topic
+        question = prompt
+        if asks_for_example(prompt):
+            # "Can you give me an example?" is about the question before it (Larry, PR #91).
+            about = example_of(prompt) if topic is None else topic
+            earlier = earlier_question([t.content for t in self._turns if t.role == "user"])
+            if about is None and earlier is not None:
+                looked_up = earlier
+                question = example_asked(prompt, earlier)
+            else:
+                looked_up = about or prompt
+                question = example_asked(prompt, None)
+            logger.info("Example asked for", extra={"about_earlier_question": looked_up is earlier})
+        found = self._look_up(looked_up)
         if found == [] and self._content_only():
             return self._decline(prompt, on_sentence)
-        asked = self._with_content(prompt, found, room)
+        asked = self._with_content(question, found, room)
         return self._ask_llm(prompt, asked, turns, budget, window, on_sentence)
 
     def _ask_llm(

@@ -57,6 +57,7 @@ from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
+from imageskin.spoken import corrected, vocabulary
 from imageskin.teach import Choice, Explain, Lesson, Say, Teacher, lesson_topics
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import load_ui_settings, save_ui_settings
@@ -181,6 +182,8 @@ class ChatRequest(BaseModel):
     lesson: LessonState | None = None
     quiz: QuizState | None = None
     assessment: AssessmentState | None = None
+    # Said with Hold to talk (R24): misheard names and terms are put back before it is answered.
+    spoken: bool = False
 
 
 class ReplyVideoRequest(BaseModel):
@@ -927,6 +930,12 @@ def create_app(
                 else:
                     sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
+            if body.spoken:
+                # Checked and the summary waited for before the correction asks the LLM, as
+                # for a lesson, quiz or assessment (review on PR #91).
+                conversation.check(body.prompt)
+                meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
+                body = body.model_copy(update={"prompt": meant})
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())
             quiz = None
             if body.quiz is not None:
@@ -1002,6 +1011,8 @@ def create_app(
             "quiz": None if quiz is None else {**asdict(quiz), "questions": QUESTIONS},
             # The assessment after this prompt, for the browser to keep (R41j).
             "assessment": None if assessment is None else asdict(assessment),
+            # A spoken prompt as it was answered, so the browser shows it that way (R24).
+            **({"prompt": body.prompt} if body.spoken else {}),
         }
 
     @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_consent)

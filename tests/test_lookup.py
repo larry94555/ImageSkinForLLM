@@ -11,7 +11,11 @@ from imageskin import cli
 from imageskin.content import ContentStore
 from imageskin.lookup import (
     ContentLookup,
+    Found,
+    Lookup,
     Passage,
+    as_passages,
+    excerpt,
     look_up,
     one_typo_apart,
     pages_label,
@@ -157,6 +161,48 @@ def test_a_passage_sharing_only_a_common_word_is_not_found() -> None:
     # Most of the question's weight is in the one rare word a passage has: it is found.
     guide = [pdf("A kitchen echoes."), *(pdf(f"Record voice {n}.") for n in range(6))]
     assert rank("Can I record in a kitchen?", guide)[0].passage.text == "A kitchen echoes."
+
+
+def test_words_that_ask_about_a_subject_dont_count_against_a_passage_without_them() -> None:
+    """Larry (2026-10-15): "What did Euler notice?" was declined, since "notice", which the
+    paper doesn't have, outweighed "Euler"."""
+
+    def pdf(text: str) -> Passage:
+        return Passage("pdf", "p", "a.pdf", "", text, [1])
+
+    primes = [
+        pdf("The product Euler found counts primes."),
+        pdf("Primes are counted. Euler later lived in Paris."),
+        *(pdf(f"The sum grows {n}.") for n in range(4)),
+    ]
+    for asked in ["What did Euler notice?", "Did you explain what Euler not?"]:
+        assert rank(asked, primes)[0].passage.text == "The product Euler found counts primes."
+    assert rank("What lighting is best for the photo?", primes) == []
+    # Review on PR #91: a name said in passing doesn't make a question about something else
+    # on topic.
+    assert rank("What is the weather in Paris?", primes) == []
+    # An asking word alone isn't what a question is about: a passage that has "noticed" but
+    # not Euler doesn't answer "What did Euler notice?" (review on PR #91).
+    others = [pdf("We noticed a change."), *(pdf(f"The sum grows {n}.") for n in range(6))]
+    assert rank("Can you explain what Euler noticed?", others) == []
+    # A question of asking words only is weighed by all of them.
+    assert rank("What can we talk about in relation?", primes) == []
+
+
+def test_a_long_passage_is_cut_where_it_has_the_question_s_words() -> None:
+    """Larry (2026-10-15): the paragraph naming Euler opens with 500 characters of thanks."""
+    thanks = "I believe that I can best convey my thanks to the Academy. " * 9
+    text = f"{thanks}My point of departure is the observation of Euler that the product"
+    cut = excerpt(text, 400, "What did Euler notice?")
+    assert cut.startswith("… ") and cut.endswith("observation of Euler that the product")
+    assert len(cut) <= 402
+    # When the start has the question's words, or none are there, the start is kept.
+    assert excerpt(text, 400, "What thanks did he convey?").startswith("I believe")
+    assert excerpt(text, 400, "Who won the World Cup?").startswith("I believe")
+    assert excerpt("Short.", 400, "Euler?") == "Short."
+    euler = Passage("pdf", "p", "a.pdf", "", text, [2])
+    found = Lookup("What did Euler notice?", pdf=[Found(euler, 1.0)])
+    assert "observation of Euler" in as_passages(found)[0]
 
 
 def test_a_wiki_title_counts_twice() -> None:
