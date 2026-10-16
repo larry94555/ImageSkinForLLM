@@ -292,7 +292,11 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     # Every picture first, then the picture model is freed before the photoreal engine loads:
     # both at once ran out of 16 GB of memory.
     results: list[Result] = []
-    for person in PEOPLE:
+    n = len(PEOPLE)
+    for i, person in enumerate(PEOPLE):
+        print(
+            f"[{i + 1}/{n}] Picture: {person.name} (about 11 minutes if not made yet)", flush=True
+        )
         results.append(run_person(person, args.output, make_picture, check, None, None))
         write_results(args.output, results)  # so the page fills in as the run goes
     release()
@@ -304,8 +308,12 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
             speak_and_render(face, LINE, output, kokoro[lang], video, voice)
 
         for i, person in enumerate(PEOPLE):
+            print(f"[{i + 1}/{n}] Video: {person.name} (about 6 minutes)", flush=True)
             results[i] = run_person(person, args.output, make_picture, check, video.prepare, render)
             write_results(args.output, results)
+    passed = sum(1 for r in results if r.picture and not r.problems and not r.error)
+    talked = sum(1 for r in results if len(r.videos) == 2)
+    print(f"Done: {passed} of {n} passed the photo checks, {talked} talked in both voices.")
     print(f"Wrote {(args.output / 'index.html').resolve()}")
     return 0
 

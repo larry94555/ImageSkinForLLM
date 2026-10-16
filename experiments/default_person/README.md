@@ -146,7 +146,11 @@ python default_person.py -o ..\..\default-person-test
 ```
 
 Open `default-person-test/index.html` in a browser (double-click it; no server needed). It fills
-in as each person is done. Each person is logged as a `Default person done` JSON line with their
+in as each person is done. While it runs, the window shows `[3/8] Picture: …` for each picture,
+then `[3/8] Video: …` for each person being prepared and rendered, between the JSON log lines. It
+is finished when it prints `Done: 8 of 8 passed the photo checks, 8 talked in both voices.` and
+`Wrote …index.html`, and the prompt comes back. The folder then holds 8 pictures, 16 videos
+(`<person>_american.mp4` and `<person>_british.mp4`), `index.html` and `results.json`. Each person is logged as a `Default person done` JSON line with their
 photo check result (`problems`, `score`), `videos`, `picture_ms` and `prepare_ms`; a step that
 fails is logged as `Default person failed` with the step, and the run goes on to the next
 person.
