@@ -1864,8 +1864,14 @@ function TalkButton(props) {
 	const started = A(0);
 	const failed = A(false);
 	const stopping = A(null);
-	h(() => () => {
+	const sending = A(false);
+	function clearTail() {
 		if (stopping.current !== null) window.clearTimeout(stopping.current);
+		stopping.current = null;
+	}
+	h(() => () => {
+		clearTail();
+		sending.current = false;
 		recognition.current?.stop();
 	}, []);
 	if (!Maker) return null;
@@ -1877,6 +1883,7 @@ function TalkButton(props) {
 		r.interimResults = true;
 		said.current = "";
 		failed.current = false;
+		sending.current = false;
 		started.current = performance.now();
 		r.onresult = (e) => {
 			said.current = heard(e.results);
@@ -1892,13 +1899,20 @@ function TalkButton(props) {
 		};
 		r.onend = () => {
 			recognition.current = null;
+			clearTail();
+			const send = sending.current && !failed.current;
+			sending.current = false;
 			setListening(false);
 			const text = said.current;
 			const ms = Math.round(performance.now() - started.current);
 			const words = text.split(" ").filter(Boolean).length;
 			console.info(`Push-to-talk: heard ${words} words in ${ms} ms`);
+			if (!send) {
+				if (text) console.info("Push-to-talk: ended without sending");
+				return;
+			}
 			if (text) props.onHeard(text);
-			else if (!failed.current) props.onProblem(talkProblem("no-speech"));
+			else props.onProblem(talkProblem("no-speech"));
 		};
 		recognition.current = r;
 		props.onProblem(null);
@@ -1917,6 +1931,7 @@ function TalkButton(props) {
 		if (!recognition.current || stopping.current !== null) return;
 		stopping.current = window.setTimeout(() => {
 			stopping.current = null;
+			sending.current = true;
 			recognition.current?.stop();
 		}, 600);
 	}

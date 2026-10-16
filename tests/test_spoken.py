@@ -47,6 +47,10 @@ def test_the_content_s_words_are_its_titles_and_capitalised_words_most_used_firs
         ("What did Oiler do?", "Euler?", False),  # dropped more than it put back
         # Larry's "boiler", put back as a content word that sounds nothing like it
         ("Tell me about the boiler product", "Tell me about the function product", False),
+        # Review on PR #91: the words left as heard must keep their places.
+        ("Did Oiler accuse Riemann?", "Did Riemann accuse Euler?", False),
+        ("Did Oiler accuse Riemann?", "Did Euler accuse Riemann?", True),
+        ("What did Oiler do?", "What did Euler do do?", False),  # a word added, none dropped
     ],
 )
 def test_a_change_is_kept_only_when_it_puts_the_content_s_words_back(

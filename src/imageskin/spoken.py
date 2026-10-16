@@ -71,17 +71,23 @@ def sounds_like(word: str, dropped: list[str]) -> bool:
 
 
 def kept(heard: str, said: str, terms: list[str]) -> bool:
-    """Whether the LLM's version only puts the content's words in place of misheard ones: it
-    adds at least one word, every word it adds is one of the content's and sounds like a word
-    it drops, and it drops at most one more word than it adds (two misheard words can be one
-    term)."""
+    """Whether the LLM's version only puts the content's words in place of misheard ones: the
+    words are compared in order, so every word left as heard keeps its place (swapping who did
+    what to whom changes the question; review on PR #91), and each run of words changed must
+    be content words that sound like the words they replace, at most one fewer of them (two
+    misheard words can be one term)."""
     known = {w for t in terms for w in words_of(t)}
-    before, after = Counter(words_of(heard)), Counter(words_of(said))
-    added, dropped = after - before, before - after
-    return (
-        bool(added)
-        and all(w in known and sounds_like(w, list(dropped.elements())) for w in added)
-        and sum(dropped.values()) <= sum(added.values()) + 1
+    before, after = words_of(heard), words_of(said)
+    changes = [
+        (before[i1:i2], after[j1:j2])
+        for op, i1, i2, j1, j2 in SequenceMatcher(None, before, after, autojunk=False).get_opcodes()
+        if op != "equal"
+    ]
+    return bool(changes) and all(
+        added
+        and len(dropped) <= len(added) + 1
+        and all(w in known and sounds_like(w, dropped) for w in added)
+        for dropped, added in changes
     )
 
 

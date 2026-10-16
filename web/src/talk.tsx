@@ -63,10 +63,19 @@ export function TalkButton(props: {
   const started = useRef(0);
   const failed = useRef(false);
   const stopping = useRef<number | null>(null);
+  // Set when the button was let go and listening ended to send: what was heard is sent only
+  // then, not when recognition fails, ends on its own or the page is left (review on PR #91).
+  const sending = useRef(false);
+
+  function clearTail() {
+    if (stopping.current !== null) window.clearTimeout(stopping.current);
+    stopping.current = null;
+  }
 
   useEffect(
     () => () => {
-      if (stopping.current !== null) window.clearTimeout(stopping.current);
+      clearTail();
+      sending.current = false;
       recognition.current?.stop();
     },
     [],
@@ -81,6 +90,7 @@ export function TalkButton(props: {
     r.interimResults = true;
     said.current = "";
     failed.current = false;
+    sending.current = false;
     started.current = performance.now();
     r.onresult = (e) => {
       said.current = heard(e.results);
@@ -96,13 +106,21 @@ export function TalkButton(props: {
     };
     r.onend = () => {
       recognition.current = null;
+      clearTail();
+      const send = sending.current && !failed.current;
+      sending.current = false;
       setListening(false);
       const text = said.current;
       const ms = Math.round(performance.now() - started.current);
       const words = text.split(" ").filter(Boolean).length;
       console.info(`Push-to-talk: heard ${words} words in ${ms} ms`);
+      if (!send) {
+        // Not let go to send: what was heard stays in the prompt box, to send or change.
+        if (text) console.info("Push-to-talk: ended without sending");
+        return;
+      }
       if (text) props.onHeard(text);
-      else if (!failed.current) props.onProblem(talkProblem("no-speech"));
+      else props.onProblem(talkProblem("no-speech"));
     };
     recognition.current = r;
     props.onProblem(null);
@@ -122,6 +140,7 @@ export function TalkButton(props: {
     if (!recognition.current || stopping.current !== null) return;
     stopping.current = window.setTimeout(() => {
       stopping.current = null;
+      sending.current = true;
       recognition.current?.stop(); // what was heard is sent when it ends
     }, TAIL_MS);
   }

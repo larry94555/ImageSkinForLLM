@@ -175,8 +175,35 @@ test("each recognition error gets plain words, and a deliberate stop none", () =
   expect(heard([[{ transcript: " a  b " }], [{ transcript: "c" }]])).toBe("a b c");
 });
 
+test("recognition that fails or ends on its own while held sends nothing", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  await act(async () => {
+    FakeRecognition.made[0]!.say("What is a");
+    FakeRecognition.made[0]!.stop(); // ended by the browser, the button still held
+  });
+  expect(calls.heard).toEqual([]);
+  expect(calls.hearing).toEqual(["What is a"]); // left in the prompt box
+  expect(console.info).toHaveBeenCalledWith("Push-to-talk: ended without sending");
+  expect(button.textContent).toBe("Hold to talk");
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  await act(async () => {
+    FakeRecognition.made[1]!.say("What is a");
+    FakeRecognition.made[1]!.fail("network");
+    fireEvent.pointerUp(button); // let go after the error: still not sent
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(calls.heard).toEqual([]);
+  expect(calls.problems.at(-1)).toBe(talkProblem("network"));
+});
+
 test("leaving the page while listening stops listening", async () => {
-  talk();
+  const calls = talk();
   const button = screen.getByRole("button", { name: "Hold to talk" });
   await act(async () => {
     fireEvent.pointerDown(button);
@@ -184,7 +211,9 @@ test("leaving the page while listening stops listening", async () => {
   });
   const r = FakeRecognition.made[0]!;
   const stopped = vi.spyOn(r, "stop");
+  r.say("What is a"); // heard before the page was left: not sent
   cleanup();
+  expect(calls.heard).toEqual([]);
   expect(stopped).toHaveBeenCalledTimes(1);
   vi.advanceTimersByTime(TAIL_MS); // the pending stop was cleared
   expect(stopped).toHaveBeenCalledTimes(1);
