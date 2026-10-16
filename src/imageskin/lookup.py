@@ -244,15 +244,18 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
     for w in asked:
         having = sum(1 for c in counted if w in c)
         idf[w] = math.log(1 + (total - having + 0.5) / (having + 0.5))
-    # The question's words that name what it is about; all of them if it has only asking words.
-    weight = sum(idf[w] for w in asked if w not in REQUEST_WORDS) or sum(idf.values())
+    # The question's words that name what it is about; all of them if it has only asking
+    # words. Only these count for or against a passage (review on PR #91).
+    subject = {w for w in asked if w not in REQUEST_WORDS} or asked
+    weight = sum(idf[w] for w in subject)
     found = []
     for passage, counts, length in zip(passages, counted, lengths, strict=True):
         matched = [w for w in asked if w in counts]
         # A typo corrected helps only a passage that has a question word as typed, so a
         # correction is never the only reason a passage, or an off-topic prompt, is found
         # ("polar energy" isn't found by a passage on solar flares; review on PR #74).
-        if not typed.intersection(matched) or sum(idf[w] for w in matched) < MIN_SHARE * weight:
+        named = [w for w in matched if w in subject]
+        if not typed.intersection(named) or sum(idf[w] for w in named) < MIN_SHARE * weight:
             continue
         score = 0.0
         for w in matched:

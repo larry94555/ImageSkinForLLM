@@ -181,6 +181,10 @@ def test_words_that_ask_about_a_subject_dont_count_against_a_passage_without_the
     # Review on PR #91: a name said in passing doesn't make a question about something else
     # on topic.
     assert rank("What is the weather in Paris?", primes) == []
+    # An asking word alone isn't what a question is about: a passage that has "noticed" but
+    # not Euler doesn't answer "What did Euler notice?" (review on PR #91).
+    others = [pdf("We noticed a change."), *(pdf(f"The sum grows {n}.") for n in range(6))]
+    assert rank("Can you explain what Euler noticed?", others) == []
     # A question of asking words only is weighed by all of them.
     assert rank("What can we talk about in relation?", primes) == []
 
