@@ -907,6 +907,9 @@ def create_app(
                     sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
         try:
             if body.spoken:
+                # Checked and the summary waited for before the correction asks the LLM, as
+                # for a lesson, quiz or assessment (review on PR #91).
+                conversation.check(body.prompt)
                 meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
                 body = body.model_copy(update={"prompt": meant})
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())

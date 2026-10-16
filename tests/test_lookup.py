@@ -17,7 +17,6 @@ from imageskin.lookup import (
     as_passages,
     excerpt,
     look_up,
-    names_in,
     one_typo_apart,
     pages_label,
     pdf_passages,
@@ -164,29 +163,26 @@ def test_a_passage_sharing_only_a_common_word_is_not_found() -> None:
     assert rank("Can I record in a kitchen?", guide)[0].passage.text == "A kitchen echoes."
 
 
-def test_a_name_from_the_content_finds_its_passage_whatever_else_is_asked() -> None:
+def test_words_that_ask_about_a_subject_dont_count_against_a_passage_without_them() -> None:
     """Larry (2026-10-15): "What did Euler notice?" was declined, since "notice", which the
     paper doesn't have, outweighed "Euler"."""
 
     def pdf(text: str) -> Passage:
         return Passage("pdf", "p", "a.pdf", "", text, [1])
 
-    def wiki(text: str) -> Passage:
-        return Passage("wiki", "w", "Water Cycle", "", text, [])
-
     primes = [
         pdf("The product Euler found counts primes."),
-        pdf("Primes are counted. Later, Riemann extended it."),
+        pdf("Primes are counted. Euler later lived in Paris."),
         *(pdf(f"The sum grows {n}.") for n in range(4)),
     ]
-    assert names_in(primes) == {"euler", "riemann"}  # not "The" or "Primes", sentence starts
     for asked in ["What did Euler notice?", "Did you explain what Euler not?"]:
         assert rank(asked, primes)[0].passage.text == "The product Euler found counts primes."
     assert rank("What lighting is best for the photo?", primes) == []
-    # A wiki summary capitalises a topic's words; they aren't names.
-    water = [wiki("About Water Cycle. How rain falls."), *(wiki(f"Clouds {n}.") for n in range(4))]
-    assert names_in(water) == set()
-    assert rank("Is water safe to drink during my cycle?", water) == []
+    # Review on PR #91: a name said in passing doesn't make a question about something else
+    # on topic.
+    assert rank("What is the weather in Paris?", primes) == []
+    # A question of asking words only is weighed by all of them.
+    assert rank("What can we talk about in relation?", primes) == []
 
 
 def test_a_long_passage_is_cut_where_it_has_the_question_s_words() -> None:

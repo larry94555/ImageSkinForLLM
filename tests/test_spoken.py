@@ -1,6 +1,7 @@
 """Spoken questions heard in context (roadmap R24, Larry's test on PR #91)."""
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,7 @@ from test_quiz import chat
 from test_teach import entry
 from test_topics import riemann_app
 
-from imageskin.chat import LlmError, Message
+from imageskin.chat import SUMMARY_PROMPT, LlmError, Message
 from imageskin.spoken import MOST_WORDS, corrected, kept, vocabulary
 
 CONTENTS = [
@@ -115,3 +116,35 @@ def test_a_typed_prompt_is_not_checked(tmp_path: Path) -> None:
     reply = chat(client, "What are Crime Number Basics?")
     assert "prompt" not in reply
     assert not any("speech recognition" in m[-1]["content"] for m in llm.sent)
+
+
+def test_a_spoken_prompt_waits_for_the_summary_before_it_is_corrected(tmp_path: Path) -> None:
+    """Review on PR #91: the correction asked the LLM while the summary was still being made."""
+    release = threading.Event()
+    asked: list[str] = []
+
+    class Slow(Hearing):
+        def __call__(self, messages: list[Message]) -> str:
+            if messages[0]["content"] == SUMMARY_PROMPT:
+                asked.append("summary")
+                assert release.wait(5)
+                return "SUMMARY"
+            if "speech recognition wrote it down" in messages[-1]["content"]:
+                asked.append("correction")
+            return super().__call__(messages)
+
+    client = riemann_app(tmp_path, Slow())
+    for _ in range(20):  # until a reply starts a summary
+        chat(client, "How are primes counted? " + "primes counted " * 40)
+        if asked:
+            break
+    assert asked == ["summary"]  # being made
+    spoken = threading.Thread(
+        target=chat, args=(client, "What are Crime Number Basics?"), kwargs={"spoken": True}
+    )
+    spoken.start()
+    spoken.join(0.3)
+    assert asked == ["summary"]  # the correction waits
+    release.set()
+    spoken.join(5)
+    assert asked == ["summary", "correction"]

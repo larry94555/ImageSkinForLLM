@@ -7,6 +7,7 @@ from test_question_scope import Llm
 
 from imageskin.chat import Conversation
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
+from imageskin.lookup import Passage, rank
 
 
 @pytest.mark.parametrize(
@@ -24,9 +25,9 @@ def test_a_request_for_an_example_is_recognised(prompt: str, asks: bool) -> None
 
 
 def test_what_an_example_is_of_is_what_the_request_says_besides_asking() -> None:
-    assert example_of("Can you give an example of a prime number?") == (
-        "Can you give an of a prime number?"
-    )
+    assert example_of("Can you give an example of a prime number?") == "a prime number"
+    assert example_of("What is a prime, for instance?") == "prime"
+    assert example_of("Can you give me an example of that?") is None
     assert example_of("Can you give me an example?") is None
     assert example_of("Could you share another simple example, please?") is None
     assert example_of("Let’s see some examples") is None
@@ -35,9 +36,7 @@ def test_what_an_example_is_of_is_what_the_request_says_besides_asking() -> None
 def test_a_bare_request_is_about_the_last_question_that_said_what_it_was_about() -> None:
     asked = ["What is a prime?", "What did Euler notice?", "Can you give me an example?"]
     assert earlier_question(asked) == "What did Euler notice?"
-    assert earlier_question(["Give me an example of the zeta function."]) == (
-        "Give me an of the zeta function."
-    )
+    assert earlier_question(["Give me an example of the zeta function."]) == "the zeta function"
     assert earlier_question(["Can you give me an example?"]) is None
     assert earlier_question([]) is None
 
@@ -69,7 +68,7 @@ def test_can_you_give_me_an_example_is_answered_about_the_question_before_it(
     assert looked_up == [
         "What did Euler notice?",
         "What did Euler notice?",
-        "Can you give an of a prime number?",
+        "a prime number",
     ]
     sent = llm.sent[1][-1]["content"]
     assert "the observation of Euler" in sent
@@ -88,3 +87,21 @@ def test_a_first_request_for_an_example_is_looked_up_as_it_is() -> None:
 
     Conversation(Llm(), lambda: 4096, find=find).send("Can you give me an example?")
     assert looked_up == ["Can you give me an example?"]
+
+
+def test_an_example_of_a_rare_subject_is_found_in_the_content() -> None:
+    """Review on PR #91: "give", which the content lacks, outweighed a subject only one
+    passage has."""
+
+    def pdf(text: str) -> Passage:
+        return Passage("pdf", "p", "a.pdf", "", text, [1])
+
+    plants = [
+        pdf("Leaves use photosynthesis."),
+        *(pdf(f"Roots drink water {n}.") for n in range(6)),
+    ]
+    asked = "Can you give an example of photosynthesis?"
+    assert rank(asked, plants) == []  # looked up as it is, it isn't found
+    subject = example_of(asked)
+    assert subject == "photosynthesis"
+    assert rank(subject, plants)[0].passage.text == "Leaves use photosynthesis."

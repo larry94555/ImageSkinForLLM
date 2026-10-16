@@ -9,6 +9,9 @@ import re
 # A prompt asking for an example says one of these.
 _EXAMPLE = re.compile(r"\b(?:examples?|for instance|instances?|illustrat\w*)\b", re.IGNORECASE)
 _WORD = re.compile(r"[a-z]+")
+_MARKS = " ,;:?.!\"'’"
+# "… an example of prime numbers": what follows says what it is an example of.
+_OF = re.compile(r"\s*(?:of|about|for|on|from|with)\s+(.+)", re.IGNORECASE | re.DOTALL)
 # The words of asking for an example that say nothing about what it is an example of.
 _ASKING = frozenset(
     """a an another any are can could do does few for give good have i is it just let me more
@@ -35,13 +38,21 @@ def asks_for_example(prompt: str) -> bool:
 
 
 def example_of(prompt: str) -> str | None:
-    """What the prompt asks for an example of, without the asking ("prime numbers" in "Can you
-    give an example of prime numbers?"), or None when it doesn't say ("Can you give me an
-    example?") and so is about the question before it."""
-    rest = _EXAMPLE.sub(" ", prompt)
-    if all(w in _ASKING for w in _WORD.findall(rest.lower().replace("’", "'"))):
+    """What the prompt asks for an example of, without the asking ("a prime number" in "Can you
+    give an example of a prime number?"), or None when it doesn't say ("Can you give me an
+    example?") and so is about the question before it. Only the subject is looked up: a word
+    of asking the content lacks ("give") would outweigh a rare subject (review on PR #91)."""
+    found = _EXAMPLE.search(prompt)
+    said = _OF.match(prompt[found.end() :]) if found else None
+    if said:
+        subject = said.group(1)
+    else:
+        kept = (w.strip(_MARKS) for w in _EXAMPLE.sub(" ", prompt).split())
+        subject = " ".join(w for w in kept if w.lower() not in _ASKING)
+    subject = subject.strip(" ?.!")
+    if all(w in _ASKING for w in _WORD.findall(subject.lower().replace("’", "'"))):
         return None
-    return " ".join(rest.split())
+    return " ".join(subject.split())
 
 
 def earlier_question(prompts: list[str]) -> str | None:
