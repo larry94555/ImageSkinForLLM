@@ -252,6 +252,12 @@ def symbol_words(ch: str) -> str | None:
     return greek_name(ch)
 
 
+def _applies(words: list[str]) -> bool:
+    """Whether words apply a function or root ("sine of x", "the square root of 2"), which
+    reaches past a fraction's "over"; "to the power of" doesn't."""
+    return any(w == "of" and words[i - 1 : i] != ["power"] for i, w in enumerate(words))
+
+
 def power(exponent: list[str]) -> list[str]:
     """How a power is said: "squared", "cubed" or "to the power of ..."."""
     if exponent == ["2"]:
@@ -324,7 +330,8 @@ class _Reader:
         if token in ")]}" or token in _QUIET:
             return []
         if token == "^":
-            words = power(self.argument())
+            start = self.at
+            words = power(self.grouped(start, self.argument()))
             self.function = was_function  # "f^2(x)" is still a function
             return words
         if token == "_":
@@ -406,6 +413,9 @@ class _Reader:
         start = self.at
         bottom = self.argument()
         bottom_simple = self.simple(start)
+        # A function in either ("sine of x") has a reach of its own, so it is grouped too.
+        top_simple = top_simple and not _applies(top)
+        bottom_simple = bottom_simple and not _applies(bottom)
         if top_simple and bottom_simple:
             beside = before[-1:] in (["minus"], ["plus"], ["times"], ["over"], ["by"])
             words = [*top, "over", *bottom]
@@ -414,13 +424,40 @@ class _Reader:
             if beside or (self.in_expression and first and self.peek() is None):
                 return ["the", "fraction", *words]
             return words
-        if not top_simple:
-            top = ["the", "quantity", *top, ","]
+        if not top_simple:  # "the square root of 2, divided by 2" needs no "the quantity"
+            top = [*([] if top[:1] == ["the"] else ["the", "quantity"]), *top, ","]
         if not bottom_simple:
             bottom = ["the", "quantity", *bottom]
             if (after := self.peek()) is not None and after not in ")]}":
                 bottom.append(",")  # where the quantity ends
+        elif not top_simple and (after := self.peek()) is not None and after not in ")]}":
+            bottom = [*bottom, ","]  # "the quantity sine of x, divided by x, plus 1"
         return [*top, "divided", "by", *bottom]
+
+    def grouped(self, start: int, exponent: list[str]) -> list[str]:
+        """A power of more than one term said so it is heard one way: "x to the power of the
+        fraction 1 over 2, plus 1", "x to the power of the quantity s minus 1"."""
+        tokens = self.tokens[start : self.at]
+        if tokens[:1] == ["{"] or tokens[:1] == ["("]:
+            tokens = tokens[1:-1]
+        sign = tokens[:1] in (["-"], ["−"])  # "-1/2" is "minus the fraction 1 over 2"
+        depth, breaks, divides = 0, False, False
+        for token in tokens[sign:]:
+            depth += token in "{([" or token == "\\left"
+            depth -= token in "})]"
+            name = token.removeprefix("\\")
+            if depth == 0:
+                breaks |= name in _TERM_BREAKS or _UNICODE.get(token) in _TERM_BREAKS
+                divides |= name in _DIVISIONS
+        if not (breaks or divides):
+            return exponent
+        label = ["the", "quantity"] if breaks else ["the", "fraction"]
+        lead, rest = (exponent[:1], exponent[1:]) if sign and not breaks else ([], exponent)
+        if rest[:2] not in (["the", "fraction"], ["the", "quantity"]):
+            rest = [*label, *rest]
+        if (after := self.peek()) is not None and after not in ")]}" and rest[-1:] != [","]:
+            rest = [*rest, ","]  # where the power ends
+        return [*lead, *rest]
 
     def simple(self, start: int) -> bool:
         """Whether the tokens from `start` to here are one term: no "+", "-", "=", "\\pm" or the

@@ -19,7 +19,7 @@ from imageskin.speech_text import LINK, inside_whole, spoken_text
         (r"\pi", "pi"),
         (r"\Gamma(s)", "gamma of s"),
         (r"x^2 + 1", "x squared plus 1"),
-        (r"x^3 - y^{n+1}", "x cubed minus y to the power of n plus 1"),
+        (r"x^3 - y^{n+1}", "x cubed minus y to the power of the quantity n plus 1"),
         (r"\frac{1}{n^s}", "1 over n to the power of s"),
         (r"\sqrt{2}", "the square root of 2"),
         (r"\sqrt[3]{x}", "the cube root of x"),
@@ -37,7 +37,7 @@ from imageskin.speech_text import LINK, inside_whole, spoken_text
         ),
         (
             r"\lim_{x \to 0} \frac{\sin x}{x} = 1",
-            "the limit as x goes to 0 of sine of x over x equals 1",
+            "the limit as x goes to 0 of the quantity sine of x, divided by x, equals 1",
         ),
         (r"\int_0^1 x\,dx", "the integral from 0 to 1 of x d x"),
         (r"\binom{n}{k}", "n choose k"),
@@ -164,7 +164,13 @@ def test_a_cut_inside_math_is_known() -> None:
             r"\frac{1}{1 - \frac{1}{p^s}}",
             "1 divided by the quantity 1 minus the fraction 1 over p to the power of s",
         ),
-        (r"\frac{\sin x}{x}", "sine of x over x"),  # one term over one term
+        (r"\frac{\sin x}{x}", "the quantity sine of x, divided by x"),  # not "sine of (x over x)"
+        (r"\frac{\sin x}{x} + 1", "the quantity sine of x, divided by x, plus 1"),
+        (r"\frac{\sqrt{2}}{2}", "the square root of 2, divided by 2"),
+        (r"x^{\frac{1}{2}} + 1", "x to the power of the fraction 1 over 2, plus 1"),
+        (r"x^{-\frac{1}{2}}", "x to the power of minus the fraction 1 over 2"),
+        (r"x^{s-1} + 1", "x to the power of the quantity s minus 1, plus 1"),
+        (r"\frac{1}{p^s}", "1 over p to the power of s"),  # a power is one term
     ],
 )
 def test_a_fraction_is_said_so_it_can_be_heard_only_one_way(tex: str, said: str) -> None:

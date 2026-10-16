@@ -313,6 +313,24 @@ def say_slash_fraction(m: re.Match[str]) -> str | None:
     return say_math(slash_tex(m[0]), in_expression(m.string, m.start(), m.end()))
 
 
+_GOES_ON = re.compile(r"[ \t]*(?:[-−+×*/=<>≤≥]|\w)")
+
+
+def say_caret(m: re.Match[str]) -> str:
+    """A power: "n^s" is "n to the power of s". A power of more than one term is grouped, and
+    ends with a pause when more follows: "x^(1/2) + 1" is "x to the power of the fraction 1
+    over 2, plus 1"."""
+    exponent = m[1] or m[2] or m[3]
+    said = say_math(f"x^{{{slash_tex(exponent)}}}")
+    if said is None or not said.startswith("x "):
+        return " ".join(power((say_math(exponent) or exponent).split()))
+    words = said[2:]
+    grouped = re.search(r"power of (?:minus )?the (?:fraction|quantity) ", words)
+    if grouped and _GOES_ON.match(m.string, m.end()) and not words.endswith(","):
+        words += ","
+    return words
+
+
 _LIMIT = r"\([^()\n]{1,20}\)|[\w∞]+"
 # A sum, product or integral with where it runs, as a PDF's formula is read (pdf_math.py):
 # "∫_0^∞" is "the integral from 0 to infinity of".
@@ -355,7 +373,7 @@ _SYMBOL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str | None
     # A power written with a caret after a word or bracket: "n^s", "2^{10}", "e^(−nx)".
     (
         re.compile(r"(?<=[\w)])\^(?:\{([^{}\n]+)\}|\(([^()\n]+)\)|(-?\w+))"),
-        lambda m: " ".join(power((say_math(m[1] or m[2] or m[3]) or m[0][1:]).split())),
+        say_caret,
     ),
     # A comparison between two words or numbers, as in "s > 1" or "x = 2".
     (
