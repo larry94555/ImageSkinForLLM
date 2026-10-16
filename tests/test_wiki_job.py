@@ -42,7 +42,7 @@ def jobs(
     store = ContentStore(tmp_path)
     readings = ReadingJob(store, two_pages)
     wiki = WikiJob(store, readings, build, **kw)
-    readings.on_read = wiki.queue
+    readings.on_read = wiki.read
     return store, readings, wiki
 
 
@@ -509,3 +509,36 @@ def test_the_time_left_is_estimated_from_the_steps_done_so_far() -> None:
     outline = WikiStatus("building", 5, 5, stage="outline", steps=3, steps_planned=4)
     assert remaining(outline, 30, 0) == 10
     assert remaining(replace(outline, steps_planned=3), 30, 0) == 0
+
+
+def test_a_reading_redone_for_a_new_format_keeps_a_current_wiki_on_startup(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app = create_app(tmp_path, read_pdf=two_pages, build_wiki=one_page_per_piece)
+    client = TestClient(app)
+    pdf = client.post("/api/content", files={"file": ("w.pdf", PDF, "application/pdf")}).json()
+    settle(app.state.readings, app.state.wiki)
+    reading = tmp_path / "content" / "read" / f"{pdf['id']}.json"
+    older = json.loads(reading.read_text())
+    del older["format"]  # as read before formulas were read as one line
+    reading.write_text(json.dumps(older))
+    wiki_file = tmp_path / "content" / "wiki" / f"{pdf['id']}.json"
+    kept = wiki_file.read_text()
+    built: list[str] = []
+
+    def counting(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
+        built.append(pdf_id)
+        return one_page_per_piece(pdf_id, pieces, progress)
+
+    with caplog.at_level(logging.INFO):
+        restarted = create_app(tmp_path, read_pdf=two_pages, build_wiki=counting)
+        settle(restarted.state.readings, restarted.state.wiki)
+
+    assert "format" in json.loads(reading.read_text())  # read again in the new format
+    assert built == [] and wiki_file.read_text() == kept  # the wiki and its edits are kept
+    assert any(r.message == "Wiki kept for a PDF read again" for r in caplog.records)
+    assert TestClient(restarted).post(f"/api/content/{pdf['id']}/wiki/rebuild").status_code < 300
+    settle(restarted.state.readings, restarted.state.wiki)
+    assert built == [pdf["id"]]  # until the user rebuilds it
