@@ -79,3 +79,30 @@ def formula_pdf(path: Path) -> Path:
     pdf.showPage()
     pdf.save()
     return path
+
+
+def powers_pdf(path: Path) -> Path:
+    """A sentence with x² + y² = z² in it, the letters in an italic and the powers raised and
+    smaller, as TeX sets them, and a footnote's number after a word."""
+    pdf = canvas.Canvas(str(path), pagesize=letter)
+    pdf.setFont("Helvetica", 12)
+    pdf.drawString(72, 700, "Pythagoras showed that")
+    x = 72 + pdf.stringWidth("Pythagoras showed that ", "Helvetica", 12)
+    for part in ("x", "2", " + ", "y", "2", " = ", "z", "2"):
+        if part == "2":
+            pdf.setFont("Times-Roman", 8)
+            pdf.drawString(x, 705, part)
+            x += pdf.stringWidth(part, "Times-Roman", 8)
+        else:
+            font = "Times-Italic" if part.strip() else "Helvetica"
+            pdf.setFont(font, 12)
+            pdf.drawString(x, 700, part)
+            x += pdf.stringWidth(part, font, 12)
+    pdf.setFont("Helvetica", 12)
+    pdf.drawString(x + 3, 700, "in a right triangle.")
+    pdf.drawString(72, 684, "It is well known")
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(72 + pdf.stringWidth("It is well known", "Helvetica", 12), 689, "1")
+    pdf.showPage()
+    pdf.save()
+    return path

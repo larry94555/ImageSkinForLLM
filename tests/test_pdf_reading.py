@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 import pytest
-from pdf_samples import SLIDES, TABLE, formula_pdf, slides_pdf, table_pdf, text_pdf
+from pdf_samples import SLIDES, TABLE, formula_pdf, powers_pdf, slides_pdf, table_pdf, text_pdf
 
 from imageskin.pdf_reading import ReadingError, clean, join_lines, pdf_kind, read_pdf
 
@@ -63,6 +63,17 @@ def test_a_formula_is_read_as_one_line_in_its_sentence(
     ]
     logged = [r for r in caplog.records if r.message == "Formulas read as one line"]
     assert logged[0].__dict__["formulas"] == 1 and logged[0].__dict__["pages"] == [1]
+
+
+def test_a_formula_with_only_powers_is_read_with_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("imageskin.pdf_math.MATH_FONTS", ("TIMES-ITALIC",))  # for TeX's cmmi
+    reading = read_pdf(powers_pdf(tmp_path / "pythagoras.pdf"))
+
+    assert [p.text for p in reading.pieces] == [
+        "Pythagoras showed that x^2 + y^2 = z^2 in a right triangle. It is well known1",
+    ]  # a footnote's number in plain text is left as it is
 
 
 def test_a_broken_pdf_raises_a_plain_reading_error(tmp_path: Path) -> None:

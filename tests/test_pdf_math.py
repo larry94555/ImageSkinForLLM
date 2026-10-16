@@ -96,18 +96,42 @@ def test_an_integral_has_its_limits_and_powers() -> None:
 
 
 def test_an_index_and_a_bracket_from_the_math_font() -> None:
-    # g_1(b), with the bracket in TeX's math extension font, which is never an index.
-    found = linear(
-        chars(
-            ("g", "CMMI12", 12.0, 100.0, 106.0, 600.0, 612.0),
-            ("1", "CMR8", 8.0, 106.0, 110.0, 606.0, 614.0),
-            ("(cid:0)", "CMEX10", 10.0, 111.0, 115.0, 601.0, 611.0),
-            ("b", "CMMI12", 12.0, 115.0, 120.0, 600.0, 612.0),
-            ("(cid:1)", "CMEX10", 10.0, 120.0, 124.0, 601.0, 611.0),
-        ),
-        [],
+    # g_1(b) after a word, with the bracket in TeX's math extension font, which is never an
+    # index: a formula with no fraction or big sign, found by its index.
+    so = chars(
+        ("s", "CMR12", 12.0, 80.0, 85.0, 600.0, 612.0),
+        ("o", "CMR12", 12.0, 85.0, 91.0, 600.0, 612.0),
     )
-    assert found == "g_1 (b)"
+    g_1 = chars(
+        ("g", "CMMI12", 12.0, 100.0, 106.0, 600.0, 612.0),
+        ("1", "CMR8", 8.0, 106.0, 110.0, 606.0, 614.0),
+        ("(cid:0)", "CMEX10", 10.0, 111.0, 115.0, 601.0, 611.0),
+        ("b", "CMMI12", 12.0, 115.0, 120.0, 600.0, 612.0),
+        ("(cid:1)", "CMEX10", 10.0, 120.0, 124.0, 601.0, 611.0),
+    )
+    (formula,) = find_formulas(so + g_1, [])
+    assert formula.text == "so g_1 (b)"
+
+
+def test_powers_alone_make_a_formula_but_a_footnote_s_number_does_not() -> None:
+    # x² + y² = z² as TeX sets it: italic letters (cmmi) with roman powers (cmr8) raised.
+    pythagoras = chars(
+        ("x", "CMMI12", 12.0, 100.0, 106.7, 600.0, 612.0),
+        ("2", "CMR8", 8.0, 107.0, 111.2, 596.0, 604.0),
+        ("+", "CMR12", 12.0, 114.0, 123.1, 600.0, 612.0),
+        ("y", "CMMI12", 12.0, 126.0, 131.9, 600.0, 612.0),
+        ("2", "CMR8", 8.0, 132.0, 136.2, 596.0, 604.0),
+        ("=", "CMR12", 12.0, 139.0, 148.1, 600.0, 612.0),
+        ("z", "CMMI12", 12.0, 151.0, 156.5, 600.0, 612.0),
+        ("2", "CMR8", 8.0, 156.6, 160.8, 596.0, 604.0),
+    )
+    (formula,) = find_formulas(pythagoras, [])
+    assert formula.text == "x^2 + y^2 = z^2"
+    footnote = chars(
+        ("n", "CMR12", 12.0, 100.0, 106.5, 600.0, 612.0),
+        ("1", "CMR8", 8.0, 106.6, 110.8, 596.0, 604.0),
+    )
+    assert find_formulas(footnote, []) == []
 
 
 def test_rows_without_math_fonts_are_not_formulas() -> None:

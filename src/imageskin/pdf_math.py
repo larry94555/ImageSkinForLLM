@@ -38,6 +38,7 @@ MATH_FONTS = ("CMMI", "CMSY", "CMEX", "MSAM", "MSBM")
 CID = re.compile(r"\(cid:(\d+)\)")
 SPACED = set("=+−<>≤≥≈≠±→")  # said with a space each side: "1 − 1/p^s"
 WORD_GAP = 0.15  # a gap wider than this share of the font size is a space
+SHIFT = 0.15  # raised or lowered by more than this share of its base's size: a script
 SCRIPT = 0.9  # a character smaller than this share of its base's size may be a power or index
 RULE_HEIGHT = 1.5  # a fraction rule is a line or box no taller than this
 COLUMN_GAP = 1.5  # a gap wider than this many font sizes ends a formula: another column
@@ -105,11 +106,15 @@ def find_formulas(chars: list[Obj], rules: list[Obj]) -> list[Formula]:
             (min(c["top"] for c in near), max(c["bottom"] for c in near), bar["x0"], bar["x1"])
         )
     seeds += [(c["top"], c["bottom"], c["x0"], c["x1"]) for c in chars if symbol(c) in BIG]
+    boxes = grow(sorted(seeds), chars)
+    # Rows with only powers or indexes, such as x² + y² = z², apart from those boxes
+    # Not grown, since scripts reach into the lines above and below, but widened across the row.
+    scripted = by_row([widen(box, chars) for box in scripts(chars)])
+    boxes += [b for b in scripted if not any(meet(b, m) for m in boxes)]
     formulas = []
-    for top, bottom, left, right in grow(sorted(seeds), chars):
-        rows = [c for c in chars if top <= middle_y(c) <= bottom]
-        left, right = across(rows, left, right)
-        inside = [c for c in rows if left <= middle_x(c) <= right]
+    for box in sorted(boxes):
+        top, bottom, left, right = widen(box, chars)
+        inside = [c for c in chars if top <= middle_y(c) <= bottom and left <= middle_x(c) <= right]
         inside += [c for c in under_and_over(inside, chars) if c not in inside]
         if not any(math_font(c) for c in inside) or not one_row(inside, bars):
             continue
@@ -122,6 +127,39 @@ def find_formulas(chars: list[Obj], rules: list[Obj]) -> list[Formula]:
         if text:
             formulas.append(Formula(top, bottom, text, inside))
     return formulas
+
+
+def widen(box: Box, chars: list[Obj]) -> Box:
+    """A box as wide as the characters on its rows go without a gap wide enough to be another
+    column."""
+    top, bottom, left, right = box
+    left, right = across([c for c in chars if top <= middle_y(c) <= bottom], left, right)
+    return top, bottom, left, right
+
+
+def scripts(chars: list[Obj]) -> list[Box]:
+    """Each power or index with the character it is written on, one of them in a math font: a
+    smaller character just after another, raised or lowered from it, as in x² or g₁. A
+    footnote's number in a line of text is not one."""
+    found: list[Box] = []
+    for c in chars:
+        if not symbol(c).strip():
+            continue
+        for base in chars:
+            beside = -1 <= c["x0"] - base["x1"] < WORD_GAP * base["size"]
+            shift = SHIFT < abs(middle_y(c) - middle_y(base)) / base["size"] < 2 * SHIFT + 0.4
+            smaller = c["size"] < SCRIPT * base["size"] and symbol(base).strip()
+            if beside and shift and smaller and (math_font(c) or math_font(base)):
+                found.append(
+                    (
+                        min(c["top"], base["top"]),
+                        max(c["bottom"], base["bottom"]),
+                        base["x0"],
+                        c["x1"],
+                    )
+                )
+                break
+    return found
 
 
 def under_and_over(inside: list[Obj], chars: list[Obj]) -> list[Obj]:
@@ -198,6 +236,29 @@ def across(chars: list[Obj], left: float, right: float) -> tuple[float, float]:
         if c["x0"] < left and left - c["x1"] <= COLUMN_GAP * c["size"]:
             left = min(left, c["x0"])
     return left, right
+
+
+def by_row(boxes: list[Box]) -> list[Box]:
+    """Boxes joined where they are on one row."""
+    joined: list[Box] = []
+    for box in sorted(boxes):
+        while other := next((b for b in joined if same_row(b, box)), None):
+            joined.remove(other)
+            box = (
+                min(box[0], other[0]),
+                max(box[1], other[1]),
+                min(box[2], other[2]),
+                max(box[3], other[3]),
+            )
+        joined.append(box)
+    return joined
+
+
+def same_row(a: Box, b: Box) -> bool:
+    """Whether two boxes overlap across, and over most of the shorter one's height: one row,
+    not two lines of text that touch."""
+    shared = min(a[1], b[1]) - max(a[0], b[0])
+    return a[2] <= b[3] and b[2] <= a[3] and shared > min(a[1] - a[0], b[1] - b[0]) / 2
 
 
 def meet(a: Box, b: Box) -> bool:
@@ -310,6 +371,8 @@ def line(items: list[_Item]) -> str:
 def spaced(previous: _Item, item: _Item, out: str) -> bool:
     if item.text in ",.;:)]}" or out.endswith(("(", "[", "{")):
         return False
+    if out == "−" or (out[-1:] in ("−", "+") and out[:-1].endswith(("(", "[", "{"))):
+        return False  # a sign at the start or just inside a bracket: −x, (−x)
     if item.text in SPACED or out[-1:] in SPACED or previous.big:
         return True
     return item.x0 - previous.x1 > WORD_GAP * max(item.size, previous.size)
