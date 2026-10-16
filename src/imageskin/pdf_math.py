@@ -10,6 +10,7 @@ Pure Python, no logging: pdf_reading.py logs.
 """
 
 import re
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Any
 
@@ -140,13 +141,20 @@ def widen(box: Box, chars: list[Obj]) -> Box:
 def scripts(chars: list[Obj]) -> list[Box]:
     """Each power or index with the character it is written on, one of them in a math font: a
     smaller character just after another, raised or lowered from it, as in x² or g₁. A
-    footnote's number in a line of text is not one."""
+    footnote's number in a line of text is not one. A page with no math font is not searched,
+    and each character is checked only against those ending just before it."""
+    if not any(math_font(c) for c in chars):
+        return []
+    by_end = sorted(chars, key=lambda b: b["x1"])
+    ends = [b["x1"] for b in by_end]
+    reach = WORD_GAP * max(c["size"] for c in chars)
     found: list[Box] = []
     for c in chars:
         if not symbol(c).strip():
             continue
-        for base in chars:
-            beside = -1 <= c["x0"] - base["x1"] < WORD_GAP * base["size"]
+        start, stop = bisect_left(ends, c["x0"] - reach), bisect_right(ends, c["x0"] + 1)
+        for base in by_end[start:stop]:
+            beside = c["x0"] - base["x1"] < WORD_GAP * base["size"]
             shift = SHIFT < abs(middle_y(c) - middle_y(base)) / base["size"] < 2 * SHIFT + 0.4
             smaller = c["size"] < SCRIPT * base["size"] and symbol(base).strip()
             if beside and shift and smaller and (math_font(c) or math_font(base)):

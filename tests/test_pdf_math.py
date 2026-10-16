@@ -1,6 +1,9 @@
 from typing import Any
 
-from imageskin.pdf_math import find_formulas, grouped, linear, symbol
+import pytest
+
+from imageskin import pdf_math
+from imageskin.pdf_math import find_formulas, grouped, linear, scripts, symbol
 
 
 def chars(*rows: tuple[str, str, float, float, float, float, float]) -> list[dict[str, Any]]:
@@ -168,3 +171,56 @@ def test_more_than_one_term_is_put_in_brackets() -> None:
     assert grouped("p^s") == "p^s"
     assert grouped("Π(s − 1)") == "Π(s − 1)"
     assert grouped("p^2", also="^_") == "(p^2)"
+
+
+def page(font: str, script_font: str = "") -> list[dict[str, Any]]:
+    """A full page of text, 60 lines of 80 characters, with a raised smaller character after
+    every tenth one when script_font is given."""
+    found = []
+    for line in range(60):
+        top = 72.0 + 12 * line
+        for i in range(80):
+            x = 72.0 + 6 * i
+            found.append(
+                {
+                    "text": "a",
+                    "fontname": font,
+                    "size": 10.0,
+                    "x0": x,
+                    "x1": x + 5.5,
+                    "top": top,
+                    "bottom": top + 10,
+                }
+            )
+            if script_font and i % 10 == 9:
+                found.append(
+                    {
+                        "text": "2",
+                        "fontname": script_font,
+                        "size": 7.0,
+                        "x0": x + 5.5,
+                        "x1": x + 5.9,
+                        "top": top - 3,
+                        "bottom": top + 4,
+                    }
+                )
+    return found
+
+
+def test_finding_scripts_is_not_a_search_of_every_pair_of_characters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checks = 0
+
+    def counted(obj: dict[str, Any]) -> float:
+        nonlocal checks
+        checks += 1
+        return float(obj["top"] + obj["bottom"]) / 2
+
+    monkeypatch.setattr(pdf_math, "middle_y", counted)
+    assert scripts(page("Times-Roman")) == [] and checks == 0  # no math font: not searched
+    with_math = page("CMMI10", "CMR7")
+    found = scripts(with_math)
+    assert len(found) == 60 * 8
+    # Every pair would be about 23 million checks; each character meets only its neighbours.
+    assert checks < 200 * len(with_math)
