@@ -495,8 +495,8 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** sample videos of photoreal and animated default people, each speaking in both voices for their gender (American and British), for Larry to judge before the rest is built, as R25a did for the voice.
 
 ### R24b. The default pictures (Medium) · item 57
-- All 36 pictures (each gender, realism and role), made and prepared ahead of time, with a script that makes them again, and each person's picture and prepared frames packed as one download. Measure each pack's size and download time.
-- **Can show:** a page or contact sheet of all 36, the idle loop of a few, and the size of each pack.
+- All 36 pictures (each gender, realism and role), made and prepared ahead of time, with a script that makes them again, and each person's picture and prepared frames packed as one download. Measure each pack's size and download time. Before a person is packed, the script checks them: the picture must pass every photo check (item 2), and a short line must prepare, render and animate (mouth moving with the speech, idle loop playing) without error. A person that fails is made again or not shipped, so all 36 are checked, not a sample.
+- **Can show:** the script's report with all 36 passing the photo checks and the render check, a contact sheet of all 36 for a human look, the idle loop of a few, and the size of each pack.
 
 ### R24c. Start now with a default person (Medium) · items 56, 58
 - **Start now with a default person** on the first setup screen, with the four choices (the roles shown as Father or Mother and Son or Daughter by gender); it downloads only the chosen person the first time, with progress and **Try again** if it fails, then skips consent, the uploads, prepare, the sample video and review, and goes to the chat with that picture and voice. Goodbye and Welcome back are spoken in the default voice.
