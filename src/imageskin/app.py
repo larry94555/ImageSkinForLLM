@@ -494,7 +494,7 @@ def create_app(
         build_wiki = wiki_builder(llm, client, ask_llm)
         build_outline = build_outline or outline_builder(llm, client, ask_llm)
     wiki = WikiJob(content, readings, build_wiki, build_outline)
-    readings.on_read = wiki.queue
+    readings.on_read = wiki.read
     readings.catch_up()
     wiki.catch_up()
     app.state.readings = readings

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 Obj = dict[str, Any]  # a pdfplumber character or line
+Box = tuple[float, float, float, float]  # top, bottom, left, right
 
 # TeX's math extension font (cmex) has no text for its glyphs, so pdfminer writes "(cid:89)".
 # These are the ones with a meaning on their own; the pieces of very tall brackets are left out.
@@ -39,6 +40,7 @@ SPACED = set("=+−<>≤≥≈≠±→")  # said with a space each side: "1 − 
 WORD_GAP = 0.15  # a gap wider than this share of the font size is a space
 SCRIPT = 0.9  # a character smaller than this share of its base's size may be a power or index
 RULE_HEIGHT = 1.5  # a fraction rule is a line or box no taller than this
+COLUMN_GAP = 1.5  # a gap wider than this many font sizes ends a formula: another column
 REACH = 1.6  # how far, in font sizes, a numerator or denominator can be from its rule
 
 
@@ -90,24 +92,32 @@ def math_font(char: Obj) -> bool:
 
 def find_formulas(chars: list[Obj], rules: list[Obj]) -> list[Formula]:
     """The formulas on a page: each fraction rule or big sign, with every character on the same
-    rows as it, read as one line. Only rows with TeX's math fonts in them are formulas, so a
-    table's rules or a line under a heading are not; characters on rows of their own, and rows
-    of text with something tall between them, are left as text."""
+    rows as it and joined to it across the row, read as one line. A wide gap ends a formula, so
+    the text of another column beside it is left as text. Only rows with TeX's math fonts in
+    them are formulas, so a table's rules or a line under a heading are not; characters on rows
+    of their own, and rows of text with something tall between them, are left as text."""
     bars = fraction_rules(chars, rules)
-    seeds: list[tuple[float, float]] = []
+    seeds: list[Box] = []
     for bar in bars:
         over = [c for c in chars if bar["x0"] - 1 <= middle_x(c) <= bar["x1"] + 1]
         near = [c for c in over if abs(middle_y(c) - bar["top"]) < REACH * c["size"]]
-        seeds.append((min(c["top"] for c in near), max(c["bottom"] for c in near)))
-    seeds += [(c["top"], c["bottom"]) for c in chars if symbol(c) in BIG]
-    bands = grow(sorted(seeds), chars)
+        seeds.append(
+            (min(c["top"] for c in near), max(c["bottom"] for c in near), bar["x0"], bar["x1"])
+        )
+    seeds += [(c["top"], c["bottom"], c["x0"], c["x1"]) for c in chars if symbol(c) in BIG]
     formulas = []
-    for top, bottom in bands:
-        inside = [c for c in chars if top <= middle_y(c) <= bottom]
+    for top, bottom, left, right in grow(sorted(seeds), chars):
+        rows = [c for c in chars if top <= middle_y(c) <= bottom]
+        left, right = across(rows, left, right)
+        inside = [c for c in rows if left <= middle_x(c) <= right]
         inside += [c for c in under_and_over(inside, chars) if c not in inside]
         if not any(math_font(c) for c in inside) or not one_row(inside, bars):
             continue
-        own_bars = [b for b in bars if top <= b["top"] <= bottom]
+        own_bars = [
+            b
+            for b in bars
+            if top <= b["top"] <= bottom and left <= (b["x0"] + b["x1"]) / 2 <= right
+        ]
         text = linear(inside, own_bars)
         if text:
             formulas.append(Formula(top, bottom, text, inside))
@@ -143,28 +153,56 @@ def one_row(chars: list[Obj], bars: list[Obj]) -> bool:
     )
 
 
-def grow(seeds: list[tuple[float, float]], chars: list[Obj]) -> list[tuple[float, float]]:
-    """Bands from top to bottom, each widened until no character half in it is left out, and
-    joined where they meet."""
-    bands: list[tuple[float, float]] = []
-    for top, bottom in seeds:
+def grow(seeds: list[Box], chars: list[Obj]) -> list[Box]:
+    """Boxes from top to bottom, each widened until no character half in its rows and joined to
+    it across them is left out, and joined where they meet."""
+    boxes: list[Box] = []
+    for box in seeds:
         while True:
-            touching = [
+            top, bottom, left, right = box
+            rows = [
                 c
                 for c in chars
                 if min(bottom, c["bottom"]) - max(top, c["top"]) > (c["bottom"] - c["top"]) / 2
             ]
-            new_top = min([top, *(c["top"] for c in touching)])
-            new_bottom = max([bottom, *(c["bottom"] for c in touching)])
-            if (new_top, new_bottom) == (top, bottom):
+            left, right = across(rows, left, right)
+            touching = [c for c in rows if left <= middle_x(c) <= right]
+            grown = (
+                min([top, *(c["top"] for c in touching)]),
+                max([bottom, *(c["bottom"] for c in touching)]),
+                left,
+                right,
+            )
+            if grown == box:
                 break
-            top, bottom = new_top, new_bottom
-        if bands and top <= bands[-1][1]:
-            top = min(top, bands[-1][0])
-            bottom = max(bottom, bands[-1][1])
-            bands.pop()
-        bands.append((top, bottom))
-    return bands
+            box = grown
+        while other := next((b for b in boxes if meet(b, box)), None):
+            boxes.remove(other)
+            box = (
+                min(box[0], other[0]),
+                max(box[1], other[1]),
+                min(box[2], other[2]),
+                max(box[3], other[3]),
+            )
+        boxes.append(box)
+    return sorted(boxes)
+
+
+def across(chars: list[Obj], left: float, right: float) -> tuple[float, float]:
+    """From left to right, as far as the characters go on each side without a gap wider than
+    COLUMN_GAP font sizes: a formula's row, without the text of another column."""
+    for c in sorted(chars, key=lambda c: c["x0"]):
+        if c["x1"] > right and c["x0"] - right <= COLUMN_GAP * c["size"]:
+            right = max(right, c["x1"])
+    for c in sorted(chars, key=lambda c: c["x1"], reverse=True):
+        if c["x0"] < left and left - c["x1"] <= COLUMN_GAP * c["size"]:
+            left = min(left, c["x0"])
+    return left, right
+
+
+def meet(a: Box, b: Box) -> bool:
+    """Whether two boxes overlap, rows and width alike."""
+    return a[0] <= b[1] and b[0] <= a[1] and a[2] <= b[3] and b[2] <= a[3]
 
 
 @dataclass

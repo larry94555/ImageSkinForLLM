@@ -56,7 +56,7 @@ def content(tmp_path: Path) -> tuple[ContentStore, ReadingJob, WikiJob]:
     store = ContentStore(tmp_path)
     readings = ReadingJob(store, lesson)
     wiki = WikiJob(store, readings, topics)
-    readings.on_read = wiki.queue
+    readings.on_read = wiki.read
     pdf = store.add("science.pdf", io.BytesIO(PDF))
     readings.queue(pdf)
     readings.wait()

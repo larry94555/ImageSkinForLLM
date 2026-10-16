@@ -49,6 +49,30 @@ def test_euler_s_product_is_read_as_one_line() -> None:
     assert (formula.top, formula.bottom) == (544.4, 586.8)
 
 
+def test_a_formula_in_one_column_leaves_the_other_column_s_prose_as_text() -> None:
+    # Euler's product in the left column, with three lines of prose in the right column beside
+    # it, on the rows it spans.
+    prose = [
+        dict(c, x0=c["x0"] + 420 - 103, x1=c["x1"] + 420 - 103, top=top, bottom=top + 11.9)
+        for top in (542.0, 556.0, 570.0)
+        for c in BEFORE
+    ]
+    (formula,) = find_formulas(BEFORE + EULER + AFTER + prose, EULER_RULES)
+
+    assert formula.text == "∏ 1/(1 − 1/p^s) = ∑ 1/n^s,"
+    assert formula.chars == EULER  # the right column is left as text
+
+
+def test_a_formula_as_wide_as_the_page_is_read_whole() -> None:
+    # The same formula with its terms spread across the page: each gap is narrow enough to be
+    # within one formula.
+    spread = [dict(c, x0=c["x0"] * 1.4 - 100, x1=c["x1"] * 1.4 - 100) for c in EULER]
+    rules = [dict(r, x0=r["x0"] * 1.4 - 100, x1=r["x1"] * 1.4 - 100) for r in EULER_RULES]
+    (formula,) = find_formulas(spread, rules)
+
+    assert formula.text == "∏ 1/(1 − 1/p^s) = ∑ 1/n^s,"
+
+
 def test_an_integral_has_its_limits_and_powers() -> None:
     # ∫_0^∞ e^{-nx} dx = 1/n, with the limits further from the sign than its box says.
     found = linear(
