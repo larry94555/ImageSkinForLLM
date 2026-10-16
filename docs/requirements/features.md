@@ -2,7 +2,7 @@
 
 A web app that puts a talking video of a real person on top of an LLM. The user types or speaks a prompt; the reply is shown as text and spoken by a video of the person, in their cloned voice, lip-synced to the text.
 
-Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08), and items 48 to 51 give it a professional look with a student and a teacher view (Larry, 2026-10-13). Items marked *(default)* are choices made pending Larry's confirmation.
+Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08), items 48 to 51 give it a professional look with a student and a teacher view (Larry, 2026-10-13), and items 56 to 59 let a user start at once with a default person (Larry, 2026-10-16). Items marked *(default)* are choices made pending Larry's confirmation.
 
 ## Deployment
 
@@ -193,3 +193,18 @@ Added by Larry on 2026-10-14. Today nothing tells a student which topics they ca
    - **Depth:** questions come at three levels: recalling a fact, explaining an idea in their own words, and applying or connecting ideas. Deeper questions come from the wiki's detail pages. The questions are split as evenly as possible across the three levels, so each level has at least a third of them, rounded down.
 
    Questions come one at a time and are judged as in quiz me, but the correct answer is shown only at the end, so the assessment isn't taught as it goes. It has 15 questions, or one per main topic when there are more than 15 topics, so every level has at least 5 *(default)*. It ends with an evaluation: the overall result, a breadth result (the topics answered well out of all the topics), a depth result for each level, and the topics and levels to go over again, with an offer to start Teach me on them.
+
+## Starting with a default person
+
+Added by Larry on 2026-10-16, for testing. A user can start chatting at once, without uploading a photo or recording their voice, by choosing a default person. The app makes a picture of that person and gives them a ready-made voice, and the user can replace either with their own later.
+
+56. **Default person choices.** The first setup screen offers **Start now with a default person** beside the usual upload. The user picks:
+   - **Gender:** male or female, for the picture and the voice.
+   - **Accent:** British or American.
+   - **Realism:** photorealistic or animated.
+   - **Role:** Professor, Teaching Assistant, Student, Father (parent), Mother (parent), Son (teenager), Daughter (teenager), Boss (corporate executive, professional), Office Manager (male), Office Manager (female), High School Teacher, or Business Consultant.
+
+   A role that names a gender (Father, Mother, Son, Daughter and the two Office Managers) sets the gender to match *(default)*.
+57. **Generated picture.** The picture is made to fit the choices: the person's gender, an age, clothes and a setting that suit the role, photoreal or animated. It meets the same checks as an uploaded photo (item 2), so it talks and idles like one. Since accent doesn't change the picture, there is one picture for each gender, realism and role: 36 in all. They are made and prepared ahead of time, so choosing one doesn't wait for the one-time prepare step (item 5) *(default)*.
+58. **Default voice.** The voice is a ready-made voice for the chosen gender and accent, not a clone, so there are no recordings to check. No consent (item 22) is asked for, since the person is not real. Setup goes straight to the chat; the sample video and review (items 6 and 7) are skipped, and the Goodbye and Welcome back lines are spoken in the default voice.
+59. **Replace with your own.** At any time the user can replace the default picture with their own photos, or the default voice with their own recordings, or both. Each goes through the usual consent, checks, prepare and review for what is replaced (items 1 to 7), and the part not replaced stays as it was.
