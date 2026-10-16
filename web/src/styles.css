@@ -857,6 +857,8 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 /* the lesson's place with Next, more simply and Stop. */
 .send-buttons { display: grid; gap: 8px; }
 .send-buttons button.secondary { min-height: 40px; padding: 6px 16px; border-radius: 12px; }
+.send-buttons button.talk { touch-action: none; user-select: none; }
+.send-buttons button.talk.listening { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .choices-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .choices-row li { display: block; padding: 0; border: 0; background: none; box-shadow: none; }
 .choices-row button.example {

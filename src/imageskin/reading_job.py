@@ -2,8 +2,9 @@
 far it has got, like the prepare job (R12).
 
 What was read is saved in <data folder>/content/read/<id>.json with the PDF's version (when it
-was added or last replaced), so a reading left over from an older file is never used. On start,
-every PDF with no up-to-date reading is read again. One PDF is read at a time, from a private
+was added or last replaced) and the reading's format, so a reading left over from an older file,
+or made before the reading changed, is never used. On start, every PDF with no up-to-date reading
+is read again. One PDF is read at a time, from a private
 copy, so the stored file can be replaced or removed meanwhile (Windows won't rename or delete a
 file that is open).
 """
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 State = Literal["waiting", "reading", "done", "failed"]
 ReadPdf = Callable[[Path, Progress], Reading]
+# Raised when what is read from a PDF changes, so PDFs read before are read again on start.
+# 2: formulas read as one line, and words in tightly set lines kept apart.
+READING_FORMAT = 2
 
 
 @dataclass(frozen=True)
@@ -131,6 +135,8 @@ class ReadingJob:
                 "Could not read a saved reading", extra={"path": str(path), "error": str(e)}
             )
             return None
+        if saved.get("format") != READING_FORMAT:
+            return None
         return saved if saved.get("version") == version(pdf) else None
 
     def _run(self) -> None:
@@ -175,7 +181,13 @@ class ReadingJob:
             )
             self._set(pdf.id, ReadingStatus("failed", error=str(e)))
             return
-        saved = {"id": pdf.id, "name": pdf.name, "version": version(pdf), **asdict(reading)}
+        saved = {
+            "id": pdf.id,
+            "name": pdf.name,
+            "version": version(pdf),
+            "format": READING_FORMAT,
+            **asdict(reading),
+        }
         with self._lock:
             if self.store.get(pdf.id) != pdf:
                 return  # replaced or removed meanwhile; a newer reading is queued, or none needed

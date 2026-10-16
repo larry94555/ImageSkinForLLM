@@ -242,6 +242,8 @@ export interface Reply extends Turn {
   choices?: Choice[];
   quiz?: Quiz | null; // the quiz after this prompt (R41i), null when there is none or it is over
   assessment?: Assessment | null; // the assessment after this prompt (R41j), the same way
+  // A spoken prompt as it was answered, with any misheard names or terms put back (R24).
+  prompt?: string;
 }
 
 // Where a lesson is (roadmap R41h): its topic, the part being taught (from 0; the part after
@@ -314,8 +316,10 @@ export async function sendPrompt(
   lesson?: Lesson | null,
   quiz?: Quiz | null,
   assessment?: Assessment | null,
+  spoken?: boolean, // said with Hold to talk (R24)
 ): Promise<Reply> {
   const body: Record<string, unknown> = { prompt };
+  if (spoken) body.spoken = true;
   if (replyId) body.reply_id = replyId;
   if (lesson) body.lesson = { topic: lesson.topic, part: lesson.part, active: lesson.active };
   if (quiz) {

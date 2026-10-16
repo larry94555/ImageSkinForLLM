@@ -108,8 +108,9 @@ async function review(decision) {
 async function getChat() {
 	return (await json(await fetch("/api/chat"))).turns;
 }
-async function sendPrompt(prompt, replyId, lesson, quiz, assessment) {
+async function sendPrompt(prompt, replyId, lesson, quiz, assessment, spoken) {
 	const body = { prompt };
+	if (spoken) body.spoken = true;
 	if (replyId) body.reply_id = replyId;
 	if (lesson) body.lesson = {
 		topic: lesson.topic,
@@ -1841,6 +1842,123 @@ function ChoiceIcon({ href }) {
 		})
 	});
 }
+function speechRecognition() {
+	const w = window;
+	return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+function talkProblem(error) {
+	if (error === "aborted") return null;
+	if (error === "no-speech") return "I didn't hear anything. Hold the button while you speak.";
+	if (error === "not-allowed" || error === "service-not-allowed") return "The browser isn't allowed to use the microphone. Allow it in the address bar.";
+	if (error === "audio-capture") return "No microphone was found.";
+	return "Speech recognition didn't work. Try again, or type your question.";
+}
+function heard(results) {
+	return Array.from(results, (r) => r[0]?.transcript ?? "").join(" ").replace(/\s+/g, " ").trim();
+}
+function TalkButton(props) {
+	const Maker = speechRecognition();
+	const [listening, setListening] = d(false);
+	const recognition = A(null);
+	const said = A("");
+	const started = A(0);
+	const failed = A(false);
+	const stopping = A(null);
+	const sending = A(false);
+	function clearTail() {
+		if (stopping.current !== null) window.clearTimeout(stopping.current);
+		stopping.current = null;
+	}
+	h(() => () => {
+		clearTail();
+		sending.current = false;
+		recognition.current?.stop();
+	}, []);
+	if (!Maker) return null;
+	function start() {
+		if (props.disabled || recognition.current || !Maker) return;
+		const r = new Maker();
+		r.lang = navigator.language || "en-US";
+		r.continuous = true;
+		r.interimResults = true;
+		said.current = "";
+		failed.current = false;
+		sending.current = false;
+		started.current = performance.now();
+		r.onresult = (e) => {
+			said.current = heard(e.results);
+			props.onHearing(said.current);
+		};
+		r.onerror = (e) => {
+			const problem = talkProblem(e.error);
+			if (problem) {
+				failed.current = true;
+				console.error("Push-to-talk failed", e.error);
+				props.onProblem(problem);
+			}
+		};
+		r.onend = () => {
+			recognition.current = null;
+			clearTail();
+			const send = sending.current && !failed.current;
+			sending.current = false;
+			setListening(false);
+			const text = said.current;
+			const ms = Math.round(performance.now() - started.current);
+			const words = text.split(" ").filter(Boolean).length;
+			console.info(`Push-to-talk: heard ${words} words in ${ms} ms`);
+			if (!send) {
+				if (text) console.info("Push-to-talk: ended without sending");
+				return;
+			}
+			if (text) props.onHeard(text);
+			else props.onProblem(talkProblem("no-speech"));
+		};
+		recognition.current = r;
+		props.onProblem(null);
+		setListening(true);
+		console.info("Push-to-talk: listening");
+		try {
+			r.start();
+		} catch (e) {
+			console.error("Push-to-talk could not start", e);
+			recognition.current = null;
+			setListening(false);
+			props.onProblem(talkProblem("start"));
+		}
+	}
+	function stop() {
+		if (!recognition.current || stopping.current !== null) return;
+		sending.current = true;
+		stopping.current = window.setTimeout(() => {
+			stopping.current = null;
+			recognition.current?.stop();
+		}, 600);
+	}
+	return /* @__PURE__ */ u("button", {
+		type: "button",
+		className: listening ? "secondary talk listening" : "secondary talk",
+		disabled: props.disabled && !listening,
+		"aria-pressed": listening,
+		onPointerDown: (e) => {
+			e.preventDefault();
+			start();
+		},
+		onPointerUp: stop,
+		onPointerLeave: stop,
+		onPointerCancel: stop,
+		onKeyDown: (e) => {
+			if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+				e.preventDefault();
+				start();
+			}
+		},
+		onKeyUp: (e) => {
+			if (e.key === " " || e.key === "Enter") stop();
+		},
+		children: listening ? "Listening… let go to send" : "Hold to talk"
+	});
+}
 //#endregion
 //#region src/pages.tsx
 function ConsentPage({ onConfirmed }) {
@@ -2798,7 +2916,7 @@ function Chat() {
 			ended: at
 		} : c));
 	}
-	async function send(asked) {
+	async function send(asked, spoken = false) {
 		const text = (asked ?? prompt).trim();
 		if (!text || sending || speaking) return;
 		const shownAt = (turns ?? []).length + 1;
@@ -2836,7 +2954,7 @@ function Chat() {
 		let reply;
 		let repliedAt = 0;
 		try {
-			reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null, assessOn ? assessment : null);
+			reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null, assessOn ? assessment : null, spoken);
 			repliedAt = performance.now();
 			if (teachMe && reply.lesson !== void 0) {
 				const next = reply.lesson;
@@ -2858,7 +2976,12 @@ function Chat() {
 			}
 			setChoices(reply.choices ?? []);
 			const { role, content } = reply;
-			setTurns((t) => [...t ?? [], {
+			const meant = reply.prompt;
+			if (meant && meant !== text) console.info(`Push-to-talk: "${text}" taken as "${meant}"`);
+			setTurns((t) => [...(t ?? []).map((turn, i, all) => meant && i === all.length - 1 ? {
+				...turn,
+				content: meant
+			} : turn), {
 				role,
 				content
 			}]);
@@ -3029,6 +3152,12 @@ function Chat() {
 								type: "submit",
 								disabled: sending || speaking || !prompt.trim(),
 								children: "Send"
+							}),
+							/* @__PURE__ */ u(TalkButton, {
+								disabled: sending || speaking,
+								onHearing: setPrompt,
+								onHeard: (text) => void send(text, true),
+								onProblem: setFailed
 							}),
 							teachMe && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",

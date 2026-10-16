@@ -139,6 +139,16 @@ class WikiJob:
             if self._saved(pdf.id) is None and self.readings.reading(pdf.id) is not None:
                 self.queue(pdf.id)
 
+    def read(self, pdf_id: str) -> None:
+        """Called once a PDF's reading is saved: builds its wiki unless it is already built
+        for this version of the PDF. A reading redone only because the app reads PDFs better
+        now keeps the wiki (and the user's edits); "Rebuild the wiki" builds it from the new
+        reading."""
+        if self._saved(pdf_id) is not None:
+            logger.info("Wiki kept for a PDF read again", extra={"id": pdf_id})
+            return
+        self.queue(pdf_id)
+
     def queue(self, pdf_id: str) -> None:
         pdf = self.store.get(pdf_id)
         with self._lock:

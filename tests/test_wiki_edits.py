@@ -154,7 +154,7 @@ def test_a_rebuild_that_drops_an_edited_entry_lists_the_edit(tmp_path: Path) -> 
     store = ContentStore(tmp_path)
     readings = ReadingJob(store, two_pages)
     wiki = WikiJob(store, readings, fewer_each_time)
-    readings.on_read = wiki.queue
+    readings.on_read = wiki.read
     pdf = store.add("weather.pdf", io.BytesIO(PDF))
     readings.queue(pdf)
     settle(readings, wiki)

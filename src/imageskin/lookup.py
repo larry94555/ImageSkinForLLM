@@ -39,6 +39,8 @@ EXAMPLES = 3
 EXAMPLE_ASKS = ("What can you tell me about {}?", "Can you explain {}?", "Tell me about {}.")
 # The most of a passage the LLM is given to answer from (R40).
 PASSAGE_CHARS = 400
+# How much comes before the question's first word when a passage is cut to show it.
+LEAD_CHARS = 120
 # BM25's usual settings: how fast more of the same word stops adding to the score, and how much
 # a long passage is held back.
 K1 = 1.5
@@ -173,6 +175,18 @@ def asked_about(question: str) -> str:
     return rest if words(rest) else question
 
 
+# Words that ask about a subject rather than name it: "What did Euler notice?" is about Euler,
+# and a paper on Euler that never says "notice" still answers it (Larry, 2026-10-15). "What is
+# the weather in Paris?" names the weather, so a paper that says Paris once doesn't (review on
+# PR #91).
+REQUEST_WORDS = frozenset(
+    words(
+        "notice explain say think mean find discover show prove observe believe idea realize"
+        " conclude learn describe talk relation relate contribution famous example"
+    )
+)
+
+
 def passage_words(passage: Passage) -> list[str]:
     return words(passage.title) * 2 + words(passage.text)
 
@@ -212,7 +226,9 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
     is in the content; a word the content doesn't have at all weighs the most (after a word one
     typo from a content word is taken as that word, in a passage with a word as typed). So a
     passage that shares only a common word ("best" in "What lighting is best for the photo?")
-    is left out, and a question about something the content doesn't cover finds nothing."""
+    is left out, and a question about something the content doesn't cover finds nothing. Words
+    that ask about a subject rather than name it ("notice", "explain") don't count against a
+    passage that lacks them (REQUEST_WORDS), so "What did Euler notice?" finds Euler."""
     if not words(question) or not passages:
         return []
     counted = [Counter(passage_words(p)) for p in passages]
@@ -228,14 +244,18 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
     for w in asked:
         having = sum(1 for c in counted if w in c)
         idf[w] = math.log(1 + (total - having + 0.5) / (having + 0.5))
-    weight = sum(idf.values())
+    # The question's words that name what it is about; all of them if it has only asking
+    # words. Only these count for or against a passage (review on PR #91).
+    subject = {w for w in asked if w not in REQUEST_WORDS} or asked
+    weight = sum(idf[w] for w in subject)
     found = []
     for passage, counts, length in zip(passages, counted, lengths, strict=True):
         matched = [w for w in asked if w in counts]
         # A typo corrected helps only a passage that has a question word as typed, so a
         # correction is never the only reason a passage, or an off-topic prompt, is found
         # ("polar energy" isn't found by a passage on solar flares; review on PR #74).
-        if not typed.intersection(matched) or sum(idf[w] for w in matched) < MIN_SHARE * weight:
+        named = [w for w in matched if w in subject]
+        if not typed.intersection(named) or sum(idf[w] for w in named) < MIN_SHARE * weight:
             continue
         score = 0.0
         for w in matched:
@@ -271,6 +291,25 @@ def shorten(text: str, chars: int) -> str:
     return text if len(text) <= chars else text[:chars].rsplit(" ", 1)[0] + " …"
 
 
+def excerpt(text: str, chars: int, question: str) -> str:
+    """The text on one line, cut to at most about `chars` characters where it has the most of the
+    question's words: the start, unless they come later. The paragraph where the Riemann paper
+    names Euler opens with 500 characters of thanks, so the cut start left Euler out and
+    "What did Euler notice?" got a vague answer (Larry, 2026-10-15)."""
+    text = " ".join(text.split())
+    if len(text) <= chars:
+        return text
+    asked = set(words(question))
+    hits = [(m.span(), w) for m in WORD.finditer(text) for w in words(m.group()) if w in asked]
+
+    def has(start: int) -> int:
+        return len({w for (at, end), w in hits if start <= at and end <= start + chars})
+
+    starts = [0, *(text.rfind(" ", 0, max(0, at - LEAD_CHARS)) + 1 for (at, _), _ in hits)]
+    best = max(starts, key=lambda start: (has(start), -start))
+    return shorten(text, chars) if best == 0 else "… " + shorten(text[best:], chars)
+
+
 def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
     """What was found, best first, each with where it came from, for the LLM to answer from
     (roadmap R40). A long passage (a big table, say) is cut at a word to `chars` characters."""
@@ -279,7 +318,7 @@ def as_passages(result: Lookup, chars: int = PASSAGE_CHARS) -> list[str]:
     for f in found:
         p = f.passage
         where = f"{p.pdf_name}, {pages_label(p.pages)}"
-        text = shorten(p.text, chars)
+        text = excerpt(p.text, chars, result.question)
         passages.append(f"{p.title} ({where}): {text}" if p.title else f"({where}): {text}")
     return passages
 
