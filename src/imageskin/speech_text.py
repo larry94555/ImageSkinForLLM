@@ -246,8 +246,9 @@ def _spaced(display: str, start: int, end: int, words: str) -> str:
 
 _GREEK = "\u0391-\u03a9\u03b1-\u03c9"
 # A fraction written with a slash, with a number, a letter or a bracket on each side and maybe a
-# power: "1/p", "1/n^s", "1/(1 − 1/p^s)". Numbers on both sides ("24/7", a date) and words
-# ("and/or", "n/a") are left as written.
+# power: "1/p", "1/n^s", "1/(1 − 1/p^s)". Numbers or single letters on both sides ("24/7", a
+# date, "n/a") are left as written unless they are in a formula ("x = 1/2", "1 - x/y"), and
+# words ("and/or") always are.
 _BRACKETED = r"\((?:[^()\n]|\([^()\n]*\)){1,60}\)"
 _TERM = (
     rf"(?:\d+(?:\.\d+)?|[A-Za-z{_GREEK}]|{_BRACKETED})"
@@ -286,12 +287,29 @@ def slash_tex(text: str) -> str:
         text = inner
 
 
+# Beside a relation, or an operator with a number, a letter or a bracket on its other side:
+# "x = 1/2", "1 - x/y", "x/y + 1", but not "open 24/7 - even on Sundays".
+_MATH_BEFORE = re.compile(r"(?:[=<>≤≥≈≠−+×*]|(?:\d|\b[A-Za-z]|\))[ \t]*-)[ \t]*\Z")
+_MATH_AFTER = re.compile(r"[ \t]*(?:[=<>≤≥≈≠−+×*^]|-[ \t]*(?:\d|[A-Za-z](?![A-Za-z])|\())")
+
+
+_IN_POWER = re.compile(r"\^\([ \t]*[-−]?[ \t]*\Z")
+
+
+def in_formula(display: str, start: int, end: int) -> bool:
+    """Whether the text from `start` to `end` is part of a formula, by what is around it."""
+    return bool(
+        _MATH_BEFORE.search(display[max(0, start - 8) : start]) or _MATH_AFTER.match(display, end)
+    )
+
+
 def say_slash_fraction(m: re.Match[str]) -> str | None:
     top, bottom = (part.strip("()") for part in m.groups())
-    if top.isdigit() and bottom.isdigit():
-        return None  # "24/7" or a date, not a formula
-    if top.isalpha() and bottom.isalpha():
-        return None  # "n/a", "w/o"
+    alike = (top.isdigit() and bottom.isdigit()) or (top.isalpha() and bottom.isalpha())
+    if alike and _IN_POWER.search(m.string[max(0, m.start() - 4) : m.start()]):
+        return None  # "x^(−1/2)" is said with its power, as a whole
+    if alike and not in_formula(m.string, m.start(), m.end()):
+        return None  # "24/7", a date, "n/a" or "w/o" in a sentence, not "x = 1/2" or "1 - x/y"
     return say_math(slash_tex(m[0]), in_expression(m.string, m.start(), m.end()))
 
 

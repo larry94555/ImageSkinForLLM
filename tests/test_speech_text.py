@@ -197,6 +197,11 @@ def test_a_cut_inside_what_is_replaced_whole_is_known() -> None:
         ("It is $1 - \\frac{1}{p}$.", "It is 1 minus the fraction 1 over p."),
         ("It is $\\frac{1}{p}$ - 1.", "It is the fraction 1 over p - 1."),
         ("Open 24/7, n/a, and/or on 10/15/2026.", "Open 24/7, n/a, and/or on 10/15/2026."),
+        ("Open 24/7 - even on Sundays, w/o a break.", "Open 24/7 - even on Sundays, w/o a break."),
+        ("So x = 1/2.", "So x equals 1 over 2."),
+        ("So y = x^(−1/2).", "So y equals x to the power of minus 1 over 2."),
+        ("It is 1 - x/y.", "It is 1 minus the fraction x over y."),
+        ("Then a/b + 3/4 = 1.", "Then the fraction a over b + the fraction 3 over 4 equals 1."),
     ],
 )
 def test_fractions_with_a_slash_are_said_so_they_can_be_heard_only_one_way(

@@ -111,7 +111,7 @@ def test_greek_letters_and_symbols_have_names() -> None:
             "It holds for s is greater than 1 and x is less than or equal to 2, so y equals 3.",
         ),
         ("Keep a=b and 2 < x.", "Keep a=b and 2 is less than x."),
-        ("Near Re(s) = 1/2.", "Near Re(s) equals 1/2."),
+        ("Near Re(s) = 1/2.", "Near Re(s) equals 1 over 2."),
         ("It costs $5 and $10 today.", "It costs $5 and $10 today."),  # money, not math
         ("Greek λόγος stays.", "Greek λόγος stays."),  # a Greek word is not spelled out
         ("Run `x^2` and `π`.", "Run x^2 and π."),  # code is said as written
