@@ -1,6 +1,15 @@
 import pytest
 
-from imageskin.speech_text import CODE, CODE_BLOCK, LINK, LINKS, PICTURE, TABLE, spoken_text
+from imageskin.speech_text import (
+    CODE,
+    CODE_BLOCK,
+    LINK,
+    LINKS,
+    PICTURE,
+    TABLE,
+    math_in_words,
+    spoken_text,
+)
 
 
 def spoken(display: str) -> str:
@@ -165,3 +174,68 @@ def test_a_cut_inside_what_is_replaced_whole_is_known() -> None:
     assert inside_whole("| Name of the person | Age", 12)
     assert inside_whole("| a | b |\n|---|---|\n| one two | three", 30)
     assert not inside_whole("| a | b |\nThen more words", 20)
+
+
+@pytest.mark.parametrize(
+    ("display", "said"),
+    [
+        # Larry's transcript (2026-10-15): heard as (1 minus 1) over p.
+        (
+            "the product of 1 - 1/p for all primes p.",
+            "the product of 1 minus the fraction 1 over p for all primes p.",
+        ),
+        (
+            "Euler: ∏ 1/(1 − 1/p^s) = ∑ 1/n^s.",
+            "Euler: the product of 1 divided by the quantity 1 minus the fraction 1 over p to the"
+            " power of s equals the sum of 1 over n to the power of s.",
+        ),
+        (
+            "the product of 1/(1 - p^(-s)) over primes",
+            "the product of 1 divided by the quantity 1 minus p to the power of minus s over"
+            " primes",
+        ),
+        ("It is $1 - \\frac{1}{p}$.", "It is 1 minus the fraction 1 over p."),
+        ("It is $\\frac{1}{p}$ - 1.", "It is the fraction 1 over p - 1."),
+        ("Open 24/7, n/a, and/or on 10/15/2026.", "Open 24/7, n/a, and/or on 10/15/2026."),
+        ("Open 24/7 - even on Sundays, w/o a break.", "Open 24/7 - even on Sundays, w/o a break."),
+        ("So x = 1/2.", "So x equals 1 over 2."),
+        ("So y = x^(−1/2).", "So y equals x to the power of minus the fraction 1 over 2."),
+        ("So y = x^(1/2) + 1.", "So y equals x to the power of the fraction 1 over 2, + 1."),
+        ("Then x^(s−1) dx.", "Then x to the power of the quantity s minus 1, dx."),
+        ("It is 1 - x/y.", "It is 1 minus the fraction x over y."),
+        ("Then a/b + 3/4 = 1.", "Then the fraction a over b + the fraction 3 over 4 equals 1."),
+    ],
+)
+def test_fractions_with_a_slash_are_said_so_they_can_be_heard_only_one_way(
+    display: str, said: str
+) -> None:
+    assert spoken(display) == said
+
+
+def test_a_pdf_formula_is_put_in_words_for_the_llm_and_the_rest_left_as_it_is() -> None:
+    # As pdf_math.py reads page 2 of Wilkins's translation of Riemann's paper.
+    read = (
+        "the observation of Euler that the product ∏ 1/(1 − 1/p^s) = ∑ 1/n^s, if one"
+        " substitutes for p all prime numbers. See https://example.org/a/b, n/a."
+    )
+    assert math_in_words(read) == (
+        "the observation of Euler that the product of 1 divided by the quantity 1 minus the"
+        " fraction 1 over p to the power of s equals the sum of 1 over n to the power of s, if"
+        " one substitutes for p all prime numbers. See https://example.org/a/b, n/a."
+    )
+    assert math_in_words("∫_0^∞ e^(−nx) dx") == (
+        "the integral from 0 to infinity of e to the power of minus n x dx"
+    )
+    assert (
+        math_in_words("∑_(n=1)^∞ 1/n^2")
+        == "the sum from n equals 1 to infinity of 1 over n squared"
+    )
+    assert math_in_words("∏_p 1/p") == "the product from p of 1 over p"
+    assert math_in_words("The sum ∑.") == "The sum the sum."  # nothing after it to add up
+    # Web addresses, links and code are left exactly as they are.
+    assert math_in_words("See https://example.org/x^2 and `x^2`, but x^2 = 1/p.") == (
+        "See https://example.org/x^2 and `x^2`, but x squared equals 1 over p."
+    )
+    assert math_in_words("[n^2](https://example.org/n^2)\n```\ny = x^2\n```") == (
+        "[n squared](https://example.org/n^2)\n```\ny = x^2\n```"
+    )

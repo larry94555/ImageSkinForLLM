@@ -245,7 +245,122 @@ def _spaced(display: str, start: int, end: int, words: str) -> str:
 
 
 _GREEK = "\u0391-\u03a9\u03b1-\u03c9"
+# A fraction written with a slash, with a number, a letter or a bracket on each side and maybe a
+# power: "1/p", "1/n^s", "1/(1 − 1/p^s)". Numbers or single letters on both sides ("24/7", a
+# date, "n/a") are left as written unless they are in a formula ("x = 1/2", "1 - x/y"), and
+# words ("and/or") always are.
+_BRACKETED = r"\((?:[^()\n]|\([^()\n]*\)){1,60}\)"
+_TERM = (
+    rf"(?:\d+(?:\.\d+)?|[A-Za-z{_GREEK}]|{_BRACKETED})"
+    rf"(?:\^(?:\{{[^{{}}\n]+\}}|\([^()\n]{{1,20}}\)|-?\w+))?"
+)
+SLASH_FRACTION = re.compile(rf"(?<![\w/.^])({_TERM})/({_TERM})(?![\w/])")
+# A minus sign before one: "1 - 1/p" is "1 minus the fraction 1 over p".
+_MINUS_BEFORE = re.compile(rf"(?<=[\w)][ \t])[-−](?=[ \t]+{_TERM}/{_TERM})")
+_OPERATOR_BEFORE = re.compile(r"(?:[-−+×*]|\b(?:minus|plus|times))\s*\Z")
+_OPERATOR_AFTER = re.compile(r"\s*(?:[-−+×*^]|(?:minus|plus|times)\b)")
+
+
+def in_expression(display: str, start: int, end: int) -> bool:
+    """Whether the math from `start` to `end` is next to a "+", "-" or the like, so a fraction
+    that is all of it still needs saying as "the fraction" to be heard one way."""
+    return bool(
+        _OPERATOR_BEFORE.search(display[max(0, start - 8) : start])
+        or _OPERATOR_AFTER.match(display, end)
+    )
+
+
+def slash_tex(text: str) -> str:
+    """Slash fractions as LaTeX, innermost first: "1/(1 − 1/p^s)" is
+    "\\frac{1}{1 − \\frac{1}{p^s}}"."""
+
+    def frac(m: re.Match[str]) -> str:
+        top, bottom = (
+            part[1:-1] if part[:1] == "(" and part[-1:] == ")" else part for part in m.groups()
+        )
+        return rf"\frac{{{top}}}{{{bottom}}}"
+
+    while True:
+        inner = re.sub(rf"(?<![\w/.^])({_TERM})/({_TERM})", frac, text)
+        if inner == text:
+            return text
+        text = inner
+
+
+# Beside a relation, or an operator with a number, a letter or a bracket on its other side:
+# "x = 1/2", "1 - x/y", "x/y + 1", but not "open 24/7 - even on Sundays".
+_MATH_BEFORE = re.compile(r"(?:[=<>≤≥≈≠−+×*]|(?:\d|\b[A-Za-z]|\))[ \t]*-)[ \t]*\Z")
+_MATH_AFTER = re.compile(r"[ \t]*(?:[=<>≤≥≈≠−+×*^]|-[ \t]*(?:\d|[A-Za-z](?![A-Za-z])|\())")
+
+
+_IN_POWER = re.compile(r"\^\([ \t]*[-−]?[ \t]*\Z")
+
+
+def in_formula(display: str, start: int, end: int) -> bool:
+    """Whether the text from `start` to `end` is part of a formula, by what is around it."""
+    return bool(
+        _MATH_BEFORE.search(display[max(0, start - 8) : start]) or _MATH_AFTER.match(display, end)
+    )
+
+
+def say_slash_fraction(m: re.Match[str]) -> str | None:
+    top, bottom = (part.strip("()") for part in m.groups())
+    alike = (top.isdigit() and bottom.isdigit()) or (top.isalpha() and bottom.isalpha())
+    if alike and _IN_POWER.search(m.string[max(0, m.start() - 4) : m.start()]):
+        return None  # "x^(−1/2)" is said with its power, as a whole
+    if alike and not in_formula(m.string, m.start(), m.end()):
+        return None  # "24/7", a date, "n/a" or "w/o" in a sentence, not "x = 1/2" or "1 - x/y"
+    return say_math(slash_tex(m[0]), in_expression(m.string, m.start(), m.end()))
+
+
+_GOES_ON = re.compile(r"[ \t]*(?:[-−+×*/=<>≤≥]|\w)")
+
+
+def say_caret(m: re.Match[str]) -> str:
+    """A power: "n^s" is "n to the power of s". A power of more than one term is grouped, and
+    ends with a pause when more follows: "x^(1/2) + 1" is "x to the power of the fraction 1
+    over 2, plus 1"."""
+    exponent = m[1] or m[2] or m[3]
+    said = say_math(f"x^{{{slash_tex(exponent)}}}")
+    if said is None or not said.startswith("x "):
+        return " ".join(power((say_math(exponent) or exponent).split()))
+    words = said[2:]
+    grouped = re.search(r"power of (?:minus )?the (?:fraction|quantity) ", words)
+    if grouped and _GOES_ON.match(m.string, m.end()) and not words.endswith(","):
+        words += ","
+    return words
+
+
+_LIMIT = r"\([^()\n]{1,20}\)|[\w∞]+"
+# A sum, product or integral with where it runs, as a PDF's formula is read (pdf_math.py):
+# "∫_0^∞" is "the integral from 0 to infinity of".
+BIG_WITH_LIMITS = re.compile(rf"([∑∏∫])_({_LIMIT})(?:\^({_LIMIT}))?")
+
+
+def say_big_with_limits(m: re.Match[str]) -> str:
+    words = [symbol_words(m[1]) or m[1], "from", say_math(m[2].strip("()")) or m[2]]
+    if m[3]:
+        words += ["to", say_math(m[3].strip("()")) or m[3]]
+    return " ".join([*words, "of"])
+
+
+BIG_SIGN = re.compile("[∑∏∫]")
+
+
+def say_big_sign(m: re.Match[str]) -> str:
+    """A sum, product or integral sign: "the sum", or "the sum of" before what it adds up, and
+    "of" alone after the same word ("the product ∏ 1/p" is "the product of 1 over p")."""
+    words = symbol_words(m[0]) or m[0]
+    if not re.match(r"[ \t]+[\w(]", m.string[m.end() :]):
+        return words  # nothing after it to add up
+    before = m.string[: m.start()].split()
+    return "of" if before and before[-1].lower() == words.split()[-1] else f"{words} of"
+
+
 _SYMBOL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str | None]], ...] = (
+    (BIG_WITH_LIMITS, say_big_with_limits),
+    (SLASH_FRACTION, say_slash_fraction),
+    (_MINUS_BEFORE, lambda m: "minus"),
     # A Greek letter used as a function: "ζ(s)" is "zeta of s".
     (
         re.compile(rf"(?<![^\W\d_])([{_GREEK}])\(([^()\n]{{1,40}})\)"),
@@ -255,18 +370,45 @@ _SYMBOL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str | None
     (re.compile(rf"(?<![\u0370-\u03ff])[{_GREEK}](?![\u0370-\u03ff])"), lambda m: greek_name(m[0])),
     (SUPERSCRIPT_RUN, lambda m: say_math(m[0])),  # "x²" is "x squared"
     (SUBSCRIPT_RUN, lambda m: say_math(m[0])),  # "x₁" is "x sub 1"
-    # A power written with a caret after a word or bracket: "n^s", "2^{10}".
+    # A power written with a caret after a word or bracket: "n^s", "2^{10}", "e^(−nx)".
     (
-        re.compile(r"(?<=[\w)])\^(?:\{([^{}\n]+)\}|(-?\w+))"),
-        lambda m: " ".join(power((say_math(m[1] or m[2]) or m[1] or m[2]).split())),
+        re.compile(r"(?<=[\w)])\^(?:\{([^{}\n]+)\}|\(([^()\n]+)\)|(-?\w+))"),
+        say_caret,
     ),
     # A comparison between two words or numbers, as in "s > 1" or "x = 2".
     (
-        re.compile(r"(?<=[\w)][ \t])(<=|>=|[<>=])(?=[ \t]+[\w(-])"),
+        re.compile(r"(?<=[\w)][ \t])(<=|>=|[<>=])(?=[ \t]+[\w(\-−∑∏∫√∞])"),
         lambda m: say_math(m[1].replace("<=", "≤").replace(">=", "≥")),
     ),
-    (re.compile("[∞≤≥≠≈≡∝∈∉⊂⊆∪∩∀∃∂∇→⇒⇔×÷±∓°∑∏∫√∛−⋅⋯]"), lambda m: symbol_words(m[0])),
+    (BIG_SIGN, say_big_sign),
+    (re.compile("[∞≤≥≠≈≡∝∈∉⊂⊆∪∩∀∃∂∇→⇒⇔×÷±∓°√∛−⋅⋯]"), lambda m: symbol_words(m[0])),
 )
+
+
+def math_in_words(text: str) -> str:
+    """The math symbols, powers and fractions in plain text said in words, as the voice says
+    them, and the rest left as it is. A PDF's formula, given to the chat's LLM like this, is
+    worded by the LLM in full (Gemma 3 4B dropped most of "∏ 1/(1 − 1/p^s) = ∑ 1/n^s")."""
+    done = [False] * len(text)
+    # Code, links and web addresses are left exactly as they are: "https://example.org/x^2".
+    for pattern in [*(p for p, _ in _REPLACE), INLINE_CODE, _URL_ONLY]:
+        for m in pattern.finditer(text):
+            done[m.start() : m.end()] = [True] * (m.end() - m.start())
+    said: dict[int, tuple[int, str]] = {}  # where a replacement starts: where it ends, words
+    for pattern, saying in _SYMBOL_RULES:
+        for m in pattern.finditer(text):
+            if any(done[m.start() : m.end()]):
+                continue
+            words = saying(m)
+            if words:
+                said[m.start()] = (m.end(), _spaced(text, m.start(), m.end(), words))
+                done[m.start() : m.end()] = [True] * (m.end() - m.start())
+    out, at = [], 0
+    for start in sorted(said):
+        end, words = said[start]
+        out += [text[at:start], words]
+        at = end
+    return "".join([*out, text[at:]])
 
 
 def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
@@ -303,7 +445,7 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
         if done[m.start()]:
             continue
         tex, block = math_parts(m)
-        words = say_math(tex)
+        words = say_math(tex, in_expression(display, m.start(), m.end()))
         if words is None:
             words = EQUATION_BLOCK if block and _own_line(display, m) else EQUATION
         drop(m.start(), m.end(), _spaced(display, m.start(), m.end(), words))

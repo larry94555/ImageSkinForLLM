@@ -57,6 +57,7 @@ from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
+from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
 from imageskin.teach import Choice, Explain, Lesson, Say, Teacher, lesson_topics
 from imageskin.topics import hint_line, main_entries
@@ -764,8 +765,10 @@ def create_app(
     # Each prompt is looked up in the wiki and PDFs, and the LLM answers from what is found (R40).
     content_lookup = ContentLookup(wiki, readings)
 
+    # Formulas go to the LLM in words, so it says them in full and only one way (Larry,
+    # 2026-10-15): "1 divided by the quantity 1 minus the fraction 1 over p to the power of s".
     def find_content(prompt: str) -> list[str]:
-        return as_passages(content_lookup.find(prompt))
+        return [math_in_words(p) for p in as_passages(content_lookup.find(prompt))]
 
     # Prompts are limited to the content only once there is some: before any PDF is added,
     # every prompt is answered.

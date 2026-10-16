@@ -77,7 +77,11 @@ FOUND_START = (
 )
 FOUND_END = (
     "Answer from the reference text when it covers the question, in your own words, without"
-    " mentioning documents or pages. Question:"
+    " mentioning documents or pages."
+    # "the product of 1 minus 1 over p" was heard as (1 minus 1) over p (Larry, 2026-10-15).
+    # With an example formula here, Gemma 3 4B gave the example as its answer, so there is none.
+    ' Say any formula in full, in words, using "the fraction" and "the quantity" so it can be'
+    " heard only one way. Question:"
 )
 # A passage cut shorter than this to fit is left out; a few words alone don't help.
 MIN_PASSAGE_CHARS = 80

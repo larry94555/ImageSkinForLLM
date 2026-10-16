@@ -204,6 +204,28 @@ _SYMBOLS = {
     ";": [","],
 }
 _QUIET = set(".:|&~")  # said as nothing
+# What splits an expression into terms, so a fraction's top or bottom with one is a quantity.
+_TERM_BREAKS = {
+    "+",
+    "-",
+    "=",
+    "pm",
+    "mp",
+    "<",
+    ">",
+    "le",
+    "ge",
+    "ne",
+    "approx",
+    "leq",
+    "geq",
+    "neq",
+}
+# A fraction or division inside a fraction's top or bottom: "1 over 1 over p" could be heard
+# two ways, so it is said as "the quantity".
+_DIVISIONS = {"frac", "dfrac", "tfrac", "/", "div"}
+# A term after a fraction that would run into it: "the fraction 1 over p plus 1".
+_NEXT_TERM = {"+", "-", "−", "*", "/", "\\cdot", "\\times", "\\pm", "\\mp", "^"}
 
 
 def greek_name(ch: str) -> str | None:
@@ -230,6 +252,12 @@ def symbol_words(ch: str) -> str | None:
     return greek_name(ch)
 
 
+def _applies(words: list[str]) -> bool:
+    """Whether words apply a function or root ("sine of x", "the square root of 2"), which
+    reaches past a fraction's "over"; "to the power of" doesn't."""
+    return any(w == "of" and words[i - 1 : i] != ["power"] for i, w in enumerate(words))
+
+
 def power(exponent: list[str]) -> list[str]:
     """How a power is said: "squared", "cubed" or "to the power of ..."."""
     if exponent == ["2"]:
@@ -244,11 +272,15 @@ class _Unsayable(Exception):
 
 
 class _Reader:
-    def __init__(self, tex: str) -> None:
+    def __init__(self, tex: str, in_expression: bool = False) -> None:
         self.tokens: list[str] = _TOKEN.findall(tex)
         self.at = 0
         self.function = False  # whether the last thing said takes "of" before brackets
         self.in_limit = False  # under \lim, where "\to" is "goes to"
+        self.before: list[str] = []  # what was said before the item being read
+        # Whether the text around the LaTeX goes on with the expression ("1 - 1/p"), so a
+        # fraction that is all of it is still said as "the fraction".
+        self.in_expression = in_expression
 
     def peek(self) -> str | None:
         return self.tokens[self.at] if self.at < len(self.tokens) else None
@@ -279,6 +311,7 @@ class _Reader:
         return self.item([])
 
     def item(self, before: list[str]) -> list[str]:
+        self.before = before
         was_function, self.function = self.function, False
         token = self.take()
         if token in _UNICODE:  # a symbol, as the command or character it stands for
@@ -297,7 +330,8 @@ class _Reader:
         if token in ")]}" or token in _QUIET:
             return []
         if token == "^":
-            words = power(self.argument())
+            start = self.at
+            words = power(self.grouped(start, self.argument()))
             self.function = was_function  # "f^2(x)" is still a function
             return words
         if token == "_":
@@ -343,8 +377,7 @@ class _Reader:
         if name in _FUNCTIONS:
             return self.function_words(_FUNCTIONS[name])
         if name in ("frac", "dfrac", "tfrac"):
-            top = self.argument()
-            return [*top, "over", *self.argument()]
+            return self.fraction()
         if name == "binom":
             top = self.argument()
             return [*top, "choose", *self.argument()]
@@ -367,6 +400,79 @@ class _Reader:
             self.function = name in _GREEK_NAMES or name.lower() in _GREEK_NAMES
             return _SAY[name].split()
         raise _Unsayable(name)
+
+    def fraction(self) -> list[str]:
+        """A fraction said so it can only be heard one way (Larry, on "1 minus 1 over p"):
+        "1 minus the fraction 1 over p", and "1 divided by the quantity 1 minus p" when the
+        top or bottom is more than one term."""
+        before = self.before
+        first = self.at == 1  # the fraction is the first thing in the LaTeX
+        start = self.at
+        top = self.argument()
+        top_simple = self.simple(start)
+        start = self.at
+        bottom = self.argument()
+        bottom_simple = self.simple(start)
+        # A function in either ("sine of x") has a reach of its own, so it is grouped too.
+        top_simple = top_simple and not _applies(top)
+        bottom_simple = bottom_simple and not _applies(bottom)
+        if top_simple and bottom_simple:
+            beside = before[-1:] in (["minus"], ["plus"], ["times"], ["over"], ["by"])
+            words = [*top, "over", *bottom]
+            if self.peek() in _NEXT_TERM:
+                return ["the", "fraction", *words, ","]
+            if beside or (self.in_expression and first and self.peek() is None):
+                return ["the", "fraction", *words]
+            return words
+        if not top_simple:  # "the square root of 2, divided by 2" needs no "the quantity"
+            top = [*([] if top[:1] == ["the"] else ["the", "quantity"]), *top, ","]
+        if not bottom_simple:
+            bottom = ["the", "quantity", *bottom]
+            if (after := self.peek()) is not None and after not in ")]}":
+                bottom.append(",")  # where the quantity ends
+        elif not top_simple and (after := self.peek()) is not None and after not in ")]}":
+            bottom = [*bottom, ","]  # "the quantity sine of x, divided by x, plus 1"
+        return [*top, "divided", "by", *bottom]
+
+    def grouped(self, start: int, exponent: list[str]) -> list[str]:
+        """A power of more than one term said so it is heard one way: "x to the power of the
+        fraction 1 over 2, plus 1", "x to the power of the quantity s minus 1"."""
+        tokens = self.tokens[start : self.at]
+        if tokens[:1] == ["{"] or tokens[:1] == ["("]:
+            tokens = tokens[1:-1]
+        sign = tokens[:1] in (["-"], ["−"])  # "-1/2" is "minus the fraction 1 over 2"
+        depth, breaks, divides = 0, False, False
+        for token in tokens[sign:]:
+            depth += token in "{([" or token == "\\left"
+            depth -= token in "})]"
+            name = token.removeprefix("\\")
+            if depth == 0:
+                breaks |= name in _TERM_BREAKS or _UNICODE.get(token) in _TERM_BREAKS
+                divides |= name in _DIVISIONS
+        if not (breaks or divides):
+            return exponent
+        label = ["the", "quantity"] if breaks else ["the", "fraction"]
+        lead, rest = (exponent[:1], exponent[1:]) if sign and not breaks else ([], exponent)
+        if rest[:2] not in (["the", "fraction"], ["the", "quantity"]):
+            rest = [*label, *rest]
+        if (after := self.peek()) is not None and after not in ")]}" and rest[-1:] != [","]:
+            rest = [*rest, ","]  # where the power ends
+        return [*lead, *rest]
+
+    def simple(self, start: int) -> bool:
+        """Whether the tokens from `start` to here are one term: no "+", "-", "=", "\\pm" or the
+        like, and no fraction, outside brackets, so "p^{-s}" is one but "1 - p" and
+        "\\frac{1}{p}" aren't."""
+        depth = 0
+        for token in self.tokens[start : self.at]:
+            depth += token in "{([" or token in ("\\left",)
+            depth -= token in "})]"
+            name = token.removeprefix("\\")  # "\\pm" is "pm"
+            if depth <= 1 and (
+                name in _TERM_BREAKS or _UNICODE.get(token) in _TERM_BREAKS or name in _DIVISIONS
+            ):
+                return False
+        return True
 
     def big(self, name: str) -> list[str]:
         """A sum, product, integral or limit with where it runs: "the sum from n equals 1 to
@@ -397,11 +503,12 @@ class _Reader:
         return words
 
 
-def say_math(tex: str) -> str | None:
+def say_math(tex: str, in_expression: bool = False) -> str | None:
     """LaTeX said in words, or None when it is too long to say or has a command this module
-    doesn't know: the caller then points to the text instead."""
+    doesn't know: the caller then points to the text instead. With `in_expression`, the text
+    around it goes on with the expression, so a fraction is said as "the fraction"."""
     try:
-        words = _Reader(tex).run()
+        words = _Reader(tex, in_expression).run()
     except _Unsayable:
         return None
     if words[-1:] == ["of"]:
