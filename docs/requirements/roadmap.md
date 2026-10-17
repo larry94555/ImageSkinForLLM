@@ -36,7 +36,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 21 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 4.1% | 0 |
 | | **Total** | | **123** | **55.3% done** | **68 of 123** |
 
-Sizes: 33 Simple, 90 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 32 Simple, 91 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -715,9 +715,10 @@ Added by Larry on 2026-10-17, to build after R60. Each site works as the whole a
 - From the site's settings, move from Light to Moderate or Power, or from Moderate to Power, starting at once.
 - **Can show:** upgrade a Light site to Power with the test card and see the new plan and its limits shown at once.
 
-### R69. Cancel, and a paused site (Simple) · item 64
+### R69. Cancel, a failed payment, and a paused site (Medium) · item 64
 - Cancel from the site's settings. The site keeps working until the end of the billing period, then pauses. While paused, visitors see a notice, and the teacher can sign in, pick a plan to bring it back, save conversations, download their PDFs, or delete the site. After 30 days paused its data is deleted and its subdomain released.
-- **Can show:** cancel, see the end date, move the clock past it and see the site paused, sign in and bring it back with a plan; cancel again, move past 30 more days, and see its data gone and its name free, in the logs and on disk.
+- A failed renewal keeps the site working while the provider retries, with a notice to the teacher only; when the provider ends the subscription, the site pauses and the 30 days start.
+- **Can show:** cancel, see the end date, move the clock past it and see the site paused, sign in and bring it back with a plan; cancel again, move past 30 more days, and see its data gone and its name free, in the logs and on disk. With the provider's test cards, a failed renewal that is then paid shows the teacher's notice and clears it; a failure never paid pauses the site when the provider gives up.
 
 ### R70. Plan limits (Medium) · item 63
 - Each site's use is counted against its plan's limits, as decided before R67. At the limit, the teacher is told plainly and offered an upgrade, and students and visitors see a short notice.
@@ -768,8 +769,8 @@ Added by Larry on 2026-10-17, as its own milestone after Milestone 20. It works 
 - **Can show:** on site A, say "this answer was confusing", agree to pass it on, and find it on site A's feedback page linked to the conversation, and not on site B's or the support staff's; decline once and see nothing saved.
 
 ### R80. Collecting contact information with consent (Medium) · item 74
-- When a reply, ticket or follow-up needs it, the AI asks for a name and email, saying why, and saves them only if the visitor agrees. The site's teacher or support staff see them on a contacts page and can delete them.
-- **Can show:** on site A, ask for a follow-up, give an email, find it on site A's contacts page and not on site B's, then delete it.
+- When a reply, ticket or follow-up needs it, the AI asks for a name and email, saying why, and saves them only if the visitor agrees. The site's teacher or support staff see them on a contacts page and can delete them; deleting also blanks the name and email out of the saved conversation, any feedback or ticket made from it, and the search index.
+- **Can show:** on site A, ask for a follow-up, give an email, find it on site A's contacts page and not on site B's, then delete it, and see that a search, or a question on R83's page once it exists, no longer finds the email in the original conversation.
 
 ### R81. Opening a ticket from a conversation (Medium) · item 75
 - When the AI can't solve a problem, it drafts a ticket from the problem alone, with no contact details or unrelated conversation, and opens it once the visitor has approved it, editing it if they wish. On the support site the visitor first sees the public warning and the ticket joins the public list. On a teacher's site the ticket is private to that site: a tickets page lets its teacher change the status and reply, with the confirmed email updates of R77.
