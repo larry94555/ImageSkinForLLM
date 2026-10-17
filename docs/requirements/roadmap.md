@@ -618,7 +618,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** ask questions anonymously and as a student, and see both saved in the logs and the store.
 
 ### R49. My history, with deleting when allowed (Medium) · item 35
-- A signed-in student sees their own questions and answers. A setting (off by default) lets students delete a question with its answer; deleting removes it from the store for everyone (changed by Larry on 2026-10-17 from a soft clear that kept it for the administrator). The log notes the delete and who did it, not the words.
+- A signed-in student sees their own questions and answers. A setting (off by default) lets students delete a question with its answer; deleting removes it from the store for everyone (changed by Larry on 2026-10-17 from a soft clear that kept it for the administrator). The deleted turn's id is kept, without its words, so it can never come back, and a conversation summary that included it is rebuilt without it. The log notes the delete and who did it, not the words.
 - **Can show:** with the setting off, a student has no delete; turn it on, delete one question, and see it gone from the student's history and from the store.
 
 ### R50. User history page (Medium) · item 36
@@ -630,7 +630,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** try to clear without saving and be told to save first; save, add one more question, clear, and see only that last question remain.
 
 ### R52. Load a saved conversation (Simple) · item 37
-- Loads a saved file into the conversation history, adding only the turns not already there (matched by their ids), so loading the same file twice changes nothing.
+- Loads a saved file into the conversation history, adding only the turns not already there (matched by their ids), so loading the same file twice changes nothing. Turns deleted since the file was saved (R49, R50) are skipped.
 - **Can show:** load a file twice and see its turns added once, after the existing history, with the count of turns added in the logs.
 
 ## Milestone 14: Topics and understanding
@@ -663,7 +663,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 
 ### R58. Heads-up before deleting a question (Simple) · item 46
 - The delete in R49 and R50 asks to confirm first, saying the question and its answer are removed from the record for everyone and can't be brought back (changed by Larry on 2026-10-17). It also checks that a deleted question leaves no trace in the topics, ratings, statistics, summaries and profile (R53 to R57).
-- **Can show:** a student clicks delete, reads the notice and cancels, keeping the question; then confirms and sees it gone from their history, the teacher's user history page and the topic statistics.
+- **Can show:** a student clicks delete, reads the notice and cancels, keeping the question; then confirms and sees it gone from their history, the teacher's user history page and the topic statistics. Save a conversation, delete one question, load the old file, and see that question and its answer stay gone from the history, search, topics, ratings, statistics and the LLM's context.
 
 ## Milestone 18: Interests and personality
 

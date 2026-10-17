@@ -111,12 +111,12 @@ Added by Larry on 2026-10-08. The app becomes a question and answer app over a s
    - **The student can delete** any of their own questions, with its answer, from their history, so a statement they don't want on their record is not kept, but only when the setting below allows it.
    - **Student deleting setting.** A setting chooses whether students can delete parts of their chat history. A business would usually turn it off, so the record stays complete; a school may need it on. Off by default *(default)*.
 
-   A deleted question is removed from the record for everyone, the administrator included: it is no longer in the history, search, topics, ratings, statistics, summaries or profile (items 36 to 47). The log notes only that a question was deleted and by whom, never its words *(default)*. Deleting one question needs no save first (item 37).
+   A deleted question is removed from the record for everyone, the administrator included: it is no longer in the history, search, topics, ratings, statistics, summaries or profile (items 36 to 47). The log notes only that a question was deleted and by whom, never its words *(default)*. Deleting one question needs no save first (item 37). The delete is permanent: the app keeps a list of deleted turn ids, without their words, so a file saved before the delete can't load the turn back (item 37), and any summary of older turns sent to the LLM (item 15) that included it is rebuilt without it.
 36. **User history page.** The administrator has a page with every prompt and every answer not deleted (item 35), organized by date and time, by signed-in user, or as anonymous, to review everything that has happened.
 37. **Save before clear, and load.** Larry, 2026-10-08:
    - **Save.** The conversation can be saved to a file.
    - **Clear only what was saved.** Clearing a conversation (item 8's "Clear conversation") needs the conversation to be saved first. Only the parts that were saved successfully can be cleared; anything not saved successfully cannot be cleared and stays.
-   - **Load.** A saved file can be loaded back into the conversation history. Loading adds to the existing history and never replaces it, and it is idempotent: loading the same file again, or a file whose turns are already in the history, adds nothing twice.
+   - **Load.** A saved file can be loaded back into the conversation history. Loading adds to the existing history and never replaces it, and it is idempotent: loading the same file again, or a file whose turns are already in the history, adds nothing twice. A turn deleted since the file was saved (item 35) is skipped, never added back.
 
 ### How this changes earlier items
 
