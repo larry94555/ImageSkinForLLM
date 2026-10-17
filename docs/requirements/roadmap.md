@@ -745,15 +745,15 @@ Added by Larry on 2026-10-17, to build after Milestone 19.
 - **Can show:** ask "How do I change my subdomain?" and hear the answer from the guide; ask something it doesn't cover and be offered a ticket.
 
 ### R75. Opening tickets and the public ticket list (Medium) · item 71
-- Anyone opens a ticket with a title and description, after a clear warning that both will be public; a public list shows every ticket with its status, can be searched, and opens each one with its replies. No email address is ever shown.
+- Anyone opens a ticket with a title and description, after a clear warning that both will be public; a public list shows every ticket with its status, can be searched, and opens each one with its replies. No email address is ever shown. The opener gets a private link to the ticket, the only way to reply as them.
 - **Can show:** open a ticket without signing in, after the warning, then find it in the list from another browser.
 
 ### R76. Ticket status, staff replies and moderation (Medium) · item 71
-- Signed-in support staff change a ticket's status and reply on it; the history of changes shows on the ticket. Staff can hide or delete a ticket or a reply.
-- **Can show:** move a ticket from Open to In progress to Resolved with a reply, each change on the ticket and in the logs; hide a spam ticket and see it gone from the public list.
+- Signed-in support staff change a ticket's status and reply on it; the history of changes shows on the ticket. Staff can hide or delete a ticket or a reply. The opener answers through their private link.
+- **Can show:** staff ask a follow-up and set Waiting for reply; the opener answers through their private link, and another browser without the link can read the ticket but not reply. Then move it to Resolved, each change on the ticket and in the logs; hide a spam ticket and see it gone from the public list.
 
 ### R77. Email when a ticket changes (Simple) · item 71
-- Anyone can give an email address on a ticket to be told when its status changes, starting only after they confirm it from a first email. The address is never shown, and each email has a link to stop them.
+- Anyone can give an email address on a ticket to be told when its status changes or the staff reply, starting only after they confirm it from a first email; the opener's emails carry their private link. The address is never shown, and each email has a link to stop them.
 - **Can show:** follow a ticket, change its status before confirming and receive nothing, confirm, change it again and receive the email, click stop, change it again and receive nothing.
 
 ### R78. Feedback (Simple) · item 72
@@ -773,8 +773,8 @@ Added by Larry on 2026-10-17, as its own milestone after Milestone 20. It works 
 - **Can show:** on site A, ask for a follow-up, give an email, find it on site A's contacts page and not on site B's, then delete it, and see that a search, or a question on R83's page once it exists, no longer finds the email in the original conversation.
 
 ### R81. Opening a ticket from a conversation (Medium) · item 75
-- When the AI can't solve a problem, it drafts a ticket from the problem alone, with no contact details or unrelated conversation, and opens it once the visitor has approved it, editing it if they wish. On the support site the visitor first sees the public warning and the ticket joins the public list. On a teacher's site the ticket is private to that site: a tickets page lets its teacher change the status and reply, with the confirmed email updates of R77.
-- **Can show:** give an email, then describe a problem the guide doesn't cover; check that the drafted ticket holds neither the email nor the rest of the conversation, approve it, and find it in the public list. Do the same on site A and find the ticket on site A's tickets page only, not in the public list or on site B.
+- When the AI can't solve a problem, it drafts a ticket from the problem alone, with no contact details or unrelated conversation, and opens it once the visitor has approved it, editing it if they wish. On the support site the visitor first sees the public warning and the ticket joins the public list. On a teacher's site the ticket is private to that site: a tickets page lets its teacher change the status and reply, and the opener answers through their private link, with the confirmed email updates of R77.
+- **Can show:** give an email, then describe a problem the guide doesn't cover; check that the drafted ticket holds neither the email nor the rest of the conversation, approve it, and find it in the public list. Do the same on site A and find the ticket on site A's tickets page only, not in the public list or on site B; the teacher asks a follow-up, the opener gets the email and answers through their link, and no one without it can read or answer the ticket.
 
 ### R82. Answers that use open tickets (Medium) · items 70, 76
 - On the support site, the lookup (R39) also searches the public tickets; a teacher's site never answers visitors from its private tickets. Visitors' ticket text is passed to the LLM as unconfirmed reports, marked as data and never as instructions; only staff status and replies count as confirmed. An answer about a known problem says whether it is reported or confirmed by support, with the ticket linked.
