@@ -2,7 +2,7 @@
 
 A web app that puts a talking video of a real person on top of an LLM. The user types or speaks a prompt; the reply is shown as text and spoken by a video of the person, in their cloned voice, lip-synced to the text.
 
-Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08), items 48 to 51 give it a professional look with a student and a teacher view (Larry, 2026-10-13), items 56 to 59 let a user start at once with a default person, and item 60 gives them a range of faces to choose from (Larry, 2026-10-16). Items marked *(default)* are choices made pending Larry's confirmation.
+Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08), items 48 to 51 give it a professional look with a student and a teacher view (Larry, 2026-10-13), items 56 to 59 let a user start at once with a default person, and item 60 gives them a range of faces to choose from (Larry, 2026-10-16). Items 61 to 76 turn the app into a paid service for many teachers on me0.ai, with a support site and an AI that gathers feedback and contact information (Larry, 2026-10-17); they come after everything above. Items marked *(default)* are choices made pending Larry's confirmation.
 
 ## Deployment
 
@@ -106,12 +106,17 @@ Added by Larry on 2026-10-08. The app becomes a question and answer app over a s
 ### History
 
 34. **Interaction history.** Every question and answer is kept, with its date and time and whether it came from an anonymous visitor or from which signed-up user.
-35. **My history.** A signed-in student sees their own history and can clear it, under the save rule in item 37. Clearing is soft: it disappears from what the student sees but stays available to the administrator.
-36. **User history page.** The administrator has a page with every prompt and every answer, organized by date and time, by signed-in user, or as anonymous, to review everything that has happened.
+35. **My history, and deleting from the record.** A signed-in student sees their own history. Changed by Larry on 2026-10-17 (before, a student's clear only hid their history from them and kept it for the administrator):
+   - **The teacher (administrator, or the host in a business) can delete** any question, with its answer, from the chat history, on the user history page (item 36).
+   - **The student can delete** any of their own questions, with its answer, from their history, so a statement they don't want on their record is not kept, but only when the setting below allows it.
+   - **Student deleting setting.** A setting chooses whether students can delete parts of their chat history. A business would usually turn it off, so the record stays complete; a school may need it on. Off by default *(default)*.
+
+   A deleted question is removed from the record for everyone, the administrator included: it is no longer in the history, search, topics, ratings, statistics, summaries or profile (items 36 to 47). The log notes only that a question was deleted and by whom, never its words *(default)*. Deleting one question needs no save first (item 37). The delete is permanent: the app keeps a list of deleted turn ids, without their words, so a file saved before the delete can't load the turn back (item 37), and any summary of older turns sent to the LLM (item 15) that included it is rebuilt without it.
+36. **User history page.** The administrator has a page with every prompt and every answer not deleted (item 35), organized by date and time, by signed-in user, or as anonymous, to review everything that has happened.
 37. **Save before clear, and load.** Larry, 2026-10-08:
    - **Save.** The conversation can be saved to a file.
-   - **Clear only what was saved.** Clearing a conversation (item 8's "Clear conversation" and item 35's clear) needs the conversation to be saved first. Only the parts that were saved successfully can be cleared; anything not saved successfully cannot be cleared and stays.
-   - **Load.** A saved file can be loaded back into the conversation history. Loading adds to the existing history and never replaces it, and it is idempotent: loading the same file again, or a file whose turns are already in the history, adds nothing twice.
+   - **Clear only what was saved.** Clearing a conversation (item 8's "Clear conversation") needs the conversation to be saved first. Only the parts that were saved successfully can be cleared; anything not saved successfully cannot be cleared and stays.
+   - **Load.** A saved file can be loaded back into the conversation history. Loading adds to the existing history and never replaces it, and it is idempotent: loading the same file again, or a file whose turns are already in the history, adds nothing twice. A turn deleted since the file was saved (item 35) is skipped, never added back.
 
 ### How this changes earlier items
 
@@ -144,16 +149,16 @@ Added by Larry on 2026-10-09. These build on the history in items 34 to 37 and c
 42. **Search one student's history.** On the user history page (item 36), the administrator searches the conversation history of a chosen student, by words in the questions and answers, and can narrow by date and topic.
 43. **Search all histories.** The same search on the same page across the conversation histories of all students. Anonymous questions are included and marked as anonymous *(default)*.
 
-Search covers turns a student has cleared, since clearing only hides them from the student (item 35).
+Search never finds a deleted question or its answer (item 35).
 
 ### Statistics and summaries
 
 44. **Topic statistics page.** For each topic: how many questions were asked about it, which topics were not asked about at all, and how many strong, weak and unrated questions it drew (item 40), as counts by question type rather than a single score. Topic counts include anonymous questions; strong and weak come from signed-in students only.
 45. **Student summary page.** One page per student showing their profile (item 41): each topic they asked about, with the counts of their strong, weak and unrated questions on it and the questions themselves.
 
-### Clearing history
+### Deleting from history
 
-46. **Heads-up before clearing.** When a student clears their history, the confirmation in the existing save-then-clear flow (items 35 and 37) says: "Clearing hides this conversation from your view. It remains available to the administrator." The clear goes ahead only after they confirm; there is no separate way to clear.
+46. **Heads-up before deleting.** When a student or the teacher deletes a question (item 35), a confirmation says: "Deleting removes this question and its answer from the record for everyone. This can't be undone." The delete goes ahead only after they confirm. Changed by Larry on 2026-10-17; before, it said a cleared conversation stays available to the administrator.
 
 ## Interests and personality
 
@@ -214,3 +219,59 @@ Added by Larry on 2026-10-16, for testing. A user can start chatting at once, wi
    - **Default picture, own voice:** the user confirms the person in the recordings agreed to have their voice cloned.
    - **Own photo and own voice:** as in item 22, the user confirms they are the same person and that this person agreed to be cloned. A photo of one real person with the voice of another is not allowed *(default)*. When one part is already the user's own and the other is replaced, the consent repeats that both are the same person.
 60. **A range of faces.** 60 default people for now, at most (Larry, 2026-10-17): the 36 of item 57 and a second face for 24 of the choices, six for each gender and realism *(default)*. Across the 15 people of each gender and realism, every one of eight broad heritages appears with hair to suit, at least one has red hair and one blond hair, at least three wear glasses, at least three are in their 60s or 70s where the role suits it (not Teenager, Student or Teaching Assistant), and at least two have a visible disability, such as a wheelchair or a hearing aid (Larry, 2026-10-17), so more people can find a default person who looks like them. Each is checked, prepared and downloaded like the 36 (item 57). After the four choices, a choice with two faces shows both as small pictures and the user picks one. No face is labelled with a heritage, skin tone, ethnicity, age or disability anywhere the user sees: they are shown only as pictures (Larry, 2026-10-16).
+
+## Many teachers on me0.ai
+
+Added by Larry on 2026-10-17, to build after every item above. The app becomes a service for many teachers (content administrators), each with their own site at their own subdomain of me0.ai, a free trial and a monthly plan. Each site works like the whole app does today, for its own teacher, students and visitors.
+
+61. **Teacher sign-up and the teacher's account.** A teacher signs up on me0.ai with their email address and a password, confirms the address from an email, and becomes the administrator (item 30) of their own new site. Any number of teachers can sign up. One teacher account owns exactly one site *(default)*; a teacher who wants a second site signs up again with another email address.
+   - **Forgot password.** The sign-in page has **Forgot password**, which emails a link to set a new password. The link works once and for one hour *(default)*.
+   - **Change email.** The teacher can change their email address in the site's settings; the change takes effect only after they confirm it from an email sent to the new address, and the old address is told of the change.
+   - **Support staff** (item 67) recover their own access the same way, by email; if that fails, a command on the server resets a staff password *(default)*.
+62. **Free trial.** A new site starts a free one-week trial with the Light plan's limits (item 63) *(default)*. No payment details are asked for to start it *(default)*, so there is one trial per email address, and the low limits keep the cost of repeated trials small *(default)*. The teacher can cancel the trial at any time and is never charged. The site shows the days left in the trial to its teacher, and when the trial ends without a plan, or is cancelled, the site pauses (item 64) until the teacher picks a plan.
+63. **Plans and upgrades.** Three monthly plans, most likely priced:
+   - **Light:** $1 a month, for light use.
+   - **Moderate:** $10 a month, for moderate use.
+   - **Power:** $50 a month, for power users.
+
+   What each plan allows (for example how many questions a month, PDFs or students) is decided before the plans are built. Payment goes through a payment provider, so card details never reach our server *(default)*. A teacher can upgrade from Light to Moderate or Power, or from Moderate to Power, at any time, and the new plan starts at once *(default: the provider charges the difference for the rest of the month)*. When a site reaches its plan's limit, the teacher is told plainly and offered an upgrade; students and visitors see a short, friendly notice *(default)*.
+64. **Cancel, and a paused site.** A teacher can cancel the trial or the subscription at any time from their site's settings. A cancelled subscription keeps the site working until the end of the billing period already paid for, then the site pauses; a cancelled trial pauses at once.
+   - **A failed payment.** When a renewal charge fails, the site keeps working while the payment provider retries it, and the teacher sees a notice asking them to update their payment details; visitors and students see nothing *(default)*. If a retry or new card succeeds, the notice goes. If the provider finally gives up and ends the subscription, the site pauses as below, and the 30 days start then.
+   - **While paused,** visitors and students see a short notice and nothing else. The teacher can still sign in, pick a plan to bring the site back as it was, save conversations and download their PDFs, or delete the site at once *(default)*.
+   - **After 30 days paused,** the site is deleted *(default)*. Its subdomain stays reserved for it until then.
+   - **Deleting a site.** The teacher can delete their site at any time from its settings, paused or not, after confirming. Deleting a site, by the teacher or after 30 days paused, removes everything it owns: the photo and voice and their prepared files, the content and wiki, the settings, the student accounts, visitor conversations and history, and the feedback, contacts and tickets (items 66 and 73 to 76), along with the teacher's account (item 61), and releases the subdomain. Any subscription is cancelled with the payment provider at once, so there is no further charge, with no refund for the current billing period *(default)*. Only billing records are kept (dates, plan and amounts, as the law requires), with none of the site's content *(default)*.
+65. **Own subdomain.** At sign-up the teacher picks their site's name, which becomes its address, for example `smith-biology.me0.ai`. The name is checked as it is typed: it must be free, use only letters, numbers and hyphens, and not be a reserved name such as `support`, `www`, `api` or `admin`. The teacher can change it later to any free name; the old name is released at once and the old address stops working *(default)*.
+66. **Each site is separate.** Each site has its own person (photo and voice, or a default person), its own content (PDFs and wiki), its own settings, and its own students, visitors and history (items 24 to 60). Nothing from one site is visible on another, and a teacher can reach only their own site. The student and visitor experience is saved per site: a student's account, history and Teach me progress belong to that site, and an anonymous visitor's conversation is remembered on that browser for that site *(default)*.
+
+### How this changes earlier items
+
+Noted here and applied when the PRs for these items are built.
+
+- **Deployment:** the hosted app serves every site from one service on me0.ai, each at its own subdomain over HTTPS.
+- **Item 23 (Delete my data) and item 30 (Administrator sign-on):** they apply to one site, for that site's teacher.
+- **Item 29 (LLM choice):** chosen per site.
+
+## Support at support.me0.ai
+
+Added by Larry on 2026-10-17, to build after the teachers' sites (items 61 to 66). Help for teachers, students and visitors, at `support.me0.ai`, open to anyone without signing in.
+
+67. **Support site.** `support.me0.ai` has five things, each one click from its first page: the support guide (item 68), the support person (item 69), asking the AI (item 70), tickets (item 71) and feedback (item 72). A support administrator (the service's own staff) signs in to manage the guide, tickets and feedback.
+68. **Support guide.** A PDF that explains the service: signing up, the trial, plans, upgrading and cancelling, picking and changing the subdomain, and setting up the person, content, settings and students. Anyone can read or download it, and it is the content the support person and the AI answer from.
+69. **Support person.** A video of a person who answers questions, made with the app itself: a talking person on the support site whose content is the support guide, answering spoken or typed questions as a teacher's site does (items 9 to 12 and 27).
+70. **Ask the AI.** A question typed to the AI service is answered in text from the support guide, for those who would rather read than watch. When it can't answer, it says so and offers to open a ticket. Answers that also draw on the tickets come with item 76.
+71. **Tickets.** Anyone can open a support ticket with a title and a description. Tickets are open: anyone can see the list, search it and read any ticket with its replies. Each ticket has a status: Open, In progress, Waiting for reply, Resolved or Closed *(default)*, changed by the support staff, who can also reply.
+   - **Public by design, private where it must be.** Before a ticket is opened, a clear warning says its title and description will be public. Only the exact title and description the visitor approves become public; an email address or other contact detail is never shown. Support staff can hide or delete a ticket or a reply, for spam, abuse or personal information shared by mistake.
+   - **Replying.** Whoever opens a ticket gets a private link to it, shown when it is opened and sent by email if they gave an address. Only that link lets someone reply as the opener, so the staff can ask a follow-up (setting the status to Waiting for reply) and the opener can answer; other visitors can read a public ticket but not reply to it *(default)*.
+   - **Email updates.** Whoever opens a ticket, and anyone else interested in it, can give an email address to be told by email whenever its status changes or the staff reply; the opener's emails carry their private link. It is optional, updates start only after the address is confirmed from a first email, so no one can sign up someone else's address, and each email has a link to stop them.
+72. **Feedback.** A short form for feedback on the service, with an optional email address for a reply. Feedback is seen only by the support staff, not shown publicly *(default)*.
+
+## Gathering information from visitors and tickets
+
+Added by Larry on 2026-10-17, as its own milestone after support (items 67 to 72). The AI can gather feedback and contact information in conversation, and the service can get information back out of what visitors said and what tickets hold. It works on the support site, and on a teacher's site when its teacher turns it on (off by default) *(default)*.
+
+**Where it is kept.** What is gathered belongs to the site it was gathered on *(default)*. On the support site, feedback and tickets are the support site's own (items 71 and 72). On a teacher's site, feedback, contact details and tickets are kept for that site only: its teacher sees and manages them on a feedback page and a tickets page of their own, and they are private, never in the public list on support.me0.ai and never seen by other sites, their visitors or the support staff. A teacher's site's tickets have the same statuses and confirmed email updates as item 71, with the teacher in the support staff's place.
+
+73. **Gathering feedback.** When something said in a conversation is feedback (praise, a complaint, a request or a problem), the AI asks whether to pass it on, and if the visitor agrees it is saved as feedback (item 72) with the conversation it came from.
+74. **Collecting contact information.** The AI asks for a name and email address only when it needs them, for example for a reply, a ticket or a follow-up, says why, and saves them only if the visitor agrees. It never asks for anything more sensitive. Contact details are seen only by that site's teacher or the support staff, and are deleted on request. Deleting them removes the name and email from every copy the service keeps, not only the contact list: they are blanked out of the saved conversation, any feedback or ticket made from it, and the search index, so no later search or question (item 76) can find them.
+75. **Opening a ticket from a conversation.** When the AI can't solve a problem, it offers to open a ticket (item 71) and drafts its title and description from the problem only, never including contact details or unrelated parts of the conversation. The visitor can edit the draft, and the ticket is opened only once they approve it, with their email for updates if they gave one (confirmed as in item 71). On the support site the visitor first sees the public warning and the ticket joins the public list; on a teacher's site the ticket is private to that site and its teacher, so no public warning is shown.
+76. **Retrieving information.** On the support site, the AI answers visitors from the public tickets as well as the content; a teacher's site never answers visitors from its private tickets. Ticket text written by visitors is treated as an unconfirmed report and never as instructions; only the status and replies of whoever manages the ticket count as confirmed (the support staff on the support site, the teacher on their own site). So a support-site visitor asking about a known problem is told it has been reported, or that support has confirmed it, with the ticket linked. A teacher (for their site) or the support staff (for the support site) can also ask the AI about what was gathered, such as "What are visitors asking about billing?", "Summarize the open tickets about subdomains" or "Who asked to be contacted this week?", and get an answer that links to the feedback, contacts, conversations and tickets it came from.
