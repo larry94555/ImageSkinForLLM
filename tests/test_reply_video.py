@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from imageskin.app import CHAT_LOCKED, NO_SUCH_REPLY, create_app
-from imageskin.chat import LlmError
+from imageskin.chat import Conversation, LlmError
 from imageskin.prepare_job import ClipSteps, PrepareJob, PrepareStatus, steps_clip
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, text_steps
 from imageskin.review import Review
@@ -1566,8 +1566,62 @@ def test_a_reply_video_that_cant_be_removed_is_logged(
     videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
     videos.render(tmp_path / "me.jpg", 1, "Hi.")
     (videos.folder / "2.rendering.mp4").write_text("being written")  # left to its render
+    assert videos.video(1) == videos.path(1)
     with patch.object(Path, "unlink", side_effect=PermissionError("in use")):
         assert videos.clear() == 0
     assert "Could not remove a reply video" in caplog.text
+    assert videos.path(1).is_file() and videos.video(1) is None  # left, but not served
     assert videos.clear() == 1
     assert [p.name for p in videos.folder.glob("*.mp4")] == ["2.rendering.mp4"]
+
+
+def test_a_reply_video_left_by_a_clear_is_not_served(tmp_path: Path) -> None:
+    client = video_app(tmp_path, write_text)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi"})
+        client.post("/api/chat/video", json={"turn": 1})
+        with patch.object(Path, "unlink", side_effect=PermissionError("in use")):
+            assert client.delete("/api/chat").json() == {"cleared": 2}
+        assert (tmp_path / "replies" / "1.mp4").is_file()  # open in a browser, as on Windows
+        assert client.get("/api/chat/videos/1").status_code == 404
+        # The new conversation's reply at the same turn is served once made.
+        client.post("/api/chat", json={"prompt": "Again"})
+        assert client.get("/api/chat/videos/1").status_code == 404
+        assert client.post("/api/chat/video", json={"turn": 1}).json()["video"]
+        assert client.get("/api/chat/videos/1").text.endswith("You said Again")
+
+
+def test_a_reply_video_asked_for_while_clearing_is_never_published(tmp_path: Path) -> None:
+    """The regression for a review finding: a video asked for after Clear had stopped the ones
+    being made, but before it cleared the conversation, read the old reply and was published
+    after Clear had removed the videos."""
+    rendering, go = threading.Event(), threading.Event()
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        rendering.set()
+        assert go.wait(5)
+        output.write_text("video")
+
+    client = video_app(tmp_path, write_text, steps=ClipSteps(write_text_wav, render))
+    answers: dict[str, object] = {}
+
+    def ask_for_video() -> None:
+        answers["video"] = client.post("/api/chat/video", json={"turn": 1}).json()
+
+    making = threading.Thread(target=ask_for_video)
+    original = Conversation.clear
+
+    def clear_once_the_video_is_under_way(conversation: Conversation) -> int:
+        making.start()  # after Clear stopped the videos being made, before the conversation
+        assert rendering.wait(5)
+        return original(conversation)
+
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi"})
+        with patch.object(Conversation, "clear", clear_once_the_video_is_under_way):
+            assert client.delete("/api/chat").json() == {"cleared": 2}
+        go.set()
+        making.join(5)
+        assert answers["video"] == {"video": None}
+        assert client.get("/api/chat/videos/1").status_code == 404
+    assert not list((tmp_path / "replies").glob("*.mp4"))

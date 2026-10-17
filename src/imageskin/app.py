@@ -1198,6 +1198,9 @@ def create_app(
                 stop.set()
             whole_videos[key] = stop
         try:
+            # Read before the turns: a clear after this drops the video (R27b), and the turns
+            # read after a clear are the new conversation's.
+            generation = replies.generation
             turns = conversation.turns()
             if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
                 raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
@@ -1207,7 +1210,9 @@ def create_app(
                     status_code=409, detail="The photo was removed. Choose another."
                 )
             try:
-                path = replies.render(photo, body.turn, turns[body.turn].content, stop.is_set)
+                path = replies.render(
+                    photo, body.turn, turns[body.turn].content, stop.is_set, generation
+                )
             except Exception as e:
                 # The voice and video engines' errors say what went wrong; the reply is still
                 # shown.
@@ -1249,6 +1254,7 @@ def create_app(
                     stop.set()
             for clips in streamed:
                 threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
+            # The conversation first: a video asked for after replies.clear() reads it empty.
             cleared = conversation.clear()
             videos = replies.clear()
         logger.info(
@@ -1271,8 +1277,8 @@ def create_app(
 
     @app.get("/api/chat/videos/{turn}", dependencies=needs_consent)
     def get_reply_video(turn: int) -> FileResponse:
-        path = replies.path(turn)
-        if not path.is_file():
+        path = replies.video(turn)
+        if path is None:
             raise HTTPException(status_code=404, detail="No video for that reply.")
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
         return FileResponse(path, media_type="video/mp4", headers=headers)
