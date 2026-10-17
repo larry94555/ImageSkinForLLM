@@ -2,7 +2,7 @@
 
 A web app that puts a talking video of a real person on top of an LLM. The user types or speaks a prompt; the reply is shown as text and spoken by a video of the person, in their cloned voice, lip-synced to the text.
 
-Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08), items 48 to 51 give it a professional look with a student and a teacher view (Larry, 2026-10-13), items 56 to 59 let a user start at once with a default person, and item 60 gives them a range of faces to choose from (Larry, 2026-10-16). Items marked *(default)* are choices made pending Larry's confirmation.
+Items 1 to 16 match the original feature list. Items 17 to 23 were added after review. Items 24 onward add question and answer over PDF content (Larry, 2026-10-08), items 48 to 51 give it a professional look with a student and a teacher view (Larry, 2026-10-13), items 56 to 59 let a user start at once with a default person, and item 60 gives them a range of faces to choose from (Larry, 2026-10-16). Items 61 to 76 turn the app into a paid service for many teachers on me0.ai, with a support site and an AI that gathers feedback and contact information (Larry, 2026-10-17); they come after everything above. Items marked *(default)* are choices made pending Larry's confirmation.
 
 ## Deployment
 
@@ -214,3 +214,47 @@ Added by Larry on 2026-10-16, for testing. A user can start chatting at once, wi
    - **Default picture, own voice:** the user confirms the person in the recordings agreed to have their voice cloned.
    - **Own photo and own voice:** as in item 22, the user confirms they are the same person and that this person agreed to be cloned. A photo of one real person with the voice of another is not allowed *(default)*. When one part is already the user's own and the other is replaced, the consent repeats that both are the same person.
 60. **A range of faces.** 60 default people for now, at most (Larry, 2026-10-17): the 36 of item 57 and a second face for 24 of the choices, six for each gender and realism *(default)*. Across the 15 people of each gender and realism, every one of eight broad heritages appears with hair to suit, at least one has red hair and one blond hair, at least three wear glasses, at least three are in their 60s or 70s where the role suits it (not Teenager, Student or Teaching Assistant), and at least two have a visible disability, such as a wheelchair or a hearing aid (Larry, 2026-10-17), so more people can find a default person who looks like them. Each is checked, prepared and downloaded like the 36 (item 57). After the four choices, a choice with two faces shows both as small pictures and the user picks one. No face is labelled with a heritage, skin tone, ethnicity, age or disability anywhere the user sees: they are shown only as pictures (Larry, 2026-10-16).
+
+## Many teachers on me0.ai
+
+Added by Larry on 2026-10-17, to build after every item above. The app becomes a service for many teachers (content administrators), each with their own site at their own subdomain of me0.ai, a free trial and a monthly plan. Each site works like the whole app does today, for its own teacher, students and visitors.
+
+61. **Teacher sign-up.** A teacher signs up on me0.ai with their email address and a password, confirms the address from an email, and becomes the administrator (item 30) of their own new site. Any number of teachers can sign up.
+62. **Free trial.** A new site starts a free one-week trial. No payment details are asked for to start it *(default)*. The teacher can cancel the trial at any time and is never charged. The site shows the days left in the trial to its teacher, and when the trial ends without a plan, the site pauses (visitors see a short notice) until the teacher picks a plan *(default)*.
+63. **Plans and upgrades.** Three monthly plans, most likely priced:
+   - **Light:** $1 a month, for light use.
+   - **Moderate:** $10 a month, for moderate use.
+   - **Power:** $50 a month, for power users.
+
+   What each plan allows (for example how many questions a month, PDFs or students) is decided before the plans are built. Payment goes through a payment provider, so card details never reach our server *(default)*. A teacher can upgrade from Light to Moderate or Power, or from Moderate to Power, at any time, and the new plan starts at once *(default: the provider charges the difference for the rest of the month)*. When a site reaches its plan's limit, the teacher is told plainly and offered an upgrade; students and visitors see a short, friendly notice *(default)*.
+64. **Cancel.** A teacher can cancel the trial or the subscription at any time from their site's settings. A cancelled subscription keeps the site working until the end of the month already paid for, then the site pauses. Its content and history are kept for 30 days in case the teacher comes back, then deleted *(default)*.
+65. **Own subdomain.** At sign-up the teacher picks their site's name, which becomes its address, for example `smith-biology.me0.ai`. The name is checked as it is typed: it must be free, use only letters, numbers and hyphens, and not be a reserved name such as `support`, `www`, `api` or `admin`. The teacher can change it later to any free name; the old name is released at once and the old address stops working *(default)*.
+66. **Each site is separate.** Each site has its own person (photo and voice, or a default person), its own content (PDFs and wiki), its own settings, and its own students, visitors and history (items 24 to 60). Nothing from one site is visible on another, and a teacher can reach only their own site. The student and visitor experience is saved per site: a student's account, history and Teach me progress belong to that site, and an anonymous visitor's conversation is remembered on that browser for that site *(default)*.
+
+### How this changes earlier items
+
+Noted here and applied when the PRs for these items are built.
+
+- **Deployment:** the hosted app serves every site from one service on me0.ai, each at its own subdomain over HTTPS.
+- **Item 23 (Delete my data) and item 30 (Administrator sign-on):** they apply to one site, for that site's teacher.
+- **Item 29 (LLM choice):** chosen per site.
+
+## Support at support.me0.ai
+
+Added by Larry on 2026-10-17, to build after the teachers' sites (items 61 to 66). Help for teachers, students and visitors, at `support.me0.ai`, open to anyone without signing in.
+
+67. **Support site.** `support.me0.ai` has five things, each one click from its first page: the support guide (item 68), the support person (item 69), asking the AI (item 70), tickets (item 71) and feedback (item 72). A support administrator (the service's own staff) signs in to manage the guide, tickets and feedback.
+68. **Support guide.** A PDF that explains the service: signing up, the trial, plans, upgrading and cancelling, picking and changing the subdomain, and setting up the person, content, settings and students. Anyone can read or download it, and it is the content the support person and the AI answer from.
+69. **Support person.** A video of a person who answers questions, made with the app itself: a talking person on the support site whose content is the support guide, answering spoken or typed questions as a teacher's site does (items 9 to 12 and 27).
+70. **Ask the AI.** A question typed to the AI service is answered in text from the support guide and the tickets (item 71), for those who would rather read than watch. When it can't answer, it says so and offers to open a ticket.
+71. **Tickets.** Anyone can open a support ticket with a title and a description. Tickets are open: anyone can see the list, search it and read any ticket with its replies. Each ticket has a status: Open, In progress, Waiting for reply, Resolved or Closed *(default)*, changed by the support staff, who can also reply. Whoever opens a ticket, and anyone else interested in it, can give an email address to be told by email whenever its status changes; it is optional, the address is never shown publicly, and each email has a link to stop them.
+72. **Feedback.** A short form for feedback on the service, with an optional email address for a reply. Feedback is seen only by the support staff, not shown publicly *(default)*.
+
+## Gathering information from visitors and tickets
+
+Added by Larry on 2026-10-17, as its own milestone after support (items 67 to 72). The AI can gather feedback and contact information in conversation, and the service can get information back out of what visitors said and what tickets hold. It works on the support site, and on a teacher's site when its teacher turns it on (off by default) *(default)*.
+
+73. **Gathering feedback.** When something said in a conversation is feedback (praise, a complaint, a request or a problem), the AI asks whether to pass it on, and if the visitor agrees it is saved as feedback (item 72) with the conversation it came from.
+74. **Collecting contact information.** The AI asks for a name and email address only when it needs them, for example for a reply, a ticket or a follow-up, says why, and saves them only if the visitor agrees. It never asks for anything more sensitive. Contact details are seen only by that site's teacher or the support staff, and are deleted on request.
+75. **Opening a ticket from a conversation.** When the AI can't solve a problem, it offers to open a ticket (item 71), drafts its title and description from the conversation, and opens it once the visitor has checked it, with their email for updates if they gave one.
+76. **Retrieving information.** The AI answers from the open tickets as well as the content, so a visitor asking about a known problem is told about its ticket and status. A teacher (for their site) or the support staff (for the support site) can also ask the AI about what was gathered, such as "What are visitors asking about billing?", "Summarize the open tickets about subdomains" or "Who asked to be contacted this week?", and get an answer that links to the feedback, contacts, conversations and tickets it came from.
