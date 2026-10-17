@@ -7,7 +7,7 @@ import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
 import { HomePage } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
-import { type Page, resolve, useHash, wikiTarget } from "./router";
+import { type Page, resolve, setupTarget, useHash, wikiTarget } from "./router";
 import {
   SettingsLink,
   SettingsPage,
@@ -85,7 +85,7 @@ function Shell() {
           }}
         />
       ),
-      setup: <SetupPage />,
+      setup: <SetupPage change={setupTarget(hash)} />,
       chat: <ChatPage />,
       content: <ContentPage />,
       guide: <GuidePage />,

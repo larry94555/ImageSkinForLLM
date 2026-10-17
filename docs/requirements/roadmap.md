@@ -21,7 +21,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 4.1% | 5 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.8% | 1 of 1 |
 | 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 5.7% | 3 of 7 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.7% | 3 of 7 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.7% | 4 of 7 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 1.6% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 1.6% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 3.3% | 0 |
@@ -34,7 +34,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 19 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 9.8% | 0 |
 | 20 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.7% | 0 |
 | 21 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 4.1% | 0 |
-| | **Total** | | **123** | **56.9% done** | **70 of 123** |
+| | **Total** | | **123** | **57.7% done** | **71 of 123** |
 
 Sizes: 32 Simple, 91 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -554,10 +554,11 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** rerun the sample from Settings and watch it, then clear the conversation and return to an empty chat.
 - **Built:** both are under **Video and conversation** on the Settings page. The sample is made again from the prepared face and voice and replaces the one there only if nothing was prepared or changed meanwhile; it waits for a reply being made, and replies wait for it, and Prepare and another accent are refused until it is done. It renders the same script from the same photo and voice, so the sample keeps its acceptance (R14) and the chat stays open. Clearing also removes the replies' videos: those being made are stopped and never published, and those made are removed. Clearing also drops the summary of older turns, so the next prompt starts afresh. The log has `Rendering the sample video again`, `Rendered the sample video again` with `duration_s` (or `Could not run the video test again`) and `Conversation cleared` with `turns`; the browser console has `Video test run again` and `Conversation cleared` with how long each took.
 
-### R28. Changing photos, voice or accent (Medium) · item 8 (part 2)
+### R28. Changing photos, voice or accent (Medium) · item 8 (part 2) · Done
 - Change image files, change sound files, and switch accent from Settings.
 - Any of these requires revalidation and a newly accepted sample before chat resumes; "Goodbye" and "Welcome back" are re-rendered on each new acceptance.
 - **Can show:** swap a photo from Settings, get sent through validation and a new sample, then return to the chat.
+- **Built:** a **Photo, voice and accent** section on the Settings page (teacher view only, since setup is the teacher's) says whether the chat is open or locked, with **Change photos**, **Change recordings** and **Change accent**, which open setup at that part (`#/setup/photos`, `#/setup/sounds`, `#/setup/accent`) with what to do there. The server already treated any change of the chosen photo, the recordings or the accent as a new sample needing acceptance, and Prepare makes the sample, Goodbye and Welcome back together, so they are made again before the new sample is accepted. The log has `Accepted sample is no longer current` with `changed` (`not prepared`, `photo_id`, `voice_id` or `prepared again`); the browser console has `Changing the <part> from Settings`, `Setup opened to change the <part>` and `Sample accepted: <true or false> (N ms)`.
 
 ### R29. Exit and Start again (Simple) · items 13, 14
 - Exit plays "Goodbye." and shows the exit screen; Start again plays "Welcome back." and keeps history.

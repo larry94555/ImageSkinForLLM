@@ -49,6 +49,7 @@ import {
   voiceSampleAudioUrl,
 } from "./api";
 import { Checks, minutes } from "./checks";
+import type { SetupPart } from "./router";
 import { useSettings } from "./settings";
 import { TalkButton } from "./talk";
 
@@ -94,8 +95,9 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   );
 }
 
-// Where a choice under the sample video sends the user back to (roadmap R14).
-type Back = "photos" | "sounds" | "accent";
+// Where a choice under the sample video sends the user back to (roadmap R14), or what Settings
+// opens setup at to change (R28).
+type Back = SetupPart;
 
 const BACK_NOTICE: Record<Back, string> = {
   photos: "You rejected the image. Add new photos and remove the ones you don't want, then Prepare again.",
@@ -103,23 +105,41 @@ const BACK_NOTICE: Record<Back, string> = {
   accent: "Choose another accent. The sample video is then made again.",
 };
 
+// Changing one from Settings (R28): any change needs a new sample, accepted, before the chat opens.
+const AFTER_CHANGE = " Accept the new sample video at the end of setup to go back to the chat.";
+export const CHANGE_NOTICE: Record<Back, string> = {
+  photos:
+    "Add a new photo, or choose another one, and remove the ones you don't want. Then Prepare again." +
+    AFTER_CHANGE,
+  sounds:
+    "Add new recordings and remove the ones you don't want. Then Prepare again." + AFTER_CHANGE,
+  accent: "Choose another accent. The sample video is then made again." + AFTER_CHANGE,
+};
+
 // Setup: upload photos and recordings, see them and play them back (roadmap R7), choose the
 // accent (R26), prepare the voice and the face (R12), then review the sample video (R14).
-export function SetupPage() {
+// `change` is the part Settings opened it at (R28).
+export function SetupPage({ change }: { change?: SetupPart }) {
   // Counts changes to the photos, the chosen photo and the recordings, so Prepare asks again
   // whether what it prepared is still current.
   const [changes, setChanges] = useState(0);
   const changed = () => setChanges((n) => n + 1);
   // While Prepare runs, the accent can't change: the running job would finish in the old one.
   const [preparing, setPreparing] = useState(false);
-  // Set when the user rejected the sample: the section to go back to shows what to do there.
-  const [back, setBack] = useState<Back | null>(null);
-  function goBack(to: Back) {
-    setBack(to);
+  // Set when the user rejected the sample, or came to change one part: the section to go back
+  // to shows what to do there.
+  const [back, setBack] = useState<{ to: Back; notice: string } | null>(null);
+  function goBack(to: Back, notice = BACK_NOTICE[to]) {
+    setBack({ to, notice });
     // After the notice shows, so the page scrolls to where it ends up.
     window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
   }
-  const notice = (to: Back) => (back === to ? BACK_NOTICE[to] : null);
+  useEffect(() => {
+    if (!change) return;
+    console.info(`Setup opened to change the ${change}`);
+    goBack(change, CHANGE_NOTICE[change]);
+  }, [change]);
+  const notice = (to: Back) => (back?.to === to ? back.notice : null);
   return (
     <div className="teacher-page">
       <h1>Setup</h1>

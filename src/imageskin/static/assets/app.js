@@ -302,6 +302,77 @@ async function changeSettings(changes) {
 		body: JSON.stringify(changes)
 	})));
 }
+//#endregion
+//#region src/change-setup.tsx
+var CHANGES = [
+	{
+		part: "photos",
+		label: "Change photos",
+		about: "Add, remove or choose the photo the video is made from."
+	},
+	{
+		part: "sounds",
+		label: "Change recordings",
+		about: "Add or remove the recordings the voice is made from."
+	},
+	{
+		part: "accent",
+		label: "Change accent",
+		about: "Keep the person's own accent or choose another one."
+	}
+];
+function ChangeSetup() {
+	const [accepted, setAccepted] = d(null);
+	h(() => {
+		const started = performance.now();
+		getReview().then((r) => {
+			setAccepted(r.accepted);
+			const took = Math.round(performance.now() - started);
+			console.info(`Sample accepted: ${r.accepted} (${took} ms)`);
+		}).catch((e) => console.error("Could not get the review", e));
+	}, []);
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-change",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-change",
+				children: "Photo, voice and accent"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Changing any of them makes the sample video again, and the chat stays locked until you accept the new one at the end of setup."
+			}),
+			accepted === true && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The chat is open with the sample you accepted."
+			}),
+			accepted === false && /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: [
+					"The chat is locked until you accept a sample video in ",
+					/* @__PURE__ */ u("a", {
+						href: "#/setup",
+						children: "Setup"
+					}),
+					"."
+				]
+			}),
+			CHANGES.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [/* @__PURE__ */ u("a", {
+					className: "button secondary",
+					href: `#/setup/${part}`,
+					onClick: () => console.info(`Changing the ${part} from Settings`),
+					children: label
+				}), /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: about
+				})]
+			}, part))
+		]
+	});
+}
 function reason(e, fallback) {
 	return e instanceof ServerRefusal ? e.message : fallback;
 }
@@ -863,6 +934,7 @@ function SettingsPage({ back }) {
 				]
 			}, group)),
 			/* @__PURE__ */ u(YourFiles, {}),
+			settings.view === "teacher" && /* @__PURE__ */ u(ChangeSetup, {}),
 			/* @__PURE__ */ u(VideoAndChat, {}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
@@ -2380,16 +2452,30 @@ var BACK_NOTICE = {
 	sounds: "You rejected the voice. Add new recordings and remove the ones you don't want, then Prepare again.",
 	accent: "Choose another accent. The sample video is then made again."
 };
-function SetupPage() {
+var AFTER_CHANGE = " Accept the new sample video at the end of setup to go back to the chat.";
+var CHANGE_NOTICE = {
+	photos: "Add a new photo, or choose another one, and remove the ones you don't want. Then Prepare again." + AFTER_CHANGE,
+	sounds: "Add new recordings and remove the ones you don't want. Then Prepare again." + AFTER_CHANGE,
+	accent: "Choose another accent. The sample video is then made again." + AFTER_CHANGE
+};
+function SetupPage({ change }) {
 	const [changes, setChanges] = d(0);
 	const changed = () => setChanges((n) => n + 1);
 	const [preparing, setPreparing] = d(false);
 	const [back, setBack] = d(null);
-	function goBack(to) {
-		setBack(to);
+	function goBack(to, notice = BACK_NOTICE[to]) {
+		setBack({
+			to,
+			notice
+		});
 		window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
 	}
-	const notice = (to) => back === to ? BACK_NOTICE[to] : null;
+	h(() => {
+		if (!change) return;
+		console.info(`Setup opened to change the ${change}`);
+		goBack(change, CHANGE_NOTICE[change]);
+	}, [change]);
+	const notice = (to) => back?.to === to ? back.notice : null;
 	return /* @__PURE__ */ u("div", {
 		className: "teacher-page",
 		children: [
@@ -4174,6 +4260,10 @@ var PAGES = {
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
+var SETUP_PART = /^\/setup\/(photos|sounds|accent)$/;
+function setupTarget(hash) {
+	return SETUP_PART.exec(pathOf(hash))?.[1];
+}
 function pathOf(hash) {
 	return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
 }
@@ -4197,6 +4287,7 @@ function pageFor(hash) {
 	const wiki = wikiTarget(hash);
 	if (wiki.entry) return "wiki-page";
 	if (wiki.pdf) return "wiki";
+	if (setupTarget(hash)) return "setup";
 	return PAGES[path] ?? "not-found";
 }
 var TEACHER_PAGES = [
@@ -5157,7 +5248,7 @@ function Shell() {
 			setConsented(true);
 			window.location.hash = "#/setup";
 		} }),
-		setup: /* @__PURE__ */ u(SetupPage, {}),
+		setup: /* @__PURE__ */ u(SetupPage, { change: setupTarget(hash) }),
 		chat: /* @__PURE__ */ u(ChatPage, {}),
 		content: /* @__PURE__ */ u(ContentPage, {}),
 		guide: /* @__PURE__ */ u(GuidePage, {}),
