@@ -36,7 +36,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 21 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 4.1% | 0 |
 | | **Total** | | **123** | **55.3% done** | **68 of 123** |
 
-Sizes: 34 Simple, 89 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 33 Simple, 90 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -761,27 +761,27 @@ Added by Larry on 2026-10-17, to build after Milestone 19.
 
 ## Milestone 21: Gathering information from visitors and tickets
 
-Added by Larry on 2026-10-17, as its own milestone after Milestone 20. It works on the support site, and on a teacher's site when a setting turns it on.
+Added by Larry on 2026-10-17, as its own milestone after Milestone 20. It works on the support site, and on a teacher's site when a setting turns it on. What is gathered on a teacher's site stays with that site, private to its teacher; what is gathered on the support site stays there.
 
 ### R79. Gathering feedback in conversation (Medium) · item 73
-- After a reply, feedback in what the visitor said is noticed (by the method decided before this PR); the AI asks whether to pass it on and, if they agree, saves it as feedback with its conversation. A site setting turns this on for a teacher's site.
-- **Can show:** say "this answer was confusing", agree to pass it on, and find it on the feedback page linked to the conversation; decline once and see nothing saved.
+- After a reply, feedback in what the visitor said is noticed (by the method decided before this PR); the AI asks whether to pass it on and, if they agree, saves it as feedback with its conversation. A site setting turns this on for a teacher's site, and adds a feedback page for its teacher showing only that site's feedback.
+- **Can show:** on site A, say "this answer was confusing", agree to pass it on, and find it on site A's feedback page linked to the conversation, and not on site B's or the support staff's; decline once and see nothing saved.
 
 ### R80. Collecting contact information with consent (Medium) · item 74
 - When a reply, ticket or follow-up needs it, the AI asks for a name and email, saying why, and saves them only if the visitor agrees. The site's teacher or support staff see them on a contacts page and can delete them.
-- **Can show:** ask for a follow-up, give an email, find it on the contacts page, then delete it.
+- **Can show:** on site A, ask for a follow-up, give an email, find it on site A's contacts page and not on site B's, then delete it.
 
-### R81. Opening a ticket from a conversation (Simple) · item 75
-- When the AI can't solve a problem, it drafts a ticket from the problem alone, with no contact details or unrelated conversation, and opens it once the visitor has seen the public warning, edited it if they wish and approved it.
-- **Can show:** give an email, then describe a problem the guide doesn't cover; check that the drafted ticket holds neither the email nor the rest of the conversation, approve it, and find it in the public list.
+### R81. Opening a ticket from a conversation (Medium) · item 75
+- When the AI can't solve a problem, it drafts a ticket from the problem alone, with no contact details or unrelated conversation, and opens it once the visitor has approved it, editing it if they wish. On the support site the visitor first sees the public warning and the ticket joins the public list. On a teacher's site the ticket is private to that site: a tickets page lets its teacher change the status and reply, with the confirmed email updates of R77.
+- **Can show:** give an email, then describe a problem the guide doesn't cover; check that the drafted ticket holds neither the email nor the rest of the conversation, approve it, and find it in the public list. Do the same on site A and find the ticket on site A's tickets page only, not in the public list or on site B.
 
 ### R82. Answers that use open tickets (Medium) · items 70, 76
-- The lookup (R39) also searches the tickets. Visitors' ticket text is passed to the LLM as unconfirmed reports, marked as data and never as instructions; only staff status and replies count as confirmed. An answer about a known problem says whether it is reported or confirmed by support, with the ticket linked.
+- On the support site, the lookup (R39) also searches the public tickets; a teacher's site never answers visitors from its private tickets. Visitors' ticket text is passed to the LLM as unconfirmed reports, marked as data and never as instructions; only staff status and replies count as confirmed. An answer about a known problem says whether it is reported or confirmed by support, with the ticket linked.
 - **Can show:** with a visitor's open ticket about a login problem, ask about logging in and hear that it has been reported; after staff confirm it, hear that support has confirmed it. A ticket whose text tries to give the AI instructions is quoted as a report, not obeyed.
 
 ### R83. Asking about what was gathered (Medium) · item 76
-- A page for a site's teacher or the support staff to ask the AI about the feedback, contacts, conversations and tickets gathered for that site, with each answer linking to its sources.
-- **Can show:** ask "Summarize the open tickets about subdomains" and get a summary linking to each ticket, with the time taken in the logs.
+- A page for a site's teacher or the support staff to ask the AI about the feedback, contacts, conversations and tickets gathered for that site only, with each answer linking to its sources.
+- **Can show:** ask "Summarize the open tickets about subdomains" and get a summary linking to each ticket, with the time taken in the logs; on site A, ask about site B's feedback and get nothing from it.
 
 After R83, every item in features.md is covered by a PR. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
 
