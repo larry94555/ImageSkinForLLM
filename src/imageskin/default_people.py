@@ -13,6 +13,8 @@ same as one prepared on the user's own machine, at a fraction of the download.
 import io
 import json
 import logging
+import os
+import shutil
 import time
 import zipfile
 from dataclasses import dataclass
@@ -21,7 +23,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from imageskin.photoreal_library import fill_loop, key_frames, library_key, mouth_key
+from imageskin.photoreal_library import (
+    LIBRARY_VERSION,
+    fill_loop,
+    key_frames,
+    library_key,
+    mouth_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,53 +186,68 @@ def pack(person: Person, picture: Path, library: Path, output: Path) -> int:
 def unpack(pack_file: Path, home: Path) -> Path:
     """Unpack a person into the app's home: the picture as <home>/default-people/<name>.png and
     its library where prepare would put it, with the idle loop filled in. Returns the picture,
-    which `prepare_library` then loads without preparing. library.json is written last, so an
-    interrupted unpack is never taken as a finished library."""
+    which `prepare_library` then loads without preparing.
+
+    Everything is unpacked into a work folder first and moved into place only once complete, so
+    a failed unpack (a broken download, say) leaves no partial library, and a library already
+    there stays as it was."""
     start = time.perf_counter()
+    work = home / "photoreal" / f".unpacking-{pack_file.stem}"
+    shutil.rmtree(work, ignore_errors=True)
     try:
+        lib = work / "library"
+        (lib / "loop").mkdir(parents=True)
         with zipfile.ZipFile(pack_file) as z:
             info = json.loads(z.read("person.json"))
             if info.get("pack_version") != PACK_VERSION:
                 raise PackError(f"pack version {info.get('pack_version')} is not supported")
+            # Library versions are part of the folder's key; a pack made for another version
+            # would be put where this one's libraries go, so it is refused.
+            if info.get("library_version") != LIBRARY_VERSION:
+                raise PackError(f"library version {info.get('library_version')} is not supported")
             if info.get("mouth") != mouth_key():
                 raise PackError("the pack was made with other mouth settings")
-            pictures = home / "default-people"
-            pictures.mkdir(parents=True, exist_ok=True)
-            picture = pictures / f"{info['name']}.png"
-            picture.write_bytes(z.read("picture.png"))
-            folder = home / "photoreal" / library_key(picture)
-            (folder / "loop").mkdir(parents=True, exist_ok=True)
+            new_picture = work / "picture.png"
+            new_picture.write_bytes(z.read("picture.png"))
             names = z.namelist()
             for name in names:
                 if name.endswith(".npy") and "/" not in name:
-                    (folder / name).write_bytes(z.read(name))
+                    (lib / name).write_bytes(z.read(name))
             for stack in STACKS:
                 faces = sorted(n for n in names if n.startswith(f"{stack}/"))
                 frames = [_from_png(z.read(n)) for n in faces]
-                (folder / f"{stack}.npy").write_bytes(_npy(np.stack(frames)))
-            (folder / "shapes.json").write_bytes(z.read("shapes.json"))
+                (lib / f"{stack}.npy").write_bytes(_npy(np.stack(frames)))
+            (lib / "shapes.json").write_bytes(z.read("shapes.json"))
             n_loop = int(info["loop_frames"])
             keys = key_frames(n_loop)
             for i in keys:
                 frame = _from_png(z.read(f"loop/{i:04d}.png"))
-                (folder / "loop" / f"{i:04d}.npy").write_bytes(_npy(frame))
+                (lib / "loop" / f"{i:04d}.npy").write_bytes(_npy(frame))
+        filled = fill_loop(lib / "loop", n_loop, keys)
+        picture = home / "default-people" / f"{info['name']}.png"
+        (lib / "library.json").write_text(
+            json.dumps(
+                {
+                    "version": LIBRARY_VERSION,
+                    "photo": str(picture),
+                    "loop_frames": n_loop,
+                    "mouth": info["mouth"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        folder = home / "photoreal" / library_key(new_picture)
+        shutil.rmtree(folder, ignore_errors=True)
+        os.replace(lib, folder)
+        picture.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(new_picture, picture)
     except (PackError, OSError, KeyError, ValueError, zipfile.BadZipFile) as e:
         logger.error(
             "Could not unpack default person", extra={"pack": str(pack_file), "error": str(e)}
         )
         raise PackError(f"{pack_file.name} could not be unpacked: {e}") from e
-    filled = fill_loop(folder / "loop", n_loop, keys)
-    (folder / "library.json").write_text(
-        json.dumps(
-            {
-                "version": info["library_version"],
-                "photo": str(picture),
-                "loop_frames": n_loop,
-                "mouth": info["mouth"],
-            }
-        ),
-        encoding="utf-8",
-    )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     logger.info(
         "Unpacked default person",
         extra={

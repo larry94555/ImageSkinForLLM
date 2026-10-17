@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from imageskin import default_people as dp
-from imageskin.photoreal_library import key_frames, library_key, mouth_key
+from imageskin.photoreal_library import LIBRARY_VERSION, key_frames, library_key, mouth_key
 
 
 def test_there_is_one_person_for_each_gender_realism_and_role() -> None:
@@ -71,7 +71,9 @@ def fake_library(folder: Path, rng: np.random.Generator) -> None:
         np.save(folder / "loop" / f"{i:04d}.npy", np.full((16, 16, 3), 10 * i, np.uint8))
     (folder / "shapes.json").write_text(json.dumps({"mouth": mouth_key()}))
     (folder / "library.json").write_text(
-        json.dumps({"version": 2, "photo": "x", "loop_frames": N_LOOP, "mouth": mouth_key()})
+        json.dumps(
+            {"version": LIBRARY_VERSION, "photo": "x", "loop_frames": N_LOOP, "mouth": mouth_key()}
+        )
     )
 
 
@@ -148,7 +150,12 @@ def test_unpack_refuses_other_versions_and_mouth_settings(
     packed: tuple[Path, Path, Path], tmp_path: Path
 ) -> None:
     _, _, out = packed
-    for change, message in (({"pack_version": 99}, "not supported"), ({"mouth": "x"}, "mouth")):
+    changes = (
+        ({"pack_version": 99}, "pack version 99"),
+        ({"library_version": LIBRARY_VERSION - 1}, f"library version {LIBRARY_VERSION - 1}"),
+        ({"mouth": "x"}, "mouth"),
+    )
+    for change, message in changes:
         with zipfile.ZipFile(out) as z:
             info = json.loads(z.read("person.json"))
             items = {n: z.read(n) for n in z.namelist() if n != "person.json"}
@@ -174,3 +181,41 @@ def test_a_frame_that_is_not_a_png_is_refused(
             z.writestr(n, data)
     with pytest.raises(dp.PackError, match="not a PNG"):
         dp.unpack(other, tmp_path / "home")
+
+
+def test_a_failed_unpack_leaves_the_library_already_there(
+    packed: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    _, _, out = packed
+    home = tmp_path / "home"
+    got = dp.unpack(out, home)
+    folder = home / "photoreal" / library_key(got)
+    before = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    # A pack that fails late, after the picture, arrays and stacks are read.
+    with zipfile.ZipFile(out) as z:
+        items = {n: z.read(n) for n in z.namelist()}
+    items[f"loop/{key_frames(N_LOOP)[-1]:04d}.png"] = b"junk"
+    broken = tmp_path / "person.zip"
+    broken.parent.mkdir(exist_ok=True)
+    out.rename(tmp_path / "good.zip")
+    with zipfile.ZipFile(broken, "w") as z:
+        for n, data in items.items():
+            z.writestr(n, data)
+    with pytest.raises(dp.PackError):
+        dp.unpack(broken, home)
+    after = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    assert after == before
+    assert got.exists()
+    assert [p.name for p in (home / "photoreal").iterdir()] == [folder.name]  # no work folder
+
+
+def test_unpacking_again_replaces_the_library(
+    packed: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    _, _, out = packed
+    home = tmp_path / "home"
+    got = dp.unpack(out, home)
+    folder = home / "photoreal" / library_key(got)
+    (folder / "loop" / "0001.npy").unlink()  # as if damaged
+    assert dp.unpack(out, home) == got
+    assert len(list((folder / "loop").glob("*.npy"))) == N_LOOP
