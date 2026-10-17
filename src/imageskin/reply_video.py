@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -353,6 +354,15 @@ class ReplyVideos:
                 extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
             )
             self._make_idle(photo)
+
+    @contextmanager
+    def engines(self) -> Iterator[None]:
+        """Hold the voice and video engines for work other than a reply, such as rendering the
+        sample video again (roadmap R27b), with the voice ready for the accent chosen."""
+        with self._voice_lock, self._video_lock:
+            self._before_engines()
+            self._voice.ensure()
+            yield
 
     def idle(self, photo: Path) -> Path | None:
         """The idle video for the photo (roadmap R23), once the warm-up has made it."""

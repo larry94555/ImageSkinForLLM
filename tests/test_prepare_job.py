@@ -13,9 +13,11 @@ from fastapi.testclient import TestClient
 from imageskin.accent import Accent, AccentEngine
 from imageskin.app import NEEDS_CLONE, WAIT_FOR_PREPARE, create_app
 from imageskin.prepare_job import (
+    CHANGED_MEANWHILE,
     CLIPS,
     ENGINE_FAILED,
     NO_PHOTO,
+    NOT_PREPARED,
     SOMETHING_WRONG,
     PrepareError,
     PrepareJob,
@@ -832,3 +834,111 @@ def test_without_the_clone_only_the_persons_own_accent_is_offered(tmp_path: Path
     # One saved while the clone was installed shows as the accent actually used: Kokoro's own.
     (tmp_path / "accent.json").write_text('{"accent": "british"}')
     assert client.get("/api/accent").json() == {"accent": "own", "available": False}
+
+
+# --- Run the video test again (roadmap R27b) ---
+
+
+def test_the_sample_is_rendered_again_in_place(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    said: list[str] = []
+
+    def clip(photo: Path, text: str, output: Path) -> None:
+        said.append(text)
+        output.write_text(f"{text} {len(said)}")
+
+    job, _ = make_job(tmp_path, clip=clip)
+    with pytest.raises(PrepareError, match=NOT_PREPARED):
+        job.render_sample_again()
+    job.start()
+    job.wait(5)
+    said.clear()
+    with caplog.at_level(logging.INFO):
+        seconds = job.render_sample_again()
+    assert seconds >= 0 and said == [CLIPS[-1][1]]
+    assert job.clip("sample") == tmp_path / "clips" / "sample.mp4"
+    assert (tmp_path / "clips" / "sample.mp4").read_text().endswith(" 1")
+    assert (tmp_path / "clips" / "goodbye.mp4").read_text() == "Goodbye. 1"  # left as it was
+    assert not (tmp_path / "clips" / "sample.again.mp4").exists()
+    assert "Rendering the sample video again" in caplog.text
+    assert "Rendered the sample video again" in caplog.text
+    assert job.status().state == "done"
+
+
+def test_a_sample_that_fails_to_render_again_keeps_the_one_before(tmp_path: Path) -> None:
+    job, _ = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    before = (tmp_path / "clips" / "sample.mp4").read_text()
+
+    def fail(photo: Path, text: str, output: Path) -> None:
+        output.write_text("half")
+        raise VideoError("ffmpeg crashed")
+
+    job._render_clip = fail
+    with pytest.raises(VideoError):
+        job.render_sample_again()
+    assert (tmp_path / "clips" / "sample.mp4").read_text() == before
+    assert not (tmp_path / "clips" / "sample.again.mp4").exists()
+
+
+def test_a_sample_rendered_again_while_the_setup_changed_is_dropped(tmp_path: Path) -> None:
+    job, store = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    before = (tmp_path / "clips" / "sample.mp4").read_text()
+
+    def change_photo(photo: Path, text: str, output: Path) -> None:
+        output.write_text("for the old photo")
+        store.chosen = "b" * 32  # another photo is chosen meanwhile
+
+    job._render_clip = change_photo
+    with pytest.raises(PrepareError, match=CHANGED_MEANWHILE):
+        job.render_sample_again()
+    assert (tmp_path / "clips" / "sample.mp4").read_text() == before
+    assert not (tmp_path / "clips" / "sample.again.mp4").exists()
+
+
+def test_the_api_runs_the_video_test_again(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    rendered: list[str] = []
+
+    def clip(photo: Path, text: str, output: Path) -> None:
+        rendered.append(text)
+        if rendered.count(text) == 3:
+            raise VideoError("ffmpeg crashed")
+        output.write_text(f"{text} {rendered.count(text)}")
+
+    client = TestClient(
+        create_app(
+            tmp_path,
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=face_in_steps,
+            render_clip=clip,
+        )
+    )
+    again = "/api/prepare/clips/sample/again"
+    assert client.post(again).status_code == 403  # consent first
+    client.post("/api/consent", json={"agreed": True})
+    refused = client.post(again)
+    assert refused.status_code == 409 and refused.json()["detail"] == NOT_PREPARED
+
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    with patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)):
+        client.post("/api/prepare")
+        client.app.state.prepare_job.wait(5)  # type: ignore[attr-defined]
+        ran = client.post(again)
+        sample = client.get("/api/prepare/clips/sample")
+        with caplog.at_level(logging.ERROR):
+            failed = client.post(again)
+        kept = client.get("/api/prepare/clips/sample")
+    assert ran.status_code == 200
+    assert ran.json()["video"] == "/api/prepare/clips/sample" and ran.json()["seconds"] >= 0
+    assert sample.text.startswith("This is a test.") and sample.text.endswith(" 2")
+    assert failed.status_code == 502 and failed.json()["detail"] == ENGINE_FAILED
+    logged = next(r for r in caplog.records if r.message == "Could not run the video test again")
+    assert logged.error == "ffmpeg crashed"  # type: ignore[attr-defined]
+    assert kept.text == sample.text

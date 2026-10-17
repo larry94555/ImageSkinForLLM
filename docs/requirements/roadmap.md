@@ -21,7 +21,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.1% | 5 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.0% | 1 of 1 |
 | 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 7.1% | 2 of 7 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 7.1% | 2 of 7 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 7.1% | 3 of 7 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.0% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.0% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 4.0% | 0 |
@@ -31,7 +31,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.0% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.0% | 0 |
 | 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.0% | 0 |
-| | **Total** | | **99** | **68.7% done** | **68 of 99** |
+| | **Total** | | **99** | **69.7% done** | **69 of 99** |
 
 Sizes: 24 Simple, 75 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -544,6 +544,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 ### R27b. Run the video test again and clear conversation (Simple) · item 8 (part 1)
 - **Run the video test again** renders the sample video again and plays it, and **Clear conversation** clears the chat after asking to confirm. R51 later limits clearing to what was saved.
 - **Can show:** rerun the sample from Settings and watch it, then clear the conversation and return to an empty chat.
+- **Built:** both are under **Video and conversation** on the Settings page. The sample is made again from the prepared face and voice and replaces the one there only if nothing was prepared or changed meanwhile; it waits for a reply being made, and replies wait for it. Clearing also drops the summary of older turns, so the next prompt starts afresh. The log has `Rendering the sample video again`, `Rendered the sample video again` with `duration_s` (or `Could not run the video test again`) and `Conversation cleared` with `turns`; the browser console has `Video test run again` and `Conversation cleared` with how long each took.
 
 ### R28. Changing photos, voice or accent (Medium) · item 8 (part 2)
 - Change image files, change sound files, and switch accent from Settings.

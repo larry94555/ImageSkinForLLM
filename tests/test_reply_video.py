@@ -1466,3 +1466,24 @@ def test_the_chat_photo_without_a_readable_size_or_a_photo(
     assert "Could not read the photo's size" in caplog.text
     patch.object(PrepareJob, "status", return_value=PrepareStatus("idle")).start()
     assert client.get("/api/chat/photo").json() == {"url": None, "width": None, "height": None}
+
+
+def test_holding_the_engines_waits_for_a_reply_and_readies_the_voice(tmp_path: Path) -> None:
+    prepared: list[int] = []
+    before: list[int] = []
+    videos = ReplyVideos(
+        tmp_path,
+        write_text,
+        VoiceReady(lambda: prepared.append(1), lambda: "v"),
+        before_engines=lambda: before.append(1),
+    )
+    with videos.engines():
+        assert prepared == [1] and before == [1]
+        # A reply waits until they are let go.
+        reply = threading.Thread(target=videos.render, args=(tmp_path / "me.jpg", 1, "Hi."))
+        reply.start()
+        reply.join(0.2)
+        assert reply.is_alive()
+    reply.join(5)
+    assert videos.path(1).read_text() == "me.jpg: Hi."
+    assert prepared == [1]  # ready already, so not prepared again

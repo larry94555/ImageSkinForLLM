@@ -248,6 +248,22 @@ def test_the_reply_does_not_wait_for_the_summary() -> None:
     assert llm.sent[-1][0]["content"].endswith(f"{EARLIER}\nSUMMARY 5")
 
 
+def test_clearing_forgets_the_turns_and_the_summary(caplog: pytest.LogCaptureFixture) -> None:
+    llm = FakeLlm2()
+    conversation = Conversation(llm, lambda: 4096)
+    for i in range(5):
+        conversation.send(f"Prompt {i} " + "x" * 590)  # passes the budget: summarized
+    with caplog.at_level(logging.INFO):
+        assert conversation.clear() == 10
+    assert conversation.turns() == []
+    assert "Conversation cleared" in caplog.text
+    # The next prompt is sent alone, with no summary of what was cleared.
+    reply = f"Reply {len(llm.sent) + 1}"
+    assert conversation.send("Hello") == (Turn("assistant", reply), 1)
+    assert llm.sent[-1] == [system_message(None), {"role": "user", "content": "Hello"}]
+    assert conversation.clear() == 2
+
+
 def test_waiting_without_a_summary_returns_at_once() -> None:
     Conversation(FakeLlm2(), lambda: 4096).wait()
 
@@ -644,6 +660,15 @@ def test_the_api_chats_once_the_sample_is_accepted(tmp_path: Path) -> None:
         {"role": "user", "content": "Hi"},
         {"role": "assistant", "content": "You said Hi"},
     ]
+
+
+def test_the_api_clears_the_conversation(tmp_path: Path) -> None:
+    client = chat_app(tmp_path, lambda messages: "Hello")
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi"})
+    assert client.delete("/api/chat").json() == {"cleared": 2}
+    assert client.get("/api/chat").json() == {"turns": []}
+    assert client.delete("/api/chat").json() == {"cleared": 0}
 
 
 def test_the_api_says_when_the_llm_fails(tmp_path: Path) -> None:

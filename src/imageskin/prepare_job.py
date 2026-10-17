@@ -99,6 +99,10 @@ ENGINE_FAILED = (
     " in its log."
 )
 NO_PHOTO = "Add a photo that passes the checks first."
+# Run the video test again (roadmap R27b) needs the sample from a finished prepare.
+NOT_PREPARED = "There is no sample video yet. Prepare it in setup first."
+# Prepare started, or what it is made from changed, while the sample was rendered again.
+CHANGED_MEANWHILE = "The setup changed while the video was made. Try again."
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
 CLONES = ("pocket", "clone")
 
@@ -250,6 +254,36 @@ class PrepareJob:
             return None
         path = self.clips_folder / f"{name}.mp4"
         return path if path.is_file() else None
+
+    def render_sample_again(self) -> float:
+        """Render the sample video again from the prepared face and voice, replacing the one
+        there (roadmap R27b), and return how many seconds it took. The caller keeps the replies
+        off the engines meanwhile. The new video is kept only if nothing was prepared and
+        nothing it is made from changed while it was rendered."""
+        with self._lock:
+            before = self._current(self._status)
+        if before.state != "done" or before.photo_id is None:
+            raise PrepareError(NOT_PREPARED)
+        photo = self._store.path("photos", before.photo_id)
+        if photo is None:
+            raise PrepareError(NOT_PREPARED)
+        start = time.perf_counter()
+        logger.info("Rendering the sample video again", extra={"photo_id": before.photo_id})
+        path = self.clips_folder / "sample.mp4"
+        # Its own name, so a prepare started meanwhile never shares the file it writes.
+        rendering = path.with_name("sample.again.mp4")
+        try:
+            self._render_clip(photo, SAMPLE_SCRIPT, rendering)
+            with self._lock:
+                if self._current(self._status) is not before:
+                    raise PrepareError(CHANGED_MEANWHILE)
+                os.replace(rendering, path)
+        except Exception:
+            rendering.unlink(missing_ok=True)
+            raise
+        seconds = round(time.perf_counter() - start, 1)
+        logger.info("Rendered the sample video again", extra={"duration_s": seconds})
+        return seconds
 
     def start(self) -> PrepareStatus:
         """Start preparing the chosen photo and the voice; while it runs, just report on it."""

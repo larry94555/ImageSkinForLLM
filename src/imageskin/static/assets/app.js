@@ -51,6 +51,16 @@ async function checkUpload(kind, id) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function runVideoTestAgain() {
+	const response = await fetch("/api/prepare/clips/sample/again", { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).video;
+}
+async function clearChat() {
+	const response = await fetch("/api/chat", { method: "DELETE" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).cleared;
+}
 async function getVoiceSample() {
 	return json(await fetch("/api/voice-sample"));
 }
@@ -291,6 +301,120 @@ async function changeSettings(changes) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(changes)
 	})));
+}
+function reason(e, fallback) {
+	return e instanceof ServerRefusal ? e.message : fallback;
+}
+function VideoAndChat() {
+	const [running, setRunning] = d(false);
+	const [video, setVideo] = d(null);
+	const [testFailed, setTestFailed] = d(null);
+	const [clearing, setClearing] = d(false);
+	const [cleared, setCleared] = d(false);
+	const [clearFailed, setClearFailed] = d(null);
+	async function runAgain() {
+		setRunning(true);
+		setVideo(null);
+		setTestFailed(null);
+		const started = performance.now();
+		try {
+			const url = await runVideoTestAgain();
+			console.info(`Video test run again (${Math.round(performance.now() - started)} ms)`);
+			setVideo(`${url}?made=${Date.now()}`);
+		} catch (e) {
+			console.error("Could not run the video test again", e);
+			setTestFailed(reason(e, "The video could not be made. Try again."));
+		}
+		setRunning(false);
+	}
+	async function clear() {
+		if (!window.confirm("Clear the whole conversation? This can't be undone.")) {
+			console.info("Clear conversation cancelled");
+			return;
+		}
+		setClearing(true);
+		setCleared(false);
+		setClearFailed(null);
+		const started = performance.now();
+		try {
+			const turns = await clearChat();
+			const took = Math.round(performance.now() - started);
+			console.info(`Conversation cleared: ${turns} turn(s) (${took} ms)`);
+			setCleared(true);
+		} catch (e) {
+			console.error("Could not clear the conversation", e);
+			setClearFailed(reason(e, "The conversation could not be cleared. Try again."));
+		}
+		setClearing(false);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-video-chat",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-video-chat",
+				children: "Video and conversation"
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "use",
+						disabled: running,
+						onClick: runAgain,
+						children: "Run the video test again"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Makes the sample video again from the photo and voice, and plays it."
+					}),
+					running && /* @__PURE__ */ u("p", {
+						className: "muted busy",
+						children: "Making the sample video. This can take a few minutes…"
+					}),
+					testFailed && /* @__PURE__ */ u("p", {
+						className: "error",
+						children: testFailed
+					}),
+					video && /* @__PURE__ */ u("div", {
+						className: "sample-video",
+						children: /* @__PURE__ */ u("video", {
+							src: video,
+							controls: true,
+							autoPlay: true,
+							playsInline: true,
+							"aria-label": "Sample video"
+						})
+					})
+				]
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "use",
+						disabled: clearing,
+						onClick: clear,
+						children: "Clear conversation"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Removes every question and answer from the chat. It asks first."
+					}),
+					cleared && /* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "The conversation was cleared."
+					}),
+					clearFailed && /* @__PURE__ */ u("p", {
+						className: "error",
+						children: clearFailed
+					})
+				]
+			})
+		]
+	});
 }
 //#endregion
 //#region src/checks.tsx
@@ -739,6 +863,7 @@ function SettingsPage({ back }) {
 				]
 			}, group)),
 			/* @__PURE__ */ u(YourFiles, {}),
+			/* @__PURE__ */ u(VideoAndChat, {}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
 				href: back,

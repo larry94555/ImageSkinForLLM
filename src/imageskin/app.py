@@ -38,6 +38,8 @@ from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
+    ENGINE_FAILED,
+    NOT_PREPARED,
     REPLY_SIDE,
     ClipName,
     ClipSteps,
@@ -1206,6 +1208,30 @@ def create_app(
                     if whole_videos.get(body.reply_id) is stop:
                         del whole_videos[body.reply_id]
         return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
+
+    @app.post("/api/prepare/clips/sample/again", dependencies=needs_consent)
+    def run_video_test_again() -> dict[str, object]:
+        """Run the video test again from Settings (roadmap R27b): render the sample video afresh
+        from the prepared face and voice. It waits for any prompt being answered and holds the
+        engines, so a reply and the sample are never made at once."""
+        if job.clip("sample") is None:  # said at once, before the engines are made ready
+            raise HTTPException(status_code=409, detail=NOT_PREPARED)
+        try:
+            with chat_lock, replies.engines():
+                seconds = job.render_sample_again()
+        except PrepareError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        except Exception as e:
+            logger.error("Could not run the video test again", extra={"error": str(e)})
+            raise HTTPException(status_code=502, detail=ENGINE_FAILED) from e
+        return {"video": "/api/prepare/clips/sample", "seconds": seconds}
+
+    @app.delete("/api/chat", dependencies=needs_consent)
+    def clear_chat() -> dict[str, int]:
+        """Clear conversation from Settings (roadmap R27b), once the browser has asked to
+        confirm. It waits for a prompt being answered, so that reply is cleared too."""
+        with chat_lock:
+            return {"cleared": conversation.clear()}
 
     @app.get("/api/chat/idle", dependencies=needs_consent)
     def get_idle_video() -> FileResponse:

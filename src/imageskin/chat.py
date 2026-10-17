@@ -440,6 +440,18 @@ class Conversation:
         with self._lock:
             return list(self._transcript)
 
+    def clear(self) -> int:
+        """Forget the whole conversation, the summary of its older turns included (roadmap
+        R27b), after any reply or summary being made. Returns how many turns were cleared."""
+        with self._busy:
+            self.wait()
+            with self._lock:
+                cleared = len(self._transcript)
+                self._transcript, self._turns, self._summary = [], [], None
+                self._told = ([], None)
+        logger.info("Conversation cleared", extra={"turns": cleared})
+        return cleared
+
     def warm_up(self) -> None:
         """Ready the LLM for the first prompt (roadmap R22a), when the client can."""
         if self._warm_up is not None:
