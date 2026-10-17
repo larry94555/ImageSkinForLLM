@@ -262,3 +262,18 @@ def test_check_pack(packed: tuple[Path, Path, Path], tmp_path: Path) -> None:
     junk.write_bytes(b"junk")
     with pytest.raises(dp.PackError, match="not a usable pack"):
         dp.check_pack(junk, name)
+
+
+def test_check_pack_needs_every_member(packed: tuple[Path, Path, Path], tmp_path: Path) -> None:
+    _, _, out = packed
+    with zipfile.ZipFile(out) as z:
+        items = {n: z.read(n) for n in z.namelist()}
+    assert set(dp.required_members(N_LOOP)) <= set(items)
+    for gone in ("shapes.json", "eye_align.npy", "eyes/03.png", f"loop/{N_LOOP - 4:04d}.png"):
+        other = tmp_path / f"without-{gone.replace('/', '-')}.zip"
+        with zipfile.ZipFile(other, "w") as z:
+            for n, data in items.items():
+                if n != gone:
+                    z.writestr(n, data)
+        with pytest.raises(dp.PackError, match=f"missing {gone}"):
+            dp.check_pack(other, dp.people()[0].name)

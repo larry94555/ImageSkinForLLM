@@ -24,6 +24,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from imageskin.liveportrait_edits import EYE_STAGES
 from imageskin.photoreal_library import (
     LIBRARY_VERSION,
     fill_loop,
@@ -31,6 +32,7 @@ from imageskin.photoreal_library import (
     library_key,
     mouth_key,
 )
+from imageskin.visemes import SHAPES
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +186,23 @@ def pack(person: Person, picture: Path, library: Path, output: Path) -> int:
     return size
 
 
+# The library's arrays a pack keeps as they are.
+ARRAYS = ("photo", "paste_template", "crop_landmarks", "crop_to_photo", "align", "eye_align")
+
+
+def required_members(n_loop: int) -> list[str]:
+    """Every file a pack of a library with an idle loop of `n_loop` frames must hold."""
+    return [
+        "person.json",
+        "picture.png",
+        "shapes.json",
+        *(f"{a}.npy" for a in ARRAYS),
+        *(f"shapes/{i:02d}.png" for i in range(len(SHAPES))),
+        *(f"eyes/{i:02d}.png" for i in range(len(EYE_STAGES))),
+        *(f"loop/{i:04d}.png" for i in key_frames(n_loop)),
+    ]
+
+
 def _usable_info(z: zipfile.ZipFile) -> dict[str, Any]:
     """The pack's person.json, if this version of the app can use the pack."""
     info: dict[str, Any] = json.loads(z.read("person.json"))
@@ -195,6 +214,9 @@ def _usable_info(z: zipfile.ZipFile) -> dict[str, Any]:
         raise PackError(f"library version {info.get('library_version')} is not supported")
     if info.get("mouth") != mouth_key():
         raise PackError("the pack was made with other mouth settings")
+    missing = sorted(set(required_members(int(info["loop_frames"]))) - set(z.namelist()))
+    if missing:
+        raise PackError(f"the pack is missing {', '.join(missing[:3])}")
     return info
 
 

@@ -36,11 +36,16 @@ def write_pack(path: Path, name: str, **change: Any) -> None:
         "library_version": LIBRARY_VERSION,
         "mouth": mouth_key(),
         "name": name,
+        "loop_frames": 8,
         **change,
     }
+    leave_out = info.pop("leave_out", None)
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("person.json", json.dumps(info))
         z.writestr("picture.png", "picture bytes")
+        for member in dp.required_members(8)[2:]:
+            if member != leave_out:
+                z.writestr(member, "x")
 
 
 def test_every_role_has_a_look() -> None:
@@ -262,12 +267,14 @@ def test_mouth_box_maps_the_window_into_the_photo() -> None:
     assert mouth_box(lib) == (25, 47, 50, 60)
 
 
-@pytest.mark.parametrize("damage", ["stale library", "corrupt member"])
+@pytest.mark.parametrize("damage", ["stale library", "corrupt member", "missing member"])
 def test_a_pack_the_app_cant_use_is_made_again(tmp_path: Path, picked: Result, damage: str) -> None:
     done = run_video(PERSON, picked, tmp_path, steps(tmp_path))
     pack_file = tmp_path / done.pack
     if damage == "stale library":
         write_pack(pack_file, PERSON.name, library_version=LIBRARY_VERSION - 1)
+    elif damage == "missing member":
+        write_pack(pack_file, PERSON.name, leave_out="loop/0004.png")
     else:
         data = pack_file.read_bytes()
         at = data.index(b"picture bytes")
