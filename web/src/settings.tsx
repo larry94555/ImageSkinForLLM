@@ -7,6 +7,7 @@ import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
+import { VideoAndChat } from "./video-and-chat";
 import { YourFiles } from "./your-files";
 
 interface Shared {
@@ -200,6 +201,7 @@ export function SettingsPage({ back }: { back: string }) {
         </section>
       ))}
       <YourFiles />
+      <VideoAndChat />
       <p>
         <a className="button" href={back}>
           Return to the app

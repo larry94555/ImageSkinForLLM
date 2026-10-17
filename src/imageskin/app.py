@@ -38,6 +38,8 @@ from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
+    ENGINE_FAILED,
+    NOT_PREPARED,
     REPLY_SIDE,
     ClipName,
     ClipSteps,
@@ -753,7 +755,11 @@ def create_app(
     def put_accent(body: AccentRequest) -> AccentChoice:
         if body.accent != "own" and voice_kind not in CLONES:
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
-        if not job.change_accent(lambda: save_accent(data_home, body.accent)):
+        try:
+            changed = job.change_accent(lambda: save_accent(data_home, body.accent))
+        except PrepareError as e:  # the sample is being made again (R27b)
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        if not changed:
             # The running job would finish in the old accent; it is chosen before or after it.
             raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE)
         return get_accent()
@@ -1182,30 +1188,80 @@ def create_app(
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:
         """Speak a reply in the person's voice and render it on their photo, for an LLM that
         doesn't stream. The video's address, or null when the reply has nothing to say aloud."""
-        turns = conversation.turns()
-        if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
-            raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
-        photo = chosen_photo()
-        if photo is None:
-            raise HTTPException(status_code=409, detail="The photo was removed. Choose another.")
+        # Listed before the reply is looked up, so Clear conversation (R27b) stops it whether it
+        # comes before or after; one without the browser's id is listed under one of its own.
         stop = threading.Event()
-        if body.reply_id is not None:
-            with clips_lock:
-                if body.reply_id in stopped_early:  # stopped before it was asked for
-                    stopped_early.discard(body.reply_id)
-                    stop.set()
-                whole_videos[body.reply_id] = stop
+        key = body.reply_id or f"video-{id(stop)}"
+        with clips_lock:
+            if body.reply_id in stopped_early:  # stopped before it was asked for
+                stopped_early.discard(body.reply_id)
+                stop.set()
+            whole_videos[key] = stop
         try:
-            path = replies.render(photo, body.turn, turns[body.turn].content, stop.is_set)
-        except Exception as e:
-            # The voice and video engines' errors say what went wrong; the reply is still shown.
-            raise HTTPException(status_code=502, detail=str(e)) from e
+            # Read before the turns: a clear after this drops the video (R27b), and the turns
+            # read after a clear are the new conversation's.
+            generation = replies.generation
+            turns = conversation.turns()
+            if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
+                raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
+            photo = chosen_photo()
+            if photo is None:
+                raise HTTPException(
+                    status_code=409, detail="The photo was removed. Choose another."
+                )
+            try:
+                path = replies.render(
+                    photo, body.turn, turns[body.turn].content, stop.is_set, generation
+                )
+            except Exception as e:
+                # The voice and video engines' errors say what went wrong; the reply is still
+                # shown.
+                raise HTTPException(status_code=502, detail=str(e)) from e
         finally:
-            if body.reply_id is not None:
-                with clips_lock:
-                    if whole_videos.get(body.reply_id) is stop:
-                        del whole_videos[body.reply_id]
+            with clips_lock:
+                if whole_videos.get(key) is stop:
+                    del whole_videos[key]
         return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
+
+    @app.post("/api/prepare/clips/sample/again", dependencies=needs_consent)
+    def run_video_test_again() -> dict[str, object]:
+        """Run the video test again from Settings (roadmap R27b): render the sample video afresh
+        from the prepared face and voice. It waits for any prompt being answered and holds the
+        engines, so a reply and the sample are never made at once."""
+        if job.clip("sample") is None:  # said at once, before the engines are made ready
+            raise HTTPException(status_code=409, detail=NOT_PREPARED)
+        try:
+            with chat_lock, replies.engines():
+                seconds = job.render_sample_again()
+        except PrepareError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        except Exception as e:
+            logger.error("Could not run the video test again", extra={"error": str(e)})
+            raise HTTPException(status_code=502, detail=ENGINE_FAILED) from e
+        return {"video": "/api/prepare/clips/sample", "seconds": seconds}
+
+    @app.delete("/api/chat", dependencies=needs_consent)
+    def clear_chat() -> dict[str, int]:
+        """Clear conversation from Settings (roadmap R27b), once the browser has asked to
+        confirm. It waits for a prompt being answered, so that reply is cleared too."""
+        with chat_lock:
+            # The replies' videos go too: those being made are stopped and never published,
+            # and those made are removed, so none of what was said can still be played.
+            with clips_lock:
+                streamed = list(sentence_clips.values())
+                sentence_clips.clear()
+                for stop in whole_videos.values():
+                    stop.set()
+            for clips in streamed:
+                threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
+            # The conversation first: a video asked for after replies.clear() reads it empty.
+            cleared = conversation.clear()
+            videos = replies.clear()
+        logger.info(
+            "Reply videos cleared",
+            extra={"videos": videos, "streamed_replies": len(streamed)},
+        )
+        return {"cleared": cleared}
 
     @app.get("/api/chat/idle", dependencies=needs_consent)
     def get_idle_video() -> FileResponse:
@@ -1221,8 +1277,8 @@ def create_app(
 
     @app.get("/api/chat/videos/{turn}", dependencies=needs_consent)
     def get_reply_video(turn: int) -> FileResponse:
-        path = replies.path(turn)
-        if not path.is_file():
+        path = replies.video(turn)
+        if path is None:
             raise HTTPException(status_code=404, detail="No video for that reply.")
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
         return FileResponse(path, media_type="video/mp4", headers=headers)

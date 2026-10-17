@@ -110,6 +110,21 @@ export async function checkUpload(kind: Kind, id: string): Promise<Upload> {
   return (await response.json()) as Upload;
 }
 
+// Renders the sample video again from what was prepared (roadmap R27b); returns its address.
+// Throws a ServerRefusal saying why, such as nothing prepared yet.
+export async function runVideoTestAgain(): Promise<string> {
+  const response = await fetch("/api/prepare/clips/sample/again", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { video: string }).video;
+}
+
+// Clears the whole conversation (roadmap R27b); returns how many turns were cleared.
+export async function clearChat(): Promise<number> {
+  const response = await fetch("/api/chat", { method: "DELETE" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { cleared: number }).cleared;
+}
+
 export async function getVoiceSample(): Promise<VoiceSample> {
   return json<VoiceSample>(await fetch("/api/voice-sample"));
 }
