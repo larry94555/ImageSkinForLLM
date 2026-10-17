@@ -10,6 +10,8 @@ from default_person import (
     PEOPLE,
     REALISM,
     ROLE_LOOKS,
+    VARIED_LOOKS,
+    VARIED_PEOPLE,
     VOICES,
     Person,
     Result,
@@ -40,6 +42,23 @@ def test_people_cover_each_gender_and_realism_with_different_roles() -> None:
     assert kinds == {(g, r) for g in ("female", "male") for r in REALISM}
     assert {p.role for p in PEOPLE} == set(ROLE_LOOKS)
     assert len({p.name for p in PEOPLE}) == len(PEOPLE)
+
+
+def test_varied_people_are_a_second_face_for_each_first_person() -> None:
+    assert [p.name for p in VARIED_PEOPLE] == [f"{p.name}_2" for p in PEOPLE]
+    # Each looks different, and no word of the look gets into the file name.
+    assert len(set(VARIED_LOOKS)) == len(VARIED_LOOKS)
+    for person in VARIED_PEOPLE:
+        words = {w.strip(",").lower() for w in person.look.split()}
+        assert not words & set(person.name.split("_")), person.name
+
+
+def test_prompt_includes_the_look_only_when_given() -> None:
+    plain = prompt(Person("male", "photoreal", "Professor"))
+    varied = prompt(VARIED_PEOPLE[0])
+    assert "late fifties wearing" in plain
+    assert varied.startswith(f"a man in their late fifties, {VARIED_PEOPLE[0].look}, wearing a")
+    assert REALISM["photoreal"] in varied and "facing the camera" in varied
 
 
 def test_every_gender_has_an_american_and_a_british_voice() -> None:
@@ -172,6 +191,14 @@ def test_page_and_results(tmp_path: Path) -> None:
     assert build_page([]).startswith("<!doctype html>")
 
 
+def test_a_second_face_gets_its_own_files(tmp_path: Path) -> None:
+    person = Person("female", "animated", "Teenager", face=2, look="with curly hair")
+    r = run_person(person, tmp_path, fake_picture, passes, lambda photo: "face", fake_render)
+    assert r.picture == "animated_female_teenager_2.png"
+    assert r.videos["American"] == "animated_female_teenager_2_american.mp4"
+    assert "with curly hair" in r.prompt
+
+
 def test_exit_status_is_0_only_when_everyone_passed_and_talked() -> None:
     def full(p: Person) -> Result:
         accents = [a for a, _, _ in voices_for(p.gender)]
@@ -195,6 +222,15 @@ def test_exit_status_is_0_only_when_everyone_passed_and_talked() -> None:
         for key, value in change.items():
             setattr(broken[3], key, value)
         assert exit_status(broken, pictures_only=False) == 1, change
+
+
+def test_exit_status_checks_the_people_of_the_run() -> None:
+    varied = [
+        Result(p.name, "", "x.png", score=90, videos={"American": "a", "British": "b"})
+        for p in VARIED_PEOPLE
+    ]
+    assert exit_status(varied, pictures_only=False, people=VARIED_PEOPLE) == 0
+    assert exit_status(varied, pictures_only=False) == 1  # not R24a's eight
 
 
 def test_video_pass_keeps_a_failed_picture_pass_and_never_makes_a_picture(
