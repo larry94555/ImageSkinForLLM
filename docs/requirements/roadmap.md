@@ -21,7 +21,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 4.1% | 5 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.8% | 1 of 1 |
 | 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 5.7% | 2 of 7 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.7% | 1 of 7 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.7% | 2 of 7 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 1.6% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 1.6% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 3.3% | 0 |
@@ -34,7 +34,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 19 | **Many teachers on me0.ai.** A teacher signs up, starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71 | 11 | 9.0% | 0 |
 | 20 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.7% | 0 |
 | 21 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 4.1% | 0 |
-| | **Total** | | **122** | **54.9% done** | **67 of 122** |
+| | **Total** | | **122** | **55.7% done** | **68 of 122** |
 
 Sizes: 33 Simple, 89 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -543,9 +543,10 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** open Settings from any screen, turn on answers outside the content, ask an off-topic question and see it answered, and return to where you were.
 - **Built:** only the settings changed are saved in `ui-settings.json`, so a setting never changed follows its default, which for the question scope is the config file's. The log has `Question scope` at start-up with `general_prompts` and `config_general_prompts`, and `Settings changed` with each change; the browser console has `Settings page opened` and `Settings changed` with how long the save took.
 
-### R27a. Your photos and recordings in Settings (Medium) · item 8 (part 1)
+### R27a. Your photos and recordings in Settings (Medium) · item 8 (part 1) · Done in [PR #101](https://github.com/larry94555/ImageSkinForLLM/pull/101)
 - The Settings page lists the photos and recordings in use, to view each photo and play each recording, with **Check again** on each to run its photo or sound checks again (items 2 and 3), showing the result as setup does.
 - **Can show:** from Settings, play a recording, view a photo, and check both again.
+- **Built:** the page shows the photo the video is made from and the recordings that passed the checks (the ones in the voice sample), each with **Check again**. What is in use is read again after each check, and a file that drops out is marked so with its result; setup is where a file is added, removed or chosen. A check that can't run, because the checks are off or fail, is an error, never the saved result. The log has `Upload checked` with `kind`, `upload`, `problems` and `check_ms`, or `Upload could not be checked`; the browser console has `Photos and recordings in use` and `Checked again` with how long the check took.
 
 ### R27b. Run the video test again and clear conversation (Simple) · item 8 (part 1)
 - **Run the video test again** renders the sample video again and plays it, and **Clear conversation** clears the chat after asking to confirm. R51 later limits clearing to what was saved.

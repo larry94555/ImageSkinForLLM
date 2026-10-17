@@ -394,7 +394,8 @@ def test_checking_needs_a_stored_photo(tmp_path: Path) -> None:
 
 def test_a_check_that_fails_keeps_the_photo_unchecked(tmp_path: Path) -> None:
     old = UploadStore(tmp_path).save("photos", "old.jpg", io.BytesIO(JPG))
-    assert UploadStore(tmp_path).check("photos", old.id) == old  # checks are off
+    with pytest.raises(uploads.UploadError, match="photo checks are off"):
+        UploadStore(tmp_path).check("photos", old.id)
     assert [u.problems for u in UploadStore(tmp_path).list("photos")] == [None]
 
 
@@ -406,9 +407,53 @@ def test_old_results_stay_hidden_when_the_recheck_cannot_run(tmp_path: Path) -> 
         raise RuntimeError("models missing")
 
     with patch.object(uploads, "FACE_CHECKS", uploads.FACE_CHECKS + 1):
-        assert UploadStore(tmp_path).check("photos", photo.id).problems is None  # type: ignore[union-attr]
+        with pytest.raises(uploads.UploadError, match="checks are off"):
+            UploadStore(tmp_path).check("photos", photo.id)
         store.check_photo = broken
-        assert store.check("photos", photo.id).problems is None  # type: ignore[union-attr]
+        with pytest.raises(uploads.UploadError) as raised:
+            store.check("photos", photo.id)
+        assert raised.value.status == 503
+        assert [u.problems for u in store.list("photos")] == [None]
+
+
+def test_a_recheck_that_cannot_run_is_an_error_not_the_old_result(tmp_path: Path) -> None:
+    # Check again (R27a) must not show the saved pass as if the checks had just passed.
+    store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
+    assert photo.problems == []
+
+    def broken(p: Path) -> PhotoResult:
+        raise RuntimeError("models missing")
+
+    store.check_photo = broken
+    with pytest.raises(uploads.UploadError, match="could not run"):
+        store.check("photos", photo.id)
+    assert store.list("photos") == [photo]  # the saved result is kept
+
+
+def test_a_recheck_with_the_checks_off_is_an_error_not_the_old_result(tmp_path: Path) -> None:
+    # Check again (R27a) with MediaPipe gone must not show the saved pass as new.
+    photo = UploadStore(tmp_path, check_photo=lambda p: GOOD).save(
+        "photos", "me.jpg", io.BytesIO(JPG)
+    )
+    assert photo.problems == []
+    off = UploadStore(tmp_path, check_photo=None)
+    with pytest.raises(uploads.UploadError, match="photo checks are off") as raised:
+        off.check("photos", photo.id)
+    assert raised.value.status == 503
+    assert off.list("photos") == [photo]  # the saved result is kept
+
+
+def test_a_photo_removed_while_it_is_checked_keeps_its_saved_result(tmp_path: Path) -> None:
+    store = UploadStore(tmp_path, check_photo=lambda p: GOOD)
+    photo = store.save("photos", "me.jpg", io.BytesIO(JPG))
+
+    def remove_then_find(p: Path) -> PhotoResult:
+        p.unlink()  # DELETE lands while the checks run
+        return SMALL
+
+    store.check_photo = remove_then_find
+    assert store.check("photos", photo.id) == photo
 
 
 def test_a_photo_removed_while_its_result_is_saved_leaves_no_info_file(tmp_path: Path) -> None:
