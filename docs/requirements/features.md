@@ -106,11 +106,16 @@ Added by Larry on 2026-10-08. The app becomes a question and answer app over a s
 ### History
 
 34. **Interaction history.** Every question and answer is kept, with its date and time and whether it came from an anonymous visitor or from which signed-up user.
-35. **My history.** A signed-in student sees their own history and can clear it, under the save rule in item 37. Clearing is soft: it disappears from what the student sees but stays available to the administrator.
-36. **User history page.** The administrator has a page with every prompt and every answer, organized by date and time, by signed-in user, or as anonymous, to review everything that has happened.
+35. **My history, and deleting from the record.** A signed-in student sees their own history. Changed by Larry on 2026-10-17 (before, a student's clear only hid their history from them and kept it for the administrator):
+   - **The teacher (administrator, or the host in a business) can delete** any question, with its answer, from the chat history, on the user history page (item 36).
+   - **The student can delete** any of their own questions, with its answer, from their history, so a statement they don't want on their record is not kept, but only when the setting below allows it.
+   - **Student deleting setting.** A setting chooses whether students can delete parts of their chat history. A business would usually turn it off, so the record stays complete; a school may need it on. Off by default *(default)*.
+
+   A deleted question is removed from the record for everyone, the administrator included: it is no longer in the history, search, topics, ratings, statistics, summaries or profile (items 36 to 47). The log notes only that a question was deleted and by whom, never its words *(default)*. Deleting one question needs no save first (item 37).
+36. **User history page.** The administrator has a page with every prompt and every answer not deleted (item 35), organized by date and time, by signed-in user, or as anonymous, to review everything that has happened.
 37. **Save before clear, and load.** Larry, 2026-10-08:
    - **Save.** The conversation can be saved to a file.
-   - **Clear only what was saved.** Clearing a conversation (item 8's "Clear conversation" and item 35's clear) needs the conversation to be saved first. Only the parts that were saved successfully can be cleared; anything not saved successfully cannot be cleared and stays.
+   - **Clear only what was saved.** Clearing a conversation (item 8's "Clear conversation") needs the conversation to be saved first. Only the parts that were saved successfully can be cleared; anything not saved successfully cannot be cleared and stays.
    - **Load.** A saved file can be loaded back into the conversation history. Loading adds to the existing history and never replaces it, and it is idempotent: loading the same file again, or a file whose turns are already in the history, adds nothing twice.
 
 ### How this changes earlier items
@@ -144,16 +149,16 @@ Added by Larry on 2026-10-09. These build on the history in items 34 to 37 and c
 42. **Search one student's history.** On the user history page (item 36), the administrator searches the conversation history of a chosen student, by words in the questions and answers, and can narrow by date and topic.
 43. **Search all histories.** The same search on the same page across the conversation histories of all students. Anonymous questions are included and marked as anonymous *(default)*.
 
-Search covers turns a student has cleared, since clearing only hides them from the student (item 35).
+Search never finds a deleted question or its answer (item 35).
 
 ### Statistics and summaries
 
 44. **Topic statistics page.** For each topic: how many questions were asked about it, which topics were not asked about at all, and how many strong, weak and unrated questions it drew (item 40), as counts by question type rather than a single score. Topic counts include anonymous questions; strong and weak come from signed-in students only.
 45. **Student summary page.** One page per student showing their profile (item 41): each topic they asked about, with the counts of their strong, weak and unrated questions on it and the questions themselves.
 
-### Clearing history
+### Deleting from history
 
-46. **Heads-up before clearing.** When a student clears their history, the confirmation in the existing save-then-clear flow (items 35 and 37) says: "Clearing hides this conversation from your view. It remains available to the administrator." The clear goes ahead only after they confirm; there is no separate way to clear.
+46. **Heads-up before deleting.** When a student or the teacher deletes a question (item 35), a confirmation says: "Deleting removes this question and its answer from the record for everyone. This can't be undone." The delete goes ahead only after they confirm. Changed by Larry on 2026-10-17; before, it said a cleared conversation stays available to the administrator.
 
 ## Interests and personality
 
