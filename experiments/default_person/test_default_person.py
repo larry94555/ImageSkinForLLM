@@ -17,6 +17,7 @@ from default_person import (
     exit_status,
     prompt,
     run_person,
+    run_videos,
     voices_for,
     write_results,
 )
@@ -194,3 +195,38 @@ def test_exit_status_is_0_only_when_everyone_passed_and_talked() -> None:
         for key, value in change.items():
             setattr(broken[3], key, value)
         assert exit_status(broken, pictures_only=False) == 1, change
+
+
+def test_video_pass_keeps_a_failed_picture_pass_and_never_makes_a_picture(
+    tmp_path: Path,
+) -> None:
+    person = Person("female", "animated", "Parent")
+
+    def boom(text: str, seed: int, path: Path) -> None:
+        raise RuntimeError("out of memory")
+
+    first = run_person(person, tmp_path, boom, passes, None, None)
+    assert first.error and not (tmp_path / f"{person.name}.png").exists()
+
+    def no_prepare(photo: Path) -> Any:
+        raise AssertionError("prepared after a failed picture pass")
+
+    assert run_videos(person, first, tmp_path, passes, no_prepare, fake_render) is first
+    failed_checks = Result(person.name, "", f"{person.name}.png", problems=["Too dark"])
+    assert run_videos(person, failed_checks, tmp_path, passes, no_prepare, fake_render) is (
+        failed_checks
+    )
+
+
+def test_video_pass_uses_the_picture_from_the_picture_pass(tmp_path: Path) -> None:
+    person = Person("male", "animated", "Boss")
+    first = run_person(person, tmp_path, fake_picture, passes, None, None)
+    first.picture_ms, first.reused = 660000.0, True
+    r = run_videos(person, first, tmp_path, passes, lambda photo: "face", fake_render)
+    assert set(r.videos) == {"American", "British"} and not r.error
+    assert r.picture_ms == 660000.0 and r.reused
+
+    # The picture went missing after the picture pass: a failure, not a new picture.
+    (tmp_path / f"{person.name}.png").unlink()
+    r = run_videos(person, first, tmp_path, passes, lambda photo: "face", fake_render)
+    assert "is gone since the picture pass" in r.error and not r.videos

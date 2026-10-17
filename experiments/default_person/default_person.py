@@ -183,6 +183,23 @@ def run_person(
     return result
 
 
+def run_videos(
+    person: Person, first: Result, out: Path, check: CheckPhoto, prepare: Prepare, render: Render
+) -> Result:
+    """The video pass for one person, from the picture pass's result. It never makes a picture,
+    since the picture model was freed to make room for the photoreal engine, so a person whose
+    picture pass failed keeps that result."""
+    if first.error or first.problems or not first.picture:
+        return first
+
+    def no_picture(text: str, seed: int, path: Path) -> None:
+        raise FileNotFoundError(f"{path.name} is gone since the picture pass")
+
+    result = run_person(person, out, no_picture, check, prepare, render, reuse_picture=True)
+    result.picture_ms, result.reused = first.picture_ms, first.reused
+    return result
+
+
 def _cell(r: Result) -> str:
     if r.error:
         verdict = f"<b>Failed.</b> {escape(r.error)}"
@@ -347,12 +364,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
 
         for i, person in enumerate(PEOPLE):
             print(f"[{i + 1}/{n}] Video: {person.name} (about 6 minutes)", flush=True)
-            # The picture was made or kept in the first pass, so this pass always keeps it.
-            first = results[i]
-            results[i] = run_person(
-                person, args.output, make_picture, check, video.prepare, render, True
-            )
-            results[i].picture_ms, results[i].reused = first.picture_ms, first.reused
+            results[i] = run_videos(person, results[i], args.output, check, video.prepare, render)
             write_results(args.output, results)
     passed = sum(1 for r in results if r.picture and not r.problems and not r.error)
     talked = sum(1 for r in results if len(r.videos) == 2)
