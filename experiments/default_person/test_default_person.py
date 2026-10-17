@@ -14,8 +14,10 @@ from default_person import (
     Person,
     Result,
     build_page,
+    exit_status,
     prompt,
     run_person,
+    voices_for,
     write_results,
 )
 
@@ -167,3 +169,28 @@ def test_page_and_results(tmp_path: Path) -> None:
     saved = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
     assert saved[0]["videos"]["British"] == "b.mp4"
     assert build_page([]).startswith("<!doctype html>")
+
+
+def test_exit_status_is_0_only_when_everyone_passed_and_talked() -> None:
+    def full(p: Person) -> Result:
+        accents = [a for a, _, _ in voices_for(p.gender)]
+        return Result(p.name, "", "x.png", score=90, videos={a: f"{a}.mp4" for a in accents})
+
+    everyone = [full(p) for p in PEOPLE]
+    assert exit_status(everyone, pictures_only=False) == 0
+    pictures = [Result(p.name, "", f"{p.name}.png", score=90) for p in PEOPLE]
+    assert exit_status(pictures, pictures_only=True) == 0
+    # Pictures only, but videos were asked for.
+    assert exit_status(pictures, pictures_only=False) == 1
+    # One person missing, failed the checks, had an error, or talked in one voice only.
+    assert exit_status(everyone[:-1], pictures_only=False) == 1
+    for change in (
+        {"problems": ["Too dark"]},
+        {"error": "Could not prepare: boom"},
+        {"picture": ""},
+        {"videos": {"American": "a.mp4"}},
+    ):
+        broken = [full(p) for p in PEOPLE]
+        for key, value in change.items():
+            setattr(broken[3], key, value)
+        assert exit_status(broken, pictures_only=False) == 1, change

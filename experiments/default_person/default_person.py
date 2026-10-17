@@ -24,6 +24,8 @@ logger = logging.getLogger("default_person_test")
 
 # Segmind SSD-1B (Apache 2.0): a distilled Stable Diffusion XL, half its size, so it fits a CPU.
 IMAGE_MODEL = "segmind/SSD-1B"
+# The Hugging Face commit the checked-in pictures were made with, so a rerun gets the same files.
+IMAGE_REVISION = "60987f37e94cd59c36b1cba832b9f97b57395a10"
 STEPS = 25
 SIZE = 1024
 LINE = "Hello! It's nice to meet you. What would you like to talk about today?"
@@ -218,7 +220,8 @@ td {{ display: block; border: 1px solid #ccc; padding: 8px; width: 300px; vertic
 img, video {{ width: 100%; display: block; }} h2 {{ font-size: 1rem; margin: 0 0 6px; }}
 </style></head><body>
 <h1>Default person test</h1>
-<p>{passed} of {len(results)} pictures passed the photo checks. Pictures by {IMAGE_MODEL};
+<p>{passed} of {len(results)} pictures passed the photo checks. Pictures by {IMAGE_MODEL}
+(revision {IMAGE_REVISION[:7]});
 voices by Kokoro-82M ({escape(voices)}). Each says: "{escape(LINE)}"</p>
 <table><tr class="grid">{cells}</tr></table>
 </body></html>
@@ -232,6 +235,20 @@ def write_results(out: Path, results: list[Result]) -> Path:
     page = out / "index.html"
     page.write_text(build_page(results), encoding="utf-8")
     return page
+
+
+def exit_status(results: list[Result], pictures_only: bool) -> int:
+    """0 only if every person passed the photo checks and, unless only pictures were made,
+    talked in both voices; so a script or a shell can tell a failed run."""
+    voices = {p.name: len(voices_for(p.gender)) for p in PEOPLE}
+    if sorted(r.person for r in results) != sorted(voices):
+        return 1
+    for r in results:
+        if r.error or r.problems or not r.picture:
+            return 1
+        if not pictures_only and len(r.videos) != voices[r.person]:
+            return 1
+    return 0
 
 
 def ssd1b_maker() -> tuple[MakePicture, Callable[[], None]]:  # pragma: no cover - the model
@@ -250,7 +267,11 @@ def ssd1b_maker() -> tuple[MakePicture, Callable[[], None]]:  # pragma: no cover
         # half-size fp16 weights download in half the time; the CPU runs them as float32.
         # Decoding in tiles keeps memory down at 1024 by 1024.
         pipe = StableDiffusionXLPipeline.from_pretrained(
-            IMAGE_MODEL, variant="fp16", torch_dtype=torch.float32, use_safetensors=True
+            IMAGE_MODEL,
+            revision=IMAGE_REVISION,
+            variant="fp16",
+            torch_dtype=torch.float32,
+            use_safetensors=True,
         )
         pipe.vae.enable_tiling()
         return pipe
@@ -348,7 +369,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     )
     print(f"Done: {passed} of {n} passed the photo checks, {talked} talked in both voices.")
     print(f"Wrote {page}")
-    return 0
+    return exit_status(results, args.pictures_only)
 
 
 if __name__ == "__main__":  # pragma: no cover

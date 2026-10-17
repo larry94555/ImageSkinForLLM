@@ -22,7 +22,9 @@ visible, and names no real person or public figure (item 57). The prompts are in
 
 **[Segmind SSD-1B](https://huggingface.co/segmind/SSD-1B)**, through Hugging Face's Diffusers
 (Apache 2.0), 25 steps at 1024 by 1024, a fixed seed per person so a rerun makes the same
-picture.
+picture. The script pins the model to the Hugging Face commit the pictures were made with,
+`60987f37e94cd59c36b1cba832b9f97b57395a10` (2024-01-08, `IMAGE_REVISION`), so a later change to
+the model's repository can't change what a rerun downloads.
 
 - **License:** Apache 2.0, so the pictures can be used commercially and on a hosted site, and
   each costs nothing to make. No sign-in is needed to download it.
@@ -154,7 +156,9 @@ in as each person is done. While it runs, the window shows `[3/8] Picture: …` 
 then `[3/8] Video: …` for each person being prepared and rendered, between the JSON log lines. It
 is finished when it logs `"message": "Default person test done"` (with `passed_photo_checks`,
 `talked_in_both_voices` and the run's `duration_ms`), prints `Done: 8 of 8 passed the photo
-checks, 8 talked in both voices.` and `Wrote …index.html`, and the prompt comes back. The folder then holds 8 pictures, 16 videos
+checks, 8 talked in both voices.` and `Wrote …index.html`, and the prompt comes back. It exits
+with status 0 only if every person passed the photo checks and (unless `--pictures-only`) talked in
+both voices, and with 1 otherwise, after finishing every person and writing the page. The folder then holds 8 pictures, 16 videos
 (`<person>_american.mp4` and `<person>_british.mp4`), `index.html` and `results.json`. Each person is logged as a `Default person done` JSON line with their
 photo check result (`problems`, `score`), `videos`, `picture_ms` and `prepare_ms`; a step that
 fails is logged as `Default person failed` with the step, and the run goes on to the next
