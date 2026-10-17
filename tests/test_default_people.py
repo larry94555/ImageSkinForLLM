@@ -219,3 +219,28 @@ def test_unpacking_again_replaces_the_library(
     (folder / "loop" / "0001.npy").unlink()  # as if damaged
     assert dp.unpack(out, home) == got
     assert len(list((folder / "loop").glob("*.npy"))) == N_LOOP
+
+
+def test_a_failed_swap_puts_the_library_back(
+    packed: tuple[Path, Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    _, _, out = packed
+    home = tmp_path / "home"
+    got = dp.unpack(out, home)
+    folder = home / "photoreal" / library_key(got)
+    before = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    replace = os.replace
+
+    def fail_new_into_place(src: Path, dst: Path) -> None:
+        if Path(src).name == "library":  # the finished work folder moving into place
+            raise OSError("disk full")
+        replace(src, dst)
+
+    monkeypatch.setattr("imageskin.default_people.os.replace", fail_new_into_place)
+    with pytest.raises(dp.PackError, match="disk full"):
+        dp.unpack(out, home)
+    after = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    assert after == before
+    assert [p.name for p in (home / "photoreal").iterdir()] == [folder.name]

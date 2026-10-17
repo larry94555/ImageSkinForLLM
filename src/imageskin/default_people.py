@@ -183,6 +183,22 @@ def pack(person: Person, picture: Path, library: Path, output: Path) -> int:
     return size
 
 
+def _swap_in(new: Path, folder: Path) -> None:
+    """Put the finished library `new` at `folder`. A library already there is moved aside first
+    and put back if the move fails, so it is removed only once the new one is in place."""
+    old = folder.with_name(folder.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if folder.exists():
+        os.replace(folder, old)
+    try:
+        os.replace(new, folder)
+    except OSError:
+        if old.exists():
+            os.replace(old, folder)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def unpack(pack_file: Path, home: Path) -> Path:
     """Unpack a person into the app's home: the picture as <home>/default-people/<name>.png and
     its library where prepare would put it, with the idle loop filled in. Returns the picture,
@@ -237,8 +253,7 @@ def unpack(pack_file: Path, home: Path) -> Path:
             encoding="utf-8",
         )
         folder = home / "photoreal" / library_key(new_picture)
-        shutil.rmtree(folder, ignore_errors=True)
-        os.replace(lib, folder)
+        _swap_in(lib, folder)
         picture.parent.mkdir(parents=True, exist_ok=True)
         os.replace(new_picture, picture)
     except (PackError, OSError, KeyError, ValueError, zipfile.BadZipFile) as e:
