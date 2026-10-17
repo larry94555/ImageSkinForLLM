@@ -41,6 +41,12 @@ other arrays compressed: about 28 MB. `default_people.unpack` fills in the other
 way prepare does, so the unpacked library is identical, bit for bit, to the one prepared here
 (checked on the first person), and it takes about 3 seconds.
 
+## Results (4-core cloud CPU, 2026-10-17)
+
+All 36 passed on the first seed: photo check scores 79 to 92, the mouth moved 2.9 to 5.5 times
+as much talking as idling, and the packs are 22.3 to 32.2 MB (0.97 GB for all 36). Each picture
+took 9 to 10.5 minutes and each prepare 4 to 5.6, 8.5 hours in all.
+
 **Where the packs are hosted:** as assets of a GitHub release of this repository (planned name
 `default-people-1`). Downloading them needs no sign-in and costs nothing, a release asset may
 be up to 2 GB, and they are kept out of the repository's history. R24c uploads them and
