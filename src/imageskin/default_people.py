@@ -19,6 +19,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -183,6 +184,35 @@ def pack(person: Person, picture: Path, library: Path, output: Path) -> int:
     return size
 
 
+def _usable_info(z: zipfile.ZipFile) -> dict[str, Any]:
+    """The pack's person.json, if this version of the app can use the pack."""
+    info: dict[str, Any] = json.loads(z.read("person.json"))
+    if info.get("pack_version") != PACK_VERSION:
+        raise PackError(f"pack version {info.get('pack_version')} is not supported")
+    # Library versions are part of the folder's key; a pack made for another version would be
+    # put where this one's libraries go, so it is refused.
+    if info.get("library_version") != LIBRARY_VERSION:
+        raise PackError(f"library version {info.get('library_version')} is not supported")
+    if info.get("mouth") != mouth_key():
+        raise PackError("the pack was made with other mouth settings")
+    return info
+
+
+def check_pack(pack_file: Path, name: str) -> None:
+    """Raise PackError unless the file is a whole pack of the named person that this version of
+    the app can unpack: every member passes its CRC check and the versions match."""
+    try:
+        with zipfile.ZipFile(pack_file) as z:
+            info = _usable_info(z)
+            if info.get("name") != name:
+                raise PackError(f"the pack is of {info.get('name')}, not {name}")
+            broken = z.testzip()
+            if broken is not None:
+                raise PackError(f"{broken} in the pack is damaged")
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile) as e:
+        raise PackError(f"{pack_file.name} is not a usable pack: {e}") from e
+
+
 def _swap_in(new: Path, folder: Path) -> None:
     """Put the finished library `new` at `folder`. A library already there is moved aside first
     and put back if the move fails, so it is removed only once the new one is in place."""
@@ -214,15 +244,7 @@ def unpack(pack_file: Path, home: Path) -> Path:
         lib = work / "library"
         (lib / "loop").mkdir(parents=True)
         with zipfile.ZipFile(pack_file) as z:
-            info = json.loads(z.read("person.json"))
-            if info.get("pack_version") != PACK_VERSION:
-                raise PackError(f"pack version {info.get('pack_version')} is not supported")
-            # Library versions are part of the folder's key; a pack made for another version
-            # would be put where this one's libraries go, so it is refused.
-            if info.get("library_version") != LIBRARY_VERSION:
-                raise PackError(f"library version {info.get('library_version')} is not supported")
-            if info.get("mouth") != mouth_key():
-                raise PackError("the pack was made with other mouth settings")
+            info = _usable_info(z)
             new_picture = work / "picture.png"
             new_picture.write_bytes(z.read("picture.png"))
             names = z.namelist()

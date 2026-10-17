@@ -19,7 +19,6 @@ import json
 import logging
 import os
 import time
-import zipfile
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from html import escape
@@ -28,7 +27,15 @@ from typing import Any
 
 import numpy as np
 
-from imageskin.default_people import MAX_PACK_BYTES, Person, pack, people, voices_for
+from imageskin.default_people import (
+    MAX_PACK_BYTES,
+    PackError,
+    Person,
+    check_pack,
+    pack,
+    people,
+    voices_for,
+)
 
 logger = logging.getLogger("default_people")
 
@@ -170,9 +177,17 @@ def make_picture_for(
 
 
 def packed(result: Result, out: Path) -> bool:
-    """Whether the person passed and their pack is still there as a zip: results.json is only a
-    record of the last run, so a pack deleted or damaged since is made again."""
-    return result.passed and zipfile.is_zipfile(out / result.pack)
+    """Whether the person passed and their pack is still there and usable: results.json is only
+    a record of the last run, so a pack deleted, damaged or made by an older version since is
+    made again."""
+    if not result.passed:
+        return False
+    try:
+        check_pack(out / result.pack, result.person)
+    except PackError as e:
+        logger.warning("Pack to make again", extra={"person": result.person, "reason": str(e)})
+        return False
+    return True
 
 
 def run_picture(

@@ -25,7 +25,22 @@ from make_default_people import (
 )
 
 from imageskin import default_people as dp
-from imageskin.default_people import Person, people
+from imageskin.default_people import PACK_VERSION, Person, people
+from imageskin.photoreal_library import LIBRARY_VERSION, mouth_key
+
+
+def write_pack(path: Path, name: str, **change: Any) -> None:
+    """A pack that check_pack accepts for `name`, with `change` made to its person.json."""
+    info = {
+        "pack_version": PACK_VERSION,
+        "library_version": LIBRARY_VERSION,
+        "mouth": mouth_key(),
+        "name": name,
+        **change,
+    }
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("person.json", json.dumps(info))
+        z.writestr("picture.png", "picture bytes")
 
 
 def test_every_role_has_a_look() -> None:
@@ -123,8 +138,7 @@ def picked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Result:
     sizes = {"bytes": 30_000_000}
 
     def fake_pack(person: Person, picture: Path, library: Path, output: Path) -> int:
-        with zipfile.ZipFile(output, "w") as z:
-            z.writestr("person.json", "{}")
+        write_pack(output, person.name)
         return sizes["bytes"]
 
     monkeypatch.setattr("make_default_people.pack", fake_pack)
@@ -189,15 +203,16 @@ def test_no_results_yet(tmp_path: Path) -> None:
 
 
 def test_exit_status_needs_all_36_packed(tmp_path: Path) -> None:
-    with zipfile.ZipFile(tmp_path / "x.zip", "w") as z:
-        z.writestr("person.json", "{}")
-    ok = [Result(p.name, "", pack="x.zip") for p in people()]
+    ok = []
+    for p in people():
+        write_pack(tmp_path / f"{p.name}.zip", p.name)
+        ok.append(Result(p.name, "", pack=f"{p.name}.zip"))
     assert exit_status(ok, tmp_path) == 0
     assert exit_status(ok[:-1], tmp_path) == 1
     ok[3].error = "Could not pack"
     assert exit_status(ok, tmp_path) == 1
     ok[3].error = ""
-    (tmp_path / "x.zip").write_bytes(b"damaged")
+    (tmp_path / ok[3].pack).write_bytes(b"damaged")
     assert exit_status(ok, tmp_path) == 1
 
 
@@ -245,3 +260,23 @@ def test_mouth_box_maps_the_window_into_the_photo() -> None:
     assert mouth_box(lib) == (25, 47, 65, 87)
     lib.photo = np.zeros((60, 50, 3), np.uint8)  # clipped to the photo
     assert mouth_box(lib) == (25, 47, 50, 60)
+
+
+@pytest.mark.parametrize("damage", ["stale library", "corrupt member"])
+def test_a_pack_the_app_cant_use_is_made_again(tmp_path: Path, picked: Result, damage: str) -> None:
+    done = run_video(PERSON, picked, tmp_path, steps(tmp_path))
+    pack_file = tmp_path / done.pack
+    if damage == "stale library":
+        write_pack(pack_file, PERSON.name, library_version=LIBRARY_VERSION - 1)
+    else:
+        data = pack_file.read_bytes()
+        at = data.index(b"picture bytes")
+        pack_file.write_bytes(data[:at] + b"X" + data[at + 1 :])
+    assert exit_status([done], tmp_path) == 1
+
+    def no_make(text: str, seed: int, path: Path) -> None:
+        raise AssertionError("made again")
+
+    again = run_picture(PERSON, tmp_path, no_make, pictures(set())[1], done)
+    assert again is not done and not again.pack
+    assert run_video(PERSON, again, tmp_path, steps(tmp_path)).passed

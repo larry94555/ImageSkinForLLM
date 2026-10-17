@@ -244,3 +244,21 @@ def test_a_failed_swap_puts_the_library_back(
     after = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
     assert after == before
     assert [p.name for p in (home / "photoreal").iterdir()] == [folder.name]
+
+
+def test_check_pack(packed: tuple[Path, Path, Path], tmp_path: Path) -> None:
+    _, _, out = packed
+    name = dp.people()[0].name
+    dp.check_pack(out, name)
+    with pytest.raises(dp.PackError, match="not someone_else"):
+        dp.check_pack(out, "someone_else")
+    data = out.read_bytes()
+    at = data.index(b"picture bytes")
+    damaged = tmp_path / "damaged.zip"
+    damaged.write_bytes(data[:at] + b"X" + data[at + 1 :])
+    with pytest.raises(dp.PackError, match="picture.png in the pack is damaged"):
+        dp.check_pack(damaged, name)
+    junk = tmp_path / "junk.zip"
+    junk.write_bytes(b"junk")
+    with pytest.raises(dp.PackError, match="not a usable pack"):
+        dp.check_pack(junk, name)
