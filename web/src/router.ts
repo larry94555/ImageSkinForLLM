@@ -29,6 +29,16 @@ const PAGES: Record<string, Page> = {
 // #/wiki/page/<entry id> a detail page.
 const WIKI_PDF = /^\/wiki\/([^/]+)$/;
 const WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
+// Setup opened at what to change from Settings (roadmap R28): #/setup/photos, #/setup/sounds or
+// #/setup/accent.
+const SETUP_PART = /^\/setup\/(photos|sounds|accent)$/;
+
+export type SetupPart = "photos" | "sounds" | "accent";
+
+// Which part of setup an address opens at, if any.
+export function setupTarget(hash: string): SetupPart | undefined {
+  return SETUP_PART.exec(pathOf(hash))?.[1] as SetupPart | undefined;
+}
 
 function pathOf(hash: string): string {
   return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
@@ -64,6 +74,7 @@ export function pageFor(hash: string): Page {
   const wiki = wikiTarget(hash);
   if (wiki.entry) return "wiki-page";
   if (wiki.pdf) return "wiki";
+  if (setupTarget(hash)) return "setup";
   return PAGES[path] ?? "not-found";
 }
 
