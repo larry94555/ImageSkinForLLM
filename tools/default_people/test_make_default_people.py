@@ -1,6 +1,7 @@
 """Unit tests for the R24b maker script, with fake models (nothing downloaded)."""
 
 import json
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -122,7 +123,8 @@ def picked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Result:
     sizes = {"bytes": 30_000_000}
 
     def fake_pack(person: Person, picture: Path, library: Path, output: Path) -> int:
-        output.write_bytes(b"zip")
+        with zipfile.ZipFile(output, "w") as z:
+            z.writestr("person.json", "{}")
         return sizes["bytes"]
 
     monkeypatch.setattr("make_default_people.pack", fake_pack)
@@ -186,12 +188,42 @@ def test_no_results_yet(tmp_path: Path) -> None:
     assert load_results(tmp_path) == {}
 
 
-def test_exit_status_needs_all_36_to_pass() -> None:
+def test_exit_status_needs_all_36_packed(tmp_path: Path) -> None:
+    with zipfile.ZipFile(tmp_path / "x.zip", "w") as z:
+        z.writestr("person.json", "{}")
     ok = [Result(p.name, "", pack="x.zip") for p in people()]
-    assert exit_status(ok) == 0
-    assert exit_status(ok[:-1]) == 1
+    assert exit_status(ok, tmp_path) == 0
+    assert exit_status(ok[:-1], tmp_path) == 1
     ok[3].error = "Could not pack"
-    assert exit_status(ok) == 1
+    assert exit_status(ok, tmp_path) == 1
+    ok[3].error = ""
+    (tmp_path / "x.zip").write_bytes(b"damaged")
+    assert exit_status(ok, tmp_path) == 1
+
+
+def test_a_run_after_an_error_tries_the_video_pass_again(tmp_path: Path, picked: Result) -> None:
+    failed = run_video(PERSON, picked, tmp_path, steps(tmp_path, talking=1.2))
+    assert failed.error
+
+    def no_make(text: str, seed: int, path: Path) -> None:
+        raise AssertionError("made again")
+
+    again = run_picture(PERSON, tmp_path, no_make, pictures(set())[1], failed)
+    assert not again.error and again.seed == 1 and again.mouth_ratio is None
+    assert run_video(PERSON, again, tmp_path, steps(tmp_path)).passed
+
+
+def test_a_passed_person_whose_pack_is_gone_is_packed_again(tmp_path: Path, picked: Result) -> None:
+    done = run_video(PERSON, picked, tmp_path, steps(tmp_path))
+    (tmp_path / done.pack).unlink()
+
+    def no_make(text: str, seed: int, path: Path) -> None:
+        raise AssertionError("made again")
+
+    again = run_picture(PERSON, tmp_path, no_make, pictures(set())[1], done)
+    assert again is not done and not again.pack
+    assert run_video(PERSON, again, tmp_path, steps(tmp_path)).passed
+    assert zipfile.is_zipfile(tmp_path / again.pack)
 
 
 def test_contact_sheet(tmp_path: Path) -> None:

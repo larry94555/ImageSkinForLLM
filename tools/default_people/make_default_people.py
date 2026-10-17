@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import time
+import zipfile
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from html import escape
@@ -168,14 +169,27 @@ def make_picture_for(
             return
 
 
+def packed(result: Result, out: Path) -> bool:
+    """Whether the person passed and their pack is still there as a zip: results.json is only a
+    record of the last run, so a pack deleted or damaged since is made again."""
+    return result.passed and zipfile.is_zipfile(out / result.pack)
+
+
 def run_picture(
     person: Person, out: Path, make: MakePicture, check: CheckPhoto, earlier: Result | None
 ) -> Result:
+    """The picture pass for one person. An earlier run's result for the same prompt is kept if
+    its pack is there; otherwise its picture and seed are kept, to be checked rather than made
+    again, and the rest is cleared so the video pass runs again."""
     result = Result(person.name, prompt(person))
     if earlier is not None and earlier.prompt == result.prompt:
-        result = earlier
-    if result.passed:
-        return result
+        if packed(earlier, out):
+            return earlier
+        result.seed, result.picture, result.picture_ms = (
+            earlier.seed,
+            earlier.picture,
+            earlier.picture_ms,
+        )
     try:
         make_picture_for(person, out, make, check, result)
     except Exception as e:  # any model's error: record it and go on with the next person
@@ -186,7 +200,7 @@ def run_picture(
 
 def run_video(person: Person, result: Result, out: Path, steps: VideoSteps) -> Result:
     """Prepare, render and check one person whose picture passed, then pack them."""
-    if result.passed or result.error or result.problems or not result.picture:
+    if packed(result, out) or result.error or result.problems or not result.picture:
         return result
     step = "prepare"
     try:
@@ -300,10 +314,11 @@ def write_results(out: Path, results: list[Result]) -> None:
     (out / "index.html").write_text(build_page(results), encoding="utf-8")
 
 
-def exit_status(results: list[Result]) -> int:
-    """0 only if all 36 passed, so a script or a shell can tell a failed run."""
+def exit_status(results: list[Result], out: Path) -> int:
+    """0 only if all 36 passed and their packs are there, so a script or a shell can tell a
+    failed run."""
     expected = sorted(p.name for p in people())
-    ok = sorted(r.person for r in results) == expected and all(r.passed for r in results)
+    ok = sorted(r.person for r in results) == expected and all(packed(r, out) for r in results)
     return 0 if ok else 1
 
 
@@ -440,7 +455,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
         extra={"people": len(ordered), "passed": passed, "duration_ms": _ms(start)},
     )
     print(f"Done: {passed} of {len(ordered)} passed. Wrote {(out / 'index.html').resolve()}")
-    return exit_status(ordered)
+    return exit_status(ordered, out)
 
 
 if __name__ == "__main__":  # pragma: no cover
