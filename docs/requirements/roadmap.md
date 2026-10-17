@@ -530,7 +530,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 
 ## Milestone 9: Settings, exit and return
 
-### R27. Settings page (Medium) · items 8 (part 1), 28 · Done in PR #PRNUM
+### R27. Settings page (Medium) · items 8 (part 1), 28 · Done in [PR #100](https://github.com/larry94555/ImageSkinForLLM/pull/100)
 - A **Settings** link at the right of the top bar on every screen opens a Settings page, which takes over R41a's Settings menu: the view (R41b), the timing metrics (R41a), Teach me, Quiz me, Assessment and Debug, grouped under View, Chat and Display, and **Return to the app**, back to the page it was opened from. The page is in both views, so a student view can be switched back.
 - The question scope setting from R41 moves here as **Answer questions outside the content**, holding from the next prompt; the config file's `general_prompts` is only its starting value. R27 was split in three on 2026-10-17 (Larry asked for the next PR that doesn't wait on R24b), so each stays Medium or smaller: R27a and R27b add the other options of item 8.
 - **Can show:** open Settings from any screen, turn on answers outside the content, ask an off-topic question and see it answered, and return to where you were.
