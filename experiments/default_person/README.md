@@ -1,4 +1,4 @@
-# Default person test (R24a)
+# Default person test (R24a, R24a2)
 
 Can the app start with a made-up person instead of the user's own photo and voice (features.md
 items 56 to 58)? This test makes eight default people, photoreal and animated, male and female,
@@ -94,6 +94,40 @@ animated faces were found by the photoreal engine's face finder like the photore
   realism (the professors look about forty, not late fifties). R24b's prompts should ask for a
   range of skin tones, ages and hair, and may need a second seed when a face is turned too far.
 
+## More varied faces (R24a2)
+
+R24a's eight people all came out white and alike, so `--varied` makes a second face for each of
+them (`VARIED_PEOPLE`), each of a different heritage with hair to suit: Black, East Asian, South
+Asian, Latino, Middle Eastern, Southeast Asian and Indigenous, beside R24a's white faces. Only the
+prompt describes the look; files are named by number (`photoreal_male_professor_2.png`), and no
+page a user sees names anyone's heritage (features.md item 60).
+
+The person goes first in these prompts (`a man in their late fifties, <look>, wearing ...`, then
+the style and framing). Added at the end of R24a's prompt, the look was ignored, and the first
+try made a white professor again; the end of a long prompt has little effect, and the text
+encoder keeps only the first 77 tokens, so the setting now comes last and is cut. R24a's own
+prompts are unchanged, so its pictures can be made again from the same seed.
+
+### Results (cloud, 4-core CPU, 2026-10-17)
+
+All eight passed every photo check and all eight prepared and talked in both voices: 16 videos,
+none failed. The darker and the animated faces were found like the others.
+
+| Second face | Photo check score |
+|---|---|
+| Photoreal man, Professor | 95 |
+| Photoreal woman, Boss | 84 |
+| Photoreal woman, Parent | 84 |
+| Photoreal boy, Teenager | 82 |
+| Animated woman, Professor | 83 |
+| Animated man, Boss | 91 |
+| Animated man, Parent | 86 |
+| Animated girl, Teenager | 82 |
+
+- **Time:** 8.6 to 9.2 minutes to make each picture and 3.7 to 4.4 to prepare it.
+- **Look:** `resources/default-people/contact-sheet.png` shows R24a's eight above the new
+  eight. Each new face has the clothes its role asks for.
+
 ## Run it
 
 Uses the app's own virtual environment (`.venv`, already set up with the `voice`, `photoreal`
@@ -123,6 +157,7 @@ pip freeze --all --exclude-editable > app-constraints.txt
 pip install -r experiments/default_person/requirements.txt -c app-constraints.txt
 cd experiments/default_person
 python default_person.py -o ../../default-person-test
+python default_person.py --varied -o ../../default-person-varied
 ```
 
 Windows 11, Command Prompt:
@@ -133,6 +168,7 @@ pip freeze --all --exclude-editable > app-constraints.txt
 pip install -r experiments\default_person\requirements.txt -c app-constraints.txt
 cd experiments\default_person
 python default_person.py -o ..\..\default-person-test
+python default_person.py --varied -o ..\..\default-person-varied
 ```
 
 Windows 11, PowerShell:
@@ -143,9 +179,12 @@ pip freeze --all --exclude-editable | Set-Content -Encoding ascii app-constraint
 pip install -r experiments\default_person\requirements.txt -c app-constraints.txt
 cd experiments\default_person
 python default_person.py -o ..\..\default-person-test
+python default_person.py --varied -o ..\..\default-person-varied
 ```
 
-Open `default-person-test/index.html` in a browser (double-click it; no server needed). It fills
+The second line is R24a2's eight second faces, run the same way into their own folder.
+
+Open `default-person-test/index.html` (or `default-person-varied/index.html`) in a browser (double-click it; no server needed). It fills
 in as each person is done. While it runs, the window shows `[3/8] Picture: …` for each picture,
 then `[3/8] Video: …` for each person being prepared and rendered, between the JSON log lines. It
 is finished when it logs `"message": "Default person test done"` (with `passed_photo_checks`,
