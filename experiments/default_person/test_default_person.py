@@ -10,6 +10,7 @@ from default_person import (
     PEOPLE,
     REALISM,
     ROLE_LOOKS,
+    VARIED_LOOKS,
     VARIED_PEOPLE,
     VOICES,
     Person,
@@ -44,15 +45,12 @@ def test_people_cover_each_gender_and_realism_with_different_roles() -> None:
 
 
 def test_varied_people_are_a_second_face_for_each_first_person() -> None:
-    first = {(p.gender, p.realism, p.role) for p in PEOPLE}
-    assert [(p.gender, p.realism, p.role) for p in VARIED_PEOPLE] == [
-        (p.gender, p.realism, p.role) for p in PEOPLE
-    ]
-    assert len(first) == len(VARIED_PEOPLE)
-    assert all(p.face == 2 for p in VARIED_PEOPLE)
-    # Each looks different from the others, and the name gives only a number, not the look.
-    assert len({p.look for p in VARIED_PEOPLE}) == len(VARIED_PEOPLE)
-    assert {p.name for p in VARIED_PEOPLE} == {f"{p.name}_2" for p in PEOPLE}
+    assert [p.name for p in VARIED_PEOPLE] == [f"{p.name}_2" for p in PEOPLE]
+    # Each looks different, and no word of the look gets into the file name.
+    assert len(set(VARIED_LOOKS)) == len(VARIED_LOOKS)
+    for person in VARIED_PEOPLE:
+        words = {w.strip(",").lower() for w in person.look.split()}
+        assert not words & set(person.name.split("_")), person.name
 
 
 def test_prompt_includes_the_look_only_when_given() -> None:

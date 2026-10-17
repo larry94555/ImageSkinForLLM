@@ -17,7 +17,7 @@ import logging
 import os
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -92,65 +92,20 @@ PEOPLE = [
     Person("female", "animated", "Teenager"),
 ]
 
-# R24a2: a second face for each of the eight above, all different from the first set and from
-# each other, in skin tone, heritage and hair. Only the prompt says so; names give a number.
+# R24a2: a second face for each of the eight above, in the same order, each of a different
+# heritage and skin tone with hair to suit. Only the prompt says so; names give a number.
+VARIED_LOOKS = [
+    "Black, with deep brown skin, short grey hair and a short grey beard",
+    "East Asian, with straight black hair in a neat bob",
+    "South Asian, with warm brown skin and long dark wavy hair",
+    "Latino, with light brown skin and short curly dark hair",
+    "Middle Eastern, with olive skin and dark hair tied back",
+    "Black, with dark brown skin and close-cropped black hair",
+    "Southeast Asian, with tan skin and short black hair",
+    "Indigenous, with brown skin and long straight black hair",
+]
 VARIED_PEOPLE = [
-    Person(
-        "male",
-        "photoreal",
-        "Professor",
-        face=2,
-        look="Black, with deep brown skin, short grey hair and a short grey beard",
-    ),
-    Person(
-        "female",
-        "photoreal",
-        "Boss",
-        face=2,
-        look="East Asian, with straight black hair in a neat bob",
-    ),
-    Person(
-        "female",
-        "photoreal",
-        "Parent",
-        face=2,
-        look="South Asian, with warm brown skin and long dark wavy hair",
-    ),
-    Person(
-        "male",
-        "photoreal",
-        "Teenager",
-        face=2,
-        look="Latino, with light brown skin and short curly dark hair",
-    ),
-    Person(
-        "female",
-        "animated",
-        "Professor",
-        face=2,
-        look="Middle Eastern, with olive skin and dark hair tied back",
-    ),
-    Person(
-        "male",
-        "animated",
-        "Boss",
-        face=2,
-        look="Black, with dark brown skin and close-cropped black hair",
-    ),
-    Person(
-        "male",
-        "animated",
-        "Parent",
-        face=2,
-        look="Southeast Asian, with tan skin and short black hair",
-    ),
-    Person(
-        "female",
-        "animated",
-        "Teenager",
-        face=2,
-        look="Indigenous, with brown skin and long straight black hair",
-    ),
+    replace(person, face=2, look=look) for person, look in zip(PEOPLE, VARIED_LOOKS, strict=True)
 ]
 
 
