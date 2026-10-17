@@ -18,6 +18,7 @@ from imageskin.prepare_job import (
     ENGINE_FAILED,
     NO_PHOTO,
     NOT_PREPARED,
+    SAMPLE_BEING_MADE,
     SOMETHING_WRONG,
     PrepareError,
     PrepareJob,
@@ -900,6 +901,41 @@ def test_a_sample_rendered_again_while_the_setup_changed_is_dropped(tmp_path: Pa
     assert not (tmp_path / "clips" / "sample.again.mp4").exists()
 
 
+def test_prepare_waits_for_the_sample_being_made_again(tmp_path: Path) -> None:
+    voiced: list[int] = []
+    job, _ = make_job(tmp_path, voice=lambda: voiced.append(1))
+    job.start()
+    job.wait(5)
+    rendering, release = threading.Event(), threading.Event()
+
+    def slow(photo: Path, text: str, output: Path) -> None:
+        output.write_text("again")
+        rendering.set()
+        assert release.wait(5)
+
+    job._render_clip = slow
+    again = threading.Thread(target=job.render_sample_again)
+    again.start()
+    assert rendering.wait(5)
+    # Neither Prepare, another accent nor a second render may touch the clips or the engines.
+    with pytest.raises(PrepareError, match=SAMPLE_BEING_MADE):
+        job.start()
+    with pytest.raises(PrepareError, match=SAMPLE_BEING_MADE):
+        job.change_accent(lambda: None)
+    with pytest.raises(PrepareError, match=SAMPLE_BEING_MADE):
+        job.render_sample_again()
+    assert (tmp_path / "clips" / "sample.again.mp4").is_file()
+    assert voiced == [1] and job.status().state == "done"
+    release.set()
+    again.join(5)
+    assert (tmp_path / "clips" / "sample.mp4").read_text() == "again"
+    # Once it is done, Prepare runs again.
+    job._render_clip = write_clip
+    assert job.start().state == "running"
+    job.wait(5)
+    assert voiced == [1, 1] and job.status().state == "done"
+
+
 def test_the_api_runs_the_video_test_again(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -942,3 +978,12 @@ def test_the_api_runs_the_video_test_again(
     logged = next(r for r in caplog.records if r.message == "Could not run the video test again")
     assert logged.error == "ffmpeg crashed"  # type: ignore[attr-defined]
     assert kept.text == sample.text
+
+
+def test_the_api_refuses_another_accent_while_the_sample_is_made_again(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path, prepare_voice=lambda: None, render_clip=write_clip))
+    client.post("/api/consent", json={"agreed": True})
+    refusal = PrepareError(SAMPLE_BEING_MADE)
+    with patch.object(PrepareJob, "change_accent", side_effect=refusal):
+        refused = client.put("/api/accent", json={"accent": "own"})
+    assert refused.status_code == 409 and refused.json()["detail"] == SAMPLE_BEING_MADE

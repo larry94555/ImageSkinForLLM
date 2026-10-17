@@ -103,6 +103,8 @@ NO_PHOTO = "Add a photo that passes the checks first."
 NOT_PREPARED = "There is no sample video yet. Prepare it in setup first."
 # Prepare started, or what it is made from changed, while the sample was rendered again.
 CHANGED_MEANWHILE = "The setup changed while the video was made. Try again."
+# Prepare and another accent wait for the sample being made again: they share its engines.
+SAMPLE_BEING_MADE = "The sample video is being made again. Try again once it is ready."
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
 CLONES = ("pocket", "clone")
 
@@ -181,6 +183,9 @@ class PrepareJob:
         self._accent = accent
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        # The sample is being rendered again (roadmap R27b): no prepare runs meanwhile, as it
+        # would remove the clips and use the same voice and video engines.
+        self._rendering_again = False
         # Per running step: when it started and how much was done then, for the time left.
         self._clock: dict[str, tuple[float, int]] = {}
         self._status = self._load()
@@ -229,15 +234,18 @@ class PrepareJob:
         return status
 
     def change_accent(self, change: Callable[[], None]) -> bool:
-        """Change the accent with `change`, unless a job is running: it would
-        finish in the voice from before. When the clips were ready, prepare again at once (the
-        face is kept, so only the voice and the clips are redone). Whether it was changed.
+        """Change the accent with `change`, unless a job is running: it would finish in the voice
+        from before. While the sample is made again, PrepareError. When the clips were ready,
+        prepare again at once (the face is kept, so only the voice and the clips are redone).
+        Whether it was changed.
 
         Done under the job's lock, so a Prepare started at the same time either runs with the
         change or makes it wait: never a job that finishes in a voice the page no longer shows."""
         with self._lock:
             if self._status.state == "running":
                 return False
+            if self._rendering_again:
+                raise PrepareError(SAMPLE_BEING_MADE)
             prepared = self._current(self._status).state == "done"
             change()
             if prepared and self._current(self._status).state == "idle":
@@ -258,19 +266,21 @@ class PrepareJob:
     def render_sample_again(self) -> float:
         """Render the sample video again from the prepared face and voice, replacing the one
         there (roadmap R27b), and return how many seconds it took. The caller keeps the replies
-        off the engines meanwhile. The new video is kept only if nothing was prepared and
-        nothing it is made from changed while it was rendered."""
+        off the engines meanwhile; Prepare and another accent are refused until it is done. The
+        new video is kept only if nothing it is made from changed while it was rendered."""
         with self._lock:
             before = self._current(self._status)
-        if before.state != "done" or before.photo_id is None:
-            raise PrepareError(NOT_PREPARED)
-        photo = self._store.path("photos", before.photo_id)
-        if photo is None:
-            raise PrepareError(NOT_PREPARED)
+            if before.state != "done" or before.photo_id is None:
+                raise PrepareError(NOT_PREPARED)
+            if self._rendering_again:
+                raise PrepareError(SAMPLE_BEING_MADE)
+            photo = self._store.path("photos", before.photo_id)
+            if photo is None:
+                raise PrepareError(NOT_PREPARED)
+            self._rendering_again = True
         start = time.perf_counter()
         logger.info("Rendering the sample video again", extra={"photo_id": before.photo_id})
         path = self.clips_folder / "sample.mp4"
-        # Its own name, so a prepare started meanwhile never shares the file it writes.
         rendering = path.with_name("sample.again.mp4")
         try:
             self._render_clip(photo, SAMPLE_SCRIPT, rendering)
@@ -281,6 +291,9 @@ class PrepareJob:
         except Exception:
             rendering.unlink(missing_ok=True)
             raise
+        finally:
+            with self._lock:
+                self._rendering_again = False
         seconds = round(time.perf_counter() - start, 1)
         logger.info("Rendered the sample video again", extra={"duration_s": seconds})
         return seconds
@@ -293,6 +306,8 @@ class PrepareJob:
     def _start(self) -> PrepareStatus:
         if self._status.state == "running":
             return self._status
+        if self._rendering_again:
+            raise PrepareError(SAMPLE_BEING_MADE)
         photo_id = self._store.photo_choice().id
         if photo_id is None:
             raise PrepareError(NO_PHOTO)

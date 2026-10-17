@@ -755,7 +755,11 @@ def create_app(
     def put_accent(body: AccentRequest) -> AccentChoice:
         if body.accent != "own" and voice_kind not in CLONES:
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
-        if not job.change_accent(lambda: save_accent(data_home, body.accent)):
+        try:
+            changed = job.change_accent(lambda: save_accent(data_home, body.accent))
+        except PrepareError as e:  # the sample is being made again (R27b)
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        if not changed:
             # The running job would finish in the old accent; it is chosen before or after it.
             raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE)
         return get_accent()
