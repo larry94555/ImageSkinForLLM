@@ -110,9 +110,13 @@ dependency resolver ..." block, but the step worked if it ends with `Successfull
 or only `Requirement already satisfied` lines; a real failure ends with `ResolutionImpossible`.
 
 It takes about 17 minutes a person on a 4-core CPU:
-about 11 to make the picture and 6 to prepare it. Pictures and prepared people are kept, so a
-rerun after an interruption skips what is done. `--pictures-only` makes and checks the pictures
-without preparing them. On Linux without a desktop, MediaPipe needs `libegl1`
+about 11 to make the picture and 6 to prepare it. Each run makes every picture again, even
+if one is already in the output folder, because a picture's file name doesn't say which prompt,
+seed or model made it. `--reuse-pictures` keeps the pictures already there instead (for example
+after an interruption, or after copying in the checked-in ones from `resources/default-people/`),
+and the page marks each kept picture, since it may not match the prompt shown under it. Prepared
+people are kept by the photoreal engine either way. `--pictures-only` makes and checks the
+pictures without preparing them. On Linux without a desktop, MediaPipe needs `libegl1`
 (`sudo apt-get install libegl1`).
 
 macOS / Linux:

@@ -101,6 +101,7 @@ class Result:
     prompt: str
     picture: str = ""
     picture_ms: float = 0.0
+    reused: bool = False  # the picture was kept from an earlier run, not made from this prompt
     problems: list[str] = field(default_factory=list)  # from the photo checks
     score: int | None = None
     prepare_ms: float = 0.0
@@ -131,14 +132,20 @@ def run_person(
     check: CheckPhoto,
     prepare: Prepare | None,
     render: Render | None,
+    reuse_picture: bool = False,
 ) -> Result:
-    """Make, check, prepare and render one person; a failed step ends that person's run."""
+    """Make, check, prepare and render one person; a failed step ends that person's run.
+
+    The picture is made again even if one is there, since its name says nothing of the prompt,
+    seed or model it came from, unless reuse_picture is set.
+    """
     result = Result(person.name, prompt(person))
     step = "make the picture"
     try:
         picture = out / f"{person.name}.png"
         start = time.perf_counter()
-        if not picture.exists():  # kept between runs, so a rerun only redoes what's missing
+        result.reused = reuse_picture and picture.exists()
+        if not result.reused:
             make_picture(result.prompt, person.seed, picture)
         result.picture, result.picture_ms = picture.name, _ms(start)
 
@@ -166,6 +173,7 @@ def run_person(
             "score": result.score,
             "videos": len(result.videos),
             "picture_ms": result.picture_ms,
+            "reused_picture": result.reused,
             "prepare_ms": result.prepare_ms,
             "error": result.error or None,
         },
@@ -180,6 +188,8 @@ def _cell(r: Result) -> str:
         verdict = "<b>Photo checks failed:</b> " + escape(" ".join(r.problems))
     else:
         verdict = f"Photo checks passed, score {r.score}"
+    if r.reused:
+        verdict += " (picture kept from an earlier run, so it may not match the prompt below)"
     image = f'<img src="{escape(r.picture)}" alt="">' if r.picture else ""
     videos = "".join(
         f'<p>{escape(accent)} voice<br><video controls preload="none" src="{escape(v)}">'
@@ -275,6 +285,11 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("-o", "--output", type=Path, default=Path("default-person-test"))
     parser.add_argument("--pictures-only", action="store_true", help="skip prepare and videos")
+    parser.add_argument(
+        "--reuse-pictures",
+        action="store_true",
+        help="keep pictures already in the output folder instead of making them again",
+    )
     args = parser.parse_args(argv)
     setup_logging()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -297,7 +312,9 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
         print(
             f"[{i + 1}/{n}] Picture: {person.name} (about 11 minutes if not made yet)", flush=True
         )
-        results.append(run_person(person, args.output, make_picture, check, None, None))
+        results.append(
+            run_person(person, args.output, make_picture, check, None, None, args.reuse_pictures)
+        )
         write_results(args.output, results)  # so the page fills in as the run goes
     release()
     if not args.pictures_only:
@@ -309,7 +326,12 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
 
         for i, person in enumerate(PEOPLE):
             print(f"[{i + 1}/{n}] Video: {person.name} (about 6 minutes)", flush=True)
-            results[i] = run_person(person, args.output, make_picture, check, video.prepare, render)
+            # The picture was made or kept in the first pass, so this pass always keeps it.
+            first = results[i]
+            results[i] = run_person(
+                person, args.output, make_picture, check, video.prepare, render, True
+            )
+            results[i].picture_ms, results[i].reused = first.picture_ms, first.reused
             write_results(args.output, results)
     passed = sum(1 for r in results if r.picture and not r.problems and not r.error)
     talked = sum(1 for r in results if len(r.videos) == 2)

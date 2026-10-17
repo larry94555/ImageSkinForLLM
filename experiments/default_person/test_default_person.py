@@ -77,7 +77,23 @@ def test_run_person_makes_checks_prepares_and_renders_both_accents(tmp_path: Pat
     assert set(r.render_ms) == {"American", "British"}
 
 
-def test_run_person_keeps_a_picture_already_made(
+def test_run_person_makes_a_picture_again_by_default(tmp_path: Path) -> None:
+    # An old picture from another prompt, seed or model must not pass as this one.
+    (tmp_path / "animated_female_parent.png").write_bytes(b"old")
+    made: list[tuple[str, int]] = []
+
+    def record(text: str, seed: int, path: Path) -> None:
+        made.append((text, seed))
+        path.write_bytes(b"new")
+
+    person = Person("female", "animated", "Parent", seed=7)
+    r = run_person(person, tmp_path, record, passes, None, None)
+    assert made == [(prompt(person), 7)] and not r.reused
+    assert (tmp_path / "animated_female_parent.png").read_bytes() == b"new"
+    assert "earlier run" not in build_page([r])
+
+
+def test_run_person_keeps_a_picture_already_made_when_asked(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     (tmp_path / "animated_female_parent.png").write_bytes(b"old")
@@ -85,10 +101,20 @@ def test_run_person_keeps_a_picture_already_made(
     def never(text: str, seed: int, path: Path) -> None:
         raise AssertionError("made again")
 
+    person = Person("female", "animated", "Parent")
     with caplog.at_level(logging.INFO, logger="default_person_test"):
-        r = run_person(Person("female", "animated", "Parent"), tmp_path, never, passes, None, None)
-    assert r.picture == "animated_female_parent.png" and not r.videos and not r.error
+        r = run_person(person, tmp_path, never, passes, None, None, reuse_picture=True)
+    assert r.picture == "animated_female_parent.png" and r.reused
+    assert not r.videos and not r.error
     assert [rec.getMessage() for rec in caplog.records] == ["Default person done"]
+    assert caplog.records[0].reused_picture is True
+    assert "kept from an earlier run" in build_page([r])
+
+    # Asked to keep, but none there yet: it is made.
+    r = run_person(
+        Person("male", "animated", "Parent"), tmp_path, fake_picture, passes, None, None, True
+    )
+    assert not r.reused and (tmp_path / "animated_male_parent.png").exists()
 
 
 def test_a_picture_that_fails_the_checks_is_not_prepared(tmp_path: Path) -> None:
