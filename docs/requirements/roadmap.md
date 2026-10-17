@@ -536,7 +536,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** open Settings from any screen, turn on answers outside the content, ask an off-topic question and see it answered, and return to where you were.
 - **Built:** only the settings changed are saved in `ui-settings.json`, so a setting never changed follows its default, which for the question scope is the config file's. The log has `Question scope` at start-up with `general_prompts` and `config_general_prompts`, and `Settings changed` with each change; the browser console has `Settings page opened` and `Settings changed` with how long the save took.
 
-### R27a. Your photos and recordings in Settings (Medium) · item 8 (part 1)
+### R27a. Your photos and recordings in Settings (Medium) · item 8 (part 1) · Done in [PR #101](https://github.com/larry94555/ImageSkinForLLM/pull/101)
 - The Settings page lists the photos and recordings in use, to view each photo and play each recording, with **Check again** on each to run its photo or sound checks again (items 2 and 3), showing the result as setup does.
 - **Can show:** from Settings, play a recording, view a photo, and check both again.
 - **Built:** the page shows the photo the video is made from and the recordings that passed the checks (the ones in the voice sample), each with **Check again**; a result that no longer passes stays shown, and setup is where a file is added, removed or chosen. The log has `Upload checked` with `kind`, `upload`, `problems` and `check_ms`; the browser console has `Photos and recordings in use` and `Checked again` with how long the check took.
