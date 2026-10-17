@@ -1,8 +1,8 @@
 # ImageSkinForLLM: Roadmap
 
-Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7 and 11 to 13, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestone 7a, added on 2026-10-13, comes right after them, before spoken prompts: it makes the app look and work like a professional product for a non-technical teacher and student, with a setting to show the timing metrics and a student or teacher view (items 48 to 51). Milestone 7b, added on 2026-10-14, comes right after 7a, still before spoken prompts: the app says which topics it can talk about, shows hints of what to ask, can teach the content for as long as a student wants and quiz them on a topic, and gives an assessment of breadth and depth across all of it (items 52 to 55). Milestone 8a, added on 2026-10-16, comes right after spoken prompts, before settings: for testing, a user can start chatting at once with a default person, a generated picture and a ready-made voice chosen by gender, accent, realism and role, and replace either with their own later (items 56 to 59). Later on 2026-10-16, Larry asked for a wider range of people to choose from, so R24a2 to R24c2 add 24 more people to R24b's 36, 60 in all for now (Larry, 2026-10-17), covering eight broad heritages, red and blond hair, older people, glasses and visible disabilities, and some choices get a second face to pick from; none is labelled (item 60). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before clearing history (items 38 to 46). Milestone 18, added later on 2026-10-09, comes last and adds a profile of each student's interests and personality (item 47).
+Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7 and 11 to 13, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestone 7a, added on 2026-10-13, comes right after them, before spoken prompts: it makes the app look and work like a professional product for a non-technical teacher and student, with a setting to show the timing metrics and a student or teacher view (items 48 to 51). Milestone 7b, added on 2026-10-14, comes right after 7a, still before spoken prompts: the app says which topics it can talk about, shows hints of what to ask, can teach the content for as long as a student wants and quiz them on a topic, and gives an assessment of breadth and depth across all of it (items 52 to 55). Milestone 8a, added on 2026-10-16, comes right after spoken prompts, before settings: for testing, a user can start chatting at once with a default person, a generated picture and a ready-made voice chosen by gender, accent, realism and role, and replace either with their own later (items 56 to 59). Later on 2026-10-16, Larry asked for a wider range of people to choose from, so R24a2 to R24c2 add 24 more people to R24b's 36, 60 in all for now (Larry, 2026-10-17), covering eight broad heritages, red and blond hair, older people, glasses and visible disabilities, and some choices get a second face to pick from; none is labelled (item 60). Milestones 14 to 17, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before deleting a question from history (items 38 to 46). Milestone 18, added later on 2026-10-09, adds a profile of each student's interests and personality (item 47). Milestones 19 to 21, added on 2026-10-17, come last, after every feature above is built: many teachers, each with a free trial, a monthly plan and their own site on a subdomain of me0.ai (items 61 to 66), then a support site at support.me0.ai (items 67 to 72), then an AI that gathers feedback and contact information and retrieves information from visitors and tickets (items 73 to 76).
 
-PRs are numbered R1 to R60 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, R16b for saying math, R18a for the first part of the reply text panel, R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, R37a, R37b and R38a for the wiki's outline, its pages and its versions, R41a to R41e2 for Milestone 7a's professional look (R41e2 was added by Larry on 2026-10-14 while testing R41e), R41f to R41j for Milestone 7b's topics, teach me, quiz me and the assessment, R24a to R24d for Milestone 8a's default person, and R24a2, R24b2 and R24c2 for its more varied faces (Larry, 2026-10-16), so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18a, R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R41a to R41e2 (a professional look), then R41f to R41j (knowing what to ask, teach me, quiz me and the assessment), then R24, then R24a, R24a2, R24b, R24b2, R24c, R24c2 and R24d (a default person), then R27 onward. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R83 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, R16b for saying math, R18a for the first part of the reply text panel, R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, R37a, R37b and R38a for the wiki's outline, its pages and its versions, R41a to R41e2 for Milestone 7a's professional look (R41e2 was added by Larry on 2026-10-14 while testing R41e), R41f to R41j for Milestone 7b's topics, teach me, quiz me and the assessment, R24a to R24d for Milestone 8a's default person, and R24a2, R24b2 and R24c2 for its more varied faces (Larry, 2026-10-16), and R62a for a teacher's password reset and email change, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18a, R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R41a to R41e2 (a professional look), then R41f to R41j (knowing what to ask, teach me, quiz me and the assessment), then R24, then R24a, R24a2, R24b, R24b2, R24c, R24c2 and R24d (a default person), then R27 onward. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -10,30 +10,33 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 7.1% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 9.1% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 6.1% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 8 | 8.1% | 8 of 8 |
-| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 11.1% | 11 of 11 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 8.1% | 8 of 8 |
-| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.0% | 3 of 3 |
-| 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e2 | 6 | 6.1% | 6 of 6 |
-| 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.1% | 5 of 5 |
-| 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.0% | 1 of 1 |
-| 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 7.1% | 2 of 7 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 7.1% | 3 of 7 |
-| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.0% | 0 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.0% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 4.0% | 0 |
-| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 5.1% | 0 |
-| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.0% | 0 |
-| 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.0% | 0 |
-| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.0% | 0 |
-| 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.0% | 0 |
-| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.0% | 0 |
-| | **Total** | | **99** | **69.7% done** | **69 of 99** |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 5.7% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 7.3% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 4.9% | 6 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 8 | 6.5% | 8 of 8 |
+| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 8.9% | 11 of 11 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 6.5% | 8 of 8 |
+| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 2.4% | 3 of 3 |
+| 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e2 | 6 | 4.9% | 6 of 6 |
+| 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 4.1% | 5 of 5 |
+| 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.8% | 1 of 1 |
+| 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 5.7% | 3 of 7 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.7% | 3 of 7 |
+| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 1.6% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 1.6% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 3.3% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see their own and, when a setting allows, delete questions from their record; the teacher reviews all of it and can delete any question; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 4.1% | 0 |
+| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 1.6% | 0 |
+| 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 0.8% | 0 |
+| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 1.6% | 0 |
+| 17 | **Heads-up before deleting.** Students and the teacher are told a deleted question is gone from the record for everyone and can't be brought back. | R58 | 1 | 0.8% | 0 |
+| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 1.6% | 0 |
+| 19 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 9.8% | 0 |
+| 20 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.7% | 0 |
+| 21 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 4.1% | 0 |
+| | **Total** | | **123** | **56.9% done** | **70 of 123** |
 
-Sizes: 24 Simple, 75 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 32 Simple, 91 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -55,7 +58,7 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | R21 | The latency target. Larry: a reply video that takes more than a few seconds to generate is unacceptable (2026-10-04). The photoreal test built a 2.5-second reply clip in 0.5 to 1.5 seconds on a 4-core CPU, so per-sentence clips should fit. Measured in R4c with the real voice on a 4-core CPU: the video for 6.9 seconds of speech renders in 2.2 seconds (about a third of real time), after Kokoro's 2 seconds to speak it. |
 | R25 | The voice tool that makes the person's voice: a CPU voice-conversion tool that turns Kokoro's output into the person's voice (for example OpenVoice's tone-color converter or Seed-VC), and, for keeping the person's own accent (item 4), possibly a cloning TTS. It must be free per use, run on CPU and allow hosted use. **Picked in R25a: cloning with Chatterbox Turbo** (MIT, Resemble AI), which speaks the text directly in the person's voice and keeps their accent. Larry: "The clone sounds very reasonable. The others do not sound like me." (2026-10-08). Rejected: converting Kokoro's voice with Chatterbox's converter (did not sound like him), OpenVoice v2 and kNN-VC (not published as packages), Seed-VC (GPL-3), Pocket TTS (cloning weights gated behind a Hugging Face sign-in). Costs to handle in R25: on a 4-core CPU it takes 1.5 to 2 seconds per second of speech, and it reports no word or sound timings. |
 | R24a | How the default pictures are made, for photoreal and animated people. It must be free per use, allow hosted use, and give pictures that pass the photo checks (R8, R9) and animate well with the photoreal engine (R4c), whose face finder may miss an animated face. Every picture must be of a made-up person, not based on a real person or a public figure (item 57). The simplest option is to make them once ahead of time, with an open text-to-image model whose license allows commercial use, rather than when the user chooses, since making and preparing a picture on a CPU takes minutes. **Picked in R24a: [Segmind SSD-1B](https://huggingface.co/segmind/SSD-1B)** (Apache 2.0, no sign-in to download), a Stable Diffusion XL distilled to half its size, run once ahead of time on the CPU (about 11 minutes a picture on 4 cores); all 8 test pictures, photoreal and animated, passed the photo checks and animated. Rejected: FLUX.1-schnell (download gated behind a sign-in, too large for a CPU), SDXL-Turbo and SD-Turbo (non-commercial license); Stable Diffusion XL base (OpenRAIL++, about twice as slow) is the fallback. |
-| R24b | Where the 36 ready-made people are kept and how they reach the app. **Planned (item 57):** each person's picture and prepared frames are one pack, downloaded only when that person is first chosen and kept, so nothing large is fetched ahead of time. Where the packs are hosted (for example a Hugging Face repository or a GitHub release) is decided in R24b. |
+| R24b | Where the 36 ready-made people are kept and how they reach the app. **Planned (item 57):** each person's picture and prepared frames are one pack, downloaded only when that person is first chosen and kept, so nothing large is fetched ahead of time. **Picked in R24b: assets of a GitHub release of this repository** (free, no sign-in to download, up to 2 GB a file, and kept out of the repository's history); a pack is about 28 MB. Rejected: a Hugging Face repository (needs an account and a token to upload, and adds a second place to keep up). |
 | R32 | How the hosted site restricts access to its one user. features.md says single-user and HTTPS but names no mechanism. The simplest option is one password checked at the HTTPS proxy, with no accounts. R44 later replaces this with the administrator sign-on. |
 | R36 | The PDF tool that reads text, slides and tables. It must be free, run on CPU and allow hosted use. Scanned PDFs (pictures of pages) would also need OCR; whether they must be supported is open. **Picked in R36: pdfplumber** (MIT, on pdfminer.six, MIT), pure Python on the CPU, with table finding built in. Rejected: PyMuPDF (AGPL, which would bind a hosted site), pypdf and pypdfium2 alone (text only, no tables), Camelot (needs Ghostscript or OpenCV for tables). **Scanned PDFs are not read yet:** their pages are listed as having no text; OCR (for example Tesseract) can be a later PR if it's needed. |
 | R39 | How questions are looked up: keyword search over the wiki and PDF text, or a local embedding model. The simplest option is keyword search first, adding embeddings only if answers miss. **Picked in R39: keyword search (BM25)** over the wiki entries and the pieces read from the PDFs, with no model to download; embeddings can be added if answers miss. |
@@ -66,6 +69,10 @@ Decisions to make before a PR starts. The roadmap does not decide these; feature
 | R44 | How the administrator account is created. The simplest option is that the first run asks for an administrator password, stored hashed on the server. |
 | R54 | How a question is rated for each topic, using the definitions in item 40. The simplest option is to ask the chosen LLM (item 29) with the question, each topic's wiki page and those definitions, and to keep its one-line reason with each rating. |
 | R59 | How the interests and personality profile is worked out, and how often. The simplest option is to ask the chosen LLM (item 29) with the student's recent questions, the answers and their next messages, and the list of signals in item 47, and to run it after a student's session ends rather than after every question. |
+| R62 | How emails are sent (sign-up confirmation here, ticket updates in R77). The simplest option is a transactional email service over SMTP, set in the server's config, with the sender address on me0.ai. |
+| R67 | The payment provider, and what each plan allows. The simplest option for payment is Stripe Checkout and its customer portal, so card details and invoices stay with Stripe and the server only listens for its events. The plan limits (for example questions a month, PDFs, students, and which LLM answers) must be set by Larry before R67, since they decide the prices' value; whether a teacher can also move down a plan is decided then too. |
+| R71 | Where the sites are hosted and how every subdomain gets HTTPS. The simplest option is one host with a wildcard DNS record for `*.me0.ai` and a wildcard certificate from Let's Encrypt, building on R32. |
+| R79 | How the AI tells that something said is feedback or that contact details are needed. The simplest option is to ask the chosen LLM after each reply, with a short list of what counts, and to save nothing until the visitor agrees. |
 
 ## After the engine decision
 
@@ -500,9 +507,10 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** a contact sheet of R24a's eight beside the new eight, and the new eight talking in both voices.
 - **Result (PR #97, 2026-10-17):** `default_person.py --varied` made a second face for each of R24a's eight people (Black, East Asian, South Asian, Latino, Middle Eastern, Southeast Asian and Indigenous, with R24a's white faces as the first), and all 8 passed the photo checks (scores 82 to 95), prepared and talked in both voices: 16 videos, none failed, with the darker and the animated faces found like the rest. Each picture took about 9 minutes and each prepare about 4 on a 4-core CPU. The look must come first in the prompt: placed after the style and framing, as R24a's prompts are built, SSD-1B ignored it and made a white face again. The pictures and a contact sheet of all 16 are in `resources/default-people/`.
 
-### R24b. The default pictures (Medium) · item 57
+### R24b. The default pictures (Medium) · item 57 · Done in [PR #98](https://github.com/larry94555/ImageSkinForLLM/pull/98)
 - All 36 pictures (each gender, realism and role), with R24a2's range of looks spread across them, made and prepared ahead of time, with a script that makes them again, and each person's picture and prepared frames packed as one download. Each pack must be at most 50 MB, so it downloads in 20 seconds or less at 25 Mbit/s; a pack over that is made smaller (fewer or smaller frames) before the PR is done. Before a person is packed, the script checks them: the picture must pass every photo check (item 2), and a short line must prepare, render and animate (mouth moving with the speech, idle loop playing) without error. A person that fails is made again or not shipped, so all 36 are checked, not a sample.
 - **Can show:** the script's report with all 36 passing the photo checks and the render check, a contact sheet of all 36 for a human look, the idle loop of a few, and every pack's size within the 50 MB budget.
+- **Built:** `tools/default_people/make_default_people.py` makes, checks and packs the people listed in `imageskin.default_people` (`people()`, with a face number so R24b2 only adds entries). Each prompt puts the person first, with one of nine looks spread so that each role's four people all look different and every look appears in each gender and realism, and every prompt fits SSD-1B's 77 tokens. A picture failing the photo checks is made again with the next seed, up to 3. The render check speaks a line in the American voice and needs the mouth to move at least 1.5 times as much talking as idling. A pack keeps only the idle loop's 50 rendered frames and the mouth and eye shapes as PNGs; `default_people.unpack` fills in the rest as prepare does, so a 165 MB library packs to about 28 MB and unpacks bit for bit the same in about 3 seconds. **Result (4-core cloud CPU, 2026-10-17):** all 36 passed on the first seed (photo scores 79 to 92), the mouth moved 2.9 to 5.5 times as much talking as idling, and the packs are 22.3 to 32.2 MB, 0.97 GB in all. Each picture took 9 to 10.5 minutes and each prepare 4 to 5.6, 8.5 hours for the whole run. The packs are to be hosted as assets of a GitHub release of this repository, uploaded in R24c.
 
 ### R24b2. More varied default people (Medium) · items 57, 60
 - 24 more people, 60 in all with R24b's 36 (at most 60 for now, Larry, 2026-10-17), made, checked and packed by R24b's script exactly as its 36 are, each as a second face for one of the 36 choices: six for each gender and realism, spread over the roles. R24b2 picks the 24 to fill what R24b's 36 lack, so that across the 15 people of each gender and realism (Larry, 2026-10-17):
@@ -541,7 +549,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** from Settings, play a recording, view a photo, and check both again.
 - **Built:** the page shows the photo the video is made from and the recordings that passed the checks (the ones in the voice sample), each with **Check again**. What is in use is read again after each check, and a file that drops out is marked so with its result; setup is where a file is added, removed or chosen. A check that can't run, because the checks are off or fail, is an error, never the saved result. The log has `Upload checked` with `kind`, `upload`, `problems` and `check_ms`, or `Upload could not be checked`; the browser console has `Photos and recordings in use` and `Checked again` with how long the check took.
 
-### R27b. Run the video test again and clear conversation (Simple) · item 8 (part 1)
+### R27b. Run the video test again and clear conversation (Simple) · item 8 (part 1) · Done in [PR #103](https://github.com/larry94555/ImageSkinForLLM/pull/103)
 - **Run the video test again** renders the sample video again and plays it, and **Clear conversation** clears the chat after asking to confirm. R51 later limits clearing to what was saved.
 - **Can show:** rerun the sample from Settings and watch it, then clear the conversation and return to an empty chat.
 - **Built:** both are under **Video and conversation** on the Settings page. The sample is made again from the prepared face and voice and replaces the one there only if nothing was prepared or changed meanwhile; it waits for a reply being made, and replies wait for it. Clearing also drops the summary of older turns, so the next prompt starts afresh. The log has `Rendering the sample video again`, `Rendered the sample video again` with `duration_s` (or `Could not run the video test again`) and `Conversation cleared` with `turns`; the browser console has `Video test run again` and `Conversation cleared` with how long each took.
@@ -611,20 +619,20 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - Every question and answer is saved with its date and time, and the student's account or "anonymous".
 - **Can show:** ask questions anonymously and as a student, and see both saved in the logs and the store.
 
-### R49. My history with soft clear (Medium) · item 35
-- A signed-in student sees their own questions and answers and can clear them. Clearing hides them from the student but keeps them for the administrator.
-- **Can show:** clear a student's history, see it gone for the student and still in the store.
+### R49. My history, with deleting when allowed (Medium) · item 35
+- A signed-in student sees their own questions and answers. A setting (off by default) lets students delete a question with its answer; deleting removes it from the store for everyone (changed by Larry on 2026-10-17 from a soft clear that kept it for the administrator). The deleted turn's id is kept, without its words, so it can never come back, and a conversation summary that included it is rebuilt without it. The log notes the delete and who did it, not the words.
+- **Can show:** with the setting off, a student has no delete; turn it on, delete one question, and see it gone from the student's history and from the store.
 
 ### R50. User history page (Medium) · item 36
-- An administrator page with every prompt and answer, including cleared ones, viewable by date and time, by student, or anonymous only.
+- An administrator page with every prompt and answer, viewable by date and time, by student, or anonymous only. The teacher can delete any question with its answer, removing it from the store, whatever the student setting in R49 says.
 - **Can show:** the administrator reviews a day's questions, then one student's, then the anonymous ones.
 
-### R51. Save a conversation, and clear only what was saved (Medium) · items 8, 35, 37
-- Save writes the conversation to a file the user downloads, each turn with an id and its time. Clear (in Settings and in a student's history) is offered only after a successful save, and clears only the turns that file holds; turns added since, or a save that failed, are not cleared.
+### R51. Save a conversation, and clear only what was saved (Medium) · items 8, 37
+- Save writes the conversation to a file the user downloads, each turn with an id and its time. Clear conversation in Settings is offered only after a successful save, and clears only the turns that file holds; turns added since, or a save that failed, are not cleared.
 - **Can show:** try to clear without saving and be told to save first; save, add one more question, clear, and see only that last question remain.
 
 ### R52. Load a saved conversation (Simple) · item 37
-- Loads a saved file into the conversation history, adding only the turns not already there (matched by their ids), so loading the same file twice changes nothing.
+- Loads a saved file into the conversation history, adding only the turns not already there (matched by their ids), so loading the same file twice changes nothing. Turns deleted since the file was saved (R49, R50) are skipped.
 - **Can show:** load a file twice and see its turns added once, after the existing history, with the count of turns added in the logs.
 
 ## Milestone 14: Topics and understanding
@@ -640,7 +648,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 ## Milestone 15: Search
 
 ### R55. Search on the user history page (Medium) · items 42, 43
-- Adds search to the R50 user history page rather than a second page: words to find in questions and answers, plus filters for topic and date range alongside R50's existing student and anonymous views. Covers cleared turns too.
+- Adds search to the R50 user history page rather than a second page: words to find in questions and answers, plus filters for topic and date range alongside R50's existing student and anonymous views. Deleted questions are never found.
 - **Can show:** find a phrase across all students, then narrow it to one student and one topic, with the search time in the logs.
 
 ## Milestone 16: Statistics and summaries
@@ -653,11 +661,11 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - One page per student, worked out from the stored topic tags and ratings when it is opened (no separate profile is kept): each topic the student asked about, with counts of their strong, weak and unrated questions on it and the questions themselves. No score or overall judgment per topic; mixed evidence stays mixed.
 - **Can show:** a student asks a strong and a weak question on the same topic and an unrated one on another; their summary shows the first topic with one strong and one weak question, the second with one unrated, and each question can be opened.
 
-## Milestone 17: Heads-up before clearing
+## Milestone 17: Heads-up before deleting
 
-### R58. Heads-up before clearing history (Simple) · item 46
-- The confirmation step inside R51's save-then-clear flow says "Clearing hides this conversation from your view. It remains available to the administrator." The clear runs only after the student confirms. No new way to clear is added.
-- **Can show:** a student clicks clear, reads the notice, cancels and keeps their history, then confirms and sees it cleared from their view and still in the store.
+### R58. Heads-up before deleting a question (Simple) · item 46
+- The delete in R49 and R50 asks to confirm first, saying the question and its answer are removed from the record for everyone and can't be brought back (changed by Larry on 2026-10-17). It also checks that a deleted question leaves no trace in the topics, ratings, statistics, summaries and profile (R53 to R57).
+- **Can show:** a student clicks delete, reads the notice and cancels, keeping the question; then confirms and sees it gone from their history, the teacher's user history page and the topic statistics. Save a conversation, delete one question, load the old file, and see that question and its answer stay gone from the history, search, topics, ratings, statistics and the LLM's context.
 
 ## Milestone 18: Interests and personality
 
@@ -669,7 +677,116 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - Adds the profile from R59 to the R57 student summary page, under the topics, labelled as an impression drawn from their questions. Each line shows its evidence and links to its questions. The administrator can edit or remove a line; the change is kept and never overwritten when the profile is worked out again.
 - **Can show:** open a student's summary, see their interests and response style with evidence, remove one line, rerun R59 and see it stay removed.
 
-After R60, every item in features.md is covered by a PR. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
+## Milestone 19: Many teachers on me0.ai
+
+Added by Larry on 2026-10-17, to build after R60. Each site works as the whole app does after R60, for its own teacher, students and visitors.
+
+### R61. One store per site (Medium) · item 66
+- Every file and setting the app keeps (person, content, wiki, settings, accounts, history) moves under a folder for its site, and each request is matched to its site by its address. Locally, `name.localhost` addresses stand in for subdomains. The existing data becomes the first site.
+- **Can show:** two local sites at `a.localhost` and `b.localhost`, each with its own PDFs and person, with the site of each request in the logs.
+
+### R62. Teacher sign-up and sign-in (Medium) · item 61
+- A sign-up page on the main address takes an email and password, sends a confirmation email (by the method decided before this PR), and creates a new empty site whose administrator (R44) is that teacher. Sign-in on a site works only for that site's teacher.
+- **Can show:** sign up, confirm from the email, land on the new site's setup, and fail to sign in to another teacher's site.
+
+### R62a. Forgot password and change email (Simple) · item 61
+- **Forgot password** emails a one-time link, valid for an hour, to set a new password; the teacher can change their email address, confirmed from the new address, with a notice to the old one. A server command resets a support staff password as a last resort.
+- **Can show:** reset a forgotten password from the email and sign in; use the same link again and be refused; change the email and see it take effect only after confirming.
+
+### R63. Picking a subdomain (Simple) · item 65
+- At sign-up the site's name is checked as it is typed: free, letters, numbers and hyphens only, not reserved. The site is created at that address.
+- **Can show:** a taken name and a reserved name refused with a plain message, then a free name accepted and the site opened at it.
+
+### R64. Changing the subdomain (Simple) · item 65
+- In the site's settings, the teacher changes its name to any free name, with the same checks as R63; the old name is released at once.
+- **Can show:** rename a site, open it at the new address, see the old address no longer found, and sign up a new site with the old name.
+
+### R65. Each site's own students, visitors and history (Medium) · item 66
+- Student accounts, the student cookie, history, Teach me progress, assessments and the visitor's remembered conversation belong to one site. Tests prove nothing crosses between sites, for every page and API call.
+- **Can show:** the same email signed up as a student on two sites with separate histories; a visitor's conversation on one site not shown on another.
+
+### R66. Free trial (Simple) · item 62
+- A new site starts a one-week trial with the Light plan's limits and no payment details, one per email address. The teacher sees the days left; when it ends without a plan, or is cancelled, the site pauses as in R69.
+- **Can show:** with the clock moved forward a week, the site pauses and the teacher is asked to pick a plan; a second trial with the same email is refused.
+
+### R67. Plans and payment (Medium) · item 63
+- A plans page with Light ($1), Moderate ($10) and Power ($50) a month, paid through the provider decided before this PR. The server records the plan from the provider's events and never sees card details.
+- **Can show:** pay for Light with the provider's test card, see the site unpaused and the plan shown in its settings, with the provider's event in the logs.
+
+### R68. Upgrade (Simple) · item 63
+- From the site's settings, move from Light to Moderate or Power, or from Moderate to Power, starting at once.
+- **Can show:** upgrade a Light site to Power with the test card and see the new plan and its limits shown at once.
+
+### R69. Cancel, a failed payment, and a paused site (Medium) · item 64
+- Cancel from the site's settings. The site keeps working until the end of the billing period, then pauses. While paused, visitors see a notice, and the teacher can sign in, pick a plan to bring it back, save conversations, download their PDFs, or delete the site. After 30 days paused, or when the teacher deletes it at any time, the site and everything it owns (person, content, settings, students, history, feedback, contacts, tickets and the teacher's account) are deleted, its subdomain released and any subscription cancelled with the provider; only billing records stay.
+- A failed renewal keeps the site working while the provider retries, with a notice to the teacher only; when the provider ends the subscription, the site pauses and the 30 days start.
+- **Can show:** cancel, see the end date, move the clock past it and see the site paused, sign in and bring it back with a plan; cancel again, move past 30 more days, and see its data gone and its name free, in the logs and on disk. With the provider's test cards, a failed renewal that is then paid shows the teacher's notice and clears it; a failure never paid pauses the site when the provider gives up. Delete an active paid site and see its files gone, its name free and its subscription cancelled in the provider's test dashboard.
+
+### R70. Plan limits (Medium) · item 63
+- Each site's use is counted against its plan's limits, as decided before R67. At the limit, the teacher is told plainly and offered an upgrade, and students and visitors see a short notice.
+- **Can show:** a Light test site with a lowered limit reaches it, shows both messages, and works again after an upgrade.
+
+### R71. Many sites on me0.ai (Medium) · Deployment
+- Deploys the service on me0.ai, every subdomain served over HTTPS, as decided before this PR, building on R32.
+- **Can show:** two teachers' sites live at their own me0.ai addresses with HTTPS and the microphone working.
+
+## Milestone 20: Support at support.me0.ai
+
+Added by Larry on 2026-10-17, to build after Milestone 19.
+
+### R72. Support site and support staff sign-in (Medium) · item 67
+- `support.me0.ai` is a reserved site with a first page linking to the guide, the support person, asking the AI, tickets and feedback, open to anyone. Support staff sign in to manage it.
+- **Can show:** the first page with its five links, and the staff pages refusing a visitor and opening after sign-in.
+
+### R73. Support guide (Simple) · item 68
+- The support guide PDF, written from items 61 to 72, offered to read or download, and added as the support site's content.
+- **Can show:** download the guide, and see its wiki built on the support site.
+
+### R74. Support person and asking the AI (Medium) · items 69, 70
+- The support site's talking person answers spoken or typed questions from the guide, and **Ask the AI** answers typed questions in text only. When neither can answer, it says so and offers to open a ticket.
+- **Can show:** ask "How do I change my subdomain?" and hear the answer from the guide; ask something it doesn't cover and be offered a ticket.
+
+### R75. Opening tickets and the public ticket list (Medium) · item 71
+- Anyone opens a ticket with a title and description, after a clear warning that both will be public; a public list shows every ticket with its status, can be searched, and opens each one with its replies. No email address is ever shown. The opener gets a private link to the ticket, the only way to reply as them.
+- **Can show:** open a ticket without signing in, after the warning, then find it in the list from another browser.
+
+### R76. Ticket status, staff replies and moderation (Medium) · item 71
+- Signed-in support staff change a ticket's status and reply on it; the history of changes shows on the ticket. Staff can hide or delete a ticket or a reply. The opener answers through their private link.
+- **Can show:** staff ask a follow-up and set Waiting for reply; the opener answers through their private link, and another browser without the link can read the ticket but not reply. Then move it to Resolved, each change on the ticket and in the logs; hide a spam ticket and see it gone from the public list.
+
+### R77. Email when a ticket changes (Simple) · item 71
+- Anyone can give an email address on a ticket to be told when its status changes or the staff reply, starting only after they confirm it from a first email; the opener's emails carry their private link. The address is never shown, and each email has a link to stop them.
+- **Can show:** follow a ticket, change its status before confirming and receive nothing, confirm, change it again and receive the email, click stop, change it again and receive nothing.
+
+### R78. Feedback (Simple) · item 72
+- A feedback form with an optional email, seen only by support staff on a feedback page.
+- **Can show:** send feedback as a visitor and find it on the staff feedback page, not anywhere public.
+
+## Milestone 21: Gathering information from visitors and tickets
+
+Added by Larry on 2026-10-17, as its own milestone after Milestone 20. It works on the support site, and on a teacher's site when a setting turns it on. What is gathered on a teacher's site stays with that site, private to its teacher; what is gathered on the support site stays there.
+
+### R79. Gathering feedback in conversation (Medium) · item 73
+- After a reply, feedback in what the visitor said is noticed (by the method decided before this PR); the AI asks whether to pass it on and, if they agree, saves it as feedback with its conversation. A site setting turns this on for a teacher's site, and adds a feedback page for its teacher showing only that site's feedback.
+- **Can show:** on site A, say "this answer was confusing", agree to pass it on, and find it on site A's feedback page linked to the conversation, and not on site B's or the support staff's; decline once and see nothing saved.
+
+### R80. Collecting contact information with consent (Medium) · item 74
+- When a reply, ticket or follow-up needs it, the AI asks for a name and email, saying why, and saves them only if the visitor agrees. The site's teacher or support staff see them on a contacts page and can delete them; deleting also blanks the name and email out of the saved conversation, any feedback or ticket made from it, and the search index.
+- **Can show:** on site A, ask for a follow-up, give an email, find it on site A's contacts page and not on site B's, then delete it, and see that a search, or a question on R83's page once it exists, no longer finds the email in the original conversation.
+
+### R81. Opening a ticket from a conversation (Medium) · item 75
+- When the AI can't solve a problem, it drafts a ticket from the problem alone, with no contact details or unrelated conversation, and opens it once the visitor has approved it, editing it if they wish. On the support site the visitor first sees the public warning and the ticket joins the public list. On a teacher's site the ticket is private to that site: a tickets page lets its teacher change the status and reply, and the opener answers through their private link, with the confirmed email updates of R77.
+- **Can show:** give an email, then describe a problem the guide doesn't cover; check that the drafted ticket holds neither the email nor the rest of the conversation, approve it, and find it in the public list. Do the same on site A and find the ticket on site A's tickets page only, not in the public list or on site B; the teacher asks a follow-up, the opener gets the email and answers through their link, and no one without it can read or answer the ticket.
+
+### R82. Answers that use open tickets (Medium) · items 70, 76
+- On the support site, the lookup (R39) also searches the public tickets; a teacher's site never answers visitors from its private tickets. Visitors' ticket text is passed to the LLM as unconfirmed reports, marked as data and never as instructions; only staff status and replies count as confirmed. An answer about a known problem says whether it is reported or confirmed by support, with the ticket linked.
+- **Can show:** with a visitor's open ticket about a login problem, ask about logging in and hear that it has been reported; after staff confirm it, hear that support has confirmed it. A ticket whose text tries to give the AI instructions is quoted as a report, not obeyed.
+
+### R83. Asking about what was gathered (Medium) · item 76
+- A page for a site's teacher or the support staff to ask the AI about the feedback, contacts, conversations and tickets gathered for that site only, with each answer linking to its sources.
+- **Can show:** ask "Summarize the open tickets about subdomains" and get a summary linking to each ticket, with the time taken in the logs; on site A, ask about site B's feedback and get nothing from it.
+
+After R83, every item in features.md is covered by a PR. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
 
 ## Optional, not counted
 
