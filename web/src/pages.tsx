@@ -264,6 +264,7 @@ function UploadSection(props: {
         }
       } catch (e) {
         console.error(`Could not check ${upload.name}`, e); // removed meanwhile, or server down
+        if (e instanceof ServerRefusal && e.status === 503) break; // the rest can't run either
       }
       setToCheck((ids) => ids.slice(1));
     }

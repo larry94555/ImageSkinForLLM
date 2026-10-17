@@ -449,7 +449,12 @@ def create_app(
         except UploadError as e:
             logger.error(
                 "Upload could not be checked",
-                extra={"kind": kind, "upload": upload_id, "check_ms": ms_since(start)},
+                extra={
+                    "kind": kind,
+                    "upload": upload_id,
+                    "error": str(e),
+                    "check_ms": ms_since(start),
+                },
             )
             raise HTTPException(status_code=e.status, detail=str(e)) from e
         if checked is None:

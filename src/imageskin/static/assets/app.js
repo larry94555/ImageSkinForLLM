@@ -48,7 +48,7 @@ async function uploadFile(kind, file) {
 }
 async function checkUpload(kind, id) {
 	const response = await fetch(`${uploadUrl(kind, id)}/check`, { method: "POST" });
-	if (!response.ok) throw new Error(await refusal(response));
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
 async function getVoiceSample() {
@@ -382,7 +382,11 @@ function YourFiles() {
 			console.info(`Checked again: ${item.name}, ${found} (${took} ms)`);
 		} catch (e) {
 			console.error(`Could not check ${item.name} again`, e);
-			setFailed(item.id);
+			const off = e instanceof ServerRefusal && e.status === 503;
+			setFailed({
+				id: item.id,
+				reason: off ? e.message : "It could not be checked. Try again."
+			});
 		}
 		if (checked) await refresh(checked);
 		setChecking(null);
@@ -412,9 +416,9 @@ function YourFiles() {
 				onClick: () => checkAgain(item),
 				children: "Check again"
 			}),
-			failed === item.id && /* @__PURE__ */ u("p", {
+			failed?.id === item.id && /* @__PURE__ */ u("p", {
 				className: "error",
-				children: "It could not be checked. Try again."
+				children: failed.reason
 			})
 		] });
 	}
@@ -2393,6 +2397,7 @@ function UploadSection(props) {
 				}
 			} catch (e) {
 				console.error(`Could not check ${upload.name}`, e);
+				if (e instanceof ServerRefusal && e.status === 503) break;
 			}
 			setToCheck((ids) => ids.slice(1));
 		}

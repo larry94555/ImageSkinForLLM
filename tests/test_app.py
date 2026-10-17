@@ -229,6 +229,19 @@ def test_check_again_fails_when_the_checks_cannot_run(
     assert "Upload checked" not in [r.getMessage() for r in caplog.records]
 
 
+def test_check_again_fails_when_the_checks_are_off(tmp_path: Path) -> None:
+    consented_client(tmp_path)
+    passed = UploadStore(tmp_path, check_photo=lambda p: PhotoResult([], 90)).save(
+        "photos", "me.jpg", io.BytesIO(JPG)
+    )
+    with patch("imageskin.app.face_checker", return_value=None):  # MediaPipe not installed
+        client = TestClient(create_app(tmp_path))
+    again = client.post(f"/api/uploads/photos/{passed.id}/check")
+    assert again.status_code == 503
+    assert again.json()["detail"] == "The photo checks are off, so it could not be checked."
+    assert client.get("/api/uploads/photos").json()[0]["score"] == 90  # kept as it was
+
+
 def test_the_photo_for_the_video_can_be_read_and_chosen(tmp_path: Path) -> None:
     client = consented_client(tmp_path)
     assert client.get("/api/uploads/photos/chosen").json() == {"id": None, "chosen_by": "app"}

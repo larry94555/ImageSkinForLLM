@@ -222,6 +222,22 @@ test("a check that fails says so and keeps the last result", async () => {
   expect(console.error).toHaveBeenCalledWith("Could not check story.wav again", expect.any(Error));
 });
 
+test("with the checks off, Check again says so and keeps the saved result", async () => {
+  const fetchMock = server();
+  const plain = fetchMock.getMockImplementation()!;
+  const off = "The photo checks are off, so it could not be checked.";
+  fetchMock.mockImplementation(async (url, init) =>
+    String(url).endsWith("/check")
+      ? Response.json({ detail: off }, { status: 503 })
+      : plain(url, init),
+  );
+  await show();
+  await checkAgain("me.jpg");
+  expect(await within(itemOf("me.jpg")).findByText(off)).toBeTruthy();
+  expect(within(itemOf("me.jpg")).getByText("Looks good · score 88 of 100")).toBeTruthy();
+  expect(console.info).not.toHaveBeenCalledWith(expect.stringMatching(/^Checked again/));
+});
+
 test("before consent, or with nothing in use, it points to Setup", async () => {
   const fetchMock = server({ agreed: false });
   await show();

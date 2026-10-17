@@ -603,7 +603,10 @@ test("when the checks are off, old photos say not checked and are tried only onc
   const old = [1, 2].map((n) => ({ ...PHOTO, id: String(n).repeat(32), problems: null }));
   const fetchMock = vi.fn(async (url: string) => {
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
-    if (url.endsWith("/check")) return Response.json(old[0]);
+    if (url.endsWith("/check")) {
+      const detail = "The photo checks are off, so it could not be checked.";
+      return Response.json({ detail }, { status: 503 });
+    }
     return Response.json(url === "/api/uploads/photos" ? old : []);
   });
   vi.stubGlobal("fetch", fetchMock);

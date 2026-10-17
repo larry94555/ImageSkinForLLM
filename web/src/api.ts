@@ -102,10 +102,11 @@ export async function uploadFile(kind: Kind, file: File): Promise<Upload> {
   return (await response.json()) as Upload;
 }
 
-// Runs the checks on an upload stored before they were on; returns it with the result.
+// Runs the checks on an upload again; returns it with the result. Throws a ServerRefusal, with
+// status 503 when no check could run because the checks are off or failed.
 export async function checkUpload(kind: Kind, id: string): Promise<Upload> {
   const response = await fetch(`${uploadUrl(kind, id)}/check`, { method: "POST" });
-  if (!response.ok) throw new Error(await refusal(response));
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Upload;
 }
 

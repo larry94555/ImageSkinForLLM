@@ -8,6 +8,7 @@ import {
   getConsent,
   getPhotoChoice,
   listUploads,
+  ServerRefusal,
   type Upload,
   uploadUrl,
 } from "./api";
@@ -43,7 +44,8 @@ export function YourFiles() {
   const [dropped, setDropped] = useState<Upload[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [checking, setChecking] = useState<string | null>(null); // one at a time
-  const [failed, setFailed] = useState<string | null>(null); // the one that couldn't be checked
+  // The one that couldn't be checked, and why.
+  const [failed, setFailed] = useState<{ id: string; reason: string } | null>(null);
 
   useEffect(() => {
     readInUse()
@@ -75,7 +77,9 @@ export function YourFiles() {
       console.info(`Checked again: ${item.name}, ${found} (${took} ms)`);
     } catch (e) {
       console.error(`Could not check ${item.name} again`, e);
-      setFailed(item.id);
+      // 503: no check ran (the checks are off or failed), and the server says which.
+      const off = e instanceof ServerRefusal && e.status === 503;
+      setFailed({ id: item.id, reason: off ? e.message : "It could not be checked. Try again." });
     }
     if (checked) await refresh(checked);
     setChecking(null);
@@ -109,7 +113,7 @@ export function YourFiles() {
         >
           Check again
         </button>
-        {failed === item.id && <p className="error">It could not be checked. Try again.</p>}
+        {failed?.id === item.id && <p className="error">{failed.reason}</p>}
       </>
     );
   }
