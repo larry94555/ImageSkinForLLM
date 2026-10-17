@@ -10,30 +10,30 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 
 | # | Milestone (what can be demonstrated) | PRs | Count | % of PRs | Done |
 |---|---|---|---|---|---|
-| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 7.2% | 7 of 7 |
-| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 9.3% | 9 of 9 |
-| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 6.2% | 6 of 6 |
-| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 8 | 8.2% | 8 of 8 |
-| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 11.3% | 11 of 11 |
-| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 8.2% | 8 of 8 |
-| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.1% | 3 of 3 |
-| 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e2 | 6 | 6.2% | 6 of 6 |
-| 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.2% | 5 of 5 |
+| 1 | **Sample video from the command line.** One photo in, a photoreal video of the person saying the sample script out, in a ready-made Kokoro voice (the person's own voice comes in Milestone 3). | R1 to R4c | 7 | 7.1% | 7 of 7 |
+| 2 | **Setup in the browser.** Upload, validate, prepare, watch the sample video. | R5 to R13 | 9 | 9.1% | 9 of 9 |
+| 3 | **The person's voice, reviewed.** A test proves the person's voice can be cloned from their recordings; then the sample video speaks in their voice, in their own accent or another one (American or British), and setup ends with accept or reject. | R25a, R25, R25b, R26a, R26, R14 | 6 | 6.1% | 6 of 6 |
+| 4 | **Talking chat.** Type a prompt; the person speaks the LLM's reply in their voice, saying briefly what is left out (links, code), with the written reply in a text panel that opens on request. | R15 to R19 | 8 | 8.1% | 8 of 8 |
+| 5 | **Real-time replies.** The video starts on the first sentence, within 1 to 2 seconds of the text, and idles naturally between replies. | R20 to R23 | 11 | 11.1% | 11 of 11 |
+| 6 | **Content and the wiki.** Add, remove or replace PDFs on a Manage Content page; review and correct the wiki built from them. | R34 to R38a | 8 | 8.1% | 8 of 8 |
+| 7 | **Answers from the content.** Ask a question; the person speaks an answer drawn from the wiki and PDFs, with general prompts allowed or not. | R39 to R41 | 3 | 3.0% | 3 of 3 |
+| 7a | **A professional look.** Judged only on its looks and on answering typed questions, the app is clearly of professional quality: the video plays cleanly, the timing metrics show only when a setting asks for them, and a student or teacher view, chosen in the settings, gives a non-technical student read-only use of the wiki and PDFs and a non-technical teacher the full options. | R41a to R41e2 | 6 | 6.1% | 6 of 6 |
+| 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 5.1% | 5 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 1.0% | 1 of 1 |
-| 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 7.2% | 3 of 7 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 5 | 5.2% | 0 |
-| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.1% | 0 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.1% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 4.1% | 0 |
-| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 5.2% | 0 |
-| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.1% | 0 |
+| 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 7.1% | 3 of 7 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 7.1% | 2 of 7 |
+| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 2.0% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 2.0% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 4.0% | 0 |
+| 13 | **Interaction history.** Every question and answer kept; students see and soft-clear their own; the administrator reviews all of it; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 5.1% | 0 |
+| 14 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 2.0% | 0 |
 | 15 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 1.0% | 0 |
-| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.1% | 0 |
+| 16 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 2.0% | 0 |
 | 17 | **Heads-up before clearing.** Students are told a cleared conversation stays available to the administrator. | R58 | 1 | 1.0% | 0 |
-| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.1% | 0 |
-| | **Total** | | **97** | **69.1% done** | **67 of 97** |
+| 18 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 2.0% | 0 |
+| | **Total** | | **99** | **69.7% done** | **69 of 99** |
 
-Sizes: 23 Simple, 74 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
+Sizes: 24 Simple, 75 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
 ## How sizes were judged
 
@@ -531,10 +531,20 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 
 ## Milestone 9: Settings, exit and return
 
-### R27. Settings page (Medium) · item 8 (part 1)
-- A Settings link on every screen.
-- The options that don't change the setup: play the sound files, view the image files, revalidate images, revalidate sound, run the video test again, clear conversation, return to the app, the question scope setting from R41, and the metrics and view settings from R41a and R41b, which move here from the Settings menu.
-- **Can show:** open Settings from any screen, replay the recordings, rerun the sample, clear the conversation and return.
+### R27. Settings page (Medium) · items 8 (part 1), 28 · Done in [PR #100](https://github.com/larry94555/ImageSkinForLLM/pull/100)
+- A **Settings** link at the right of the top bar on every screen opens a Settings page, which takes over R41a's Settings menu: the view (R41b), the timing metrics (R41a), Teach me, Quiz me, Assessment and Debug, grouped under View, Chat and Display, and **Return to the app**, back to the page it was opened from. The page is in both views, so a student view can be switched back.
+- The question scope setting from R41 moves here as **Answer questions outside the content**, holding from the next prompt; the config file's `general_prompts` is only its starting value. R27 was split in three on 2026-10-17 (Larry asked for the next PR that doesn't wait on R24b), so each stays Medium or smaller: R27a and R27b add the other options of item 8.
+- **Can show:** open Settings from any screen, turn on answers outside the content, ask an off-topic question and see it answered, and return to where you were.
+- **Built:** only the settings changed are saved in `ui-settings.json`, so a setting never changed follows its default, which for the question scope is the config file's. The log has `Question scope` at start-up with `general_prompts` and `config_general_prompts`, and `Settings changed` with each change; the browser console has `Settings page opened` and `Settings changed` with how long the save took.
+
+### R27a. Your photos and recordings in Settings (Medium) · item 8 (part 1) · Done in [PR #101](https://github.com/larry94555/ImageSkinForLLM/pull/101)
+- The Settings page lists the photos and recordings in use, to view each photo and play each recording, with **Check again** on each to run its photo or sound checks again (items 2 and 3), showing the result as setup does.
+- **Can show:** from Settings, play a recording, view a photo, and check both again.
+- **Built:** the page shows the photo the video is made from and the recordings that passed the checks (the ones in the voice sample), each with **Check again**. What is in use is read again after each check, and a file that drops out is marked so with its result; setup is where a file is added, removed or chosen. A check that can't run, because the checks are off or fail, is an error, never the saved result. The log has `Upload checked` with `kind`, `upload`, `problems` and `check_ms`, or `Upload could not be checked`; the browser console has `Photos and recordings in use` and `Checked again` with how long the check took.
+
+### R27b. Run the video test again and clear conversation (Simple) · item 8 (part 1)
+- **Run the video test again** renders the sample video again and plays it, and **Clear conversation** clears the chat after asking to confirm. R51 later limits clearing to what was saved.
+- **Can show:** rerun the sample from Settings and watch it, then clear the conversation and return to an empty chat.
 
 ### R28. Changing photos, voice or accent (Medium) · item 8 (part 2)
 - Change image files, change sound files, and switch accent from Settings.

@@ -48,7 +48,7 @@ async function uploadFile(kind, file) {
 }
 async function checkUpload(kind, id) {
 	const response = await fetch(`${uploadUrl(kind, id)}/check`, { method: "POST" });
-	if (!response.ok) throw new Error(await refusal(response));
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
 async function getVoiceSample() {
@@ -268,7 +268,8 @@ var DEFAULT_SETTINGS = {
 	teach_me: false,
 	quiz_me: false,
 	assessment: false,
-	debug: false
+	debug: false,
+	general_prompts: false
 };
 function settings(data) {
 	return {
@@ -277,7 +278,8 @@ function settings(data) {
 		teach_me: data.teach_me === true,
 		quiz_me: data.quiz_me === true,
 		assessment: data.assessment === true,
-		debug: data.debug === true
+		debug: data.debug === true,
+		general_prompts: data.general_prompts === true
 	};
 }
 async function getSettings() {
@@ -289,6 +291,239 @@ async function changeSettings(changes) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(changes)
 	})));
+}
+//#endregion
+//#region src/checks.tsx
+function Checks({ item, queue }) {
+	const { problems, score, speech } = item;
+	const what = item.kind === "photos" ? "photo" : "recording";
+	if (queue === 0) return /* @__PURE__ */ u("span", {
+		className: "muted check busy",
+		children: [
+			"Checking ",
+			what,
+			"…"
+		]
+	});
+	if (queue > 0) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Waiting to check"
+	});
+	if (problems == null) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Not checked"
+	});
+	if (problems.length === 0) return /* @__PURE__ */ u("span", {
+		className: "done check",
+		children: [
+			"Looks good",
+			score !== null && ` · score ${score} of 100`,
+			speech !== null && ` · ${minutes(speech)} of speech`
+		]
+	});
+	return /* @__PURE__ */ u("ul", {
+		className: "problems",
+		children: problems.map((p) => /* @__PURE__ */ u("li", {
+			className: "error",
+			children: p
+		}, p))
+	});
+}
+function minutes(seconds) {
+	const whole = Math.round(seconds);
+	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+//#endregion
+//#region src/your-files.tsx
+async function readInUse() {
+	if (!(await getConsent()).agreed) return {
+		photo: null,
+		sounds: []
+	};
+	const [photos, choice, sounds] = await Promise.all([
+		listUploads("photos"),
+		getPhotoChoice(),
+		listUploads("sounds")
+	]);
+	return {
+		photo: photos.find((p) => p.id === choice.id) ?? null,
+		sounds: sounds.filter((s) => s.problems?.length === 0)
+	};
+}
+function isInUse(inUse, id) {
+	return inUse.photo?.id === id || inUse.sounds.some((s) => s.id === id);
+}
+function YourFiles() {
+	const [inUse, setInUse] = d(null);
+	const [dropped, setDropped] = d([]);
+	const [loadFailed, setLoadFailed] = d(false);
+	const [checking, setChecking] = d(null);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		readInUse().then((read) => {
+			setInUse(read);
+			const photo = read.photo?.name ?? "no photo";
+			console.info(`Photos and recordings in use: ${photo}, ${read.sounds.length} recording(s)`);
+		}).catch((e) => {
+			console.error("Could not load the photos and recordings in use", e);
+			setLoadFailed(true);
+		});
+	}, []);
+	async function checkAgain(item) {
+		if (checking !== null) return;
+		setChecking(item.id);
+		setFailed(null);
+		const started = performance.now();
+		let checked = null;
+		try {
+			checked = await checkUpload(item.kind, item.id);
+			const took = Math.round(performance.now() - started);
+			const found = checked.problems === null ? "not checked" : `${checked.problems.length} problem(s)`;
+			console.info(`Checked again: ${item.name}, ${found} (${took} ms)`);
+		} catch (e) {
+			console.error(`Could not check ${item.name} again`, e);
+			const off = e instanceof ServerRefusal && e.status === 503;
+			setFailed({
+				id: item.id,
+				reason: off ? e.message : "It could not be checked. Try again."
+			});
+		}
+		if (checked) await refresh(checked);
+		setChecking(null);
+	}
+	async function refresh(checked) {
+		try {
+			const read = await readInUse();
+			const out = !isInUse(read, checked.id);
+			if (out) console.info(`${checked.name} is no longer in use`);
+			setInUse(read);
+			setDropped((was) => [...was.filter((u) => u.id !== checked.id && !isInUse(read, u.id)), ...out ? [checked] : []]);
+		} catch (e) {
+			console.error("Could not read the photos and recordings in use again", e);
+			setLoadFailed(true);
+		}
+	}
+	function actions(item) {
+		return /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u(Checks, {
+				item,
+				queue: checking === item.id ? 0 : -1
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "use",
+				disabled: checking !== null,
+				onClick: () => checkAgain(item),
+				children: "Check again"
+			}),
+			failed?.id === item.id && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed.reason
+			})
+		] });
+	}
+	const photos = inUse ? [...inUse.photo ? [inUse.photo] : [], ...dropped.filter((u) => u.kind === "photos")] : [];
+	const sounds = inUse ? [...inUse.sounds, ...dropped.filter((u) => u.kind === "sounds")] : [];
+	const isDropped = (item) => dropped.some((u) => u.id === item.id);
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-files",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-files",
+				children: "Photos and recordings"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The photo the video is made from, and the recordings the voice is made from."
+			}),
+			loadFailed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "Could not load them. Reload the page to try again."
+			}),
+			inUse === null && !loadFailed && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			}),
+			inUse && /* @__PURE__ */ u(S, { children: [
+				/* @__PURE__ */ u("h3", { children: "Photo" }),
+				photos.length > 0 ? /* @__PURE__ */ u("ul", {
+					className: "photos",
+					children: photos.map((item) => /* @__PURE__ */ u("li", { children: [
+						/* @__PURE__ */ u("a", {
+							href: uploadUrl("photos", item.id),
+							target: "_blank",
+							rel: "noreferrer",
+							children: /* @__PURE__ */ u("img", {
+								src: uploadUrl("photos", item.id),
+								alt: item.name
+							})
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "name",
+							children: item.name
+						}),
+						isDropped(item) && /* @__PURE__ */ u("span", {
+							className: "muted check",
+							children: "No longer used for the video"
+						}),
+						actions(item)
+					] }, item.id))
+				}) : /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"No photo is in use yet. Add one in ",
+						/* @__PURE__ */ u("a", {
+							href: "#/setup",
+							children: "Setup"
+						}),
+						"."
+					]
+				}),
+				/* @__PURE__ */ u("h3", { children: "Recordings" }),
+				sounds.length > 0 ? /* @__PURE__ */ u("ul", {
+					className: "sounds",
+					children: sounds.map((item) => /* @__PURE__ */ u("li", { children: [
+						/* @__PURE__ */ u("audio", {
+							controls: true,
+							preload: "none",
+							src: uploadUrl("sounds", item.id)
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "name",
+							children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
+						}),
+						isDropped(item) && /* @__PURE__ */ u("span", {
+							className: "muted check",
+							children: "No longer in the voice sample"
+						}),
+						actions(item)
+					] }, item.id))
+				}) : /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"No recording is in use yet. Add them in ",
+						/* @__PURE__ */ u("a", {
+							href: "#/setup",
+							children: "Setup"
+						}),
+						"."
+					]
+				}),
+				dropped.length > 0 && /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"Add, remove or choose photos and recordings in ",
+						/* @__PURE__ */ u("a", {
+							href: "#/setup",
+							children: "Setup"
+						}),
+						"."
+					]
+				})
+			] })
+		]
+	});
 }
 //#endregion
 //#region src/settings.tsx
@@ -336,17 +571,77 @@ var VIEWS = [[
 	"Student",
 	"the chat and a read-only wiki"
 ]];
-function SettingsMenu() {
-	const { settings, loaded, change } = x(SettingsContext);
-	const [open, setOpen] = d(false);
+var SWITCHES = [{
+	group: "Chat",
+	about: "What the person in the video answers, and the buttons under the prompt box.",
+	items: [
+		[
+			"general_prompts",
+			"Answer questions outside the content",
+			"Off: a question the PDFs don't cover gets a short, polite reply instead of an answer."
+		],
+		[
+			"teach_me",
+			"Teach me",
+			"A Teach me button that teaches the content a part at a time."
+		],
+		[
+			"quiz_me",
+			"Quiz me",
+			"A Quiz me button that asks five questions on a topic and judges each answer."
+		],
+		[
+			"assessment",
+			"Assessment",
+			"An Assessment button that asks questions across all the content, then says how broad and deep your knowledge is."
+		]
+	]
+}, {
+	group: "Display",
+	about: "What else is shown on the pages.",
+	items: [[
+		"show_metrics",
+		"Show timing metrics",
+		"How long replies and other steps take, under the video and on the pages."
+	], [
+		"debug",
+		"Debug",
+		"Copy chat under the conversation, to paste the latest exchanges somewhere else."
+	]]
+}];
+var ICON = /* @__PURE__ */ u("svg", {
+	viewBox: "0 0 24 24",
+	"aria-hidden": "true",
+	fill: "none",
+	stroke: "currentColor",
+	"stroke-width": "2",
+	"stroke-linecap": "round",
+	children: [
+		/* @__PURE__ */ u("path", { d: "M4 7h10M18 7h2M4 17h4M12 17h8" }),
+		/* @__PURE__ */ u("circle", {
+			cx: "16",
+			cy: "7",
+			r: "2"
+		}),
+		/* @__PURE__ */ u("circle", {
+			cx: "10",
+			cy: "17",
+			r: "2"
+		})
+	]
+});
+function SettingsLink({ current }) {
+	return /* @__PURE__ */ u("a", {
+		href: "#/settings",
+		className: current ? "settings-link current" : "settings-link",
+		children: [ICON, "Settings"]
+	});
+}
+function SettingsPage({ back }) {
+	const { settings, change } = x(SettingsContext);
 	const [failed, setFailed] = d(false);
-	const menu = A(null);
-	h(() => {
-		if (!open) return;
-		const close = (e) => e.key === "Escape" && setOpen(false);
-		window.addEventListener("keydown", close);
-		return () => window.removeEventListener("keydown", close);
-	}, [open]);
+	const page = A(null);
+	h(() => console.info(`Settings page opened, returning to ${back}`), [back]);
 	async function save(changes, undo) {
 		setFailed(false);
 		try {
@@ -360,150 +655,96 @@ function SettingsMenu() {
 	function chooseView(view) {
 		const was = settings.view;
 		save({ view }, () => {
-			const box = menu.current?.querySelector(`input[value="${was}"]`);
+			const box = page.current?.querySelector(`input[value="${was}"]`);
 			if (box) box.checked = true;
 		});
 	}
 	return /* @__PURE__ */ u("div", {
-		className: "settings",
-		children: [/* @__PURE__ */ u("button", {
-			type: "button",
-			className: "link",
-			"aria-expanded": open,
-			"aria-controls": "settings-menu",
-			disabled: !loaded,
-			onClick: () => setOpen(!open),
-			children: [/* @__PURE__ */ u("svg", {
-				viewBox: "0 0 24 24",
-				"aria-hidden": "true",
-				fill: "none",
-				stroke: "currentColor",
-				"stroke-width": "2",
-				"stroke-linecap": "round",
+		className: "teacher-page settings-page",
+		ref: page,
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Settings" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Changes are saved at once and kept after a restart."
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The setting could not be changed. Try again."
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "settings-view",
 				children: [
-					/* @__PURE__ */ u("path", { d: "M4 7h10M18 7h2M4 17h4M12 17h8" }),
-					/* @__PURE__ */ u("circle", {
-						cx: "16",
-						cy: "7",
-						r: "2"
+					/* @__PURE__ */ u("h2", {
+						id: "settings-view",
+						children: "View"
 					}),
-					/* @__PURE__ */ u("circle", {
-						cx: "10",
-						cy: "17",
-						r: "2"
-					})
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Who the app is set out for."
+					}),
+					/* @__PURE__ */ u("fieldset", { children: [/* @__PURE__ */ u("legend", {
+						className: "sr-only",
+						children: "View"
+					}), VIEWS.map(([view, label, about]) => /* @__PURE__ */ u("label", {
+						className: "choice",
+						children: [
+							/* @__PURE__ */ u("input", {
+								type: "radio",
+								name: "view",
+								value: view,
+								checked: settings.view === view,
+								onChange: () => chooseView(view)
+							}),
+							" ",
+							/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+								className: "muted",
+								children: [" · ", about]
+							})] })
+						]
+					}, view))] })
 				]
-			}), "Settings"]
-		}), open && /* @__PURE__ */ u("div", {
-			id: "settings-menu",
-			ref: menu,
-			className: "settings-menu",
-			role: "group",
-			"aria-label": "Settings",
-			children: [
-				/* @__PURE__ */ u("fieldset", { children: [/* @__PURE__ */ u("legend", { children: "View" }), VIEWS.map(([view, label, about]) => /* @__PURE__ */ u("label", {
-					className: "choice",
-					children: [
-						/* @__PURE__ */ u("input", {
-							type: "radio",
-							name: "view",
-							value: view,
-							checked: settings.view === view,
-							onChange: () => chooseView(view)
-						}),
-						" ",
-						/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+			}),
+			SWITCHES.map(({ group, about, items }) => /* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": `settings-${group}`,
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: `settings-${group}`,
+						children: group
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: about
+					}),
+					items.map(([name, label, help]) => /* @__PURE__ */ u("div", {
+						className: "switch",
+						children: [/* @__PURE__ */ u("label", { children: [
+							/* @__PURE__ */ u("input", {
+								type: "checkbox",
+								checked: settings[name],
+								onChange: (e) => {
+									const box = e.currentTarget;
+									save({ [name]: box.checked }, () => box.checked = !box.checked);
+								}
+							}),
+							" ",
+							label
+						] }), /* @__PURE__ */ u("p", {
 							className: "muted",
-							children: [" · ", about]
-						})] })
-					]
-				}, view))] }),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.show_metrics,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ show_metrics: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Show timing metrics"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "How long replies and other steps take, under the video and on the pages."
-				}),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.teach_me,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ teach_me: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Teach me"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "A Teach me button in the chat that teaches the content a part at a time."
-				}),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.quiz_me,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ quiz_me: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Quiz me"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "A Quiz me button in the chat that asks five questions on a topic and judges each answer."
-				}),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.assessment,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ assessment: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Assessment"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "An Assessment button in the chat that asks questions across all the content, then says how broad and deep your knowledge is."
-				}),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.debug,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ debug: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Debug"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "Copy chat under the conversation, to paste the latest exchanges somewhere else."
-				}),
-				failed && /* @__PURE__ */ u("p", {
-					className: "error",
-					children: "The setting could not be changed. Try again."
-				})
-			]
-		})]
+							children: help
+						})]
+					}, name))
+				]
+			}, group)),
+			/* @__PURE__ */ u(YourFiles, {}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				className: "button",
+				href: back,
+				children: "Return to the app"
+			}) })
+		]
 	});
 }
 //#endregion
@@ -2156,6 +2397,7 @@ function UploadSection(props) {
 				}
 			} catch (e) {
 				console.error(`Could not check ${upload.name}`, e);
+				if (e instanceof ServerRefusal && e.status === 503) break;
 			}
 			setToCheck((ids) => ids.slice(1));
 		}
@@ -2298,41 +2540,6 @@ function UploadSection(props) {
 			}),
 			kind === "sounds" && /* @__PURE__ */ u(VoiceSampleView, { changes: soundChanges })
 		]
-	});
-}
-function Checks({ item, queue }) {
-	const { problems, score, speech } = item;
-	const what = item.kind === "photos" ? "photo" : "recording";
-	if (queue === 0) return /* @__PURE__ */ u("span", {
-		className: "muted check busy",
-		children: [
-			"Checking ",
-			what,
-			"…"
-		]
-	});
-	if (queue > 0) return /* @__PURE__ */ u("span", {
-		className: "muted check",
-		children: "Waiting to check"
-	});
-	if (problems == null) return /* @__PURE__ */ u("span", {
-		className: "muted check",
-		children: "Not checked"
-	});
-	if (problems.length === 0) return /* @__PURE__ */ u("span", {
-		className: "done check",
-		children: [
-			"Looks good",
-			score !== null && ` · score ${score} of 100`,
-			speech !== null && ` · ${minutes(speech)} of speech`
-		]
-	});
-	return /* @__PURE__ */ u("ul", {
-		className: "problems",
-		children: problems.map((p) => /* @__PURE__ */ u("li", {
-			className: "error",
-			children: p
-		}, p))
 	});
 }
 function VoiceSampleView({ changes }) {
@@ -3821,10 +4028,6 @@ function StepState(props) {
 function duration(seconds) {
 	return seconds < 90 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`;
 }
-function minutes(seconds) {
-	const whole = Math.round(seconds);
-	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
-}
 function NotFoundPage() {
 	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Page not found" }), /* @__PURE__ */ u("a", {
 		className: "button",
@@ -3841,7 +4044,8 @@ var PAGES = {
 	"/chat": "chat",
 	"/content": "content",
 	"/guide": "guide",
-	"/wiki": "wiki"
+	"/wiki": "wiki",
+	"/settings": "settings"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -4819,6 +5023,8 @@ function Shell() {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
 	}, [route?.redirect]);
 	const header = useHeaderHeight();
+	const back = A(null);
+	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
 	if (route) content = {
 		home: /* @__PURE__ */ u(HomePage, { consented: consented === true }),
@@ -4832,6 +5038,7 @@ function Shell() {
 		guide: /* @__PURE__ */ u(GuidePage, {}),
 		wiki: /* @__PURE__ */ u(WikiPage, { pdf: wikiTarget(hash).pdf }),
 		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
+		settings: /* @__PURE__ */ u(SettingsPage, { back: back.current ?? (student ? "#/chat" : "#/") }),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
@@ -4848,7 +5055,7 @@ function Shell() {
 					className: current(route?.page) === item.page ? "current" : void 0,
 					children: item.label
 				}, item.page)) }),
-				/* @__PURE__ */ u(SettingsMenu, {})
+				settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })
 			]
 		}),
 		/* @__PURE__ */ u("main", { children: content }),

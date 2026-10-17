@@ -61,7 +61,7 @@ from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
 from imageskin.teach import Choice, Explain, Lesson, Say, Teacher, lesson_topics
 from imageskin.topics import hint_line, main_entries
-from imageskin.ui_settings import load_ui_settings, save_ui_settings
+from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
 from imageskin.uploads import (
     MEDIA_TYPE,
     Kind,
@@ -390,15 +390,18 @@ def create_app(
             raise HTTPException(status_code=400, detail="Tick the box to confirm consent.")
         return asdict(save_consent(data_home))
 
-    # The Settings menu's settings (R41a): anyone can read and change them for now.
+    # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
+    # question scope follows the config file until it is changed there.
+    ui_defaults = UiSettings(general_prompts=general_prompts)
+
     @app.get("/api/settings")
     def get_settings() -> dict[str, object]:
-        return asdict(load_ui_settings(data_home))
+        return asdict(load_ui_settings(data_home, ui_defaults))
 
     @app.patch("/api/settings")
     def patch_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, object]:
         try:
-            return asdict(save_ui_settings(data_home, changes))
+            return asdict(save_ui_settings(data_home, changes, ui_defaults))
         except ValueError as e:
             logger.warning("Settings change refused", extra={"error": str(e)})
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -440,9 +443,33 @@ def create_app(
 
     @app.post(uploads_api + "/{upload_id}/check", dependencies=needs_consent)
     def check_upload_now(kind: Kind, upload_id: str) -> Upload:
-        checked = store.check(kind, upload_id)
+        start = time.perf_counter()
+        try:
+            checked = store.check(kind, upload_id)
+        except UploadError as e:
+            logger.error(
+                "Upload could not be checked",
+                extra={
+                    "kind": kind,
+                    "upload": upload_id,
+                    "error": str(e),
+                    "check_ms": ms_since(start),
+                },
+            )
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
         if checked is None:
+            logger.warning("Upload to check not found", extra={"kind": kind, "upload": upload_id})
             raise HTTPException(status_code=404, detail="No such file.")
+        # Setup checks old uploads with this; the Settings page's Check again too (R27a).
+        logger.info(
+            "Upload checked",
+            extra={
+                "kind": kind,
+                "upload": upload_id,
+                "problems": None if checked.problems is None else len(checked.problems),
+                "check_ms": ms_since(start),
+            },
+        )
         return checked
 
     @app.get("/api/voice-sample", dependencies=needs_consent)
@@ -771,11 +798,19 @@ def create_app(
         return [math_in_words(p) for p in as_passages(content_lookup.find(prompt))]
 
     # Prompts are limited to the content only once there is some: before any PDF is added,
-    # every prompt is answered.
+    # every prompt is answered. The setting is read each time, so a change on the Settings page
+    # (R27) holds from the next prompt.
     def content_only() -> bool:
-        return not general_prompts and bool(wiki.store.list())
+        allowed = load_ui_settings(data_home, ui_defaults).general_prompts
+        return not allowed and bool(wiki.store.list())
 
-    logger.info("Question scope", extra={"general_prompts": general_prompts})
+    logger.info(
+        "Question scope",
+        extra={
+            "general_prompts": load_ui_settings(data_home, ui_defaults).general_prompts,
+            "config_general_prompts": general_prompts,
+        },
+    )
 
     # The topics (R41f): the wiki's main entries, read each time, so they follow the PDFs.
     def content_topics() -> list[str]:

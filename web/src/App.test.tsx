@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { PrepareStatus, Turn, Upload, VoiceSample } from "./api";
 import { App } from "./App";
+import { openSettings, returnToApp } from "./settings.test.util";
 import styles from "./styles.css?raw";
 import {
   CANT_ANSWER,
@@ -28,9 +29,9 @@ import {
   loadQuiz,
   loadAssessment,
   loadSound,
-  minutes,
   splitMatches,
 } from "./pages";
+import { minutes } from "./checks";
 
 const IDLE: PrepareStatus = {
   state: "idle",
@@ -602,7 +603,10 @@ test("when the checks are off, old photos say not checked and are tried only onc
   const old = [1, 2].map((n) => ({ ...PHOTO, id: String(n).repeat(32), problems: null }));
   const fetchMock = vi.fn(async (url: string) => {
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
-    if (url.endsWith("/check")) return Response.json(old[0]);
+    if (url.endsWith("/check")) {
+      const detail = "The photo checks are off, so it could not be checked.";
+      return Response.json({ detail }, { status: 503 });
+    }
     return Response.json(url === "/api/uploads/photos" ? old : []);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -1571,12 +1575,14 @@ test("turning Teach me off hides its choices and keeps the lesson's place", asyn
     fireEvent.click(screen.getByRole("button", { name: "Teach me" }));
   });
   expect(await screen.findByRole("list", { name: "Choices" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   await act(async () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Teach me" }));
   });
   expect(teachMe).toBe(false);
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Choices" })).toBeNull());
+  await returnToApp();
+  await screen.findByText("Ask a question to start the conversation.");
+  expect(screen.queryByRole("list", { name: "Choices" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Teach me" })).toBeNull();
   expect(loadLesson()).toEqual({ ...ZETA, active: false }); // kept for when it is back on
 });
@@ -1764,13 +1770,15 @@ test("turning Quiz me off drops its choices, though Teach me is still on", async
     fireEvent.click(screen.getByRole("button", { name: "Quiz me" }));
   });
   expect(await screen.findByRole("list", { name: "Choices" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   await act(async () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Quiz me" }));
   });
   expect(quizMe).toBe(false);
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Choices" })).toBeNull());
-  expect(screen.getByRole("button", { name: "Teach me" })).toBeTruthy(); // still on
+  await returnToApp();
+  expect(await screen.findByRole("button", { name: "Teach me" })).toBeTruthy(); // still on
+  expect(screen.queryByRole("list", { name: "Choices" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Quiz me" })).toBeNull();
 });
 
 test("Next and more simply send the lesson along, and the place shown follows it", async () => {
@@ -3176,7 +3184,7 @@ function settingsServer(saved: { show_metrics: boolean }, saves = true) {
   );
 }
 
-test("the timing metrics are hidden until turned on in the Settings menu", async () => {
+test("the timing metrics are hidden until turned on on the Settings page", async () => {
   const saved = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
@@ -3184,17 +3192,17 @@ test("the timing metrics are hidden until turned on in the Settings menu", async
   expect(screen.queryByText("Done in 31 s")).toBeNull();
   expect(screen.queryByRole("checkbox", { name: "Show timing metrics" })).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   const box = screen.getByRole("checkbox", { name: "Show timing metrics" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
     fireEvent.click(box);
   });
   expect(saved.show_metrics).toBe(true);
-  expect(await screen.findByText("Done in 31 s")).toBeTruthy();
   expect(box.checked).toBe(true);
-
-  fireEvent.keyDown(window, { key: "Escape" });
+  await returnToApp();
+  expect(window.location.hash).toBe("#/setup");
+  expect(await screen.findByText("Done in 31 s")).toBeTruthy();
   expect(screen.queryByRole("checkbox", { name: "Show timing metrics" })).toBeNull();
 
   cleanup(); // a reload: the saved setting is read again
@@ -3202,12 +3210,12 @@ test("the timing metrics are hidden until turned on in the Settings menu", async
   expect(await screen.findByText("Done in 31 s")).toBeTruthy();
 });
 
-test("Teach me is off until turned on in the Settings menu (Larry, 2026-10-15)", async () => {
+test("Teach me is off until turned on on the Settings page (Larry, 2026-10-15)", async () => {
   const saved: { show_metrics: boolean; teach_me?: boolean } = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min left");
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   const box = screen.getByRole("checkbox", { name: "Teach me" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
@@ -3217,12 +3225,12 @@ test("Teach me is off until turned on in the Settings menu (Larry, 2026-10-15)",
   expect(box.checked).toBe(true);
 });
 
-test("Quiz me is off until turned on in the Settings menu", async () => {
+test("Quiz me is off until turned on on the Settings page", async () => {
   const saved: { show_metrics: boolean; quiz_me?: boolean } = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min left");
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   const box = screen.getByRole("checkbox", { name: "Quiz me" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
@@ -3232,12 +3240,12 @@ test("Quiz me is off until turned on in the Settings menu", async () => {
   expect(box.checked).toBe(true);
 });
 
-test("Assessment is off until turned on in the Settings menu", async () => {
+test("Assessment is off until turned on on the Settings page", async () => {
   const saved: { show_metrics: boolean; assessment?: boolean } = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min left");
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   const box = screen.getByRole("checkbox", { name: "Assessment" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
@@ -3251,7 +3259,7 @@ test("a setting that can't be saved says so and stays as it was", async () => {
   settingsServer({ show_metrics: false }, false);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min left");
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   await act(async () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Show timing metrics" }));
   });
@@ -3464,12 +3472,12 @@ test("Copy chat shows only with Debug on, and once there is something to copy", 
   expect(screen.queryByRole("button", { name: "Copy chat" })).toBeNull();
 });
 
-test("Debug is off until turned on in the Settings menu", async () => {
+test("Debug is off until turned on on the Settings page", async () => {
   const saved: { show_metrics: boolean; debug?: boolean } = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min left");
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   const box = screen.getByRole("checkbox", { name: "Debug" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
