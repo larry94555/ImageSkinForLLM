@@ -15,8 +15,11 @@ from default_person import (
     Person,
     Result,
     build_page,
+    exit_status,
     prompt,
     run_person,
+    run_videos,
+    voices_for,
     write_results,
 )
 
@@ -98,7 +101,23 @@ def test_run_person_makes_checks_prepares_and_renders_both_accents(tmp_path: Pat
     assert set(r.render_ms) == {"American", "British"}
 
 
-def test_run_person_keeps_a_picture_already_made(
+def test_run_person_makes_a_picture_again_by_default(tmp_path: Path) -> None:
+    # An old picture from another prompt, seed or model must not pass as this one.
+    (tmp_path / "animated_female_parent.png").write_bytes(b"old")
+    made: list[tuple[str, int]] = []
+
+    def record(text: str, seed: int, path: Path) -> None:
+        made.append((text, seed))
+        path.write_bytes(b"new")
+
+    person = Person("female", "animated", "Parent", seed=7)
+    r = run_person(person, tmp_path, record, passes, None, None)
+    assert made == [(prompt(person), 7)] and not r.reused
+    assert (tmp_path / "animated_female_parent.png").read_bytes() == b"new"
+    assert "earlier run" not in build_page([r])
+
+
+def test_run_person_keeps_a_picture_already_made_when_asked(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     (tmp_path / "animated_female_parent.png").write_bytes(b"old")
@@ -106,10 +125,20 @@ def test_run_person_keeps_a_picture_already_made(
     def never(text: str, seed: int, path: Path) -> None:
         raise AssertionError("made again")
 
+    person = Person("female", "animated", "Parent")
     with caplog.at_level(logging.INFO, logger="default_person_test"):
-        r = run_person(Person("female", "animated", "Parent"), tmp_path, never, passes, None, None)
-    assert r.picture == "animated_female_parent.png" and not r.videos and not r.error
+        r = run_person(person, tmp_path, never, passes, None, None, reuse_picture=True)
+    assert r.picture == "animated_female_parent.png" and r.reused
+    assert not r.videos and not r.error
     assert [rec.getMessage() for rec in caplog.records] == ["Default person done"]
+    assert caplog.records[0].reused_picture is True
+    assert "kept from an earlier run" in build_page([r])
+
+    # Asked to keep, but none there yet: it is made.
+    r = run_person(
+        Person("male", "animated", "Parent"), tmp_path, fake_picture, passes, None, None, True
+    )
+    assert not r.reused and (tmp_path / "animated_male_parent.png").exists()
 
 
 def test_a_picture_that_fails_the_checks_is_not_prepared(tmp_path: Path) -> None:
@@ -170,3 +199,72 @@ def test_a_second_face_gets_its_own_files(tmp_path: Path) -> None:
     assert r.picture == "animated_female_teenager_2.png"
     assert r.videos["American"] == "animated_female_teenager_2_american.mp4"
     assert "with curly hair" in r.prompt
+
+
+def test_exit_status_is_0_only_when_everyone_passed_and_talked() -> None:
+    def full(p: Person) -> Result:
+        accents = [a for a, _, _ in voices_for(p.gender)]
+        return Result(p.name, "", "x.png", score=90, videos={a: f"{a}.mp4" for a in accents})
+
+    everyone = [full(p) for p in PEOPLE]
+    assert exit_status(everyone, pictures_only=False) == 0
+    pictures = [Result(p.name, "", f"{p.name}.png", score=90) for p in PEOPLE]
+    assert exit_status(pictures, pictures_only=True) == 0
+    # Pictures only, but videos were asked for.
+    assert exit_status(pictures, pictures_only=False) == 1
+    # One person missing, failed the checks, had an error, or talked in one voice only.
+    assert exit_status(everyone[:-1], pictures_only=False) == 1
+    for change in (
+        {"problems": ["Too dark"]},
+        {"error": "Could not prepare: boom"},
+        {"picture": ""},
+        {"videos": {"American": "a.mp4"}},
+    ):
+        broken = [full(p) for p in PEOPLE]
+        for key, value in change.items():
+            setattr(broken[3], key, value)
+        assert exit_status(broken, pictures_only=False) == 1, change
+
+
+def test_exit_status_checks_the_people_of_the_run() -> None:
+    varied = [
+        Result(p.name, "", "x.png", score=90, videos={"American": "a", "British": "b"})
+        for p in VARIED_PEOPLE
+    ]
+    assert exit_status(varied, pictures_only=False, people=VARIED_PEOPLE) == 0
+    assert exit_status(varied, pictures_only=False) == 1  # not R24a's eight
+
+
+def test_video_pass_keeps_a_failed_picture_pass_and_never_makes_a_picture(
+    tmp_path: Path,
+) -> None:
+    person = Person("female", "animated", "Parent")
+
+    def boom(text: str, seed: int, path: Path) -> None:
+        raise RuntimeError("out of memory")
+
+    first = run_person(person, tmp_path, boom, passes, None, None)
+    assert first.error and not (tmp_path / f"{person.name}.png").exists()
+
+    def no_prepare(photo: Path) -> Any:
+        raise AssertionError("prepared after a failed picture pass")
+
+    assert run_videos(person, first, tmp_path, passes, no_prepare, fake_render) is first
+    failed_checks = Result(person.name, "", f"{person.name}.png", problems=["Too dark"])
+    assert run_videos(person, failed_checks, tmp_path, passes, no_prepare, fake_render) is (
+        failed_checks
+    )
+
+
+def test_video_pass_uses_the_picture_from_the_picture_pass(tmp_path: Path) -> None:
+    person = Person("male", "animated", "Boss")
+    first = run_person(person, tmp_path, fake_picture, passes, None, None)
+    first.picture_ms, first.reused = 660000.0, True
+    r = run_videos(person, first, tmp_path, passes, lambda photo: "face", fake_render)
+    assert set(r.videos) == {"American", "British"} and not r.error
+    assert r.picture_ms == 660000.0 and r.reused
+
+    # The picture went missing after the picture pass: a failure, not a new picture.
+    (tmp_path / f"{person.name}.png").unlink()
+    r = run_videos(person, first, tmp_path, passes, lambda photo: "face", fake_render)
+    assert "is gone since the picture pass" in r.error and not r.videos

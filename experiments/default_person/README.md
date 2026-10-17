@@ -22,7 +22,9 @@ visible, and names no real person or public figure (item 57). The prompts are in
 
 **[Segmind SSD-1B](https://huggingface.co/segmind/SSD-1B)**, through Hugging Face's Diffusers
 (Apache 2.0), 25 steps at 1024 by 1024, a fixed seed per person so a rerun makes the same
-picture.
+picture. The script pins the model to the Hugging Face commit the pictures were made with,
+`60987f37e94cd59c36b1cba832b9f97b57395a10` (2024-01-08, `IMAGE_REVISION`), so a later change to
+the model's repository can't change what a rerun downloads.
 
 - **License:** Apache 2.0, so the pictures can be used commercially and on a hosted site, and
   each costs nothing to make. No sign-in is needed to download it.
@@ -144,9 +146,13 @@ dependency resolver ..." block, but the step worked if it ends with `Successfull
 or only `Requirement already satisfied` lines; a real failure ends with `ResolutionImpossible`.
 
 It takes about 17 minutes a person on a 4-core CPU:
-about 11 to make the picture and 6 to prepare it. Pictures and prepared people are kept, so a
-rerun after an interruption skips what is done. `--pictures-only` makes and checks the pictures
-without preparing them. On Linux without a desktop, MediaPipe needs `libegl1`
+about 11 to make the picture and 6 to prepare it. Each run makes every picture again, even
+if one is already in the output folder, because a picture's file name doesn't say which prompt,
+seed or model made it. `--reuse-pictures` keeps the pictures already there instead (for example
+after an interruption, or after copying in the checked-in ones from `resources/default-people/`),
+and the page marks each kept picture, since it may not match the prompt shown under it. Prepared
+people are kept by the photoreal engine either way. `--pictures-only` makes and checks the
+pictures without preparing them. On Linux without a desktop, MediaPipe needs `libegl1`
 (`sudo apt-get install libegl1`).
 
 macOS / Linux:
@@ -182,14 +188,16 @@ python default_person.py -o ..\..\default-person-test
 python default_person.py --varied -o ..\..\default-person-varied
 ```
 
-The second line is R24a2's eight second faces, run the same way into their own folder.
+The last line makes R24a2's eight second faces, run the same way into their own folder.
 
 Open `default-person-test/index.html` (or `default-person-varied/index.html`) in a browser (double-click it; no server needed). It fills
 in as each person is done. While it runs, the window shows `[3/8] Picture: …` for each picture,
 then `[3/8] Video: …` for each person being prepared and rendered, between the JSON log lines. It
 is finished when it logs `"message": "Default person test done"` (with `passed_photo_checks`,
 `talked_in_both_voices` and the run's `duration_ms`), prints `Done: 8 of 8 passed the photo
-checks, 8 talked in both voices.` and `Wrote …index.html`, and the prompt comes back. The folder then holds 8 pictures, 16 videos
+checks, 8 talked in both voices.` and `Wrote …index.html`, and the prompt comes back. It exits
+with status 0 only if every person passed the photo checks and (unless `--pictures-only`) talked in
+both voices, and with 1 otherwise, after finishing every person and writing the page. The folder then holds 8 pictures, 16 videos
 (`<person>_american.mp4` and `<person>_british.mp4`), `index.html` and `results.json`. Each person is logged as a `Default person done` JSON line with their
 photo check result (`problems`, `score`), `videos`, `picture_ms` and `prepare_ms`; a step that
 fails is logged as `Default person failed` with the step, and the run goes on to the next

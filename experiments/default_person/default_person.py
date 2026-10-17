@@ -26,6 +26,8 @@ logger = logging.getLogger("default_person_test")
 
 # Segmind SSD-1B (Apache 2.0): a distilled Stable Diffusion XL, half its size, so it fits a CPU.
 IMAGE_MODEL = "segmind/SSD-1B"
+# The Hugging Face commit the checked-in pictures were made with, so a rerun gets the same files.
+IMAGE_REVISION = "60987f37e94cd59c36b1cba832b9f97b57395a10"
 STEPS = 25
 SIZE = 1024
 LINE = "Hello! It's nice to meet you. What would you like to talk about today?"
@@ -176,6 +178,7 @@ class Result:
     prompt: str
     picture: str = ""
     picture_ms: float = 0.0
+    reused: bool = False  # the picture was kept from an earlier run, not made from this prompt
     problems: list[str] = field(default_factory=list)  # from the photo checks
     score: int | None = None
     prepare_ms: float = 0.0
@@ -206,14 +209,20 @@ def run_person(
     check: CheckPhoto,
     prepare: Prepare | None,
     render: Render | None,
+    reuse_picture: bool = False,
 ) -> Result:
-    """Make, check, prepare and render one person; a failed step ends that person's run."""
+    """Make, check, prepare and render one person; a failed step ends that person's run.
+
+    The picture is made again even if one is there, since its name says nothing of the prompt,
+    seed or model it came from, unless reuse_picture is set.
+    """
     result = Result(person.name, prompt(person))
     step = "make the picture"
     try:
         picture = out / f"{person.name}.png"
         start = time.perf_counter()
-        if not picture.exists():  # kept between runs, so a rerun only redoes what's missing
+        result.reused = reuse_picture and picture.exists()
+        if not result.reused:
             make_picture(result.prompt, person.seed, picture)
         result.picture, result.picture_ms = picture.name, _ms(start)
 
@@ -241,10 +250,28 @@ def run_person(
             "score": result.score,
             "videos": len(result.videos),
             "picture_ms": result.picture_ms,
+            "reused_picture": result.reused,
             "prepare_ms": result.prepare_ms,
             "error": result.error or None,
         },
     )
+    return result
+
+
+def run_videos(
+    person: Person, first: Result, out: Path, check: CheckPhoto, prepare: Prepare, render: Render
+) -> Result:
+    """The video pass for one person, from the picture pass's result. It never makes a picture,
+    since the picture model was freed to make room for the photoreal engine, so a person whose
+    picture pass failed keeps that result."""
+    if first.error or first.problems or not first.picture:
+        return first
+
+    def no_picture(text: str, seed: int, path: Path) -> None:
+        raise FileNotFoundError(f"{path.name} is gone since the picture pass")
+
+    result = run_person(person, out, no_picture, check, prepare, render, reuse_picture=True)
+    result.picture_ms, result.reused = first.picture_ms, first.reused
     return result
 
 
@@ -255,6 +282,8 @@ def _cell(r: Result) -> str:
         verdict = "<b>Photo checks failed:</b> " + escape(" ".join(r.problems))
     else:
         verdict = f"Photo checks passed, score {r.score}"
+    if r.reused:
+        verdict += " (picture kept from an earlier run, so it may not match the prompt below)"
     image = f'<img src="{escape(r.picture)}" alt="">' if r.picture else ""
     videos = "".join(
         f'<p>{escape(accent)} voice<br><video controls preload="none" src="{escape(v)}">'
@@ -283,7 +312,8 @@ td {{ display: block; border: 1px solid #ccc; padding: 8px; width: 300px; vertic
 img, video {{ width: 100%; display: block; }} h2 {{ font-size: 1rem; margin: 0 0 6px; }}
 </style></head><body>
 <h1>Default person test</h1>
-<p>{passed} of {len(results)} pictures passed the photo checks. Pictures by {IMAGE_MODEL};
+<p>{passed} of {len(results)} pictures passed the photo checks. Pictures by {IMAGE_MODEL}
+(revision {IMAGE_REVISION[:7]});
 voices by Kokoro-82M ({escape(voices)}). Each says: "{escape(LINE)}"</p>
 <table><tr class="grid">{cells}</tr></table>
 </body></html>
@@ -297,6 +327,22 @@ def write_results(out: Path, results: list[Result]) -> Path:
     page = out / "index.html"
     page.write_text(build_page(results), encoding="utf-8")
     return page
+
+
+def exit_status(
+    results: list[Result], pictures_only: bool, people: Sequence[Person] = PEOPLE
+) -> int:
+    """0 only if every person passed the photo checks and, unless only pictures were made,
+    talked in both voices; so a script or a shell can tell a failed run."""
+    voices = {p.name: len(voices_for(p.gender)) for p in people}
+    if sorted(r.person for r in results) != sorted(voices):
+        return 1
+    for r in results:
+        if r.error or r.problems or not r.picture:
+            return 1
+        if not pictures_only and len(r.videos) != voices[r.person]:
+            return 1
+    return 0
 
 
 def ssd1b_maker() -> tuple[MakePicture, Callable[[], None]]:  # pragma: no cover - the model
@@ -315,7 +361,11 @@ def ssd1b_maker() -> tuple[MakePicture, Callable[[], None]]:  # pragma: no cover
         # half-size fp16 weights download in half the time; the CPU runs them as float32.
         # Decoding in tiles keeps memory down at 1024 by 1024.
         pipe = StableDiffusionXLPipeline.from_pretrained(
-            IMAGE_MODEL, variant="fp16", torch_dtype=torch.float32, use_safetensors=True
+            IMAGE_MODEL,
+            revision=IMAGE_REVISION,
+            variant="fp16",
+            torch_dtype=torch.float32,
+            use_safetensors=True,
         )
         pipe.vae.enable_tiling()
         return pipe
@@ -353,6 +403,11 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     parser.add_argument(
         "--varied", action="store_true", help="make the second, more varied faces (R24a2)"
     )
+    parser.add_argument(
+        "--reuse-pictures",
+        action="store_true",
+        help="keep pictures already in the output folder instead of making them again",
+    )
     args = parser.parse_args(argv)
     people = VARIED_PEOPLE if args.varied else PEOPLE
     setup_logging()
@@ -376,7 +431,9 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
         print(
             f"[{i + 1}/{n}] Picture: {person.name} (about 11 minutes if not made yet)", flush=True
         )
-        results.append(run_person(person, args.output, make_picture, check, None, None))
+        results.append(
+            run_person(person, args.output, make_picture, check, None, None, args.reuse_pictures)
+        )
         write_results(args.output, results)  # so the page fills in as the run goes
     release()
     if not args.pictures_only:
@@ -388,7 +445,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
 
         for i, person in enumerate(people):
             print(f"[{i + 1}/{n}] Video: {person.name} (about 6 minutes)", flush=True)
-            results[i] = run_person(person, args.output, make_picture, check, video.prepare, render)
+            results[i] = run_videos(person, results[i], args.output, check, video.prepare, render)
             write_results(args.output, results)
     passed = sum(1 for r in results if r.picture and not r.problems and not r.error)
     talked = sum(1 for r in results if len(r.videos) == 2)
@@ -405,7 +462,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     )
     print(f"Done: {passed} of {n} passed the photo checks, {talked} talked in both voices.")
     print(f"Wrote {page}")
-    return 0
+    return exit_status(results, args.pictures_only, people)
 
 
 if __name__ == "__main__":  # pragma: no cover
