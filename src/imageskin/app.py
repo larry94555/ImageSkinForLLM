@@ -1188,29 +1188,34 @@ def create_app(
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:
         """Speak a reply in the person's voice and render it on their photo, for an LLM that
         doesn't stream. The video's address, or null when the reply has nothing to say aloud."""
-        turns = conversation.turns()
-        if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
-            raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
-        photo = chosen_photo()
-        if photo is None:
-            raise HTTPException(status_code=409, detail="The photo was removed. Choose another.")
+        # Listed before the reply is looked up, so Clear conversation (R27b) stops it whether it
+        # comes before or after; one without the browser's id is listed under one of its own.
         stop = threading.Event()
-        if body.reply_id is not None:
-            with clips_lock:
-                if body.reply_id in stopped_early:  # stopped before it was asked for
-                    stopped_early.discard(body.reply_id)
-                    stop.set()
-                whole_videos[body.reply_id] = stop
+        key = body.reply_id or f"video-{id(stop)}"
+        with clips_lock:
+            if body.reply_id in stopped_early:  # stopped before it was asked for
+                stopped_early.discard(body.reply_id)
+                stop.set()
+            whole_videos[key] = stop
         try:
-            path = replies.render(photo, body.turn, turns[body.turn].content, stop.is_set)
-        except Exception as e:
-            # The voice and video engines' errors say what went wrong; the reply is still shown.
-            raise HTTPException(status_code=502, detail=str(e)) from e
+            turns = conversation.turns()
+            if not 0 <= body.turn < len(turns) or turns[body.turn].role != "assistant":
+                raise HTTPException(status_code=404, detail=NO_SUCH_REPLY)
+            photo = chosen_photo()
+            if photo is None:
+                raise HTTPException(
+                    status_code=409, detail="The photo was removed. Choose another."
+                )
+            try:
+                path = replies.render(photo, body.turn, turns[body.turn].content, stop.is_set)
+            except Exception as e:
+                # The voice and video engines' errors say what went wrong; the reply is still
+                # shown.
+                raise HTTPException(status_code=502, detail=str(e)) from e
         finally:
-            if body.reply_id is not None:
-                with clips_lock:
-                    if whole_videos.get(body.reply_id) is stop:
-                        del whole_videos[body.reply_id]
+            with clips_lock:
+                if whole_videos.get(key) is stop:
+                    del whole_videos[key]
         return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
 
     @app.post("/api/prepare/clips/sample/again", dependencies=needs_consent)
@@ -1235,7 +1240,22 @@ def create_app(
         """Clear conversation from Settings (roadmap R27b), once the browser has asked to
         confirm. It waits for a prompt being answered, so that reply is cleared too."""
         with chat_lock:
-            return {"cleared": conversation.clear()}
+            # The replies' videos go too: those being made are stopped and never published,
+            # and those made are removed, so none of what was said can still be played.
+            with clips_lock:
+                streamed = list(sentence_clips.values())
+                sentence_clips.clear()
+                for stop in whole_videos.values():
+                    stop.set()
+            for clips in streamed:
+                threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
+            cleared = conversation.clear()
+            videos = replies.clear()
+        logger.info(
+            "Reply videos cleared",
+            extra={"videos": videos, "streamed_replies": len(streamed)},
+        )
+        return {"cleared": cleared}
 
     @app.get("/api/chat/idle", dependencies=needs_consent)
     def get_idle_video() -> FileResponse:

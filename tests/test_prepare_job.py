@@ -966,14 +966,19 @@ def test_the_api_runs_the_video_test_again(
     with patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)):
         client.post("/api/prepare")
         client.app.state.prepare_job.wait(5)  # type: ignore[attr-defined]
+        assert client.post("/api/review", json={"decision": "accept"}).json()["accepted"]
         ran = client.post(again)
         sample = client.get("/api/prepare/clips/sample")
+        # Made again from the same photo and voice, it is the sample accepted: the chat stays
+        # open (R27b), unlike a sample Prepare makes again (R14).
+        still = client.get("/api/review").json()
         with caplog.at_level(logging.ERROR):
             failed = client.post(again)
         kept = client.get("/api/prepare/clips/sample")
     assert ran.status_code == 200
     assert ran.json()["video"] == "/api/prepare/clips/sample" and ran.json()["seconds"] >= 0
     assert sample.text.startswith("This is a test.") and sample.text.endswith(" 2")
+    assert still["accepted"] is True
     assert failed.status_code == 502 and failed.json()["detail"] == ENGINE_FAILED
     logged = next(r for r in caplog.records if r.message == "Could not run the video test again")
     assert logged.error == "ffmpeg crashed"  # type: ignore[attr-defined]

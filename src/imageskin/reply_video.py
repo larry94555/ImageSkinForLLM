@@ -333,6 +333,8 @@ class ReplyVideos:
         # Each engine is used by one thread at a time; a reply holds both for its clips.
         self._voice_lock = threading.Lock()
         self._video_lock = threading.Lock()
+        # Held while a reply video is published or the videos are cleared.
+        self._publish_lock = threading.Lock()
 
     def warm_up(self, photo: Path) -> None:
         """Load the voice and video models and make the voice ready, by rendering a word that is
@@ -473,11 +475,14 @@ class ReplyVideos:
                         log_stop("after voice")
                         return None
                     self._steps.render(photo, wav, rendering)
-                if stopped():  # during the video step: it is dropped, not published
-                    rendering.unlink(missing_ok=True)
-                    log_stop("after video")
-                    return None
-                os.replace(rendering, path)
+                # Checked and published under the lock clear() removes videos under, so a reply
+                # cleared meanwhile is never published after it (roadmap R27b).
+                with self._publish_lock:
+                    if stopped():  # during the video step: it is dropped, not published
+                        rendering.unlink(missing_ok=True)
+                        log_stop("after video")
+                        return None
+                    os.replace(rendering, path)
             except Exception as e:
                 rendering.unlink(missing_ok=True)
                 logger.error(
@@ -500,6 +505,25 @@ class ReplyVideos:
                 },
             )
             return path
+
+    def clear(self) -> int:
+        """Remove every reply video, as the conversation was cleared (roadmap R27b). A video
+        being made is stopped by its caller first, so it isn't published after this. Returns how
+        many were removed."""
+        removed = 0
+        with self._publish_lock:
+            for video in self.folder.glob("*.mp4"):
+                if not video.stem.isdigit():  # one being written, removed by its render
+                    continue
+                try:
+                    video.unlink()
+                    removed += 1
+                except OSError as e:  # open in a browser, as on Windows
+                    logger.warning(
+                        "Could not remove a reply video",
+                        extra={"video": video.name, "error": str(e)},
+                    )
+        return removed
 
     def _remove_old(self, keep: Path) -> None:
         """Only the latest reply is played. Older videos are removed once the new one is in
