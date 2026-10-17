@@ -10,6 +10,7 @@ from default_person import (
     PEOPLE,
     REALISM,
     ROLE_LOOKS,
+    VARIED_PEOPLE,
     VOICES,
     Person,
     Result,
@@ -37,6 +38,26 @@ def test_people_cover_each_gender_and_realism_with_different_roles() -> None:
     assert kinds == {(g, r) for g in ("female", "male") for r in REALISM}
     assert {p.role for p in PEOPLE} == set(ROLE_LOOKS)
     assert len({p.name for p in PEOPLE}) == len(PEOPLE)
+
+
+def test_varied_people_are_a_second_face_for_each_first_person() -> None:
+    first = {(p.gender, p.realism, p.role) for p in PEOPLE}
+    assert [(p.gender, p.realism, p.role) for p in VARIED_PEOPLE] == [
+        (p.gender, p.realism, p.role) for p in PEOPLE
+    ]
+    assert len(first) == len(VARIED_PEOPLE)
+    assert all(p.face == 2 for p in VARIED_PEOPLE)
+    # Each looks different from the others, and the name gives only a number, not the look.
+    assert len({p.look for p in VARIED_PEOPLE}) == len(VARIED_PEOPLE)
+    assert {p.name for p in VARIED_PEOPLE} == {f"{p.name}_2" for p in PEOPLE}
+
+
+def test_prompt_includes_the_look_only_when_given() -> None:
+    plain = prompt(Person("male", "photoreal", "Professor"))
+    varied = prompt(VARIED_PEOPLE[0])
+    assert "late fifties wearing" in plain
+    assert varied.startswith(f"a man in their late fifties, {VARIED_PEOPLE[0].look}, wearing a")
+    assert REALISM["photoreal"] in varied and "facing the camera" in varied
 
 
 def test_every_gender_has_an_american_and_a_british_voice() -> None:
@@ -141,3 +162,11 @@ def test_page_and_results(tmp_path: Path) -> None:
     saved = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
     assert saved[0]["videos"]["British"] == "b.mp4"
     assert build_page([]).startswith("<!doctype html>")
+
+
+def test_a_second_face_gets_its_own_files(tmp_path: Path) -> None:
+    person = Person("female", "animated", "Teenager", face=2, look="with curly hair")
+    r = run_person(person, tmp_path, fake_picture, passes, lambda photo: "face", fake_render)
+    assert r.picture == "animated_female_teenager_2.png"
+    assert r.videos["American"] == "animated_female_teenager_2_american.mp4"
+    assert "with curly hair" in r.prompt
