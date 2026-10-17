@@ -1,12 +1,14 @@
 """R24a default person test: make a few made-up people, check them and hear them talk.
 
-    python experiments/default_person/default_person.py [-o default-person-test]
+    python experiments/default_person/default_person.py [-o default-person-test] [--varied]
 
 For each person below it makes a picture with an open text-to-image model, runs the app's own
 photo checks on it, prepares it with the photoreal engine and renders a short line in both
 Kokoro voices for the person's gender (American and British), then writes index.html to look
 at them side by side. A step that fails is recorded and the person is skipped from then on,
 so one bad picture doesn't stop the rest. It is a test, not part of the app; R24b makes all 36.
+--varied makes a second face for each of the eight instead, with a range of skin tones,
+heritages and hair (R24a2).
 """
 
 import argparse
@@ -15,7 +17,7 @@ import logging
 import os
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -69,10 +71,13 @@ class Person:
     realism: str  # "photoreal" or "animated"
     role: str
     seed: int = 1
+    look: str = ""  # skin, hair and heritage, for a range of people; empty leaves it to the model
+    face: int = 1  # which face of this gender, realism and role
 
     @property
     def name(self) -> str:
-        return f"{self.realism}_{self.gender}_{self.role.lower()}"
+        name = f"{self.realism}_{self.gender}_{self.role.lower()}"
+        return f"{name}_{self.face}" if self.face > 1 else name
 
 
 # Two of each gender and realism, four roles, each role once in every realism.
@@ -87,6 +92,22 @@ PEOPLE = [
     Person("female", "animated", "Teenager"),
 ]
 
+# R24a2: a second face for each of the eight above, in the same order, each of a different
+# heritage and skin tone with hair to suit. Only the prompt says so; names give a number.
+VARIED_LOOKS = [
+    "Black, with deep brown skin, short grey hair and a short grey beard",
+    "East Asian, with straight black hair in a neat bob",
+    "South Asian, with warm brown skin and long dark wavy hair",
+    "Latino, with light brown skin and short curly dark hair",
+    "Middle Eastern, with olive skin and dark hair tied back",
+    "Black, with dark brown skin and close-cropped black hair",
+    "Southeast Asian, with tan skin and short black hair",
+    "Indigenous, with brown skin and long straight black hair",
+]
+VARIED_PEOPLE = [
+    replace(person, face=2, look=look) for person, look in zip(PEOPLE, VARIED_LOOKS, strict=True)
+]
+
 
 def prompt(person: Person) -> str:
     """The text the picture is made from."""
@@ -94,7 +115,16 @@ def prompt(person: Person) -> str:
     who = "woman" if person.gender == "female" else "man"
     if person.role == "Teenager":
         who = "girl" if person.gender == "female" else "boy"
-    return f"{REALISM[person.realism]}, {FRAMING}, a {who} {age} wearing {clothes}, in {setting}"
+    if not person.look:  # R24a's order, so its pictures can be made again from the same seed
+        return (
+            f"{REALISM[person.realism]}, {FRAMING}, a {who} {age} wearing {clothes}, in {setting}"
+        )
+    # The person goes first: at the end, after the long style and framing, the model ignored the
+    # look (and the text encoder keeps only the first 77 tokens, so the setting goes last).
+    return (
+        f"a {who} {age}, {person.look}, wearing {clothes}, {REALISM[person.realism]}, "
+        f"{FRAMING}, in {setting}"
+    )
 
 
 @dataclass
@@ -254,10 +284,12 @@ def write_results(out: Path, results: list[Result]) -> Path:
     return page
 
 
-def exit_status(results: list[Result], pictures_only: bool) -> int:
+def exit_status(
+    results: list[Result], pictures_only: bool, people: Sequence[Person] = PEOPLE
+) -> int:
     """0 only if every person passed the photo checks and, unless only pictures were made,
     talked in both voices; so a script or a shell can tell a failed run."""
-    voices = {p.name: len(voices_for(p.gender)) for p in PEOPLE}
+    voices = {p.name: len(voices_for(p.gender)) for p in people}
     if sorted(r.person for r in results) != sorted(voices):
         return 1
     for r in results:
@@ -324,11 +356,15 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     parser.add_argument("-o", "--output", type=Path, default=Path("default-person-test"))
     parser.add_argument("--pictures-only", action="store_true", help="skip prepare and videos")
     parser.add_argument(
+        "--varied", action="store_true", help="make the second, more varied faces (R24a2)"
+    )
+    parser.add_argument(
         "--reuse-pictures",
         action="store_true",
         help="keep pictures already in the output folder instead of making them again",
     )
     args = parser.parse_args(argv)
+    people = VARIED_PEOPLE if args.varied else PEOPLE
     setup_logging()
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -345,8 +381,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     # Every picture first, then the picture model is freed before the photoreal engine loads:
     # both at once ran out of 16 GB of memory.
     results: list[Result] = []
-    n = len(PEOPLE)
-    for i, person in enumerate(PEOPLE):
+    n = len(people)
+    for i, person in enumerate(people):
         print(
             f"[{i + 1}/{n}] Picture: {person.name} (about 11 minutes if not made yet)", flush=True
         )
@@ -362,7 +398,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
         def render(face: Any, lang: str, voice: str, output: Path) -> None:
             speak_and_render(face, LINE, output, kokoro[lang], video, voice)
 
-        for i, person in enumerate(PEOPLE):
+        for i, person in enumerate(people):
             print(f"[{i + 1}/{n}] Video: {person.name} (about 6 minutes)", flush=True)
             results[i] = run_videos(person, results[i], args.output, check, video.prepare, render)
             write_results(args.output, results)
@@ -381,7 +417,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     )
     print(f"Done: {passed} of {n} passed the photo checks, {talked} talked in both voices.")
     print(f"Wrote {page}")
-    return exit_status(results, args.pictures_only)
+    return exit_status(results, args.pictures_only, people)
 
 
 if __name__ == "__main__":  # pragma: no cover
