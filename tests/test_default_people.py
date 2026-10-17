@@ -1,0 +1,176 @@
+"""Unit tests for the default people's catalogue and packs (roadmap R24b)."""
+
+import json
+import zipfile
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from imageskin import default_people as dp
+from imageskin.photoreal_library import key_frames, library_key, mouth_key
+
+
+def test_there_is_one_person_for_each_gender_realism_and_role() -> None:
+    found = dp.people()
+    assert len(found) == 36
+    assert {(p.gender, p.realism, p.role) for p in found} == {
+        (g, r, role) for g in dp.GENDERS for r in dp.REALISMS for role in dp.ROLES
+    }
+    assert len({p.name for p in found}) == 36
+
+
+def test_looks_are_spread_over_roles_and_realisms() -> None:
+    found = dp.people()
+    for role in dp.ROLES:
+        # A role's four people all look different.
+        assert len({p.look for p in found if p.role == role}) == 4
+    for g in dp.GENDERS:
+        for r in dp.REALISMS:
+            # Each gender and realism shows every look once.
+            group = [p.look for p in found if p.gender == g and p.realism == r]
+            assert Counter(group) == Counter(dp.LOOKS)
+
+
+def test_names() -> None:
+    assert dp.Person("female", "animated", "Teaching Assistant", "x").name == (
+        "animated_female_teaching_assistant"
+    )
+    assert dp.Person("male", "photoreal", "Boss", "x", face=2).name == "photoreal_male_boss_2"
+
+
+def test_every_gender_has_an_american_and_a_british_voice() -> None:
+    for gender in dp.GENDERS:
+        accents = {a for a, _, _ in dp.voices_for(gender)}
+        assert accents == {"American", "British"}
+        for _, lang, voice in dp.voices_for(gender):
+            assert voice[:2] == lang + gender[0]
+
+
+N_LOOP = 12  # a short loop: key frames 0, 4 and 8
+
+
+def fake_library(folder: Path, rng: np.random.Generator) -> None:
+    """A library as build_library leaves it, with small random pictures."""
+    (folder / "loop").mkdir(parents=True)
+
+    def image() -> np.ndarray:
+        return rng.integers(0, 256, (16, 16, 3), np.uint8)
+
+    np.save(folder / "photo.npy", rng.integers(0, 256, (24, 20, 3), np.uint8))
+    np.save(folder / "paste_template.npy", image())
+    np.save(folder / "crop_landmarks.npy", rng.random((68, 2)).astype(np.float32))
+    np.save(folder / "crop_to_photo.npy", rng.random((2, 3)))
+    np.save(folder / "shapes.npy", np.stack([image() for _ in range(10)]))
+    np.save(folder / "eyes.npy", np.stack([image() for _ in range(4)]))
+    np.save(folder / "align.npy", rng.random((N_LOOP, 2, 3)))
+    np.save(folder / "eye_align.npy", rng.random((N_LOOP, 2, 3)))
+    for i in range(N_LOOP):
+        # Smooth frames, so the filled-in ones match closely.
+        np.save(folder / "loop" / f"{i:04d}.npy", np.full((16, 16, 3), 10 * i, np.uint8))
+    (folder / "shapes.json").write_text(json.dumps({"mouth": mouth_key()}))
+    (folder / "library.json").write_text(
+        json.dumps({"version": 2, "photo": "x", "loop_frames": N_LOOP, "mouth": mouth_key()})
+    )
+
+
+@pytest.fixture
+def packed(tmp_path: Path) -> tuple[Path, Path, Path]:
+    library = tmp_path / "lib"
+    fake_library(library, np.random.default_rng(1))
+    picture = tmp_path / "pic.png"
+    picture.write_bytes(b"picture bytes")
+    out = tmp_path / "person.zip"
+    person = dp.people()[0]
+    size = dp.pack(person, picture, library, out)
+    assert size == out.stat().st_size > 0
+    return library, picture, out
+
+
+def test_pack_holds_the_picture_and_only_the_key_frames(packed: tuple[Path, Path, Path]) -> None:
+    _, _, out = packed
+    with zipfile.ZipFile(out) as z:
+        names = set(z.namelist())
+        info = json.loads(z.read("person.json"))
+    assert "picture.png" in names and "shapes.json" in names
+    assert {n for n in names if n.startswith("loop/")} == {
+        f"loop/{i:04d}.png" for i in key_frames(N_LOOP)
+    }
+    assert len([n for n in names if n.startswith("shapes/")]) == 10
+    assert len([n for n in names if n.startswith("eyes/")]) == 4
+    assert info["name"] == dp.people()[0].name and info["loop_frames"] == N_LOOP
+
+
+def test_unpack_restores_the_library(packed: tuple[Path, Path, Path], tmp_path: Path) -> None:
+    library, picture, out = packed
+    home = tmp_path / "home"
+    got = dp.unpack(out, home)
+    assert got.read_bytes() == picture.read_bytes()
+    folder = home / "photoreal" / library_key(got)
+    for name in ("photo", "paste_template", "crop_landmarks", "crop_to_photo", "shapes", "eyes"):
+        np.testing.assert_array_equal(
+            np.load(folder / f"{name}.npy"), np.load(library / f"{name}.npy")
+        )
+    for i in key_frames(N_LOOP):  # the key frames exactly, through PNG
+        np.testing.assert_array_equal(
+            np.load(folder / "loop" / f"{i:04d}.npy"), np.load(library / "loop" / f"{i:04d}.npy")
+        )
+    assert len(list((folder / "loop").glob("*.npy"))) == N_LOOP  # the rest filled in
+    meta = json.loads((folder / "library.json").read_text())
+    assert meta["photo"] == str(got) and meta["mouth"] == mouth_key()
+
+
+def test_unpacked_library_loads_without_preparing(
+    packed: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    from imageskin.photoreal_library import prepare_library
+
+    _, _, out = packed
+    home = tmp_path / "home"
+    got = dp.unpack(out, home)
+
+    def no_model(photo: Path) -> None:
+        raise AssertionError("prepared again")
+
+    lib = prepare_library(got, home, no_model)  # type: ignore[arg-type]
+    assert len(lib.loop) == N_LOOP and len(lib.shapes) == 10
+
+
+def test_unpack_refuses_a_bad_pack(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"not a zip")
+    with pytest.raises(dp.PackError, match="could not be unpacked"):
+        dp.unpack(bad, tmp_path / "home")
+
+
+def test_unpack_refuses_other_versions_and_mouth_settings(
+    packed: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    _, _, out = packed
+    for change, message in (({"pack_version": 99}, "not supported"), ({"mouth": "x"}, "mouth")):
+        with zipfile.ZipFile(out) as z:
+            info = json.loads(z.read("person.json"))
+            items = {n: z.read(n) for n in z.namelist() if n != "person.json"}
+        other = tmp_path / "other.zip"
+        with zipfile.ZipFile(other, "w") as z:
+            z.writestr("person.json", json.dumps({**info, **change}))
+            for n, data in items.items():
+                z.writestr(n, data)
+        with pytest.raises(dp.PackError, match=message):
+            dp.unpack(other, tmp_path / "home")
+
+
+def test_a_frame_that_is_not_a_png_is_refused(
+    packed: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    _, _, out = packed
+    with zipfile.ZipFile(out) as z:
+        items = {n: z.read(n) for n in z.namelist()}
+    items["loop/0000.png"] = b"junk"
+    other = tmp_path / "junk.zip"
+    with zipfile.ZipFile(other, "w") as z:
+        for n, data in items.items():
+            z.writestr(n, data)
+    with pytest.raises(dp.PackError, match="not a PNG"):
+        dp.unpack(other, tmp_path / "home")
