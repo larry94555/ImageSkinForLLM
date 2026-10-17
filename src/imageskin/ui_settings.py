@@ -1,14 +1,16 @@
-"""The settings anyone can change from the Settings menu in the top bar (roadmap R41a).
+"""The settings anyone can change on the Settings page (roadmap R41a, R27).
 
 Saved as ui-settings.json in the app's home folder, so they are the same after a reload or a
-restart and on every browser (feature items 49 and 51). R44's sign-on restricts them later.
+restart and on every browser (feature items 49 and 51). R44's sign-on restricts them later. Only
+the settings changed are saved, so one never changed keeps following its default, which for the
+question scope is the config file's `general_prompts` (R27).
 """
 
 import json
 import logging
 import os
 import threading
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +40,12 @@ class UiSettings:
     # Tools for looking into problems, such as copying the chat to paste it elsewhere; off unless
     # turned on (Larry, 2026-10-15).
     debug: bool = False
+    # Whether prompts the content doesn't cover are answered (item 28, R41); off unless the config
+    # file or the Settings page turns it on (R27).
+    general_prompts: bool = False
 
+
+DEFAULTS = UiSettings()
 
 # The values each setting can take.
 CHOICES: dict[str, tuple[object, ...]] = {
@@ -48,25 +55,33 @@ CHOICES: dict[str, tuple[object, ...]] = {
     "quiz_me": (True, False),
     "assessment": (True, False),
     "debug": (True, False),
+    "general_prompts": (True, False),
 }
 
 
-def load_ui_settings(home: Path) -> UiSettings:
+def load_ui_settings(home: Path, defaults: UiSettings = DEFAULTS) -> UiSettings:
     """The saved settings, the defaults for any not saved, or all the defaults when the file
     is missing or can't be read."""
+    try:
+        return checked(defaults, saved_changes(home))
+    except ValueError as e:
+        logger.error(
+            "Saved settings are not valid", extra={"path": str(home / FILENAME), "error": str(e)}
+        )
+        return defaults
+
+
+def saved_changes(home: Path) -> dict[str, Any]:
+    """The settings changed and saved, by name; none when the file is missing or can't be read."""
     path = home / FILENAME
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return UiSettings()
+        return {}
     except (OSError, ValueError) as e:
         logger.error("Could not read the settings", extra={"path": str(path), "error": str(e)})
-        return UiSettings()
-    try:
-        return checked(UiSettings(), data if isinstance(data, dict) else {})
-    except ValueError as e:
-        logger.error("Saved settings are not valid", extra={"path": str(path), "error": str(e)})
-        return UiSettings()
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def checked(settings: UiSettings, changes: dict[str, Any]) -> UiSettings:
@@ -81,15 +96,23 @@ def checked(settings: UiSettings, changes: dict[str, Any]) -> UiSettings:
     return replace(settings, **changes)
 
 
-def save_ui_settings(home: Path, changes: dict[str, Any]) -> UiSettings:
+def save_ui_settings(
+    home: Path, changes: dict[str, Any], defaults: UiSettings = DEFAULTS
+) -> UiSettings:
     """Make the changes to the saved settings and save them; ValueError if one is invalid."""
     with _saving:
-        settings = checked(load_ui_settings(home), changes)
+        saved = saved_changes(home)
+        try:
+            checked(defaults, saved)
+        except ValueError:
+            saved = {}  # a file that can't be used is replaced, as its settings were the defaults
+        saved.update(changes)
+        settings = checked(defaults, saved)
         home.mkdir(parents=True, exist_ok=True)
         path = home / FILENAME
         # Written beside it, then put in its place, so a read never sees half a file.
         part = path.with_suffix(".part")
-        part.write_text(json.dumps(asdict(settings)), encoding="utf-8")
+        part.write_text(json.dumps(saved), encoding="utf-8")
         os.replace(part, path)
     logger.info("Settings changed", extra={"path": str(path), **changes})
     return settings

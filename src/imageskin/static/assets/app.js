@@ -268,7 +268,8 @@ var DEFAULT_SETTINGS = {
 	teach_me: false,
 	quiz_me: false,
 	assessment: false,
-	debug: false
+	debug: false,
+	general_prompts: false
 };
 function settings(data) {
 	return {
@@ -277,7 +278,8 @@ function settings(data) {
 		teach_me: data.teach_me === true,
 		quiz_me: data.quiz_me === true,
 		assessment: data.assessment === true,
-		debug: data.debug === true
+		debug: data.debug === true,
+		general_prompts: data.general_prompts === true
 	};
 }
 async function getSettings() {
@@ -336,17 +338,77 @@ var VIEWS = [[
 	"Student",
 	"the chat and a read-only wiki"
 ]];
-function SettingsMenu() {
-	const { settings, loaded, change } = x(SettingsContext);
-	const [open, setOpen] = d(false);
+var SWITCHES = [{
+	group: "Chat",
+	about: "What the person in the video answers, and the buttons under the prompt box.",
+	items: [
+		[
+			"general_prompts",
+			"Answer questions outside the content",
+			"Off: a question the PDFs don't cover gets a short, polite reply instead of an answer."
+		],
+		[
+			"teach_me",
+			"Teach me",
+			"A Teach me button that teaches the content a part at a time."
+		],
+		[
+			"quiz_me",
+			"Quiz me",
+			"A Quiz me button that asks five questions on a topic and judges each answer."
+		],
+		[
+			"assessment",
+			"Assessment",
+			"An Assessment button that asks questions across all the content, then says how broad and deep your knowledge is."
+		]
+	]
+}, {
+	group: "Display",
+	about: "What else is shown on the pages.",
+	items: [[
+		"show_metrics",
+		"Show timing metrics",
+		"How long replies and other steps take, under the video and on the pages."
+	], [
+		"debug",
+		"Debug",
+		"Copy chat under the conversation, to paste the latest exchanges somewhere else."
+	]]
+}];
+var ICON = /* @__PURE__ */ u("svg", {
+	viewBox: "0 0 24 24",
+	"aria-hidden": "true",
+	fill: "none",
+	stroke: "currentColor",
+	"stroke-width": "2",
+	"stroke-linecap": "round",
+	children: [
+		/* @__PURE__ */ u("path", { d: "M4 7h10M18 7h2M4 17h4M12 17h8" }),
+		/* @__PURE__ */ u("circle", {
+			cx: "16",
+			cy: "7",
+			r: "2"
+		}),
+		/* @__PURE__ */ u("circle", {
+			cx: "10",
+			cy: "17",
+			r: "2"
+		})
+	]
+});
+function SettingsLink({ current }) {
+	return /* @__PURE__ */ u("a", {
+		href: "#/settings",
+		className: current ? "settings-link current" : "settings-link",
+		children: [ICON, "Settings"]
+	});
+}
+function SettingsPage({ back }) {
+	const { settings, change } = x(SettingsContext);
 	const [failed, setFailed] = d(false);
-	const menu = A(null);
-	h(() => {
-		if (!open) return;
-		const close = (e) => e.key === "Escape" && setOpen(false);
-		window.addEventListener("keydown", close);
-		return () => window.removeEventListener("keydown", close);
-	}, [open]);
+	const page = A(null);
+	h(() => console.info(`Settings page opened, returning to ${back}`), [back]);
 	async function save(changes, undo) {
 		setFailed(false);
 		try {
@@ -360,150 +422,95 @@ function SettingsMenu() {
 	function chooseView(view) {
 		const was = settings.view;
 		save({ view }, () => {
-			const box = menu.current?.querySelector(`input[value="${was}"]`);
+			const box = page.current?.querySelector(`input[value="${was}"]`);
 			if (box) box.checked = true;
 		});
 	}
 	return /* @__PURE__ */ u("div", {
-		className: "settings",
-		children: [/* @__PURE__ */ u("button", {
-			type: "button",
-			className: "link",
-			"aria-expanded": open,
-			"aria-controls": "settings-menu",
-			disabled: !loaded,
-			onClick: () => setOpen(!open),
-			children: [/* @__PURE__ */ u("svg", {
-				viewBox: "0 0 24 24",
-				"aria-hidden": "true",
-				fill: "none",
-				stroke: "currentColor",
-				"stroke-width": "2",
-				"stroke-linecap": "round",
+		className: "teacher-page settings-page",
+		ref: page,
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Settings" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Changes are saved at once and kept after a restart."
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The setting could not be changed. Try again."
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "settings-view",
 				children: [
-					/* @__PURE__ */ u("path", { d: "M4 7h10M18 7h2M4 17h4M12 17h8" }),
-					/* @__PURE__ */ u("circle", {
-						cx: "16",
-						cy: "7",
-						r: "2"
+					/* @__PURE__ */ u("h2", {
+						id: "settings-view",
+						children: "View"
 					}),
-					/* @__PURE__ */ u("circle", {
-						cx: "10",
-						cy: "17",
-						r: "2"
-					})
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Who the app is set out for."
+					}),
+					/* @__PURE__ */ u("fieldset", { children: [/* @__PURE__ */ u("legend", {
+						className: "sr-only",
+						children: "View"
+					}), VIEWS.map(([view, label, about]) => /* @__PURE__ */ u("label", {
+						className: "choice",
+						children: [
+							/* @__PURE__ */ u("input", {
+								type: "radio",
+								name: "view",
+								value: view,
+								checked: settings.view === view,
+								onChange: () => chooseView(view)
+							}),
+							" ",
+							/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+								className: "muted",
+								children: [" · ", about]
+							})] })
+						]
+					}, view))] })
 				]
-			}), "Settings"]
-		}), open && /* @__PURE__ */ u("div", {
-			id: "settings-menu",
-			ref: menu,
-			className: "settings-menu",
-			role: "group",
-			"aria-label": "Settings",
-			children: [
-				/* @__PURE__ */ u("fieldset", { children: [/* @__PURE__ */ u("legend", { children: "View" }), VIEWS.map(([view, label, about]) => /* @__PURE__ */ u("label", {
-					className: "choice",
-					children: [
-						/* @__PURE__ */ u("input", {
-							type: "radio",
-							name: "view",
-							value: view,
-							checked: settings.view === view,
-							onChange: () => chooseView(view)
-						}),
-						" ",
-						/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+			}),
+			SWITCHES.map(({ group, about, items }) => /* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": `settings-${group}`,
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: `settings-${group}`,
+						children: group
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: about
+					}),
+					items.map(([name, label, help]) => /* @__PURE__ */ u("div", {
+						className: "switch",
+						children: [/* @__PURE__ */ u("label", { children: [
+							/* @__PURE__ */ u("input", {
+								type: "checkbox",
+								checked: settings[name],
+								onChange: (e) => {
+									const box = e.currentTarget;
+									save({ [name]: box.checked }, () => box.checked = !box.checked);
+								}
+							}),
+							" ",
+							label
+						] }), /* @__PURE__ */ u("p", {
 							className: "muted",
-							children: [" · ", about]
-						})] })
-					]
-				}, view))] }),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.show_metrics,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ show_metrics: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Show timing metrics"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "How long replies and other steps take, under the video and on the pages."
-				}),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.teach_me,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ teach_me: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Teach me"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "A Teach me button in the chat that teaches the content a part at a time."
-				}),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.quiz_me,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ quiz_me: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Quiz me"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "A Quiz me button in the chat that asks five questions on a topic and judges each answer."
-				}),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.assessment,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ assessment: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Assessment"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "An Assessment button in the chat that asks questions across all the content, then says how broad and deep your knowledge is."
-				}),
-				/* @__PURE__ */ u("label", { children: [
-					/* @__PURE__ */ u("input", {
-						type: "checkbox",
-						checked: settings.debug,
-						onChange: (e) => {
-							const box = e.currentTarget;
-							save({ debug: box.checked }, () => box.checked = !box.checked);
-						}
-					}),
-					" ",
-					"Debug"
-				] }),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "Copy chat under the conversation, to paste the latest exchanges somewhere else."
-				}),
-				failed && /* @__PURE__ */ u("p", {
-					className: "error",
-					children: "The setting could not be changed. Try again."
-				})
-			]
-		})]
+							children: help
+						})]
+					}, name))
+				]
+			}, group)),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				className: "button",
+				href: back,
+				children: "Return to the app"
+			}) })
+		]
 	});
 }
 //#endregion
@@ -3841,7 +3848,8 @@ var PAGES = {
 	"/chat": "chat",
 	"/content": "content",
 	"/guide": "guide",
-	"/wiki": "wiki"
+	"/wiki": "wiki",
+	"/settings": "settings"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -4819,6 +4827,8 @@ function Shell() {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
 	}, [route?.redirect]);
 	const header = useHeaderHeight();
+	const back = A(null);
+	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
 	if (route) content = {
 		home: /* @__PURE__ */ u(HomePage, { consented: consented === true }),
@@ -4832,6 +4842,7 @@ function Shell() {
 		guide: /* @__PURE__ */ u(GuidePage, {}),
 		wiki: /* @__PURE__ */ u(WikiPage, { pdf: wikiTarget(hash).pdf }),
 		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
+		settings: /* @__PURE__ */ u(SettingsPage, { back: back.current ?? (student ? "#/chat" : "#/") }),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
@@ -4848,7 +4859,7 @@ function Shell() {
 					className: current(route?.page) === item.page ? "current" : void 0,
 					children: item.label
 				}, item.page)) }),
-				/* @__PURE__ */ u(SettingsMenu, {})
+				settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })
 			]
 		}),
 		/* @__PURE__ */ u("main", { children: content }),
