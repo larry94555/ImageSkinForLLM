@@ -32,9 +32,15 @@ async function readInUse(): Promise<InUse> {
   };
 }
 
+function isInUse(inUse: InUse, id: string): boolean {
+  return inUse.photo?.id === id || inUse.sounds.some((s) => s.id === id);
+}
+
 export function YourFiles() {
   // null until it has loaded.
   const [inUse, setInUse] = useState<InUse | null>(null);
+  // Checked again here and no longer in use since, shown with their result to say why.
+  const [dropped, setDropped] = useState<Upload[]>([]);
   const [loadFailed, setLoadFailed] = useState(false);
   const [checking, setChecking] = useState<string | null>(null); // one at a time
   const [failed, setFailed] = useState<string | null>(null); // the one that couldn't be checked
@@ -52,22 +58,17 @@ export function YourFiles() {
       });
   }, []);
 
-  // The result replaces the old one, and stays shown even if it no longer passes.
+  // A new result can change what is in use: a photo that no longer passes, or scores below
+  // another, is no longer the one for the video, and a recording that no longer passes leaves
+  // the voice sample. So what is in use is read again after each check.
   async function checkAgain(item: Upload) {
     if (checking !== null) return;
     setChecking(item.id);
     setFailed(null);
     const started = performance.now();
+    let checked: Upload | null = null;
     try {
-      const checked = await checkUpload(item.kind, item.id);
-      const swap = (u: Upload) => (u.id === checked.id ? checked : u);
-      setInUse(
-        (current) =>
-          current && {
-            photo: current.photo && swap(current.photo),
-            sounds: current.sounds.map(swap),
-          },
-      );
+      checked = await checkUpload(item.kind, item.id);
       const took = Math.round(performance.now() - started);
       const found =
         checked.problems === null ? "not checked" : `${checked.problems.length} problem(s)`;
@@ -76,7 +77,24 @@ export function YourFiles() {
       console.error(`Could not check ${item.name} again`, e);
       setFailed(item.id);
     }
+    if (checked) await refresh(checked);
     setChecking(null);
+  }
+
+  async function refresh(checked: Upload) {
+    try {
+      const read = await readInUse();
+      const out = !isInUse(read, checked.id);
+      if (out) console.info(`${checked.name} is no longer in use`);
+      setInUse(read);
+      setDropped((was) => [
+        ...was.filter((u) => u.id !== checked.id && !isInUse(read, u.id)),
+        ...(out ? [checked] : []),
+      ]);
+    } catch (e) {
+      console.error("Could not read the photos and recordings in use again", e);
+      setLoadFailed(true);
+    }
   }
 
   function actions(item: Upload) {
@@ -96,6 +114,12 @@ export function YourFiles() {
     );
   }
 
+  const photos = inUse
+    ? [...(inUse.photo ? [inUse.photo] : []), ...dropped.filter((u) => u.kind === "photos")]
+    : [];
+  const sounds = inUse ? [...inUse.sounds, ...dropped.filter((u) => u.kind === "sounds")] : [];
+  const isDropped = (item: Upload) => dropped.some((u) => u.id === item.id);
+
   return (
     <section className="panel" aria-labelledby="settings-files">
       <h2 id="settings-files">Photos and recordings</h2>
@@ -107,15 +131,20 @@ export function YourFiles() {
       {inUse && (
         <>
           <h3>Photo</h3>
-          {inUse.photo ? (
+          {photos.length > 0 ? (
             <ul className="photos">
-              <li>
-                <a href={uploadUrl("photos", inUse.photo.id)} target="_blank" rel="noreferrer">
-                  <img src={uploadUrl("photos", inUse.photo.id)} alt={inUse.photo.name} />
-                </a>
-                <span className="name">{inUse.photo.name}</span>
-                {actions(inUse.photo)}
-              </li>
+              {photos.map((item) => (
+                <li key={item.id}>
+                  <a href={uploadUrl("photos", item.id)} target="_blank" rel="noreferrer">
+                    <img src={uploadUrl("photos", item.id)} alt={item.name} />
+                  </a>
+                  <span className="name">{item.name}</span>
+                  {isDropped(item) && (
+                    <span className="muted check">No longer used for the video</span>
+                  )}
+                  {actions(item)}
+                </li>
+              ))}
             </ul>
           ) : (
             <p className="muted">
@@ -123,15 +152,18 @@ export function YourFiles() {
             </p>
           )}
           <h3>Recordings</h3>
-          {inUse.sounds.length > 0 ? (
+          {sounds.length > 0 ? (
             <ul className="sounds">
-              {inUse.sounds.map((item) => (
+              {sounds.map((item) => (
                 <li key={item.id}>
                   <audio controls preload="none" src={uploadUrl("sounds", item.id)} />
                   <span className="name">
                     {item.name}
                     {item.seconds !== null && ` (${minutes(item.seconds)})`}
                   </span>
+                  {isDropped(item) && (
+                    <span className="muted check">No longer in the voice sample</span>
+                  )}
                   {actions(item)}
                 </li>
               ))}
@@ -139,6 +171,11 @@ export function YourFiles() {
           ) : (
             <p className="muted">
               No recording is in use yet. Add them in <a href="#/setup">Setup</a>.
+            </p>
+          )}
+          {dropped.length > 0 && (
+            <p className="muted">
+              Add, remove or choose photos and recordings in <a href="#/setup">Setup</a>.
             </p>
           )}
         </>

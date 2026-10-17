@@ -369,13 +369,19 @@ class UploadStore:
 
     def check(self, kind: Kind, upload_id: str) -> Upload | None:
         """Run the checks on a stored upload, such as one uploaded before they were on, and
-        save the result. None when there is no such upload."""
+        save the result. None when there is no such upload; UploadError when the checks are on
+        but could not run."""
         stored = self.path(kind, upload_id)
         upload = self._read(stored.with_suffix(".json")) if stored else None
         if stored is None or upload is None:
             return None
         checked = self._with_checks(upload, stored)
-        if checked.problems is None or not stored.exists():  # removed while it was being checked
+        if not stored.exists():  # removed while it was being checked
+            return self._current(upload)
+        if checked.problems is None:
+            if (self.check_photo if kind == "photos" else self.check_sound) is not None:
+                # The checks are on but failed (logged in _check): the saved result is not new.
+                raise UploadError("The checks could not run. Please try again.", status=503)
             return self._current(upload)
         self._write_info(stored, checked)
         if not stored.exists():

@@ -207,6 +207,28 @@ def test_a_checked_photo_can_be_checked_again(
     assert "Upload to check not found" in caplog.text
 
 
+def test_check_again_fails_when_the_checks_cannot_run(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    broken = False
+
+    def check(p: Path) -> PhotoResult:
+        if broken:
+            raise RuntimeError("models missing")
+        return PhotoResult([], 90)
+
+    consented_client(tmp_path)
+    client = TestClient(create_app(tmp_path, check_photo=check))
+    sent = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()
+    broken = True
+    with caplog.at_level(logging.INFO, logger="imageskin.app"):
+        again = client.post(f"/api/uploads/photos/{sent['id']}/check")
+    assert again.status_code == 503
+    assert again.json()["detail"] == "The checks could not run. Please try again."
+    assert "Upload could not be checked" in caplog.text
+    assert "Upload checked" not in [r.getMessage() for r in caplog.records]
+
+
 def test_the_photo_for_the_video_can_be_read_and_chosen(tmp_path: Path) -> None:
     client = consented_client(tmp_path)
     assert client.get("/api/uploads/photos/chosen").json() == {"id": None, "chosen_by": "app"}

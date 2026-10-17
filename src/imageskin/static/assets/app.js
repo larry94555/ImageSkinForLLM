@@ -350,8 +350,12 @@ async function readInUse() {
 		sounds: sounds.filter((s) => s.problems?.length === 0)
 	};
 }
+function isInUse(inUse, id) {
+	return inUse.photo?.id === id || inUse.sounds.some((s) => s.id === id);
+}
 function YourFiles() {
 	const [inUse, setInUse] = d(null);
+	const [dropped, setDropped] = d([]);
 	const [loadFailed, setLoadFailed] = d(false);
 	const [checking, setChecking] = d(null);
 	const [failed, setFailed] = d(null);
@@ -370,13 +374,9 @@ function YourFiles() {
 		setChecking(item.id);
 		setFailed(null);
 		const started = performance.now();
+		let checked = null;
 		try {
-			const checked = await checkUpload(item.kind, item.id);
-			const swap = (u) => u.id === checked.id ? checked : u;
-			setInUse((current) => current && {
-				photo: current.photo && swap(current.photo),
-				sounds: current.sounds.map(swap)
-			});
+			checked = await checkUpload(item.kind, item.id);
 			const took = Math.round(performance.now() - started);
 			const found = checked.problems === null ? "not checked" : `${checked.problems.length} problem(s)`;
 			console.info(`Checked again: ${item.name}, ${found} (${took} ms)`);
@@ -384,7 +384,20 @@ function YourFiles() {
 			console.error(`Could not check ${item.name} again`, e);
 			setFailed(item.id);
 		}
+		if (checked) await refresh(checked);
 		setChecking(null);
+	}
+	async function refresh(checked) {
+		try {
+			const read = await readInUse();
+			const out = !isInUse(read, checked.id);
+			if (out) console.info(`${checked.name} is no longer in use`);
+			setInUse(read);
+			setDropped((was) => [...was.filter((u) => u.id !== checked.id && !isInUse(read, u.id)), ...out ? [checked] : []]);
+		} catch (e) {
+			console.error("Could not read the photos and recordings in use again", e);
+			setLoadFailed(true);
+		}
 	}
 	function actions(item) {
 		return /* @__PURE__ */ u(S, { children: [
@@ -405,6 +418,9 @@ function YourFiles() {
 			})
 		] });
 	}
+	const photos = inUse ? [...inUse.photo ? [inUse.photo] : [], ...dropped.filter((u) => u.kind === "photos")] : [];
+	const sounds = inUse ? [...inUse.sounds, ...dropped.filter((u) => u.kind === "sounds")] : [];
+	const isDropped = (item) => dropped.some((u) => u.id === item.id);
 	return /* @__PURE__ */ u("section", {
 		className: "panel",
 		"aria-labelledby": "settings-files",
@@ -427,24 +443,28 @@ function YourFiles() {
 			}),
 			inUse && /* @__PURE__ */ u(S, { children: [
 				/* @__PURE__ */ u("h3", { children: "Photo" }),
-				inUse.photo ? /* @__PURE__ */ u("ul", {
+				photos.length > 0 ? /* @__PURE__ */ u("ul", {
 					className: "photos",
-					children: /* @__PURE__ */ u("li", { children: [
+					children: photos.map((item) => /* @__PURE__ */ u("li", { children: [
 						/* @__PURE__ */ u("a", {
-							href: uploadUrl("photos", inUse.photo.id),
+							href: uploadUrl("photos", item.id),
 							target: "_blank",
 							rel: "noreferrer",
 							children: /* @__PURE__ */ u("img", {
-								src: uploadUrl("photos", inUse.photo.id),
-								alt: inUse.photo.name
+								src: uploadUrl("photos", item.id),
+								alt: item.name
 							})
 						}),
 						/* @__PURE__ */ u("span", {
 							className: "name",
-							children: inUse.photo.name
+							children: item.name
 						}),
-						actions(inUse.photo)
-					] })
+						isDropped(item) && /* @__PURE__ */ u("span", {
+							className: "muted check",
+							children: "No longer used for the video"
+						}),
+						actions(item)
+					] }, item.id))
 				}) : /* @__PURE__ */ u("p", {
 					className: "muted",
 					children: [
@@ -457,9 +477,9 @@ function YourFiles() {
 					]
 				}),
 				/* @__PURE__ */ u("h3", { children: "Recordings" }),
-				inUse.sounds.length > 0 ? /* @__PURE__ */ u("ul", {
+				sounds.length > 0 ? /* @__PURE__ */ u("ul", {
 					className: "sounds",
-					children: inUse.sounds.map((item) => /* @__PURE__ */ u("li", { children: [
+					children: sounds.map((item) => /* @__PURE__ */ u("li", { children: [
 						/* @__PURE__ */ u("audio", {
 							controls: true,
 							preload: "none",
@@ -469,12 +489,27 @@ function YourFiles() {
 							className: "name",
 							children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
 						}),
+						isDropped(item) && /* @__PURE__ */ u("span", {
+							className: "muted check",
+							children: "No longer in the voice sample"
+						}),
 						actions(item)
 					] }, item.id))
 				}) : /* @__PURE__ */ u("p", {
 					className: "muted",
 					children: [
 						"No recording is in use yet. Add them in ",
+						/* @__PURE__ */ u("a", {
+							href: "#/setup",
+							children: "Setup"
+						}),
+						"."
+					]
+				}),
+				dropped.length > 0 && /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"Add, remove or choose photos and recordings in ",
 						/* @__PURE__ */ u("a", {
 							href: "#/setup",
 							children: "Setup"

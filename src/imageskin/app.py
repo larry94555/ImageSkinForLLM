@@ -444,7 +444,14 @@ def create_app(
     @app.post(uploads_api + "/{upload_id}/check", dependencies=needs_consent)
     def check_upload_now(kind: Kind, upload_id: str) -> Upload:
         start = time.perf_counter()
-        checked = store.check(kind, upload_id)
+        try:
+            checked = store.check(kind, upload_id)
+        except UploadError as e:
+            logger.error(
+                "Upload could not be checked",
+                extra={"kind": kind, "upload": upload_id, "check_ms": ms_since(start)},
+            )
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
         if checked is None:
             logger.warning("Upload to check not found", extra={"kind": kind, "upload": upload_id})
             raise HTTPException(status_code=404, detail="No such file.")
