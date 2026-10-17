@@ -1,3 +1,4 @@
+import json
 import logging
 import threading
 import time
@@ -64,6 +65,7 @@ def test_the_settings_api_reads_and_changes_them(tmp_path: Path) -> None:
         "quiz_me": False,
         "assessment": False,
         "debug": False,
+        "general_prompts": False,
     }
     assert client.get("/api/settings").json() == defaults  # no consent needed
     changed = client.patch("/api/settings", json={"show_metrics": True})
@@ -90,19 +92,48 @@ def test_the_student_view_is_saved_and_the_teacher_view_is_the_default(tmp_path:
 
 def test_changes_made_together_both_stay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Review on PR #77: two changes that both read the file before either wrote it lost one.
-    load = ui_settings.load_ui_settings
+    load = ui_settings.saved_changes
 
-    def slow_load(home: Path) -> UiSettings:
-        settings = load(home)
+    def slow_load(home: Path) -> dict[str, object]:
+        saved = load(home)
         time.sleep(0.05)  # the other change reads now, unless it waits its turn
-        return settings
+        return saved
 
-    monkeypatch.setattr(ui_settings, "load_ui_settings", slow_load)
+    monkeypatch.setattr(ui_settings, "saved_changes", slow_load)
     changes: list[dict[str, object]] = [{"view": "student"}, {"show_metrics": True}]
     threads = [threading.Thread(target=save_ui_settings, args=(tmp_path, c)) for c in changes]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert load(tmp_path) == UiSettings(show_metrics=True, view="student")
+    assert load_ui_settings(tmp_path) == UiSettings(show_metrics=True, view="student")
     assert [f.name for f in tmp_path.iterdir()] == [FILENAME]  # no part-written file left
+
+
+def test_only_the_settings_changed_are_saved_so_the_rest_follow_their_defaults(
+    tmp_path: Path,
+) -> None:
+    # R27: the question scope follows the config file until it is changed on the Settings page.
+    allowed = UiSettings(general_prompts=True)
+    save_ui_settings(tmp_path, {"show_metrics": True}, allowed)
+    assert json.loads((tmp_path / FILENAME).read_text()) == {"show_metrics": True}
+    assert load_ui_settings(tmp_path, allowed).general_prompts is True
+    assert load_ui_settings(tmp_path).general_prompts is False  # the config file says otherwise
+
+    save_ui_settings(tmp_path, {"general_prompts": False}, allowed)
+    assert load_ui_settings(tmp_path, allowed) == UiSettings(show_metrics=True)
+
+
+def test_a_change_replaces_a_settings_file_that_cannot_be_used(tmp_path: Path) -> None:
+    (tmp_path / FILENAME).write_text('{"show_metrics": 1}')
+    assert save_ui_settings(tmp_path, {"debug": True}) == UiSettings(debug=True)
+    assert json.loads((tmp_path / FILENAME).read_text()) == {"debug": True}
+
+
+def test_the_question_scope_defaults_to_the_config_file(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path, general_prompts=True))
+    assert client.get("/api/settings").json()["general_prompts"] is True
+    changed = client.patch("/api/settings", json={"general_prompts": False})
+    assert changed.json()["general_prompts"] is False
+    again = TestClient(create_app(tmp_path, general_prompts=True))
+    assert again.get("/api/settings").json()["general_prompts"] is False  # the change stays

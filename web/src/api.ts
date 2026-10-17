@@ -665,6 +665,9 @@ export interface UiSettings {
   quiz_me: boolean; // the Quiz me button and quizzes in the chat (R41i); off by default
   assessment: boolean; // the Assessment button and assessments in the chat (R41j); off by default
   debug: boolean; // tools for looking into problems, such as Copy chat; off by default
+  // Whether prompts the content doesn't cover are answered (R41); the config file's setting
+  // until changed on the Settings page (R27).
+  general_prompts: boolean;
 }
 
 export const DEFAULT_SETTINGS: UiSettings = {
@@ -674,6 +677,7 @@ export const DEFAULT_SETTINGS: UiSettings = {
   quiz_me: false,
   assessment: false,
   debug: false,
+  general_prompts: false,
 };
 
 // Any value the server didn't send as one the setting can take is the default.
@@ -685,6 +689,7 @@ function settings(data: Partial<UiSettings>): UiSettings {
     quiz_me: data.quiz_me === true,
     assessment: data.assessment === true,
     debug: data.debug === true,
+    general_prompts: data.general_prompts === true,
   };
 }
 

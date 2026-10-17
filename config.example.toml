@@ -12,4 +12,6 @@ llm_context_tokens = 4096
 
 # Whether the chat answers prompts that the PDFs added on Manage Content have nothing on (true),
 # or politely declines them (false, the default). Before any PDF is added, every prompt is answered.
+# This is only the starting value: once "Answer questions outside the content" is changed on the
+# Settings page, the page decides.
 general_prompts = false

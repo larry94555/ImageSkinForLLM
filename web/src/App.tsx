@@ -8,7 +8,13 @@ import { GuidePage } from "./guide";
 import { HomePage } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { type Page, resolve, useHash, wikiTarget } from "./router";
-import { SettingsMenu, SettingsProvider, useSettings, useSettingsLoaded } from "./settings";
+import {
+  SettingsLink,
+  SettingsPage,
+  SettingsProvider,
+  useSettings,
+  useSettingsLoaded,
+} from "./settings";
 import { WikiDetailPage, WikiPage } from "./wiki";
 
 // The top bar's pages; the student view (R41b) has only the chat and the wiki.
@@ -62,6 +68,10 @@ function Shell() {
   }, [route?.redirect]);
 
   const header = useHeaderHeight();
+  // The page the Settings page was opened from, for Return to the app (R27). Opened by its
+  // address, it returns to the first page of the view.
+  const back = useRef<string | null>(null);
+  if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 
   let content = <p>Loading…</p>;
   if (route) {
@@ -81,6 +91,7 @@ function Shell() {
       guide: <GuidePage />,
       wiki: <WikiPage pdf={wikiTarget(hash).pdf} />,
       "wiki-page": <WikiDetailPage entry={wikiTarget(hash).entry ?? ""} />,
+      settings: <SettingsPage back={back.current ?? (student ? "#/chat" : "#/")} />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }
@@ -103,7 +114,7 @@ function Shell() {
             </a>
           ))}
         </nav>
-        <SettingsMenu />
+        {settingsLoaded && <SettingsLink current={route?.page === "settings"} />}
       </header>
       <main>{content}</main>
       <footer>Photos and recordings stay on the computer that runs this app.</footer>

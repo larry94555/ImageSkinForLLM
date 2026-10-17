@@ -135,3 +135,20 @@ def test_the_chat_keeps_to_the_content_unless_general_prompts_are_allowed(
         on_topic = client.post("/api/chat", json={"prompt": "Which moons circle Mars?"})
     assert off_topic.status_code == 200 and off_topic.json()["content"] == answer
     assert on_topic.json()["content"] == "Two moons."
+
+
+def test_the_question_scope_changed_on_the_settings_page_holds_from_the_next_prompt(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # R27: the config file's setting is only the default; the Settings page changes it at once.
+    llm = Llm()
+    with caplog.at_level(logging.INFO):
+        client = app_with_content(tmp_path, llm, general_prompts=False, add_pdf=True)
+    assert "Question scope" in caplog.text
+    peru = {"prompt": "What is the capital of Peru?"}
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        assert client.post("/api/chat", json=peru).json()["content"].startswith("Sorry")
+        client.patch("/api/settings", json={"general_prompts": True})
+        assert client.post("/api/chat", json=peru).json()["content"] == "Two moons."
+        client.patch("/api/settings", json={"general_prompts": False})
+        assert client.post("/api/chat", json=peru).json()["content"].startswith("Sorry")

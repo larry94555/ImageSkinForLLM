@@ -5,6 +5,7 @@ import { useContext } from "preact/hooks";
 
 import type { Pdf, UiSettings, WikiBuild, WikiContents, WikiDetail } from "./api";
 import { App } from "./App";
+import { openSettings, returnToApp } from "./settings.test.util";
 import { SettingsContext, SettingsProvider, useSettings } from "./settings";
 import { WIKI_POLL_MS, WikiDetailPage, WikiPage } from "./wiki";
 
@@ -590,7 +591,7 @@ test("in the student view a teacher's page shows the chat instead", async () => 
   expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
 });
 
-test("switching the view in the Settings menu shows or hides the teacher's options", async () => {
+test("switching the view on the Settings page shows or hides the teacher's options", async () => {
   server([GUIDE], [CONTENTS]);
   const saved = { show_metrics: false, view: "teacher" };
   withSettings(saved);
@@ -600,19 +601,24 @@ test("switching the view in the Settings menu shows or hides the teacher's optio
   expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
   expect(screen.getAllByRole("link", { name: "Manage Content" }).length).toBe(2); // bar and text
 
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
   await act(async () => {
     fireEvent.click(screen.getByRole("radio", { name: /Student/ }));
   });
   expect(saved.view).toBe("student");
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Edit" })).toBeNull());
-  expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
+  await waitFor(() => expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull());
+  await returnToApp();
+  expect(window.location.hash).toBe("#/wiki"); // back where it was opened from
+  await screen.findByText("How the weather changes.");
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
 
+  await openSettings(); // still there in the student view, to switch back
   await act(async () => {
     fireEvent.click(screen.getByRole("radio", { name: /Teacher/ }));
   });
   expect(saved.view).toBe("teacher");
+  await returnToApp();
   expect((await screen.findAllByRole("button", { name: "Edit" })).length).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "Rebuild the wiki" })).toBeTruthy();
 });
@@ -631,13 +637,14 @@ test("a view that can't be saved says so and stays as it was", async () => {
   window.location.hash = "#/wiki";
   render(<App />);
   await screen.findByText("How the weather changes.");
-  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await openSettings();
   await act(async () => {
     fireEvent.click(screen.getByRole("radio", { name: /Student/ }));
   });
   expect(await screen.findByText("The setting could not be changed. Try again.")).toBeTruthy();
   expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
-  expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
+  await returnToApp();
+  expect((await screen.findAllByRole("button", { name: "Edit" })).length).toBeGreaterThan(0);
 });
 
 test("while the settings load, the top bar shows no teacher's links", async () => {
@@ -658,12 +665,12 @@ test("while the settings load, the top bar shows no teacher's links", async () =
   expect(nav.queryAllByRole("link")).toEqual([]);
   expect(screen.getByRole("link", { name: "ImageSkinForLLM" }).getAttribute("href")).toBe("#/chat");
   expect(screen.queryByText("How the weather changes.")).toBeNull();
-  expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
 
   await act(async () => answer(Response.json(STUDENT)));
   await screen.findByText("How the weather changes.");
   expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
-  expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("#/settings");
 });
 
 test("a change saved before the first read finishes is not undone by it", async () => {

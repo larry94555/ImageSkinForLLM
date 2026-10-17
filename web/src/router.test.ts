@@ -51,3 +51,9 @@ test("the student view sends a teacher's page to the chat", () => {
   expect(resolve("#/chat", true, true)).toEqual({ page: "chat" });
   expect(resolve("#/content", true)).toEqual({ page: "content" }); // the teacher view
 });
+
+test("the Settings page is in both views (R27)", () => {
+  expect(pageFor("#/settings")).toBe("settings");
+  expect(resolve("#/settings", false)).toEqual({ page: "settings" });
+  expect(resolve("#/settings", true, true)).toEqual({ page: "settings" }); // to switch back
+});

@@ -568,27 +568,14 @@ form.wiki-edit input, form.wiki-edit textarea {
 .wiki-history .when { font-weight: 600; }
 .wiki-version { margin: 8px 0; padding: 8px 12px; background: var(--card); border-radius: 6px; }
 
-/* The Settings menu in the top bar (R41a). */
-.settings { position: relative; }
-.settings > button.link { color: var(--muted); }
-.settings-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  z-index: 10;
-  width: min(280px, calc(100vw - 32px));
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
-}
-.settings-menu label { display: flex; gap: 8px; align-items: center; font-weight: 600; }
-.settings-menu p { margin: 6px 0 0; font-size: 0.9em; }
-.settings-menu fieldset { border: 0; padding: 0; margin: 0 0 12px; }
-.settings-menu legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
-.settings-menu label.choice { font-weight: normal; align-items: flex-start; margin: 4px 0; }
-.settings-menu label.choice input { margin-top: 4px; }
+/* The Settings page (R27), from the Settings link in the top bar. */
+.settings-page fieldset { border: 0; padding: 0; margin: 8px 0 0; }
+.settings-page label { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.settings-page label.choice { font-weight: normal; align-items: flex-start; margin: 6px 0; }
+.settings-page label.choice input { margin-top: 4px; }
+.settings-page .switch { margin-top: 14px; }
+.settings-page .switch p { margin: 4px 0 0 26px; font-size: 0.9em; }
+.settings-page .panel > p.muted { margin: 0; }
 
 /* The teacher pages (R41e): Setup, Manage Content and the Wiki get the chat's look, wider than */
 /* the reading column, each part in a card, a short lead line under the title, and links and */
@@ -760,8 +747,8 @@ ol.steps { gap: 6px; margin-top: 12px; }
 .sample-video video { border-radius: 14px; box-shadow: var(--shadow); }
 ul.photos li.chosen { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-sm); }
 ul.photos img { border-radius: 8px; }
-/* The Settings menu: a gear and the word, opening a card. */
-.settings > button.link {
+/* The Settings link: a sliders icon and the word, at the end of the top bar. */
+.settings-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -771,9 +758,9 @@ ul.photos img { border-radius: 8px; }
   font-weight: 500;
   text-decoration: none;
 }
-.settings > button.link:hover { background: var(--sunken); color: var(--fg); text-decoration: none; }
-.settings > button.link svg { width: 18px; height: 18px; }
-.settings-menu { border-radius: 14px; box-shadow: var(--shadow-lg); padding: 16px 18px; }
+.settings-link:hover { background: var(--sunken); color: var(--fg); text-decoration: none; }
+.settings-link.current { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.settings-link svg { width: 18px; height: 18px; }
 /* The home page: a welcome card with the person, then the places to go. */
 .home .hero {
   padding: 28px;

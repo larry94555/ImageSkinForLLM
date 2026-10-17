@@ -11,6 +11,7 @@ export type Page =
   | "guide"
   | "wiki"
   | "wiki-page"
+  | "settings"
   | "not-found";
 
 const PAGES: Record<string, Page> = {
@@ -21,6 +22,7 @@ const PAGES: Record<string, Page> = {
   "/content": "content",
   "/guide": "guide",
   "/wiki": "wiki",
+  "/settings": "settings", // in both views, so a student view can be switched back (R27)
 };
 
 // The wiki's addresses (roadmap R37b): #/wiki/<PDF id> is one PDF's table of contents, and
