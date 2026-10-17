@@ -21,7 +21,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 3.8% | 5 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.8% | 1 of 1 |
 | 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 5.3% | 3 of 7 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.3% | 2 of 7 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.3% | 3 of 7 |
 | 13 | **Contexts.** Each prompt is answered by the contexts it calls for: a primary one, such as Teacher/Student, and supplementary ones, such as Meta; the administrator turns contexts on or off, picks the primary, changes their guidelines and criteria and adds new ones, and Debug shows which context responded. | R84 to R91 | 8 | 6.1% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 1.5% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 1.5% | 0 |
@@ -35,7 +35,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 20 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 9.2% | 0 |
 | 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.3% | 0 |
 | 22 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 3.8% | 0 |
-| | **Total** | | **131** | **52.7% done** | **69 of 131** |
+| | **Total** | | **131** | **53.4% done** | **70 of 131** |
 
 Sizes: 35 Simple, 96 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -224,7 +224,7 @@ The PRs below are written for either kind of video engine, but these are the one
 - Accept, Reject image (back to image upload), Reject voice (back to sound upload), and Change accent, which goes back to R26's choice and reruns the sample.
 - Chat stays locked until a sample is accepted.
 - **Can show:** the full setup flow from upload to an accepted sample, with both reject paths working.
-- **Built:** four buttons under the sample video. Accept saves `review.json` with the sample it was given for (the photo, the voice and when the sample was made), so a sample made again, for any reason, needs accepting again; it then opens the new Chat page. Reject image, Reject voice and Change accent withdraw an acceptance and scroll back to the photos, the recordings or the accent, which show what to do there. Uploads are kept: the user removes the ones they don't want. The Chat page says it is locked until a sample is accepted (`GET /api/review`); the chat itself comes in R15.
+- **Built:** four buttons under the sample video. Accept saves `review.json` with the sample it was given for (the photo, the voice and when the sample was made), so a sample Prepare makes again, for any reason, needs accepting again (Run the video test again in Settings, R27b, is the exception: same photo and voice, so the acceptance stays); it then opens the new Chat page. Reject image, Reject voice and Change accent withdraw an acceptance and scroll back to the photos, the recordings or the accent, which show what to do there. Uploads are kept: the user removes the ones they don't want. The Chat page says it is locked until a sample is accepted (`GET /api/review`); the chat itself comes in R15.
 
 ## Milestone 4: Talking chat
 
@@ -552,9 +552,10 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** from Settings, play a recording, view a photo, and check both again.
 - **Built:** the page shows the photo the video is made from and the recordings that passed the checks (the ones in the voice sample), each with **Check again**. What is in use is read again after each check, and a file that drops out is marked so with its result; setup is where a file is added, removed or chosen. A check that can't run, because the checks are off or fail, is an error, never the saved result. The log has `Upload checked` with `kind`, `upload`, `problems` and `check_ms`, or `Upload could not be checked`; the browser console has `Photos and recordings in use` and `Checked again` with how long the check took.
 
-### R27b. Run the video test again and clear conversation (Simple) · item 8 (part 1)
+### R27b. Run the video test again and clear conversation (Simple) · item 8 (part 1) · Done in [PR #103](https://github.com/larry94555/ImageSkinForLLM/pull/103)
 - **Run the video test again** renders the sample video again and plays it, and **Clear conversation** clears the chat after asking to confirm. R51 later limits clearing to what was saved.
 - **Can show:** rerun the sample from Settings and watch it, then clear the conversation and return to an empty chat.
+- **Built:** both are under **Video and conversation** on the Settings page. The sample is made again from the prepared face and voice and replaces the one there only if nothing was prepared or changed meanwhile; it waits for a reply being made, and replies wait for it, and Prepare and another accent are refused until it is done. It renders the same script from the same photo and voice, so the sample keeps its acceptance (R14) and the chat stays open. Clearing also removes the replies' videos: those being made are stopped and never published, and those made are removed. Clearing also drops the summary of older turns, so the next prompt starts afresh. The log has `Rendering the sample video again`, `Rendered the sample video again` with `duration_s` (or `Could not run the video test again`) and `Conversation cleared` with `turns`; the browser console has `Video test run again` and `Conversation cleared` with how long each took.
 
 ### R28. Changing photos, voice or accent (Medium) · item 8 (part 2)
 - Change image files, change sound files, and switch accent from Settings.

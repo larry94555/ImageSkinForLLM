@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -332,6 +333,12 @@ class ReplyVideos:
         # Each engine is used by one thread at a time; a reply holds both for its clips.
         self._voice_lock = threading.Lock()
         self._video_lock = threading.Lock()
+        # Held while a reply video is published or the videos are cleared.
+        self._publish_lock = threading.Lock()
+        # Raised by each clear (roadmap R27b), and the turns whose videos were published since:
+        # only those are served, even when a cleared one's file couldn't be removed.
+        self.generation = 0
+        self._published: set[int] = set()
 
     def warm_up(self, photo: Path) -> None:
         """Load the voice and video models and make the voice ready, by rendering a word that is
@@ -353,6 +360,15 @@ class ReplyVideos:
                 extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
             )
             self._make_idle(photo)
+
+    @contextmanager
+    def engines(self) -> Iterator[None]:
+        """Hold the voice and video engines for work other than a reply, such as rendering the
+        sample video again (roadmap R27b), with the voice ready for the accent chosen."""
+        with self._voice_lock, self._video_lock:
+            self._before_engines()
+            self._voice.ensure()
+            yield
 
     def idle(self, photo: Path) -> Path | None:
         """The idle video for the photo (roadmap R23), once the warm-up has made it."""
@@ -425,13 +441,28 @@ class ReplyVideos:
     def path(self, turn: int) -> Path:
         return self.folder / f"{turn}.mp4"
 
+    def video(self, turn: int) -> Path | None:
+        """The reply's video, if it was published since the conversation was last cleared."""
+        path = self.path(turn)
+        with self._publish_lock:
+            published = turn in self._published
+        return path if published and path.is_file() else None
+
     def render(
-        self, photo: Path, turn: int, reply: str, stopped: Callable[[], bool] = lambda: False
+        self,
+        photo: Path,
+        turn: int,
+        reply: str,
+        stopped: Callable[[], bool] = lambda: False,
+        generation: int | None = None,
     ) -> Path | None:
         """Speak the reply (turn is its place in the conversation) and render it on the photo.
         None when nothing in it is spoken, such as a reply of only emoji, or when `stopped`
         says so before the voice step or between it and the video step (roadmap R19). The
-        voice and video engines' errors are passed on."""
+        voice and video engines' errors are passed on. `generation` is the one the reply was
+        read in: if the conversation is cleared since, the video is dropped (R27b)."""
+        if generation is None:
+            generation = self.generation
         text = spoken_text(reply)
         if not text:
             logger.info("Reply has nothing to speak", extra={"turn": turn})
@@ -463,11 +494,15 @@ class ReplyVideos:
                         log_stop("after voice")
                         return None
                     self._steps.render(photo, wav, rendering)
-                if stopped():  # during the video step: it is dropped, not published
-                    rendering.unlink(missing_ok=True)
-                    log_stop("after video")
-                    return None
-                os.replace(rendering, path)
+                # Checked and published under the lock clear() removes videos under, so a reply
+                # cleared meanwhile is never published after it (roadmap R27b).
+                with self._publish_lock:
+                    if stopped() or generation != self.generation:  # dropped, not published
+                        rendering.unlink(missing_ok=True)
+                        log_stop("after video")
+                        return None
+                    os.replace(rendering, path)
+                    self._published.add(turn)
             except Exception as e:
                 rendering.unlink(missing_ok=True)
                 logger.error(
@@ -490,6 +525,29 @@ class ReplyVideos:
                 },
             )
             return path
+
+    def clear(self) -> int:
+        """Remove every reply video, as the conversation was cleared (roadmap R27b). None is
+        served after this, and one being made for a reply read before it is never published.
+        Returns how many files were removed; one that can't be (open in a browser, as on
+        Windows) is left, but not served."""
+        removed = 0
+        with self._publish_lock:
+            # At once, so none is served even if its file can't be removed.
+            self.generation += 1
+            self._published.clear()
+            for video in self.folder.glob("*.mp4"):
+                if not video.stem.isdigit():  # one being written, removed by its render
+                    continue
+                try:
+                    video.unlink()
+                    removed += 1
+                except OSError as e:  # open in a browser, as on Windows
+                    logger.warning(
+                        "Could not remove a reply video",
+                        extra={"video": video.name, "error": str(e)},
+                    )
+        return removed
 
     def _remove_old(self, keep: Path) -> None:
         """Only the latest reply is played. Older videos are removed once the new one is in

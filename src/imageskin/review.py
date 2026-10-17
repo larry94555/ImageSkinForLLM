@@ -2,8 +2,10 @@
 
 Chat stays locked until a sample is accepted. The acceptance is saved as review.json in the
 app's home folder, with the sample it was given for (the photo, the voice and when the sample was
-made). Once the sample is made again, for any reason, that acceptance no longer counts and the
-new sample needs reviewing.
+made). Once Prepare makes the sample again, for any reason, that acceptance no longer counts and
+the new sample needs reviewing. Run the video test again in Settings (roadmap R27b) is the one
+exception: it renders the same script from the same prepared photo and voice to watch it again,
+so the sample keeps its acceptance; changing the photo, voice or accent (R28) needs a new one.
 """
 
 import json

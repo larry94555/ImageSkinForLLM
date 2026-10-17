@@ -53,7 +53,13 @@ test("the page groups the settings and shows each one as saved", async () => {
   server({ view: "teacher", quiz_me: true, general_prompts: true });
   await openAt("#/settings");
   const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-  expect(headings).toEqual(["View", "Chat", "Display", "Photos and recordings"]);
+  expect(headings).toEqual([
+    "View",
+    "Chat",
+    "Display",
+    "Photos and recordings",
+    "Video and conversation",
+  ]);
   const chat = within(screen.getByRole("region", { name: "Chat" }));
   const checked = (name: string) => (chat.getByRole("checkbox", { name }) as HTMLInputElement).checked;
   expect(checked("Answer questions outside the content")).toBe(true);
