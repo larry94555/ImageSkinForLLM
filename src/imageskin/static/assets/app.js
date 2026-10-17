@@ -293,6 +293,200 @@ async function changeSettings(changes) {
 	})));
 }
 //#endregion
+//#region src/checks.tsx
+function Checks({ item, queue }) {
+	const { problems, score, speech } = item;
+	const what = item.kind === "photos" ? "photo" : "recording";
+	if (queue === 0) return /* @__PURE__ */ u("span", {
+		className: "muted check busy",
+		children: [
+			"Checking ",
+			what,
+			"…"
+		]
+	});
+	if (queue > 0) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Waiting to check"
+	});
+	if (problems == null) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Not checked"
+	});
+	if (problems.length === 0) return /* @__PURE__ */ u("span", {
+		className: "done check",
+		children: [
+			"Looks good",
+			score !== null && ` · score ${score} of 100`,
+			speech !== null && ` · ${minutes(speech)} of speech`
+		]
+	});
+	return /* @__PURE__ */ u("ul", {
+		className: "problems",
+		children: problems.map((p) => /* @__PURE__ */ u("li", {
+			className: "error",
+			children: p
+		}, p))
+	});
+}
+function minutes(seconds) {
+	const whole = Math.round(seconds);
+	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+//#endregion
+//#region src/your-files.tsx
+async function readInUse() {
+	if (!(await getConsent()).agreed) return {
+		photo: null,
+		sounds: []
+	};
+	const [photos, choice, sounds] = await Promise.all([
+		listUploads("photos"),
+		getPhotoChoice(),
+		listUploads("sounds")
+	]);
+	return {
+		photo: photos.find((p) => p.id === choice.id) ?? null,
+		sounds: sounds.filter((s) => s.problems?.length === 0)
+	};
+}
+function YourFiles() {
+	const [inUse, setInUse] = d(null);
+	const [loadFailed, setLoadFailed] = d(false);
+	const [checking, setChecking] = d(null);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		readInUse().then((read) => {
+			setInUse(read);
+			const photo = read.photo?.name ?? "no photo";
+			console.info(`Photos and recordings in use: ${photo}, ${read.sounds.length} recording(s)`);
+		}).catch((e) => {
+			console.error("Could not load the photos and recordings in use", e);
+			setLoadFailed(true);
+		});
+	}, []);
+	async function checkAgain(item) {
+		if (checking !== null) return;
+		setChecking(item.id);
+		setFailed(null);
+		const started = performance.now();
+		try {
+			const checked = await checkUpload(item.kind, item.id);
+			const swap = (u) => u.id === checked.id ? checked : u;
+			setInUse((current) => current && {
+				photo: current.photo && swap(current.photo),
+				sounds: current.sounds.map(swap)
+			});
+			const took = Math.round(performance.now() - started);
+			const found = checked.problems === null ? "not checked" : `${checked.problems.length} problem(s)`;
+			console.info(`Checked again: ${item.name}, ${found} (${took} ms)`);
+		} catch (e) {
+			console.error(`Could not check ${item.name} again`, e);
+			setFailed(item.id);
+		}
+		setChecking(null);
+	}
+	function actions(item) {
+		return /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u(Checks, {
+				item,
+				queue: checking === item.id ? 0 : -1
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "use",
+				disabled: checking !== null,
+				onClick: () => checkAgain(item),
+				children: "Check again"
+			}),
+			failed === item.id && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "It could not be checked. Try again."
+			})
+		] });
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-files",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-files",
+				children: "Photos and recordings"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The photo the video is made from, and the recordings the voice is made from."
+			}),
+			loadFailed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "Could not load them. Reload the page to try again."
+			}),
+			inUse === null && !loadFailed && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			}),
+			inUse && /* @__PURE__ */ u(S, { children: [
+				/* @__PURE__ */ u("h3", { children: "Photo" }),
+				inUse.photo ? /* @__PURE__ */ u("ul", {
+					className: "photos",
+					children: /* @__PURE__ */ u("li", { children: [
+						/* @__PURE__ */ u("a", {
+							href: uploadUrl("photos", inUse.photo.id),
+							target: "_blank",
+							rel: "noreferrer",
+							children: /* @__PURE__ */ u("img", {
+								src: uploadUrl("photos", inUse.photo.id),
+								alt: inUse.photo.name
+							})
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "name",
+							children: inUse.photo.name
+						}),
+						actions(inUse.photo)
+					] })
+				}) : /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"No photo is in use yet. Add one in ",
+						/* @__PURE__ */ u("a", {
+							href: "#/setup",
+							children: "Setup"
+						}),
+						"."
+					]
+				}),
+				/* @__PURE__ */ u("h3", { children: "Recordings" }),
+				inUse.sounds.length > 0 ? /* @__PURE__ */ u("ul", {
+					className: "sounds",
+					children: inUse.sounds.map((item) => /* @__PURE__ */ u("li", { children: [
+						/* @__PURE__ */ u("audio", {
+							controls: true,
+							preload: "none",
+							src: uploadUrl("sounds", item.id)
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "name",
+							children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
+						}),
+						actions(item)
+					] }, item.id))
+				}) : /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"No recording is in use yet. Add them in ",
+						/* @__PURE__ */ u("a", {
+							href: "#/setup",
+							children: "Setup"
+						}),
+						"."
+					]
+				})
+			] })
+		]
+	});
+}
+//#endregion
 //#region src/settings.tsx
 var SettingsContext = X({
 	settings: DEFAULT_SETTINGS,
@@ -505,6 +699,7 @@ function SettingsPage({ back }) {
 					}, name))
 				]
 			}, group)),
+			/* @__PURE__ */ u(YourFiles, {}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
 				href: back,
@@ -2307,41 +2502,6 @@ function UploadSection(props) {
 		]
 	});
 }
-function Checks({ item, queue }) {
-	const { problems, score, speech } = item;
-	const what = item.kind === "photos" ? "photo" : "recording";
-	if (queue === 0) return /* @__PURE__ */ u("span", {
-		className: "muted check busy",
-		children: [
-			"Checking ",
-			what,
-			"…"
-		]
-	});
-	if (queue > 0) return /* @__PURE__ */ u("span", {
-		className: "muted check",
-		children: "Waiting to check"
-	});
-	if (problems == null) return /* @__PURE__ */ u("span", {
-		className: "muted check",
-		children: "Not checked"
-	});
-	if (problems.length === 0) return /* @__PURE__ */ u("span", {
-		className: "done check",
-		children: [
-			"Looks good",
-			score !== null && ` · score ${score} of 100`,
-			speech !== null && ` · ${minutes(speech)} of speech`
-		]
-	});
-	return /* @__PURE__ */ u("ul", {
-		className: "problems",
-		children: problems.map((p) => /* @__PURE__ */ u("li", {
-			className: "error",
-			children: p
-		}, p))
-	});
-}
 function VoiceSampleView({ changes }) {
 	const [sample, setSample] = d(null);
 	h(() => {
@@ -3827,10 +3987,6 @@ function StepState(props) {
 }
 function duration(seconds) {
 	return seconds < 90 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`;
-}
-function minutes(seconds) {
-	const whole = Math.round(seconds);
-	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 function NotFoundPage() {
 	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Page not found" }), /* @__PURE__ */ u("a", {

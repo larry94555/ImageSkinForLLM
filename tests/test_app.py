@@ -184,6 +184,29 @@ def test_a_photo_uploaded_before_the_checks_can_be_checked(tmp_path: Path) -> No
     assert client.post(f"/api/uploads/photos/{'f' * 32}/check").status_code == 404
 
 
+def test_a_checked_photo_can_be_checked_again(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The Settings page's Check again (R27a): the checks run again even when they passed.
+    found: list[str] = []
+    consented_client(tmp_path)
+    client = TestClient(
+        create_app(tmp_path, check_photo=lambda p: PhotoResult(list(found), None if found else 90))
+    )
+    sent = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()
+    assert sent["problems"] == [] and sent["score"] == 90
+    found.append("Your face is too small.")
+    with caplog.at_level(logging.INFO, logger="imageskin.app"):
+        again = client.post(f"/api/uploads/photos/{sent['id']}/check").json()
+        assert client.post(f"/api/uploads/photos/{'f' * 32}/check").status_code == 404
+    assert again["problems"] == ["Your face is too small."] and again["score"] is None
+    assert client.get("/api/uploads/photos").json()[0]["problems"] == again["problems"]
+    record = next(r for r in caplog.records if r.getMessage() == "Upload checked")
+    assert (record.kind, record.upload, record.problems) == ("photos", sent["id"], 1)  # type: ignore[attr-defined]
+    assert record.check_ms >= 0  # type: ignore[attr-defined]
+    assert "Upload to check not found" in caplog.text
+
+
 def test_the_photo_for_the_video_can_be_read_and_chosen(tmp_path: Path) -> None:
     client = consented_client(tmp_path)
     assert client.get("/api/uploads/photos/chosen").json() == {"id": None, "chosen_by": "app"}

@@ -443,9 +443,21 @@ def create_app(
 
     @app.post(uploads_api + "/{upload_id}/check", dependencies=needs_consent)
     def check_upload_now(kind: Kind, upload_id: str) -> Upload:
+        start = time.perf_counter()
         checked = store.check(kind, upload_id)
         if checked is None:
+            logger.warning("Upload to check not found", extra={"kind": kind, "upload": upload_id})
             raise HTTPException(status_code=404, detail="No such file.")
+        # Setup checks old uploads with this; the Settings page's Check again too (R27a).
+        logger.info(
+            "Upload checked",
+            extra={
+                "kind": kind,
+                "upload": upload_id,
+                "problems": None if checked.problems is None else len(checked.problems),
+                "check_ms": ms_since(start),
+            },
+        )
         return checked
 
     @app.get("/api/voice-sample", dependencies=needs_consent)

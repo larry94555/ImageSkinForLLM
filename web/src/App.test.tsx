@@ -29,9 +29,9 @@ import {
   loadQuiz,
   loadAssessment,
   loadSound,
-  minutes,
   splitMatches,
 } from "./pages";
+import { minutes } from "./checks";
 
 const IDLE: PrepareStatus = {
   state: "idle",

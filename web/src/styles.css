@@ -576,6 +576,8 @@ form.wiki-edit input, form.wiki-edit textarea {
 .settings-page .switch { margin-top: 14px; }
 .settings-page .switch p { margin: 4px 0 0 26px; font-size: 0.9em; }
 .settings-page .panel > p.muted { margin: 0; }
+.settings-page h3 { margin: 16px 0 0; font-size: 1rem; }
+.settings-page ul.photos { grid-template-columns: minmax(0, 200px); }
 
 /* The teacher pages (R41e): Setup, Manage Content and the Wiki get the chat's look, wider than */
 /* the reading column, each part in a card, a short lead line under the title, and links and */
