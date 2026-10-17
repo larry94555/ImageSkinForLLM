@@ -520,8 +520,8 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** from a fresh start, choose an animated British female Professor and ask a question; the answer is spoken within the usual time. The first download, throttled to 25 Mbit/s, finishes in 20 seconds or less. Choose the same person again and the chat is ready at once; choose a new one with the network off and see the plain message and **Try again**.
 
 ### R24c2. Pick a face (Simple) · item 60
-- After the four choices, if the choice has two faces, the screen shows both as small pictures, with no label, and the user picks one; the first is picked if they don't. A choice with one face shows it alone. The small pictures ship with the app, so only the chosen person is downloaded (item 57). Changing a choice shows the new choice's faces.
-- **Can show:** choose a photoreal female Professor, see two faces, pick the second, and chat with her.
+- After the four choices, if the choice has two faces, the screen shows both as small pictures, with no label, and the user picks one; the first is picked if they don't. A choice with one face shows it alone. The small pictures are separate thumbnails made from each picture by R24b2's script, 128 by 128 pixel JPEGs of about 10 KB each, under 1 MB for all 60, and ship with the app, so only the chosen person's full picture and pack are downloaded (item 57). Changing a choice shows the new choice's faces.
+- **Can show:** choose one of the choices R24b2 gave a second face (its report lists them), see the two faces, pick the second, and chat with that person.
 
 ### R24d. Replace the default person with your own (Simple) · item 59
 - **Use my own photo** and **Use my own voice** on the chat screen (R27 moves them into Settings), each going through the usual checks, prepare and review for what is replaced, keeping the other part. Consent is asked for each real person brought in, and once both parts are the user's own they must be the same person (item 59).
