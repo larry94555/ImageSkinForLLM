@@ -554,7 +554,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** rerun the sample from Settings and watch it, then clear the conversation and return to an empty chat.
 - **Built:** both are under **Video and conversation** on the Settings page. The sample is made again from the prepared face and voice and replaces the one there only if nothing was prepared or changed meanwhile; it waits for a reply being made, and replies wait for it, and Prepare and another accent are refused until it is done. It renders the same script from the same photo and voice, so the sample keeps its acceptance (R14) and the chat stays open. Clearing also removes the replies' videos: those being made are stopped and never published, and those made are removed. Clearing also drops the summary of older turns, so the next prompt starts afresh. The log has `Rendering the sample video again`, `Rendered the sample video again` with `duration_s` (or `Could not run the video test again`) and `Conversation cleared` with `turns`; the browser console has `Video test run again` and `Conversation cleared` with how long each took.
 
-### R28. Changing photos, voice or accent (Medium) · item 8 (part 2) · Done
+### R28. Changing photos, voice or accent (Medium) · item 8 (part 2) · Done in [PR #105](https://github.com/larry94555/ImageSkinForLLM/pull/105)
 - Change image files, change sound files, and switch accent from Settings.
 - Any of these requires revalidation and a newly accepted sample before chat resumes; "Goodbye" and "Welcome back" are re-rendered on each new acceptance.
 - **Can show:** swap a photo from Settings, get sent through validation and a new sample, then return to the chat.
