@@ -1,0 +1,14 @@
+# R24a default person test: the picture model's packages. Installs into the app's own virtual
+# environment (with the voice, photoreal and faces extras) without changing anything already in
+# it:
+#   pip freeze --all --exclude-editable > app-constraints.txt
+#   pip install -r experiments/default_person/requirements.txt -c app-constraints.txt
+# The constraints file holds every installed package at its current version, so if anything here
+# would replace one, pip stops with a conflict instead. Transformers and Diffusers use the same
+# versions as the cloned voice (clone-requirements.txt), so a venv set up for it keeps working;
+# SSD-1B was run with transformers 5.18 and 5.20.
+# Diffusers (Apache 2.0) runs Segmind SSD-1B; Transformers (Apache 2.0) its two text encoders;
+# Accelerate (Apache 2.0) loads the weights without a second copy in memory.
+diffusers==0.41.0
+transformers>=5.18,<5.20
+accelerate==1.15.0
