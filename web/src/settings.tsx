@@ -7,6 +7,7 @@ import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
+import { YourFiles } from "./your-files";
 
 interface Shared {
   settings: UiSettings;
@@ -198,6 +199,7 @@ export function SettingsPage({ back }: { back: string }) {
           ))}
         </section>
       ))}
+      <YourFiles />
       <p>
         <a className="button" href={back}>
           Return to the app

@@ -184,6 +184,64 @@ def test_a_photo_uploaded_before_the_checks_can_be_checked(tmp_path: Path) -> No
     assert client.post(f"/api/uploads/photos/{'f' * 32}/check").status_code == 404
 
 
+def test_a_checked_photo_can_be_checked_again(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The Settings page's Check again (R27a): the checks run again even when they passed.
+    found: list[str] = []
+    consented_client(tmp_path)
+    client = TestClient(
+        create_app(tmp_path, check_photo=lambda p: PhotoResult(list(found), None if found else 90))
+    )
+    sent = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()
+    assert sent["problems"] == [] and sent["score"] == 90
+    found.append("Your face is too small.")
+    with caplog.at_level(logging.INFO, logger="imageskin.app"):
+        again = client.post(f"/api/uploads/photos/{sent['id']}/check").json()
+        assert client.post(f"/api/uploads/photos/{'f' * 32}/check").status_code == 404
+    assert again["problems"] == ["Your face is too small."] and again["score"] is None
+    assert client.get("/api/uploads/photos").json()[0]["problems"] == again["problems"]
+    record = next(r for r in caplog.records if r.getMessage() == "Upload checked")
+    assert (record.kind, record.upload, record.problems) == ("photos", sent["id"], 1)  # type: ignore[attr-defined]
+    assert record.check_ms >= 0  # type: ignore[attr-defined]
+    assert "Upload to check not found" in caplog.text
+
+
+def test_check_again_fails_when_the_checks_cannot_run(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    broken = False
+
+    def check(p: Path) -> PhotoResult:
+        if broken:
+            raise RuntimeError("models missing")
+        return PhotoResult([], 90)
+
+    consented_client(tmp_path)
+    client = TestClient(create_app(tmp_path, check_photo=check))
+    sent = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()
+    broken = True
+    with caplog.at_level(logging.INFO, logger="imageskin.app"):
+        again = client.post(f"/api/uploads/photos/{sent['id']}/check")
+    assert again.status_code == 503
+    assert again.json()["detail"] == "The checks could not run. Please try again."
+    assert "Upload could not be checked" in caplog.text
+    assert "Upload checked" not in [r.getMessage() for r in caplog.records]
+
+
+def test_check_again_fails_when_the_checks_are_off(tmp_path: Path) -> None:
+    consented_client(tmp_path)
+    passed = UploadStore(tmp_path, check_photo=lambda p: PhotoResult([], 90)).save(
+        "photos", "me.jpg", io.BytesIO(JPG)
+    )
+    with patch("imageskin.app.face_checker", return_value=None):  # MediaPipe not installed
+        client = TestClient(create_app(tmp_path))
+    again = client.post(f"/api/uploads/photos/{passed.id}/check")
+    assert again.status_code == 503
+    assert again.json()["detail"] == "The photo checks are off, so it could not be checked."
+    assert client.get("/api/uploads/photos").json()[0]["score"] == 90  # kept as it was
+
+
 def test_the_photo_for_the_video_can_be_read_and_chosen(tmp_path: Path) -> None:
     client = consented_client(tmp_path)
     assert client.get("/api/uploads/photos/chosen").json() == {"id": None, "chosen_by": "app"}
