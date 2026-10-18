@@ -23,6 +23,8 @@ dependencies = [
     # Reads the text, slides and tables in the content PDFs (MIT; pdfminer.six MIT, pypdfium2
     # Apache 2.0 or BSD).
     "pdfplumber>=0.11",
+    # Claude as the LLM with the user's API key (R33; MIT).
+    "anthropic>=1.15",
 ]
 
 [project.optional-dependencies]

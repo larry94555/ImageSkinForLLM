@@ -327,6 +327,7 @@ class FakeLlm(BaseHTTPRequestHandler):
     props: tuple[int, bytes] = (404, b"")
     tokenize: tuple[int, bytes] = (404, b"")
     received: list[dict[str, object]] = []
+    keys: list[str | None] = []  # the Authorization header of each POST
 
     def do_GET(self) -> None:  # noqa: N802 (the name http.server calls)
         FakeLlm.received.append({"path": self.path})
@@ -337,6 +338,7 @@ class FakeLlm(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 (the name http.server calls)
         length = int(self.headers["Content-Length"])
+        FakeLlm.keys.append(self.headers.get("Authorization"))
         FakeLlm.received.append({"path": self.path, **json.loads(self.rfile.read(length))})
         status, body = FakeLlm.tokenize if self.path == "/tokenize" else FakeLlm.answer
         self.send_response(status)
@@ -352,6 +354,7 @@ class FakeLlm(BaseHTTPRequestHandler):
 def fake_llm() -> Iterator[str]:
     server = HTTPServer(("127.0.0.1", 0), FakeLlm)
     FakeLlm.received = []
+    FakeLlm.keys = []
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{server.server_port}/v1/"
@@ -389,6 +392,45 @@ def test_the_client_can_ask_for_json_of_a_given_form(fake_llm: str) -> None:
     sent = FakeLlm.received[0]
     assert sent["max_tokens"] == 900
     assert sent["response_format"] == {"type": "json_object", "schema": schema}
+
+
+def openai(url: str) -> LlmSettings:
+    return LlmSettings(url=url, model="gpt-4.1-mini", provider="openai", api_key="sk-test")
+
+
+def test_openai_is_asked_with_the_users_key(fake_llm: str) -> None:
+    FakeLlm.answer = (200, reply("Hi!"))
+    client = LlmClient(openai(fake_llm))
+    assert client.ask([{"role": "user", "content": "Hi"}], 900, {"type": "object"}) == "Hi!"
+    assert FakeLlm.keys == ["Bearer sk-test"]
+    sent = FakeLlm.received[0]
+    assert sent["max_completion_tokens"] == 900 and "max_tokens" not in sent
+    assert sent["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {"name": "answer", "schema": {"type": "object"}},
+    }
+    assert "sk-test" not in repr(client.settings)
+
+
+def test_openai_is_not_asked_to_count_warm_up_or_give_its_window(fake_llm: str) -> None:
+    client = LlmClient(openai(fake_llm))
+    assert client.count("four") == 4  # the estimate
+    assert client.context_tokens() == 4096  # the config's
+    client.warm_up()
+    assert FakeLlm.received == []
+
+
+def test_a_down_openai_is_not_called_llama_server() -> None:
+    client = LlmClient(openai("http://127.0.0.1:1/v1"))
+    with pytest.raises(LlmError) as failed:
+        client.ask([{"role": "user", "content": "Hi"}])
+    assert "llama-server" not in str(failed.value)
+
+
+def test_llama_server_is_asked_without_a_key(fake_llm: str) -> None:
+    FakeLlm.answer = (200, reply("Hi!"))
+    LlmClient(LlmSettings(url=fake_llm)).ask([{"role": "user", "content": "Hi"}])
+    assert FakeLlm.keys == [None]
 
 
 @pytest.mark.parametrize(

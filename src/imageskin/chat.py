@@ -18,9 +18,9 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.sentences import SentenceSplitter
@@ -116,6 +116,13 @@ class LlmSettings:
     # The model's context window in tokens (llama-server's --ctx-size).
     context_tokens: int = 4096
     timeout_s: float = 120
+    # Who answers (roadmap R33): llama-server ("local"), OpenAI or Claude, with the user's key.
+    provider: str = "local"
+    api_key: str = field(default="", repr=False)  # never in a log line
+
+    @property
+    def local(self) -> bool:
+        return self.provider == "local"
 
 
 @dataclass(frozen=True)
@@ -217,8 +224,23 @@ def unreachable(e: BaseException) -> bool:
     return isinstance(e, urllib.error.URLError | TimeoutError | ConnectionError)
 
 
+class ChatLlm(Protocol):
+    """What the chat and the wiki ask of an LLM: `LlmClient`'s calls, or Claude's (R33)."""
+
+    def count(self, text: str) -> int: ...
+    def context_tokens(self) -> int: ...
+    def warm_up(self) -> None: ...
+    def ask(
+        self,
+        messages: list[Message],
+        max_tokens: int = REPLY_TOKENS,
+        schema: dict[str, Any] | None = None,
+    ) -> str: ...
+    def stream(self, messages: list[Message]) -> Iterator[str]: ...
+
+
 class LlmClient:
-    """Asks an OpenAI-compatible chat API, such as llama-server's, for a reply."""
+    """Asks an OpenAI-compatible chat API, such as llama-server's or OpenAI's, for a reply."""
 
     def __init__(self, settings: LlmSettings) -> None:
         self.settings = settings
@@ -226,10 +248,11 @@ class LlmClient:
         self._counted: dict[str, int] = {}  # each turn is counted again with every prompt
         self._can_count = True
         self._window: int | None = None  # once the server has answered
+        self._hint = " Is llama-server running?" if settings.local else ""
 
     def count(self, text: str) -> int:
         """Tokens in the text by llama-server's tokenizer, or estimated if it can't count."""
-        if not self._can_count:
+        if not self._can_count or not self.settings.local:
             return estimate(text)
         if text in self._counted:
             return self._counted[text]
@@ -263,6 +286,8 @@ class LlmClient:
         """
         if self._window is not None:
             return self._window
+        if not self.settings.local:  # OpenAI doesn't say; the config does
+            return self.settings.context_tokens
         url = self._root + "/props"
         try:
             with urllib.request.urlopen(url, timeout=10) as response:
@@ -290,23 +315,30 @@ class LlmClient:
         schema: dict[str, Any] | None = None,
     ) -> tuple[str, urllib.request.Request]:
         url = self.settings.url.rstrip("/") + "/chat/completions"
+        local = self.settings.local
         body: dict[str, object] = {
             "model": self.settings.model,
             "messages": messages,
-            "max_tokens": max_tokens,
+            # OpenAI's newer models take only max_completion_tokens (R33).
+            "max_tokens" if local else "max_completion_tokens": max_tokens,
             "temperature": TEMPERATURE,
         }
         if stream:
             body["stream"] = True
-        if schema is not None:
+        if schema is not None and local:
             # The answer must be JSON of this form (the wiki, roadmap R37). This is the form
-            # both llama-server and llama-cpp-python's server take; OpenAI's is "json_schema".
+            # both llama-server and llama-cpp-python's server take.
             body["response_format"] = {"type": "json_object", "schema": schema}
+        elif schema is not None:
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "answer", "schema": schema},
+            }
+        headers = {"Content-Type": "application/json"}
+        if self.settings.api_key:
+            headers["Authorization"] = f"Bearer {self.settings.api_key}"
         request = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+            url, data=json.dumps(body).encode(), headers=headers, method="POST"
         )
         return url, request
 
@@ -318,9 +350,7 @@ class LlmClient:
             raise LlmError(f"The LLM at {url} refused the prompt ({e.code}): {detail}") from e
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             reason = getattr(e, "reason", e)
-            raise LlmError(
-                f"Could not reach the LLM at {url} ({reason}). Is llama-server running?"
-            ) from e
+            raise LlmError(f"Could not reach the LLM at {url} ({reason}).{self._hint}") from e
 
     def warm_up(self) -> None:
         """Have the server read the system prompt now, so the first reply starts sooner:
@@ -328,6 +358,8 @@ class LlmClient:
         same way (roadmap R22a). Measured with Gemma 3 4B on a 4-core CPU: the first words
         came 2.5 s after the first prompt without this, 0.6 s with it. Failures are logged
         only; the first prompt then says what is wrong."""
+        if not self.settings.local:
+            return  # OpenAI keeps nothing between requests this way, so it would only cost
         messages = [system_message(None), {"role": "user", "content": "Hello."}]
         url, request = self._post(messages, stream=False, max_tokens=1)
         start = time.perf_counter()
@@ -350,9 +382,7 @@ class LlmClient:
             with self._open(url, request) as response:
                 data = json.loads(response.read())
         except (TimeoutError, OSError) as e:
-            raise LlmError(
-                f"Could not reach the LLM at {url} ({e}). Is llama-server running?"
-            ) from e
+            raise LlmError(f"Could not reach the LLM at {url} ({e}).{self._hint}") from e
         except ValueError as e:
             raise LlmError(f"The LLM at {url} sent an answer that is not JSON.") from e
         try:

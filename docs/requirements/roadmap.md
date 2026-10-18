@@ -584,11 +584,11 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 Moved by Larry on 2026-10-18 to right after Milestone 9, before hosting (Milestone 10), as the next priority. It runs on the local app until hosting.
 
 ### R33. Cloud LLMs with the user's key (Medium) · item 16 (later)
-- OpenAI by config, and a small Claude adapter; the user enters an API key in Settings, stored on the server only.
+- OpenAI by config, and a small Claude adapter; the user's API key is set in the config file, on the server only. Entering it on the Settings page moved to R42, which adds the LLM setting there (2026-10-18).
 - **Can show:** the same conversation answered by Claude or OpenAI instead of local llama.cpp.
 
 ### R42. LLM setting with API keys (Medium) · item 29
-- A setting that picks the LLM: local llama.cpp (the default), or Claude, OpenAI, Grok or OpenRouter with an API key, building on R33's Claude and OpenAI support. Keys stay on the server.
+- A setting that picks the LLM: local llama.cpp (the default), or Claude, OpenAI, Grok or OpenRouter with an API key entered on the Settings page, building on R33's Claude and OpenAI support. Keys stay on the server.
 - **Can show:** the same question answered by the local model and by each provider with a key.
 
 ### R43. LLM by subscription (Medium) · item 29
