@@ -9,18 +9,26 @@ from typing import Any
 import numpy as np
 import pytest
 from make_default_people import (
+    HERITAGES,
     MAX_SEEDS,
+    OLDER_ROLES,
     ROLE_LOOKS,
     Result,
     VideoSteps,
     build_page,
+    by_group,
     contact_sheet,
     exit_status,
     load_results,
+    load_shown,
+    look_counts,
+    looks_missing,
     mouth_box,
+    negative,
     prompt,
     run_picture,
     run_video,
+    thumbnail,
     write_results,
 )
 
@@ -63,7 +71,7 @@ def test_prompt_puts_the_person_first() -> None:
 def pictures(fail_seeds: set[int]) -> tuple[Any, Any, list[int]]:
     made: list[int] = []
 
-    def make(text: str, seed: int, path: Path) -> None:
+    def make(text: str, avoid: str, seed: int, path: Path) -> None:
         made.append(seed)
         path.write_bytes(f"seed {seed}".encode())
 
@@ -113,7 +121,7 @@ def test_picture_from_another_prompt_is_made_again(tmp_path: Path) -> None:
 
 
 def test_picture_error_is_recorded(tmp_path: Path) -> None:
-    def broken(text: str, seed: int, path: Path) -> None:
+    def broken(text: str, avoid: str, seed: int, path: Path) -> None:
         raise RuntimeError("out of memory")
 
     r = run_picture(PERSON, tmp_path, broken, pictures(set())[1], None)
@@ -185,7 +193,7 @@ def test_people_that_failed_their_picture_are_not_prepared(tmp_path: Path) -> No
 def test_a_packed_person_is_kept(tmp_path: Path, picked: Result) -> None:
     done = run_video(PERSON, picked, tmp_path, steps(tmp_path))
 
-    def no_make(text: str, seed: int, path: Path) -> None:
+    def no_make(text: str, avoid: str, seed: int, path: Path) -> None:
         raise AssertionError("made again")
 
     assert run_picture(PERSON, tmp_path, no_make, pictures(set())[1], done) is done
@@ -207,7 +215,7 @@ def test_no_results_yet(tmp_path: Path) -> None:
     assert load_results(tmp_path) == {}
 
 
-def test_exit_status_needs_all_36_packed(tmp_path: Path) -> None:
+def test_exit_status_needs_all_60_packed(tmp_path: Path) -> None:
     ok = []
     for p in people():
         write_pack(tmp_path / f"{p.name}.zip", p.name)
@@ -225,7 +233,7 @@ def test_a_run_after_an_error_tries_the_video_pass_again(tmp_path: Path, picked:
     failed = run_video(PERSON, picked, tmp_path, steps(tmp_path, talking=1.2))
     assert failed.error
 
-    def no_make(text: str, seed: int, path: Path) -> None:
+    def no_make(text: str, avoid: str, seed: int, path: Path) -> None:
         raise AssertionError("made again")
 
     again = run_picture(PERSON, tmp_path, no_make, pictures(set())[1], failed)
@@ -237,7 +245,7 @@ def test_a_passed_person_whose_pack_is_gone_is_packed_again(tmp_path: Path, pick
     done = run_video(PERSON, picked, tmp_path, steps(tmp_path))
     (tmp_path / done.pack).unlink()
 
-    def no_make(text: str, seed: int, path: Path) -> None:
+    def no_make(text: str, avoid: str, seed: int, path: Path) -> None:
         raise AssertionError("made again")
 
     again = run_picture(PERSON, tmp_path, no_make, pictures(set())[1], done)
@@ -281,9 +289,114 @@ def test_a_pack_the_app_cant_use_is_made_again(tmp_path: Path, picked: Result, d
         pack_file.write_bytes(data[:at] + b"X" + data[at + 1 :])
     assert exit_status([done], tmp_path) == 1
 
-    def no_make(text: str, seed: int, path: Path) -> None:
+    def no_make(text: str, avoid: str, seed: int, path: Path) -> None:
         raise AssertionError("made again")
 
     again = run_picture(PERSON, tmp_path, no_make, pictures(set())[1], done)
     assert again is not done and not again.pack
     assert run_video(PERSON, again, tmp_path, steps(tmp_path)).passed
+
+
+def test_a_second_face_can_be_older() -> None:
+    older = Person("female", "photoreal", "Professor", "x", face=2, age="in their late sixties")
+    assert prompt(older).startswith("one woman in their late sixties, x, wearing a tweed")
+
+
+def test_glasses_are_kept_out_of_the_negative_only_for_people_who_wear_them() -> None:
+    assert "glasses," in negative(PERSON) and "tinted" not in negative(PERSON)
+    wearer = Person("male", "animated", "Boss", "x, wearing clear glasses", face=2)
+    avoided = negative(wearer).split(", ")
+    assert "glasses" not in avoided and "glasses" in negative(PERSON).split(", ")
+    assert "tinted glasses" in avoided and "sunglasses" in avoided
+
+
+def test_thumbnail(tmp_path: Path) -> None:
+    import cv2
+
+    picture = tmp_path / "p.png"
+    rng = np.random.default_rng(0)
+    cv2.imwrite(str(picture), rng.integers(0, 256, (512, 512, 3), np.uint8))
+    size = thumbnail(picture, tmp_path / "thumbs" / "p.jpg")
+    small = cv2.imread(str(tmp_path / "thumbs" / "p.jpg"))
+    assert small is not None and small.shape == (128, 128, 3) and 0 < size < 20_000
+    with pytest.raises(ValueError, match="not a picture"):
+        thumbnail(tmp_path / "missing.png", tmp_path / "x.jpg")
+
+
+def every_look() -> dict[str, dict[str, Any]]:
+    """Looks that meet every count: each group's people take the heritages in turn, and the
+    first older-role people have red hair, blond hair, glasses, age and a disability."""
+    shown: dict[str, dict[str, Any]] = {}
+    groups: dict[str, list[Person]] = {}
+    for p in people():
+        groups.setdefault(f"{p.realism} {p.gender}", []).append(p)
+    for members in groups.values():
+        for i, p in enumerate(members):
+            shown[p.name] = {"heritage": HERITAGES[i % len(HERITAGES)]}
+        older = [p for p in members if p.role in OLDER_ROLES]
+        for p in older[:3]:
+            shown[p.name] |= {"older": True, "glasses": True, "disability": "hearing aid"}
+        shown[older[0].name]["hair"] = "red"
+        shown[older[1].name]["hair"] = "blond"
+    return shown
+
+
+def test_looks_counts_met() -> None:
+    counts = look_counts(every_look())
+    assert set(counts) == {
+        "photoreal female",
+        "photoreal male",
+        "animated female",
+        "animated male",
+    }
+    assert all(g["people"] == 15 for g in counts.values())
+    assert looks_missing(counts) == []
+
+
+def test_looks_missing_says_what_a_group_lacks() -> None:
+    shown = every_look()
+    young = next(p for p in people() if p.role == "Teenager" and p.realism == "animated")
+    shown[young.name] |= {"older": True}  # a Teenager never counts as older
+    indigenous = [n for n, s in shown.items() if s["heritage"] == "Indigenous"]
+    for name in indigenous:
+        if name.startswith("photoreal_male"):
+            shown[name]["heritage"] = "white"
+    older = [n for n, s in shown.items() if s.get("glasses") and n.startswith("animated_female")]
+    shown[older[0]]["glasses"] = False
+    assert looks_missing(look_counts(shown)) == [
+        "photoreal male: no Indigenous person",
+        "animated female: 2 with glasses, needs 3",
+    ]
+
+
+def test_looks_table_and_page(tmp_path: Path) -> None:
+    page = build_page([], every_look())
+    assert "Looks the pictures show" in page and "8 of 8" in page and "3 (needs 3)" in page
+    assert "Looks the pictures show" not in build_page([])
+    path = tmp_path / "shown.json"
+    assert load_shown(path) == {}
+    path.write_text(json.dumps(every_look()))
+    assert load_shown(path) == every_look()
+
+
+def test_contact_sheet_rows_are_groups() -> None:
+    ordered = by_group([Result(p.name, "") for p in people()])
+    first_row = {
+        r.person.rsplit("_", 1)[0] if r.person.endswith("_2") else r.person for r in ordered[:15]
+    }
+    assert all(name.startswith("photoreal_female") for name in first_row)
+    assert all(r.person.startswith("animated_male") for r in ordered[45:])
+
+
+def test_the_pictures_show_every_look_larry_asked_for() -> None:
+    """The record of what each of the 60 pictures was seen to show meets every count."""
+    shown = load_shown()
+    assert sorted(shown) == sorted(p.name for p in people())
+    assert looks_missing(look_counts(shown)) == []
+
+
+def test_a_wheelchair_gets_a_wider_picture() -> None:
+    sitting = Person("male", "photoreal", "Student", f"x, {dp.WHEELCHAIR}", face=2)
+    text = prompt(sitting)
+    assert "wheelchair" in text and "headshot" not in text and "head and shoulders" not in text
+    assert "headshot" in prompt(PERSON) and "head and shoulders" in prompt(PERSON)
