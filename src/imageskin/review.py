@@ -52,7 +52,8 @@ def load_review(home: Path, status: PrepareStatus) -> Review:
         return Review(accepted=False)
     if not isinstance(data, dict):
         return Review(accepted=False)
-    if data.get("sample") != key:
+    if key is None or data.get("sample") != key:
+        # Nothing is accepted while no sample is ready, whatever the file says (review on PR #105).
         # Logged so a chat locked again after a change in setup (roadmap R28) says why.
         logger.info("Accepted sample is no longer current", extra={"changed": changed(data, key)})
         return Review(accepted=False)

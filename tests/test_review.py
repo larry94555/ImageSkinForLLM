@@ -62,12 +62,18 @@ def test_rejecting_withdraws_the_acceptance(
     assert "withdrawn" in caplog.text and "nothing to withdraw" in caplog.text
 
 
-@pytest.mark.parametrize("saved", ["not json", '["accepted"]'])
+@pytest.mark.parametrize(
+    "saved",
+    ["not json", '["accepted"]', "{}", '{"sample": null}', '{"sample": null, "accepted_at": "x"}'],
+)
 def test_a_broken_review_file_means_not_accepted(
     tmp_path: Path, saved: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     (tmp_path / "review.json").write_text(saved)
     assert load_review(tmp_path, DONE).accepted is False
+    # With nothing prepared there is no sample to have accepted, whatever the file says.
+    assert load_review(tmp_path, PrepareStatus("idle")).accepted is False
+    assert load_review(tmp_path, PrepareStatus("running", "photo1")).accepted is False
 
 
 def test_an_unreadable_review_file_is_logged(
