@@ -79,7 +79,11 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
   // null until the server has answered.
   const [state, setState] = useState<HomeState | null>(null);
   useEffect(() => {
+    // Once home is left, an answer arriving late changes nothing: it mustn't take the user away
+    // from the page they chose (review on PR #108).
+    let active = true;
     void loadHome(consented).then((loaded) => {
+      if (!active) return;
       if (landing && loaded.done) {
         console.info("Setup is saved, so the visit starts in the chat");
         window.location.replace("#/chat");
@@ -87,6 +91,9 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
       }
       setState(loaded);
     });
+    return () => {
+      active = false;
+    };
   }, [consented]);
 
   if (state === null) return <p className="muted busy">Loading…</p>;

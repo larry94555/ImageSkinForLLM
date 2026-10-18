@@ -128,3 +128,24 @@ test("a visit that starts on home stays there while setup isn't done", async () 
   expect(window.location.hash).toBe("");
   expect(console.info).not.toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
 });
+
+test("a late answer doesn't open the chat once the user has left home (review on PR #108)", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const fetchMock = server(true);
+  const answer = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string) => {
+    await held;
+    return answer(url);
+  });
+  window.location.hash = "";
+  const { unmount } = render(<HomePage consented landing />);
+  unmount(); // the user clicked another page before home's setup state came back
+  window.location.hash = "#/content";
+  release();
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(window.location.hash).toBe("#/content");
+  expect(console.info).not.toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
+  window.location.hash = "";
+});

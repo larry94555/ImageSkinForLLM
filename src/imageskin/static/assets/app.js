@@ -2227,7 +2227,9 @@ function choices(done, consented) {
 function HomePage({ consented, landing = false }) {
 	const [state, setState] = d(null);
 	h(() => {
+		let active = true;
 		loadHome(consented).then((loaded) => {
+			if (!active) return;
 			if (landing && loaded.done) {
 				console.info("Setup is saved, so the visit starts in the chat");
 				window.location.replace("#/chat");
@@ -2235,6 +2237,9 @@ function HomePage({ consented, landing = false }) {
 			}
 			setState(loaded);
 		});
+		return () => {
+			active = false;
+		};
 	}, [consented]);
 	if (state === null) return /* @__PURE__ */ u("p", {
 		className: "muted busy",

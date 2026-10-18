@@ -75,6 +75,9 @@ def test_without_a_file_nothing_is_saved(tmp_path: Path) -> None:
         '{"transcript": [{"role": "system", "content": "x"}], "turns": []}',
         '{"transcript": [{"role": "user", "content": 1}], "turns": []}',
         '{"transcript": [], "turns": [], "summary": 3}',
+        '{"transcript": [], "turns": [], "told": []}',
+        '{"transcript": [], "turns": [], "told": {"named": [1], "suggested": null}}',
+        '{"transcript": [], "turns": [], "told": {"named": [], "suggested": 2}}',
     ],
 )
 def test_a_broken_file_starts_a_new_conversation(
@@ -83,7 +86,7 @@ def test_a_broken_file_starts_a_new_conversation(
     saved = tmp_path / "conversation.json"
     saved.write_text(content, encoding="utf-8")
     with caplog.at_level(logging.ERROR):
-        assert load_saved(saved) == ([], [], None)
+        assert load_saved(saved) == ([], [], None, ([], None))
     assert "Could not read the saved conversation; starting a new one" in caplog.text
 
 
@@ -121,3 +124,57 @@ def test_the_app_keeps_the_conversation_after_a_restart(tmp_path: Path) -> None:
     assert restarted.get("/api/chat").json() == {
         "turns": [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello"}]
     }
+
+
+TOPICS = ["Rain", "Snow", "Hail"]
+
+
+def topics_conversation(saved: Path, looked_up: list[str]) -> Conversation:
+    """Only the content is answered, and each topic has a passage (as in test_topics)."""
+
+    def find(prompt: str) -> list[str]:
+        looked_up.append(prompt)
+        return [f"About {prompt}."] if prompt in TOPICS else []
+
+    return Conversation(
+        lambda messages: "Two moons.",
+        lambda: 4096,
+        find=find,
+        content_only=lambda: True,
+        topics=lambda: TOPICS,
+        saved=saved,
+    )
+
+
+def test_the_topics_named_still_count_after_a_restart(tmp_path: Path) -> None:
+    """Review on PR #108: "the second one" and "that one" after a restart still mean the topics
+    named and suggested before it, rather than being declined."""
+    saved = tmp_path / "conversation.json"
+    with patch("imageskin.chat.random.choice", lambda topics: "Hail"):
+        topics_conversation(saved, []).send("What topics can you talk about?")
+    looked_up: list[str] = []
+    again = topics_conversation(saved, looked_up)
+    assert again.send("Tell me about the second one")[0].content == "Two moons."
+    assert again.send("OK, and that one?")[0].content == "Two moons."
+    assert looked_up == ["Snow", "Hail"]
+    # Clearing forgets them, after a restart too.
+    again.clear()
+    cleared = topics_conversation(saved, looked_up)
+    assert cleared.send("Tell me about the second one")[0].content.startswith("Sorry")
+
+
+def test_a_file_saved_before_topics_were_kept_still_restores(tmp_path: Path) -> None:
+    saved = tmp_path / "conversation.json"
+    saved.write_text(
+        '{"transcript": [{"role": "user", "content": "Hi"}], "turns": [], "summary": null}',
+        encoding="utf-8",
+    )
+    assert load_saved(saved) == ([Turn("user", "Hi")], [], None, ([], None))
+
+
+def test_new_conversations_never_share_their_turns(tmp_path: Path) -> None:
+    """Two conversations started with nothing saved keep their own turns."""
+    first = Conversation(FakeLlm2(), lambda: 4096, saved=tmp_path / "a.json")
+    first.send("Hi")
+    second = Conversation(FakeLlm2(), lambda: 4096, saved=tmp_path / "b.json")
+    assert second.turns() == []

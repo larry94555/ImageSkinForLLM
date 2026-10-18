@@ -410,10 +410,41 @@ def turn_list(data: object) -> list[Turn]:
     return turns
 
 
-def load_saved(path: Path) -> tuple[list[Turn], list[Turn], str | None]:
-    """The conversation saved at `path` (roadmap R30): everything said, the turns sent word for
-    word and the summary of the older ones. Empty when nothing was saved or the file can't be
-    read, which is logged."""
+# The topics last named, in order, and the one suggested, for "the first one" (R41f).
+Told = tuple[list[str], str | None]
+
+
+class Saved(NamedTuple):
+    """What is saved of the conversation (roadmap R30)."""
+
+    transcript: list[Turn]  # everything said, as shown in the chat
+    turns: list[Turn]  # sent word for word after the summary
+    summary: str | None  # of the turns no longer sent word for word
+    told: Told  # so "the second one" still means a topic named before a restart (review)
+
+
+def nothing_saved() -> Saved:
+    """A new, empty conversation: new lists every time, since the conversation adds to them."""
+    return Saved([], [], None, ([], None))
+
+
+def told_from(data: object) -> Told:
+    """The topics named and suggested, read back. ValueError when they aren't."""
+    if data is None:
+        return [], None  # saved before topics were kept
+    if not isinstance(data, dict):
+        raise ValueError("not the topics told")
+    named, suggested = data.get("named"), data.get("suggested")
+    if not isinstance(named, list) or not all(isinstance(n, str) for n in named):
+        raise ValueError("topics named that aren't text")
+    if suggested is not None and not isinstance(suggested, str):
+        raise ValueError("a topic suggested that isn't text")
+    return named, suggested
+
+
+def load_saved(path: Path) -> Saved:
+    """The conversation saved at `path` (roadmap R30). Empty when nothing was saved or the file
+    can't be read, which is logged."""
     start = time.perf_counter()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -423,15 +454,16 @@ def load_saved(path: Path) -> tuple[list[Turn], list[Turn], str | None]:
         summary = data.get("summary")
         if summary is not None and not isinstance(summary, str):
             raise ValueError("a summary that isn't text")
+        told = told_from(data.get("told"))
     except FileNotFoundError:
         logger.info("No saved conversation; starting a new one", extra={"path": str(path)})
-        return [], [], None
+        return nothing_saved()
     except (OSError, ValueError, KeyError) as e:
         logger.error(
             "Could not read the saved conversation; starting a new one",
             extra={"path": str(path), "error": str(e)},
         )
-        return [], [], None
+        return nothing_saved()
     logger.info(
         "Conversation restored",
         extra={
@@ -440,15 +472,17 @@ def load_saved(path: Path) -> tuple[list[Turn], list[Turn], str | None]:
             "duration_ms": ms_since(start),
         },
     )
-    return transcript, turns, summary
+    return Saved(transcript, turns, summary, told)
 
 
-def save(path: Path, transcript: list[Turn], turns: list[Turn], summary: str | None) -> None:
+def save(path: Path, saved: Saved) -> None:
     """Save the conversation so that an interrupted write never leaves a broken file."""
+    named, suggested = saved.told
     data = {
-        "transcript": [as_message(t) for t in transcript],
-        "turns": [as_message(t) for t in turns],
-        "summary": summary,
+        "transcript": [as_message(t) for t in saved.transcript],
+        "turns": [as_message(t) for t in saved.turns],
+        "summary": saved.summary,
+        "told": {"named": named, "suggested": suggested},
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.stem}.saving.json")
@@ -486,7 +520,7 @@ class Conversation:
         self._topics = topics
         self._topics_complete = topics_complete
         # The topics last named, in order, and the one suggested, for "the first one" (R41f).
-        self._told: tuple[list[str], str | None] = ([], None)
+        self._told: Told = ([], None)
         self._content_only = content_only
         self._ask = ask
         self._stream = stream
@@ -503,7 +537,7 @@ class Conversation:
         self._busy = threading.Lock()
         self._summarizer: threading.Thread | None = None
         if saved is not None:
-            self._transcript, self._turns, self._summary = load_saved(saved)
+            self._transcript, self._turns, self._summary, self._told = load_saved(saved)
 
     def _save(self) -> None:
         """Save the conversation as it is now, if it is saved. Called holding _lock, so saves
@@ -513,7 +547,7 @@ class Conversation:
             return
         start = time.perf_counter()
         try:
-            save(self._saved, self._transcript, self._turns, self._summary)
+            save(self._saved, Saved(self._transcript, self._turns, self._summary, self._told))
         except OSError as e:
             logger.error(
                 "Could not save the conversation",
