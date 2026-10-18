@@ -5,7 +5,8 @@ import importlib.util
 import logging
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -36,6 +37,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
+from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
@@ -116,6 +118,8 @@ class AccentRequest(BaseModel):
     accent: Accent
 
 
+# A request that waited for Delete my data (roadmap R31) and would write the person's data again.
+DELETED_MEANWHILE = "Your data was deleted while this was waiting. Start setup again."
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # The conversation is saved in the data folder, so it is still there after a restart (R30).
 CONVERSATION_FILE = "conversation.json"
@@ -357,11 +361,17 @@ def create_app(
     # responses here makes them small on the wire instead (less than half the size).
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+    # How many times Delete my data has run (R31). Each write of the person's data checks it is
+    # the same as when its request arrived, so one that waited for a delete never writes after
+    # it. Read here, as the request arrives, before any dependency can wait on a lock.
+    deletes = [0]
+
     @app.middleware("http")
     async def log_requests(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         start = time.perf_counter()
+        request.state.deletes_seen = deletes[0]
         try:
             response = await call_next(request)
         except Exception:
@@ -389,11 +399,28 @@ def create_app(
     def get_consent() -> dict[str, object]:
         return asdict(load_consent(data_home))
 
+    # Held by Delete my data (R31) and by every request that writes the person's files, so none
+    # writes while they are deleted and leaves something behind (review on PR #109).
+    data_lock = threading.Lock()
+
+    def arrived_after(request: Request) -> int:
+        return int(request.state.deletes_seen)
+
+    DeletesSeen = Annotated[int, Depends(arrived_after)]
+
+    def not_deleted_since(seen: int) -> None:
+        """Refuse a request that arrived before a Delete my data that has run since."""
+        if deletes[0] != seen:
+            logger.warning("Request arrived before Delete my data; refused")
+            raise HTTPException(status_code=409, detail=DELETED_MEANWHILE)
+
     @app.post("/api/consent")
-    def post_consent(body: ConsentRequest) -> dict[str, object]:
+    def post_consent(body: ConsentRequest, seen: DeletesSeen) -> dict[str, object]:
         if not body.agreed:
             raise HTTPException(status_code=400, detail="Tick the box to confirm consent.")
-        return asdict(save_consent(data_home))
+        with data_lock:
+            not_deleted_since(seen)
+            return asdict(save_consent(data_home))
 
     # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
     # question scope follows the config file until it is changed there.
@@ -423,6 +450,15 @@ def create_app(
                 " (/#/consent), tick the box, then try again.",
             )
 
+    @contextmanager
+    def personal_write(seen: int) -> Iterator[None]:
+        """Write the person's files, unless Delete my data is running: then once it is done,
+        and only for a request that arrived after it, with consent given again (R31)."""
+        with data_lock:
+            not_deleted_since(seen)
+            require_consent()
+            yield
+
     # One speaker model for the one-speaker check and for picking an accent's base voice.
     speakers = SpeakerChecker(data_home / "models" / "speakers")
     # What loads in the background at the start; wait_until_loaded waits for it.
@@ -436,9 +472,10 @@ def create_app(
     needs_consent = [Depends(require_consent)]
 
     @app.post(uploads_api, dependencies=needs_consent)
-    def upload(kind: Kind, file: UploadFile) -> Upload:
+    def upload(kind: Kind, file: UploadFile, seen: DeletesSeen) -> Upload:
         try:
-            return store.save(kind, file.filename, file.file)
+            with personal_write(seen):
+                return store.save(kind, file.filename, file.file)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
 
@@ -447,10 +484,11 @@ def create_app(
         return store.list(kind)
 
     @app.post(uploads_api + "/{upload_id}/check", dependencies=needs_consent)
-    def check_upload_now(kind: Kind, upload_id: str) -> Upload:
+    def check_upload_now(kind: Kind, upload_id: str, seen: DeletesSeen) -> Upload:
         start = time.perf_counter()
         try:
-            checked = store.check(kind, upload_id)
+            with personal_write(seen):
+                checked = store.check(kind, upload_id)
         except UploadError as e:
             logger.error(
                 "Upload could not be checked",
@@ -495,9 +533,10 @@ def create_app(
         return store.photo_choice()
 
     @app.put("/api/uploads/photos/chosen", dependencies=needs_consent)
-    def put_photo_choice(body: PhotoChoiceRequest) -> PhotoChoice:
+    def put_photo_choice(body: PhotoChoiceRequest, seen: DeletesSeen) -> PhotoChoice:
         try:
-            return store.choose_photo(body.id)
+            with personal_write(seen):
+                return store.choose_photo(body.id)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
 
@@ -512,8 +551,10 @@ def create_app(
         )
 
     @app.delete(uploads_api + "/{upload_id}", dependencies=needs_consent)
-    def remove_upload(kind: Kind, upload_id: str) -> dict[str, bool]:
-        if not store.remove(kind, upload_id):
+    def remove_upload(kind: Kind, upload_id: str, seen: DeletesSeen) -> dict[str, bool]:
+        with personal_write(seen):
+            removed = store.remove(kind, upload_id)
+        if not removed:
             raise HTTPException(status_code=404, detail="No such file.")
         return {"removed": True}
 
@@ -755,11 +796,12 @@ def create_app(
         return AccentChoice(accent=accent() if available else "own", available=available)
 
     @app.put("/api/accent", dependencies=needs_consent)
-    def put_accent(body: AccentRequest) -> AccentChoice:
+    def put_accent(body: AccentRequest, seen: DeletesSeen) -> AccentChoice:
         if body.accent != "own" and voice_kind not in CLONES:
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
         try:
-            changed = job.change_accent(lambda: save_accent(data_home, body.accent))
+            with personal_write(seen):
+                changed = job.change_accent(lambda: save_accent(data_home, body.accent))
         except PrepareError as e:  # the sample is being made again (R27b)
             raise HTTPException(status_code=409, detail=str(e)) from e
         if not changed:
@@ -783,13 +825,14 @@ def create_app(
         return asdict(load_review(data_home, job.status()))
 
     @app.post("/api/review", dependencies=needs_consent)
-    def post_review(body: ReviewRequest) -> dict[str, object]:
-        if body.decision != "accept":
-            return asdict(withdraw(data_home, body.decision))
-        try:
-            review = accept(data_home, job.status())
-        except ValueError as e:
-            raise HTTPException(status_code=409, detail=str(e)) from e
+    def post_review(body: ReviewRequest, seen: DeletesSeen) -> dict[str, object]:
+        with personal_write(seen):
+            if body.decision != "accept":
+                return asdict(withdraw(data_home, body.decision))
+            try:
+                review = accept(data_home, job.status())
+            except ValueError as e:
+                raise HTTPException(status_code=409, detail=str(e)) from e
         start_reply_warm_up()  # the chat opens now: ready the LLM and the engines (R22a)
         return asdict(review)
 
@@ -936,13 +979,14 @@ def create_app(
         }
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
-    def post_chat(body: ChatRequest) -> dict[str, Any]:
+    def post_chat(body: ChatRequest, seen: DeletesSeen) -> dict[str, Any]:
         """The reply, with its place in the conversation to ask for its video by, and whether it
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
         wait_for_warm_up()
         with chat_lock, core_share.llm():
+            not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
             return chat(body)
 
     def wait_for_warm_up(what: str = "Prompt") -> None:
@@ -1248,33 +1292,85 @@ def create_app(
         return {"video": "/api/prepare/clips/sample", "seconds": seconds}
 
     @app.delete("/api/chat", dependencies=needs_consent)
-    def clear_chat() -> dict[str, int]:
+    def clear_chat(seen: DeletesSeen) -> dict[str, int]:
         """Clear conversation from Settings (roadmap R27b), once the browser has asked to
         confirm. It waits for a prompt being answered, so that reply is cleared too."""
         with chat_lock:
+            # A clear that waited for Delete my data would save an empty conversation again
+            # (review on PR #109).
+            not_deleted_since(seen)
             # The conversation first, so that if it can't be cleared nothing is (R30). With the
             # lock held no prompt is being answered, so the reply videos still being made are
             # from replies already in it.
-            try:
-                cleared = conversation.clear()
-            except ClearFailed as e:
-                raise HTTPException(status_code=500, detail=str(e)) from e
-            # The replies' videos go too: those being made are stopped and never published,
-            # and those made are removed, so none of what was said can still be played.
-            with clips_lock:
-                streamed = list(sentence_clips.values())
-                sentence_clips.clear()
-                for stop in whole_videos.values():
-                    stop.set()
-            for clips in streamed:
-                threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
-            # After the conversation: a video asked for after replies.clear() reads it empty.
-            videos = replies.clear()
+            cleared = clear_conversation()
+        return {"cleared": cleared}
+
+    def clear_conversation() -> int:
+        """Clear the conversation and its videos, with chat_lock held; HTTP 500 if the saved
+        conversation can't be emptied, and then nothing is cleared."""
+        try:
+            cleared = conversation.clear()
+        except ClearFailed as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        # The replies' videos go too: those being made are stopped and never published,
+        # and those made are removed, so none of what was said can still be played.
+        with clips_lock:
+            streamed = list(sentence_clips.values())
+            sentence_clips.clear()
+            for stop in whole_videos.values():
+                stop.set()
+        for clips in streamed:
+            threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
+        # After the conversation: a video asked for after replies.clear() reads it empty.
+        videos = replies.clear()
         logger.info(
             "Reply videos cleared",
             extra={"videos": videos, "streamed_replies": len(streamed)},
         )
-        return {"cleared": cleared}
+        return cleared
+
+    # No consent needed: a delete that left a file behind removed the consent already, and
+    # it is tried again from the same page.
+    def forget_person() -> None:
+        """Drop what the engines keep in memory of the person (the learned voice and the loaded
+        face), with the engines held and no Prepare running (review on PR #109)."""
+        voice_ready.forget()
+        forget_voice = getattr(voice_engine, "forget_voice", None)
+        if forget_voice is not None:
+            forget_voice()
+        for kept in (steps, reply_steps):
+            if kept.forget is not None:
+                kept.forget()
+
+    @app.delete("/api/data")
+    def delete_data() -> dict[str, object]:
+        """Delete my data from Settings (roadmap R31), once the browser has asked to confirm:
+        the photos, recordings, prepared face and voice, videos and conversation, so setup
+        starts again. Refused while setup is preparing; nothing is removed then."""
+        wait_for_warm_up("Delete my data")
+
+        def delete() -> Deleted:
+            clear_conversation()
+            # Once the streamed clips stopped above have let the engines go, nothing writes
+            # a video while the files are removed.
+            with replies.paused():
+                deleted = delete_my_data(data_home)
+                forget_person()
+            deletes[0] += 1  # requests that arrived before this write nothing now
+            return deleted
+
+        # All of it under the job's lock, which forget() takes before deleting anything: a
+        # Prepare started first refuses the delete with nothing cleared, and one started
+        # meanwhile waits for it (review on PR #109). data_lock keeps the other writers of these
+        # files out. The lock order is chat_lock, data_lock, the job's lock, then the engines;
+        # the writers take data_lock before the job's, and nothing holding the engines takes
+        # the job's lock.
+        with chat_lock, data_lock:
+            try:
+                deleted = job.forget(delete)
+            except PrepareError as e:
+                raise HTTPException(status_code=409, detail=str(e)) from e
+        return asdict(deleted)
 
     @app.get("/api/chat/idle", dependencies=needs_consent)
     def get_idle_video() -> FileResponse:

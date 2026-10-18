@@ -46,6 +46,16 @@ def test_a_voice_without_an_id_is_prepared_once_too() -> None:
     assert prepared == [1]
 
 
+def test_a_forgotten_voice_is_prepared_again() -> None:
+    """R31: after Delete my data the next reply prepares the voice again, even with the same id."""
+    prepared: list[int] = []
+    ready = VoiceReady(lambda: prepared.append(1), lambda: "clone:abc")
+    ready.ensure()
+    ready.forget()
+    ready.ensure()
+    assert prepared == [1, 1]
+
+
 def test_the_prepare_jobs_voice_step_counts_as_ready() -> None:
     prepared: list[int] = []
     ready = VoiceReady(lambda: prepared.append(1), lambda: "kokoro:abc")

@@ -125,6 +125,20 @@ export async function clearChat(): Promise<number> {
   return ((await response.json()) as { cleared: number }).cleared;
 }
 
+export interface Deleted {
+  files: number;
+  bytes: number;
+  left: string[]; // files that could not be removed, such as one open in another program
+}
+
+// Deletes the photos, recordings, prepared face and voice, videos and conversation (roadmap R31).
+// Throws a ServerRefusal saying why, such as setup still preparing.
+export async function deleteMyData(): Promise<Deleted> {
+  const response = await fetch("/api/data", { method: "DELETE" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as Deleted;
+}
+
 export async function getVoiceSample(): Promise<VoiceSample> {
   return json<VoiceSample>(await fetch("/api/voice-sample"));
 }

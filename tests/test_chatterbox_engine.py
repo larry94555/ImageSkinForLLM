@@ -305,3 +305,28 @@ def test_learn_speech_learns_from_given_speech_and_keeps_it(voice_sample: Path) 
     assert len(cloner.voices) == 1  # still that speech, not the voice sample's
     eng.learn_voice(str(voice_sample))  # back to the voice sample
     assert cloner.voices[-1][0] == 0.5
+
+
+def test_a_forgotten_voice_is_learned_afresh_by_a_new_model(
+    tmp_path: Path, voice_sample: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R31: after Delete my data nothing learned from the old voice is kept, not even the model
+    that learned it, and the next setup learns the new voice from its own sample."""
+    loaded: list[FakeCloner] = []
+
+    def load() -> FakeCloner:
+        loaded.append(FakeCloner())
+        return loaded[-1]
+
+    clone = engine_with(load)
+    clone.learn_voice(str(voice_sample))
+    old = clone.reference(str(voice_sample))
+    with caplog.at_level(logging.INFO, logger="imageskin.chatterbox_engine"):
+        clone.forget_voice()
+    assert clone._cloner is None and clone._reference is None and clone._voice is None
+    assert "Forgot the learned voice" in caplog.messages
+
+    new_sample = write_wav(tmp_path / "new.wav", np.full(SAMPLE_RATE * 12, 0.2, np.float32))
+    clone.speak(str(new_sample), "Hello")
+    assert len(loaded) == 2 and loaded[1].voices and loaded[1].texts == ["Hello"]
+    assert not np.array_equal(loaded[1].voices[0], old)  # from the new sample only

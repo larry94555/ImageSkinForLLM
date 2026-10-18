@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from imageskin.accent import OWN, Accent, AccentEngine
 from imageskin.download import sha256_of
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 State = Literal["idle", "running", "done", "failed"]
+T = TypeVar("T")
 Progress = Callable[[str, int, int], None]  # step key, done, total
 PrepareVoice = Callable[[], None]
 PrepareFace = Callable[[Path, Progress], None]
@@ -55,6 +56,8 @@ class ClipSteps:
     render: RenderVideo
     # The idle video shown between replies (roadmap R23), for an engine that can make one.
     idle: RenderIdle | None = None
+    # Drops what the steps keep of the person, such as the loaded face (roadmap R31).
+    forget: Callable[[], None] | None = None
 
 
 def steps_clip(steps: ClipSteps) -> RenderClip:
@@ -105,6 +108,8 @@ NOT_PREPARED = "There is no sample video yet. Prepare it in setup first."
 CHANGED_MEANWHILE = "The setup changed while the video was made. Try again."
 # Prepare and another accent wait for the sample being made again: they share its engines.
 SAMPLE_BEING_MADE = "The sample video is being made again. Try again once it is ready."
+# Delete my data (roadmap R31) waits for a prepare, which would write its files again.
+WAIT_TO_DELETE = "Setup is preparing the video. Try again once it has finished."
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
 CLONES = ("pocket", "clone")
 
@@ -297,6 +302,20 @@ class PrepareJob:
         seconds = round(time.perf_counter() - start, 1)
         logger.info("Rendered the sample video again", extra={"duration_s": seconds})
         return seconds
+
+    def forget(self, delete: Callable[[], T]) -> T:
+        """Delete my data (roadmap R31): run `delete`, which removes this job's files with the
+        rest, and start again from nothing prepared. Refused with PrepareError while a job runs
+        or the sample is made again, as they would write their files again. Done under the
+        job's lock, so a Prepare started meanwhile waits for it."""
+        with self._lock:
+            if self._status.state == "running":
+                raise PrepareError(WAIT_TO_DELETE)
+            if self._rendering_again:
+                raise PrepareError(SAMPLE_BEING_MADE)
+            done = delete()
+            self._status = PrepareStatus("idle")
+            return done
 
     def start(self) -> PrepareStatus:
         """Start preparing the chosen photo and the voice; while it runs, just report on it."""
@@ -621,7 +640,12 @@ def photoreal_steps(
         video, lib = load(photo)
         video.render_idle(lib, output)
 
-    return ClipSteps(speak, render, idle)
+    def forget() -> None:
+        # The loaded library holds the person's face; the next clip loads the new one.
+        kept.clear()
+        kept["frame"] = 0
+
+    return ClipSteps(speak, render, idle, forget)
 
 
 def photoreal_clip(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_VOICE) -> RenderClip:

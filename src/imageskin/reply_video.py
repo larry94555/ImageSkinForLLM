@@ -45,6 +45,10 @@ class VoiceReady:
         self._prepare()
         self._ready = (voice,)
 
+    def forget(self) -> None:
+        """After Delete my data (roadmap R31), so the next reply prepares the voice again."""
+        self._ready = None
+
     def ensure(self) -> None:
         """Prepare the voice unless it is ready already."""
         if self._ready != (self._voice_id(),):
@@ -368,6 +372,13 @@ class ReplyVideos:
         with self._voice_lock, self._video_lock:
             self._before_engines()
             self._voice.ensure()
+            yield
+
+    @contextmanager
+    def paused(self) -> Iterator[None]:
+        """Hold the engines without readying the voice, so no clip or idle video is written
+        meanwhile, as while Delete my data removes the videos (roadmap R31)."""
+        with self._voice_lock, self._video_lock:
             yield
 
     def idle(self, photo: Path) -> Path | None:

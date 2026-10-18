@@ -51,6 +51,7 @@ import {
 } from "./api";
 import { Checks, minutes } from "./checks";
 import { ExitScreen } from "./exit";
+import { ASSESSMENT_KEY, LESSON_KEY, QUIZ_KEY } from "./progress";
 import type { SetupPart } from "./router";
 import { useSettings } from "./settings";
 import { TalkButton } from "./talk";
@@ -836,7 +837,6 @@ const SOUND_KEY = "imageskin.sound";
 
 // The lesson this browser has (roadmap R41h), kept so a student who stops picks up where they
 // left off.
-const LESSON_KEY = "imageskin.lesson";
 
 export function loadLesson(): Lesson | null {
   try {
@@ -851,7 +851,6 @@ export function loadLesson(): Lesson | null {
 }
 
 // The quiz this browser has (roadmap R41i), kept so a reload doesn't lose it.
-const QUIZ_KEY = "imageskin.quiz";
 
 export function loadQuiz(): Quiz | null {
   try {
@@ -884,7 +883,6 @@ export function loadQuiz(): Quiz | null {
 }
 
 // The assessment this browser has (roadmap R41j), kept so a reload doesn't lose it.
-const ASSESSMENT_KEY = "imageskin.assessment";
 
 export function loadAssessment(): Assessment | null {
   try {

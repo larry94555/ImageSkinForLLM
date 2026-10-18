@@ -216,6 +216,13 @@ class AccentEngine:
             },
         )
 
+    def forget_voice(self) -> None:
+        """Forget the person's voice after Delete my data (roadmap R31): the clone's, and the
+        converter's, which holds the voice it learned and is loaded again when next needed."""
+        self._clone.forget_voice()
+        self._converter = None
+        self.accent, self.base = OWN, None
+
     def speak(self, voice: str, text: str) -> Speech:
         if self.accent == OWN or self.base is None or self._clone_keeps_accent:
             return self._clone.speak(voice, text)
