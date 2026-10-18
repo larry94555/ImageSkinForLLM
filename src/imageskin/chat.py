@@ -1,14 +1,16 @@
 """Text chat with the LLM (feature items 10, 15 and 16, roadmap R15).
 
 The LLM is reached through the OpenAI-compatible chat API that llama.cpp's llama-server offers,
-so OpenAI is later a change of settings. The conversation is kept on the server, in memory, and
-sent with each prompt so the LLM keeps context. The history it sends never takes more than half
+so OpenAI is later a change of settings. The conversation is kept on the server, saved in the
+data folder so it is still there after a restart (roadmap R30), and sent with each prompt so the
+LLM keeps context. The history it sends never takes more than half
 of the model's context window, which leaves room for the prompt and the reply: when it would,
 the older turns are summarized by the LLM, and the summary is sent in their place.
 """
 
 import json
 import logging
+import os
 import random
 import threading
 import time
@@ -17,6 +19,7 @@ import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
@@ -393,8 +396,69 @@ def cut_to_fit(passage: str, budget: int, count: Count) -> str | None:
     return f"{text} …"
 
 
+def turn_list(data: object) -> list[Turn]:
+    """Turns read back from the saved conversation. ValueError when they aren't turns."""
+    if not isinstance(data, list):
+        raise ValueError("not a list of turns")
+    turns = []
+    for item in data:
+        if not isinstance(item, dict) or item.get("role") not in ("user", "assistant"):
+            raise ValueError("not a turn")
+        if not isinstance(item.get("content"), str):
+            raise ValueError("a turn without text")
+        turns.append(Turn(item["role"], item["content"]))
+    return turns
+
+
+def load_saved(path: Path) -> tuple[list[Turn], list[Turn], str | None]:
+    """The conversation saved at `path` (roadmap R30): everything said, the turns sent word for
+    word and the summary of the older ones. Empty when nothing was saved or the file can't be
+    read, which is logged."""
+    start = time.perf_counter()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("not a saved conversation")
+        transcript, turns = turn_list(data["transcript"]), turn_list(data["turns"])
+        summary = data.get("summary")
+        if summary is not None and not isinstance(summary, str):
+            raise ValueError("a summary that isn't text")
+    except FileNotFoundError:
+        logger.info("No saved conversation; starting a new one", extra={"path": str(path)})
+        return [], [], None
+    except (OSError, ValueError, KeyError) as e:
+        logger.error(
+            "Could not read the saved conversation; starting a new one",
+            extra={"path": str(path), "error": str(e)},
+        )
+        return [], [], None
+    logger.info(
+        "Conversation restored",
+        extra={
+            "turns": len(transcript),
+            "summary": summary is not None,
+            "duration_ms": ms_since(start),
+        },
+    )
+    return transcript, turns, summary
+
+
+def save(path: Path, transcript: list[Turn], turns: list[Turn], summary: str | None) -> None:
+    """Save the conversation so that an interrupted write never leaves a broken file."""
+    data = {
+        "transcript": [as_message(t) for t in transcript],
+        "turns": [as_message(t) for t in turns],
+        "summary": summary,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.stem}.saving.json")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 class Conversation:
-    """The one conversation with the LLM, kept in memory until the server stops."""
+    """The one conversation with the LLM, saved at `saved` when given (roadmap R30), so it
+    outlives the server; without it, it is kept in memory until the server stops."""
 
     def __init__(
         self,
@@ -414,7 +478,10 @@ class Conversation:
         # Whether every PDF has been read and its wiki built (or given up on), so the topics
         # are all of them (review on PR #85).
         topics_complete: Callable[[], bool] = lambda: True,
+        # Where the conversation is saved after each change and read from at the start (R30).
+        saved: Path | None = None,
     ) -> None:
+        self._saved = saved
         self._find = find
         self._topics = topics
         self._topics_complete = topics_complete
@@ -435,6 +502,28 @@ class Conversation:
         # One prompt at a time, so replies stay in order.
         self._busy = threading.Lock()
         self._summarizer: threading.Thread | None = None
+        if saved is not None:
+            self._transcript, self._turns, self._summary = load_saved(saved)
+
+    def _save(self) -> None:
+        """Save the conversation as it is now, if it is saved. Called holding _lock, so saves
+        are made one at a time and in order. A save that fails is logged and the chat goes on:
+        the conversation is still in memory."""
+        if self._saved is None:
+            return
+        start = time.perf_counter()
+        try:
+            save(self._saved, self._transcript, self._turns, self._summary)
+        except OSError as e:
+            logger.error(
+                "Could not save the conversation",
+                extra={"path": str(self._saved), "error": str(e)},
+            )
+            return
+        logger.info(
+            "Conversation saved",
+            extra={"turns": len(self._transcript), "duration_ms": ms_since(start)},
+        )
 
     def turns(self) -> list[Turn]:
         with self._lock:
@@ -449,6 +538,7 @@ class Conversation:
                 cleared = len(self._transcript)
                 self._transcript, self._turns, self._summary = [], [], None
                 self._told = ([], None)
+                self._save()
         logger.info("Conversation cleared", extra={"turns": cleared})
         return cleared
 
@@ -622,6 +712,7 @@ class Conversation:
                 self._turns = [*turns, *said]
             self._transcript += said
             place = len(self._transcript) - 1
+            self._save()
         if turns is not None and history_tokens(self._summary, self._turns, self._count) > budget:
             # After the reply rather than before the next prompt, so the reply doesn't wait for
             # it; the next prompt waits for it instead (see send).
@@ -801,6 +892,7 @@ class Conversation:
             return
         with self._lock:
             self._summary, self._turns = summary, recent
+            self._save()
         logger.info(
             "Conversation summarized",
             extra={

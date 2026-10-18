@@ -116,6 +116,8 @@ class AccentRequest(BaseModel):
 
 
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
+# The conversation is saved in the data folder, so it is still there after a restart (R30).
+CONVERSATION_FILE = "conversation.json"
 # At most this many replies stopped before their prompt came are remembered (roadmap R19).
 STOPPED_EARLY_MAX = 64
 
@@ -851,6 +853,7 @@ def create_app(
             content_only=content_only,
             topics=content_topics,
             topics_complete=topics_complete,
+            saved=data_home / CONVERSATION_FILE,
         )
     else:
         assert ask_llm is not None
@@ -864,6 +867,7 @@ def create_app(
             content_only=content_only,
             topics=content_topics,
             topics_complete=topics_complete,
+            saved=data_home / CONVERSATION_FILE,
         )
 
     # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's

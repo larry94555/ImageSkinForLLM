@@ -7,7 +7,7 @@ import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
 import { HomePage } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
-import { type Page, resolve, setupTarget, useHash, wikiTarget } from "./router";
+import { type Page, pageFor, resolve, setupTarget, useHash, wikiTarget } from "./router";
 import {
   SettingsLink,
   SettingsPage,
@@ -67,6 +67,11 @@ function Shell() {
     }
   }, [route?.redirect]);
 
+  // Whether the visit is still on the page it started on, the home page (R30): a return visit
+  // then goes straight to the chat.
+  const landing = useRef(pageFor(window.location.hash) === "home");
+  if (route && route.page !== "home") landing.current = false;
+
   const header = useHeaderHeight();
   // The page the Settings page was opened from, for Return to the app (R27). Opened by its
   // address, it returns to the first page of the view.
@@ -76,7 +81,7 @@ function Shell() {
   let content = <p>Loading…</p>;
   if (route) {
     content = {
-      home: <HomePage consented={consented === true} />,
+      home: <HomePage consented={consented === true} landing={landing.current} />,
       consent: (
         <ConsentPage
           onConfirmed={() => {
