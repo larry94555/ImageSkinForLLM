@@ -3658,3 +3658,36 @@ test("after Delete my data, setup stays at consent until it is given again (R31)
   await waitFor(() => expect(window.location.hash).toBe("#/consent"));
   expect(screen.getByText("Before you start")).toBeTruthy();
 });
+
+test("after a partial delete, setup stays at consent and the progress is gone (R31)", async () => {
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: "2026-10-18" });
+      if (url === "/api/data" && init?.method === "DELETE") {
+        return Response.json({ files: 8, bytes: 80, left: ["replies/idle/a.mp4"] });
+      }
+      if (url === "/api/settings") return Response.json({ view: "teacher" });
+      return new Response("", { status: 404 });
+    }),
+  );
+  localStorage.setItem("imageskin.quiz", JSON.stringify({ topic: "Primes" }));
+  await openAt("#/settings");
+  await screen.findByRole("heading", { name: "Settings", level: 1 });
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Delete my data" }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete everything" }));
+  });
+  // The retry message stays on the Settings page.
+  expect(await screen.findByText(/1 file\(s\) could not be deleted/)).toBeTruthy();
+  expect(loadQuiz()).toBeNull();
+  await act(async () => {
+    window.location.hash = "#/setup";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await waitFor(() => expect(window.location.hash).toBe("#/consent"));
+  expect(screen.getByText("Before you start")).toBeTruthy();
+});

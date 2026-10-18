@@ -423,9 +423,9 @@ function DeleteData({ onDeleted }) {
 			const deleted = await deleteMyData();
 			const took = Math.round(performance.now() - started);
 			console.info(`Deleted my data: ${deleted.files} file(s) (${took} ms)`);
+			clearProgress();
+			if (!deleted.left.includes("consent.json")) onDeleted?.();
 			if (deleted.left.length === 0) {
-				clearProgress();
-				onDeleted?.();
 				window.location.hash = "#/consent";
 				return;
 			}

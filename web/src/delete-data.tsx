@@ -36,9 +36,12 @@ export function DeleteData({ onDeleted }: { onDeleted?: () => void }) {
       const deleted = await deleteMyData();
       const took = Math.round(performance.now() - started);
       console.info(`Deleted my data: ${deleted.files} file(s) (${took} ms)`);
+      // Any answer means the conversation was cleared, so a lesson, quiz or assessment under
+      // way goes with it, and the consent is gone unless it is among what was left (review on
+      // PR #109).
+      clearProgress();
+      if (!deleted.left.includes("consent.json")) onDeleted?.();
       if (deleted.left.length === 0) {
-        clearProgress(); // a lesson, quiz or assessment under way goes with the conversation
-        onDeleted?.();
         window.location.hash = "#/consent";
         return;
       }

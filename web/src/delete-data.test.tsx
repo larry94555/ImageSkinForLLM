@@ -143,14 +143,26 @@ test("a failure without a reason says to try again", async () => {
   expect(console.error).toHaveBeenCalledWith("Could not delete my data", expect.anything());
 });
 
-test("files left behind keep the lesson, quiz and assessment", async () => {
-  server(() => Response.json({ files: 1, bytes: 1, left: ["uploads/x.jpg"] }));
+test("with files left behind, the progress and the consent still go", async () => {
+  server(() => Response.json({ files: 1, bytes: 1, left: ["replies/idle/a.mp4"] }));
   localStorage.setItem(QUIZ_KEY, "{}");
-  render(<DeleteData />);
+  const onDeleted = vi.fn();
+  render(<DeleteData onDeleted={onDeleted} />);
   await deleteEverything();
   await screen.findByText(/could not be deleted/);
-  expect(localStorage.getItem(QUIZ_KEY)).toBe("{}");
-  localStorage.clear();
+  // The conversation was cleared and consent.json removed, so the browser forgets both.
+  expect(localStorage.getItem(QUIZ_KEY)).toBeNull();
+  expect(onDeleted).toHaveBeenCalledOnce();
+  expect(window.location.hash).toBe("#/settings");
+});
+
+test("a consent that couldn't be deleted is kept in the browser too", async () => {
+  server(() => Response.json({ files: 1, bytes: 1, left: ["consent.json"] }));
+  const onDeleted = vi.fn();
+  render(<DeleteData onDeleted={onDeleted} />);
+  await deleteEverything();
+  await screen.findByText(/could not be deleted/);
+  expect(onDeleted).not.toHaveBeenCalled();
 });
 
 test("a key that can't be cleared is logged and the rest are cleared", () => {
