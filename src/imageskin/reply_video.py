@@ -45,6 +45,10 @@ class VoiceReady:
         self._prepare()
         self._ready = (voice,)
 
+    def forget(self) -> None:
+        """After Delete my data (roadmap R31), so the next reply prepares the voice again."""
+        self._ready = None
+
     def ensure(self) -> None:
         """Prepare the voice unless it is ready already."""
         if self._ready != (self._voice_id(),):

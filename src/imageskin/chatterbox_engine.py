@@ -159,6 +159,15 @@ class ChatterboxEngine:
         assert self._reference is not None
         return self._reference[1]
 
+    def forget_voice(self) -> None:
+        """Forget the person's voice after Delete my data (roadmap R31): the voice sample read
+        and the clone model, which holds what it learned from it, so the next setup loads the
+        model again and learns the new voice afresh (review on PR #109)."""
+        self._voice = None
+        self._reference = None
+        loaded, self._cloner = self._cloner is not None, None
+        logger.info("Forgot the learned voice", extra={"model": self.name, "unloaded": loaded})
+
     def cloner(self) -> Cloner:
         """The loaded clone model, which the accent converter shares (roadmap R26)."""
         return self._get_cloner()

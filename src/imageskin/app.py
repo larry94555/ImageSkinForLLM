@@ -1331,6 +1331,17 @@ def create_app(
 
     # No consent needed: a delete that left a file behind removed the consent already, and
     # it is tried again from the same page.
+    def forget_person() -> None:
+        """Drop what the engines keep in memory of the person (the learned voice and the loaded
+        face), with the engines held and no Prepare running (review on PR #109)."""
+        voice_ready.forget()
+        forget_voice = getattr(voice_engine, "forget_voice", None)
+        if forget_voice is not None:
+            forget_voice()
+        for kept in (steps, reply_steps):
+            if kept.forget is not None:
+                kept.forget()
+
     @app.delete("/api/data")
     def delete_data() -> dict[str, object]:
         """Delete my data from Settings (roadmap R31), once the browser has asked to confirm:
@@ -1344,6 +1355,7 @@ def create_app(
             # a video while the files are removed.
             with replies.paused():
                 deleted = delete_my_data(data_home)
+                forget_person()
             deletes[0] += 1  # requests that arrived before this write nothing now
             return deleted
 

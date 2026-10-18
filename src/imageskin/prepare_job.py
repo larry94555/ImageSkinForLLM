@@ -56,6 +56,8 @@ class ClipSteps:
     render: RenderVideo
     # The idle video shown between replies (roadmap R23), for an engine that can make one.
     idle: RenderIdle | None = None
+    # Drops what the steps keep of the person, such as the loaded face (roadmap R31).
+    forget: Callable[[], None] | None = None
 
 
 def steps_clip(steps: ClipSteps) -> RenderClip:
@@ -638,7 +640,12 @@ def photoreal_steps(
         video, lib = load(photo)
         video.render_idle(lib, output)
 
-    return ClipSteps(speak, render, idle)
+    def forget() -> None:
+        # The loaded library holds the person's face; the next clip loads the new one.
+        kept.clear()
+        kept["frame"] = 0
+
+    return ClipSteps(speak, render, idle, forget)
 
 
 def photoreal_clip(home: Path, voice_engine: VoiceEngine, voice: str = DEFAULT_VOICE) -> RenderClip:

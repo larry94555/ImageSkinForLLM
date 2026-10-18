@@ -207,6 +207,41 @@ def test_each_clip_starts_where_the_one_before_ended(
     assert idles == [tmp_path / "idle.mp4"]
 
 
+def test_forgetting_drops_the_loaded_face(
+    tmp_path: Path, short_loop: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R31: after Delete my data the steps keep nothing of the face; the next clip loads the
+    new setup's library, even for a photo at the same path."""
+    build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
+    lib = load_library(tmp_path / "lib")
+    prepared: list[Library] = []
+    starts: list[int] = []
+
+    class FakeEngine:
+        def __init__(self, home: Path) -> None:
+            pass
+
+        def prepare(self, photo: Path) -> Library:
+            prepared.append(replace(lib, folder=photo))
+            return prepared[-1]
+
+        def render(
+            self, lib: Library, wav: Path, output: Path, progressive: bool, start_frame: int
+        ) -> float:
+            assert lib is prepared[-1]
+            starts.append(start_frame)
+            return 0.24
+
+    monkeypatch.setattr("imageskin.photoreal.PhotorealEngine", FakeEngine)
+    steps = photoreal_steps(tmp_path, None)  # type: ignore[arg-type]
+    steps.render(tmp_path / "me.png", tmp_path / "1.wav", tmp_path / "1.mp4")
+    assert steps.forget is not None
+    steps.forget()
+    steps.render(tmp_path / "me.png", tmp_path / "1.wav", tmp_path / "1.mp4")
+    assert len(prepared) == 2 and prepared[0] is not prepared[1]
+    assert starts == [0, 0]
+
+
 def test_paster_puts_the_face_into_the_photo(tmp_path: Path, short_loop: object) -> None:
     build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait())
     lib = load_library(tmp_path / "lib")

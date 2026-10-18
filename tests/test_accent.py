@@ -99,6 +99,9 @@ class FakeClone:
     def speak(self, voice: str, text: str) -> Speech:
         return Speech(b"clone", RATE, [])
 
+    def forget_voice(self) -> None:
+        self.learned.append("forgot")
+
 
 class FakeKokoro:
     """Each voice speaks at its own level; Larry's own voice is 0.5."""
@@ -263,3 +266,13 @@ def test_a_converter_that_cannot_load_says_so() -> None:
         engine = AccentEngine(FakeClone(), FakeKokoro, load, lambda s: s)  # type: ignore[arg-type]
         with pytest.raises(VoiceError, match=message):
             engine.prepare("voice-sample.wav", "british")
+
+
+def test_a_forgotten_voice_drops_the_clones_and_the_converters() -> None:
+    """R31: after Delete my data neither the clone nor the converter keeps the person's voice."""
+    engine, clone, _, converter = accent_engine()
+    engine.prepare("voice-sample.wav", "british")
+    assert engine._converter is converter and engine.base is not None
+    engine.forget_voice()
+    assert clone.learned[-1] == "forgot" and engine._converter is None
+    assert engine.accent == "own" and engine.base is None

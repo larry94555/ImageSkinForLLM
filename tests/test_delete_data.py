@@ -17,7 +17,13 @@ from test_uploads import PNG
 from imageskin.app import DELETED_MEANWHILE
 from imageskin.chat import CLEAR_FAILED, ClearFailed
 from imageskin.delete_data import PERSONAL, Deleted, delete_my_data
-from imageskin.prepare_job import SAMPLE_BEING_MADE, WAIT_TO_DELETE, PrepareError, PrepareStatus
+from imageskin.prepare_job import (
+    SAMPLE_BEING_MADE,
+    WAIT_TO_DELETE,
+    ClipSteps,
+    PrepareError,
+    PrepareStatus,
+)
 from imageskin.review import Review
 
 # What isn't the person's, and is kept.
@@ -317,3 +323,31 @@ def test_requests_that_arrive_during_the_delete_write_nothing_after_it(tmp_path:
     # A request sent after the delete is the new setup's, and is let through.
     assert client.post("/api/consent", json={"agreed": True}).status_code == 200
     assert client.post("/api/uploads/photos", files={"file": ("me.png", PNG)}).status_code == 200
+
+
+def test_the_engines_forget_the_person_too(tmp_path: Path) -> None:
+    """The learned voice and the loaded face held in memory go with the files, so the next
+    setup learns and loads the new ones (reviews on PR #109)."""
+    forgot: list[str] = []
+
+    class Voice:
+        def speak(self, voice: str, text: str) -> None:
+            raise AssertionError("not spoken here")
+
+        def forget_voice(self) -> None:
+            forgot.append("voice")
+
+    def steps(*args: Any, **kwargs: Any) -> ClipSteps:
+        name = "reply face" if kwargs.get("progressive") else "sample face"
+        return ClipSteps(
+            lambda t, w: None, lambda p, w, o: None, forget=lambda: forgot.append(name)
+        )
+
+    with (
+        patch("imageskin.app.clip_voice", return_value=(lambda: None, Voice(), "v", "clone")),
+        patch("imageskin.app.photoreal_steps", steps),
+    ):
+        client = chatted(tmp_path)
+    assert forgot == []
+    assert client.delete("/api/data").json()["left"] == []
+    assert sorted(forgot) == ["reply face", "sample face", "voice"]
