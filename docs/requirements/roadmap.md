@@ -22,7 +22,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.7% | 1 of 1 |
 | 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 5.2% | 3 of 7 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.2% | 7 of 7 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R33, R42 to R43 | 3 | 2.2% | 0 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R33, R42 to R43 | 3 | 2.2% | 1 of 3 |
 | 10 | **Hosted.** Runs on a hosted HTTPS site. | R32 | 1 | 0.7% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 3.0% | 0 |
 | 20 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 8.9% | 0 |
@@ -36,7 +36,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 18 | **Heads-up before deleting.** Students and the teacher are told a deleted question is gone from the record for everyone and can't be brought back. | R58 | 1 | 0.7% | 0 |
 | 19 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 1.5% | 0 |
 | 22 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 3.7% | 0 |
-| | **Total** | | **135** | **54.8% done** | **74 of 135** |
+| | **Total** | | **135** | **55.6% done** | **75 of 135** |
 
 Sizes: 35 Simple, 100 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -583,7 +583,7 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 
 Moved by Larry on 2026-10-18 to right after Milestone 9, before hosting (Milestone 10), as the next priority. It runs on the local app until hosting.
 
-### R33. Cloud LLMs with the user's key (Medium) · item 16 (later)
+### R33. Cloud LLMs with the user's key (Medium) · item 16 (later) · Done in [PR #111](https://github.com/larry94555/ImageSkinForLLM/pull/111)
 - OpenAI by config, and a small Claude adapter; the user's API key is set in the config file, on the server only. Entering it on the Settings page moved to R42, which adds the LLM setting there (2026-10-18).
 - **Can show:** the same conversation answered by Claude or OpenAI instead of local llama.cpp.
 
