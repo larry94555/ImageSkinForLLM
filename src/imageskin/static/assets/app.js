@@ -98,6 +98,10 @@ function clipUrl(name, status) {
 async function getPrepare() {
 	return json(await fetch("/api/prepare"));
 }
+async function lineUrl(name) {
+	const status = await getPrepare();
+	return status.state === "done" ? clipUrl(name, status) : null;
+}
 async function startPrepare() {
 	const response = await fetch("/api/prepare", { method: "POST" });
 	if (!response.ok) throw new Error(await refusal(response));
@@ -2280,6 +2284,29 @@ function ChoiceIcon({ href }) {
 		})
 	});
 }
+//#endregion
+//#region src/exit.tsx
+function ExitScreen({ onStartAgain }) {
+	h(() => console.info("Exit screen shown"), []);
+	return /* @__PURE__ */ u("section", {
+		className: "exit-screen",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Goodbye" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "You have left the chat. Your conversation is kept for when you return."
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				onClick: () => {
+					console.info("Start again");
+					onStartAgain();
+				},
+				children: "Start again"
+			})
+		]
+	});
+}
 function speechRecognition() {
 	const w = window;
 	return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
@@ -3085,10 +3112,16 @@ function ChatPage() {
 			setAccepted(false);
 		});
 	}, []);
+	const [exited, setExited] = d(false);
+	const [returned, setReturned] = d(false);
 	if (accepted === null) return /* @__PURE__ */ u("p", {
 		className: "muted busy",
 		children: "Loading…"
 	});
+	if (exited) return /* @__PURE__ */ u(ExitScreen, { onStartAgain: () => {
+		setExited(false);
+		setReturned(true);
+	} });
 	if (!accepted) {
 		if (student) return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u("p", { children: "The chat isn't ready yet. Ask your teacher to finish setting it up." })] });
 		return /* @__PURE__ */ u(S, { children: [
@@ -3106,10 +3139,18 @@ function ChatPage() {
 		children: [/* @__PURE__ */ u("h1", {
 			className: "sr-only",
 			children: "Chat"
-		}), /* @__PURE__ */ u(Chat, {})]
+		}), /* @__PURE__ */ u(Chat, {
+			welcome: returned,
+			onExit: () => setExited(true)
+		})]
 	});
 }
 var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
+var LINE_TEXT = {
+	goodbye: "Goodbye",
+	"welcome-back": "Welcome back"
+};
+var LINE_TIMEOUT_MS = 1e4;
 function newReplyId() {
 	return Array.from(crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -3214,7 +3255,7 @@ function saveSound(sound) {
 		localStorage.setItem(SOUND_KEY, JSON.stringify(sound));
 	} catch {}
 }
-function Chat() {
+function Chat(props) {
 	const metrics = useSettings().show_metrics;
 	const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
 	const [turns, setTurns] = d(null);
@@ -3253,11 +3294,18 @@ function Chat() {
 		quizMe,
 		assessOn
 	]);
+	const [saying, setSaying] = d(props.welcome ? "welcome-back" : null);
+	const line = A(null);
+	const busy = sending || speaking || saying !== null;
 	const clipTotal = A(0);
 	const allMade = A(false);
 	const clipsEnded = A(0);
-	h(() => () => {
-		gone.current = true;
+	h(() => {
+		if (props.welcome) say("welcome-back");
+		return () => {
+			gone.current = true;
+			clearTimeout(line.current?.timer);
+		};
 	}, []);
 	h(() => {
 		getChatPhoto().then(({ url, width, height }) => {
@@ -3319,6 +3367,53 @@ function Chat() {
 		}
 		return known;
 	}
+	async function say(name) {
+		line.current = {
+			name,
+			at: performance.now()
+		};
+		setSaying(name);
+		setClips([]);
+		setTimes([]);
+		setWhole(false);
+		console.info(`Saying ${LINE_TEXT[name]}`);
+		let url = null;
+		try {
+			url = await lineUrl(name);
+		} catch (e) {
+			console.error(`Could not find the ${LINE_TEXT[name]} video`, e);
+		}
+		if (gone.current || line.current?.name !== name) return;
+		if (url === null) {
+			console.warn(`No ${LINE_TEXT[name]} video, so it isn't said`);
+			said();
+			return;
+		}
+		setHalted(false);
+		setClips([url]);
+		line.current.timer = setTimeout(() => {
+			console.warn(`${LINE_TEXT[name]} didn't finish playing in time, so the chat went on`);
+			said();
+		}, LINE_TIMEOUT_MS);
+	}
+	function said() {
+		const done = line.current;
+		if (done === null) return;
+		clearTimeout(done.timer);
+		line.current = null;
+		console.info(`Said ${LINE_TEXT[done.name]} (${Math.round(performance.now() - done.at)} ms)`);
+		if (done.name === "goodbye") {
+			props.onExit?.();
+			return;
+		}
+		setSaying(null);
+		setClips([]);
+	}
+	function exit() {
+		console.info("Exit");
+		if (stoppable) stop();
+		say("goodbye");
+	}
 	function started(clip, at) {
 		setWaiting(false);
 		setTimes((t) => t.map((c, i) => i === clip && c.started === null ? {
@@ -3327,6 +3422,10 @@ function Chat() {
 		} : c));
 	}
 	function ended(clip, at) {
+		if (line.current) {
+			said();
+			return;
+		}
 		clipsEnded.current = Math.max(clipsEnded.current, clip + 1);
 		if (allMade.current && clipsEnded.current >= clipTotal.current) setWaiting(false);
 		setTimes((t) => t.map((c, i) => i === clip && c.ended === null ? {
@@ -3336,7 +3435,7 @@ function Chat() {
 	}
 	async function send(asked, spoken = false) {
 		const text = (asked ?? prompt).trim();
-		if (!text || sending || speaking) return;
+		if (!text || busy) return;
 		const shownAt = (turns ?? []).length + 1;
 		const replyId = newReplyId();
 		let replied = false;
@@ -3511,7 +3610,9 @@ function Chat() {
 				/* @__PURE__ */ u(SoundControls, {
 					sound,
 					onChange: changeSound,
-					onStop: stoppable ? stop : void 0
+					onStop: stoppable ? stop : void 0,
+					onExit: exit,
+					saying: saying !== null
 				}),
 				metrics && times.length > 0 && /* @__PURE__ */ u(ClipTimes, {
 					times,
@@ -3568,11 +3669,11 @@ function Chat() {
 						children: [
 							/* @__PURE__ */ u("button", {
 								type: "submit",
-								disabled: sending || speaking || !prompt.trim(),
+								disabled: busy || !prompt.trim(),
 								children: "Send"
 							}),
 							/* @__PURE__ */ u(TalkButton, {
-								disabled: sending || speaking,
+								disabled: busy,
 								onHearing: setPrompt,
 								onHeard: (text) => void send(text, true),
 								onProblem: setFailed
@@ -3580,21 +3681,21 @@ function Chat() {
 							teachMe && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",
 								className: "secondary",
-								disabled: sending || speaking,
+								disabled: busy,
 								onClick: () => void send(TEACH_ME),
 								children: "Teach me"
 							}),
 							quizMe && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",
 								className: "secondary",
-								disabled: sending || speaking,
+								disabled: busy,
 								onClick: () => void send(QUIZ_ME),
 								children: "Quiz me"
 							}),
 							assessOn && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",
 								className: "secondary",
-								disabled: sending || speaking,
+								disabled: busy,
 								onClick: () => void send(ASSESS_ME),
 								children: "Assessment"
 							})
@@ -3603,27 +3704,27 @@ function Chat() {
 				}),
 				(teachMe || quizMe || assessOn) && !quizGoing && /* @__PURE__ */ u(Choices, {
 					choices,
-					disabled: sending || speaking,
+					disabled: busy,
 					onAsk: (q) => void send(q)
 				}),
 				teachMe && lesson?.active && !quizGoing && /* @__PURE__ */ u(LessonControls, {
 					lesson,
-					disabled: sending || speaking,
+					disabled: busy,
 					onAsk: (q) => void send(q)
 				}),
 				quizGoing && !assessing && quiz && /* @__PURE__ */ u(QuizControls, {
 					quiz,
-					disabled: sending || speaking,
+					disabled: busy,
 					onAsk: (q) => void send(q)
 				}),
 				assessing && assessment && /* @__PURE__ */ u(AssessmentControls, {
 					assessment,
-					disabled: sending || speaking,
+					disabled: busy,
 					onAsk: (q) => void send(q)
 				}),
 				!quizGoing && /* @__PURE__ */ u(Hints, {
 					hints,
-					disabled: sending || speaking,
+					disabled: busy,
 					onAsk: (q) => void send(q)
 				}),
 				turns.length > 0 && /* @__PURE__ */ u(History$1, {
@@ -4120,7 +4221,7 @@ function ClipPlayer(props) {
 	})] });
 }
 function SoundControls(props) {
-	const { sound, onChange, onStop } = props;
+	const { sound, onChange, onStop, onExit, saying } = props;
 	return /* @__PURE__ */ u("div", {
 		className: "sound-controls",
 		children: [
@@ -4148,7 +4249,14 @@ function SoundControls(props) {
 				value: Math.round(sound.volume * 100),
 				disabled: sound.muted,
 				onInput: (e) => onChange({ volume: Number(e.currentTarget.value) / 100 })
-			})] })
+			})] }),
+			onExit && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: onExit,
+				disabled: saying,
+				children: "Exit"
+			})
 		]
 	});
 }

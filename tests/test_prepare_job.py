@@ -418,7 +418,9 @@ def test_default_face_step_builds_the_photoreal_library(tmp_path: Path) -> None:
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
 
 
-def test_the_api_starts_the_job_and_reports_on_it(tmp_path: Path) -> None:
+def test_the_api_starts_the_job_and_reports_on_it(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     client = TestClient(
         create_app(
             tmp_path,
@@ -440,7 +442,8 @@ def test_the_api_starts_the_job_and_reports_on_it(tmp_path: Path) -> None:
         client.app.state.prepare_job.wait(5)  # type: ignore[attr-defined]
         done = client.get("/api/prepare").json()
         sample = client.get("/api/prepare/clips/sample")
-        goodbye = client.get("/api/prepare/clips/goodbye")
+        with caplog.at_level(logging.INFO):
+            goodbye = client.get("/api/prepare/clips/goodbye")
         other = client.get("/api/prepare/clips/other")
         part = client.get("/api/prepare/clips/sample", headers={"Range": "bytes=0-3"})
     assert done["state"] == "done" and done["percent"] == 100
@@ -451,6 +454,9 @@ def test_the_api_starts_the_job_and_reports_on_it(tmp_path: Path) -> None:
     assert part.headers["content-range"] == f"bytes 0-3/{len(sample.content)}"
     assert sample.text.startswith("This is a test.")
     assert goodbye.text == "Goodbye." and other.status_code == 422
+    # Exit says it (roadmap R29), and the log shows it was served.
+    served = [r for r in caplog.records if r.getMessage() == "Serving a fixed line"]
+    assert [getattr(r, "clip", None) for r in served] == ["goodbye"]
     # No voice sample any more: the clips were made from old uploads, so they are not served.
     missing = client.get("/api/prepare/clips/sample")
     assert missing.status_code == 404 and "Prepare" in missing.json()["detail"]

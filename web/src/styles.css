@@ -930,3 +930,6 @@ ul.pdfs a.name:hover { color: var(--accent); text-decoration: underline; }
 
 /* A setup part scrolled to (R14, R28) shows below the top bar, with its step label. */
 .teacher-page section[id] { scroll-margin-top: calc(var(--header-h, 64px) + 16px); }
+/* The exit screen (R29): Goodbye, and Start again. */
+.exit-screen { display: grid; justify-items: center; gap: 12px; padding: 48px 16px; text-align: center; }
+.exit-screen h1 { margin: 0; }

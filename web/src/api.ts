@@ -203,6 +203,13 @@ export async function getPrepare(): Promise<PrepareStatus> {
   return json<PrepareStatus>(await fetch("/api/prepare"));
 }
 
+// Where the video of the person saying "Goodbye." or "Welcome back." is, which Prepare made with
+// the sample (roadmap R29), or null when it hasn't been made.
+export async function lineUrl(name: "goodbye" | "welcome-back"): Promise<string | null> {
+  const status = await getPrepare();
+  return status.state === "done" ? clipUrl(name, status) : null;
+}
+
 // Starts the job, or reports on it while it runs. Throws an Error saying what is missing.
 export async function startPrepare(): Promise<PrepareStatus> {
   const response = await fetch("/api/prepare", { method: "POST" });
