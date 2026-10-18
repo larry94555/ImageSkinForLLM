@@ -1,8 +1,8 @@
 # ImageSkinForLLM: Roadmap
 
-Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7, 11, 12 and 14, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestone 7a, added on 2026-10-13, comes right after them, before spoken prompts: it makes the app look and work like a professional product for a non-technical teacher and student, with a setting to show the timing metrics and a student or teacher view (items 48 to 51). Milestone 7b, added on 2026-10-14, comes right after 7a, still before spoken prompts: the app says which topics it can talk about, shows hints of what to ask, can teach the content for as long as a student wants and quiz them on a topic, and gives an assessment of breadth and depth across all of it (items 52 to 55). Milestone 8a, added on 2026-10-16, comes right after spoken prompts, before settings: for testing, a user can start chatting at once with a default person, a generated picture and a ready-made voice chosen by gender, accent, realism and role, and replace either with their own later (items 56 to 59). Later on 2026-10-16, Larry asked for a wider range of people to choose from, so R24a2 to R24c2 add 24 more people to R24b's 36, 60 in all for now (Larry, 2026-10-17), covering eight broad heritages, red and blond hair, older people, glasses and visible disabilities, and some choices get a second face to pick from; none is labelled (item 60). Milestones 15 to 18, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before deleting a question from history (items 38 to 46). Milestone 19, added later on 2026-10-09, adds a profile of each student's interests and personality (item 47). Milestones 20 to 22, added on 2026-10-17, come last, after every feature above is built: many teachers, each with a free trial, a monthly plan and their own site on a subdomain of me0.ai (items 61 to 66), then a support site at support.me0.ai (items 67 to 72), then an AI that gathers feedback and contact information and retrieves information from visitors and tickets (items 73 to 76). Milestone 13, added on 2026-10-17 before Interaction history, adds contexts, which decide how the AI responds to each prompt: today's teaching and its talk about the process become the Teacher/Student and Meta contexts, and the administrator can turn contexts on or off, change them and add new ones (items 77 to 83). It was first built right after Milestone 9; on 2026-10-18 Larry moved it to after Milestone 12, Sign-on and accounts, to work out its details then. Milestone 13a, added on 2026-10-18, comes right after Contexts: a generated identity, which answers questions such as "Who are you?", and guidelines, with goals and rules for each context, that the user edits on a Customization page, with a history of changes to compare, go back to or edit (items 84 to 88).
+Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7, 11, 12 and 14, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestone 7a, added on 2026-10-13, comes right after them, before spoken prompts: it makes the app look and work like a professional product for a non-technical teacher and student, with a setting to show the timing metrics and a student or teacher view (items 48 to 51). Milestone 7b, added on 2026-10-14, comes right after 7a, still before spoken prompts: the app says which topics it can talk about, shows hints of what to ask, can teach the content for as long as a student wants and quiz them on a topic, and gives an assessment of breadth and depth across all of it (items 52 to 55). Milestone 8a, added on 2026-10-16, comes right after spoken prompts, before settings: for testing, a user can start chatting at once with a default person, a generated picture and a ready-made voice chosen by gender, accent, realism and role, and replace either with their own later (items 56 to 59). Later on 2026-10-16, Larry asked for a wider range of people to choose from, so R24a2 to R24c2 add 24 more people to R24b's 36, 60 in all for now (Larry, 2026-10-17), covering eight broad heritages, red and blond hair, older people, glasses and visible disabilities, and some choices get a second face to pick from; none is labelled (item 60). Milestones 15 to 18, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before deleting a question from history (items 38 to 46). Milestone 19, added later on 2026-10-09, adds a profile of each student's interests and personality (item 47). Milestones 20 to 22 were added on 2026-10-17: many teachers, each with a free trial, a monthly plan and their own site on a subdomain of me0.ai (items 61 to 66), then a support site at support.me0.ai (items 67 to 72), then an AI that gathers feedback and contact information and retrieves information from visitors and tickets (items 73 to 76). Milestone 22 comes last, after every other feature is built; on 2026-10-18 Larry moved Milestones 20 and 21 to right after Milestone 12, before Contexts, to tackle them first, keeping their numbers. Milestone 13, added on 2026-10-17 before Interaction history, adds contexts, which decide how the AI responds to each prompt: today's teaching and its talk about the process become the Teacher/Student and Meta contexts, and the administrator can turn contexts on or off, change them and add new ones (items 77 to 83). It was first built right after Milestone 9; on 2026-10-18 Larry moved it to after Milestone 12, Sign-on and accounts, to work out its details then, and later that day to after Milestones 20 and 21. Milestone 13a, added on 2026-10-18, comes right after Contexts: a generated identity, which answers questions such as "Who are you?", and guidelines, with goals and rules for each context, that the user edits on a Customization page, with a history of changes to compare, go back to or edit (items 84 to 88).
 
-PRs are numbered R1 to R95 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, R16b for saying math, R18a for the first part of the reply text panel, R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, R37a, R37b and R38a for the wiki's outline, its pages and its versions, R41a to R41e2 for Milestone 7a's professional look (R41e2 was added by Larry on 2026-10-14 while testing R41e), R41f to R41j for Milestone 7b's topics, teach me, quiz me and the assessment, R24a to R24d for Milestone 8a's default person, and R24a2, R24b2 and R24c2 for its more varied faces (Larry, 2026-10-16), and R62a for a teacher's password reset and email change, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18a, R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R41a to R41e2 (a professional look), then R41f to R41j (knowing what to ask, teach me, quiz me and the assessment), then R24, then R24a, R24a2, R24b, R24b2, R24c, R24c2 and R24d (a default person), then R27 to R31 (settings, exit and return), then R32 to R47 (hosting, choice of LLM, sign-on and accounts), then R84 to R91 (contexts), then R92 to R95 (identity and guidelines), then R48 onward. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R95 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, R16b for saying math, R18a for the first part of the reply text panel, R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, R37a, R37b and R38a for the wiki's outline, its pages and its versions, R41a to R41e2 for Milestone 7a's professional look (R41e2 was added by Larry on 2026-10-14 while testing R41e), R41f to R41j for Milestone 7b's topics, teach me, quiz me and the assessment, R24a to R24d for Milestone 8a's default person, and R24a2, R24b2 and R24c2 for its more varied faces (Larry, 2026-10-16), and R62a for a teacher's password reset and email change, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18a, R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R41a to R41e2 (a professional look), then R41f to R41j (knowing what to ask, teach me, quiz me and the assessment), then R24, then R24a, R24a2, R24b, R24b2, R24c, R24c2 and R24d (a default person), then R27 to R31 (settings, exit and return), then R32 to R47 (hosting, choice of LLM, sign-on and accounts), then R61 to R71 and R62a (many teachers on me0.ai), then R72 to R78 (support), then R84 to R91 (contexts), then R92 to R95 (identity and guidelines), then R48 to R60, then R79 to R83. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -25,6 +25,8 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 1.5% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 1.5% | 0 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 3.0% | 0 |
+| 20 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 8.9% | 0 |
+| 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.2% | 0 |
 | 13 | **Contexts.** Each prompt is answered by the contexts it calls for: a primary one, such as Teacher/Student, and supplementary ones, such as Meta; the administrator turns contexts on or off, picks the primary, changes their guidelines and criteria and adds new ones, and Debug shows which context responded. | R84 to R91 | 8 | 5.9% | 0 |
 | 13a | **Identity and guidelines.** Ask "Who are you?" or "What is your purpose?" and hear the answer from a generated identity; under Customization, edit the identity and the guidelines (goals and rules for each context), compare the latest version with an earlier one, go back to one, or edit the latest and save it. | R92 to R95 | 4 | 3.0% | 0 |
 | 14 | **Interaction history.** Every question and answer kept; students see their own and, when a setting allows, delete questions from their record; the teacher reviews all of it and can delete any question; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 3.7% | 0 |
@@ -33,8 +35,6 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 17 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 1.5% | 0 |
 | 18 | **Heads-up before deleting.** Students and the teacher are told a deleted question is gone from the record for everyone and can't be brought back. | R58 | 1 | 0.7% | 0 |
 | 19 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 1.5% | 0 |
-| 20 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 8.9% | 0 |
-| 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.2% | 0 |
 | 22 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 3.7% | 0 |
 | | **Total** | | **135** | **54.8% done** | **74 of 135** |
 
@@ -621,9 +621,94 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - A setting that disallows anonymous use; visitors are sent to sign up or log in before asking.
 - **Can show:** with the setting on, an anonymous visitor is sent to the login page.
 
+## Milestone 20: Many teachers on me0.ai
+
+Added by Larry on 2026-10-17, to build after R60; on 2026-10-18 Larry moved it to right after Milestone 12 (R47), before Contexts. Each site works as the whole app does after R47, for its own teacher, students and visitors. What is built after it (Contexts, Identity and guidelines, and Milestones 14 to 19's history, topics, statistics and profiles) keeps its data in the site's folder (R61) and gets R65's checks that nothing crosses between sites.
+
+### R61. One store per site (Medium) · item 66
+- Every file and setting the app keeps (person, content, wiki, settings, accounts, history) moves under a folder for its site, and each request is matched to its site by its address. Locally, `name.localhost` addresses stand in for subdomains. The existing data becomes the first site.
+- **Can show:** two local sites at `a.localhost` and `b.localhost`, each with its own PDFs and person, with the site of each request in the logs.
+
+### R62. Teacher sign-up and sign-in (Medium) · item 61
+- A sign-up page on the main address takes an email and password, sends a confirmation email (by the method decided before this PR), and creates a new empty site whose administrator (R44) is that teacher. Sign-in on a site works only for that site's teacher.
+- **Can show:** sign up, confirm from the email, land on the new site's setup, and fail to sign in to another teacher's site.
+
+### R62a. Forgot password and change email (Simple) · item 61
+- **Forgot password** emails a one-time link, valid for an hour, to set a new password; the teacher can change their email address, confirmed from the new address, with a notice to the old one. A server command resets a support staff password as a last resort.
+- **Can show:** reset a forgotten password from the email and sign in; use the same link again and be refused; change the email and see it take effect only after confirming.
+
+### R63. Picking a subdomain (Simple) · item 65
+- At sign-up the site's name is checked as it is typed: free, letters, numbers and hyphens only, not reserved. The site is created at that address.
+- **Can show:** a taken name and a reserved name refused with a plain message, then a free name accepted and the site opened at it.
+
+### R64. Changing the subdomain (Simple) · item 65
+- In the site's settings, the teacher changes its name to any free name, with the same checks as R63; the old name is released at once.
+- **Can show:** rename a site, open it at the new address, see the old address no longer found, and sign up a new site with the old name.
+
+### R65. Each site's own students, visitors and history (Medium) · item 66
+- Student accounts, the student cookie, history, Teach me progress, assessments and the visitor's remembered conversation belong to one site. Tests prove nothing crosses between sites, for every page and API call.
+- **Can show:** the same email signed up as a student on two sites with separate histories; a visitor's conversation on one site not shown on another.
+
+### R66. Free trial (Simple) · item 62
+- A new site starts a one-week trial with the Light plan's limits and no payment details, one per email address. The teacher sees the days left; when it ends without a plan, or is cancelled, the site pauses as in R69.
+- **Can show:** with the clock moved forward a week, the site pauses and the teacher is asked to pick a plan; a second trial with the same email is refused.
+
+### R67. Plans and payment (Medium) · item 63
+- A plans page with Light ($1), Moderate ($10) and Power ($50) a month, paid through the provider decided before this PR. The server records the plan from the provider's events and never sees card details.
+- **Can show:** pay for Light with the provider's test card, see the site unpaused and the plan shown in its settings, with the provider's event in the logs.
+
+### R68. Upgrade (Simple) · item 63
+- From the site's settings, move from Light to Moderate or Power, or from Moderate to Power, starting at once.
+- **Can show:** upgrade a Light site to Power with the test card and see the new plan and its limits shown at once.
+
+### R69. Cancel, a failed payment, and a paused site (Medium) · item 64
+- Cancel from the site's settings. The site keeps working until the end of the billing period, then pauses. While paused, visitors see a notice, and the teacher can sign in, pick a plan to bring it back, save conversations, download their PDFs, or delete the site. After 30 days paused, or when the teacher deletes it at any time, the site and everything it owns (person, content, settings, students, history, feedback, contacts, tickets and the teacher's account) are deleted, its subdomain released and any subscription cancelled with the provider; only billing records stay.
+- A failed renewal keeps the site working while the provider retries, with a notice to the teacher only; when the provider ends the subscription, the site pauses and the 30 days start.
+- **Can show:** cancel, see the end date, move the clock past it and see the site paused, sign in and bring it back with a plan; cancel again, move past 30 more days, and see its data gone and its name free, in the logs and on disk. With the provider's test cards, a failed renewal that is then paid shows the teacher's notice and clears it; a failure never paid pauses the site when the provider gives up. Delete an active paid site and see its files gone, its name free and its subscription cancelled in the provider's test dashboard.
+
+### R70. Plan limits (Medium) · item 63
+- Each site's use is counted against its plan's limits, as decided before R67. At the limit, the teacher is told plainly and offered an upgrade, and students and visitors see a short notice.
+- **Can show:** a Light test site with a lowered limit reaches it, shows both messages, and works again after an upgrade.
+
+### R71. Many sites on me0.ai (Medium) · Deployment
+- Deploys the service on me0.ai, every subdomain served over HTTPS, as decided before this PR, building on R32.
+- **Can show:** two teachers' sites live at their own me0.ai addresses with HTTPS and the microphone working.
+
+## Milestone 21: Support at support.me0.ai
+
+Added by Larry on 2026-10-17, to build after Milestone 20.
+
+### R72. Support site and support staff sign-in (Medium) · item 67
+- `support.me0.ai` is a reserved site with a first page linking to the guide, the support person, asking the AI, tickets and feedback, open to anyone. Support staff sign in to manage it.
+- **Can show:** the first page with its five links, and the staff pages refusing a visitor and opening after sign-in.
+
+### R73. Support guide (Simple) · item 68
+- The support guide PDF, written from items 61 to 72, offered to read or download, and added as the support site's content.
+- **Can show:** download the guide, and see its wiki built on the support site.
+
+### R74. Support person and asking the AI (Medium) · items 69, 70
+- The support site's talking person answers spoken or typed questions from the guide, and **Ask the AI** answers typed questions in text only. When neither can answer, it says so and offers to open a ticket.
+- **Can show:** ask "How do I change my subdomain?" and hear the answer from the guide; ask something it doesn't cover and be offered a ticket.
+
+### R75. Opening tickets and the public ticket list (Medium) · item 71
+- Anyone opens a ticket with a title and description, after a clear warning that both will be public; a public list shows every ticket with its status, can be searched, and opens each one with its replies. No email address is ever shown. The opener gets a private link to the ticket, the only way to reply as them.
+- **Can show:** open a ticket without signing in, after the warning, then find it in the list from another browser.
+
+### R76. Ticket status, staff replies and moderation (Medium) · item 71
+- Signed-in support staff change a ticket's status and reply on it; the history of changes shows on the ticket. Staff can hide or delete a ticket or a reply. The opener answers through their private link.
+- **Can show:** staff ask a follow-up and set Waiting for reply; the opener answers through their private link, and another browser without the link can read the ticket but not reply. Then move it to Resolved, each change on the ticket and in the logs; hide a spam ticket and see it gone from the public list.
+
+### R77. Email when a ticket changes (Simple) · item 71
+- Anyone can give an email address on a ticket to be told when its status changes or the staff reply, starting only after they confirm it from a first email; the opener's emails carry their private link. The address is never shown, and each email has a link to stop them.
+- **Can show:** follow a ticket, change its status before confirming and receive nothing, confirm, change it again and receive the email, click stop, change it again and receive nothing.
+
+### R78. Feedback (Simple) · item 72
+- A feedback form with an optional email, seen only by support staff on a feedback page.
+- **Can show:** send feedback as a visitor and find it on the staff feedback page, not anywhere public.
+
 ## Milestone 13: Contexts
 
-Added by Larry on 2026-10-17, numbered before Interaction history. It was first placed after Milestone 9; on 2026-10-18 Larry moved it to after Milestone 12, Sign-on and accounts, to work out its details then. Depending on the prompt, different contexts are relevant, and they decide how the AI responds (items 77 to 83). The app already has two without naming them, and this milestone makes them explicit before adding more:
+Added by Larry on 2026-10-17, numbered before Interaction history. It was first placed after Milestone 9; on 2026-10-18 Larry moved it to after Milestone 12, Sign-on and accounts, to work out its details then, and later that day to after Milestones 20 and 21. Since the sites exist by then, contexts belong to a site (item 66). Depending on the prompt, different contexts are relevant, and they decide how the AI responds (items 77 to 83). The app already has two without naming them, and this milestone makes them explicit before adding more:
 
 | Context | Kind | What it does today | Where it is built |
 |---|---|---|---|
@@ -669,7 +754,7 @@ Today the order is fixed in the chat's code: an assessment going takes the promp
 
 ## Milestone 13a: Identity and guidelines
 
-Added by Larry on 2026-10-18, right after Contexts (items 84 to 88), and moved with it to after Milestone 12. The identity says who the AI is and what it is for; the guidelines hold its goals and the rules for each context, which are the context guidelines R88 made editable. Both are generated at first, edited on a **Customization** page, and kept with a history of every change. Like the Contexts page, the Customization page is in the teacher view, which only the signed-on administrator gets (R44).
+Added by Larry on 2026-10-18, right after Contexts (items 84 to 88), and moved with it to after Milestone 21. The identity says who the AI is and what it is for; the guidelines hold its goals and the rules for each context, which are the context guidelines R88 made editable. Both are generated at first, edited on a **Customization** page, and kept with a history of every change. Like the Contexts page, the Customization page is in the teacher view, which only the signed-on administrator gets (R44).
 
 ### R92. Identity and goals in every reply (Medium) · items 84, 85
 - The identity (name, who it speaks as, purpose, who it is for, what it can help with), the goals and every context's guidelines are kept in `customization.json`, with a fixed default shipped for when the file is missing or can't be read (the error goes in the log). The first time this version starts, each context's guidelines move out of `contexts.json` into it, keyed by the context's id, edits included; from then on `customization.json` is their only copy, and `contexts.json` keeps name, kind, criteria, availability and priority. The Contexts page's guideline editor (R88), **Set back to how it shipped** and adding or deleting a context (R89) read and write them there. Each save writes the whole file to a temporary file and renames it over the old one, so a reader never sees half a save. What the file holds after the move is written as its first version. `GET /api/customization` returns all of it.
@@ -756,91 +841,6 @@ Added by Larry on 2026-10-18, right after Contexts (items 84 to 88), and moved w
 - Adds the profile from R59 to the R57 student summary page, under the topics, labelled as an impression drawn from their questions. Each line shows its evidence and links to its questions. The administrator can edit or remove a line; the change is kept and never overwritten when the profile is worked out again.
 - **Can show:** open a student's summary, see their interests and response style with evidence, remove one line, rerun R59 and see it stay removed.
 
-## Milestone 20: Many teachers on me0.ai
-
-Added by Larry on 2026-10-17, to build after R60. Each site works as the whole app does after R60, for its own teacher, students and visitors.
-
-### R61. One store per site (Medium) · item 66
-- Every file and setting the app keeps (person, content, wiki, settings, accounts, history) moves under a folder for its site, and each request is matched to its site by its address. Locally, `name.localhost` addresses stand in for subdomains. The existing data becomes the first site.
-- **Can show:** two local sites at `a.localhost` and `b.localhost`, each with its own PDFs and person, with the site of each request in the logs.
-
-### R62. Teacher sign-up and sign-in (Medium) · item 61
-- A sign-up page on the main address takes an email and password, sends a confirmation email (by the method decided before this PR), and creates a new empty site whose administrator (R44) is that teacher. Sign-in on a site works only for that site's teacher.
-- **Can show:** sign up, confirm from the email, land on the new site's setup, and fail to sign in to another teacher's site.
-
-### R62a. Forgot password and change email (Simple) · item 61
-- **Forgot password** emails a one-time link, valid for an hour, to set a new password; the teacher can change their email address, confirmed from the new address, with a notice to the old one. A server command resets a support staff password as a last resort.
-- **Can show:** reset a forgotten password from the email and sign in; use the same link again and be refused; change the email and see it take effect only after confirming.
-
-### R63. Picking a subdomain (Simple) · item 65
-- At sign-up the site's name is checked as it is typed: free, letters, numbers and hyphens only, not reserved. The site is created at that address.
-- **Can show:** a taken name and a reserved name refused with a plain message, then a free name accepted and the site opened at it.
-
-### R64. Changing the subdomain (Simple) · item 65
-- In the site's settings, the teacher changes its name to any free name, with the same checks as R63; the old name is released at once.
-- **Can show:** rename a site, open it at the new address, see the old address no longer found, and sign up a new site with the old name.
-
-### R65. Each site's own students, visitors and history (Medium) · item 66
-- Student accounts, the student cookie, history, Teach me progress, assessments and the visitor's remembered conversation belong to one site. Tests prove nothing crosses between sites, for every page and API call.
-- **Can show:** the same email signed up as a student on two sites with separate histories; a visitor's conversation on one site not shown on another.
-
-### R66. Free trial (Simple) · item 62
-- A new site starts a one-week trial with the Light plan's limits and no payment details, one per email address. The teacher sees the days left; when it ends without a plan, or is cancelled, the site pauses as in R69.
-- **Can show:** with the clock moved forward a week, the site pauses and the teacher is asked to pick a plan; a second trial with the same email is refused.
-
-### R67. Plans and payment (Medium) · item 63
-- A plans page with Light ($1), Moderate ($10) and Power ($50) a month, paid through the provider decided before this PR. The server records the plan from the provider's events and never sees card details.
-- **Can show:** pay for Light with the provider's test card, see the site unpaused and the plan shown in its settings, with the provider's event in the logs.
-
-### R68. Upgrade (Simple) · item 63
-- From the site's settings, move from Light to Moderate or Power, or from Moderate to Power, starting at once.
-- **Can show:** upgrade a Light site to Power with the test card and see the new plan and its limits shown at once.
-
-### R69. Cancel, a failed payment, and a paused site (Medium) · item 64
-- Cancel from the site's settings. The site keeps working until the end of the billing period, then pauses. While paused, visitors see a notice, and the teacher can sign in, pick a plan to bring it back, save conversations, download their PDFs, or delete the site. After 30 days paused, or when the teacher deletes it at any time, the site and everything it owns (person, content, settings, students, history, feedback, contacts, tickets and the teacher's account) are deleted, its subdomain released and any subscription cancelled with the provider; only billing records stay.
-- A failed renewal keeps the site working while the provider retries, with a notice to the teacher only; when the provider ends the subscription, the site pauses and the 30 days start.
-- **Can show:** cancel, see the end date, move the clock past it and see the site paused, sign in and bring it back with a plan; cancel again, move past 30 more days, and see its data gone and its name free, in the logs and on disk. With the provider's test cards, a failed renewal that is then paid shows the teacher's notice and clears it; a failure never paid pauses the site when the provider gives up. Delete an active paid site and see its files gone, its name free and its subscription cancelled in the provider's test dashboard.
-
-### R70. Plan limits (Medium) · item 63
-- Each site's use is counted against its plan's limits, as decided before R67. At the limit, the teacher is told plainly and offered an upgrade, and students and visitors see a short notice.
-- **Can show:** a Light test site with a lowered limit reaches it, shows both messages, and works again after an upgrade.
-
-### R71. Many sites on me0.ai (Medium) · Deployment
-- Deploys the service on me0.ai, every subdomain served over HTTPS, as decided before this PR, building on R32.
-- **Can show:** two teachers' sites live at their own me0.ai addresses with HTTPS and the microphone working.
-
-## Milestone 21: Support at support.me0.ai
-
-Added by Larry on 2026-10-17, to build after Milestone 20.
-
-### R72. Support site and support staff sign-in (Medium) · item 67
-- `support.me0.ai` is a reserved site with a first page linking to the guide, the support person, asking the AI, tickets and feedback, open to anyone. Support staff sign in to manage it.
-- **Can show:** the first page with its five links, and the staff pages refusing a visitor and opening after sign-in.
-
-### R73. Support guide (Simple) · item 68
-- The support guide PDF, written from items 61 to 72, offered to read or download, and added as the support site's content.
-- **Can show:** download the guide, and see its wiki built on the support site.
-
-### R74. Support person and asking the AI (Medium) · items 69, 70
-- The support site's talking person answers spoken or typed questions from the guide, and **Ask the AI** answers typed questions in text only. When neither can answer, it says so and offers to open a ticket.
-- **Can show:** ask "How do I change my subdomain?" and hear the answer from the guide; ask something it doesn't cover and be offered a ticket.
-
-### R75. Opening tickets and the public ticket list (Medium) · item 71
-- Anyone opens a ticket with a title and description, after a clear warning that both will be public; a public list shows every ticket with its status, can be searched, and opens each one with its replies. No email address is ever shown. The opener gets a private link to the ticket, the only way to reply as them.
-- **Can show:** open a ticket without signing in, after the warning, then find it in the list from another browser.
-
-### R76. Ticket status, staff replies and moderation (Medium) · item 71
-- Signed-in support staff change a ticket's status and reply on it; the history of changes shows on the ticket. Staff can hide or delete a ticket or a reply. The opener answers through their private link.
-- **Can show:** staff ask a follow-up and set Waiting for reply; the opener answers through their private link, and another browser without the link can read the ticket but not reply. Then move it to Resolved, each change on the ticket and in the logs; hide a spam ticket and see it gone from the public list.
-
-### R77. Email when a ticket changes (Simple) · item 71
-- Anyone can give an email address on a ticket to be told when its status changes or the staff reply, starting only after they confirm it from a first email; the opener's emails carry their private link. The address is never shown, and each email has a link to stop them.
-- **Can show:** follow a ticket, change its status before confirming and receive nothing, confirm, change it again and receive the email, click stop, change it again and receive nothing.
-
-### R78. Feedback (Simple) · item 72
-- A feedback form with an optional email, seen only by support staff on a feedback page.
-- **Can show:** send feedback as a visitor and find it on the staff feedback page, not anywhere public.
-
 ## Milestone 22: Gathering information from visitors and tickets
 
 Added by Larry on 2026-10-17, as its own milestone after Milestone 21. It works on the support site, and on a teacher's site when a setting turns it on. What is gathered on a teacher's site stays with that site, private to its teacher; what is gathered on the support site stays there.
@@ -865,7 +865,7 @@ Added by Larry on 2026-10-17, as its own milestone after Milestone 21. It works 
 - A page for a site's teacher or the support staff to ask the AI about the feedback, contacts, conversations and tickets gathered for that site only, with each answer linking to its sources.
 - **Can show:** ask "Summarize the open tickets about subdomains" and get a summary linking to each ticket, with the time taken in the logs; on site A, ask about site B's feedback and get nothing from it.
 
-After R83, every item in features.md is covered by a PR, R84 to R95 having been built after R47. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
+After R83, every item in features.md is covered by a PR, R61 to R78 and R84 to R95 having been built after R47. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
 
 ## Optional, not counted
 
