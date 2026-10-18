@@ -14,6 +14,7 @@ from test_chat import chat_app
 from test_prepare_job import make_job
 from test_uploads import PNG
 
+from imageskin.app import DELETED_MEANWHILE
 from imageskin.chat import CLEAR_FAILED, ClearFailed
 from imageskin.delete_data import PERSONAL, Deleted, delete_my_data
 from imageskin.prepare_job import SAMPLE_BEING_MADE, WAIT_TO_DELETE, PrepareError, PrepareStatus
@@ -268,7 +269,9 @@ def test_a_folder_that_cant_be_read_is_left_and_logged(
     assert "Could not read a folder" in caplog.text and "Could not delete a folder" in caplog.text
 
 
-def test_an_upload_during_the_delete_waits_and_is_refused_without_consent(tmp_path: Path) -> None:
+def test_requests_that_arrive_during_the_delete_write_nothing_after_it(tmp_path: Path) -> None:
+    """A prompt, a consent, a photo and an accent sent while the files are deleted wait for the
+    delete and are then refused, so nothing comes back (reviews on PR #109)."""
     client = chatted(tmp_path)
     deleting, release = threading.Event(), threading.Event()
     real_delete = delete_my_data
@@ -285,21 +288,31 @@ def test_an_upload_during_the_delete_waits_and_is_refused_without_consent(tmp_pa
         thread.start()
         return thread
 
-    with patch("imageskin.app.delete_my_data", slow_delete):
+    with (
+        patch("imageskin.app.delete_my_data", slow_delete),
+        patch("imageskin.app.load_review", return_value=Review(accepted=True)),
+    ):
         delete = send("delete", lambda: client.delete("/api/data"))
         assert deleting.wait(5)
-        # A photo and an accent sent while the files are deleted wait for the delete.
-        upload = send(
-            "upload",
-            lambda: client.post("/api/uploads/photos", files={"file": ("me.png", PNG)}),
-        )
-        accent = send("accent", lambda: client.put("/api/accent", json={"accent": "own"}))
-        upload.join(0.3)
-        assert upload.is_alive() and accent.is_alive()
+        waiting = [
+            send("chat", lambda: client.post("/api/chat", json={"prompt": "Remember me."})),
+            send("consent", lambda: client.post("/api/consent", json={"agreed": True})),
+            send(
+                "upload",
+                lambda: client.post("/api/uploads/photos", files={"file": ("me.png", PNG)}),
+            ),
+            send("accent", lambda: client.put("/api/accent", json={"accent": "own"})),
+        ]
+        waiting[0].join(0.3)
+        assert all(thread.is_alive() for thread in waiting)
         release.set()
-        for thread in (delete, upload, accent):
+        for thread in [delete, *waiting]:
             thread.join(5)
     assert answers["delete"].json()["left"] == []
-    # Then the consent is gone, so they are refused, and nothing comes back.
-    assert answers["upload"].status_code == 403 and answers["accent"].status_code == 403
+    for name in ("chat", "consent", "upload", "accent"):
+        assert answers[name].status_code == 409, name
+        assert answers[name].json()["detail"] == DELETED_MEANWHILE
     assert not any((tmp_path / name).exists() for name in PERSONAL)
+    # A request sent after the delete is the new setup's, and is let through.
+    assert client.post("/api/consent", json={"agreed": True}).status_code == 200
+    assert client.post("/api/uploads/photos", files={"file": ("me.png", PNG)}).status_code == 200

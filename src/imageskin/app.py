@@ -118,6 +118,8 @@ class AccentRequest(BaseModel):
     accent: Accent
 
 
+# A request that waited for Delete my data (roadmap R31) and would write the person's data again.
+DELETED_MEANWHILE = "Your data was deleted while this was waiting. Start setup again."
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # The conversation is saved in the data folder, so it is still there after a restart (R30).
 CONVERSATION_FILE = "conversation.json"
@@ -359,11 +361,17 @@ def create_app(
     # responses here makes them small on the wire instead (less than half the size).
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+    # How many times Delete my data has run (R31). Each write of the person's data checks it is
+    # the same as when its request arrived, so one that waited for a delete never writes after
+    # it. Read here, as the request arrives, before any dependency can wait on a lock.
+    deletes = [0]
+
     @app.middleware("http")
     async def log_requests(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         start = time.perf_counter()
+        request.state.deletes_seen = deletes[0]
         try:
             response = await call_next(request)
         except Exception:
@@ -395,11 +403,23 @@ def create_app(
     # writes while they are deleted and leaves something behind (review on PR #109).
     data_lock = threading.Lock()
 
+    def arrived_after(request: Request) -> int:
+        return int(request.state.deletes_seen)
+
+    DeletesSeen = Annotated[int, Depends(arrived_after)]
+
+    def not_deleted_since(seen: int) -> None:
+        """Refuse a request that arrived before a Delete my data that has run since."""
+        if deletes[0] != seen:
+            logger.warning("Request arrived before Delete my data; refused")
+            raise HTTPException(status_code=409, detail=DELETED_MEANWHILE)
+
     @app.post("/api/consent")
-    def post_consent(body: ConsentRequest) -> dict[str, object]:
+    def post_consent(body: ConsentRequest, seen: DeletesSeen) -> dict[str, object]:
         if not body.agreed:
             raise HTTPException(status_code=400, detail="Tick the box to confirm consent.")
         with data_lock:
+            not_deleted_since(seen)
             return asdict(save_consent(data_home))
 
     # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
@@ -430,15 +450,16 @@ def create_app(
                 " (/#/consent), tick the box, then try again.",
             )
 
-    # One speaker model for the one-speaker check and for picking an accent's base voice.
     @contextmanager
-    def personal_write() -> Iterator[None]:
+    def personal_write(seen: int) -> Iterator[None]:
         """Write the person's files, unless Delete my data is running: then once it is done,
-        and only if consent was given again, as it removes the consent."""
+        and only for a request that arrived after it, with consent given again (R31)."""
         with data_lock:
+            not_deleted_since(seen)
             require_consent()
             yield
 
+    # One speaker model for the one-speaker check and for picking an accent's base voice.
     speakers = SpeakerChecker(data_home / "models" / "speakers")
     # What loads in the background at the start; wait_until_loaded waits for it.
     app.state.loading = []
@@ -451,9 +472,9 @@ def create_app(
     needs_consent = [Depends(require_consent)]
 
     @app.post(uploads_api, dependencies=needs_consent)
-    def upload(kind: Kind, file: UploadFile) -> Upload:
+    def upload(kind: Kind, file: UploadFile, seen: DeletesSeen) -> Upload:
         try:
-            with personal_write():
+            with personal_write(seen):
                 return store.save(kind, file.filename, file.file)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
@@ -463,10 +484,10 @@ def create_app(
         return store.list(kind)
 
     @app.post(uploads_api + "/{upload_id}/check", dependencies=needs_consent)
-    def check_upload_now(kind: Kind, upload_id: str) -> Upload:
+    def check_upload_now(kind: Kind, upload_id: str, seen: DeletesSeen) -> Upload:
         start = time.perf_counter()
         try:
-            with personal_write():
+            with personal_write(seen):
                 checked = store.check(kind, upload_id)
         except UploadError as e:
             logger.error(
@@ -512,9 +533,9 @@ def create_app(
         return store.photo_choice()
 
     @app.put("/api/uploads/photos/chosen", dependencies=needs_consent)
-    def put_photo_choice(body: PhotoChoiceRequest) -> PhotoChoice:
+    def put_photo_choice(body: PhotoChoiceRequest, seen: DeletesSeen) -> PhotoChoice:
         try:
-            with personal_write():
+            with personal_write(seen):
                 return store.choose_photo(body.id)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
@@ -530,8 +551,8 @@ def create_app(
         )
 
     @app.delete(uploads_api + "/{upload_id}", dependencies=needs_consent)
-    def remove_upload(kind: Kind, upload_id: str) -> dict[str, bool]:
-        with personal_write():
+    def remove_upload(kind: Kind, upload_id: str, seen: DeletesSeen) -> dict[str, bool]:
+        with personal_write(seen):
             removed = store.remove(kind, upload_id)
         if not removed:
             raise HTTPException(status_code=404, detail="No such file.")
@@ -775,11 +796,11 @@ def create_app(
         return AccentChoice(accent=accent() if available else "own", available=available)
 
     @app.put("/api/accent", dependencies=needs_consent)
-    def put_accent(body: AccentRequest) -> AccentChoice:
+    def put_accent(body: AccentRequest, seen: DeletesSeen) -> AccentChoice:
         if body.accent != "own" and voice_kind not in CLONES:
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
         try:
-            with personal_write():
+            with personal_write(seen):
                 changed = job.change_accent(lambda: save_accent(data_home, body.accent))
         except PrepareError as e:  # the sample is being made again (R27b)
             raise HTTPException(status_code=409, detail=str(e)) from e
@@ -804,8 +825,8 @@ def create_app(
         return asdict(load_review(data_home, job.status()))
 
     @app.post("/api/review", dependencies=needs_consent)
-    def post_review(body: ReviewRequest) -> dict[str, object]:
-        with personal_write():
+    def post_review(body: ReviewRequest, seen: DeletesSeen) -> dict[str, object]:
+        with personal_write(seen):
             if body.decision != "accept":
                 return asdict(withdraw(data_home, body.decision))
             try:
@@ -958,13 +979,14 @@ def create_app(
         }
 
     @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
-    def post_chat(body: ChatRequest) -> dict[str, Any]:
+    def post_chat(body: ChatRequest, seen: DeletesSeen) -> dict[str, Any]:
         """The reply, with its place in the conversation to ask for its video by, and whether it
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
         wait_for_warm_up()
         with chat_lock, core_share.llm():
+            not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
             return chat(body)
 
     def wait_for_warm_up(what: str = "Prompt") -> None:
@@ -1318,7 +1340,9 @@ def create_app(
             # Once the streamed clips stopped above have let the engines go, nothing writes
             # a video while the files are removed.
             with replies.paused():
-                return delete_my_data(data_home)
+                deleted = delete_my_data(data_home)
+            deletes[0] += 1  # requests that arrived before this write nothing now
+            return deleted
 
         # All of it under the job's lock, which forget() takes before deleting anything: a
         # Prepare started first refuses the delete with nothing cleared, and one started
