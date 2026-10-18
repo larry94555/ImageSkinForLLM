@@ -383,6 +383,22 @@ function ChangeSetup() {
 	});
 }
 //#endregion
+//#region src/progress.ts
+var LESSON_KEY = "imageskin.lesson";
+var QUIZ_KEY = "imageskin.quiz";
+var ASSESSMENT_KEY = "imageskin.assessment";
+function clearProgress() {
+	for (const key of [
+		LESSON_KEY,
+		QUIZ_KEY,
+		ASSESSMENT_KEY
+	]) try {
+		localStorage.removeItem(key);
+	} catch (e) {
+		console.error(`Could not clear ${key}`, e);
+	}
+}
+//#endregion
 //#region src/delete-data.tsx
 var DELETED = [
 	"Every photo and recording",
@@ -408,6 +424,7 @@ function DeleteData() {
 			const took = Math.round(performance.now() - started);
 			console.info(`Deleted my data: ${deleted.files} file(s) (${took} ms)`);
 			if (deleted.left.length === 0) {
+				clearProgress();
 				window.location.hash = "#/consent";
 				return;
 			}
@@ -3318,10 +3335,9 @@ function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 var SOUND_KEY = "imageskin.sound";
-var LESSON_KEY = "imageskin.lesson";
 function loadLesson() {
 	try {
-		const saved = JSON.parse(localStorage.getItem(LESSON_KEY) ?? "null");
+		const saved = JSON.parse(localStorage.getItem("imageskin.lesson") ?? "null");
 		if (typeof saved?.topic !== "string" || !Number.isInteger(saved.part) || saved.part < 0) return null;
 		const parts = Number.isInteger(saved.parts) ? saved.parts : void 0;
 		return {
@@ -3334,10 +3350,9 @@ function loadLesson() {
 		return null;
 	}
 }
-var QUIZ_KEY = "imageskin.quiz";
 function loadQuiz() {
 	try {
-		const saved = JSON.parse(localStorage.getItem(QUIZ_KEY) ?? "null");
+		const saved = JSON.parse(localStorage.getItem("imageskin.quiz") ?? "null");
 		if (typeof saved?.topic !== "string" || typeof saved.question !== "string" || !Number.isInteger(saved.number) || !Number.isInteger(saved.part)) return null;
 		const strings = (v) => Array.isArray(v) ? v.filter((s) => typeof s === "string") : [];
 		const count = (v) => Number.isInteger(v) ? v : 0;
@@ -3357,10 +3372,9 @@ function loadQuiz() {
 		return null;
 	}
 }
-var ASSESSMENT_KEY = "imageskin.assessment";
 function loadAssessment() {
 	try {
-		const saved = JSON.parse(localStorage.getItem(ASSESSMENT_KEY) ?? "null");
+		const saved = JSON.parse(localStorage.getItem("imageskin.assessment") ?? "null");
 		return typeof saved?.topic === "string" && typeof saved.question === "string" && typeof saved.source === "string" && [
 			saved.total,
 			saved.number,

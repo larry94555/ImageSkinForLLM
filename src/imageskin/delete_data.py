@@ -65,6 +65,11 @@ def delete_my_data(home: Path) -> Deleted:
             size += n
         if path.is_dir():
             _remove_empty_folders(path)
+        # Whatever is still there, such as a folder that couldn't be read, is left too, so the
+        # delete never reports as complete what it couldn't see (review on PR #109).
+        if os.path.lexists(path) and not any(_under(name, f) for f in left):
+            left.append(name)
+            logger.warning("Could not delete a folder", extra={"file": name})
     deleted = Deleted(files, size, left)
     logger.info(
         "Deleted my data",
@@ -78,10 +83,20 @@ def delete_my_data(home: Path) -> Deleted:
     return deleted
 
 
+def _under(name: str, file: str) -> bool:
+    return file == name or file.startswith(name + "/")
+
+
 def _files_in(folder: Path) -> list[Path]:
     if not folder.is_dir():
         return []
-    return [Path(root) / f for root, _, names in os.walk(folder) for f in names]
+
+    def unreadable(e: OSError) -> None:
+        logger.warning(
+            "Could not read a folder", extra={"folder": str(e.filename), "error": str(e)}
+        )
+
+    return [Path(root) / f for root, _, names in os.walk(folder, onerror=unreadable) for f in names]
 
 
 def _remove_empty_folders(folder: Path) -> None:

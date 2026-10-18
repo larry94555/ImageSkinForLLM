@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { DELETED, DeleteData } from "./delete-data";
+import { loadAssessment, loadLesson, loadQuiz } from "./pages";
+import { ASSESSMENT_KEY, clearProgress, LESSON_KEY, QUIZ_KEY } from "./progress";
 
 // A server that answers Delete my data with this response.
 function server(answer: () => Response | Promise<Response>) {
@@ -55,6 +57,9 @@ test("the confirmation asks if you are sure and says what is deleted", async () 
 
 test("Yes, delete everything deletes, then opens setup at its start", async () => {
   const fetchMock = server(() => Response.json({ files: 12, bytes: 4096, left: [] }));
+  // A lesson, quiz and assessment under way, and a preference.
+  for (const key of [LESSON_KEY, QUIZ_KEY, ASSESSMENT_KEY]) localStorage.setItem(key, "{}");
+  localStorage.setItem("imageskin.sound", '{"muted":true}');
   render(<DeleteData />);
   await deleteEverything();
   expect(screen.queryByRole("alertdialog")).toBeNull();
@@ -63,6 +68,12 @@ test("Yes, delete everything deletes, then opens setup at its start", async () =
   expect(console.info).toHaveBeenCalledWith(
     expect.stringMatching(/^Deleted my data: 12 file\(s\) \(\d+ ms\)$/),
   );
+  // They go with the conversation, so a new chat doesn't pick them up; the preference stays.
+  expect([loadLesson(), loadQuiz(), loadAssessment()]).toEqual([null, null, null]);
+  for (const key of [LESSON_KEY, QUIZ_KEY, ASSESSMENT_KEY])
+    expect(localStorage.getItem(key)).toBeNull();
+  expect(localStorage.getItem("imageskin.sound")).toBe('{"muted":true}');
+  localStorage.clear();
 });
 
 test.each([
@@ -130,4 +141,25 @@ test("a failure without a reason says to try again", async () => {
   await deleteEverything();
   expect(await screen.findByText("Your data could not be deleted. Try again.")).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not delete my data", expect.anything());
+});
+
+test("files left behind keep the lesson, quiz and assessment", async () => {
+  server(() => Response.json({ files: 1, bytes: 1, left: ["uploads/x.jpg"] }));
+  localStorage.setItem(QUIZ_KEY, "{}");
+  render(<DeleteData />);
+  await deleteEverything();
+  await screen.findByText(/could not be deleted/);
+  expect(localStorage.getItem(QUIZ_KEY)).toBe("{}");
+  localStorage.clear();
+});
+
+test("a key that can't be cleared is logged and the rest are cleared", () => {
+  localStorage.setItem(LESSON_KEY, "{}");
+  const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementationOnce(() => {
+    throw new DOMException("blocked");
+  });
+  clearProgress();
+  expect(remove).toHaveBeenCalledTimes(3);
+  expect(console.error).toHaveBeenCalledWith(`Could not clear ${LESSON_KEY}`, expect.anything());
+  localStorage.clear();
 });

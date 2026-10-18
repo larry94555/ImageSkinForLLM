@@ -1,14 +1,18 @@
 """Delete my data (roadmap R31): the person's files are removed and setup starts again."""
 
 import logging
+import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 from test_chat import chat_app
 from test_prepare_job import make_job
+from test_uploads import PNG
 
 from imageskin.chat import CLEAR_FAILED, ClearFailed
 from imageskin.delete_data import PERSONAL, Deleted, delete_my_data
@@ -87,7 +91,13 @@ def test_a_file_that_cant_be_deleted_is_listed_and_the_rest_go(
 
 def test_a_file_gone_meanwhile_is_skipped(tmp_path: Path) -> None:
     fill(tmp_path)
-    with patch.object(Path, "unlink", side_effect=FileNotFoundError):
+    unlink = Path.unlink
+
+    def removed_meanwhile(self: Path, missing_ok: bool = False) -> None:
+        unlink(self)
+        raise FileNotFoundError(self)
+
+    with patch.object(Path, "unlink", removed_meanwhile):
         assert delete_my_data(tmp_path) == Deleted()
 
 
@@ -231,3 +241,65 @@ def test_the_api_deletes_nothing_when_the_conversation_cant_be_cleared(tmp_path:
         answer = client.delete("/api/data")
     assert answer.status_code == 500 and answer.json()["detail"] == CLEAR_FAILED
     assert all((tmp_path / name).exists() for name in PERSONS)
+
+
+def test_a_folder_that_cant_be_read_is_left_and_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    fill(tmp_path)
+    walk = os.walk
+
+    def unreadable_uploads(top: Path, onerror: Any = None) -> Any:
+        if Path(top) == tmp_path / "uploads":
+            if onerror:
+                onerror(PermissionError(13, "Permission denied", str(top)))
+            return iter([])
+        return walk(top, onerror=onerror)
+
+    with (
+        patch("imageskin.delete_data.os.walk", unreadable_uploads),
+        caplog.at_level(logging.WARNING),
+    ):
+        deleted = delete_my_data(tmp_path)
+    # Never reported as complete: the folder it couldn't read is left.
+    assert deleted.left == ["uploads"]
+    assert (tmp_path / "uploads" / "photos" / "a.jpg").is_file()
+    assert not (tmp_path / "clips").exists()
+    assert "Could not read a folder" in caplog.text and "Could not delete a folder" in caplog.text
+
+
+def test_an_upload_during_the_delete_waits_and_is_refused_without_consent(tmp_path: Path) -> None:
+    client = chatted(tmp_path)
+    deleting, release = threading.Event(), threading.Event()
+    real_delete = delete_my_data
+
+    def slow_delete(home: Path) -> Deleted:
+        deleting.set()
+        release.wait(5)
+        return real_delete(home)
+
+    answers: dict[str, Any] = {}
+
+    def send(name: str, call: Callable[[], Any]) -> threading.Thread:
+        thread = threading.Thread(target=lambda: answers.__setitem__(name, call()))
+        thread.start()
+        return thread
+
+    with patch("imageskin.app.delete_my_data", slow_delete):
+        delete = send("delete", lambda: client.delete("/api/data"))
+        assert deleting.wait(5)
+        # A photo and an accent sent while the files are deleted wait for the delete.
+        upload = send(
+            "upload",
+            lambda: client.post("/api/uploads/photos", files={"file": ("me.png", PNG)}),
+        )
+        accent = send("accent", lambda: client.put("/api/accent", json={"accent": "own"}))
+        upload.join(0.3)
+        assert upload.is_alive() and accent.is_alive()
+        release.set()
+        for thread in (delete, upload, accent):
+            thread.join(5)
+    assert answers["delete"].json()["left"] == []
+    # Then the consent is gone, so they are refused, and nothing comes back.
+    assert answers["upload"].status_code == 403 and answers["accent"].status_code == 403
+    assert not any((tmp_path / name).exists() for name in PERSONAL)

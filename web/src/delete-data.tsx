@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { deleteMyData, ServerRefusal } from "./api";
+import { clearProgress } from "./progress";
 
 // What the confirmation lists as deleted (Larry, 2026-10-18: ask "Are you sure?", say it deletes
 // all the data, look like part of the app and make backing out obvious).
@@ -35,6 +36,7 @@ export function DeleteData() {
       const took = Math.round(performance.now() - started);
       console.info(`Deleted my data: ${deleted.files} file(s) (${took} ms)`);
       if (deleted.left.length === 0) {
+        clearProgress(); // a lesson, quiz or assessment under way goes with the conversation
         window.location.hash = "#/consent";
         return;
       }

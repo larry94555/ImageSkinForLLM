@@ -5,7 +5,8 @@ import importlib.util
 import logging
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -390,11 +391,16 @@ def create_app(
     def get_consent() -> dict[str, object]:
         return asdict(load_consent(data_home))
 
+    # Held by Delete my data (R31) and by every request that writes the person's files, so none
+    # writes while they are deleted and leaves something behind (review on PR #109).
+    data_lock = threading.Lock()
+
     @app.post("/api/consent")
     def post_consent(body: ConsentRequest) -> dict[str, object]:
         if not body.agreed:
             raise HTTPException(status_code=400, detail="Tick the box to confirm consent.")
-        return asdict(save_consent(data_home))
+        with data_lock:
+            return asdict(save_consent(data_home))
 
     # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
     # question scope follows the config file until it is changed there.
@@ -425,6 +431,14 @@ def create_app(
             )
 
     # One speaker model for the one-speaker check and for picking an accent's base voice.
+    @contextmanager
+    def personal_write() -> Iterator[None]:
+        """Write the person's files, unless Delete my data is running: then once it is done,
+        and only if consent was given again, as it removes the consent."""
+        with data_lock:
+            require_consent()
+            yield
+
     speakers = SpeakerChecker(data_home / "models" / "speakers")
     # What loads in the background at the start; wait_until_loaded waits for it.
     app.state.loading = []
@@ -439,7 +453,8 @@ def create_app(
     @app.post(uploads_api, dependencies=needs_consent)
     def upload(kind: Kind, file: UploadFile) -> Upload:
         try:
-            return store.save(kind, file.filename, file.file)
+            with personal_write():
+                return store.save(kind, file.filename, file.file)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
 
@@ -451,7 +466,8 @@ def create_app(
     def check_upload_now(kind: Kind, upload_id: str) -> Upload:
         start = time.perf_counter()
         try:
-            checked = store.check(kind, upload_id)
+            with personal_write():
+                checked = store.check(kind, upload_id)
         except UploadError as e:
             logger.error(
                 "Upload could not be checked",
@@ -498,7 +514,8 @@ def create_app(
     @app.put("/api/uploads/photos/chosen", dependencies=needs_consent)
     def put_photo_choice(body: PhotoChoiceRequest) -> PhotoChoice:
         try:
-            return store.choose_photo(body.id)
+            with personal_write():
+                return store.choose_photo(body.id)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
 
@@ -514,7 +531,9 @@ def create_app(
 
     @app.delete(uploads_api + "/{upload_id}", dependencies=needs_consent)
     def remove_upload(kind: Kind, upload_id: str) -> dict[str, bool]:
-        if not store.remove(kind, upload_id):
+        with personal_write():
+            removed = store.remove(kind, upload_id)
+        if not removed:
             raise HTTPException(status_code=404, detail="No such file.")
         return {"removed": True}
 
@@ -760,7 +779,8 @@ def create_app(
         if body.accent != "own" and voice_kind not in CLONES:
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
         try:
-            changed = job.change_accent(lambda: save_accent(data_home, body.accent))
+            with personal_write():
+                changed = job.change_accent(lambda: save_accent(data_home, body.accent))
         except PrepareError as e:  # the sample is being made again (R27b)
             raise HTTPException(status_code=409, detail=str(e)) from e
         if not changed:
@@ -785,12 +805,13 @@ def create_app(
 
     @app.post("/api/review", dependencies=needs_consent)
     def post_review(body: ReviewRequest) -> dict[str, object]:
-        if body.decision != "accept":
-            return asdict(withdraw(data_home, body.decision))
-        try:
-            review = accept(data_home, job.status())
-        except ValueError as e:
-            raise HTTPException(status_code=409, detail=str(e)) from e
+        with personal_write():
+            if body.decision != "accept":
+                return asdict(withdraw(data_home, body.decision))
+            try:
+                review = accept(data_home, job.status())
+            except ValueError as e:
+                raise HTTPException(status_code=409, detail=str(e)) from e
         start_reply_warm_up()  # the chat opens now: ready the LLM and the engines (R22a)
         return asdict(review)
 
@@ -1301,9 +1322,11 @@ def create_app(
 
         # All of it under the job's lock, which forget() takes before deleting anything: a
         # Prepare started first refuses the delete with nothing cleared, and one started
-        # meanwhile waits for it (review on PR #109). The lock order is chat_lock, the job's
-        # lock, then the engines; nothing holding the engines takes the job's lock.
-        with chat_lock:
+        # meanwhile waits for it (review on PR #109). data_lock keeps the other writers of these
+        # files out. The lock order is chat_lock, data_lock, the job's lock, then the engines;
+        # the writers take data_lock before the job's, and nothing holding the engines takes
+        # the job's lock.
+        with chat_lock, data_lock:
             try:
                 deleted = job.forget(delete)
             except PrepareError as e:
