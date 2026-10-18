@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from fastapi.testclient import TestClient
 from test_chat import chat_app
 from test_prepare_job import make_job
 
@@ -141,22 +142,86 @@ def test_the_api_deletes_my_data_and_setup_starts_again(
     assert client.get("/api/review").json()["accepted"] is False
 
 
-def test_the_api_refuses_while_setup_prepares(tmp_path: Path) -> None:
+def chatted(tmp_path: Path) -> TestClient:
+    """An app with a conversation and the person's files in its home."""
     client = chat_app(tmp_path, lambda messages: "Hello")
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "My name is Larry."})
     fill(tmp_path)
+    (tmp_path / "consent.json").write_text('{"agreed_at": "2026-10-18T00:00:00+00:00"}')
+    return client
+
+
+def test_a_prepare_started_before_the_delete_reserves_the_job_refuses_it(tmp_path: Path) -> None:
+    client = chatted(tmp_path)
     job = client.app.state.prepare_job  # type: ignore[attr-defined]
-    with patch.object(job, "status", return_value=PrepareStatus("running")):
-        answer = client.delete("/api/data")
+
+    class PrepareStartsNow:
+        """The delete's wait for the warm-up, just before it reserves the job: a Prepare
+        starts then (review on PR #109)."""
+
+        def is_alive(self) -> bool:
+            with job._lock:
+                job._status = PrepareStatus("running")
+            return False
+
+    client.app.state.reply_warm_up = PrepareStartsNow()  # type: ignore[attr-defined]
+    answer = client.delete("/api/data")
     assert answer.status_code == 409 and answer.json()["detail"] == WAIT_TO_DELETE
+    # Nothing was cleared or removed: the conversation, its videos and the files are there.
+    assert len(client.get("/api/chat").json()["turns"]) == 2
     assert all((tmp_path / name).exists() for name in PERSONS)
 
 
-def test_the_api_says_when_the_job_refuses(tmp_path: Path) -> None:
-    client = chat_app(tmp_path, lambda messages: "Hello")
+def test_a_prepare_started_during_the_delete_waits_for_it(tmp_path: Path) -> None:
+    client = chatted(tmp_path)
     job = client.app.state.prepare_job  # type: ignore[attr-defined]
-    with patch.object(job, "forget", side_effect=PrepareError(SAMPLE_BEING_MADE)):
-        answer = client.delete("/api/data")
+    deleting, release = threading.Event(), threading.Event()
+    real_delete = delete_my_data
+
+    def slow_delete(home: Path) -> Deleted:
+        deleting.set()
+        release.wait(5)
+        deleted = real_delete(home)
+        order.append("deleted")
+        return deleted
+
+    order: list[str] = []
+    answers: list[int] = []
+    with patch("imageskin.app.delete_my_data", slow_delete):
+        delete = threading.Thread(
+            target=lambda: answers.append(client.delete("/api/data").status_code)
+        )
+        delete.start()
+        assert deleting.wait(5)
+
+        def prepare() -> None:
+            try:
+                job.start()
+            except PrepareError:  # nothing to prepare once the delete is done
+                pass
+            order.append("prepare")
+
+        start = threading.Thread(target=prepare)
+        start.start()
+        start.join(0.3)
+        assert start.is_alive()  # waiting for the delete
+        release.set()
+        delete.join(5)
+        start.join(5)
+    assert answers == [200] and order == ["deleted", "prepare"]
+    assert not any((tmp_path / name).exists() for name in PERSONAL)
+
+
+def test_the_api_says_when_the_job_refuses(tmp_path: Path) -> None:
+    client = chatted(tmp_path)
+    job = client.app.state.prepare_job  # type: ignore[attr-defined]
+    with job._lock:
+        job._rendering_again = True
+    answer = client.delete("/api/data")
     assert answer.status_code == 409 and answer.json()["detail"] == SAMPLE_BEING_MADE
+    assert len(client.get("/api/chat").json()["turns"]) == 2
+    assert all((tmp_path / name).exists() for name in PERSONS)
 
 
 def test_the_api_deletes_nothing_when_the_conversation_cant_be_cleared(tmp_path: Path) -> None:

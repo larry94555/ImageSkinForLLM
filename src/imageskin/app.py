@@ -36,14 +36,13 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
-from imageskin.delete_data import delete_my_data
+from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
     ENGINE_FAILED,
     NOT_PREPARED,
     REPLY_SIDE,
-    WAIT_TO_DELETE,
     ClipName,
     ClipSteps,
     PrepareError,
@@ -1292,16 +1291,21 @@ def create_app(
         the photos, recordings, prepared face and voice, videos and conversation, so setup
         starts again. Refused while setup is preparing; nothing is removed then."""
         wait_for_warm_up("Delete my data")
-        with chat_lock:
-            # Checked first, so a refused delete leaves the conversation too.
-            if job.status().state == "running":
-                raise HTTPException(status_code=409, detail=WAIT_TO_DELETE)
+
+        def delete() -> Deleted:
             clear_conversation()
             # Once the streamed clips stopped above have let the engines go, nothing writes
             # a video while the files are removed.
+            with replies.paused():
+                return delete_my_data(data_home)
+
+        # All of it under the job's lock, which forget() takes before deleting anything: a
+        # Prepare started first refuses the delete with nothing cleared, and one started
+        # meanwhile waits for it (review on PR #109). The lock order is chat_lock, the job's
+        # lock, then the engines; nothing holding the engines takes the job's lock.
+        with chat_lock:
             try:
-                with replies.paused():
-                    deleted = job.forget(lambda: delete_my_data(data_home))
+                deleted = job.forget(delete)
             except PrepareError as e:
                 raise HTTPException(status_code=409, detail=str(e)) from e
         return asdict(deleted)
