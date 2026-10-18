@@ -36,12 +36,14 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
+from imageskin.delete_data import delete_my_data
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
     ENGINE_FAILED,
     NOT_PREPARED,
     REPLY_SIDE,
+    WAIT_TO_DELETE,
     ClipName,
     ClipSteps,
     PrepareError,
@@ -1255,26 +1257,54 @@ def create_app(
             # The conversation first, so that if it can't be cleared nothing is (R30). With the
             # lock held no prompt is being answered, so the reply videos still being made are
             # from replies already in it.
-            try:
-                cleared = conversation.clear()
-            except ClearFailed as e:
-                raise HTTPException(status_code=500, detail=str(e)) from e
-            # The replies' videos go too: those being made are stopped and never published,
-            # and those made are removed, so none of what was said can still be played.
-            with clips_lock:
-                streamed = list(sentence_clips.values())
-                sentence_clips.clear()
-                for stop in whole_videos.values():
-                    stop.set()
-            for clips in streamed:
-                threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
-            # After the conversation: a video asked for after replies.clear() reads it empty.
-            videos = replies.clear()
+            cleared = clear_conversation()
+        return {"cleared": cleared}
+
+    def clear_conversation() -> int:
+        """Clear the conversation and its videos, with chat_lock held; HTTP 500 if the saved
+        conversation can't be emptied, and then nothing is cleared."""
+        try:
+            cleared = conversation.clear()
+        except ClearFailed as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        # The replies' videos go too: those being made are stopped and never published,
+        # and those made are removed, so none of what was said can still be played.
+        with clips_lock:
+            streamed = list(sentence_clips.values())
+            sentence_clips.clear()
+            for stop in whole_videos.values():
+                stop.set()
+        for clips in streamed:
+            threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
+        # After the conversation: a video asked for after replies.clear() reads it empty.
+        videos = replies.clear()
         logger.info(
             "Reply videos cleared",
             extra={"videos": videos, "streamed_replies": len(streamed)},
         )
-        return {"cleared": cleared}
+        return cleared
+
+    # No consent needed: a delete that left a file behind removed the consent already, and
+    # it is tried again from the same page.
+    @app.delete("/api/data")
+    def delete_data() -> dict[str, object]:
+        """Delete my data from Settings (roadmap R31), once the browser has asked to confirm:
+        the photos, recordings, prepared face and voice, videos and conversation, so setup
+        starts again. Refused while setup is preparing; nothing is removed then."""
+        wait_for_warm_up("Delete my data")
+        with chat_lock:
+            # Checked first, so a refused delete leaves the conversation too.
+            if job.status().state == "running":
+                raise HTTPException(status_code=409, detail=WAIT_TO_DELETE)
+            clear_conversation()
+            # Once the streamed clips stopped above have let the engines go, nothing writes
+            # a video while the files are removed.
+            try:
+                with replies.paused():
+                    deleted = job.forget(lambda: delete_my_data(data_home))
+            except PrepareError as e:
+                raise HTTPException(status_code=409, detail=str(e)) from e
+        return asdict(deleted)
 
     @app.get("/api/chat/idle", dependencies=needs_consent)
     def get_idle_video() -> FileResponse:

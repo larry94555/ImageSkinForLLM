@@ -8,6 +8,7 @@ import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
 import { ChangeSetup } from "./change-setup";
+import { DeleteData } from "./delete-data";
 import { VideoAndChat } from "./video-and-chat";
 import { YourFiles } from "./your-files";
 
@@ -205,6 +206,8 @@ export function SettingsPage({ back }: { back: string }) {
       {/* Setup is the teacher's (R41b), so the student view has no way to change them. */}
       {settings.view === "teacher" && <ChangeSetup />}
       <VideoAndChat />
+      {/* The photos and recordings are the teacher's (R41b), so only they can delete them. */}
+      {settings.view === "teacher" && <DeleteData />}
       <p>
         <a className="button" href={back}>
           Return to the app

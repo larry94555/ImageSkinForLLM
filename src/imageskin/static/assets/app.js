@@ -61,6 +61,11 @@ async function clearChat() {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return (await response.json()).cleared;
 }
+async function deleteMyData() {
+	const response = await fetch("/api/data", { method: "DELETE" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 async function getVoiceSample() {
 	return json(await fetch("/api/voice-sample"));
 }
@@ -375,6 +380,65 @@ function ChangeSetup() {
 				})]
 			}, part))
 		]
+	});
+}
+function DeleteData() {
+	const [deleting, setDeleting] = d(false);
+	const [failed, setFailed] = d(null);
+	async function remove() {
+		if (!window.confirm("Delete the photos, recordings, prepared face and voice, videos and conversation? Setup starts again from the beginning. This can't be undone.")) {
+			console.info("Delete my data cancelled");
+			return;
+		}
+		setDeleting(true);
+		setFailed(null);
+		const started = performance.now();
+		try {
+			const deleted = await deleteMyData();
+			const took = Math.round(performance.now() - started);
+			console.info(`Deleted my data: ${deleted.files} file(s) (${took} ms)`);
+			if (deleted.left.length === 0) {
+				window.location.hash = "#/consent";
+				return;
+			}
+			console.error(`Could not delete ${deleted.left.join(", ")}`);
+			setFailed(`${deleted.left.length} file(s) could not be deleted, perhaps because another program has them open. Close it and click Delete my data again.`);
+		} catch (e) {
+			console.error("Could not delete my data", e);
+			setFailed(e instanceof ServerRefusal ? e.message : "Your data could not be deleted. Try again.");
+		}
+		setDeleting(false);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-delete",
+		children: [/* @__PURE__ */ u("h2", {
+			id: "settings-delete",
+			children: "Your data"
+		}), /* @__PURE__ */ u("div", {
+			className: "switch",
+			children: [
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "remove",
+					disabled: deleting,
+					onClick: remove,
+					children: "Delete my data"
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: "Deletes the photos, recordings, prepared face and voice, videos and conversation, then starts setup again. The PDFs and these settings are kept. It asks first."
+				}),
+				deleting && /* @__PURE__ */ u("p", {
+					className: "muted busy",
+					children: "Deleting…"
+				}),
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: failed
+				})
+			]
+		})]
 	});
 }
 function reason(e, fallback) {
@@ -940,6 +1004,7 @@ function SettingsPage({ back }) {
 			/* @__PURE__ */ u(YourFiles, {}),
 			settings.view === "teacher" && /* @__PURE__ */ u(ChangeSetup, {}),
 			/* @__PURE__ */ u(VideoAndChat, {}),
+			settings.view === "teacher" && /* @__PURE__ */ u(DeleteData, {}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
 				href: back,

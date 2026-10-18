@@ -60,6 +60,7 @@ test("the page groups the settings and shows each one as saved", async () => {
     "Photos and recordings",
     "Photo, voice and accent",
     "Video and conversation",
+    "Your data",
   ]);
   const chat = within(screen.getByRole("region", { name: "Chat" }));
   const checked = (name: string) => (chat.getByRole("checkbox", { name }) as HTMLInputElement).checked;
@@ -122,4 +123,6 @@ test("opened by its address, Settings returns to the first page of the view", as
   expect(screen.getByRole("link", { name: "Return to the app" }).getAttribute("href")).toBe(
     "#/chat",
   );
+  // The photos and recordings are the teacher's, so a student can't delete them (R31).
+  expect(screen.queryByRole("button", { name: "Delete my data" })).toBeNull();
 });

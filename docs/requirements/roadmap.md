@@ -21,7 +21,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 3.7% | 5 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.7% | 1 of 1 |
 | 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 5.2% | 3 of 7 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.2% | 6 of 7 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.2% | 7 of 7 |
 | 13 | **Contexts.** Each prompt is answered by the contexts it calls for: a primary one, such as Teacher/Student, and supplementary ones, such as Meta; the administrator turns contexts on or off, picks the primary, changes their guidelines and criteria and adds new ones, and Debug shows which context responded. | R84 to R91 | 8 | 5.9% | 0 |
 | 13a | **Identity and guidelines.** Ask "Who are you?" or "What is your purpose?" and hear the answer from a generated identity; under Customization, edit the identity and the guidelines (goals and rules for each context), compare the latest version with an earlier one, go back to one, or edit the latest and save it. | R92 to R95 | 4 | 3.0% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 1.5% | 0 |
@@ -36,7 +36,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 20 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 8.9% | 0 |
 | 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.2% | 0 |
 | 22 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 3.7% | 0 |
-| | **Total** | | **135** | **54.1% done** | **73 of 135** |
+| | **Total** | | **135** | **54.8% done** | **74 of 135** |
 
 Sizes: 35 Simple, 100 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -574,9 +574,10 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** close the browser, come back, and go straight to the chat with history intact.
 - **Built:** the prepared face and voice and the acceptance were already saved in the data folder (`prepare.json`, `photoreal`, `clips` and the review), so what was missing was the conversation, kept only in the server's memory. It is now saved in `conversation.json` in the data folder after each reply, summary and clear (everything said, the turns sent word for word and the summary of older ones), written to a new file first so a stopped server never leaves a broken one, and read back when the server starts, so the LLM still remembers it. A file that can't be read is logged and a new conversation starts; a save that fails is logged and the chat goes on. A visit that opens the app's address (http://localhost:8000/) goes straight to the chat once a sample is accepted; Home from the top bar still shows the choices. The log has `Conversation restored` with `turns`, `summary` and `duration_ms` at start-up (or `No saved conversation; starting a new one`), and `Conversation saved` with `turns` and `duration_ms`; the browser console has `Setup is saved, so the visit starts in the chat`.
 
-### R31. Delete my data (Simple) · item 23
+### R31. Delete my data (Simple) · item 23 · Done in [PR #PRNUM](https://github.com/larry94555/ImageSkinForLLM/pull/PRNUM)
 - One action in Settings deletes uploads, the prepared face and voice, and history, then returns to the start of setup.
 - **Can show:** delete everything and confirm in the logs and on disk that nothing remains.
+- **Built:** **Delete my data** under **Your data** on the Settings page (teacher view only) asks first, then clears the conversation and its videos as Clear conversation does and removes `uploads`, `photoreal`, `clips`, `replies`, `prepare.json`, `conversation.json`, `review.json`, `accent.json` and `consent.json` from the data folder, and setup opens at consent. The models, the PDFs and their wiki, and the settings are kept, as they aren't the person's. It is refused while setup is preparing, with nothing removed; a file that can't be removed (open elsewhere, as on Windows) is logged and counted, and clicking again removes it. The log has `Deleting my data` and `Deleted my data` with `files`, `bytes`, `left` and `duration_ms`; the browser console has `Deleted my data: N file(s)`.
 
 ## Milestone 13: Contexts
 

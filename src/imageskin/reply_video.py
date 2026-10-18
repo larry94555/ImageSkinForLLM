@@ -370,6 +370,13 @@ class ReplyVideos:
             self._voice.ensure()
             yield
 
+    @contextmanager
+    def paused(self) -> Iterator[None]:
+        """Hold the engines without readying the voice, so no clip or idle video is written
+        meanwhile, as while Delete my data removes the videos (roadmap R31)."""
+        with self._voice_lock, self._video_lock:
+            yield
+
     def idle(self, photo: Path) -> Path | None:
         """The idle video for the photo (roadmap R23), once the warm-up has made it."""
         path = self.folder / "idle" / f"{photo.stem}.mp4"
