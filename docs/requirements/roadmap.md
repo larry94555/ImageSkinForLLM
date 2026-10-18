@@ -1,8 +1,8 @@
 # ImageSkinForLLM: Roadmap
 
-Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7, 11, 12 and 14, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestone 7a, added on 2026-10-13, comes right after them, before spoken prompts: it makes the app look and work like a professional product for a non-technical teacher and student, with a setting to show the timing metrics and a student or teacher view (items 48 to 51). Milestone 7b, added on 2026-10-14, comes right after 7a, still before spoken prompts: the app says which topics it can talk about, shows hints of what to ask, can teach the content for as long as a student wants and quiz them on a topic, and gives an assessment of breadth and depth across all of it (items 52 to 55). Milestone 8a, added on 2026-10-16, comes right after spoken prompts, before settings: for testing, a user can start chatting at once with a default person, a generated picture and a ready-made voice chosen by gender, accent, realism and role, and replace either with their own later (items 56 to 59). Later on 2026-10-16, Larry asked for a wider range of people to choose from, so R24a2 to R24c2 add 24 more people to R24b's 36, 60 in all for now (Larry, 2026-10-17), covering eight broad heritages, red and blond hair, older people, glasses and visible disabilities, and some choices get a second face to pick from; none is labelled (item 60). Milestones 15 to 18, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before deleting a question from history (items 38 to 46). Milestone 19, added later on 2026-10-09, adds a profile of each student's interests and personality (item 47). Milestones 20 to 22, added on 2026-10-17, come last, after every feature above is built: many teachers, each with a free trial, a monthly plan and their own site on a subdomain of me0.ai (items 61 to 66), then a support site at support.me0.ai (items 67 to 72), then an AI that gathers feedback and contact information and retrieves information from visitors and tickets (items 73 to 76). Milestone 13, added on 2026-10-17 before Interaction history, adds contexts, which decide how the AI responds to each prompt: today's teaching and its talk about the process become the Teacher/Student and Meta contexts, and the administrator can turn contexts on or off, change them and add new ones (items 77 to 83). For now it is built right after Milestone 9, before hosting (Larry, 2026-10-17). Milestone 13a, added on 2026-10-18, comes right after Contexts: a generated identity, which answers questions such as "Who are you?", and guidelines, with goals and rules for each context, that the user edits on a Customization page, with a history of changes to compare, go back to or edit (items 84 to 88).
+Every pull request needed to take ImageSkinForLLM from an empty repository to the full app in [features.md](features.md). Each PR is Simple or Medium under the pr-rules skill, and each one leaves something new that can be shown. The order gets a talking sample video working as early as possible (after the 4th PR, photoreal after R4c), then builds the browser setup. Next it proves the person's own voice can be cloned convincingly, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). Then it builds the chat and the rest around it. Milestones 6, 7, 11, 12 and 14, added on 2026-10-08, turn the app into question and answer over PDF content, with an administrator sign-on, student accounts and a history of every interaction (items 24 to 37). The PDF content, the wiki and answers from them (Milestones 6 and 7) come right after real-time replies, before spoken prompts, settings and hosting, so they can be tested before the app is hosted (Larry, 2026-10-10). Milestone 7a, added on 2026-10-13, comes right after them, before spoken prompts: it makes the app look and work like a professional product for a non-technical teacher and student, with a setting to show the timing metrics and a student or teacher view (items 48 to 51). Milestone 7b, added on 2026-10-14, comes right after 7a, still before spoken prompts: the app says which topics it can talk about, shows hints of what to ask, can teach the content for as long as a student wants and quiz them on a topic, and gives an assessment of breadth and depth across all of it (items 52 to 55). Milestone 8a, added on 2026-10-16, comes right after spoken prompts, before settings: for testing, a user can start chatting at once with a default person, a generated picture and a ready-made voice chosen by gender, accent, realism and role, and replace either with their own later (items 56 to 59). Later on 2026-10-16, Larry asked for a wider range of people to choose from, so R24a2 to R24c2 add 24 more people to R24b's 36, 60 in all for now (Larry, 2026-10-17), covering eight broad heritages, red and blond hair, older people, glasses and visible disabilities, and some choices get a second face to pick from; none is labelled (item 60). Milestones 15 to 18, added on 2026-10-09, come after them and add student insights: questions tagged by topic and rated for understanding, search across histories, topic statistics, student summary pages, and a heads-up before deleting a question from history (items 38 to 46). Milestone 19, added later on 2026-10-09, adds a profile of each student's interests and personality (item 47). Milestones 20 to 22 were added on 2026-10-17: many teachers, each with a free trial, a monthly plan and their own site on a subdomain of me0.ai (items 61 to 66), then a support site at support.me0.ai (items 67 to 72), then an AI that gathers feedback and contact information and retrieves information from visitors and tickets (items 73 to 76). Milestone 22 comes last, after every other feature is built; on 2026-10-18 Larry moved Milestones 20 and 21 to right after Milestone 12, before Contexts, to tackle them first, keeping their numbers. Milestone 13, added on 2026-10-17 before Interaction history, adds contexts, which decide how the AI responds to each prompt: today's teaching and its talk about the process become the Teacher/Student and Meta contexts, and the administrator can turn contexts on or off, change them and add new ones (items 77 to 83). It was first built right after Milestone 9; on 2026-10-18 Larry moved it to after Milestone 12, Sign-on and accounts, to work out its details then, and later that day to after Milestones 20 and 21. Milestone 13a, added on 2026-10-18, comes right after Contexts: a generated identity, which answers questions such as "Who are you?", and guidelines, with goals and rules for each context, that the user edits on a Customization page, with a history of changes to compare, go back to or edit (items 84 to 88).
 
-PRs are numbered R1 to R95 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, R16b for saying math, R18a for the first part of the reply text panel, R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, R37a, R37b and R38a for the wiki's outline, its pages and its versions, R41a to R41e2 for Milestone 7a's professional look (R41e2 was added by Larry on 2026-10-14 while testing R41e), R41f to R41j for Milestone 7b's topics, teach me, quiz me and the assessment, R24a to R24d for Milestone 8a's default person, and R24a2, R24b2 and R24c2 for its more varied faces (Larry, 2026-10-16), and R62a for a teacher's password reset and email change, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18a, R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R41a to R41e2 (a professional look), then R41f to R41j (knowing what to ask, teach me, quiz me and the assessment), then R24, then R24a, R24a2, R24b, R24b2, R24c, R24c2 and R24d (a default person), then R27 to R31 (settings, exit and return), then R84 to R91 (contexts), then R92 to R95 (identity and guidelines), then R32 onward. Item numbers like "item 6" refer to features.md.
+PRs are numbered R1 to R95 so they don't get mixed up with GitHub PR numbers. R4a to R4c were added after R4 for the photoreal engine (R4a, mouth alignment, is described in GitHub PR #8), R25a and R25b for the voice, R26a for the accent, R16a for saying what a reply leaves out, R16b for saying math, R18a for the first part of the reply text panel, R22a to R22f for replies within 1 to 2 seconds after Larry's test of R22, R37a, R37b and R38a for the wiki's outline, its pages and its versions, R41a to R41e2 for Milestone 7a's professional look (R41e2 was added by Larry on 2026-10-14 while testing R41e), R41f to R41j for Milestone 7b's topics, teach me, quiz me and the assessment, R24a to R24d for Milestone 8a's default person, and R24a2, R24b2 and R24c2 for its more varied faces (Larry, 2026-10-16), and R62a for a teacher's password reset and email change, so the other numbers stay the same. **PRs are built in the order they appear in this file, not in number order:** after R13 come R25a, R25, R25b, R26a, R26 and R14, then R15; after R17 come R20, R21 and R22, then R18a, R18 and R19, because Larry found the reply video too slow to wait for and replies must be quick (2026-10-10). After R23 come R34 to R41 (content, wiki and answers), then R41a to R41e2 (a professional look), then R41f to R41j (knowing what to ask, teach me, quiz me and the assessment), then R24, then R24a, R24a2, R24b, R24b2, R24c, R24c2 and R24d (a default person), then R27 to R31 (settings, exit and return), then R33, R42 and R43 (choice of LLM), then R32 (hosting), then R44 to R47 (sign-on and accounts), then R61 to R71 and R62a (many teachers on me0.ai), then R72 to R78 (support), then R84 to R91 (contexts), then R92 to R95 (identity and guidelines), then R48 to R60, then R79 to R83. Item numbers like "item 6" refer to features.md.
 
 This is the plan as of today. R4 picked the first video engine, a CPU mouth animation of the photo. Larry found its mouth too puppet-like and preferred the photoreal LivePortrait test in GitHub PR #8 (2026-10-05), so R4b and R4c add a photoreal engine and the OpenCV engine stays as a quick fallback. The PRs it changes are listed in [After the engine decision](#after-the-engine-decision), and their definitions will be revised when each one starts.
 
@@ -22,19 +22,19 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.7% | 1 of 1 |
 | 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 5.2% | 3 of 7 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.2% | 7 of 7 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R33, R42 to R43 | 3 | 2.2% | 0 |
+| 10 | **Hosted.** Runs on a hosted HTTPS site. | R32 | 1 | 0.7% | 0 |
+| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 3.0% | 0 |
+| 20 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 8.9% | 0 |
+| 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.2% | 0 |
 | 13 | **Contexts.** Each prompt is answered by the contexts it calls for: a primary one, such as Teacher/Student, and supplementary ones, such as Meta; the administrator turns contexts on or off, picks the primary, changes their guidelines and criteria and adds new ones, and Debug shows which context responded. | R84 to R91 | 8 | 5.9% | 0 |
 | 13a | **Identity and guidelines.** Ask "Who are you?" or "What is your purpose?" and hear the answer from a generated identity; under Customization, edit the identity and the guidelines (goals and rules for each context), compare the latest version with an earlier one, go back to one, or edit the latest and save it. | R92 to R95 | 4 | 3.0% | 0 |
-| 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 1.5% | 0 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 1.5% | 0 |
-| 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 3.0% | 0 |
 | 14 | **Interaction history.** Every question and answer kept; students see their own and, when a setting allows, delete questions from their record; the teacher reviews all of it and can delete any question; conversations are saved to a file before clearing and can be loaded back. | R48 to R52 | 5 | 3.7% | 0 |
 | 15 | **Topics and understanding.** Every question tagged with its topics; students' questions rated strong, weak or unrated for each topic, with administrator corrections. | R53 to R54 | 2 | 1.5% | 0 |
 | 16 | **Search.** The administrator searches one student's history or everyone's on the user history page. | R55 | 1 | 0.7% | 0 |
 | 17 | **Statistics and summaries.** A topic statistics page and a summary page per student. | R56 to R57 | 2 | 1.5% | 0 |
 | 18 | **Heads-up before deleting.** Students and the teacher are told a deleted question is gone from the record for everyone and can't be brought back. | R58 | 1 | 0.7% | 0 |
 | 19 | **Interests and personality.** A profile of each student's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 1.5% | 0 |
-| 20 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 8.9% | 0 |
-| 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.2% | 0 |
 | 22 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 3.7% | 0 |
 | | **Total** | | **135** | **54.8% done** | **74 of 135** |
 
@@ -579,89 +579,13 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** delete everything and confirm in the logs and on disk that nothing remains.
 - **Built:** **Delete my data** under **Your data** on the Settings page (teacher view only) asks first, then clears the conversation and its videos as Clear conversation does and removes `uploads`, `photoreal`, `clips`, `replies`, `prepare.json`, `conversation.json`, `review.json`, `accent.json` and `consent.json` from the data folder, and setup opens at consent. The models, the PDFs and their wiki, and the settings are kept, as they aren't the person's. It is refused while setup is preparing, with nothing removed; a file that can't be removed (open elsewhere, as on Windows) is logged and counted, and clicking again removes it. The log has `Deleting my data` and `Deleted my data` with `files`, `bytes`, `left` and `duration_ms`; the browser console has `Deleted my data: N file(s)`.
 
-## Milestone 13: Contexts
+## Milestone 11: Choice of LLM
 
-Added by Larry on 2026-10-17, numbered before Interaction history and built after Milestone 9, before hosting (Milestone 10), for now. Depending on the prompt, different contexts are relevant, and they decide how the AI responds (items 77 to 83). The app already has two without naming them, and this milestone makes them explicit before adding more:
-
-| Context | Kind | What it does today | Where it is built |
-|---|---|---|---|
-| Teacher/Student | Primary | Answers questions from the content, with or without general prompts; topic hints; Teach me, Quiz me and the assessment | R39 to R41, R41g to R41j |
-| Meta | Supplementary | "What can you talk about?"; in a quiz or assessment: repeat the question, explain what it means, a hint, "I don't know", checking a guess, "How many are left?"; giving examples; a lesson's Next, Say it more simply and Stop | R41f, R41h to R41j, R24 |
-
-Today the order is fixed in the chat's code: an assessment going takes the prompt before a quiz, a quiz before a lesson, and each of them sorts out its own Meta prompts before treating the rest as an answer. R85 keeps exactly that order and those replies, and only names the context and action that responded, so nothing a user sees changes until R87 lets contexts be turned off. Until administrator sign-on (R44), the Contexts page is in the teacher view, as R41b's settings are; R44 then keeps it for the administrator.
-
-### R84. What a context is (Simple) · items 77, 79
-- A context as data: its name, primary or supplementary, guidelines, criteria (example statements or questions, or a description in words) and whether it is available, kept in `contexts.json` with the other settings. Teacher/Student and Meta ship in it with guidelines that describe what they do today and criteria taken from today's phrasings; Teacher/Student is the primary. Their logic stays the code that is there now.
-- `GET /api/contexts` lists them. A file that is missing or can't be read falls back to the shipped contexts, with the error in the log.
-- **Can show:** the API listing both built-in contexts with their guidelines and criteria, and the log line when the file is broken and the shipped ones are used.
-
-### R85. Choosing the context for each prompt (Medium) · items 78, 79
-- Each prompt goes through one step that chooses the contexts that respond: the available supplementary contexts whose criteria match first, otherwise the primary. The built-in logic moves behind it as it is: the assessment, quiz and lesson keep their own sorting of Meta prompts, and report which context and action responded. A supplementary context responding leaves the primary one where it was, so a quiz question asked again keeps the quiz going. Contexts are chosen before the question scope rule (R41), which becomes part of Teacher/Student's logic: it can decline only a prompt Teacher/Student responds to (item 78).
-- No reply changes: every existing chat, Teach me, Quiz me and assessment test passes unchanged. The log has `Context chosen` with the primary, any supplementary context, the action and the time taken.
-- **Can show:** the existing tests passing, and the log naming the context and action for an ordinary question, "What can you talk about?", a quiz answer and "What's the question?" during the same quiz.
-
-### R86. Which context responded (Simple) · item 82
-- With Debug on in the settings, each reply shows a small line under it with the contexts that responded, the action (for example "Meta: repeat the question, during Teacher/Student: quiz") and why (the criterion that matched, or none, so the primary responded). The copied chat has the same line for each reply.
-- **Can show:** a screenshot of a quiz with Debug on, with an answer and a repeated question each showing its line, and the same chat with Debug off showing none.
-
-### R87. Contexts page: which are available (Medium) · item 80
-- A **Contexts** page, reached from Settings in the teacher view, lists each context with its kind, an on/off switch, and a choice of primary among the primary contexts. The list is in order of priority, which decides which supplementary context responds when two match: Meta first, then the samples (R91), then added contexts in the order they were added, with **Move up** and **Move down** on each to change it (item 80). Teach me, Quiz me and Assessment move from the Settings page onto Teacher/Student's entry, keeping their saved values.
-- A context turned off is never taken: with Meta off, "What's the question?" in a quiz is judged as an answer and "What can you talk about?" is an ordinary question. The primary can't be turned off.
-- **Can show:** turn Meta off, ask "What's the question?" in a quiz and see it judged as an answer; turn it back on and see the question repeated; add two contexts whose criteria share a phrase, ask it, and see the higher one respond, then move the other above it and see it respond instead. The log has `Contexts changed`.
-
-### R88. Changing a context's guidelines and criteria (Medium) · item 81
-- On the Contexts page, each context's guidelines and criteria can be edited and saved, and **Set back to how it shipped** restores them. The guidelines of the primary context, and of a supplementary one when it responds, are sent to the LLM with the prompt, so changing them changes how replies are written. In Teacher/Student and Meta that is only the replies the LLM writes (answers, lesson parts, quiz and assessment questions and judgements, explanations, hints and examples); replies made by the code, such as a repeated question, "How many are left?", Next, Stop and the scores, don't change (item 81). The page says so under each built-in context's guidelines. Example criteria are matched like R41f's phrasings; a change takes effect from the next prompt.
-- **Can show:** add "Always end with a question to check understanding." to Teacher/Student's guidelines and see answers end with one; add "Say that one more time" to Meta's criteria and see it repeat a quiz question; set both back.
-
-### R89. Adding a context (Medium) · item 81
-- **Add a context** on the Contexts page takes a name, primary or supplementary, guidelines and example criteria, and the context can be edited, turned on or off and deleted like the built-in ones (which can't be deleted). Its logic is the same for every added context: its guidelines as instructions to the chosen LLM, with what the content has on the prompt, as answers are (R40). No code is written by the administrator. A prompt it takes is answered even with general prompts off, since the question scope rule is Teacher/Student's (item 78).
-- **Can show:** add a supplementary "Out of office" context with criteria "Can I talk to the teacher?" and guidelines saying the teacher is away until Monday and how to leave a message; ask that question with general prompts off and get a reply that follows them, with Debug showing the context, while other off-topic questions are still declined.
-
-### R90. Criteria described in words (Medium) · item 81
-- A context's criteria can be a description, such as "The visitor wants to buy something or asks about prices", rather than example phrasings. When a context with such criteria is available and no example criterion matched, the chosen LLM is asked once, briefly, which of those contexts the prompt fits, if any. Contexts with only example criteria never cost this call. The call has a timeout equal to the budget decided before this PR; if it times out, fails, or answers with no context or one that isn't on the list, it counts as no match and the primary context responds, so a reply is never held up or lost by it. The log has `Context judged` with the time the call took, or `Context judging failed` with the reason and time, and the Debug line says when it failed.
-- **Can show:** a context with criteria described in words taken for three differently worded prompts and not for an unrelated one, with Debug showing why, and the added time in the log within the budget decided before this PR; with the LLM made to stall past the timeout, the primary context answers on time and the log has `Context judging failed`.
-
-### R91. Sample contexts (Simple) · item 83
-- Salesperson/Customer, Support Staff/Customer and Person Away/Person Contacting ship with guidelines and criteria, off by default, as starting points the administrator can turn on and change.
-- **Can show:** turn on Person Away/Person Contacting, ask to speak to the teacher, and hear the away message; turn on Salesperson/Customer as primary and ask what it can do.
-
-## Milestone 13a: Identity and guidelines
-
-Added by Larry on 2026-10-18, right after Contexts and before hosting (items 84 to 88). The identity says who the AI is and what it is for; the guidelines hold its goals and the rules for each context, which are the context guidelines R88 made editable. Both are generated at first, edited on a **Customization** page, and kept with a history of every change. Until administrator sign-on (R44), the Customization page is in the teacher view, as the Contexts page is.
-
-### R92. Identity and goals in every reply (Medium) · items 84, 85
-- The identity (name, who it speaks as, purpose, who it is for, what it can help with), the goals and every context's guidelines are kept in `customization.json`, with a fixed default shipped for when the file is missing or can't be read (the error goes in the log). The first time this version starts, each context's guidelines move out of `contexts.json` into it, keyed by the context's id, edits included; from then on `customization.json` is their only copy, and `contexts.json` keeps name, kind, criteria, availability and priority. The Contexts page's guideline editor (R88), **Set back to how it shipped** and adding or deleting a context (R89) read and write them there. Each save writes the whole file to a temporary file and renames it over the old one, so a reader never sees half a save. What the file holds after the move is written as its first version. `GET /api/customization` returns all of it.
-- Both are given to the LLM with every prompt, with the context guidelines. The file is read once per prompt, so a prompt never mixes two versions. "Who are you?", "What is your purpose?" and similar phrasings are a new Meta action that answers from the identity, so they are answered with general prompts off. The log has `Identity used` with the time taken.
-- **Can show:** ask "Who are you?" and "What is your purpose?" with general prompts off and hear answers from the shipped identity, with Debug naming the Meta action; change the identity in the file and hear the next answer change; start with an edited Meta guideline in `contexts.json` and see it moved into `customization.json`, gone from `contexts.json`, and still used, with `Context guidelines moved` in the log.
-
-### R93. Generating the default identity and guidelines (Medium) · item 86
-- The first time the identity is needed, the chosen LLM drafts the identity and goals from what the app knows (the person's name and role if given, R24a to R24d; the topics in the content, R41f; the available contexts), and new guidelines for each context whose guidelines are still as shipped. Guidelines the administrator changed, and those of added contexts, are left alone.
-- It runs in the background, never holding up a reply: the shipped defaults answer until it finishes. It has a 2 minute time limit *(default)*. On success it is saved as a new version and used from the next prompt, with `Customization generated` and the time in the log. On a timeout or failure the shipped defaults stay, with `Customization generation failed`, the reason and the time. If anything is saved while it runs, its result is dropped, with `Customization generation dropped` in the log. It runs once; after that, only **Generate again** (R94) runs it.
-- **Can show:** with no saved identity, ask "Who are you?" at once and get the shipped answer without waiting, then ask again after generation and hear an identity that fits the default person and the content, with two versions in the file; with the LLM made to stall, the shipped defaults still answer, the log has the timeout after 2 minutes, and there is still one version.
-
-### R94. Customization page (Medium) · items 85, 87
-- A **Customization** page, headed Customization and reached from Settings in the teacher view, has an **Identity** section and a **Guidelines** section: the goals, and each context's guidelines in priority order. Each can be edited and saved, and takes effect from the next prompt.
-- Editing guidelines moves here from the Contexts page (R88), which links to them; **Set back to how it shipped** stays for each context. They are already in `customization.json` (R92), so nothing moves and generated or edited guidelines are kept as they are. Saves are written as R92's are.
-- **Generate again** runs R93's generation and shows the result as a draft beside the current text, with **Save** and **Discard**. Only **Save** keeps it.
-- **Can show:** change the identity's name and a goal, save, ask "Who are you?" and hear the new name; change Meta's guidelines here and see the Contexts page link to them; Generate again and Discard, and see nothing change. The log has `Customization saved` and `Customization draft discarded`.
-
-### R95. Change history: compare, go back and edit (Medium) · item 88
-- Each version is a copy of the whole of `customization.json` (identity, goals and every context's guidelines), with when it was made and what made it (shipped, generated, saved or gone back to), kept in `customization.history/`, all of them *(default)*. A **History** button on the Customization page lists them, newest first.
-- **Compare** shows the latest version beside the one before it, or any earlier version chosen from the list, with added and removed text marked. **Go back** to a version saves a copy of it as the new latest version, written as R94's saves are, so it can be undone. It changes only identity, goals and guidelines, never `contexts.json`; a context deleted since that version is left out, and a context added since keeps its current guidelines. **Edit** opens the latest version in the editor, and saving keeps the edit as a new version.
-- **Can show:** change Meta's guidelines so its hints start with "Hint:", then go back to the version before, ask for a hint in a quiz and see the next reply follow the restored guidelines, with Meta's availability, priority and criteria unchanged. Make two edits and compare the latest with the one before, with the change marked; Generate again and Discard, then Save another draft, and see the history grow by one version, not two. The log has `Customization version saved` and `Customization restored`.
-
-## Milestone 10: Hosted, with cloud LLMs
-
-### R32. Hosted deployment (Medium) · Deployment
-- Container image and deployment guide for an HTTPS host, with secrets kept on the server.
-- Access restricted to the one user by the mechanism decided before this PR.
-- **Can show:** the full app running on a hosted HTTPS URL, with the microphone working.
+Moved by Larry on 2026-10-18 to right after Milestone 9, before hosting (Milestone 10), as the next priority. It runs on the local app until hosting.
 
 ### R33. Cloud LLMs with the user's key (Medium) · item 16 (later)
 - OpenAI by config, and a small Claude adapter; the user enters an API key in Settings, stored on the server only.
 - **Can show:** the same conversation answered by Claude or OpenAI instead of local llama.cpp.
-
-## Milestone 11: Choice of LLM
 
 ### R42. LLM setting with API keys (Medium) · item 29
 - A setting that picks the LLM: local llama.cpp (the default), or Claude, OpenAI, Grok or OpenRouter with an API key, building on R33's Claude and OpenAI support. Keys stay on the server.
@@ -670,6 +594,15 @@ Added by Larry on 2026-10-18, right after Contexts and before hosting (items 84 
 ### R43. LLM by subscription (Medium) · item 29
 - Use a Claude, OpenAI or Grok subscription instead of an API key, if the decision before this PR finds a supported way to do it.
 - **Can show:** a question answered through a subscription.
+
+## Milestone 10: Hosted
+
+On 2026-10-18 Larry moved Milestone 11 to right after Milestone 9, before this one, so R33 (cloud LLMs with the user's key) moved into Milestone 11, which builds on it.
+
+### R32. Hosted deployment (Medium) · Deployment
+- Container image and deployment guide for an HTTPS host, with secrets kept on the server.
+- Access restricted to the one user by the mechanism decided before this PR.
+- **Can show:** the full app running on a hosted HTTPS URL, with the microphone working.
 
 ## Milestone 12: Sign-on and accounts
 
@@ -692,73 +625,9 @@ Added by Larry on 2026-10-18, right after Contexts and before hosting (items 84 
 - A setting that disallows anonymous use; visitors are sent to sign up or log in before asking.
 - **Can show:** with the setting on, an anonymous visitor is sent to the login page.
 
-## Milestone 14: Interaction history
-
-### R48. Saving every interaction (Simple) · item 34
-- Every question and answer is saved with its date and time, and the student's account or "anonymous".
-- **Can show:** ask questions anonymously and as a student, and see both saved in the logs and the store.
-
-### R49. My history, with deleting when allowed (Medium) · item 35
-- A signed-in student sees their own questions and answers. A setting (off by default) lets students delete a question with its answer; deleting removes it from the store for everyone (changed by Larry on 2026-10-17 from a soft clear that kept it for the administrator). The deleted turn's id is kept, without its words, so it can never come back, and a conversation summary that included it is rebuilt without it. The log notes the delete and who did it, not the words.
-- **Can show:** with the setting off, a student has no delete; turn it on, delete one question, and see it gone from the student's history and from the store.
-
-### R50. User history page (Medium) · item 36
-- An administrator page with every prompt and answer, viewable by date and time, by student, or anonymous only. The teacher can delete any question with its answer, removing it from the store, whatever the student setting in R49 says.
-- **Can show:** the administrator reviews a day's questions, then one student's, then the anonymous ones.
-
-### R51. Save a conversation, and clear only what was saved (Medium) · items 8, 37
-- Save writes the conversation to a file the user downloads, each turn with an id and its time. Clear conversation in Settings is offered only after a successful save, and clears only the turns that file holds; turns added since, or a save that failed, are not cleared.
-- **Can show:** try to clear without saving and be told to save first; save, add one more question, clear, and see only that last question remain.
-
-### R52. Load a saved conversation (Simple) · item 37
-- Loads a saved file into the conversation history, adding only the turns not already there (matched by their ids), so loading the same file twice changes nothing. Turns deleted since the file was saved (R49, R50) are skipped.
-- **Can show:** load a file twice and see its turns added once, after the existing history, with the count of turns added in the logs.
-
-## Milestone 15: Topics and understanding
-
-### R53. Tagging questions with topics (Medium) · items 38, 39
-- Each new question keeps the wiki page ids the R39 lookup already found for it as its topics (none, one or several); there is no second classification. A one-off job runs the R39 lookup over the existing history, with progress like R12, and history loaded through R52 is tagged the same way. Tags are never rewritten when the wiki changes; a removed topic is shown as removed.
-- **Can show:** ask a question on one topic, one spanning two topics and a general one, and see one, two and no topics in the store; then the backfill job's run time in the logs.
-
-### R54. Rating the understanding a question shows (Medium) · item 40
-- Each question from a signed-in student is rated strong, weak or unrated for each of its topics, as defined in item 40 and using the method decided before this PR, with the reason kept. Existing questions are rated by the same job as R53. On the user history page (R50) the administrator can correct a rating; the correction is stored with the rating and reason, and is never overwritten by a re-rating.
-- **Can show:** a question with a clear misconception rated weak, a plain fact-seeking question left unrated, and a two-topic question rated differently for each topic; then correct one rating and see it kept after the job runs again.
-
-## Milestone 16: Search
-
-### R55. Search on the user history page (Medium) · items 42, 43
-- Adds search to the R50 user history page rather than a second page: words to find in questions and answers, plus filters for topic and date range alongside R50's existing student and anonymous views. Deleted questions are never found.
-- **Can show:** find a phrase across all students, then narrow it to one student and one topic, with the search time in the logs.
-
-## Milestone 17: Statistics and summaries
-
-### R56. Topic statistics page (Medium) · item 44
-- An administrator page listing every topic with its question count and its counts of strong, weak and unrated questions (no single score), with topics nobody asked about listed separately.
-- **Can show:** after a few questions on some topics, the page shows their counts and lists the untouched topics as not asked about.
-
-### R57. Student summary page (Medium) · items 41, 45
-- One page per student, worked out from the stored topic tags and ratings when it is opened (no separate profile is kept): each topic the student asked about, with counts of their strong, weak and unrated questions on it and the questions themselves. No score or overall judgment per topic; mixed evidence stays mixed.
-- **Can show:** a student asks a strong and a weak question on the same topic and an unrated one on another; their summary shows the first topic with one strong and one weak question, the second with one unrated, and each question can be opened.
-
-## Milestone 18: Heads-up before deleting
-
-### R58. Heads-up before deleting a question (Simple) · item 46
-- The delete in R49 and R50 asks to confirm first, saying the question and its answer are removed from the record for everyone and can't be brought back (changed by Larry on 2026-10-17). It also checks that a deleted question leaves no trace in the topics, ratings, statistics, summaries and profile (R53 to R57).
-- **Can show:** a student clicks delete, reads the notice and cancels, keeping the question; then confirms and sees it gone from their history, the teacher's user history page and the topic statistics. Save a conversation, delete one question, load the old file, and see that question and its answer stay gone from the history, search, topics, ratings, statistics and the LLM's context.
-
-## Milestone 19: Interests and personality
-
-### R59. Working out interests and personality (Medium) · item 47
-- For each signed-in student, a job reads their questions, the answers and their next message after each answer, and keeps a short profile: interests, and how they respond to answers, each with its one-line evidence and the questions it came from. Uses the method decided before this PR. Runs per the R59 decision and keeps the previous profile until a new one is ready; anonymous questions are not used. Students with too few questions get no profile.
-- **Can show:** a student who keeps asking for real-world examples and follows up with "why" gets interests and a response style that cite those questions; a student with two questions gets none; the job's run time per student in the logs.
-
-### R60. Profile on the student summary page, with corrections (Simple) · item 47
-- Adds the profile from R59 to the R57 student summary page, under the topics, labelled as an impression drawn from their questions. Each line shows its evidence and links to its questions. The administrator can edit or remove a line; the change is kept and never overwritten when the profile is worked out again.
-- **Can show:** open a student's summary, see their interests and response style with evidence, remove one line, rerun R59 and see it stay removed.
-
 ## Milestone 20: Many teachers on me0.ai
 
-Added by Larry on 2026-10-17, to build after R60. Each site works as the whole app does after R60, for its own teacher, students and visitors.
+Added by Larry on 2026-10-17, to build after R60; on 2026-10-18 Larry moved it to right after Milestone 12 (R47), before Contexts. Each site works as the whole app does after R47, for its own teacher, students and visitors. What is built after it (Contexts, Identity and guidelines, and Milestones 14 to 19's history, topics, statistics and profiles) keeps its data in the site's folder (R61) and gets R65's checks that nothing crosses between sites.
 
 ### R61. One store per site (Medium) · item 66
 - Every file and setting the app keeps (person, content, wiki, settings, accounts, history) moves under a folder for its site, and each request is matched to its site by its address. Locally, `name.localhost` addresses stand in for subdomains. The existing data becomes the first site.
@@ -841,6 +710,141 @@ Added by Larry on 2026-10-17, to build after Milestone 20.
 - A feedback form with an optional email, seen only by support staff on a feedback page.
 - **Can show:** send feedback as a visitor and find it on the staff feedback page, not anywhere public.
 
+## Milestone 13: Contexts
+
+Added by Larry on 2026-10-17, numbered before Interaction history. It was first placed after Milestone 9; on 2026-10-18 Larry moved it to after Milestone 12, Sign-on and accounts, to work out its details then, and later that day to after Milestones 20 and 21. Since the sites exist by then, contexts belong to a site (item 66). Depending on the prompt, different contexts are relevant, and they decide how the AI responds (items 77 to 83). The app already has two without naming them, and this milestone makes them explicit before adding more:
+
+| Context | Kind | What it does today | Where it is built |
+|---|---|---|---|
+| Teacher/Student | Primary | Answers questions from the content, with or without general prompts; topic hints; Teach me, Quiz me and the assessment | R39 to R41, R41g to R41j |
+| Meta | Supplementary | "What can you talk about?"; in a quiz or assessment: repeat the question, explain what it means, a hint, "I don't know", checking a guess, "How many are left?"; giving examples; a lesson's Next, Say it more simply and Stop | R41f, R41h to R41j, R24 |
+
+Today the order is fixed in the chat's code: an assessment going takes the prompt before a quiz, a quiz before a lesson, and each of them sorts out its own Meta prompts before treating the rest as an answer. R85 keeps exactly that order and those replies, and only names the context and action that responded, so nothing a user sees changes until R87 lets contexts be turned off. Administrator sign-on (R44) is built by then, so the Contexts page is in the teacher view, which only the signed-on administrator gets.
+
+### R84. What a context is (Simple) · items 77, 79
+- A context as data: its name, primary or supplementary, guidelines, criteria (example statements or questions, or a description in words) and whether it is available, kept in `contexts.json` with the other settings. Teacher/Student and Meta ship in it with guidelines that describe what they do today and criteria taken from today's phrasings; Teacher/Student is the primary. Their logic stays the code that is there now.
+- `GET /api/contexts` lists them. A file that is missing or can't be read falls back to the shipped contexts, with the error in the log.
+- **Can show:** the API listing both built-in contexts with their guidelines and criteria, and the log line when the file is broken and the shipped ones are used.
+
+### R85. Choosing the context for each prompt (Medium) · items 78, 79
+- Each prompt goes through one step that chooses the contexts that respond: the available supplementary contexts whose criteria match first, otherwise the primary. The built-in logic moves behind it as it is: the assessment, quiz and lesson keep their own sorting of Meta prompts, and report which context and action responded. A supplementary context responding leaves the primary one where it was, so a quiz question asked again keeps the quiz going. Contexts are chosen before the question scope rule (R41), which becomes part of Teacher/Student's logic: it can decline only a prompt Teacher/Student responds to (item 78).
+- No reply changes: every existing chat, Teach me, Quiz me and assessment test passes unchanged. The log has `Context chosen` with the primary, any supplementary context, the action and the time taken.
+- **Can show:** the existing tests passing, and the log naming the context and action for an ordinary question, "What can you talk about?", a quiz answer and "What's the question?" during the same quiz.
+
+### R86. Which context responded (Simple) · item 82
+- With Debug on in the settings, each reply shows a small line under it with the contexts that responded, the action (for example "Meta: repeat the question, during Teacher/Student: quiz") and why (the criterion that matched, or none, so the primary responded). The copied chat has the same line for each reply.
+- **Can show:** a screenshot of a quiz with Debug on, with an answer and a repeated question each showing its line, and the same chat with Debug off showing none.
+
+### R87. Contexts page: which are available (Medium) · item 80
+- A **Contexts** page, reached from Settings in the teacher view, lists each context with its kind, an on/off switch, and a choice of primary among the primary contexts. The list is in order of priority, which decides which supplementary context responds when two match: Meta first, then the samples (R91), then added contexts in the order they were added, with **Move up** and **Move down** on each to change it (item 80). Teach me, Quiz me and Assessment move from the Settings page onto Teacher/Student's entry, keeping their saved values.
+- A context turned off is never taken: with Meta off, "What's the question?" in a quiz is judged as an answer and "What can you talk about?" is an ordinary question. The primary can't be turned off.
+- **Can show:** turn Meta off, ask "What's the question?" in a quiz and see it judged as an answer; turn it back on and see the question repeated; add two contexts whose criteria share a phrase, ask it, and see the higher one respond, then move the other above it and see it respond instead. The log has `Contexts changed`.
+
+### R88. Changing a context's guidelines and criteria (Medium) · item 81
+- On the Contexts page, each context's guidelines and criteria can be edited and saved, and **Set back to how it shipped** restores them. The guidelines of the primary context, and of a supplementary one when it responds, are sent to the LLM with the prompt, so changing them changes how replies are written. In Teacher/Student and Meta that is only the replies the LLM writes (answers, lesson parts, quiz and assessment questions and judgements, explanations, hints and examples); replies made by the code, such as a repeated question, "How many are left?", Next, Stop and the scores, don't change (item 81). The page says so under each built-in context's guidelines. Example criteria are matched like R41f's phrasings; a change takes effect from the next prompt.
+- **Can show:** add "Always end with a question to check understanding." to Teacher/Student's guidelines and see answers end with one; add "Say that one more time" to Meta's criteria and see it repeat a quiz question; set both back.
+
+### R89. Adding a context (Medium) · item 81
+- **Add a context** on the Contexts page takes a name, primary or supplementary, guidelines and example criteria, and the context can be edited, turned on or off and deleted like the built-in ones (which can't be deleted). Its logic is the same for every added context: its guidelines as instructions to the chosen LLM, with what the content has on the prompt, as answers are (R40). No code is written by the administrator. A prompt it takes is answered even with general prompts off, since the question scope rule is Teacher/Student's (item 78).
+- **Can show:** add a supplementary "Out of office" context with criteria "Can I talk to the teacher?" and guidelines saying the teacher is away until Monday and how to leave a message; ask that question with general prompts off and get a reply that follows them, with Debug showing the context, while other off-topic questions are still declined.
+
+### R90. Criteria described in words (Medium) · item 81
+- A context's criteria can be a description, such as "The visitor wants to buy something or asks about prices", rather than example phrasings. When a context with such criteria is available and no example criterion matched, the chosen LLM is asked once, briefly, which of those contexts the prompt fits, if any. Contexts with only example criteria never cost this call. The call has a timeout equal to the budget decided before this PR; if it times out, fails, or answers with no context or one that isn't on the list, it counts as no match and the primary context responds, so a reply is never held up or lost by it. The log has `Context judged` with the time the call took, or `Context judging failed` with the reason and time, and the Debug line says when it failed.
+- **Can show:** a context with criteria described in words taken for three differently worded prompts and not for an unrelated one, with Debug showing why, and the added time in the log within the budget decided before this PR; with the LLM made to stall past the timeout, the primary context answers on time and the log has `Context judging failed`.
+
+### R91. Sample contexts (Simple) · item 83
+- Salesperson/Customer, Support Staff/Customer and Person Away/Person Contacting ship with guidelines and criteria, off by default, as starting points the administrator can turn on and change.
+- **Can show:** turn on Person Away/Person Contacting, ask to speak to the teacher, and hear the away message; turn on Salesperson/Customer as primary and ask what it can do.
+
+## Milestone 13a: Identity and guidelines
+
+Added by Larry on 2026-10-18, right after Contexts (items 84 to 88), and moved with it to after Milestone 21. The identity says who the AI is and what it is for; the guidelines hold its goals and the rules for each context, which are the context guidelines R88 made editable. Both are generated at first, edited on a **Customization** page, and kept with a history of every change. Like the Contexts page, the Customization page is in the teacher view, which only the signed-on administrator gets (R44).
+
+### R92. Identity and goals in every reply (Medium) · items 84, 85
+- The identity (name, who it speaks as, purpose, who it is for, what it can help with), the goals and every context's guidelines are kept in `customization.json`, with a fixed default shipped for when the file is missing or can't be read (the error goes in the log). The first time this version starts, each context's guidelines move out of `contexts.json` into it, keyed by the context's id, edits included; from then on `customization.json` is their only copy, and `contexts.json` keeps name, kind, criteria, availability and priority. The Contexts page's guideline editor (R88), **Set back to how it shipped** and adding or deleting a context (R89) read and write them there. Each save writes the whole file to a temporary file and renames it over the old one, so a reader never sees half a save. What the file holds after the move is written as its first version. `GET /api/customization` returns all of it.
+- Both are given to the LLM with every prompt, with the context guidelines. The file is read once per prompt, so a prompt never mixes two versions. "Who are you?", "What is your purpose?" and similar phrasings are a new Meta action that answers from the identity, so they are answered with general prompts off. The log has `Identity used` with the time taken.
+- **Can show:** ask "Who are you?" and "What is your purpose?" with general prompts off and hear answers from the shipped identity, with Debug naming the Meta action; change the identity in the file and hear the next answer change; start with an edited Meta guideline in `contexts.json` and see it moved into `customization.json`, gone from `contexts.json`, and still used, with `Context guidelines moved` in the log.
+
+### R93. Generating the default identity and guidelines (Medium) · item 86
+- The first time the identity is needed, the chosen LLM drafts the identity and goals from what the app knows (the person's name and role if given, R24a to R24d; the topics in the content, R41f; the available contexts), and new guidelines for each context whose guidelines are still as shipped. Guidelines the administrator changed, and those of added contexts, are left alone.
+- It runs in the background, never holding up a reply: the shipped defaults answer until it finishes. It has a 2 minute time limit *(default)*. On success it is saved as a new version and used from the next prompt, with `Customization generated` and the time in the log. On a timeout or failure the shipped defaults stay, with `Customization generation failed`, the reason and the time. If anything is saved while it runs, its result is dropped, with `Customization generation dropped` in the log. It runs once; after that, only **Generate again** (R94) runs it.
+- **Can show:** with no saved identity, ask "Who are you?" at once and get the shipped answer without waiting, then ask again after generation and hear an identity that fits the default person and the content, with two versions in the file; with the LLM made to stall, the shipped defaults still answer, the log has the timeout after 2 minutes, and there is still one version.
+
+### R94. Customization page (Medium) · items 85, 87
+- A **Customization** page, headed Customization and reached from Settings in the teacher view, has an **Identity** section and a **Guidelines** section: the goals, and each context's guidelines in priority order. Each can be edited and saved, and takes effect from the next prompt.
+- Editing guidelines moves here from the Contexts page (R88), which links to them; **Set back to how it shipped** stays for each context. They are already in `customization.json` (R92), so nothing moves and generated or edited guidelines are kept as they are. Saves are written as R92's are.
+- **Generate again** runs R93's generation and shows the result as a draft beside the current text, with **Save** and **Discard**. Only **Save** keeps it.
+- **Can show:** change the identity's name and a goal, save, ask "Who are you?" and hear the new name; change Meta's guidelines here and see the Contexts page link to them; Generate again and Discard, and see nothing change. The log has `Customization saved` and `Customization draft discarded`.
+
+### R95. Change history: compare, go back and edit (Medium) · item 88
+- Each version is a copy of the whole of `customization.json` (identity, goals and every context's guidelines), with when it was made and what made it (shipped, generated, saved or gone back to), kept in `customization.history/`, all of them *(default)*. A **History** button on the Customization page lists them, newest first.
+- **Compare** shows the latest version beside the one before it, or any earlier version chosen from the list, with added and removed text marked. **Go back** to a version saves a copy of it as the new latest version, written as R94's saves are, so it can be undone. It changes only identity, goals and guidelines, never `contexts.json`; a context deleted since that version is left out, and a context added since keeps its current guidelines. **Edit** opens the latest version in the editor, and saving keeps the edit as a new version.
+- **Can show:** change Meta's guidelines so its hints start with "Hint:", then go back to the version before, ask for a hint in a quiz and see the next reply follow the restored guidelines, with Meta's availability, priority and criteria unchanged. Make two edits and compare the latest with the one before, with the change marked; Generate again and Discard, then Save another draft, and see the history grow by one version, not two. The log has `Customization version saved` and `Customization restored`.
+
+## Milestone 14: Interaction history
+
+### R48. Saving every interaction (Simple) · item 34
+- Every question and answer is saved with its date and time, and the student's account or "anonymous".
+- **Can show:** ask questions anonymously and as a student, and see both saved in the logs and the store.
+
+### R49. My history, with deleting when allowed (Medium) · item 35
+- A signed-in student sees their own questions and answers. A setting (off by default) lets students delete a question with its answer; deleting removes it from the store for everyone (changed by Larry on 2026-10-17 from a soft clear that kept it for the administrator). The deleted turn's id is kept, without its words, so it can never come back, and a conversation summary that included it is rebuilt without it. The log notes the delete and who did it, not the words.
+- **Can show:** with the setting off, a student has no delete; turn it on, delete one question, and see it gone from the student's history and from the store.
+
+### R50. User history page (Medium) · item 36
+- An administrator page with every prompt and answer, viewable by date and time, by student, or anonymous only. The teacher can delete any question with its answer, removing it from the store, whatever the student setting in R49 says.
+- **Can show:** the administrator reviews a day's questions, then one student's, then the anonymous ones.
+
+### R51. Save a conversation, and clear only what was saved (Medium) · items 8, 37
+- Save writes the conversation to a file the user downloads, each turn with an id and its time. Clear conversation in Settings is offered only after a successful save, and clears only the turns that file holds; turns added since, or a save that failed, are not cleared.
+- **Can show:** try to clear without saving and be told to save first; save, add one more question, clear, and see only that last question remain.
+
+### R52. Load a saved conversation (Simple) · item 37
+- Loads a saved file into the conversation history, adding only the turns not already there (matched by their ids), so loading the same file twice changes nothing. Turns deleted since the file was saved (R49, R50) are skipped.
+- **Can show:** load a file twice and see its turns added once, after the existing history, with the count of turns added in the logs.
+
+## Milestone 15: Topics and understanding
+
+### R53. Tagging questions with topics (Medium) · items 38, 39
+- Each new question keeps the wiki page ids the R39 lookup already found for it as its topics (none, one or several); there is no second classification. A one-off job runs the R39 lookup over the existing history, with progress like R12, and history loaded through R52 is tagged the same way. Tags are never rewritten when the wiki changes; a removed topic is shown as removed.
+- **Can show:** ask a question on one topic, one spanning two topics and a general one, and see one, two and no topics in the store; then the backfill job's run time in the logs.
+
+### R54. Rating the understanding a question shows (Medium) · item 40
+- Each question from a signed-in student is rated strong, weak or unrated for each of its topics, as defined in item 40 and using the method decided before this PR, with the reason kept. Existing questions are rated by the same job as R53. On the user history page (R50) the administrator can correct a rating; the correction is stored with the rating and reason, and is never overwritten by a re-rating.
+- **Can show:** a question with a clear misconception rated weak, a plain fact-seeking question left unrated, and a two-topic question rated differently for each topic; then correct one rating and see it kept after the job runs again.
+
+## Milestone 16: Search
+
+### R55. Search on the user history page (Medium) · items 42, 43
+- Adds search to the R50 user history page rather than a second page: words to find in questions and answers, plus filters for topic and date range alongside R50's existing student and anonymous views. Deleted questions are never found.
+- **Can show:** find a phrase across all students, then narrow it to one student and one topic, with the search time in the logs.
+
+## Milestone 17: Statistics and summaries
+
+### R56. Topic statistics page (Medium) · item 44
+- An administrator page listing every topic with its question count and its counts of strong, weak and unrated questions (no single score), with topics nobody asked about listed separately.
+- **Can show:** after a few questions on some topics, the page shows their counts and lists the untouched topics as not asked about.
+
+### R57. Student summary page (Medium) · items 41, 45
+- One page per student, worked out from the stored topic tags and ratings when it is opened (no separate profile is kept): each topic the student asked about, with counts of their strong, weak and unrated questions on it and the questions themselves. No score or overall judgment per topic; mixed evidence stays mixed.
+- **Can show:** a student asks a strong and a weak question on the same topic and an unrated one on another; their summary shows the first topic with one strong and one weak question, the second with one unrated, and each question can be opened.
+
+## Milestone 18: Heads-up before deleting
+
+### R58. Heads-up before deleting a question (Simple) · item 46
+- The delete in R49 and R50 asks to confirm first, saying the question and its answer are removed from the record for everyone and can't be brought back (changed by Larry on 2026-10-17). It also checks that a deleted question leaves no trace in the topics, ratings, statistics, summaries and profile (R53 to R57).
+- **Can show:** a student clicks delete, reads the notice and cancels, keeping the question; then confirms and sees it gone from their history, the teacher's user history page and the topic statistics. Save a conversation, delete one question, load the old file, and see that question and its answer stay gone from the history, search, topics, ratings, statistics and the LLM's context.
+
+## Milestone 19: Interests and personality
+
+### R59. Working out interests and personality (Medium) · item 47
+- For each signed-in student, a job reads their questions, the answers and their next message after each answer, and keeps a short profile: interests, and how they respond to answers, each with its one-line evidence and the questions it came from. Uses the method decided before this PR. Runs per the R59 decision and keeps the previous profile until a new one is ready; anonymous questions are not used. Students with too few questions get no profile.
+- **Can show:** a student who keeps asking for real-world examples and follows up with "why" gets interests and a response style that cite those questions; a student with two questions gets none; the job's run time per student in the logs.
+
+### R60. Profile on the student summary page, with corrections (Simple) · item 47
+- Adds the profile from R59 to the R57 student summary page, under the topics, labelled as an impression drawn from their questions. Each line shows its evidence and links to its questions. The administrator can edit or remove a line; the change is kept and never overwritten when the profile is worked out again.
+- **Can show:** open a student's summary, see their interests and response style with evidence, remove one line, rerun R59 and see it stay removed.
+
 ## Milestone 22: Gathering information from visitors and tickets
 
 Added by Larry on 2026-10-17, as its own milestone after Milestone 21. It works on the support site, and on a teacher's site when a setting turns it on. What is gathered on a teacher's site stays with that site, private to its teacher; what is gathered on the support site stays there.
@@ -865,7 +869,7 @@ Added by Larry on 2026-10-17, as its own milestone after Milestone 21. It works 
 - A page for a site's teacher or the support staff to ask the AI about the feedback, contacts, conversations and tickets gathered for that site only, with each answer linking to its sources.
 - **Can show:** ask "Summarize the open tickets about subdomains" and get a summary linking to each ticket, with the time taken in the logs; on site A, ask about site B's feedback and get nothing from it.
 
-After R83, every item in features.md is covered by a PR, R84 to R95 having been built after R31. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
+After R83, every item in features.md is covered by a PR, R61 to R78 and R84 to R95 having been built after R47. The PRs marked in [After the engine decision](#after-the-engine-decision) are redefined when each one starts, and the count may change by a PR or two.
 
 ## Optional, not counted
 
