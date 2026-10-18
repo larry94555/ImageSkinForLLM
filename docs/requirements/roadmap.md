@@ -21,7 +21,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 7b | **Knowing what to ask, teach me, quiz me and the assessment.** Ask "What topics can you talk about?" and hear the topics in the content; see hints of what to ask under the prompt box; have the person teach the content in short parts for as long as you want, quiz you on a topic, or give you an assessment of the breadth and depth of what you know across all of it. | R41f to R41j | 5 | 3.8% | 5 of 5 |
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.8% | 1 of 1 |
 | 8a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice; replace the picture or voice with your own later. | R24a to R24d, R24a2 to R24c2 | 7 | 5.3% | 3 of 7 |
-| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.3% | 4 of 7 |
+| 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.3% | 5 of 7 |
 | 13 | **Contexts.** Each prompt is answered by the contexts it calls for: a primary one, such as Teacher/Student, and supplementary ones, such as Meta; the administrator turns contexts on or off, picks the primary, changes their guidelines and criteria and adds new ones, and Debug shows which context responded. | R84 to R91 | 8 | 6.1% | 0 |
 | 10 | **Hosted, with cloud LLMs.** Runs on a hosted HTTPS site; Claude or OpenAI with the user's key. | R32 to R33 | 2 | 1.5% | 0 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R42 to R43 | 2 | 1.5% | 0 |
@@ -35,7 +35,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 20 | **Many teachers on me0.ai.** A teacher signs up (and can reset a forgotten password), starts a free one-week trial, picks their own subdomain of me0.ai (and can change it), pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, students and history are separate from every other site. | R61 to R71, R62a | 12 | 9.2% | 0 |
 | 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 5.3% | 0 |
 | 22 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a teacher's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 3.8% | 0 |
-| | **Total** | | **131** | **54.2% done** | **71 of 131** |
+| | **Total** | | **131** | **55.0% done** | **72 of 131** |
 
 Sizes: 35 Simple, 96 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -563,9 +563,10 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** swap a photo from Settings, get sent through validation and a new sample, then return to the chat.
 - **Built:** a **Photo, voice and accent** section on the Settings page (teacher view only, since setup is the teacher's) says whether the chat is open or locked, with **Change photos**, **Change recordings** and **Change accent**, which open setup at that part (`#/setup/photos`, `#/setup/sounds`, `#/setup/accent`) with what to do there. The server already treated any change of the chosen photo, the recordings or the accent as a new sample needing acceptance, and Prepare makes the sample, Goodbye and Welcome back together, so they are made again before the new sample is accepted. The log has `Accepted sample is no longer current` with `changed` (`not prepared`, `photo_id`, `voice_id` or `prepared again`); the browser console has `Changing the <part> from Settings`, `Setup opened to change the <part>` and `Sample accepted: <true or false> (N ms)`.
 
-### R29. Exit and Start again (Simple) · items 13, 14
+### R29. Exit and Start again (Simple) · items 13, 14 · Done in [PR #106](https://github.com/larry94555/ImageSkinForLLM/pull/106)
 - Exit plays "Goodbye." and shows the exit screen; Start again plays "Welcome back." and keeps history.
 - **Can show:** exit, then start again with the conversation still there.
+- **Built:** **Exit** is the last button under the person on the chat page, in both views. A reply being spoken is stopped first, as Stop does, then the person says "Goodbye." (the clip Prepare made with the sample) and the exit screen shows "Goodbye" with **Start again**, which goes back to the chat: the conversation is the server's, so it is still there, and the person says "Welcome back." A prompt still being answered at Exit is waited for before the conversation is read again, so it is in it (review on PR #106). Nothing can be sent, said with Hold to talk or exited while either line is said. A line whose video isn't there, can't be played or hasn't ended after 10 seconds is passed over, so Exit and Start again never get stuck. The log has `Serving a fixed line` with `clip` (`goodbye` or `welcome-back`); the browser console has `Exit`, `Saying Goodbye`, `Said Goodbye (N ms)`, `Exit screen shown`, `Start again`, `Waiting for the prompt asked before Exit` and `Said Welcome back (N ms)`.
 
 ### R30. Saved setup and history (Medium) · item 19
 - The prepared face, voice and chat history are saved after acceptance and restored on a return visit, so setup is skipped.

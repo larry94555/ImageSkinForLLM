@@ -26,6 +26,7 @@ import {
   clipUrl,
   getPrepare,
   getReview,
+  lineUrl,
   getVoiceSample,
   type Kind,
   listUploads,
@@ -49,6 +50,7 @@ import {
   voiceSampleAudioUrl,
 } from "./api";
 import { Checks, minutes } from "./checks";
+import { ExitScreen } from "./exit";
 import type { SetupPart } from "./router";
 import { useSettings } from "./settings";
 import { TalkButton } from "./talk";
@@ -737,7 +739,24 @@ export function ChatPage() {
       });
   }, []);
 
+  // Exit (roadmap R29): the exit screen after the person says "Goodbye.", and back to the chat
+  // with Start again, where they say "Welcome back." The conversation is the server's, so it
+  // is still there.
+  const [exited, setExited] = useState(false);
+  const [returned, setReturned] = useState(false);
+  const asked = useRef<Promise<unknown> | null>(null); // still being answered at Exit
+
   if (accepted === null) return <p className="muted busy">Loading…</p>;
+  if (exited) {
+    return (
+      <ExitScreen
+        onStartAgain={() => {
+          setExited(false);
+          setReturned(true);
+        }}
+      />
+    );
+  }
   if (!accepted) {
     if (student) {
       return (
@@ -760,7 +779,14 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       <h1 className="sr-only">Chat</h1>
-      <Chat />
+      <Chat
+        welcome={returned}
+        after={asked.current}
+        onExit={(pending) => {
+          asked.current = pending;
+          setExited(true);
+        }}
+      />
     </div>
   );
 }
@@ -771,6 +797,13 @@ export const CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try a
 
 // How often the chat asks for a reply's new clips while they are being made.
 export const CLIP_POLL_MS = 300;
+
+// The fixed lines Prepare makes with the sample (roadmap R29): said on Exit and on Start again.
+export type Line = "goodbye" | "welcome-back";
+const LINE_TEXT: Record<Line, string> = { goodbye: "Goodbye", "welcome-back": "Welcome back" };
+// The longest a fixed line is waited for, should its video never play or end; it is about a
+// second long.
+export const LINE_TIMEOUT_MS = 10_000;
 
 function newReplyId(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
@@ -919,7 +952,11 @@ function saveSound(sound: Sound) {
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
 // (roadmap R22); if that fails, the reply stays as text with a short note.
-function Chat() {
+function Chat(props: {
+  welcome?: boolean;
+  after?: Promise<unknown> | null; // a prompt asked before Exit, still being answered (R29)
+  onExit?: (asked: Promise<unknown> | null) => void;
+}) {
   const metrics = useSettings().show_metrics; // the timing readout (R41a)
   // The Teach me, Quiz me and Assessment buttons, lessons, quizzes and assessments (R41h, R41i,
   // R41j), and Copy chat.
@@ -963,16 +1000,25 @@ function Chat() {
   useEffect(() => {
     setChoices([]);
   }, [teachMe, quizMe, assessOn]);
+  // "Goodbye." or "Welcome back." being said (R29): nothing can be sent meanwhile.
+  const [saying, setSaying] = useState<Line | null>(props.welcome ? "welcome-back" : null);
+  const line = useRef<{ name: Line; at: number; timer?: ReturnType<typeof setTimeout> } | null>(
+    null,
+  );
+  const busy = sending || speaking || saying !== null;
+  // The prompt being answered, if any: Exit hands it on, so Start again waits for it (R29).
+  const inFlight = useRef<Promise<unknown> | null>(null);
   const clipTotal = useRef(0); // how many clips the latest reply has so far
   const allMade = useRef(false); // and that no more will come
   const clipsEnded = useRef(0); // how many of them have ended or been passed over
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    if (props.welcome) void say("welcome-back");
+    return () => {
       gone.current = true;
-    },
-    [],
-  );
+      clearTimeout(line.current?.timer);
+    };
+  }, []);
   useEffect(() => {
     getChatPhoto()
       .then(({ url, width, height }) => {
@@ -994,7 +1040,13 @@ function Chat() {
       });
   }, [sending]);
   useEffect(() => {
-    getChat()
+    // Back from Exit while a prompt was still being answered: the server adds it to the
+    // conversation once it is answered, so the conversation is read after that (review on
+    // PR #106).
+    if (props.after) console.info("Waiting for the prompt asked before Exit");
+    const answered = props.after ? props.after.catch(() => {}) : Promise.resolve();
+    answered
+      .then(() => getChat())
       .then(setTurns)
       .catch((e: unknown) => {
         console.error("Could not load the conversation", e);
@@ -1035,12 +1087,66 @@ function Chat() {
     return known;
   }
 
+  // Says "Goodbye." or "Welcome back." (R29), then goes to the exit screen or readies the
+  // prompt. When its video can't be found or played, it goes on without it.
+  async function say(name: Line) {
+    line.current = { name, at: performance.now() };
+    setSaying(name);
+    setClips([]);
+    setTimes([]);
+    setWhole(false);
+    console.info(`Saying ${LINE_TEXT[name]}`);
+    let url: string | null = null;
+    try {
+      url = await lineUrl(name);
+    } catch (e) {
+      console.error(`Could not find the ${LINE_TEXT[name]} video`, e);
+    }
+    if (gone.current || line.current?.name !== name) return;
+    if (url === null) {
+      console.warn(`No ${LINE_TEXT[name]} video, so it isn't said`);
+      said();
+      return;
+    }
+    setHalted(false);
+    setClips([url]);
+    line.current.timer = setTimeout(() => {
+      console.warn(`${LINE_TEXT[name]} didn't finish playing in time, so the chat went on`);
+      said();
+    }, LINE_TIMEOUT_MS);
+  }
+
+  function said() {
+    const done = line.current;
+    if (done === null) return;
+    clearTimeout(done.timer);
+    line.current = null;
+    console.info(`Said ${LINE_TEXT[done.name]} (${Math.round(performance.now() - done.at)} ms)`);
+    if (done.name === "goodbye") {
+      props.onExit?.(inFlight.current);
+      return;
+    }
+    setSaying(null);
+    setClips([]);
+  }
+
+  // Exit (R29): a reply being spoken stops, then the person says "Goodbye."
+  function exit() {
+    console.info("Exit");
+    if (stoppable) stop();
+    void say("goodbye");
+  }
+
   // The player says when each clip starts and ends, for the timing readout.
   function started(clip: number, at: number) {
     setWaiting(false);
     setTimes((t) => t.map((c, i) => (i === clip && c.started === null ? { ...c, started: at } : c)));
   }
   function ended(clip: number, at: number) {
+    if (line.current) {
+      said();
+      return;
+    }
     clipsEnded.current = Math.max(clipsEnded.current, clip + 1);
     // Every clip passed over as broken, without one starting: nothing will be said aloud.
     if (allMade.current && clipsEnded.current >= clipTotal.current) setWaiting(false);
@@ -1051,7 +1157,7 @@ function Chat() {
   // Hold to talk (R24).
   async function send(asked?: string, spoken = false) {
     const text = (asked ?? prompt).trim();
-    if (!text || sending || speaking) return;
+    if (!text || busy) return;
     const shownAt = (turns ?? []).length + 1; // where the reply shows, after the prompt
     const replyId = newReplyId();
     let replied = false;
@@ -1090,7 +1196,7 @@ function Chat() {
     let reply: Reply;
     let repliedAt = 0;
     try {
-      reply = await sendPrompt(
+      const asking = sendPrompt(
         text,
         replyId,
         teachMe ? lesson : null,
@@ -1098,6 +1204,8 @@ function Chat() {
         assessOn ? assessment : null,
         spoken,
       );
+      inFlight.current = asking;
+      reply = await asking;
       repliedAt = performance.now();
       // With Teach me off, the lesson isn't sent, so the one kept stays for when it is back on.
       if (teachMe && reply.lesson !== undefined) {
@@ -1149,6 +1257,7 @@ function Chat() {
       return;
     } finally {
       replied = true;
+      inFlight.current = null;
       setSending(false);
     }
     try {
@@ -1240,6 +1349,8 @@ function Chat() {
           sound={sound}
           onChange={changeSound}
           onStop={stoppable ? stop : undefined}
+          onExit={exit}
+          saying={saying !== null}
         />
         {metrics && times.length > 0 && (
           <ClipTimes times={times} whole={whole} earlier={earlier} />
@@ -1281,11 +1392,11 @@ function Chat() {
           />
         </label>
         <div className="send-buttons">
-          <button type="submit" disabled={sending || speaking || !prompt.trim()}>
+          <button type="submit" disabled={busy || !prompt.trim()}>
             Send
           </button>
           <TalkButton
-            disabled={sending || speaking}
+            disabled={busy}
             onHearing={setPrompt}
             onHeard={(text) => void send(text, true)}
             onProblem={setFailed}
@@ -1294,7 +1405,7 @@ function Chat() {
             <button
               type="button"
               className="secondary"
-              disabled={sending || speaking}
+              disabled={busy}
               onClick={() => void send(TEACH_ME)}
             >
               Teach me
@@ -1304,7 +1415,7 @@ function Chat() {
             <button
               type="button"
               className="secondary"
-              disabled={sending || speaking}
+              disabled={busy}
               onClick={() => void send(QUIZ_ME)}
             >
               Quiz me
@@ -1314,7 +1425,7 @@ function Chat() {
             <button
               type="button"
               className="secondary"
-              disabled={sending || speaking}
+              disabled={busy}
               onClick={() => void send(ASSESS_ME)}
             >
               Assessment
@@ -1326,27 +1437,27 @@ function Chat() {
           #87). While a quiz is going, whatever is sent is taken as the answer, so only the quiz's
           own controls are shown (review on PR #88). */}
       {(teachMe || quizMe || assessOn) && !quizGoing && (
-        <Choices choices={choices} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+        <Choices choices={choices} disabled={busy} onAsk={(q) => void send(q)} />
       )}
       {teachMe && lesson?.active && !quizGoing && (
         <LessonControls
           lesson={lesson}
-          disabled={sending || speaking}
+          disabled={busy}
           onAsk={(q) => void send(q)}
         />
       )}
       {quizGoing && !assessing && quiz && (
-        <QuizControls quiz={quiz} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+        <QuizControls quiz={quiz} disabled={busy} onAsk={(q) => void send(q)} />
       )}
       {assessing && assessment && (
         <AssessmentControls
           assessment={assessment}
-          disabled={sending || speaking}
+          disabled={busy}
           onAsk={(q) => void send(q)}
         />
       )}
       {!quizGoing && (
-        <Hints hints={hints} disabled={sending || speaking} onAsk={(q) => void send(q)} />
+        <Hints hints={hints} disabled={busy} onAsk={(q) => void send(q)} />
       )}
       {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
       {debug && <CopyChat turns={turns} />}
@@ -1965,8 +2076,12 @@ export function SoundControls(props: {
   sound: Sound;
   onChange: (change: Partial<Sound>) => void;
   onStop?: () => void;
+  // Exit (roadmap R29), shown last when given; it can't be clicked while "Goodbye." or
+  // "Welcome back." is being said.
+  onExit?: () => void;
+  saying?: boolean;
 }) {
-  const { sound, onChange, onStop } = props;
+  const { sound, onChange, onStop, onExit, saying } = props;
   return (
     <div className="sound-controls">
       <button type="button" className="stop" onClick={onStop} disabled={onStop === undefined}>
@@ -1992,6 +2107,11 @@ export function SoundControls(props: {
           onInput={(e) => onChange({ volume: Number(e.currentTarget.value) / 100 })}
         />
       </label>
+      {onExit && (
+        <button type="button" className="secondary" onClick={onExit} disabled={saying}>
+          Exit
+        </button>
+      )}
     </div>
   );
 }

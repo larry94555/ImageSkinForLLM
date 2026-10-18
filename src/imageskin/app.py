@@ -769,6 +769,8 @@ def create_app(
         path = job.clip(name)
         if path is None:
             raise HTTPException(status_code=404, detail="Not prepared yet. Click Prepare first.")
+        if name != "sample":  # said on Exit and on Start again (roadmap R29)
+            logger.info("Serving a fixed line", extra={"clip": name})
         # no-cache: preparing again replaces it under the same address.
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
         return FileResponse(path, media_type="video/mp4", headers=headers)
