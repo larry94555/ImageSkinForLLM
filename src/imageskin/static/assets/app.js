@@ -382,14 +382,24 @@ function ChangeSetup() {
 		]
 	});
 }
+//#endregion
+//#region src/delete-data.tsx
+var DELETED = [
+	"Every photo and recording",
+	"The prepared face and voice",
+	"The sample video, Goodbye, Welcome back and the reply videos",
+	"The whole conversation"
+];
 function DeleteData() {
+	const [asking, setAsking] = d(false);
 	const [deleting, setDeleting] = d(false);
 	const [failed, setFailed] = d(null);
+	function cancel() {
+		console.info("Delete my data cancelled");
+		setAsking(false);
+	}
 	async function remove() {
-		if (!window.confirm("Delete the photos, recordings, prepared face and voice, videos and conversation? Setup starts again from the beginning. This can't be undone.")) {
-			console.info("Delete my data cancelled");
-			return;
-		}
+		setAsking(false);
 		setDeleting(true);
 		setFailed(null);
 		const started = performance.now();
@@ -412,33 +422,101 @@ function DeleteData() {
 	return /* @__PURE__ */ u("section", {
 		className: "panel",
 		"aria-labelledby": "settings-delete",
-		children: [/* @__PURE__ */ u("h2", {
-			id: "settings-delete",
-			children: "Your data"
-		}), /* @__PURE__ */ u("div", {
-			className: "switch",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-delete",
+				children: "Your data"
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "remove",
+						disabled: deleting,
+						onClick: () => {
+							console.info("Delete my data: asking to confirm");
+							setAsking(true);
+						},
+						children: "Delete my data"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Deletes the photos, recordings, prepared face and voice, videos and conversation, then starts setup again. The PDFs and these settings are kept. It asks first."
+					}),
+					deleting && /* @__PURE__ */ u("p", {
+						className: "muted busy",
+						children: "Deleting…"
+					}),
+					failed && /* @__PURE__ */ u("p", {
+						className: "error",
+						children: failed
+					})
+				]
+			}),
+			asking && /* @__PURE__ */ u(ConfirmDelete, {
+				onCancel: cancel,
+				onConfirm: remove
+			})
+		]
+	});
+}
+function ConfirmDelete({ onCancel, onConfirm }) {
+	const keep = A(null);
+	h(() => {
+		keep.current?.focus();
+		const onKey = (e) => {
+			if (e.key === "Escape") onCancel();
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [onCancel]);
+	return /* @__PURE__ */ u("div", {
+		className: "confirm-backdrop",
+		onClick: (e) => e.target === e.currentTarget && onCancel(),
+		children: /* @__PURE__ */ u("div", {
+			className: "confirm-dialog",
+			role: "alertdialog",
+			"aria-modal": "true",
+			"aria-labelledby": "confirm-delete-title",
+			"aria-describedby": "confirm-delete-about",
 			children: [
-				/* @__PURE__ */ u("button", {
-					type: "button",
-					className: "remove",
-					disabled: deleting,
-					onClick: remove,
-					children: "Delete my data"
+				/* @__PURE__ */ u("h2", {
+					id: "confirm-delete-title",
+					children: "Are you sure you want to delete all your data?"
 				}),
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "Deletes the photos, recordings, prepared face and voice, videos and conversation, then starts setup again. The PDFs and these settings are kept. It asks first."
+				/* @__PURE__ */ u("div", {
+					id: "confirm-delete-about",
+					children: [
+						/* @__PURE__ */ u("p", { children: "This deletes all of it:" }),
+						/* @__PURE__ */ u("ul", {
+							className: "deleted",
+							children: DELETED.map((item) => /* @__PURE__ */ u("li", { children: item }, item))
+						}),
+						/* @__PURE__ */ u("p", { children: "Setup then starts again from the beginning. Your PDFs and settings are kept." }),
+						/* @__PURE__ */ u("p", {
+							className: "warning",
+							children: "This can't be undone."
+						})
+					]
 				}),
-				deleting && /* @__PURE__ */ u("p", {
-					className: "muted busy",
-					children: "Deleting…"
-				}),
-				failed && /* @__PURE__ */ u("p", {
-					className: "error",
-					children: failed
+				/* @__PURE__ */ u("div", {
+					className: "confirm-buttons",
+					children: [/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						ref: keep,
+						onClick: onCancel,
+						children: "No, keep my data"
+					}), /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "danger",
+						onClick: onConfirm,
+						children: "Yes, delete everything"
+					})]
 				})
 			]
-		})]
+		})
 	});
 }
 function reason(e, fallback) {

@@ -933,3 +933,30 @@ ul.pdfs a.name:hover { color: var(--accent); text-decoration: underline; }
 /* The exit screen (R29): Goodbye, and Start again. */
 .exit-screen { display: grid; justify-items: center; gap: 12px; padding: 48px 16px; text-align: center; }
 .exit-screen h1 { margin: 0; }
+
+/* The confirmation before Delete my data (R31): a box in the app's look over a dimmed page. */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(16 24 40 / 0.45);
+}
+.confirm-dialog {
+  width: min(480px, 100%);
+  padding: 24px;
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--fg);
+  box-shadow: var(--shadow-lg);
+}
+.confirm-dialog h2 { margin: 0 0 12px; font-size: 1.2rem; }
+.confirm-dialog p, .confirm-dialog ul { margin: 0 0 10px; }
+.confirm-dialog ul.deleted { padding-left: 1.2em; list-style: disc; }
+.confirm-dialog ul.deleted li { display: list-item; margin: 2px 0; padding: 0; border: 0; background: none; box-shadow: none; }
+.confirm-dialog .warning { color: var(--error); font-weight: 600; }
+.confirm-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+button.danger { background: var(--error); color: #fff; }
+button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
