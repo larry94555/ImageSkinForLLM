@@ -22,6 +22,7 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
+    ClearFailed,
     Conversation,
     Count,
     LlmClient,
@@ -116,6 +117,8 @@ class AccentRequest(BaseModel):
 
 
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
+# The conversation is saved in the data folder, so it is still there after a restart (R30).
+CONVERSATION_FILE = "conversation.json"
 # At most this many replies stopped before their prompt came are remembered (roadmap R19).
 STOPPED_EARLY_MAX = 64
 
@@ -851,6 +854,7 @@ def create_app(
             content_only=content_only,
             topics=content_topics,
             topics_complete=topics_complete,
+            saved=data_home / CONVERSATION_FILE,
         )
     else:
         assert ask_llm is not None
@@ -864,6 +868,7 @@ def create_app(
             content_only=content_only,
             topics=content_topics,
             topics_complete=topics_complete,
+            saved=data_home / CONVERSATION_FILE,
         )
 
     # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's
@@ -1247,6 +1252,13 @@ def create_app(
         """Clear conversation from Settings (roadmap R27b), once the browser has asked to
         confirm. It waits for a prompt being answered, so that reply is cleared too."""
         with chat_lock:
+            # The conversation first, so that if it can't be cleared nothing is (R30). With the
+            # lock held no prompt is being answered, so the reply videos still being made are
+            # from replies already in it.
+            try:
+                cleared = conversation.clear()
+            except ClearFailed as e:
+                raise HTTPException(status_code=500, detail=str(e)) from e
             # The replies' videos go too: those being made are stopped and never published,
             # and those made are removed, so none of what was said can still be played.
             with clips_lock:
@@ -1256,8 +1268,7 @@ def create_app(
                     stop.set()
             for clips in streamed:
                 threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
-            # The conversation first: a video asked for after replies.clear() reads it empty.
-            cleared = conversation.clear()
+            # After the conversation: a video asked for after replies.clear() reads it empty.
             videos = replies.clear()
         logger.info(
             "Reply videos cleared",

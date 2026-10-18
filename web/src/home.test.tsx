@@ -107,3 +107,45 @@ test("each choice has its own picture, hidden from screen readers (R41e2)", asyn
   expect(new Set(pictures).size).toBe(3); // the chat, the content and setup differ
   expect(screen.getByRole("link", { name: /^Chat/ })).toBeTruthy(); // the name is still the words
 });
+
+// Roadmap R30: a return visit to the app's address goes straight to the chat once setup is
+// saved; Home opened from the top bar still shows the choices.
+test("a visit that starts on home goes straight to the chat once setup is done", async () => {
+  server(true);
+  window.location.hash = "";
+  render(<HomePage consented landing />);
+  await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  expect(console.info).toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
+  expect(screen.queryByText("Welcome back")).toBeNull();
+  window.location.hash = "";
+});
+
+test("a visit that starts on home stays there while setup isn't done", async () => {
+  server(false);
+  window.location.hash = "";
+  render(<HomePage consented landing />);
+  expect(await screen.findByText("Welcome")).toBeTruthy();
+  expect(window.location.hash).toBe("");
+  expect(console.info).not.toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
+});
+
+test("a late answer doesn't open the chat once the user has left home (review on PR #108)", async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const fetchMock = server(true);
+  const answer = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string) => {
+    await held;
+    return answer(url);
+  });
+  window.location.hash = "";
+  const { unmount } = render(<HomePage consented landing />);
+  unmount(); // the user clicked another page before home's setup state came back
+  window.location.hash = "#/content";
+  release();
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(window.location.hash).toBe("#/content");
+  expect(console.info).not.toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
+  window.location.hash = "";
+});

@@ -2224,10 +2224,22 @@ function choices(done, consented) {
 		}
 	];
 }
-function HomePage({ consented }) {
+function HomePage({ consented, landing = false }) {
 	const [state, setState] = d(null);
 	h(() => {
-		loadHome(consented).then(setState);
+		let active = true;
+		loadHome(consented).then((loaded) => {
+			if (!active) return;
+			if (landing && loaded.done) {
+				console.info("Setup is saved, so the visit starts in the chat");
+				window.location.replace("#/chat");
+				return;
+			}
+			setState(loaded);
+		});
+		return () => {
+			active = false;
+		};
 	}, [consented]);
 	if (state === null) return /* @__PURE__ */ u("p", {
 		className: "muted busy",
@@ -5356,12 +5368,17 @@ function Shell() {
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
 	}, [route?.redirect]);
+	const landing = A(pageFor(window.location.hash) === "home");
+	if (route && route.page !== "home") landing.current = false;
 	const header = useHeaderHeight();
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
 	if (route) content = {
-		home: /* @__PURE__ */ u(HomePage, { consented: consented === true }),
+		home: /* @__PURE__ */ u(HomePage, {
+			consented: consented === true,
+			landing: landing.current
+		}),
 		consent: /* @__PURE__ */ u(ConsentPage, { onConfirmed: () => {
 			setConsented(true);
 			window.location.hash = "#/setup";

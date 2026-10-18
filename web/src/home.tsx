@@ -1,5 +1,6 @@
 // The home page: where to go next. Once setup is done (the sample video was accepted), Chat and
-// Manage Content stand beside Setup as equal choices.
+// Manage Content stand beside Setup as equal choices, and a return visit to the app's address
+// goes straight to the chat (roadmap R30).
 
 import { useEffect, useState } from "preact/hooks";
 
@@ -71,11 +72,28 @@ export function choices(done: boolean, consented: boolean): Choice[] {
   ];
 }
 
-export function HomePage({ consented }: { consented: boolean }) {
+// `landing` is set when the visit started here, at the app's address with no page: once setup
+// is done and saved, the chat opens instead, with the conversation kept on the server. Home,
+// opened from the top bar, still shows the choices.
+export function HomePage({ consented, landing = false }: { consented: boolean; landing?: boolean }) {
   // null until the server has answered.
   const [state, setState] = useState<HomeState | null>(null);
   useEffect(() => {
-    void loadHome(consented).then(setState);
+    // Once home is left, an answer arriving late changes nothing: it mustn't take the user away
+    // from the page they chose (review on PR #108).
+    let active = true;
+    void loadHome(consented).then((loaded) => {
+      if (!active) return;
+      if (landing && loaded.done) {
+        console.info("Setup is saved, so the visit starts in the chat");
+        window.location.replace("#/chat");
+        return;
+      }
+      setState(loaded);
+    });
+    return () => {
+      active = false;
+    };
   }, [consented]);
 
   if (state === null) return <p className="muted busy">Loading…</p>;

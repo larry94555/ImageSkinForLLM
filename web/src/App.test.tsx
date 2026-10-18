@@ -3588,3 +3588,41 @@ test("an assessment kept that can't be read is dropped", () => {
     expect(loadAssessment()).toBeNull();
   }
 });
+
+// Roadmap R30: setup and the conversation are saved, so a return visit skips setup.
+function savedSetupServer() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: "2026-10-06T20:00:00+00:00" });
+      if (url === "/api/review") return Response.json({ accepted: true, accepted_at: "2026-10-12T08:00:00Z" });
+      if (url === "/api/uploads/photos/chosen") return Response.json({ id: null, chosen_by: "app" });
+      if (url === "/api/chat") return Response.json({ turns: [{ role: "user", content: "My name is Larry." }] });
+      if (url === "/api/prepare") return Response.json(IDLE);
+      if (url.startsWith("/api/uploads/")) return Response.json([]);
+      return Response.json({});
+    }),
+  );
+}
+
+test("a return visit to the app's address goes straight to the chat, with its history", async () => {
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  savedSetupServer();
+  await openAt("");
+  await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  expect(await screen.findByText("My name is Larry.")).toBeTruthy();
+  expect(console.info).toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
+});
+
+test("home opened from another page still shows the choices", async () => {
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  savedSetupServer();
+  await openAt("#/content");
+  await waitFor(() => expect(screen.getByRole("link", { name: "Home" })).toBeTruthy());
+  await act(async () => {
+    window.location.hash = "#/";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  expect(await screen.findByText("Welcome back")).toBeTruthy();
+  expect(window.location.hash).toBe("#/");
+});
