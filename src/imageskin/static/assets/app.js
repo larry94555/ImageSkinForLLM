@@ -3114,6 +3114,7 @@ function ChatPage() {
 	}, []);
 	const [exited, setExited] = d(false);
 	const [returned, setReturned] = d(false);
+	const asked = A(null);
 	if (accepted === null) return /* @__PURE__ */ u("p", {
 		className: "muted busy",
 		children: "Loading…"
@@ -3141,7 +3142,11 @@ function ChatPage() {
 			children: "Chat"
 		}), /* @__PURE__ */ u(Chat, {
 			welcome: returned,
-			onExit: () => setExited(true)
+			after: asked.current,
+			onExit: (pending) => {
+				asked.current = pending;
+				setExited(true);
+			}
 		})]
 	});
 }
@@ -3297,6 +3302,7 @@ function Chat(props) {
 	const [saying, setSaying] = d(props.welcome ? "welcome-back" : null);
 	const line = A(null);
 	const busy = sending || speaking || saying !== null;
+	const inFlight = A(null);
 	const clipTotal = A(0);
 	const allMade = A(false);
 	const clipsEnded = A(0);
@@ -3333,7 +3339,8 @@ function Chat(props) {
 		});
 	}, [sending]);
 	h(() => {
-		getChat().then(setTurns).catch((e) => {
+		if (props.after) console.info("Waiting for the prompt asked before Exit");
+		(props.after ? props.after.catch(() => {}) : Promise.resolve()).then(() => getChat()).then(setTurns).catch((e) => {
 			console.error("Could not load the conversation", e);
 			setTurns([]);
 			setFailed("The conversation couldn't be loaded. Reload the page to try again.");
@@ -3403,7 +3410,7 @@ function Chat(props) {
 		line.current = null;
 		console.info(`Said ${LINE_TEXT[done.name]} (${Math.round(performance.now() - done.at)} ms)`);
 		if (done.name === "goodbye") {
-			props.onExit?.();
+			props.onExit?.(inFlight.current);
 			return;
 		}
 		setSaying(null);
@@ -3471,7 +3478,9 @@ function Chat(props) {
 		let reply;
 		let repliedAt = 0;
 		try {
-			reply = await sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null, assessOn ? assessment : null, spoken);
+			const asking = sendPrompt(text, replyId, teachMe ? lesson : null, quizMe ? quiz : null, assessOn ? assessment : null, spoken);
+			inFlight.current = asking;
+			reply = await asking;
 			repliedAt = performance.now();
 			if (teachMe && reply.lesson !== void 0) {
 				const next = reply.lesson;
@@ -3517,6 +3526,7 @@ function Chat(props) {
 			return;
 		} finally {
 			replied = true;
+			inFlight.current = null;
 			setSending(false);
 		}
 		try {

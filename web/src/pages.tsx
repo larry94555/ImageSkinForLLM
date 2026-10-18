@@ -744,6 +744,7 @@ export function ChatPage() {
   // is still there.
   const [exited, setExited] = useState(false);
   const [returned, setReturned] = useState(false);
+  const asked = useRef<Promise<unknown> | null>(null); // still being answered at Exit
 
   if (accepted === null) return <p className="muted busy">Loading…</p>;
   if (exited) {
@@ -778,7 +779,14 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       <h1 className="sr-only">Chat</h1>
-      <Chat welcome={returned} onExit={() => setExited(true)} />
+      <Chat
+        welcome={returned}
+        after={asked.current}
+        onExit={(pending) => {
+          asked.current = pending;
+          setExited(true);
+        }}
+      />
     </div>
   );
 }
@@ -944,7 +952,11 @@ function saveSound(sound: Sound) {
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
 // (roadmap R22); if that fails, the reply stays as text with a short note.
-function Chat(props: { welcome?: boolean; onExit?: () => void }) {
+function Chat(props: {
+  welcome?: boolean;
+  after?: Promise<unknown> | null; // a prompt asked before Exit, still being answered (R29)
+  onExit?: (asked: Promise<unknown> | null) => void;
+}) {
   const metrics = useSettings().show_metrics; // the timing readout (R41a)
   // The Teach me, Quiz me and Assessment buttons, lessons, quizzes and assessments (R41h, R41i,
   // R41j), and Copy chat.
@@ -994,6 +1006,8 @@ function Chat(props: { welcome?: boolean; onExit?: () => void }) {
     null,
   );
   const busy = sending || speaking || saying !== null;
+  // The prompt being answered, if any: Exit hands it on, so Start again waits for it (R29).
+  const inFlight = useRef<Promise<unknown> | null>(null);
   const clipTotal = useRef(0); // how many clips the latest reply has so far
   const allMade = useRef(false); // and that no more will come
   const clipsEnded = useRef(0); // how many of them have ended or been passed over
@@ -1026,7 +1040,13 @@ function Chat(props: { welcome?: boolean; onExit?: () => void }) {
       });
   }, [sending]);
   useEffect(() => {
-    getChat()
+    // Back from Exit while a prompt was still being answered: the server adds it to the
+    // conversation once it is answered, so the conversation is read after that (review on
+    // PR #106).
+    if (props.after) console.info("Waiting for the prompt asked before Exit");
+    const answered = props.after ? props.after.catch(() => {}) : Promise.resolve();
+    answered
+      .then(() => getChat())
       .then(setTurns)
       .catch((e: unknown) => {
         console.error("Could not load the conversation", e);
@@ -1103,7 +1123,7 @@ function Chat(props: { welcome?: boolean; onExit?: () => void }) {
     line.current = null;
     console.info(`Said ${LINE_TEXT[done.name]} (${Math.round(performance.now() - done.at)} ms)`);
     if (done.name === "goodbye") {
-      props.onExit?.();
+      props.onExit?.(inFlight.current);
       return;
     }
     setSaying(null);
@@ -1176,7 +1196,7 @@ function Chat(props: { welcome?: boolean; onExit?: () => void }) {
     let reply: Reply;
     let repliedAt = 0;
     try {
-      reply = await sendPrompt(
+      const asking = sendPrompt(
         text,
         replyId,
         teachMe ? lesson : null,
@@ -1184,6 +1204,8 @@ function Chat(props: { welcome?: boolean; onExit?: () => void }) {
         assessOn ? assessment : null,
         spoken,
       );
+      inFlight.current = asking;
+      reply = await asking;
       repliedAt = performance.now();
       // With Teach me off, the lesson isn't sent, so the one kept stays for when it is back on.
       if (teachMe && reply.lesson !== undefined) {
@@ -1235,6 +1257,7 @@ function Chat(props: { welcome?: boolean; onExit?: () => void }) {
       return;
     } finally {
       replied = true;
+      inFlight.current = null;
       setSending(false);
     }
     try {

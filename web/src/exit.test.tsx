@@ -29,6 +29,7 @@ const TURNS: Turn[] = [
 // `prepared`, and a reply that is spoken in clips the test sends when it chooses.
 function server(prepared: PrepareStatus | Response = PREPARED) {
   let answer: (r: Response) => void = () => {};
+  const recorded: Turn[] = []; // what the server added to the conversation since
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
     if (url === "/api/review") return Response.json({ accepted: true, accepted_at: null });
@@ -36,7 +37,7 @@ function server(prepared: PrepareStatus | Response = PREPARED) {
       return prepared instanceof Response ? prepared : Response.json(prepared);
     }
     if (url === "/api/chat") {
-      if (init?.method !== "POST") return Response.json({ turns: TURNS });
+      if (init?.method !== "POST") return Response.json({ turns: [...TURNS, ...recorded] });
       return new Promise<Response>((resolve) => (answer = resolve));
     }
     if (url.endsWith("/stop")) return Response.json({ stopped: true });
@@ -47,7 +48,7 @@ function server(prepared: PrepareStatus | Response = PREPARED) {
     return Response.json([]);
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { fetchMock, answer: (r: Response) => answer(r) };
+  return { fetchMock, answer: (r: Response) => answer(r), recorded };
 }
 
 function shownVideo(): HTMLVideoElement {
@@ -187,4 +188,52 @@ test("a Welcome back that never ends frees the chat after a while", async () => 
   expect(console.warn).toHaveBeenCalledWith(
     "Welcome back didn't finish playing in time, so the chat went on",
   );
+});
+
+test("Start again waits for a prompt asked before Exit, then shows it (review on PR #106)", async () => {
+  const { answer, recorded } = server();
+  await openChat();
+  fireEvent.input(screen.getByRole("textbox", { name: "Your message" }), {
+    target: { value: "Tell me a story" },
+  });
+  fireEvent.click(button("Send"));
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  fireEvent.click(button("Exit"));
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe(GOODBYE));
+  fireEvent.ended(shownVideo());
+  fireEvent.click(await screen.findByRole("button", { name: "Start again" }));
+  // The prompt is still being answered: the conversation isn't read until it is.
+  await waitFor(() => expect(info).toHaveBeenCalledWith("Waiting for the prompt asked before Exit"));
+  expect(screen.queryByText("Nice to meet you, Larry!")).toBeNull();
+  // The server records the exchange as it answers, then the answer comes.
+  recorded.push(
+    { role: "user", content: "Tell me a story" },
+    { role: "assistant", content: "Once upon a time." },
+  );
+  await act(async () => {
+    answer(Response.json({ role: "assistant", content: "Once upon a time.", streamed: true }));
+  });
+  // The latest exchange is the one asked before Exit.
+  expect(await screen.findByText("Once upon a time.")).toBeTruthy();
+  expect(screen.getByText("Tell me a story")).toBeTruthy();
+});
+
+test("Start again still opens the chat when the prompt asked before Exit fails", async () => {
+  const { answer } = server();
+  await openChat();
+  fireEvent.input(screen.getByRole("textbox", { name: "Your message" }), {
+    target: { value: "Tell me a story" },
+  });
+  fireEvent.click(button("Send"));
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  fireEvent.click(button("Exit"));
+  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe(GOODBYE));
+  fireEvent.ended(shownVideo());
+  fireEvent.click(await screen.findByRole("button", { name: "Start again" }));
+  await act(async () => {
+    answer(new Response("", { status: 502 }));
+  });
+  expect(await screen.findByText("Nice to meet you, Larry!")).toBeTruthy();
 });
