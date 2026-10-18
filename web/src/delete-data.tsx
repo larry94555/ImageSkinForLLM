@@ -16,7 +16,8 @@ export const DELETED = [
   "The whole conversation",
 ];
 
-export function DeleteData() {
+// onDeleted is told once everything is deleted, as the consent is then gone too.
+export function DeleteData({ onDeleted }: { onDeleted?: () => void }) {
   const [asking, setAsking] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -37,6 +38,7 @@ export function DeleteData() {
       console.info(`Deleted my data: ${deleted.files} file(s) (${took} ms)`);
       if (deleted.left.length === 0) {
         clearProgress(); // a lesson, quiz or assessment under way goes with the conversation
+        onDeleted?.();
         window.location.hash = "#/consent";
         return;
       }

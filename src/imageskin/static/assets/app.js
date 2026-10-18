@@ -406,7 +406,7 @@ var DELETED = [
 	"The sample video, Goodbye, Welcome back and the reply videos",
 	"The whole conversation"
 ];
-function DeleteData() {
+function DeleteData({ onDeleted }) {
 	const [asking, setAsking] = d(false);
 	const [deleting, setDeleting] = d(false);
 	const [failed, setFailed] = d(null);
@@ -425,6 +425,7 @@ function DeleteData() {
 			console.info(`Deleted my data: ${deleted.files} file(s) (${took} ms)`);
 			if (deleted.left.length === 0) {
 				clearProgress();
+				onDeleted?.();
 				window.location.hash = "#/consent";
 				return;
 			}
@@ -995,7 +996,7 @@ function SettingsLink({ current }) {
 		children: [ICON, "Settings"]
 	});
 }
-function SettingsPage({ back }) {
+function SettingsPage({ back, onDataDeleted }) {
 	const { settings, change } = x(SettingsContext);
 	const [failed, setFailed] = d(false);
 	const page = A(null);
@@ -1099,7 +1100,7 @@ function SettingsPage({ back }) {
 			/* @__PURE__ */ u(YourFiles, {}),
 			settings.view === "teacher" && /* @__PURE__ */ u(ChangeSetup, {}),
 			/* @__PURE__ */ u(VideoAndChat, {}),
-			settings.view === "teacher" && /* @__PURE__ */ u(DeleteData, {}),
+			settings.view === "teacher" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted }),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
 				href: back,
@@ -5546,7 +5547,10 @@ function Shell() {
 		guide: /* @__PURE__ */ u(GuidePage, {}),
 		wiki: /* @__PURE__ */ u(WikiPage, { pdf: wikiTarget(hash).pdf }),
 		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
-		settings: /* @__PURE__ */ u(SettingsPage, { back: back.current ?? (student ? "#/chat" : "#/") }),
+		settings: /* @__PURE__ */ u(SettingsPage, {
+			back: back.current ?? (student ? "#/chat" : "#/"),
+			onDataDeleted: () => setConsented(false)
+		}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [

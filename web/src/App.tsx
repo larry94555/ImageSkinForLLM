@@ -96,7 +96,13 @@ function Shell() {
       guide: <GuidePage />,
       wiki: <WikiPage pdf={wikiTarget(hash).pdf} />,
       "wiki-page": <WikiDetailPage entry={wikiTarget(hash).entry ?? ""} />,
-      settings: <SettingsPage back={back.current ?? (student ? "#/chat" : "#/")} />,
+      settings: (
+        <SettingsPage
+          back={back.current ?? (student ? "#/chat" : "#/")}
+          // Delete my data removed the consent (R31): setup starts again there.
+          onDataDeleted={() => setConsented(false)}
+        />
+      ),
       "not-found": <NotFoundPage />,
     }[route.page];
   }

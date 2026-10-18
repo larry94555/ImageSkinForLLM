@@ -3626,3 +3626,35 @@ test("home opened from another page still shows the choices", async () => {
   expect(await screen.findByText("Welcome back")).toBeTruthy();
   expect(window.location.hash).toBe("#/");
 });
+
+test("after Delete my data, setup stays at consent until it is given again (R31)", async () => {
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: "2026-10-18" });
+      if (url === "/api/data" && init?.method === "DELETE") {
+        return Response.json({ files: 9, bytes: 90, left: [] });
+      }
+      if (url === "/api/settings") return Response.json({ view: "teacher" });
+      return new Response("", { status: 404 });
+    }),
+  );
+  await openAt("#/settings");
+  await screen.findByRole("heading", { name: "Settings", level: 1 });
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Delete my data" }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete everything" }));
+  });
+  expect(await screen.findByText("Before you start")).toBeTruthy();
+  expect(window.location.hash).toBe("#/consent");
+  // Setup, opened from the top bar, still goes back to consent.
+  await act(async () => {
+    window.location.hash = "#/setup";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await waitFor(() => expect(window.location.hash).toBe("#/consent"));
+  expect(screen.getByText("Before you start")).toBeTruthy();
+});

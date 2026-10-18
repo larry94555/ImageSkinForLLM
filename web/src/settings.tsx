@@ -126,7 +126,13 @@ export function SettingsLink({ current }: { current: boolean }) {
 }
 
 // The Settings page. `back` is the page it was opened from, which Return to the app goes back to.
-export function SettingsPage({ back }: { back: string }) {
+export function SettingsPage({
+  back,
+  onDataDeleted,
+}: {
+  back: string;
+  onDataDeleted?: () => void;
+}) {
   const { settings, change } = useContext(SettingsContext);
   const [failed, setFailed] = useState(false);
   const page = useRef<HTMLDivElement>(null);
@@ -207,7 +213,7 @@ export function SettingsPage({ back }: { back: string }) {
       {settings.view === "teacher" && <ChangeSetup />}
       <VideoAndChat />
       {/* The photos and recordings are the teacher's (R41b), so only they can delete them. */}
-      {settings.view === "teacher" && <DeleteData />}
+      {settings.view === "teacher" && <DeleteData onDeleted={onDataDeleted} />}
       <p>
         <a className="button" href={back}>
           Return to the app
