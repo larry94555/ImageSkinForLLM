@@ -270,8 +270,8 @@ def test_a_folder_that_cant_be_read_is_left_and_logged(
 
 
 def test_requests_that_arrive_during_the_delete_write_nothing_after_it(tmp_path: Path) -> None:
-    """A prompt, a consent, a photo and an accent sent while the files are deleted wait for the
-    delete and are then refused, so nothing comes back (reviews on PR #109)."""
+    """A prompt, a clear, a consent, a photo and an accent sent while the files are deleted wait
+    for the delete and are then refused, so nothing comes back (reviews on PR #109)."""
     client = chatted(tmp_path)
     deleting, release = threading.Event(), threading.Event()
     real_delete = delete_my_data
@@ -296,6 +296,7 @@ def test_requests_that_arrive_during_the_delete_write_nothing_after_it(tmp_path:
         assert deleting.wait(5)
         waiting = [
             send("chat", lambda: client.post("/api/chat", json={"prompt": "Remember me."})),
+            send("clear", lambda: client.delete("/api/chat")),
             send("consent", lambda: client.post("/api/consent", json={"agreed": True})),
             send(
                 "upload",
@@ -309,7 +310,7 @@ def test_requests_that_arrive_during_the_delete_write_nothing_after_it(tmp_path:
         for thread in [delete, *waiting]:
             thread.join(5)
     assert answers["delete"].json()["left"] == []
-    for name in ("chat", "consent", "upload", "accent"):
+    for name in ("chat", "clear", "consent", "upload", "accent"):
         assert answers[name].status_code == 409, name
         assert answers[name].json()["detail"] == DELETED_MEANWHILE
     assert not any((tmp_path / name).exists() for name in PERSONAL)

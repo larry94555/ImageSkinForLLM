@@ -1292,10 +1292,13 @@ def create_app(
         return {"video": "/api/prepare/clips/sample", "seconds": seconds}
 
     @app.delete("/api/chat", dependencies=needs_consent)
-    def clear_chat() -> dict[str, int]:
+    def clear_chat(seen: DeletesSeen) -> dict[str, int]:
         """Clear conversation from Settings (roadmap R27b), once the browser has asked to
         confirm. It waits for a prompt being answered, so that reply is cleared too."""
         with chat_lock:
+            # A clear that waited for Delete my data would save an empty conversation again
+            # (review on PR #109).
+            not_deleted_since(seen)
             # The conversation first, so that if it can't be cleared nothing is (R30). With the
             # lock held no prompt is being answered, so the reply videos still being made are
             # from replies already in it.
