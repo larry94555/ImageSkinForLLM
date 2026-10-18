@@ -50,10 +50,25 @@ def load_review(home: Path, status: PrepareStatus) -> Review:
     except (OSError, ValueError) as e:
         logger.error("Could not read the review", extra={"path": str(path), "error": str(e)})
         return Review(accepted=False)
-    if key is None or not isinstance(data, dict) or data.get("sample") != key:
+    if not isinstance(data, dict):
+        return Review(accepted=False)
+    if key is None or data.get("sample") != key:
+        # Nothing is accepted while no sample is ready, whatever the file says (review on PR #105).
+        # Logged so a chat locked again after a change in setup (roadmap R28) says why.
+        logger.info("Accepted sample is no longer current", extra={"changed": changed(data, key)})
         return Review(accepted=False)
     accepted_at = data.get("accepted_at")
     return Review(accepted=True, accepted_at=accepted_at if isinstance(accepted_at, str) else None)
+
+
+def changed(data: dict[str, object], key: dict[str, str | None] | None) -> str:
+    """What changed since the sample was accepted, for the log."""
+    if key is None:
+        return "not prepared"  # the photo, recordings or accent changed and Prepare hasn't run
+    sample = data.get("sample")
+    old = sample if isinstance(sample, dict) else {}
+    parts = [name for name in ("photo_id", "voice_id") if old.get(name) != key[name]]
+    return ", ".join(parts) or "prepared again"
 
 
 def accept(home: Path, status: PrepareStatus) -> Review:

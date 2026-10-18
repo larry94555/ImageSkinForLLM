@@ -58,6 +58,7 @@ test("the page groups the settings and shows each one as saved", async () => {
     "Chat",
     "Display",
     "Photos and recordings",
+    "Photo, voice and accent",
     "Video and conversation",
   ]);
   const chat = within(screen.getByRole("region", { name: "Chat" }));

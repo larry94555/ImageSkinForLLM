@@ -7,6 +7,7 @@ import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
+import { ChangeSetup } from "./change-setup";
 import { VideoAndChat } from "./video-and-chat";
 import { YourFiles } from "./your-files";
 
@@ -201,6 +202,8 @@ export function SettingsPage({ back }: { back: string }) {
         </section>
       ))}
       <YourFiles />
+      {/* Setup is the teacher's (R41b), so the student view has no way to change them. */}
+      {settings.view === "teacher" && <ChangeSetup />}
       <VideoAndChat />
       <p>
         <a className="button" href={back}>

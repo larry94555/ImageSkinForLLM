@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { pageFor, resolve, wikiTarget } from "./router";
+import { pageFor, resolve, setupTarget, wikiTarget } from "./router";
 
 describe("router", () => {
   test("hashes map to pages", () => {
@@ -56,4 +56,15 @@ test("the Settings page is in both views (R27)", () => {
   expect(pageFor("#/settings")).toBe("settings");
   expect(resolve("#/settings", false)).toEqual({ page: "settings" });
   expect(resolve("#/settings", true, true)).toEqual({ page: "settings" }); // to switch back
+});
+
+test("setup opens at what to change from Settings (R28)", () => {
+  expect(pageFor("#/setup/photos")).toBe("setup");
+  expect(setupTarget("#/setup/photos")).toBe("photos");
+  expect(setupTarget("#/setup/sounds/")).toBe("sounds");
+  expect(setupTarget("#/setup/accent")).toBe("accent");
+  expect(setupTarget("#/setup")).toBeUndefined();
+  expect(pageFor("#/setup/other")).toBe("not-found");
+  expect(resolve("#/setup/accent", false)).toEqual({ page: "consent", redirect: "#/consent" });
+  expect(resolve("#/setup/accent", true, true)).toEqual({ page: "chat", redirect: "#/chat" });
 });
