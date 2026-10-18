@@ -8,7 +8,15 @@ from unittest.mock import patch
 import pytest
 from test_chat import FakeLlm2, chat_app
 
-from imageskin.chat import SUMMARY_PROMPT, Conversation, Message, Turn, load_saved, system_message
+from imageskin.chat import (
+    CLEAR_FAILED,
+    SUMMARY_PROMPT,
+    Conversation,
+    Message,
+    Turn,
+    load_saved,
+    system_message,
+)
 from imageskin.review import Review
 
 
@@ -178,3 +186,26 @@ def test_new_conversations_never_share_their_turns(tmp_path: Path) -> None:
     first.send("Hi")
     second = Conversation(FakeLlm2(), lambda: 4096, saved=tmp_path / "b.json")
     assert second.turns() == []
+
+
+def test_a_clear_that_cant_empty_the_saved_copy_clears_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #108: otherwise the cleared conversation would come back at the next start."""
+    client = chat_app(tmp_path, lambda messages: "Hello")
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Hi"})
+    with (
+        patch("imageskin.chat.os.replace", side_effect=OSError("file in use")),
+        caplog.at_level(logging.ERROR),
+    ):
+        refused = client.delete("/api/chat")
+    assert refused.status_code == 500
+    assert refused.json()["detail"] == CLEAR_FAILED
+    assert "Could not clear the saved conversation; nothing was cleared" in caplog.text
+    said = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello"}]
+    assert client.get("/api/chat").json() == {"turns": said}
+    assert chat_app(tmp_path, lambda messages: "Hello").get("/api/chat").json() == {"turns": said}
+    # Once the file can be changed, clearing works and holds after a restart.
+    assert client.delete("/api/chat").json() == {"cleared": 2}
+    assert chat_app(tmp_path, lambda messages: "Hello").get("/api/chat").json() == {"turns": []}

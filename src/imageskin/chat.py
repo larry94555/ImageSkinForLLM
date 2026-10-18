@@ -137,6 +137,13 @@ Count = Callable[[str], int]
 FindContent = Callable[[str], list[str]]
 
 
+class ClearFailed(Exception):
+    """The saved conversation couldn't be emptied, so nothing was cleared (roadmap R30)."""
+
+
+CLEAR_FAILED = "The conversation couldn't be cleared, because its saved copy can't be changed."
+
+
 class LlmError(Exception):
     """The LLM could not be reached or gave no reply; the message says so in plain words."""
 
@@ -570,9 +577,19 @@ class Conversation:
             self.wait()
             with self._lock:
                 cleared = len(self._transcript)
+                # The saved copy first: if it can't be emptied, nothing is cleared, since the
+                # conversation would come back at the next start (review on PR #108).
+                if self._saved is not None:
+                    try:
+                        save(self._saved, nothing_saved())
+                    except OSError as e:
+                        logger.error(
+                            "Could not clear the saved conversation; nothing was cleared",
+                            extra={"path": str(self._saved), "error": str(e)},
+                        )
+                        raise ClearFailed(CLEAR_FAILED) from e
                 self._transcript, self._turns, self._summary = [], [], None
                 self._told = ([], None)
-                self._save()
         logger.info("Conversation cleared", extra={"turns": cleared})
         return cleared
 

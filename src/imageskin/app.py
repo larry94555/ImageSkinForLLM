@@ -22,6 +22,7 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
+    ClearFailed,
     Conversation,
     Count,
     LlmClient,
@@ -1251,6 +1252,13 @@ def create_app(
         """Clear conversation from Settings (roadmap R27b), once the browser has asked to
         confirm. It waits for a prompt being answered, so that reply is cleared too."""
         with chat_lock:
+            # The conversation first, so that if it can't be cleared nothing is (R30). With the
+            # lock held no prompt is being answered, so the reply videos still being made are
+            # from replies already in it.
+            try:
+                cleared = conversation.clear()
+            except ClearFailed as e:
+                raise HTTPException(status_code=500, detail=str(e)) from e
             # The replies' videos go too: those being made are stopped and never published,
             # and those made are removed, so none of what was said can still be played.
             with clips_lock:
@@ -1260,8 +1268,7 @@ def create_app(
                     stop.set()
             for clips in streamed:
                 threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
-            # The conversation first: a video asked for after replies.clear() reads it empty.
-            cleared = conversation.clear()
+            # After the conversation: a video asked for after replies.clear() reads it empty.
             videos = replies.clear()
         logger.info(
             "Reply videos cleared",
