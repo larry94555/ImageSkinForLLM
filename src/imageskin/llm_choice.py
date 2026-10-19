@@ -136,7 +136,7 @@ def save_choice(
             else:
                 models.pop(provider, None)
         choice = LlmChoice(provider, keys, models)
-        _write(home / FILENAME, {"provider": provider, "keys": keys, "models": models})
+        write_owner_only(home / FILENAME, {"provider": provider, "keys": keys, "models": models})
     logger.info(
         "LLM chosen",
         extra={"provider": provider, "model": choice.model(provider), "key_changed": bool(key)},
@@ -144,7 +144,7 @@ def save_choice(
     return choice
 
 
-def _write(path: Path, data: dict[str, Any]) -> None:
+def write_owner_only(path: Path, data: dict[str, Any]) -> None:
     """Written beside it, readable by the owner only where the system allows, then put in its
     place, so a read never sees half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)

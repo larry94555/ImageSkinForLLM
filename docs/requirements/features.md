@@ -94,7 +94,7 @@ Added by Larry on 2026-10-08. The app becomes a question and answer app over a s
 
 ### LLM choice
 
-29. **LLM setting.** Settings choose the LLM that answers. By default it is a local open-source model run with llama.cpp. Instead, the administrator can enter a subscription (Claude, OpenAI or Grok) or an API key for Claude, OpenAI, Grok or OpenRouter. Keys stay on the server (item 16).
+29. **LLM setting.** Settings choose the LLM that answers. By default it is a local open-source model run with llama.cpp. Instead, the administrator can enter an API key for Claude, OpenAI, Grok or OpenRouter, or sign in with ChatGPT to use their ChatGPT plan. Keys and sign-ins stay on the server (item 16). OpenAI allows a ChatGPT plan to be used by open-source apps that run on the user's own computer, so the ChatGPT sign-in is offered while the app runs locally; a hosted or paid site would need OpenAI's approval first. Claude's and Grok's subscriptions can't be used: Anthropic's terms allow a Claude subscription only in Anthropic's own apps, and xAI publishes no sign-in for other apps (checked 2026-10-19).
 
 ### Users and sign-on
 

@@ -8,6 +8,7 @@ import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
 import { ChangeSetup } from "./change-setup";
+import { ChatGptPlanSection } from "./chatgpt-plan";
 import { DeleteData } from "./delete-data";
 import { LlmSettingSection } from "./llm-setting";
 import { VideoAndChat } from "./video-and-chat";
@@ -211,6 +212,8 @@ export function SettingsPage({
       ))}
       {/* The LLM and its key are the teacher's to pick (R42). */}
       {settings.view === "teacher" && <LlmSettingSection />}
+      {/* Signing in with ChatGPT to use the plan in place of a key (R43). */}
+      {settings.view === "teacher" && <ChatGptPlanSection />}
       <YourFiles />
       {/* Setup is the teacher's (R41b), so the student view has no way to change them. */}
       {settings.view === "teacher" && <ChangeSetup />}

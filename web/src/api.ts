@@ -834,3 +834,35 @@ export async function listModels(provider: string, apiKey?: string): Promise<str
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return ((await response.json()) as { models: string[] }).models;
 }
+
+// Sign in with ChatGPT (roadmap R43): the account connected, never its tokens, and whether it
+// allowed this app to use the ChatGPT plan.
+export interface ChatGptStatus {
+  connected: boolean;
+  email: string;
+  name: string;
+  plan_usage: boolean;
+  registered_email: string; // the account signing in again uses; "" before the first sign-in
+  label: string; // that account as shown: distinct even when two accounts share an email
+  // The other accounts registered here; a connected one is switched to with no sign-in.
+  accounts: { id: string; email: string; label: string; connected: boolean }[];
+  revoked?: boolean; // after Disconnect: false when ChatGPT couldn't confirm it ended the sign-in
+}
+
+export async function getChatGpt(): Promise<ChatGptStatus> {
+  return json<ChatGptStatus>(await fetch("/api/chatgpt"));
+}
+
+export async function useChatGptAccount(account: string): Promise<ChatGptStatus> {
+  return json<ChatGptStatus>(
+    await fetch("/api/chatgpt/use", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account }),
+    }),
+  );
+}
+
+export async function signOutChatGpt(): Promise<ChatGptStatus> {
+  return json<ChatGptStatus>(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
+}
