@@ -32,6 +32,8 @@ KEPT = (
     "content/notes.pdf",
     "content/notes-wiki.json",
     "ui-settings.json",
+    "default-people/animated_female_professor.png",  # made up, not the person's (R24c)
+    "default-people/downloads/animated_female_professor.zip",
 )
 PERSONS = (
     "uploads/photos/a.jpg",
@@ -48,6 +50,8 @@ PERSONS = (
     "review.json",
     "accent.json",
     "consent.json",
+    "default-person.json",
+    "default-person.saving.json",  # left by a save cut short
 )
 
 

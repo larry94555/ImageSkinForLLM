@@ -110,6 +110,11 @@ CHANGED_MEANWHILE = "The setup changed while the video was made. Try again."
 SAMPLE_BEING_MADE = "The sample video is being made again. Try again once it is ready."
 # Delete my data (roadmap R31) waits for a prepare, which would write its files again.
 WAIT_TO_DELETE = "Setup is preparing the video. Try again once it has finished."
+# A default person (roadmap R24c) is got ready with the same engines and writes to the same
+# folders, so nothing else that does runs meanwhile.
+# Start now waits for a prepare, which uses the same engines.
+WAIT_TO_START_NOW = "Setup is preparing your own video. Try again once it has finished."
+DEFAULT_PERSON_BEING_READIED = "A default person is being got ready. Try again once they are ready."
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
 CLONES = ("pocket", "clone")
 
@@ -191,6 +196,8 @@ class PrepareJob:
         # The sample is being rendered again (roadmap R27b): no prepare runs meanwhile, as it
         # would remove the clips and use the same voice and video engines.
         self._rendering_again = False
+        # A default person is being got ready (roadmap R24c), see claim().
+        self._claimed = False
         # Per running step: when it started and how much was done then, for the time left.
         self._clock: dict[str, tuple[float, int]] = {}
         self._status = self._load()
@@ -249,8 +256,7 @@ class PrepareJob:
         with self._lock:
             if self._status.state == "running":
                 return False
-            if self._rendering_again:
-                raise PrepareError(SAMPLE_BEING_MADE)
+            self._refuse_if_busy()
             prepared = self._current(self._status).state == "done"
             change()
             if prepared and self._current(self._status).state == "idle":
@@ -277,8 +283,7 @@ class PrepareJob:
             before = self._current(self._status)
             if before.state != "done" or before.photo_id is None:
                 raise PrepareError(NOT_PREPARED)
-            if self._rendering_again:
-                raise PrepareError(SAMPLE_BEING_MADE)
+            self._refuse_if_busy()
             photo = self._store.path("photos", before.photo_id)
             if photo is None:
                 raise PrepareError(NOT_PREPARED)
@@ -311,11 +316,31 @@ class PrepareJob:
         with self._lock:
             if self._status.state == "running":
                 raise PrepareError(WAIT_TO_DELETE)
-            if self._rendering_again:
-                raise PrepareError(SAMPLE_BEING_MADE)
+            self._refuse_if_busy()
             done = delete()
             self._status = PrepareStatus("idle")
             return done
+
+    def _refuse_if_busy(self) -> None:
+        if self._rendering_again:
+            raise PrepareError(SAMPLE_BEING_MADE)
+        if self._claimed:
+            raise PrepareError(DEFAULT_PERSON_BEING_READIED)
+
+    def claim(self) -> None:
+        """Start now (roadmap R24c) is about to get a default person ready: it renders with this
+        job's engines and writes the photoreal library, so until release() no Prepare, accent
+        change, sample rendered again or Delete my data runs (review on PR #113). PrepareError,
+        saying why, while one of them is running."""
+        with self._lock:
+            if self._status.state == "running":
+                raise PrepareError(WAIT_TO_START_NOW)
+            self._refuse_if_busy()
+            self._claimed = True
+
+    def release(self) -> None:
+        with self._lock:
+            self._claimed = False
 
     def start(self) -> PrepareStatus:
         """Start preparing the chosen photo and the voice; while it runs, just report on it."""
@@ -325,8 +350,7 @@ class PrepareJob:
     def _start(self) -> PrepareStatus:
         if self._status.state == "running":
             return self._status
-        if self._rendering_again:
-            raise PrepareError(SAMPLE_BEING_MADE)
+        self._refuse_if_busy()
         photo_id = self._store.photo_choice().id
         if photo_id is None:
             raise PrepareError(NO_PHOTO)

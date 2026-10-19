@@ -39,11 +39,12 @@ describe("router", () => {
   test("other pages are open without consent", () => {
     expect(resolve("#/", false)).toEqual({ page: "home" });
     expect(resolve("#/consent", false)).toEqual({ page: "consent" });
+    expect(resolve("#/start-now", false)).toEqual({ page: "start-now" }); // no consent (R24c)
   });
 });
 
 test("the student view sends a teacher's page to the chat", () => {
-  for (const hash of ["#/", "#/consent", "#/setup", "#/guide", "#/content"]) {
+  for (const hash of ["#/", "#/consent", "#/setup", "#/start-now", "#/guide", "#/content"]) {
     expect(resolve(hash, true, true)).toEqual({ page: "chat", redirect: "#/chat" });
   }
   expect(resolve("#/wiki", false, true)).toEqual({ page: "wiki" });

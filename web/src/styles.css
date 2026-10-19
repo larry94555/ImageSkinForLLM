@@ -492,6 +492,7 @@ fieldset.laptops .muted { font-size: 0.875rem; }
 }
 ul.choices { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 ul.choices.three { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+ul.choices.two { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 ul.choices li { display: block; padding: 0; border: 0; background: none; }
 ul.choices a {
   display: grid;
@@ -960,3 +961,12 @@ ul.pdfs a.name:hover { color: var(--accent); text-decoration: underline; }
 .confirm-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 button.danger { background: var(--error); color: #fff; }
 button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
+
+/* Start now with a default person (R24c) */
+.start-now form { display: grid; gap: 14px; margin: 16px 0; max-width: 520px; }
+.start-now fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.start-now legend { padding: 0; margin-bottom: 6px; font-weight: 600; width: 100%; }
+.start-now label.role { display: grid; gap: 6px; font-weight: 600; }
+.start-now label.role select { font-weight: normal; max-width: 280px; }
+.start-now form button { justify-self: start; }
+.start-now progress { width: 100%; max-width: 520px; }

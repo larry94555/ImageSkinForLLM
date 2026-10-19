@@ -32,9 +32,17 @@ class VoiceReady:
     server restarts, the first reply does it, so the reply is spoken with the accent chosen in
     setup rather than the engine's default."""
 
-    def __init__(self, prepare: PrepareVoice, voice_id: Callable[[], str | None]) -> None:
+    def __init__(
+        self,
+        prepare: PrepareVoice,
+        voice_id: Callable[[], str | None],
+        # True while replies speak in a voice that needs no preparing: a default person's
+        # (roadmap R24c). Prepare still prepares the person's own voice meanwhile.
+        ready_made: Callable[[], bool] = lambda: False,
+    ) -> None:
         self._prepare = prepare
         self._voice_id = voice_id
+        self._ready_made = ready_made
         # The voice prepared in this run of the server, in a tuple so that a voice with no id
         # (None) still counts as prepared.
         self._ready: tuple[str | None] | None = None
@@ -51,6 +59,8 @@ class VoiceReady:
 
     def ensure(self) -> None:
         """Prepare the voice unless it is ready already."""
+        if self._ready_made():
+            return
         if self._ready != (self._voice_id(),):
             start = time.perf_counter()
             self()

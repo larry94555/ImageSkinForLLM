@@ -11,9 +11,12 @@ function server(
   photo: string | null = PHOTO_ID,
   ok = true,
   consented = true,
+  chosen: object | null = null,
 ) {
   const fetchMock = vi.fn(async (url: string) => {
     if (!ok) return new Response("", { status: 503 });
+    // A default person needs no consent (R24c).
+    if (url === "/api/start-now") return Response.json({ state: "idle", chosen });
     if (!consented) return new Response("", { status: 403 });
     if (url === "/api/review") {
       return Response.json({ accepted, accepted_at: accepted ? "2026-10-12T08:00:00Z" : null });
@@ -49,9 +52,9 @@ test("before consent, home offers setup at consent without asking for setup stat
   const fetchMock = server(false, null, true, false);
   render(<HomePage consented={false} />);
   expect(await screen.findByText("Welcome")).toBeTruthy();
-  expect(hrefs()).toEqual({ "Start setup": "#/consent" });
+  expect(hrefs()).toEqual({ "Start now": "#/start-now", "Start setup": "#/consent" });
   expect(screen.queryByRole("img")).toBeNull();
-  expect(fetchMock).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/start-now"]);
   expect(console.error).not.toHaveBeenCalled();
 });
 
@@ -59,7 +62,18 @@ test("before setup is done, with consent given, setup opens the setup page", asy
   server(false);
   render(<HomePage consented />);
   await screen.findByText("Welcome");
-  expect(hrefs()).toEqual({ "Start setup": "#/setup" });
+  expect(hrefs()).toEqual({ "Start now": "#/start-now", "Start setup": "#/setup" });
+});
+
+test("with a default person chosen, setup is done without consent (R24c)", async () => {
+  const chosen = { gender: "male", accent: "British", realism: "animated", role: "Boss" };
+  server(false, null, true, false, chosen);
+  render(<HomePage consented={false} />);
+  expect(await screen.findByText("Welcome back")).toBeTruthy();
+  // Setup chooses another default person, or leads on to the user's own.
+  expect(hrefs()).toEqual({ Chat: "#/chat", "Manage Content": "#/content", Setup: "#/start-now" });
+  const portrait = screen.getByRole("img", { name: "The person in the video" });
+  expect(portrait.getAttribute("src")).toBe("/api/start-now/picture");
 });
 
 test("once setup is done, chat and manage content stand beside setup", async () => {
@@ -143,7 +157,7 @@ test("a late answer doesn't open the chat once the user has left home (review on
   unmount(); // the user clicked another page before home's setup state came back
   window.location.hash = "#/content";
   release();
-  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(window.location.hash).toBe("#/content");
   expect(console.info).not.toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
