@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -23,6 +23,7 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
+    ChatLlm,
     ClearFailed,
     Conversation,
     Count,
@@ -33,6 +34,7 @@ from imageskin.chat import (
     StreamLlm,
     estimate,
 )
+from imageskin.claude import ClaudeClient
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
@@ -274,7 +276,7 @@ def wiki_file_name(saved: dict[str, Any]) -> str:
     return f"{safe}-wiki.json"
 
 
-def wiki_builder(llm: LlmSettings, client: LlmClient | None, ask_llm: AskLlm | None) -> BuildWiki:
+def wiki_builder(llm: LlmSettings, client: ChatLlm | None, ask_llm: AskLlm | None) -> BuildWiki:
     """Builds wiki pages with the chat's LLM: llama-server's, or `ask_llm` (tests)."""
     ask: AskForTopics
     count: Count
@@ -294,7 +296,7 @@ def wiki_builder(llm: LlmSettings, client: LlmClient | None, ask_llm: AskLlm | N
 
 
 def outline_builder(
-    llm: LlmSettings, client: LlmClient | None, ask_llm: AskLlm | None
+    llm: LlmSettings, client: ChatLlm | None, ask_llm: AskLlm | None
 ) -> BuildOutline:
     """Builds the wiki's outline with the chat's LLM: llama-server's, or `ask_llm` (tests)."""
     ask: AskForJson
@@ -325,6 +327,12 @@ def outline_builder(
         return Outliner(pdf_id, ask, count, window(), progress, wait).outline(topics, pieces)
 
     return build
+
+
+def llm_client(llm: LlmSettings) -> ChatLlm:
+    """The client for the LLM the config names: Claude's own, or the OpenAI-compatible one
+    for llama-server and OpenAI (R33)."""
+    return ClaudeClient(llm) if llm.provider == "claude" else LlmClient(llm)
 
 
 def wait_until_loaded(app: FastAPI) -> None:
@@ -566,7 +574,7 @@ def create_app(
     readings = ReadingJob(content, read_pdf or pdf_reading.read_pdf)
     # Then the wiki is built from what was read (R37), with the chat's LLM.
     llm = llm or LlmSettings()
-    client = LlmClient(llm) if ask_llm is None else None
+    client = llm_client(llm) if ask_llm is None else None
     if build_wiki is None:
         build_wiki = wiki_builder(llm, client, ask_llm)
         build_outline = build_outline or outline_builder(llm, client, ask_llm)
@@ -837,12 +845,21 @@ def create_app(
         return asdict(review)
 
     logger.info(
-        "Chat LLM", extra={"url": llm.url, "model": llm.model, "context_tokens": llm.context_tokens}
+        "Chat LLM",
+        extra={
+            "provider": llm.provider,
+            "url": llm.url,
+            "model": llm.model,
+            "context_tokens": llm.context_tokens,
+        },
     )
     # While the LLM is busy, the voice and video engines leave it half the cores (R22a), of the
     # performance cores on a CPU that also has efficiency cores (R22g).
     core_share = CoreShare(cores(performance_cores))
     core_share.llm_done()
+    # Claude and OpenAI run elsewhere, so the engines keep every core while they write (review
+    # on PR #111).
+    llm_busy = core_share.llm if llm.local else nullcontext
     # Each prompt is looked up in the wiki and PDFs, and the LLM answers from what is found (R40).
     content_lookup = ContentLookup(wiki, readings)
 
@@ -892,7 +909,7 @@ def create_app(
             client.count,
             client.stream,
             client.warm_up,
-            llm_busy=core_share.llm,
+            llm_busy=llm_busy,
             find=find_content,
             content_only=content_only,
             topics=content_topics,
@@ -906,7 +923,7 @@ def create_app(
             lambda: llm.context_tokens,
             stream=stream_llm,
             warm_up=warm_up_llm,
-            llm_busy=core_share.llm,
+            llm_busy=llm_busy,
             find=find_content,
             content_only=content_only,
             topics=content_topics,
@@ -985,7 +1002,7 @@ def create_app(
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
         wait_for_warm_up()
-        with chat_lock, core_share.llm():
+        with chat_lock, llm_busy():
             not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
             return chat(body)
 

@@ -8,7 +8,7 @@ import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from imageskin import __version__
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
@@ -21,6 +21,9 @@ from imageskin.speech_text import spoken_text
 from imageskin.video import INSTALL_HINT, VideoEngine, VideoError, find_ffmpeg
 from imageskin.voice import VoiceEngine, VoiceError, write_speech
 
+if TYPE_CHECKING:
+    from imageskin.chat import LlmSettings
+
 logger = logging.getLogger(__name__)
 
 READY_POLL_S = 0.1  # how often the ready line checks whether the server is listening yet
@@ -28,6 +31,7 @@ READY_POLL_S = 0.1  # how often the ready line checks whether the server is list
 BACKGROUND_JOBS = {"pdf-reading", "wiki", "prepare"}
 
 ENGINES = ("opencv", "photoreal")
+OPENAI_URL = "https://api.openai.com/v1"
 PRINTED_CHARS = 160  # of each passage the lookup command prints
 VOICE_SAMPLE_HELP = (
     "speak in the voice of this voice sample (from imageskin voice-sample) instead of a Kokoro "
@@ -289,11 +293,28 @@ def announce_ready(server: Any, app: Any, url: str, start: float) -> None:
     )
 
 
+def llm_settings(settings: Settings) -> "LlmSettings":
+    """The chat's LLM from the config. With OpenAI, llm_url left at llama-server's default
+    means OpenAI's own API (R33)."""
+    from imageskin.chat import LlmSettings
+
+    url = settings.llm_url
+    if settings.llm_provider == "openai" and url == Settings.llm_url:
+        url = OPENAI_URL
+    return LlmSettings(
+        url,
+        settings.llm_model,
+        settings.llm_context_tokens,
+        provider=settings.llm_provider,
+        # Only for the provider it belongs to: never sent to llama-server (review on PR #111).
+        api_key="" if settings.llm_provider == "local" else settings.llm_api_key.strip(),
+    )
+
+
 def serve(settings: Settings) -> None:
     import uvicorn
 
     from imageskin.app import create_app
-    from imageskin.chat import LlmSettings
 
     start = time.perf_counter()
     host, port = settings.host, settings.port
@@ -302,7 +323,7 @@ def serve(settings: Settings) -> None:
     # Consent and uploads are kept here; set IMAGESKIN_HOME to use another folder.
     logger.info("App data folder", extra={"path": str(default_home().resolve())})
     # access_log=False: the app's own middleware logs each request with its duration.
-    llm = LlmSettings(settings.llm_url, settings.llm_model, settings.llm_context_tokens)
+    llm = llm_settings(settings)
     app = create_app(llm=llm, general_prompts=settings.general_prompts)
     config = uvicorn.Config(app, host=host, port=port, log_config=None, access_log=False)
     server = uvicorn.Server(config)

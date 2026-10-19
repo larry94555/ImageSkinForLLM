@@ -21,6 +21,7 @@ from imageskin.chat import (
     TEMPERATURE,
     TOKENS_PER_MESSAGE,
     Conversation,
+    EmptyReply,
     LlmClient,
     LlmError,
     LlmSettings,
@@ -28,11 +29,14 @@ from imageskin.chat import (
     Turn,
     estimate,
     latest,
+    strict,
     system_message,
     tokens,
 )
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult
+from imageskin.wiki import TOPICS_SCHEMA
+from imageskin.wiki_outline import DETAIL_SCHEMA, SECTIONS_SCHEMA, SUMMARY_SCHEMA
 
 # --- Which turns are sent ---
 
@@ -327,6 +331,7 @@ class FakeLlm(BaseHTTPRequestHandler):
     props: tuple[int, bytes] = (404, b"")
     tokenize: tuple[int, bytes] = (404, b"")
     received: list[dict[str, object]] = []
+    keys: list[str | None] = []  # the Authorization header of each POST
 
     def do_GET(self) -> None:  # noqa: N802 (the name http.server calls)
         FakeLlm.received.append({"path": self.path})
@@ -337,6 +342,7 @@ class FakeLlm(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 (the name http.server calls)
         length = int(self.headers["Content-Length"])
+        FakeLlm.keys.append(self.headers.get("Authorization"))
         FakeLlm.received.append({"path": self.path, **json.loads(self.rfile.read(length))})
         status, body = FakeLlm.tokenize if self.path == "/tokenize" else FakeLlm.answer
         self.send_response(status)
@@ -352,6 +358,7 @@ class FakeLlm(BaseHTTPRequestHandler):
 def fake_llm() -> Iterator[str]:
     server = HTTPServer(("127.0.0.1", 0), FakeLlm)
     FakeLlm.received = []
+    FakeLlm.keys = []
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{server.server_port}/v1/"
@@ -389,6 +396,90 @@ def test_the_client_can_ask_for_json_of_a_given_form(fake_llm: str) -> None:
     sent = FakeLlm.received[0]
     assert sent["max_tokens"] == 900
     assert sent["response_format"] == {"type": "json_object", "schema": schema}
+
+
+def openai(url: str) -> LlmSettings:
+    return LlmSettings(url=url, model="gpt-4.1-mini", provider="openai", api_key="sk-test")
+
+
+def test_openai_is_asked_with_the_users_key(fake_llm: str) -> None:
+    FakeLlm.answer = (200, reply("Hi!"))
+    client = LlmClient(openai(fake_llm))
+    assert client.ask([{"role": "user", "content": "Hi"}], 900, {"type": "object"}) == "Hi!"
+    assert FakeLlm.keys == ["Bearer sk-test"]
+    sent = FakeLlm.received[0]
+    assert sent["max_completion_tokens"] == 900 and "max_tokens" not in sent
+    assert sent["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "answer",
+            "strict": True,
+            "schema": {"type": "object", "additionalProperties": False},
+        },
+    }
+    assert "sk-test" not in repr(client.settings)
+
+
+def test_openai_is_not_asked_to_count_warm_up_or_give_its_window(fake_llm: str) -> None:
+    client = LlmClient(openai(fake_llm))
+    assert client.count("four") == 4  # the estimate
+    assert client.context_tokens() == 4096  # the config's
+    client.warm_up()
+    assert FakeLlm.received == []
+
+
+def test_a_down_openai_is_not_called_llama_server() -> None:
+    client = LlmClient(openai("http://127.0.0.1:1/v1"))
+    with pytest.raises(LlmError) as failed:
+        client.ask([{"role": "user", "content": "Hi"}])
+    assert "llama-server" not in str(failed.value)
+
+
+def test_llama_server_is_never_sent_a_key(fake_llm: str) -> None:
+    FakeLlm.answer = (200, reply("Hi!"))
+    LlmClient(LlmSettings(url=fake_llm, api_key="sk-secret")).ask(
+        [{"role": "user", "content": "Hi"}]
+    )
+    assert FakeLlm.keys == [None]
+
+
+def test_an_openai_refusal_is_said_as_one(fake_llm: str, caplog: pytest.LogCaptureFixture) -> None:
+    answer = {"choices": [{"message": {"role": "assistant", "content": None, "refusal": "No."}}]}
+    FakeLlm.answer = (200, json.dumps(answer).encode())
+    with pytest.raises(LlmError, match="declined to answer") as failed:
+        LlmClient(openai(fake_llm)).ask(
+            [{"role": "user", "content": "Hi"}], 900, {"type": "object"}
+        )
+    assert not isinstance(failed.value, EmptyReply)
+    assert "The LLM declined to answer" in caplog.messages
+
+
+def test_a_streamed_openai_refusal_is_said_as_one(fake_llm: str) -> None:
+    refused = 'data: {"choices": [{"delta": {"refusal": "No."}}]}\n\ndata: [DONE]\n\n'
+    FakeLlm.answer = (200, refused.encode())
+    with pytest.raises(LlmError, match="declined to answer"):
+        list(LlmClient(openai(fake_llm)).stream([{"role": "user", "content": "Hi"}]))
+
+
+@pytest.mark.parametrize(
+    ("status", "words"),
+    [
+        (401, "refused the API key"),
+        (403, "isn't allowed"),
+        (404, "doesn't know the model"),
+        (429, "too many requests"),
+        (500, r"^OpenAI refused the prompt \(500\)\.$"),
+    ],
+)
+def test_openai_failures_are_said_in_plain_words(
+    fake_llm: str, status: int, words: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    FakeLlm.answer = (status, b'{"error": {"message": "raw provider text"}}')
+    with pytest.raises(LlmError, match=words) as failed:
+        LlmClient(openai(fake_llm)).ask([{"role": "user", "content": "Hi"}])
+    assert "raw provider text" not in str(failed.value)
+    logged = next(r for r in caplog.records if r.message == "OpenAI refused the request")
+    assert logged.__dict__["status"] == status and "raw provider text" in logged.__dict__["detail"]
 
 
 @pytest.mark.parametrize(
@@ -636,6 +727,30 @@ def chat_app(tmp_path: Path, ask: object) -> TestClient:
     return client
 
 
+@pytest.mark.parametrize(("provider", "shares_cores"), [("local", True), ("claude", False)])
+def test_only_a_local_llm_takes_half_the_cores(
+    tmp_path: Path, provider: str, shares_cores: bool
+) -> None:
+    """Claude and OpenAI run elsewhere, so the voice and video keep every core while they write
+    (review on PR #111)."""
+    with patch("imageskin.app.CoreShare") as share:
+        client = TestClient(
+            create_app(
+                tmp_path,
+                check_photo=lambda p: PhotoResult([], 80),
+                prepare_voice=lambda: None,
+                prepare_face=lambda photo, progress: None,
+                render_clip=lambda photo, text, output: None,
+                llm=LlmSettings(provider=provider, api_key="k"),
+                ask_llm=lambda messages: "Hello.",
+            )
+        )
+        client.post("/api/consent", json={"agreed": True})
+        with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+            assert client.post("/api/chat", json={"prompt": "Hi"}).status_code == 200
+    assert share.return_value.llm.called is shares_cores
+
+
 def test_the_api_chats_once_the_sample_is_accepted(tmp_path: Path) -> None:
     client = chat_app(tmp_path, lambda messages: f"You said {messages[-1]['content']}")
     assert client.get("/api/chat").json() == {"turns": []}
@@ -680,3 +795,23 @@ def test_the_api_says_when_the_llm_fails(tmp_path: Path) -> None:
         failed = client.post("/api/chat", json={"prompt": "Hi"})
     assert failed.status_code == 502
     assert "Is llama-server running?" in failed.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [TOPICS_SCHEMA, SECTIONS_SCHEMA, SUMMARY_SCHEMA, DETAIL_SCHEMA],
+    ids=["topics", "sections", "summary", "detail"],
+)
+def test_every_schema_suits_strict_structured_outputs(schema: dict[str, object]) -> None:
+    """OpenAI's strict mode and Claude's structured outputs need every object closed and every
+    property required (R33)."""
+
+    def check(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert node["additionalProperties"] is False
+                assert set(node.get("required", [])) == set(node.get("properties", {}))
+            for value in node.values():
+                check(value)
+
+    check(strict(schema))

@@ -18,9 +18,9 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.sentences import SentenceSplitter
@@ -116,6 +116,13 @@ class LlmSettings:
     # The model's context window in tokens (llama-server's --ctx-size).
     context_tokens: int = 4096
     timeout_s: float = 120
+    # Who answers (roadmap R33): llama-server ("local"), OpenAI or Claude, with the user's key.
+    provider: str = "local"
+    api_key: str = field(default="", repr=False)  # never in a log line
+
+    @property
+    def local(self) -> bool:
+        return self.provider == "local"
 
 
 @dataclass(frozen=True)
@@ -137,6 +144,17 @@ Count = Callable[[str], int]
 FindContent = Callable[[str], list[str]]
 
 
+# Said when the LLM declines on purpose: OpenAI's "refusal" in place of a reply (R33).
+DECLINED = "The LLM declined to answer that. Try asking another way."
+# What the chat says when OpenAI refuses a request, by HTTP status (R33).
+OPENAI_ERRORS = {
+    401: "OpenAI refused the API key. Check llm_api_key in the config file.",
+    403: "OpenAI's API key isn't allowed to use this model.",
+    404: "OpenAI doesn't know the model in llm_model. Check the config file.",
+    429: "OpenAI is getting too many requests, or the account is out of credit. Try again shortly.",
+}
+
+
 class ClearFailed(Exception):
     """The saved conversation couldn't be emptied, so nothing was cleared (roadmap R30)."""
 
@@ -150,6 +168,19 @@ class LlmError(Exception):
 
 class EmptyReply(LlmError):
     """The LLM answered, but with no words: its output, not the request, was at fault."""
+
+
+def strict(schema: Any) -> Any:
+    """The schema with every object closed to other properties, as the strict structured outputs
+    of Claude and OpenAI require (R33); every property must also be listed as required."""
+    if isinstance(schema, dict):
+        closed = {k: strict(v) for k, v in schema.items()}
+        if closed.get("type") == "object":
+            closed.setdefault("additionalProperties", False)
+        return closed
+    if isinstance(schema, list):
+        return [strict(v) for v in schema]
+    return schema
 
 
 def estimate(text: str) -> int:
@@ -217,8 +248,23 @@ def unreachable(e: BaseException) -> bool:
     return isinstance(e, urllib.error.URLError | TimeoutError | ConnectionError)
 
 
+class ChatLlm(Protocol):
+    """What the chat and the wiki ask of an LLM: `LlmClient`'s calls, or Claude's (R33)."""
+
+    def count(self, text: str) -> int: ...
+    def context_tokens(self) -> int: ...
+    def warm_up(self) -> None: ...
+    def ask(
+        self,
+        messages: list[Message],
+        max_tokens: int = REPLY_TOKENS,
+        schema: dict[str, Any] | None = None,
+    ) -> str: ...
+    def stream(self, messages: list[Message]) -> Iterator[str]: ...
+
+
 class LlmClient:
-    """Asks an OpenAI-compatible chat API, such as llama-server's, for a reply."""
+    """Asks an OpenAI-compatible chat API, such as llama-server's or OpenAI's, for a reply."""
 
     def __init__(self, settings: LlmSettings) -> None:
         self.settings = settings
@@ -226,10 +272,11 @@ class LlmClient:
         self._counted: dict[str, int] = {}  # each turn is counted again with every prompt
         self._can_count = True
         self._window: int | None = None  # once the server has answered
+        self._hint = " Is llama-server running?" if settings.local else ""
 
     def count(self, text: str) -> int:
         """Tokens in the text by llama-server's tokenizer, or estimated if it can't count."""
-        if not self._can_count:
+        if not self._can_count or not self.settings.local:
             return estimate(text)
         if text in self._counted:
             return self._counted[text]
@@ -263,6 +310,8 @@ class LlmClient:
         """
         if self._window is not None:
             return self._window
+        if not self.settings.local:  # OpenAI doesn't say; the config does
+            return self.settings.context_tokens
         url = self._root + "/props"
         try:
             with urllib.request.urlopen(url, timeout=10) as response:
@@ -290,23 +339,31 @@ class LlmClient:
         schema: dict[str, Any] | None = None,
     ) -> tuple[str, urllib.request.Request]:
         url = self.settings.url.rstrip("/") + "/chat/completions"
+        local = self.settings.local
         body: dict[str, object] = {
             "model": self.settings.model,
             "messages": messages,
-            "max_tokens": max_tokens,
+            # OpenAI's newer models take only max_completion_tokens (R33).
+            "max_tokens" if local else "max_completion_tokens": max_tokens,
             "temperature": TEMPERATURE,
         }
         if stream:
             body["stream"] = True
-        if schema is not None:
+        if schema is not None and local:
             # The answer must be JSON of this form (the wiki, roadmap R37). This is the form
-            # both llama-server and llama-cpp-python's server take; OpenAI's is "json_schema".
+            # both llama-server and llama-cpp-python's server take.
             body["response_format"] = {"type": "json_object", "schema": schema}
+        elif schema is not None:
+            body["response_format"] = {
+                "type": "json_schema",
+                # strict: OpenAI holds the answer to the schema, as llama-server does (review)
+                "json_schema": {"name": "answer", "strict": True, "schema": strict(schema)},
+            }
+        headers = {"Content-Type": "application/json"}
+        if self.settings.api_key and not local:  # a key is never sent to llama-server
+            headers["Authorization"] = f"Bearer {self.settings.api_key}"
         request = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+            url, data=json.dumps(body).encode(), headers=headers, method="POST"
         )
         return url, request
 
@@ -315,12 +372,18 @@ class LlmClient:
             return urllib.request.urlopen(request, timeout=self.settings.timeout_s)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:300]
+            if not self.settings.local:
+                # The detail stays in the log; the chat gets a plain, stable message (R33).
+                logger.error(
+                    "OpenAI refused the request", extra={"status": e.code, "detail": detail}
+                )
+                raise LlmError(
+                    OPENAI_ERRORS.get(e.code, f"OpenAI refused the prompt ({e.code}).")
+                ) from e
             raise LlmError(f"The LLM at {url} refused the prompt ({e.code}): {detail}") from e
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             reason = getattr(e, "reason", e)
-            raise LlmError(
-                f"Could not reach the LLM at {url} ({reason}). Is llama-server running?"
-            ) from e
+            raise LlmError(f"Could not reach the LLM at {url} ({reason}).{self._hint}") from e
 
     def warm_up(self) -> None:
         """Have the server read the system prompt now, so the first reply starts sooner:
@@ -328,6 +391,8 @@ class LlmClient:
         same way (roadmap R22a). Measured with Gemma 3 4B on a 4-core CPU: the first words
         came 2.5 s after the first prompt without this, 0.6 s with it. Failures are logged
         only; the first prompt then says what is wrong."""
+        if not self.settings.local:
+            return  # OpenAI keeps nothing between requests this way, so it would only cost
         messages = [system_message(None), {"role": "user", "content": "Hello."}]
         url, request = self._post(messages, stream=False, max_tokens=1)
         start = time.perf_counter()
@@ -350,15 +415,17 @@ class LlmClient:
             with self._open(url, request) as response:
                 data = json.loads(response.read())
         except (TimeoutError, OSError) as e:
-            raise LlmError(
-                f"Could not reach the LLM at {url} ({e}). Is llama-server running?"
-            ) from e
+            raise LlmError(f"Could not reach the LLM at {url} ({e}).{self._hint}") from e
         except ValueError as e:
             raise LlmError(f"The LLM at {url} sent an answer that is not JSON.") from e
         try:
-            content = data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            content = message["content"]
         except (KeyError, IndexError, TypeError) as e:
             raise LlmError(f"The LLM at {url} sent an answer without a reply.") from e
+        if isinstance(message, dict) and message.get("refusal"):
+            logger.warning("The LLM declined to answer", extra={"url": url})
+            raise LlmError(DECLINED)
         if not isinstance(content, str) or not content.strip():
             raise EmptyReply("The LLM sent an empty reply. Try asking again.")
         return content.strip()
@@ -380,7 +447,11 @@ class LlmClient:
                         return
                     choice = json.loads(data)["choices"][0]
                     finished = finished or choice.get("finish_reason") is not None
-                    piece = choice.get("delta", {}).get("content")
+                    delta = choice.get("delta", {})
+                    if delta.get("refusal"):
+                        logger.warning("The LLM declined to answer", extra={"url": url})
+                        raise LlmError(DECLINED)
+                    piece = delta.get("content")
                     if isinstance(piece, str) and piece:
                         yield piece
             except (TimeoutError, OSError) as e:

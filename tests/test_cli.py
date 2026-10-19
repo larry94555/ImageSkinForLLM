@@ -9,7 +9,8 @@ import pytest
 
 from imageskin import __version__
 from imageskin.app import READY_MESSAGE
-from imageskin.cli import announce_ready, main
+from imageskin.cli import OPENAI_URL, announce_ready, llm_settings, main
+from imageskin.config import Settings
 
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -46,6 +47,38 @@ def test_serve_runs_uvicorn_with_config(tmp_path: Path) -> None:
     config_used = server.call_args.args[0]
     assert (config_used.host, config_used.port) == ("127.0.0.1", 9123)
     server.return_value.run.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("settings", "url", "model"),
+    [
+        (Settings(), "http://127.0.0.1:8080/v1", "local"),
+        (
+            Settings(llm_provider="openai", llm_api_key=" sk-1 ", llm_model="gpt-4.1-mini"),
+            OPENAI_URL,
+            "gpt-4.1-mini",
+        ),
+        (
+            Settings(llm_provider="openai", llm_api_key="sk-1", llm_url="https://my.proxy/v1"),
+            "https://my.proxy/v1",
+            "local",
+        ),
+        (
+            Settings(llm_provider="claude", llm_api_key="sk-ant-1"),
+            "http://127.0.0.1:8080/v1",
+            "local",
+        ),
+    ],
+)
+def test_the_chat_llm_comes_from_the_config(settings: Settings, url: str, model: str) -> None:
+    llm = llm_settings(settings)
+    assert (llm.provider, llm.url, llm.model) == (settings.llm_provider, url, model)
+    assert llm.api_key == settings.llm_api_key.strip()
+
+
+def test_a_key_left_in_the_config_is_not_given_to_llama_server() -> None:
+    settings = Settings(llm_api_key="sk-secret", llm_url="https://other.server/v1")
+    assert llm_settings(settings).api_key == ""
 
 
 def test_serve_logs_the_data_folder(
