@@ -843,8 +843,9 @@ export interface ChatGptStatus {
   name: string;
   plan_usage: boolean;
   registered_email: string; // the account signing in again uses; "" before the first sign-in
+  label: string; // that account as shown: distinct even when two accounts share an email
   // The other accounts registered here; a connected one is switched to with no sign-in.
-  accounts: { id: string; email: string; connected: boolean }[];
+  accounts: { id: string; email: string; label: string; connected: boolean }[];
   revoked?: boolean; // after Disconnect: false when ChatGPT couldn't confirm it ended the sign-in
 }
 

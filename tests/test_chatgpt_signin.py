@@ -138,6 +138,7 @@ def test_signing_in_keeps_the_account_and_its_tokens_on_the_server(
         "name": "",
         "plan_usage": False,
         "registered_email": "",
+        "label": "",
         "accounts": [],
     }
     query = authorize(signin, openai)
@@ -154,6 +155,7 @@ def test_signing_in_keeps_the_account_and_its_tokens_on_the_server(
         "name": "Larry",
         "plan_usage": True,
         "registered_email": "larry@example.com",
+        "label": "larry@example.com",
         "accounts": [],
     }
     url, form = openai.forms[-1]
@@ -244,7 +246,12 @@ def test_another_account_registers_the_app_anew(
     assert status["email"] == status["registered_email"] == "second@example.com"
     # The first account's registration is kept, and can be signed in as again.
     assert status["accounts"] == [
-        {"id": "app-123", "email": "larry@example.com", "connected": False}
+        {
+            "id": "app-123",
+            "email": "larry@example.com",
+            "label": "larry@example.com",
+            "connected": False,
+        }
     ]
     saved = json.loads((tmp_path / cs.FILENAME).read_text())
     assert [r["subject"] for r in saved["registrations"]] == ["user-1", "user-2"]
@@ -257,7 +264,12 @@ def test_another_account_registers_the_app_anew(
     status = signin.finish({"state": back["state"], "code": "c3"})
     assert status["email"] == "larry@example.com"
     assert status["accounts"] == [
-        {"id": "app-456", "email": "second@example.com", "connected": False}
+        {
+            "id": "app-456",
+            "email": "second@example.com",
+            "label": "second@example.com",
+            "connected": False,
+        }
     ]
 
 
@@ -277,7 +289,14 @@ def test_switching_accounts_keeps_each_accounts_own_credentials(
     openai.nonce, openai.claims = second["nonce"], {"sub": "user-2", "email": "b@example.com"}
     status = signin.finish({"state": second["state"], "code": "c2", "client_id": "app-2"})
     assert (status["email"], status["connected"]) == ("b@example.com", True)
-    assert status["accounts"] == [{"id": "app-1", "email": "larry@example.com", "connected": True}]
+    assert status["accounts"] == [
+        {
+            "id": "app-1",
+            "email": "larry@example.com",
+            "label": "larry@example.com",
+            "connected": True,
+        }
+    ]
     assert saved()["app-1"] == kept  # its refresh, access and ID tokens are untouched
     assert "revoke" not in " ".join(url for url, _ in openai.forms)
     # Back to the first with no sign-in: it is still connected.
@@ -300,6 +319,44 @@ def test_switching_accounts_keeps_each_accounts_own_credentials(
     assert saved()["app-1"]["email"] == "larry@example.com"
     assert saved()["app-2"]["credentials"]
     assert signin.use("app-2")["connected"] is True
+
+
+def test_accounts_with_the_same_email_keep_distinct_labels(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    # One ChatGPT email registered twice, as for two workspaces.
+    for client_id, subject in (("app-1", "user-1"), ("app-2", "user-2"), ("app-3", "user-3")):
+        url = signin.start(REDIRECT, another=True)
+        query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+        openai.nonce, openai.claims = query["nonce"], {"sub": subject}
+        signin.finish({"state": query["state"], "code": "c", "client_id": client_id})
+    status = signin.status()
+    shown = [status["label"]] + [a["label"] for a in status["accounts"]]
+    assert shown == ["larry@example.com (3)", "larry@example.com", "larry@example.com (2)"]
+    # The same after a reload, after signing in again, and after a switch.
+    reloaded = ChatGptSignIn(tmp_path, http=openai, clock=lambda: NOW)
+    assert reloaded.status() == status
+    url = signin.start(REDIRECT, account="app-1")
+    query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    openai.nonce, openai.claims = query["nonce"], {"sub": "user-1"}
+    assert signin.finish({"state": query["state"], "code": "c"})["label"] == "larry@example.com"
+    labels = {a["id"]: a["label"] for a in signin.use("app-2")["accounts"]}
+    assert labels == {"app-1": "larry@example.com", "app-3": "larry@example.com (3)"}
+
+
+def test_a_registration_saved_without_a_label_gets_a_distinct_one(
+    tmp_path: Path, openai: FakeOpenAi
+) -> None:
+    same = {"email": "a@example.com", "credentials": None}
+    registrations = [{"client_id": "app-1", **same}, {"client_id": "app-2", **same}]
+    (tmp_path / cs.FILENAME).write_text(
+        json.dumps({"registrations": registrations, "active": "app-2"})
+    )
+    status = ChatGptSignIn(tmp_path, http=openai).status()
+    assert (status["label"], status["accounts"][0]["label"]) == (
+        "a@example.com (2)",
+        "a@example.com",
+    )
 
 
 def test_only_a_registered_account_can_be_used(signin: ChatGptSignIn) -> None:

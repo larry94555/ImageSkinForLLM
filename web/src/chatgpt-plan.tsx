@@ -80,7 +80,7 @@ export function ChatGptPlanSection() {
           </p>
           {status.registered_email && (
             <p className="muted">
-              Signs in again as {status.registered_email}.{" "}
+              Signs in again as {status.label || status.registered_email}.{" "}
               <a href="/api/chatgpt/sign-in?another=true">Use another ChatGPT account</a>
             </p>
           )}
@@ -89,7 +89,8 @@ export function ChatGptPlanSection() {
       {status?.connected && (
         <>
           <p>
-            Connected as <strong>{status.email || status.name || "your ChatGPT account"}</strong>
+            Connected as{" "}
+            <strong>{status.label || status.email || status.name || "your ChatGPT account"}</strong>
           </p>
           {!status.plan_usage && (
             <p>
@@ -115,11 +116,11 @@ export function ChatGptPlanSection() {
                   disabled={busy}
                   onClick={() => void switchTo(a.id)}
                 >
-                  Switch to {a.email || "an earlier account"}
+                  Switch to {a.label || a.email || "an earlier account"}
                 </button>
               ) : (
                 <a href={`/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`}>
-                  {a.email || "an earlier account"}
+                  {a.label || a.email || "an earlier account"}
                 </a>
               )}
             </span>

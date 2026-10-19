@@ -510,7 +510,7 @@ function ChatGptPlanSection() {
 				className: "muted",
 				children: [
 					"Signs in again as ",
-					status.registered_email,
+					status.label || status.registered_email,
 					".",
 					" ",
 					/* @__PURE__ */ u("a", {
@@ -520,7 +520,11 @@ function ChatGptPlanSection() {
 				]
 			})] }),
 			status?.connected && /* @__PURE__ */ u(S, { children: [
-				/* @__PURE__ */ u("p", { children: ["Connected as ", /* @__PURE__ */ u("strong", { children: status.email || status.name || "your ChatGPT account" })] }),
+				/* @__PURE__ */ u("p", { children: [
+					"Connected as",
+					" ",
+					/* @__PURE__ */ u("strong", { children: status.label || status.email || status.name || "your ChatGPT account" })
+				] }),
 				!status.plan_usage && /* @__PURE__ */ u("p", { children: [
 					/* @__PURE__ */ u("span", {
 						className: "error",
@@ -549,10 +553,10 @@ function ChatGptPlanSection() {
 						className: "link",
 						disabled: busy,
 						onClick: () => void switchTo(a.id),
-						children: ["Switch to ", a.email || "an earlier account"]
+						children: ["Switch to ", a.label || a.email || "an earlier account"]
 					}) : /* @__PURE__ */ u("a", {
 						href: `/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`,
-						children: a.email || "an earlier account"
+						children: a.label || a.email || "an earlier account"
 					})] }, a.id))
 				]
 			}),

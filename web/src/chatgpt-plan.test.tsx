@@ -10,6 +10,7 @@ const SIGNED_OUT: ChatGptStatus = {
   name: "",
   plan_usage: false,
   registered_email: "",
+  label: "",
   accounts: [],
 };
 const CONNECTED: ChatGptStatus = {
@@ -18,6 +19,7 @@ const CONNECTED: ChatGptStatus = {
   name: "Larry",
   plan_usage: true,
   registered_email: "larry@example.com",
+  label: "larry@example.com",
   accounts: [],
 };
 
@@ -65,8 +67,8 @@ test("accounts registered before can be signed in as again", async () => {
     ...SIGNED_OUT,
     registered_email: "larry@example.com",
     accounts: [
-      { id: "app-1", email: "first@example.com", connected: false },
-      { id: "app 2", email: "", connected: false },
+      { id: "app-1", email: "first@example.com", label: "", connected: false },
+      { id: "app 2", email: "", label: "", connected: false },
     ],
   });
   render(<ChatGptPlanSection />);
@@ -89,7 +91,7 @@ test("connected, it names the account and disconnects", async () => {
 });
 
 test("a sign-in that didn't allow the plan says how to allow it", async () => {
-  server({ ...CONNECTED, email: "", plan_usage: false });
+  server({ ...CONNECTED, email: "", label: "", plan_usage: false });
   render(<ChatGptPlanSection />);
   expect(await screen.findByText("Larry")).toBeTruthy();
   expect(screen.getByText(/Using your plan wasn't allowed/)).toBeTruthy();
@@ -120,13 +122,14 @@ test("a sign-in that can't be read, or a failed disconnect, says so", async () =
 });
 
 test("a connected account switches to another one still connected, with no sign-in", async () => {
-  const second = { id: "app-2", email: "b@example.com", connected: true };
+  const second = { id: "app-2", email: "b@example.com", label: "", connected: true };
   const fetchMock = server(
     { ...CONNECTED, accounts: [second] },
     {
       ...CONNECTED,
       email: "b@example.com",
-      accounts: [{ id: "app-1", email: "larry@example.com", connected: true }],
+      label: "b@example.com",
+      accounts: [{ id: "app-1", email: "larry@example.com", label: "", connected: true }],
     },
   );
   render(<ChatGptPlanSection />);
@@ -144,10 +147,26 @@ test("a connected account switches to another one still connected, with no sign-
 
 test("a failed switch says so", async () => {
   server(
-    { ...CONNECTED, accounts: [{ id: "app-2", email: "", connected: true }] },
+    { ...CONNECTED, accounts: [{ id: "app-2", email: "", label: "", connected: true }] },
     new Response("", { status: 500 }),
   );
   render(<ChatGptPlanSection />);
   fireEvent.click(await screen.findByRole("button", { name: "Switch to an earlier account" }));
   expect((await screen.findByRole("alert")).textContent).toMatch(/could not be switched/);
+});
+
+test("accounts that share an email are told apart by their labels", async () => {
+  server({
+    ...CONNECTED,
+    label: "larry@example.com (2)",
+    accounts: [
+      { id: "app-1", email: "larry@example.com", label: "larry@example.com", connected: true },
+      { id: "app-3", email: "larry@example.com", label: "larry@example.com (3)", connected: false },
+    ],
+  });
+  render(<ChatGptPlanSection />);
+  expect(await screen.findByText("larry@example.com (2)")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Switch to larry@example.com" })).toBeTruthy();
+  const third = screen.getByRole("link", { name: "larry@example.com (3)" });
+  expect(third.getAttribute("href")).toBe("/api/chatgpt/sign-in?account=app-3");
 });

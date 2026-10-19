@@ -203,6 +203,32 @@ class ChatGptSignIn:
             return {}
         return {str(r["client_id"]): r for r in found if isinstance(r, dict) and r.get("client_id")}
 
+    @staticmethod
+    def _label(base: str, taken: list[str]) -> str:
+        """A new registration's label: its email, numbered when another registration already
+        shows it, since one ChatGPT email can be registered more than once (another workspace).
+        It is saved with the registration, so it stays the same on every reload."""
+        if base not in taken:
+            return base
+        n = 2
+        while f"{base} ({n})" in taken:
+            n += 1
+        return f"{base} ({n})"
+
+    @classmethod
+    def _labels(cls, registrations: dict[str, dict[str, Any]]) -> dict[str, str]:
+        """Each registration's label; one saved without a label gets one in file order."""
+        labels: dict[str, str] = {}
+        for cid, r in registrations.items():
+            saved = r.get("label")
+            if isinstance(saved, str) and saved and saved not in labels.values():
+                labels[cid] = saved
+        for cid, r in registrations.items():
+            if cid not in labels:
+                base = r.get("email") or r.get("name") or "ChatGPT account"
+                labels[cid] = cls._label(base, list(labels.values()))
+        return labels
+
     def status(self) -> dict[str, Any]:
         """For the Settings page: the account in use and whether it is connected, never its
         tokens, and the other accounts this app is registered for."""
@@ -210,14 +236,22 @@ class ChatGptSignIn:
         registrations = self._registrations(saved)
         active = registrations.get(str(saved.get("active", ""))) or {}
         credentials = active.get("credentials") or {}
+        labels = self._labels(registrations)
         return {
             "connected": bool(credentials),
             "email": active.get("email", "") if credentials else "",
             "name": active.get("name", "") if credentials else "",
             "plan_usage": PLAN_SCOPE in credentials.get("scopes", []),
             "registered_email": active.get("email", ""),
+            # The account in use, as the page shows it: distinct even when emails are the same.
+            "label": labels.get(str(active.get("client_id", "")), ""),
             "accounts": [
-                {"id": cid, "email": r.get("email", ""), "connected": bool(r.get("credentials"))}
+                {
+                    "id": cid,
+                    "email": r.get("email", ""),
+                    "label": labels[cid],
+                    "connected": bool(r.get("credentials")),
+                }
                 for cid, r in registrations.items()
                 if r is not active
             ],
@@ -391,8 +425,12 @@ class ChatGptSignIn:
                     f"That's a different ChatGPT account from {email} this app is registered "
                     'to. Use "Use another ChatGPT account" to switch.'
                 )
+            labels = self._labels(registrations)
+            base = identity.get("email") or identity.get("name") or "ChatGPT account"
+            label = labels.get(client_id) or self._label(base, list(labels.values()))
             registrations[client_id] = {
                 "client_id": client_id,
+                "label": label,
                 "subject": identity["sub"],
                 "email": identity.get("email", ""),
                 "name": identity.get("name", ""),
