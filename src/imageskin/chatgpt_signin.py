@@ -77,8 +77,10 @@ class _Pending:
     nonce: str
     redirect_uri: str
     started: float
-    # The client ID it was started with, when this app was already registered.
+    # The client ID it was started with, when this app was already registered, or when a new
+    # registration's code was refused and it is tried again (`provisional`).
     client_id: str = ""
+    provisional: bool = False
 
 
 def _http(url: str, form: dict[str, str] | None) -> tuple[int, Any]:
@@ -151,9 +153,12 @@ class ChatGptSignIn:
     chatgpt.json holds the host ID, one registration per ChatGPT account this app was registered
     (its issued client ID, verified account and retained ID token) with that account's own
     credentials (tokens, scopes and expiry, or null after Disconnect), and which registration is
-    in use (`active`). Signing in or out changes only its own registration, so switching accounts
-    leaves the others' credentials as they were. A registration is only written once its code is
-    swapped and its identity checked, so a sign-in that fails leaves the file as it was."""
+    in use (`active`). A new registration whose code was refused keeps its issued client ID as
+    `provisional`, never as an account, so the next new sign-in uses it rather than registering
+    the app again; it becomes a registration once a sign-in through it checks out. Signing in or
+    out changes only its own registration, so switching accounts leaves the others' credentials as
+    they were. A registration is only written once its code is swapped and its identity checked,
+    so a sign-in that fails leaves the accounts as they were."""
 
     def __init__(
         self,
@@ -271,13 +276,19 @@ class ChatGptSignIn:
         chosen = account if account in registrations else str(saved.get("active", ""))
         registration = None if another else registrations.get(chosen)
         registered = str(registration["client_id"]) if registration else ""
+        provisional = str(saved.get("provisional", ""))
+        retrying = not registration and bool(CLIENT_ID.match(provisional))
+        if retrying:
+            registered = provisional
         verifier, state, nonce = (_b64(secrets.token_bytes(32)) for _ in range(3))
         now = self._clock()
         with self._lock:
             self._pending = {s: p for s, p in self._pending.items() if now - p.started < PENDING_S}
             while len(self._pending) >= MOST_PENDING:
                 self._pending.pop(next(iter(self._pending)))
-            self._pending[state] = _Pending(verifier, nonce, redirect_uri, now, registered)
+            self._pending[state] = _Pending(
+                verifier, nonce, redirect_uri, now, registered, provisional=retrying
+            )
         params = {
             "client_id": registered or REGISTER_CLIENT,
             "response_type": "code",
@@ -301,7 +312,12 @@ class ChatGptSignIn:
             params["prompt"] = "consent"
         logger.info(
             "Signing in with ChatGPT",
-            extra={"registered": bool(registered), "consent": consent, "another": another},
+            extra={
+                "registered": bool(registration),
+                "retrying_registration": retrying,
+                "consent": consent,
+                "another": another,
+            },
         )
         return f"{endpoints['authorization_endpoint']}?{urllib.parse.urlencode(params)}"
 
@@ -340,6 +356,10 @@ class ChatGptSignIn:
         if status != 200 or not isinstance(data, dict) or not data.get("access_token"):
             error = data.get("error", "") if isinstance(data, dict) else ""
             logger.error("ChatGPT sign-in code refused", extra={"status": status, "error": error})
+            if error == "invalid_grant" and (not pending.client_id or pending.provisional):
+                # OpenAI's recovery: drop the code but keep the issued client ID, and start the
+                # next new sign-in with it rather than registering the app again.
+                self._update(lambda saved: {**saved, "provisional": client_id})
             raise SignInError("ChatGPT didn't accept the sign-in. Sign in again.")
         identity = verified_claims(str(data.get("id_token", "")), self._key)
         audience = identity.get("aud")
@@ -362,7 +382,8 @@ class ChatGptSignIn:
         def commit(saved: dict[str, Any]) -> dict[str, Any]:
             registrations = self._registrations(saved)
             bound = registrations.get(client_id)
-            if pending.client_id and (bound is None or bound.get("subject") != identity["sub"]):
+            returning = pending.client_id and not pending.provisional
+            if returning and (bound is None or bound.get("subject") != identity["sub"]):
                 logger.error("ChatGPT sign-in came back as another account")
                 email = (bound or {}).get("email") or "the one"
                 raise SignInError(
@@ -377,14 +398,17 @@ class ChatGptSignIn:
                 "id_token": data["id_token"],
                 "credentials": credentials,
             }
-            return {**saved, "registrations": list(registrations.values()), "active": client_id}
+            kept = {k: v for k, v in saved.items() if k != "provisional"}
+            if saved.get("provisional") not in (None, client_id):
+                kept["provisional"] = saved["provisional"]
+            return {**kept, "registrations": list(registrations.values()), "active": client_id}
 
         self._update(commit)
         logger.info(
             "Signed in with ChatGPT",
             extra={
                 "plan_usage": PLAN_SCOPE in credentials["scopes"],
-                "new_registration": not pending.client_id,
+                "new_registration": not pending.client_id or pending.provisional,
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )

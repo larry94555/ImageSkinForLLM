@@ -319,7 +319,10 @@ def test_a_failed_switch_leaves_the_saved_sign_in_unchanged(
     openai.claims = {"sub": "user-2"}
     with pytest.raises(SignInError):
         signin.finish({"state": query["state"], "code": "c2", "client_id": "app-456"})
-    assert (tmp_path / cs.FILENAME).read_bytes() == before
+    after = json.loads((tmp_path / cs.FILENAME).read_text())
+    # A refused code keeps only the issued client ID, to try again with; no account changes.
+    assert after.pop("provisional", None) == ("app-456" if failure == "code" else None)
+    assert after == json.loads(before)
 
 
 def test_two_sign_ins_finishing_out_of_order_keep_their_own_accounts(
@@ -430,8 +433,47 @@ def test_a_refused_code_saves_no_registration(
     with pytest.raises(SignInError, match="didn't accept"):
         signin.finish({"state": query["state"], "code": "c", "client_id": "app-9"})
     assert "ChatGPT sign-in code refused" in caplog.text
-    # Only a checked sign-in is kept, so the next one registers again.
-    assert authorize(signin, openai)["client_id"] == cs.REGISTER_CLIENT
+    assert signin.status()["registered_email"] == ""  # no account is saved
+
+
+def test_a_refused_code_retries_with_the_issued_client_id(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    def saved() -> dict[str, Any]:
+        return dict(json.loads((tmp_path / cs.FILENAME).read_text()))
+
+    first = authorize(signin, openai)
+    signin.finish({"state": first["state"], "code": "c1", "client_id": "app-1"})
+    kept = saved()["registrations"]
+    # A new registration's callback comes with client ID app-123, but its code is refused.
+    url = signin.start(REDIRECT, another=True)
+    new = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    assert new["client_id"] == cs.REGISTER_CLIENT
+    openai.token_status = 400
+    with pytest.raises(SignInError, match="didn't accept"):
+        signin.finish({"state": new["state"], "code": "c2", "client_id": "app-123"})
+    assert (saved()["registrations"], saved()["active"]) == (kept, "app-1")
+    assert signin.status()["email"] == "larry@example.com"
+    # The retry authorizes with the issued app-123, with fresh state, nonce and PKCE.
+    url = signin.start(REDIRECT, another=True)
+    retry = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    assert retry["client_id"] == "app-123"
+    assert retry["agent_name_hint"] == "ImageSkinForLLM"
+    assert "id_token_hint" not in retry
+    for fresh in ("state", "nonce", "code_challenge"):
+        assert retry[fresh] != new[fresh]
+    # A second refusal keeps it too; then a sign-in that checks out makes it an account.
+    with pytest.raises(SignInError):
+        signin.finish({"state": retry["state"], "code": "c3", "client_id": "app-123"})
+    assert saved()["provisional"] == "app-123"
+    url = signin.start(REDIRECT, another=True)
+    retry = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    openai.token_status = 200
+    openai.nonce, openai.claims = retry["nonce"], {"sub": "user-2", "email": "b@example.com"}
+    status = signin.finish({"state": retry["state"], "code": "c4"})
+    assert (status["email"], openai.forms[-1][1]["client_id"]) == ("b@example.com", "app-123")
+    assert "provisional" not in saved()
+    assert saved()["registrations"][0] == kept[0]
 
 
 def test_a_sign_in_is_used_once_and_expires(tmp_path: Path, openai: FakeOpenAi) -> None:
