@@ -70,7 +70,8 @@ test("with a default person chosen, setup is done without consent (R24c)", async
   server(false, null, true, false, chosen);
   render(<HomePage consented={false} />);
   expect(await screen.findByText("Welcome back")).toBeTruthy();
-  expect(hrefs()).toEqual({ Chat: "#/chat", "Manage Content": "#/content", Setup: "#/consent" });
+  // Setup chooses another default person, or leads on to the user's own.
+  expect(hrefs()).toEqual({ Chat: "#/chat", "Manage Content": "#/content", Setup: "#/start-now" });
   const portrait = screen.getByRole("img", { name: "The person in the video" });
   expect(portrait.getAttribute("src")).toBe("/api/start-now/picture");
 });

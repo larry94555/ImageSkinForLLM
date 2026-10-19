@@ -2364,7 +2364,8 @@ async function loadHome(consented) {
 			console.info("Home loaded (a default person is chosen)");
 			return {
 				done: true,
-				photo: DEFAULT_PICTURE
+				photo: DEFAULT_PICTURE,
+				defaultPerson: true
 			};
 		}
 	} catch (e) {
@@ -2394,7 +2395,7 @@ async function loadHome(consented) {
 		};
 	}
 }
-function choices(done, consented) {
+function choices(done, consented, defaultPerson = false) {
 	const setupHref = consented ? "#/setup" : "#/consent";
 	if (!done) return [{
 		href: "#/start-now",
@@ -2416,7 +2417,11 @@ function choices(done, consented) {
 			title: "Manage Content",
 			text: "Add, replace or remove the PDFs that answers come from."
 		},
-		{
+		defaultPerson ? {
+			href: "#/start-now",
+			title: "Setup",
+			text: "Choose another default person, or use your own photos and voice."
+		} : {
 			href: setupHref,
 			title: "Setup",
 			text: "Change the photos, the voice recordings or the accent."
@@ -2458,7 +2463,7 @@ function HomePage({ consented, landing = false }) {
 			})] })]
 		}), /* @__PURE__ */ u("ul", {
 			className: state.done ? "choices three" : "choices two",
-			children: choices(state.done, consented).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
+			children: choices(state.done, consented, state.defaultPerson).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
 				href: c.href,
 				children: [
 					/* @__PURE__ */ u(ChoiceIcon, { href: c.href }),

@@ -17,6 +17,7 @@ interface Choice {
 export interface HomeState {
   done: boolean;
   photo: string | null;
+  defaultPerson?: boolean; // the person is a default one (R24c)
 }
 
 // With a default person chosen (R24c), setup is done. Otherwise, before consent, setup can't be
@@ -25,7 +26,7 @@ export async function loadHome(consented: boolean): Promise<HomeState> {
   try {
     if ((await getStartNow()).chosen) {
       console.info("Home loaded (a default person is chosen)");
-      return { done: true, photo: DEFAULT_PICTURE };
+      return { done: true, photo: DEFAULT_PICTURE, defaultPerson: true };
     }
   } catch (e) {
     console.error("Could not read the default person", e);
@@ -51,7 +52,7 @@ export async function loadHome(consented: boolean): Promise<HomeState> {
   }
 }
 
-export function choices(done: boolean, consented: boolean): Choice[] {
+export function choices(done: boolean, consented: boolean, defaultPerson = false): Choice[] {
   const setupHref = consented ? "#/setup" : "#/consent";
   if (!done) {
     return [
@@ -78,11 +79,17 @@ export function choices(done: boolean, consented: boolean): Choice[] {
       title: "Manage Content",
       text: "Add, replace or remove the PDFs that answers come from.",
     },
-    {
-      href: setupHref,
-      title: "Setup",
-      text: "Change the photos, the voice recordings or the accent.",
-    },
+    defaultPerson
+      ? {
+          href: "#/start-now",
+          title: "Setup",
+          text: "Choose another default person, or use your own photos and voice.",
+        }
+      : {
+          href: setupHref,
+          title: "Setup",
+          text: "Change the photos, the voice recordings or the accent.",
+        },
   ];
 }
 
@@ -125,7 +132,7 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
         </div>
       </div>
       <ul className={state.done ? "choices three" : "choices two"}>
-        {choices(state.done, consented).map((c) => (
+        {choices(state.done, consented, state.defaultPerson).map((c) => (
           <li key={c.title}>
             <a href={c.href}>
               <ChoiceIcon href={c.href} />
