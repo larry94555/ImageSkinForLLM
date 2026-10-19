@@ -11,26 +11,50 @@ import pytest
 from imageskin import default_people as dp
 from imageskin.photoreal_library import LIBRARY_VERSION, key_frames, library_key, mouth_key
 
+FIRST = [p for p in dp.people() if p.face == 1]
+SECOND = [p for p in dp.people() if p.face == 2]
+
 
 def test_there_is_one_person_for_each_gender_realism_and_role() -> None:
-    found = dp.people()
-    assert len(found) == 36
-    assert {(p.gender, p.realism, p.role) for p in found} == {
+    assert len(FIRST) == 36
+    assert {(p.gender, p.realism, p.role) for p in FIRST} == {
         (g, r, role) for g in dp.GENDERS for r in dp.REALISMS for role in dp.ROLES
     }
-    assert len({p.name for p in found}) == 36
+    assert len({p.name for p in dp.people()}) == 60
 
 
 def test_looks_are_spread_over_roles_and_realisms() -> None:
-    found = dp.people()
     for role in dp.ROLES:
         # A role's four people all look different.
-        assert len({p.look for p in found if p.role == role}) == 4
+        assert len({p.look for p in FIRST if p.role == role}) == 4
     for g in dp.GENDERS:
         for r in dp.REALISMS:
             # Each gender and realism shows every look once.
-            group = [p.look for p in found if p.gender == g and p.realism == r]
+            group = [p.look for p in FIRST if p.gender == g and p.realism == r]
             assert Counter(group) == Counter(dp.LOOKS)
+
+
+OLDER_ROLES = {"Professor", "Parent", "Boss", "Office Manager", "High School Teacher"}
+OLDER_ROLES |= {"Business Consultant"}
+
+
+def test_second_faces_are_six_for_each_gender_and_realism() -> None:
+    assert len(SECOND) == 24
+    assert Counter((p.gender, p.realism) for p in SECOND) == {
+        (g, r): 6 for g in dp.GENDERS for r in dp.REALISMS
+    }
+    # Each is a second face for a different one of the 36 choices.
+    assert len({(p.gender, p.realism, p.role) for p in SECOND}) == 24
+    for g in dp.GENDERS:
+        for r in dp.REALISMS:
+            group = [p for p in SECOND if p.gender == g and p.realism == r]
+            # What the prompts ask for in each group; the pictures are checked by
+            # tools/default_people/looks_shown.json.
+            assert sum("Indigenous" in p.look for p in group) >= 1
+            assert sum("glasses" in p.look for p in group) >= 3
+            assert sum("wheelchair" in p.look or "hearing aid" in p.look for p in group) >= 2
+            older = [p for p in group if p.age]
+            assert len(older) >= 3 and all(p.role in OLDER_ROLES for p in older)
 
 
 def test_names() -> None:

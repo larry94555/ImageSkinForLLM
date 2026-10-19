@@ -45,6 +45,7 @@ IMAGE_REVISION = "60987f37e94cd59c36b1cba832b9f97b57395a10"
 STEPS = 25
 SIZE = 1024
 MAX_SEEDS = 3
+MAX_TOKENS = 77
 LINE = "Hello! It's nice to meet you. What would you like to talk about today?"
 # The mouth must move this many times more while talking than in the idle loop.
 MIN_MOUTH_RATIO = 1.5
@@ -85,10 +86,20 @@ FRAMING = (
     "head and shoulders, facing and looking at the camera, neutral expression, mouth closed, "
     "eyes open"
 )
+# Asking for head and shoulders leaves the wheelchair out, so these people leave the framing to
+# the wheelchair's description, which makes a waist-up picture (R24b2).
+WHEELCHAIR_FRAMING = "facing and looking at the camera, neutral expression, mouth closed"
 NEGATIVE = (
     "two people, profile, turned head, tilted head, hands, glasses, sunglasses, hat, mask, "
     "hair over eyes, open mouth, teeth, blurry, dark, low quality, deformed, text, watermark"
 )
+
+
+def negative(person: Person) -> str:
+    """What the picture must not show. Glasses are left out of it for people who wear them."""
+    if "glasses" not in person.look:
+        return NEGATIVE
+    return NEGATIVE.replace(" glasses,", " tinted glasses, glare on glasses,")
 
 
 def prompt(person: Person) -> str:
@@ -96,6 +107,11 @@ def prompt(person: Person) -> str:
     encoders keep only 77 tokens, so what is past them is dropped, and a look put after the
     style and framing was ignored (R24a2)."""
     age, clothes, setting = ROLE_LOOKS[person.role]
+    age = person.age or age
+    wheelchair = "wheelchair" in person.look
+    style = REALISM[person.realism]
+    if wheelchair:  # "headshot" crops the wheelchair out
+        style = style.replace("headshot photograph", "photograph")
     who = "woman" if person.gender == "female" else "man"
     if person.role == "Teenager":
         who = "girl" if person.gender == "female" else "boy"
@@ -103,7 +119,7 @@ def prompt(person: Person) -> str:
         who = f"young {who}"
     return (
         f"one {who} {age}, {person.look}, wearing {clothes}, in {setting} softly blurred, "
-        f"{REALISM[person.realism]}, {FRAMING}"
+        f"{style}, {WHEELCHAIR_FRAMING if wheelchair else FRAMING}"
     )
 
 
@@ -129,7 +145,7 @@ class Result:
         return bool(self.pack) and not self.error and not self.problems
 
 
-MakePicture = Callable[[str, int, Path], None]
+MakePicture = Callable[[str, str, int, Path], None]  # prompt, negative, seed, output
 CheckPhoto = Callable[[Path], tuple[list[str], int | None]]
 
 
@@ -158,7 +174,7 @@ def make_picture_for(
     for seed in range(first or person.seed, person.seed + MAX_SEEDS):
         start = time.perf_counter()
         if seed != first:
-            make(result.prompt, seed, picture)
+            make(result.prompt, negative(person), seed, picture)
             result.picture_ms = _ms(start)
         result.seed, result.picture = seed, picture.name
         result.problems, result.score = check(picture)
@@ -273,7 +289,15 @@ def load_results(out: Path) -> dict[str, Result]:
     return {r["person"]: Result(**r) for r in json.loads(path.read_text(encoding="utf-8"))}
 
 
-def contact_sheet(out: Path, results: list[Result], columns: int = 9, side: int = 200) -> Path:
+def by_group(results: list[Result]) -> list[Result]:
+    """The results with each gender and realism's people together, first faces before second,
+    so a contact sheet of 15 columns has a row for each group."""
+    group = {p.name: (p.realism, p.gender) for p in people()}
+    order = [(r, g) for r in ("photoreal", "animated") for g in ("female", "male")]
+    return sorted(results, key=lambda r: order.index(group[r.person]))
+
+
+def contact_sheet(out: Path, results: list[Result], columns: int = 15, side: int = 200) -> Path:
     """All the pictures in one image, a row for each gender and realism, for a human look."""
     import cv2
 
@@ -291,7 +315,99 @@ def contact_sheet(out: Path, results: list[Result], columns: int = 9, side: int 
     return path
 
 
-def build_page(results: list[Result]) -> str:
+THUMBNAIL_SIDE = 128
+
+
+def thumbnail(picture: Path, output: Path) -> int:
+    """The small picture a face is picked by (R24c2): a 128 by 128 JPEG of about 10 KB, which
+    ships with the app. Returns its size in bytes."""
+    import cv2
+
+    image = cv2.imread(str(picture))
+    if image is None:
+        raise ValueError(f"{picture.name} is not a picture")
+    small = cv2.resize(image, (THUMBNAIL_SIDE, THUMBNAIL_SIDE), interpolation=cv2.INTER_AREA)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(output), small, [cv2.IMWRITE_JPEG_QUALITY, 85]):
+        raise ValueError(f"could not write {output.name}")
+    return output.stat().st_size
+
+
+# What each picture was seen to show, written by a person looking at it (R24b2): the prompt
+# asks, but SSD-1B can leave part of it out, so the counts below go by this file.
+LOOKS_SHOWN = Path(__file__).with_name("looks_shown.json")
+HERITAGES = (
+    "white",
+    "Black",
+    "East Asian",
+    "South Asian",
+    "Latino",
+    "Middle Eastern",
+    "Southeast Asian",
+    "Indigenous",
+)
+# The least each group of gender and realism must show (Larry, 2026-10-17).
+LEAST = {"red hair": 1, "blond hair": 1, "glasses": 3, "older": 3, "disability": 2}
+OLDER_ROLES = {
+    "Professor",
+    "Parent",
+    "Boss",
+    "Office Manager",
+    "High School Teacher",
+    "Business Consultant",
+}
+
+
+def look_counts(shown: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """For each gender and realism, how many of its people show each look, and the heritages
+    seen. Older people count only in roles that suit it."""
+    counts: dict[str, dict[str, Any]] = {}
+    for person in people():
+        seen = shown.get(person.name, {})
+        group = counts.setdefault(
+            f"{person.realism} {person.gender}",
+            {"people": 0, "heritages": set(), **dict.fromkeys(LEAST, 0)},
+        )
+        group["people"] += 1
+        if seen.get("heritage"):
+            group["heritages"].add(seen["heritage"])
+        group["red hair"] += seen.get("hair") == "red"
+        group["blond hair"] += seen.get("hair") == "blond"
+        group["glasses"] += bool(seen.get("glasses"))
+        group["older"] += bool(seen.get("older")) and person.role in OLDER_ROLES
+        group["disability"] += bool(seen.get("disability"))
+    return counts
+
+
+def looks_missing(counts: dict[str, dict[str, Any]]) -> list[str]:
+    """What a group falls short of, in words; empty when every group meets every count."""
+    missing = []
+    for name, group in counts.items():
+        for heritage in HERITAGES:
+            if heritage not in group["heritages"]:
+                missing.append(f"{name}: no {heritage} person")
+        for look, least in LEAST.items():
+            if group[look] < least:
+                missing.append(f"{name}: {group[look]} with {look}, needs {least}")
+    return missing
+
+
+def looks_table(counts: dict[str, dict[str, Any]]) -> str:
+    heads = "".join(f"<th>{escape(look)}</th>" for look in LEAST)
+    rows = "".join(
+        f"<tr><td>{escape(name)}</td><td>{g['people']}</td>"
+        f"<td>{len(set(HERITAGES) & g['heritages'])} of {len(HERITAGES)}</td>"
+        + "".join(f"<td>{g[look]} (needs {least})</td>" for look, least in LEAST.items())
+        + "</tr>"
+        for name, g in counts.items()
+    )
+    return (
+        "<h2>Looks the pictures show</h2><table><tr><th>Group</th><th>People</th>"
+        f"<th>Heritages</th>{heads}</tr>{rows}</table>"
+    )
+
+
+def build_page(results: list[Result], shown: dict[str, dict[str, Any]] | None = None) -> str:
     passed = sum(r.passed for r in results)
     rows = "".join(
         f"<tr><td>{escape(r.person)}</td><td>{'yes' if r.passed else 'NO'}</td>"
@@ -318,19 +434,27 @@ Largest pack: {largest:.1f} MB (budget 50 MB). Pictures by {IMAGE_MODEL}
 <img src="contact-sheet.png" alt="All the default people">
 <table><tr><th>Person</th><th>Passed</th><th>Seed</th><th>Photo score</th>
 <th>Mouth moves (talking / idle)</th><th>Pack MB</th><th>Problem</th></tr>{rows}</table>
+{looks_table(look_counts(shown)) if shown else ""}
 </body></html>
 """
+
+
+def load_shown(path: Path = LOOKS_SHOWN) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    shown: dict[str, dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
+    return shown
 
 
 def write_results(out: Path, results: list[Result]) -> None:
     (out / "results.json").write_text(
         json.dumps([asdict(r) for r in results], indent=2) + "\n", encoding="utf-8"
     )
-    (out / "index.html").write_text(build_page(results), encoding="utf-8")
+    (out / "index.html").write_text(build_page(results, load_shown()), encoding="utf-8")
 
 
 def exit_status(results: list[Result], out: Path) -> int:
-    """0 only if all 36 passed and their packs are there, so a script or a shell can tell a
+    """0 only if all 60 passed and their packs are there, so a script or a shell can tell a
     failed run."""
     expected = sorted(p.name for p in people())
     ok = sorted(r.person for r in results) == expected and all(packed(r, out) for r in results)
@@ -359,10 +483,15 @@ def ssd1b_maker() -> tuple[MakePicture, Callable[[], None]]:  # pragma: no cover
         pipe.vae.enable_tiling()
         return pipe
 
-    def make(text: str, seed: int, path: Path) -> None:
+    def make(text: str, avoid: str, seed: int, path: Path) -> None:
+        # SSD-1B's text encoders read 77 tokens and silently drop the rest.
+        tokenizer: Any = pipeline().tokenizer  # type: ignore[attr-defined]
+        tokens = len(tokenizer(text).input_ids)
+        if tokens > MAX_TOKENS:
+            raise ValueError(f"the prompt is {tokens} tokens, over {MAX_TOKENS}")
         image = pipeline()(
             text,
-            negative_prompt=NEGATIVE,
+            negative_prompt=avoid,
             num_inference_steps=STEPS,
             height=SIZE,
             width=SIZE,
@@ -463,7 +592,12 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
         results[person.name] = run_video(person, results[person.name], out, steps)
         write_results(out, [results[p.name] for p in people() if p.name in results])
     ordered = [results[p.name] for p in people() if p.name in results]
-    contact_sheet(out, ordered)
+    for r in ordered:
+        if r.passed:
+            thumbnail(out / r.picture, out / "thumbnails" / f"{r.person}.jpg")
+    contact_sheet(out, by_group(ordered))
+    for missing in looks_missing(look_counts(load_shown())):
+        logger.warning("Look not shown yet", extra={"missing": missing})
     passed = sum(r.passed for r in ordered)
     logger.info(
         "Default people done",

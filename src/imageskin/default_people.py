@@ -1,8 +1,9 @@
-"""The ready-made default people (roadmap R24b, features.md items 56 to 58).
+"""The ready-made default people (roadmap R24b and R24b2, features.md items 56 to 58 and 60).
 
-Each of the 36 choices (gender, realism and role) is one made-up person: a picture made ahead of
-time by `tools/default_people/make_default_people.py`, and the photoreal frame library prepared
-from it. Accent doesn't change the picture; it picks one of Kokoro's ready-made voices.
+Each of the 36 choices (gender, realism and role) is one made-up person, and 24 of them have a
+second face (R24b2, item 60), 60 people in all: a picture made ahead of time by
+`tools/default_people/make_default_people.py`, and the photoreal frame library prepared from it.
+Accent doesn't change the picture; it picks one of Kokoro's ready-made voices.
 
 A person's pack is one zip holding the picture and the library, so a person is downloaded only
 when first chosen (item 57). The idle loop is packed as its rendered key frames only, as PNGs;
@@ -85,8 +86,9 @@ class Person:
     realism: str  # "photoreal" or "animated"
     role: str
     look: str
-    face: int = 1  # R24b2 adds faces 2 and 3 for each choice
+    face: int = 1  # 2 for R24b2's second faces
     seed: int = 1
+    age: str = ""  # an age other than the role's, for R24b2's older people
 
     @property
     def name(self) -> str:
@@ -96,15 +98,185 @@ class Person:
 
 
 def people() -> list[Person]:
-    """The 36 people, one per gender, realism and role. Within each gender and realism the nine
-    roles take the nine looks, each group starting two looks further on, so a role's four people
-    all look different."""
+    """The 60 people: one per gender, realism and role, then R24b2's second faces. Within each
+    gender and realism the nine roles take the nine looks, each group starting two looks further
+    on, so a role's four people all look different."""
     found = []
     for g, (gender, realism) in enumerate((g, r) for r in REALISMS for g in GENDERS):
         for r, role in enumerate(ROLES):
             look = LOOKS[(r + 2 * g) % len(LOOKS)]
             found.append(Person(gender, realism, role, look))
-    return found
+    return found + list(SECOND_FACES)
+
+
+# R24b2's 24 second faces, six for each gender and realism, filling what the first 36 lack so that
+# each group of 15 has (Larry, 2026-10-17): an Indigenous person, the one heritage of the eight
+# the first 36 leave out; at least three with clear glasses; at least three in their 60s or 70s,
+# only in roles that suit it; and at least two with a visible disability. Each group has the same
+# pattern over different roles and heritages: three older people (one with glasses, one with a
+# wheelchair, one Indigenous), a young person in a wheelchair and two more with glasses.
+# Which looks each picture actually shows is recorded in tools/default_people/looks_shown.json.
+SIXTIES, SEVENTIES = "in their late sixties", "in their seventies"
+# SSD-1B draws a wheelchair only when it comes first in the look and is described in full; it
+# drew no hearing aid, cochlear implant or white cane in R24b2's tries, so both visible
+# disabilities are wheelchairs.
+WHEELCHAIR = "sitting in a modern wheelchair, its backrest, push handles and wheels clearly visible"
+GLASSES = "wearing clear glasses"
+
+
+def _second(
+    gender: str, realism: str, role: str, look: str, age: str = "", seed: int = 1
+) -> Person:
+    return Person(gender, realism, role, look, face=2, age=age, seed=seed)
+
+
+SECOND_FACES = (
+    _second(
+        "female",
+        "photoreal",
+        "Professor",
+        f"Black, with deep brown skin and short grey hair, {GLASSES}",
+        SIXTIES,
+    ),
+    _second(
+        "female",
+        "photoreal",
+        "Parent",
+        f"{WHEELCHAIR}, East Asian, with light skin and short white hair",
+        SEVENTIES,
+        seed=2,  # seed 1 drew the face too small for the photo checks
+    ),
+    _second(
+        "female", "photoreal", "Boss", "Indigenous, with brown skin and long grey hair", SIXTIES
+    ),
+    _second(
+        "female",
+        "photoreal",
+        "Student",
+        f"South Asian, with brown skin and long dark hair, {WHEELCHAIR}",
+    ),
+    _second(
+        "female", "photoreal", "Teenager", f"Latino, with olive skin and dark wavy hair, {GLASSES}"
+    ),
+    _second(
+        "female",
+        "photoreal",
+        "Office Manager",
+        f"Middle Eastern, with light brown skin and dark hair, {GLASSES}",
+    ),
+    _second(
+        "male",
+        "photoreal",
+        "Office Manager",
+        f"white, with fair skin, grey hair and a grey beard, {GLASSES}",
+        SIXTIES,
+    ),
+    _second(
+        "male",
+        "photoreal",
+        "Parent",
+        # Heritage first: after the wheelchair, it was lost.
+        f"Black, with deep brown skin and short grey hair, {WHEELCHAIR}",
+        SEVENTIES,
+        seed=5,  # seeds 1 to 4 lost the wheelchair or drew the face too small
+    ),
+    _second(
+        "male",
+        "photoreal",
+        "Business Consultant",
+        "Indigenous, with brown skin and grey hair in a ponytail",
+        SIXTIES,
+    ),
+    _second(
+        "male",
+        "photoreal",
+        "Teaching Assistant",
+        f"{WHEELCHAIR}, East Asian, with short black hair",
+    ),
+    _second(
+        "male",
+        "photoreal",
+        "Student",
+        f"Middle Eastern, with light brown skin and dark curly hair, {GLASSES}",
+    ),
+    _second(
+        "male", "photoreal", "Teenager", f"Southeast Asian, with tan skin and black hair, {GLASSES}"
+    ),
+    _second(
+        "female",
+        "animated",
+        "Business Consultant",
+        f"South Asian, with brown skin and grey hair in a bun, {GLASSES}",
+        SIXTIES,
+    ),
+    _second(
+        "female",
+        "animated",
+        "Professor",
+        f"{WHEELCHAIR}, white, with fair skin and short silver hair",
+        SEVENTIES,
+    ),
+    _second(
+        "female",
+        "animated",
+        "Office Manager",
+        "Indigenous, with brown skin and long grey braided hair",
+        SIXTIES,
+    ),
+    _second(
+        "female",
+        "animated",
+        "Teenager",
+        f"{WHEELCHAIR}, Black, with deep brown skin and curly black hair",
+        seed=3,  # seeds 1 and 2 drew the wheelchair too small or cropped it out
+    ),
+    _second(
+        "female",
+        "animated",
+        "Teaching Assistant",
+        f"East Asian, with light skin and black hair in a bob, {GLASSES}",
+    ),
+    _second(
+        "female",
+        "animated",
+        "High School Teacher",
+        f"Latino, with olive skin and dark brown hair, {GLASSES}",
+    ),
+    _second(
+        "male",
+        "animated",
+        "Parent",
+        f"Latino, with olive skin, grey hair and a grey moustache, {GLASSES}",
+        SIXTIES,
+    ),
+    _second(
+        "male",
+        "animated",
+        "Boss",
+        f"{WHEELCHAIR}, East Asian, with light skin and short white hair",
+        SEVENTIES,
+        seed=2,  # seed 1 drew the face too small for the photo checks
+    ),
+    _second(
+        "male",
+        "animated",
+        "High School Teacher",
+        "Indigenous, with brown skin and long grey hair",
+        SIXTIES,
+    ),
+    _second(
+        "male", "animated", "Student", f"{WHEELCHAIR}, white, with light skin and short blond hair"
+    ),
+    _second(
+        "male", "animated", "Teenager", f"South Asian, with brown skin and black hair, {GLASSES}"
+    ),
+    _second(
+        "male",
+        "animated",
+        "Teaching Assistant",
+        f"Black, with deep brown skin and short black hair, {GLASSES}",
+    ),
+)
 
 
 def voices_for(gender: str) -> list[tuple[str, str, str]]:

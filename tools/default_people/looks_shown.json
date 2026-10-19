@@ -1,0 +1,223 @@
+{
+ "photoreal_female_professor": {
+  "heritage": "Black"
+ },
+ "photoreal_female_teaching_assistant": {
+  "heritage": "East Asian"
+ },
+ "photoreal_female_student": {
+  "heritage": "South Asian"
+ },
+ "photoreal_female_parent": {
+  "heritage": "white",
+  "hair": "red"
+ },
+ "photoreal_female_teenager": {
+  "heritage": "Latino"
+ },
+ "photoreal_female_boss": {
+  "heritage": "Middle Eastern"
+ },
+ "photoreal_female_office_manager": {
+  "heritage": "white",
+  "hair": "blond"
+ },
+ "photoreal_female_high_school_teacher": {
+  "heritage": "Southeast Asian"
+ },
+ "photoreal_female_business_consultant": {
+  "heritage": "mixed race"
+ },
+ "photoreal_male_professor": {
+  "heritage": "South Asian"
+ },
+ "photoreal_male_teaching_assistant": {
+  "heritage": "white",
+  "hair": "red"
+ },
+ "photoreal_male_student": {
+  "heritage": "Latino"
+ },
+ "photoreal_male_parent": {
+  "heritage": "Middle Eastern"
+ },
+ "photoreal_male_teenager": {
+  "heritage": "white",
+  "hair": "blond"
+ },
+ "photoreal_male_boss": {
+  "heritage": "Southeast Asian"
+ },
+ "photoreal_male_office_manager": {
+  "heritage": "mixed race"
+ },
+ "photoreal_male_high_school_teacher": {
+  "heritage": "Black"
+ },
+ "photoreal_male_business_consultant": {
+  "heritage": "East Asian"
+ },
+ "animated_female_professor": {
+  "heritage": "Latino"
+ },
+ "animated_female_teaching_assistant": {
+  "heritage": "Middle Eastern"
+ },
+ "animated_female_student": {
+  "heritage": "white",
+  "hair": "blond"
+ },
+ "animated_female_parent": {
+  "heritage": "Southeast Asian"
+ },
+ "animated_female_teenager": {
+  "heritage": "mixed race"
+ },
+ "animated_female_boss": {
+  "heritage": "Black"
+ },
+ "animated_female_office_manager": {
+  "heritage": "East Asian"
+ },
+ "animated_female_high_school_teacher": {
+  "heritage": "South Asian"
+ },
+ "animated_female_business_consultant": {
+  "heritage": "white",
+  "hair": "red"
+ },
+ "animated_male_professor": {
+  "heritage": "white",
+  "hair": "blond"
+ },
+ "animated_male_teaching_assistant": {
+  "heritage": "Southeast Asian"
+ },
+ "animated_male_student": {
+  "heritage": "mixed race"
+ },
+ "animated_male_parent": {
+  "heritage": "Black"
+ },
+ "animated_male_teenager": {
+  "heritage": "East Asian"
+ },
+ "animated_male_boss": {
+  "heritage": "South Asian"
+ },
+ "animated_male_office_manager": {
+  "heritage": "white",
+  "hair": "red"
+ },
+ "animated_male_high_school_teacher": {
+  "heritage": "Latino"
+ },
+ "animated_male_business_consultant": {
+  "heritage": "Middle Eastern"
+ },
+ "photoreal_female_professor_2": {
+  "heritage": "unclear",
+  "glasses": true,
+  "older": true
+ },
+ "photoreal_female_parent_2": {
+  "heritage": "East Asian",
+  "older": true,
+  "disability": "wheelchair"
+ },
+ "photoreal_female_boss_2": {
+  "heritage": "Indigenous",
+  "older": true
+ },
+ "photoreal_female_student_2": {
+  "heritage": "South Asian",
+  "disability": "wheelchair"
+ },
+ "photoreal_female_teenager_2": {
+  "heritage": "Latino",
+  "glasses": true
+ },
+ "photoreal_female_office_manager_2": {
+  "heritage": "Middle Eastern",
+  "glasses": true
+ },
+ "photoreal_male_office_manager_2": {
+  "heritage": "white",
+  "older": true,
+  "glasses": true
+ },
+ "photoreal_male_parent_2": {
+  "heritage": "Black",
+  "older": true,
+  "disability": "wheelchair"
+ },
+ "photoreal_male_business_consultant_2": {
+  "heritage": "Indigenous",
+  "older": true
+ },
+ "photoreal_male_teaching_assistant_2": {
+  "heritage": "East Asian",
+  "disability": "wheelchair"
+ },
+ "photoreal_male_student_2": {
+  "heritage": "Middle Eastern",
+  "glasses": true
+ },
+ "photoreal_male_teenager_2": {
+  "heritage": "Southeast Asian",
+  "glasses": true
+ },
+ "animated_female_business_consultant_2": {
+  "heritage": "South Asian",
+  "older": true,
+  "glasses": true
+ },
+ "animated_female_professor_2": {
+  "heritage": "white",
+  "older": true,
+  "disability": "wheelchair"
+ },
+ "animated_female_office_manager_2": {
+  "heritage": "Indigenous",
+  "older": true
+ },
+ "animated_female_teenager_2": {
+  "heritage": "Black",
+  "disability": "wheelchair"
+ },
+ "animated_female_teaching_assistant_2": {
+  "heritage": "East Asian",
+  "glasses": true
+ },
+ "animated_female_high_school_teacher_2": {
+  "heritage": "Latino",
+  "glasses": true
+ },
+ "animated_male_parent_2": {
+  "heritage": "Latino",
+  "older": true,
+  "glasses": true
+ },
+ "animated_male_boss_2": {
+  "heritage": "East Asian",
+  "older": true,
+  "disability": "wheelchair"
+ },
+ "animated_male_high_school_teacher_2": {
+  "heritage": "Indigenous",
+  "older": true
+ },
+ "animated_male_student_2": {
+  "heritage": "white",
+  "hair": "blond",
+  "disability": "wheelchair"
+ },
+ "animated_male_teenager_2": {
+  "heritage": "South Asian",
+  "glasses": true
+ },
+ "animated_male_teaching_assistant_2": {
+  "heritage": "Black",
+  "glasses": true
+ }
+}
