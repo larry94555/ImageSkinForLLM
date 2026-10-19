@@ -346,6 +346,18 @@ async function chooseLlm(choice) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function listModels(provider, apiKey) {
+	const response = await fetch("/api/llm/models", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(apiKey ? {
+			provider,
+			api_key: apiKey
+		} : { provider })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).models;
+}
 //#endregion
 //#region src/change-setup.tsx
 var CHANGES = [
@@ -582,6 +594,8 @@ function LlmSettingSection() {
 	const [saving, setSaving] = d(false);
 	const [error, setError] = d(null);
 	const [saved, setSaved] = d(false);
+	const [models, setModels] = d(null);
+	const asking = A("");
 	h(() => {
 		getLlm().then((read) => {
 			if (!Array.isArray(read.providers)) throw new Error("The LLM setting has no providers");
@@ -593,10 +607,36 @@ function LlmSettingSection() {
 		});
 	}, []);
 	function pick(id, from = setting) {
+		const provider = from?.providers.find((p) => p.id === id);
 		setPicked(id);
 		setKey("");
-		setModel(from?.providers.find((p) => p.id === id)?.model ?? "");
+		setModel(provider?.model ?? "");
 		setSaved(false);
+		setModels(null);
+		asking.current = id;
+		if (provider?.has_key) lookUp(id);
+	}
+	async function lookUp(id, typedKey) {
+		asking.current = id;
+		setModels({ state: "loading" });
+		const started = performance.now();
+		try {
+			const ids = await listModels(id, typedKey);
+			if (asking.current !== id) return;
+			console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
+			setModels({
+				state: "listed",
+				ids
+			});
+		} catch (e) {
+			if (asking.current !== id) return;
+			console.error(`Could not list the models for ${id}`, e);
+			const error = e instanceof ServerRefusal ? e.message : "The models couldn't be listed.";
+			setModels({
+				state: "failed",
+				error
+			});
+		}
 	}
 	async function use() {
 		setSaving(true);
@@ -676,22 +716,24 @@ function LlmSettingSection() {
 								value: key,
 								placeholder: chosen.has_key ? "Saved. Paste a new key to replace it." : `From ${chosen.keys_at}`,
 								onInput: (e) => setKey(e.target.value),
+								onBlur: () => key.trim() && void lookUp(chosen.id, key.trim()),
 								disabled: saving
 							})] }),
 							/* @__PURE__ */ u("label", { children: ["Model", /* @__PURE__ */ u("input", {
 								type: "text",
+								list: "llm-models",
 								value: model,
 								placeholder: chosen.default_model,
 								onInput: (e) => setModel(e.target.value),
 								disabled: saving
 							})] }),
+							models?.state === "listed" && /* @__PURE__ */ u("datalist", {
+								id: "llm-models",
+								children: models.ids.map((id) => /* @__PURE__ */ u("option", { value: id }, id))
+							}),
 							/* @__PURE__ */ u("p", {
 								className: "muted",
-								children: [
-									"Leave the model blank for ",
-									chosen.default_model,
-									"."
-								]
+								children: modelsNote(models, model || chosen.default_model, chosen)
 							})
 						]
 					}),
@@ -718,6 +760,16 @@ function LlmSettingSection() {
 			})
 		]
 	});
+}
+function modelsNote(models, model, provider) {
+	const blank = `Leave the model blank for ${provider.default_model}.`;
+	if (models === null) return `${blank} Enter the key to see ${provider.label}'s models.`;
+	if (models.state === "loading") return `Looking up ${provider.label}'s models…`;
+	if (models.state === "failed") return `${models.error} You can still type a model's name.`;
+	const n = models.ids.length;
+	const listed = `${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
+	if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
+	return `${listed} ${blank}`;
 }
 function reason(e, fallback) {
 	return e instanceof ServerRefusal ? e.message : fallback;

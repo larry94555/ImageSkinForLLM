@@ -1,11 +1,14 @@
 """The LLM setting (roadmap R42): which LLM answers, with the user's API key."""
 
+import io
 import json
 import logging
 import os
 import threading
+import urllib.error
 from collections.abc import Iterator
 from dataclasses import replace
+from email.message import Message as HttpHeaders
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -296,3 +299,128 @@ def test_a_provider_without_a_key_is_refused(app: TestClient) -> None:
     refused = app.put("/api/llm", json={"provider": "claude"})
     assert refused.status_code == 400 and refused.json()["detail"] == "Enter your Claude API key."
     assert app.get("/api/llm").json()["provider"] == "local"
+
+
+# The models each provider offers (Larry, 2026-10-19: a fixed list goes out of date)
+
+
+class Lister:
+    """Stands in for the providers' list-models APIs."""
+
+    def __init__(self, answer: Any) -> None:
+        self.answer = answer
+        self.asked: list[tuple[str, dict[str, str]]] = []
+
+    def __call__(self, url: str, headers: dict[str, str]) -> Any:
+        self.asked.append((url, headers))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+def test_openai_lists_only_the_models_that_chat(caplog: pytest.LogCaptureFixture) -> None:
+    ids = ["gpt-5", "text-embedding-3-small", "tts-1", "whisper-1", "dall-e-3", "gpt-4.1-mini"]
+    fetch = Lister({"object": "list", "data": [{"id": i} for i in ids] + [{"no": "id"}]})
+    with caplog.at_level(logging.INFO):
+        assert lc.ModelLists(fetch).models("openai", KEY) == ["gpt-4.1-mini", "gpt-5"]
+    assert fetch.asked == [("https://api.openai.com/v1/models", {"Authorization": f"Bearer {KEY}"})]
+    listed = next(r for r in caplog.records if r.message == "Listed the provider's models")
+    assert vars(listed)["models"] == 2 and KEY not in caplog.text
+
+
+def test_grok_lists_its_language_models() -> None:
+    fetch = Lister({"models": [{"id": "grok-4"}, {"id": "grok-3-mini"}]})
+    assert lc.ModelLists(fetch).models("grok", KEY) == ["grok-3-mini", "grok-4"]
+    assert fetch.asked[0][0] == "https://api.x.ai/v1/language-models"
+
+
+def test_openrouter_lists_the_models_that_write_text() -> None:
+    fetch = Lister(
+        {
+            "data": [
+                {"id": "openai/gpt-5", "architecture": {"output_modalities": ["text"]}},
+                {"id": "x/image-maker", "architecture": {"output_modalities": ["image"]}},
+                {"id": "meta/llama"},
+            ]
+        }
+    )
+    assert lc.ModelLists(fetch).models("openrouter", KEY) == ["meta/llama", "openai/gpt-5"]
+    assert fetch.asked[0][0] == "https://openrouter.ai/api/v1/models"
+
+
+def test_claude_lists_through_its_sdk() -> None:
+    keys: list[str] = []
+    lists = lc.ModelLists(Lister({}), claude=lambda key: keys.append(key) or ["claude-x"])  # type: ignore[func-returns-value]
+    assert lists.models("claude", KEY) == ["claude-x"] and keys == [KEY]
+
+
+def test_a_list_is_kept_a_while_for_each_key() -> None:
+    now = [0.0]
+    fetch = Lister({"data": [{"id": "gpt-5"}]})
+    lists = lc.ModelLists(fetch, clock=lambda: now[0])
+    lists.models("openai", KEY)
+    lists.models("openai", KEY)
+    assert len(fetch.asked) == 1
+    lists.models("openai", "another-key")
+    assert len(fetch.asked) == 2
+    now[0] = lc.MODELS_KEPT_S + 1
+    lists.models("openai", KEY)
+    assert len(fetch.asked) == 3
+
+
+def http_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://x", code, "no", HttpHeaders(), io.BytesIO(b""))
+
+
+@pytest.mark.parametrize(
+    ("answer", "said"),
+    [
+        (http_error(401), "Grok refused the API key."),
+        (http_error(500), r"Grok couldn't list its models \(500\)."),
+        (urllib.error.URLError("down"), "Grok's models couldn't be listed. Try again."),
+        ({"error": "what"}, "Grok's models couldn't be listed. Try again."),
+        ({"models": []}, "Grok listed no models for this key."),
+    ],
+)
+def test_a_list_that_cant_be_had_says_why(
+    answer: Any, said: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with pytest.raises(lc.ModelListError, match=said):
+        lc.ModelLists(Lister(answer)).models("grok", KEY)
+    assert KEY not in caplog.text
+
+
+def test_only_a_provider_with_a_key_can_be_listed() -> None:
+    lists = lc.ModelLists(Lister({}))
+    with pytest.raises(lc.ModelListError, match="Only a provider"):
+        lists.models("local", KEY)
+    with pytest.raises(lc.ModelListError, match="Enter your Grok API key first"):
+        lists.models("grok", "")
+
+
+def test_the_app_lists_models_with_the_key_given_or_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fetch = Lister({"models": [{"id": "grok-4"}]})
+    monkeypatch.setattr("imageskin.app.ModelLists", lambda: lc.ModelLists(fetch))
+    app = TestClient(
+        create_app(
+            tmp_path,
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=lambda photo, text, output: None,
+            ask_llm=lambda messages: "Hi",
+        )
+    )
+    missing = app.post("/api/llm/models", json={"provider": "grok"})
+    assert missing.status_code == 400 and "Enter your Grok API key" in missing.json()["detail"]
+    given = app.post("/api/llm/models", json={"provider": "grok", "api_key": " typed "})
+    assert given.json() == {"models": ["grok-4"]}
+    assert fetch.asked[-1][1] == {"Authorization": "Bearer typed"}
+    lc.save_choice(tmp_path, "grok", "saved-key")
+    app.post("/api/llm/models", json={"provider": "grok"})
+    assert fetch.asked[-1][1] == {"Authorization": "Bearer saved-key"}
+    assert app.post("/api/llm/models", json={"provider": "duke"}).status_code == 400
+    fetch.answer = http_error(401)
+    refused = app.post("/api/llm/models", json={"provider": "grok", "api_key": "bad"})
+    assert refused.status_code == 502 and refused.json()["detail"] == "Grok refused the API key."

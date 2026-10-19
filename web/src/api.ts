@@ -821,3 +821,15 @@ export async function chooseLlm(choice: {
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as LlmSetting;
 }
+
+// The models a provider offers to the key given, or to the saved one (R42). Throws a
+// ServerRefusal saying why when they can't be listed.
+export async function listModels(provider: string, apiKey?: string): Promise<string[]> {
+  const response = await fetch("/api/llm/models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(apiKey ? { provider, api_key: apiKey } : { provider }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { models: string[] }).models;
+}

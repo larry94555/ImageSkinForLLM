@@ -38,7 +38,15 @@ from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.delete_data import Deleted, delete_my_data
-from imageskin.llm_choice import SwitchableLlm, described, load_choice, save_choice
+from imageskin.llm_choice import (
+    PROVIDERS,
+    ModelListError,
+    ModelLists,
+    SwitchableLlm,
+    described,
+    load_choice,
+    save_choice,
+)
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
@@ -125,6 +133,11 @@ class LlmRequest(BaseModel):
     provider: str
     api_key: str | None = None  # kept from before when left out
     model: str | None = None  # blank for the provider's default; kept when left out
+
+
+class ModelsRequest(BaseModel):
+    provider: str
+    api_key: str | None = None  # the saved key when left out
 
 
 class StartNowRequest(BaseModel):
@@ -1049,6 +1062,20 @@ def create_app(
             extra={"provider": choice.provider, "duration_ms": ms_since(start)},
         )
         return described(choice)
+
+    model_lists = ModelLists()
+
+    # The models a provider offers to the key just entered, or the saved one (R42).
+    @app.post("/api/llm/models")
+    def post_llm_models(body: ModelsRequest) -> dict[str, list[str]]:
+        if body.provider not in PROVIDERS:
+            raise HTTPException(status_code=400, detail=f"There is no LLM called {body.provider}.")
+        key = (body.api_key or "").strip() or load_choice(data_home).keys.get(body.provider, "")
+        try:
+            return {"models": model_lists.models(body.provider, key)}
+        except ModelListError as e:
+            status = 400 if not key or body.provider == "local" else 502
+            raise HTTPException(status_code=status, detail=str(e)) from e
 
     @app.get("/api/chat", dependencies=needs_person)
     def get_chat() -> dict[str, object]:

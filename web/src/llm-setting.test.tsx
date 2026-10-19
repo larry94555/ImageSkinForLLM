@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { LlmProvider, LlmSetting } from "./api";
-import { LlmSettingSection } from "./llm-setting";
+import { LlmSettingSection, modelsNote } from "./llm-setting";
 
 function provider(id: string, label: string, extra: Partial<LlmProvider> = {}): LlmProvider {
   return { id, label, keys_at: `${id}.example`, model: "", default_model: `${id}-model`, has_key: false, ...extra };
@@ -17,9 +17,15 @@ const LOCAL: LlmSetting = {
   ],
 };
 
-// A fake server: GET /api/llm answers `read`; PUT answers `put` and is recorded.
-function server(read: LlmSetting | Response, put: LlmSetting | Response = read) {
+// A fake server: GET /api/llm answers `read`; PUT answers `put` and is recorded. The models
+// are listed as `models` answers.
+function server(
+  read: LlmSetting | Response,
+  put: LlmSetting | Response = read,
+  models: () => Response = () => Response.json({ models: ["claude-opus-5-5", "claude-sonnet-5-5"] }),
+) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/llm/models") return models();
     if (url !== "/api/llm") return new Response("", { status: 404 });
     const answer = init?.method === "PUT" ? put : read;
     return answer instanceof Response ? answer : Response.json(answer);
@@ -121,4 +127,60 @@ test("a setting that can't be read says so", async () => {
   render(<LlmSettingSection />);
   expect((await screen.findByRole("alert")).textContent).toContain("could not be read");
   expect(screen.queryByRole("button", { name: "Use this LLM" })).toBeNull();
+});
+
+test("a provider with a saved key offers the models it lists", async () => {
+  const fetchMock = server(LOCAL);
+  render(<LlmSettingSection />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Claude/ }));
+  expect(await screen.findByText(/^2 models available: pick one or type a name\./)).toBeTruthy();
+  const options = [...document.querySelectorAll("#llm-models option")].map((o) => o.getAttribute("value"));
+  expect(options).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
+  expect(screen.getByLabelText("Model").getAttribute("list")).toBe("llm-models");
+  const asked = fetchMock.mock.calls.find(([url]) => url === "/api/llm/models")!;
+  expect(JSON.parse(asked[1]!.body as string)).toEqual({ provider: "claude" });
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Listed 2 models for claude \(\d+ ms\)$/));
+});
+
+test("a key just entered is used to list the models, and a missing default is pointed out", async () => {
+  const fetchMock = server(LOCAL, LOCAL, () => Response.json({ models: ["grok-5"] }));
+  render(<LlmSettingSection />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Grok/ }));
+  expect(screen.getByText(/Enter the key to see Grok's models/)).toBeTruthy();
+  const key = screen.getByLabelText("API key");
+  fireEvent.input(key, { target: { value: " xai-1 " } });
+  fireEvent.blur(key);
+  expect(await screen.findByText(/grok-model isn't in Grok's list for this key/)).toBeTruthy();
+  const asked = fetchMock.mock.calls.find(([url]) => url === "/api/llm/models")!;
+  expect(JSON.parse(asked[1]!.body as string)).toEqual({ provider: "grok", api_key: "xai-1" });
+});
+
+test("models that can't be listed still let a name be typed", async () => {
+  server(LOCAL, LOCAL, () => Response.json({ detail: "Claude refused the API key." }, { status: 502 }));
+  render(<LlmSettingSection />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Claude/ }));
+  expect(
+    await screen.findByText("Claude refused the API key. You can still type a model's name."),
+  ).toBeTruthy();
+  expect(document.querySelector("#llm-models")).toBeNull();
+});
+
+test("a late list for a provider no longer picked is dropped", async () => {
+  let answer: (r: Response) => void = () => {};
+  server(LOCAL, LOCAL, () => new Promise<Response>((r) => (answer = r)) as unknown as Response);
+  render(<LlmSettingSection />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Claude/ }));
+  expect(screen.getByText("Looking up Claude's models…")).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: /Grok/ }));
+  answer(Response.json({ models: ["claude-x"] }));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(screen.getByText(/Enter the key to see Grok's models/)).toBeTruthy();
+});
+
+test("the note under the Model box", () => {
+  const grok = provider("grok", "Grok");
+  expect(modelsNote({ state: "listed", ids: ["grok-model"] }, "grok-model", grok)).toBe(
+    "1 model available: pick one or type a name. Leave the model blank for grok-model.",
+  );
+  expect(modelsNote({ state: "failed", error: "No." }, "x", grok)).toBe("No. You can still type a model's name.");
 });

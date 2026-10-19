@@ -9,14 +9,20 @@ browser. Each provider keeps its own key and model, so switching back needs no k
 Settings page swaps the client inside it, so the change holds from the next request.
 """
 
+import hashlib
 import json
 import logging
 import os
 import threading
-from collections.abc import Iterator
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+
+import anthropic
 
 from imageskin.chat import REPLY_TOKENS, ChatLlm, LlmClient, LlmSettings, Message
 from imageskin.claude import DEFAULT_MODEL as CLAUDE_MODEL
@@ -40,6 +46,9 @@ class Provider:
     model: str = ""
     # Where the user gets a key, shown beside the key's box.
     keys_at: str = ""
+    # Where the models the key can use are listed, under `url`: Grok's language-models leaves
+    # out its image and video models.
+    models_at: str = "/models"
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -48,7 +57,7 @@ PROVIDERS: dict[str, Provider] = {
     "openai": Provider(
         "OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini", "platform.openai.com"
     ),
-    "grok": Provider("Grok", "https://api.x.ai/v1", "grok-4", "console.x.ai"),
+    "grok": Provider("Grok", "https://api.x.ai/v1", "grok-4", "console.x.ai", "/language-models"),
     # openrouter/auto picks a model for each prompt from those OpenRouter offers.
     "openrouter": Provider(
         "OpenRouter", "https://openrouter.ai/api/v1", "openrouter/auto", "openrouter.ai"
@@ -169,6 +178,134 @@ def llm_client(llm: LlmSettings) -> ChatLlm:
     """The client for the LLM: Claude's own, or the OpenAI-compatible one for llama-server,
     OpenAI, Grok and OpenRouter (R33, R42)."""
     return ClaudeClient(llm) if llm.provider == "claude" else LlmClient(llm)
+
+
+# The models each provider can use, looked up when a provider is picked (Larry, 2026-10-19: a
+# fixed list goes out of date). Kept a while, so picking the same provider again is quick.
+MODELS_KEPT_S = 600
+# OpenAI lists every model the key can use, embeddings and speech among them: these can't chat.
+NOT_CHAT = (
+    "embedding",
+    "tts",
+    "whisper",
+    "dall-e",
+    "moderation",
+    "transcribe",
+    "image",
+    "audio",
+    "realtime",
+    "search",
+    "babbage",
+    "davinci",
+    "sora",
+)
+
+
+class ModelListError(Exception):
+    """The provider's models couldn't be listed; the message says why in plain words."""
+
+
+Fetch = Callable[[str, dict[str, str]], Any]  # URL, headers: the decoded JSON
+
+
+def _get_json(url: str, headers: dict[str, str]) -> Any:
+    request = urllib.request.Request(url, headers={"Accept": "application/json", **headers})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read())
+
+
+def _ids(data: Any, provider: str) -> list[str]:
+    """The chat models in a provider's answer: OpenAI's and OpenRouter's `data`, or Grok's
+    `models`, each an object with an `id`."""
+    items = data.get("data", data.get("models")) if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        raise ValueError("no list of models")
+    ids = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            continue
+        if provider == "openai" and any(word in item["id"] for word in NOT_CHAT):
+            continue
+        outputs = (item.get("architecture") or {}).get("output_modalities")
+        if provider == "openrouter" and isinstance(outputs, list) and "text" not in outputs:
+            continue
+        ids.append(item["id"])
+    return sorted(set(ids))
+
+
+class ModelLists:
+    """Looks up the models a provider offers to a key, and keeps each list a while."""
+
+    def __init__(
+        self,
+        fetch: Fetch = _get_json,
+        claude: Callable[[str], list[str]] | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._fetch = fetch
+        self._claude = claude or _claude_models
+        self._clock = clock
+        self._kept: dict[tuple[str, str], tuple[float, list[str]]] = {}
+        self._lock = threading.Lock()
+
+    def models(self, provider: str, key: str) -> list[str]:
+        if provider not in PROVIDERS or provider == "local":
+            raise ModelListError("Only a provider's models can be listed.")
+        if not key:
+            raise ModelListError(f"Enter your {PROVIDERS[provider].label} API key first.")
+        # The key is kept only as a hash, so the cache holds no key.
+        kept_as = (provider, hashlib.sha256(key.encode()).hexdigest())
+        now = self._clock()
+        with self._lock:
+            kept = self._kept.get(kept_as)
+        if kept is not None and now - kept[0] < MODELS_KEPT_S:
+            return kept[1]
+        start = time.perf_counter()
+        found = self._look_up(provider, key)
+        with self._lock:
+            self._kept[kept_as] = (now, found)
+        logger.info(
+            "Listed the provider's models",
+            extra={
+                "provider": provider,
+                "models": len(found),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return found
+
+    def _look_up(self, provider: str, key: str) -> list[str]:
+        p = PROVIDERS[provider]
+        try:
+            if provider == "claude":
+                found = self._claude(key)
+            else:
+                found = _ids(
+                    self._fetch(p.url + p.models_at, {"Authorization": f"Bearer {key}"}), provider
+                )
+        except (urllib.error.HTTPError, anthropic.APIStatusError) as e:
+            code = getattr(e, "code", None) or getattr(e, "status_code", None)
+            logger.error(
+                "Could not list the provider's models", extra={"provider": provider, "status": code}
+            )
+            if code in (401, 403):
+                raise ModelListError(f"{p.label} refused the API key.") from e
+            raise ModelListError(f"{p.label} couldn't list its models ({code}).") from e
+        except (OSError, ValueError, TypeError, AttributeError, anthropic.AnthropicError) as e:
+            logger.error(
+                "Could not list the provider's models",
+                extra={"provider": provider, "error": type(e).__name__},
+            )
+            raise ModelListError(f"{p.label}'s models couldn't be listed. Try again.") from e
+        if not found:
+            raise ModelListError(f"{p.label} listed no models for this key.")
+        return found
+
+
+def _claude_models(key: str) -> list[str]:
+    """Claude's models, through Anthropic's SDK, which reads every page of the list."""
+    client = anthropic.Anthropic(api_key=key, timeout=10)
+    return sorted({m.id for m in client.models.list(limit=1000)})
 
 
 class SwitchableLlm:
