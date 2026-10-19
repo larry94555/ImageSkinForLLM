@@ -9,7 +9,14 @@ import httpx2
 import pytest
 
 from imageskin.app import llm_client
-from imageskin.chat import REPLY_TOKENS, EmptyReply, LlmClient, LlmError, LlmSettings
+from imageskin.chat import (
+    REPLY_TOKENS,
+    Conversation,
+    EmptyReply,
+    LlmClient,
+    LlmError,
+    LlmSettings,
+)
 from imageskin.claude import (
     DECLINED,
     DEFAULT_MODEL,
@@ -222,7 +229,7 @@ def test_claude_streams_the_reply(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO")
     fake = FakeClaude(streamed(sse("Hel", "lo there.")))
     pieces = list(client(fake).stream([{"role": "user", "content": "Hi"}]))
-    assert pieces == ["Hel", "lo there."]
+    assert pieces == ["Hello there."]  # whole, once Claude has finished (review on PR #111)
     assert fake.body()["stream"] is True
     streamed_log = next(r for r in caplog.records if r.message == "Claude streamed a reply")
     assert streamed_log.__dict__["first_words_ms"] is not None
@@ -263,3 +270,56 @@ def test_the_config_picks_the_client() -> None:
     assert isinstance(claude, ClaudeClient)
     assert isinstance(llm_client(LlmSettings()), LlmClient)
     assert isinstance(llm_client(LlmSettings(provider="openai", api_key="k")), LlmClient)
+
+
+def test_a_reply_declined_partway_is_never_spoken_or_kept() -> None:
+    """Claude may decline after writing a whole sentence; that sentence must not reach the
+    clips or the conversation (review on PR #111)."""
+    fake = FakeClaude(streamed(sse("I can help with that. ", "First, you", stop_reason="refusal")))
+    claude = client(fake)
+    conversation = Conversation(claude.ask, claude.context_tokens, stream=claude.stream)
+    spoken: list[str | None] = []
+    with pytest.raises(LlmError, match=DECLINED):
+        conversation.send("Hi", spoken.append)
+    assert [s for s in spoken if s is not None] == []
+    assert conversation.turns() == []
+
+
+def test_a_reply_finished_by_the_fallback_model_is_spoken_whole() -> None:
+    """When one model declines partway and the fallback model carries on, the reply is the
+    text of both, without the fallback marker."""
+    start = message("", stop_reason=None)
+    events: list[tuple[str, dict[str, Any]]] = [
+        ("message_start", {"message": start}),
+        ("content_block_start", {"index": 0, "content_block": {"type": "text", "text": ""}}),
+        ("content_block_delta", {"index": 0, "delta": {"type": "text_delta", "text": "Sure. "}}),
+        ("content_block_stop", {"index": 0}),
+        (
+            "content_block_start",
+            {
+                "index": 1,
+                "content_block": {
+                    "type": "fallback",
+                    "from": {"model": DEFAULT_MODEL},
+                    "to": {"model": "claude-opus-4-8"},
+                },
+            },
+        ),
+        ("content_block_stop", {"index": 1}),
+        ("content_block_start", {"index": 2, "content_block": {"type": "text", "text": ""}}),
+        ("content_block_delta", {"index": 2, "delta": {"type": "text_delta", "text": "Here."}}),
+        ("content_block_stop", {"index": 2}),
+        (
+            "message_delta",
+            {
+                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                "usage": {"output_tokens": 4},
+            },
+        ),
+        ("message_stop", {}),
+    ]
+    body = "".join(
+        f"event: {name}\ndata: {json.dumps({'type': name, **data})}\n\n" for name, data in events
+    ).encode()
+    fake = FakeClaude(streamed(body))
+    assert list(client(fake).stream([{"role": "user", "content": "Hi"}])) == ["Sure. Here."]

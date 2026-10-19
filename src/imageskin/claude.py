@@ -146,7 +146,11 @@ class ClaudeClient:
         return reply_text(message)
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
-        """The reply in pieces as Claude writes it."""
+        """The reply, handed over only once Claude has finished it. Claude can decline partway
+        through a reply, and the part already written must then be dropped (review on PR #111),
+        so nothing is spoken or kept until the stop reason is known: a spoken sentence can't be
+        taken back. The cost is that the video starts after the whole reply, not the first
+        sentence."""
         start = time.perf_counter()
         first: float | None = None
         try:
@@ -154,9 +158,8 @@ class ClaudeClient:
                 **self._params(messages, REPLY_TOKENS, None)
             ) as stream:
                 for piece in stream.text_stream:
-                    if piece:
-                        first = first or time.perf_counter()
-                        yield piece
+                    if piece and first is None:
+                        first = time.perf_counter()
                 message = stream.get_final_message()
         except anthropic.AnthropicError as e:
             error = plain_error(e)
@@ -172,7 +175,4 @@ class ClaudeClient:
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
-        if message.stop_reason == "refusal":
-            raise LlmError(DECLINED)
-        if first is None:
-            raise EmptyReply("The LLM sent an empty reply. Try asking again.")
+        yield reply_text(message)
