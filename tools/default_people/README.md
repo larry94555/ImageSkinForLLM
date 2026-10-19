@@ -149,3 +149,23 @@ gh release upload default-people-v1 --repo larry94555/ImageSkinForLLM --clobber 
 `gh release create` is needed only the first time. Without the GitHub CLI, open the repository's
 Releases page, click **Draft a new release**, name the tag `default-people-v1`, drag in the 60
 packs and publish it.
+
+### Trying Start now before the packs are uploaded
+
+Serve a folder holding one or more packs, and point the app at it with
+`IMAGESKIN_DEFAULT_PEOPLE_URL`. In one terminal, from the folder with the packs:
+
+```
+python -m http.server 9100 --bind 127.0.0.1
+```
+
+In another, start the app with the variable set (macOS / Linux, Command Prompt, PowerShell):
+
+```
+export IMAGESKIN_DEFAULT_PEOPLE_URL=http://127.0.0.1:9100
+set IMAGESKIN_DEFAULT_PEOPLE_URL=http://127.0.0.1:9100
+$env:IMAGESKIN_DEFAULT_PEOPLE_URL = "http://127.0.0.1:9100"
+```
+
+The log line `Downloading default person` shows the address each pack comes from. A person whose
+pack isn't in the folder gets "This person isn't available to download yet."

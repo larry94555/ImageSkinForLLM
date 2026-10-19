@@ -195,6 +195,17 @@ def test_a_real_404_from_the_release_says_not_available(tmp_path: Path, pack: Pa
     assert start.status().error == sn.NOT_PUBLISHED
 
 
+def test_the_packs_can_come_from_elsewhere(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(sn.URL_VARIABLE, "http://127.0.0.1:9100/")
+    fetch = Fetcher(pack)
+    start = sn.StartNow(tmp_path, renderer([]), packs=packs_of(pack), fetch=fetch)
+    start.start(CHOICE)
+    start.wait(10)
+    assert fetch.urls == [f"http://127.0.0.1:9100/{CHOICE.name}.zip"]
+
+
 def test_a_damaged_pack_is_refused(tmp_path: Path, pack: Path) -> None:
     pack.write_bytes(b"not a zip")
     start = started(tmp_path, pack)

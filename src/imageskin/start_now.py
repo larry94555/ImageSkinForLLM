@@ -39,6 +39,9 @@ logger = logging.getLogger(__name__)
 
 # Where the packs are kept: assets of a GitHub release of this repository (picked in R24b).
 RELEASE_URL = "https://github.com/larry94555/ImageSkinForLLM/releases/download/default-people-v1"
+# Set to download the packs from somewhere else, such as a local folder served with
+# `python -m http.server`, to try Start now before the packs are uploaded.
+URL_VARIABLE = "IMAGESKIN_DEFAULT_PEOPLE_URL"
 # Each pack's size and SHA-256, so a download is checked before it is unpacked.
 PACKS_FILE = Path(__file__).with_name("default_people_packs.json")
 CHOICE_FILE = "default-person.json"
@@ -129,7 +132,7 @@ class StartNow:
         self._folder = home / FOLDER
         self._render_clip = render_clip
         self._packs = load_packs() if packs is None else packs
-        self._base_url = base_url or RELEASE_URL
+        self._base_url = (base_url or os.environ.get(URL_VARIABLE) or RELEASE_URL).rstrip("/")
         self._fetch = fetch
         self._unpack = unpack_pack
         self._on_ready = on_ready
@@ -286,8 +289,10 @@ class StartNow:
 
         start = time.perf_counter()
         # Few tries, each given up on quickly: the user is waiting, and Try again resumes.
+        url = f"{self._base_url}/{name}.zip"
+        logger.info("Downloading default person", extra={"person": name, "url": url})
         self._fetch(
-            f"{self._base_url}/{name}.zip",
+            url,
             pack,
             size,
             info["sha256"],
