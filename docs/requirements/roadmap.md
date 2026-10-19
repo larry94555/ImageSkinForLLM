@@ -588,7 +588,7 @@ Moved by Larry on 2026-10-18 to right after Milestone 9, before hosting (Milesto
 - **Can show:** the same conversation answered by Claude or OpenAI instead of local llama.cpp.
 
 ### R42. LLM setting with API keys (Medium) · item 29
-- A setting that picks the LLM: local llama.cpp (the default), or Claude, OpenAI, Grok or OpenRouter with an API key entered on the Settings page, building on R33's Claude and OpenAI support. Keys stay on the server.
+- A setting that picks the LLM: local llama.cpp (the default), or Claude, OpenAI, Grok or OpenRouter with an API key entered on the Settings page, building on R33's Claude and OpenAI support. Keys stay on the server. The LLM choice and key are set only on the Settings page: R42 removes R33's `llm_provider` and `llm_api_key` from the config file (Larry, 2026-10-19).
 - **Can show:** the same question answered by the local model and by each provider with a key.
 
 ### R43. LLM by subscription (Medium) · item 29
