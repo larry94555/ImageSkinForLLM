@@ -998,3 +998,47 @@ def test_the_api_refuses_another_accent_while_the_sample_is_made_again(tmp_path:
     with patch.object(PrepareJob, "change_accent", side_effect=refusal):
         refused = client.put("/api/accent", json={"accent": "own"})
     assert refused.status_code == 409 and refused.json()["detail"] == SAMPLE_BEING_MADE
+
+
+def test_a_default_person_being_got_ready_holds_off_prepare_and_delete(tmp_path: Path) -> None:
+    # Start now (R24c) renders with the job's engines and writes the photoreal library.
+    job, _ = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    job.claim()
+    refused = (
+        lambda: job.forget(lambda: None),
+        job.render_sample_again,
+        lambda: job.change_accent(lambda: None),
+        job.claim,  # one at a time
+    )
+    for call in refused:
+        with pytest.raises(PrepareError, match="A default person is being got ready"):
+            call()
+    job.release()
+    assert job.forget(lambda: "deleted") == "deleted"
+    job.claim()
+    with pytest.raises(PrepareError, match="A default person is being got ready"):
+        job.start()
+    job.release()
+    job.start()
+    job.wait(5)
+    assert job.status().state == "done"
+
+
+def test_a_default_person_waits_for_a_running_prepare(tmp_path: Path) -> None:
+    reached, release = threading.Event(), threading.Event()
+
+    def slow_face(photo: Path, progress: Progress) -> None:
+        reached.set()
+        release.wait(5)
+
+    job, _ = make_job(tmp_path, slow_face)
+    job.start()
+    assert reached.wait(5)
+    with pytest.raises(PrepareError, match="preparing your own video"):
+        job.claim()
+    release.set()
+    job.wait(5)
+    job.claim()
+    job.release()

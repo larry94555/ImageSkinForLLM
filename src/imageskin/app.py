@@ -65,7 +65,7 @@ from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
 from imageskin.start_now import Choice as PersonChoice
-from imageskin.start_now import PresetVoice, StartNow, StartStatus
+from imageskin.start_now import KokoroVoices, PresetVoice, StartNow, StartStatus
 from imageskin.teach import Choice, Explain, Lesson, Say, Teacher, lesson_topics
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
@@ -773,22 +773,23 @@ def create_app(
     voice_step, own_engine, voice, voice_kind = clip_voice(
         store.voice_sample_file, accent, speakers
     )
-    # While a default person is chosen, they speak in a ready-made Kokoro voice (R24c).
-    voice_engine = PresetVoice(own_engine, lambda: start_now.voice())
+    # While a default person is chosen, replies speak in their ready-made Kokoro voice (R24c).
+    # Prepare's clips are always the person's own, except the default person's own lines, which
+    # Start now renders with Prepare's engines while no Prepare runs (review on PR #113).
+    kokoro_voices = KokoroVoices()
+    voice_engine = PresetVoice(own_engine, lambda: start_now.voice(), kokoro_voices)
+    prepare_engine = PresetVoice(own_engine, lambda: start_now.rendering_voice(), kokoro_voices)
 
     def prepare_own_voice() -> None:
-        if start_now.chosen() is None:  # Kokoro loads on its first word
-            (prepare_voice or voice_step)()
-
-    def reply_voice_id() -> str | None:
-        preset = start_now.voice()
-        return f"preset:{preset[1]}" if preset else job.voice_id()
+        (prepare_voice or voice_step)()
 
     # The voice is prepared again for replies after the server restarts (roadmap R17).
-    voice_ready = VoiceReady(prepare_own_voice, reply_voice_id)
+    voice_ready = VoiceReady(
+        prepare_own_voice, lambda: job.voice_id(), lambda: start_now.chosen() is not None
+    )
     # The sample keeps the photo's own size and reply clips are scaled down (roadmap R22c).
     # Each has its own engine, so a prepare and a reply never share one.
-    steps = clip_steps or photoreal_steps(data_home, voice_engine, voice)
+    steps = clip_steps or photoreal_steps(data_home, prepare_engine, voice)
     render = render_clip or steps_clip(steps)
     reply_steps = clip_steps or photoreal_steps(
         data_home, voice_engine, voice, max_side=REPLY_SIDE, progressive=True
@@ -805,7 +806,13 @@ def create_app(
     )
     app.state.prepare_job = job
     job.resume()  # a job the server was stopped in the middle of carries on
-    start_now = StartNow(data_home, render, on_ready=lambda: start_reply_warm_up())
+    start_now = StartNow(
+        data_home,
+        render,
+        on_ready=lambda: start_reply_warm_up(),
+        claim=job.claim,
+        release=job.release,
+    )
     app.state.start_now = start_now
 
     @app.get("/api/start-now")
@@ -824,7 +831,10 @@ def create_app(
             raise HTTPException(status_code=400, detail=problem)
         with data_lock:
             not_deleted_since(seen)
-            return start_now.start(choice)
+            try:
+                return start_now.start(choice)
+            except PrepareError as e:  # setup is preparing the person's own video
+                raise HTTPException(status_code=409, detail=str(e)) from e
 
     @app.get("/api/start-now/picture")
     def get_start_now_picture() -> FileResponse:

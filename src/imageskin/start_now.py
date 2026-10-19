@@ -127,6 +127,11 @@ class StartNow:
         fetch: Fetch = download,
         unpack_pack: Unpack = unpack,
         on_ready: Callable[[], None] = lambda: None,  # the chat opens: warm up the replies
+        # Taken before a person is got ready and given back once nothing more is written: the
+        # prepare job's, so no Prepare or Delete my data runs meanwhile (review on PR #113).
+        # `claim` raises to refuse.
+        claim: Callable[[], None] = lambda: None,
+        release: Callable[[], None] = lambda: None,
     ) -> None:
         self._home = home
         self._folder = home / FOLDER
@@ -136,6 +141,10 @@ class StartNow:
         self._fetch = fetch
         self._unpack = unpack_pack
         self._on_ready = on_ready
+        self._claim = claim
+        self._release = release
+        # The voice the lines are spoken in while they are rendered, for `rendering_voice`.
+        self._rendering: tuple[str, str] | None = None
         self._lock = threading.Lock()
         self._status = StartStatus("idle")
         self._thread: threading.Thread | None = None
@@ -167,6 +176,12 @@ class StartNow:
         """Kokoro's language code and voice while a default person is chosen."""
         choice = self.chosen()
         return None if choice is None else choice.voice
+
+    def rendering_voice(self) -> tuple[str, str] | None:
+        """Kokoro's language code and voice while the chosen person's lines are rendered, with
+        the prepare job's engines; otherwise None, so Prepare speaks in the person's own voice
+        even while a default person is chosen."""
+        return self._rendering
 
     def clip(self, name: str) -> Path | None:
         """Goodbye or Welcome back, said by the chosen default person, once rendered."""
@@ -220,6 +235,7 @@ class StartNow:
                 logger.info("Default person already downloaded", extra={"person": choice.name})
                 self._on_ready()
                 return self._status
+            self._claim()  # refused while Prepare runs or the sample is made again
             self._status = StartStatus("downloading", choice.name)
             self._thread = threading.Thread(
                 target=self._run, args=(choice,), name="start-now", daemon=True
@@ -243,6 +259,22 @@ class StartNow:
 
     def _run(self, choice: Choice) -> None:
         start = time.perf_counter()
+        try:
+            error = self._work(choice)
+        finally:
+            self._release()  # nothing more is written: Prepare and Delete my data may run now
+        if error is not None:
+            self._set("failed", error=error)
+            return
+        self._set("ready", 100)
+        self._on_ready()
+        logger.info(
+            "Default person ready",
+            extra={"person": choice.name, "duration_s": round(time.perf_counter() - start, 1)},
+        )
+
+    def _work(self, choice: Choice) -> str | None:
+        """Download, unpack and render the lines; what went wrong, in plain words, or None."""
         name = choice.name
         try:
             if not self._picture(name).is_file():
@@ -258,24 +290,16 @@ class StartNow:
                 "Could not download the default person", extra={"person": name, "error": str(e)}
             )
             missing = isinstance(e.__cause__, urllib.error.HTTPError) and e.__cause__.code == 404
-            self._set("failed", error=NOT_PUBLISHED if missing else DOWNLOAD_FAILED)
-            return
+            return NOT_PUBLISHED if missing else DOWNLOAD_FAILED
         except PackError as e:
             logger.error(
                 "Default person's pack is not usable", extra={"person": name, "error": str(e)}
             )
-            self._set("failed", error=DAMAGED)
-            return
+            return DAMAGED
         except Exception:
             logger.exception("Could not get the default person ready", extra={"person": name})
-            self._set("failed", error=NOT_READY)
-            return
-        self._set("ready", 100)
-        self._on_ready()
-        logger.info(
-            "Default person ready",
-            extra={"person": name, "duration_s": round(time.perf_counter() - start, 1)},
-        )
+            return NOT_READY
+        return None
 
     def _download(self, name: str) -> Path:
         info = self._packs.get(name)
@@ -314,6 +338,13 @@ class StartNow:
     def _render_lines(self, choice: Choice) -> None:
         folder = self._lines(choice)
         folder.mkdir(parents=True, exist_ok=True)
+        self._rendering = choice.voice
+        try:
+            self._render_each(choice, folder)
+        finally:
+            self._rendering = None
+
+    def _render_each(self, choice: Choice, folder: Path) -> None:
         for clip, text in LINES:
             path = folder / f"{clip}.mp4"
             if path.is_file():
@@ -332,28 +363,17 @@ class StartNow:
             )
 
 
-class PresetVoice:
-    """The voice engine the clips and replies speak with: the chosen default person's
-    ready-made Kokoro voice while there is one (item 58), otherwise the engine set up for the
-    person's own voice, with the voice it was asked for."""
+class KokoroVoices:
+    """Kokoro's engines by language code, each loaded once and shared by the voices below. One
+    speaks at a time: a reply and a default person's line can be spoken together."""
 
-    def __init__(
-        self,
-        own: VoiceEngine,
-        preset: Callable[[], tuple[str, str] | None],
-        kokoro: Callable[[str], VoiceEngine] | None = None,
-    ) -> None:
-        self._own = own
-        self._preset = preset
+    def __init__(self, kokoro: Callable[[str], VoiceEngine] | None = None) -> None:
         self._kokoro = kokoro
-        self._engines: dict[str, VoiceEngine] = {}  # by language code, each loaded once
-        self._lock = threading.Lock()
+        self._engines: dict[str, VoiceEngine] = {}
+        self._lock = threading.Lock()  # guards _engines
+        self._speaking = threading.Lock()
 
-    def speak(self, voice: str, text: str) -> Speech:
-        preset = self._preset()
-        if preset is None:
-            return self._own.speak(voice, text)
-        lang, name = preset
+    def speak(self, lang: str, voice: str, text: str) -> Speech:
         with self._lock:
             engine = self._engines.get(lang)
             if engine is None:
@@ -362,7 +382,32 @@ class PresetVoice:
 
                     self._kokoro = kokoro_for
                 engine = self._engines[lang] = self._kokoro(lang)
-        return engine.speak(name, text)
+        with self._speaking:
+            return engine.speak(voice, text)
+
+
+class PresetVoice:
+    """A voice engine that speaks in a default person's ready-made Kokoro voice (item 58) while
+    `preset` gives one, otherwise with the engine set up for the person's own voice, in the
+    voice it was asked for. The replies' follows the chosen person; Prepare's speaks the
+    default person only while their lines are rendered."""
+
+    def __init__(
+        self,
+        own: VoiceEngine,
+        preset: Callable[[], tuple[str, str] | None],
+        kokoro: "KokoroVoices | Callable[[str], VoiceEngine] | None" = None,
+    ) -> None:
+        self._own = own
+        self._preset = preset
+        self._kokoro = kokoro if isinstance(kokoro, KokoroVoices) else KokoroVoices(kokoro)
+
+    def speak(self, voice: str, text: str) -> Speech:
+        preset = self._preset()
+        if preset is None:
+            return self._own.speak(voice, text)
+        lang, name = preset
+        return self._kokoro.speak(lang, name, text)
 
     def __getattr__(self, name: str) -> Any:
         # Anything else (such as forget_voice) is the own engine's.

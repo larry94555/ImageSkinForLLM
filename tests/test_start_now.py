@@ -20,6 +20,7 @@ from imageskin import default_people as dp
 from imageskin import start_now as sn
 from imageskin.app import create_app
 from imageskin.download import DownloadError, sha256_of
+from imageskin.prepare_job import PrepareError
 from imageskin.voice import Speech
 
 CHOICE = sn.Choice("female", "British", "animated", "Professor")
@@ -251,6 +252,74 @@ def test_a_second_start_while_one_runs_reports_on_it(tmp_path: Path, pack: Path)
     assert start.status().state == "ready"
 
 
+def test_the_lines_are_spoken_in_the_persons_voice_only_while_rendered(
+    tmp_path: Path, pack: Path
+) -> None:
+    # Prepare's engines render the lines, and speak the person's own voice otherwise.
+    voices: list[tuple[str, str] | None] = []
+    start = started(tmp_path, pack)
+
+    def render(picture: Path, text: str, output: Path) -> None:
+        voices.append(start.rendering_voice())
+        output.write_bytes(b"mp4")
+
+    start._render_clip = render
+    assert start.rendering_voice() is None
+    start.start(CHOICE)
+    start.wait(10)
+    assert voices == [CHOICE.voice, CHOICE.voice]
+    assert start.rendering_voice() is None
+
+
+def test_getting_a_person_ready_holds_the_prepare_job(tmp_path: Path, pack: Path) -> None:
+    # Claimed before anything is written and given back only once nothing more is, and before
+    # the person is reported ready, so Prepare can start as soon as the page sees it.
+    held: list[str] = []
+    start = started(tmp_path, pack)
+
+    def render(picture: Path, text: str, output: Path) -> None:
+        held.append(f"render {text}")
+        output.write_bytes(b"mp4")
+
+    start._render_clip = render
+    start._claim = lambda: held.append("claim")
+    start._release = lambda: held.append(f"release when {start.status().state}")
+    start.start(CHOICE)
+    start.wait(10)
+    assert held == [
+        "claim",
+        "render Goodbye.",
+        "render Welcome back.",
+        "release when getting-ready",
+    ]
+    assert start.status().state == "ready"
+
+
+def test_a_failed_start_gives_the_prepare_job_back(tmp_path: Path, pack: Path) -> None:
+    held: list[str] = []
+    start = started(
+        tmp_path,
+        pack,
+        fetch=Fetcher(pack, DownloadError("offline")),
+        claim=lambda: held.append("claim"),
+        release=lambda: held.append("release"),
+    )
+    start.start(CHOICE)
+    start.wait(10)
+    assert held == ["claim", "release"] and start.status().state == "failed"
+
+
+def test_a_start_refused_by_the_prepare_job_changes_nothing(tmp_path: Path, pack: Path) -> None:
+    def busy() -> None:
+        raise PrepareError("Setup is preparing your own video.")
+
+    fetch = Fetcher(pack)
+    start = started(tmp_path, pack, fetch=fetch, claim=busy)
+    with pytest.raises(PrepareError):
+        start.start(CHOICE)
+    assert start.status().state == "idle" and fetch.urls == [] and start.chosen() is None
+
+
 def test_progress_follows_the_download(tmp_path: Path, pack: Path) -> None:
     seen: list[sn.StartStatus] = []
     start = started(tmp_path, pack)
@@ -393,3 +462,89 @@ def test_delete_my_data_forgets_the_default_person(client: TestClient) -> None:
     assert client.delete("/api/data").status_code == 200
     assert client.get("/api/start-now").json()["chosen"] is None
     assert client.get("/api/review").status_code == 403
+
+
+def test_replies_and_lines_share_one_kokoro_per_language() -> None:
+    made: list[str] = []
+    voices = sn.KokoroVoices(lambda lang: made.append(lang) or Engine(lang))  # type: ignore[func-returns-value]
+    reply = sn.PresetVoice(Engine("own"), lambda: ("b", "bf_emma"), voices)
+    lines = sn.PresetVoice(Engine("own"), lambda: ("b", "bm_george"), voices)
+    reply.speak("x", "Hi")
+    lines.speak("x", "Goodbye.")
+    assert made == ["b"]
+
+
+class Blocked(Fetcher):
+    """A download that waits until the test lets it go on."""
+
+    def __init__(self, pack: Path) -> None:
+        super().__init__(pack)
+        self.reached, self.go = threading.Event(), threading.Event()
+
+    def __call__(self, url: str, dest: Path, size: int, sha256: str, **kwargs: Any) -> None:
+        self.reached.set()
+        assert self.go.wait(10)
+        super().__call__(url, dest, size, sha256, **kwargs)
+
+
+def blocked_client(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[TestClient, Blocked]:
+    fetch = Blocked(pack)
+    monkeypatch.setattr(
+        "imageskin.app.StartNow",
+        functools.partial(sn.StartNow, packs=packs_of(pack), fetch=fetch),
+    )
+    client = TestClient(
+        create_app(
+            tmp_path / "home",
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=renderer([]),
+            ask_llm=lambda messages: "Hello there",
+        )
+    )
+    return client, fetch
+
+
+def test_delete_my_data_waits_for_a_person_being_got_ready(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Review on PR #113: a Start now still running must not write the choice, the library or
+    # the lines again after Delete my data has returned.
+    client, fetch = blocked_client(tmp_path, pack, monkeypatch)
+    home = tmp_path / "home"
+    assert client.post("/api/start-now", json=vars(CHOICE)).status_code == 200
+    assert fetch.reached.wait(10)
+    refused = client.delete("/api/data")
+    assert refused.status_code == 409
+    assert "default person is being got ready" in refused.json()["detail"]
+    fetch.go.set()
+    client.app.state.start_now.wait(10)  # type: ignore[attr-defined]
+    assert client.get("/api/start-now").json()["state"] == "ready"
+    assert client.delete("/api/data").status_code == 200
+    assert not (home / sn.CHOICE_FILE).exists() and not (home / "photoreal").exists()
+    assert client.get("/api/start-now").json()["chosen"] is None
+    assert client.get("/api/review").status_code == 403
+
+
+def test_prepare_and_start_now_never_run_together(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Review on PR #113: they share the voice and video engines and the photoreal library.
+    client, fetch = blocked_client(tmp_path, pack, monkeypatch)
+    job = client.app.state.prepare_job  # type: ignore[attr-defined]
+    assert client.post("/api/start-now", json=vars(CHOICE)).status_code == 200
+    assert fetch.reached.wait(10)
+    with pytest.raises(PrepareError, match="default person is being got ready"):
+        job.start()
+    fetch.go.set()
+    client.app.state.start_now.wait(10)  # type: ignore[attr-defined]
+    job.claim()  # as if Prepare were running: Start now is refused and nothing changes
+    try:
+        other = {**vars(CHOICE), "accent": "American"}
+        refused = client.post("/api/start-now", json=other)
+    finally:
+        job.release()
+    assert refused.status_code == 409
+    assert client.get("/api/start-now").json()["chosen"] == vars(CHOICE)
