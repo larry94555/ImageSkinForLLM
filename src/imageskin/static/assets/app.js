@@ -2547,6 +2547,8 @@ function TalkButton(props) {
 	const failed = A(false);
 	const stopping = A(null);
 	const sending = A(false);
+	const [tapped, setTapped] = d(false);
+	const latched = A(false);
 	function clearTail() {
 		if (stopping.current !== null) window.clearTimeout(stopping.current);
 		stopping.current = null;
@@ -2566,6 +2568,7 @@ function TalkButton(props) {
 		said.current = "";
 		failed.current = false;
 		sending.current = false;
+		latched.current = false;
 		started.current = performance.now();
 		r.onresult = (e) => {
 			said.current = heard(e.results);
@@ -2582,6 +2585,8 @@ function TalkButton(props) {
 		r.onend = () => {
 			recognition.current = null;
 			clearTail();
+			latched.current = false;
+			setTapped(false);
 			const send = sending.current && !failed.current;
 			sending.current = false;
 			setListening(false);
@@ -2617,6 +2622,28 @@ function TalkButton(props) {
 			recognition.current?.stop();
 		}, 600);
 	}
+	function press() {
+		if (!recognition.current) {
+			start();
+			return;
+		}
+		if (latched.current) {
+			latched.current = false;
+			setTapped(false);
+			stop();
+		}
+	}
+	function release() {
+		if (!recognition.current || latched.current || stopping.current !== null) return;
+		const ms = Math.round(performance.now() - started.current);
+		if (ms < 400) {
+			latched.current = true;
+			setTapped(true);
+			console.info(`Push-to-talk: let go after ${ms} ms; listening until clicked again`);
+			return;
+		}
+		stop();
+	}
 	return /* @__PURE__ */ u("button", {
 		type: "button",
 		className: listening ? "secondary talk listening" : "secondary talk",
@@ -2624,21 +2651,21 @@ function TalkButton(props) {
 		"aria-pressed": listening,
 		onPointerDown: (e) => {
 			e.preventDefault();
-			start();
+			e.currentTarget.setPointerCapture?.(e.pointerId);
+			press();
 		},
-		onPointerUp: stop,
-		onPointerLeave: stop,
-		onPointerCancel: stop,
+		onPointerUp: release,
+		onPointerCancel: release,
 		onKeyDown: (e) => {
 			if ((e.key === " " || e.key === "Enter") && !e.repeat) {
 				e.preventDefault();
-				start();
+				press();
 			}
 		},
 		onKeyUp: (e) => {
-			if (e.key === " " || e.key === "Enter") stop();
+			if (e.key === " " || e.key === "Enter") release();
 		},
-		children: listening ? "Listening… let go to send" : "Hold to talk"
+		children: !listening ? "Hold to talk" : tapped ? "Listening… click to send" : "Listening… let go to send"
 	});
 }
 //#endregion

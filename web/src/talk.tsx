@@ -1,5 +1,5 @@
 // Push-to-talk (roadmap R24): hold the button, say the question, let go, and it is sent as if
-// typed. The browser's own speech recognition turns it into text; where the browser has none
+// typed. A quick click or tap instead keeps it listening until the button is clicked again. The browser's own speech recognition turns it into text; where the browser has none
 // (Firefox), the button isn't shown.
 
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -7,6 +7,11 @@ import { useEffect, useRef, useState } from "preact/hooks";
 // How long it keeps listening after the button is let go, so the last word, said as the button
 // comes up, isn't cut off (Larry's "can you explain what Euler noticed about", 2026-10-15).
 export const TAIL_MS = 600;
+
+// Let go sooner than this and the press was a click or a tap, not a hold: it keeps listening
+// until the button is clicked again. A touchpad tap lets go after about 80 ms, which sent nothing
+// and said "I didn't hear anything" (Larry, 2026-10-19).
+export const TAP_MS = 400;
 
 // The part of the Web Speech API used here; TypeScript's DOM types don't include it.
 export interface Recognition {
@@ -66,6 +71,9 @@ export function TalkButton(props: {
   // Set when the button is let go: what was heard is sent only then, not when recognition
   // fails, ends on its own while held or the page is left (review on PR #91).
   const sending = useRef(false);
+  // Set when the button was tapped rather than held: listening until it is clicked again.
+  const [tapped, setTapped] = useState(false);
+  const latched = useRef(false);
 
   function clearTail() {
     if (stopping.current !== null) window.clearTimeout(stopping.current);
@@ -91,6 +99,7 @@ export function TalkButton(props: {
     said.current = "";
     failed.current = false;
     sending.current = false;
+    latched.current = false;
     started.current = performance.now();
     r.onresult = (e) => {
       said.current = heard(e.results);
@@ -107,6 +116,8 @@ export function TalkButton(props: {
     r.onend = () => {
       recognition.current = null;
       clearTail();
+      latched.current = false;
+      setTapped(false);
       const send = sending.current && !failed.current;
       sending.current = false;
       setListening(false);
@@ -145,6 +156,32 @@ export function TalkButton(props: {
     }, TAIL_MS);
   }
 
+  // Pressed: starts listening, or, after a tap, sends.
+  function press() {
+    if (!recognition.current) {
+      start();
+      return;
+    }
+    if (latched.current) {
+      latched.current = false;
+      setTapped(false);
+      stop();
+    }
+  }
+
+  // Let go: sends, unless it was only a tap.
+  function release() {
+    if (!recognition.current || latched.current || stopping.current !== null) return;
+    const ms = Math.round(performance.now() - started.current);
+    if (ms < TAP_MS) {
+      latched.current = true;
+      setTapped(true);
+      console.info(`Push-to-talk: let go after ${ms} ms; listening until clicked again`);
+      return;
+    }
+    stop();
+  }
+
   return (
     <button
       type="button"
@@ -153,22 +190,23 @@ export function TalkButton(props: {
       aria-pressed={listening}
       onPointerDown={(e) => {
         e.preventDefault();
-        start();
+        // Kept until let go, so the button growing or moving under the pointer doesn't end it.
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        press();
       }}
-      onPointerUp={stop}
-      onPointerLeave={stop}
-      onPointerCancel={stop}
+      onPointerUp={release}
+      onPointerCancel={release}
       onKeyDown={(e) => {
         if ((e.key === " " || e.key === "Enter") && !e.repeat) {
           e.preventDefault();
-          start();
+          press();
         }
       }}
       onKeyUp={(e) => {
-        if (e.key === " " || e.key === "Enter") stop();
+        if (e.key === " " || e.key === "Enter") release();
       }}
     >
-      {listening ? "Listening… let go to send" : "Hold to talk"}
+      {!listening ? "Hold to talk" : tapped ? "Listening… click to send" : "Listening… let go to send"}
     </button>
   );
 }

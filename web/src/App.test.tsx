@@ -1350,6 +1350,8 @@ test("a question said with Hold to talk is shown in the box, sent, and shown as 
     recognition!.onresult({ results: [[{ transcript: "Who was Oiler?" }]] });
   });
   expect(promptBox().value).toBe("Who was Oiler?");
+  const now = performance.now.bind(performance);
+  vi.spyOn(performance, "now").mockImplementation(() => now() + 1000); // held, not tapped
   await act(async () => {
     fireEvent.pointerUp(talk);
   });

@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { heard, type Recognition, TAIL_MS, TalkButton, talkProblem } from "./talk";
+import { heard, type Recognition, TAIL_MS, TalkButton, talkProblem, TAP_MS } from "./talk";
 
 // The browser's speech recognition, driven by the test: `say` gives what was heard so far,
 // `fail` an error, and stop() ends it as the browser does.
@@ -49,7 +49,7 @@ function talk(disabled = false) {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
   FakeRecognition.made = [];
   vi.stubGlobal("webkitSpeechRecognition", FakeRecognition);
   vi.spyOn(console, "info").mockImplementation(() => {});
@@ -86,8 +86,8 @@ test("holding the button listens, and letting go sends what was heard", async ()
   });
   expect(calls.hearing).toEqual(["What is a", "What is a prime number?"]);
   await act(async () => {
+    vi.advanceTimersByTime(TAP_MS); // held, not tapped
     fireEvent.pointerUp(button);
-    fireEvent.pointerLeave(button); // let go and moved off: stopped once
     r.say("What is a", " prime number", " exactly?"); // said as the button came up
   });
   expect(calls.heard).toEqual([]); // still listening for the last word
@@ -111,6 +111,7 @@ test("the space bar works like holding the button", async () => {
   expect(FakeRecognition.made).toHaveLength(1);
   await act(async () => {
     FakeRecognition.made[0]!.say("Hello");
+    vi.advanceTimersByTime(TAP_MS);
     fireEvent.keyUp(button, { key: " " });
     vi.advanceTimersByTime(TAIL_MS);
   });
@@ -122,6 +123,7 @@ test("nothing heard sends nothing and says so", async () => {
   const button = screen.getByRole("button", { name: "Hold to talk" });
   await act(async () => {
     fireEvent.pointerDown(button);
+    vi.advanceTimersByTime(TAP_MS);
     fireEvent.pointerUp(button);
     vi.advanceTimersByTime(TAIL_MS);
   });
@@ -195,6 +197,7 @@ test("recognition that fails or ends on its own while held sends nothing", async
   await act(async () => {
     FakeRecognition.made[1]!.say("What is a");
     FakeRecognition.made[1]!.fail("network");
+    vi.advanceTimersByTime(TAP_MS);
     fireEvent.pointerUp(button); // let go after the error: still not sent
     vi.advanceTimersByTime(TAIL_MS);
   });
@@ -212,6 +215,7 @@ test("recognition that ends on its own after the button is let go sends once", a
   const stopped = vi.spyOn(r, "stop");
   await act(async () => {
     r.say("What is a prime?");
+    vi.advanceTimersByTime(TAP_MS);
     fireEvent.pointerUp(button);
     r.onend?.(); // ended by the browser before the tail is up
   });
@@ -228,6 +232,7 @@ test("leaving the page while listening stops listening", async () => {
   const button = screen.getByRole("button", { name: "Hold to talk" });
   await act(async () => {
     fireEvent.pointerDown(button);
+    vi.advanceTimersByTime(TAP_MS);
     fireEvent.pointerUp(button);
   });
   const r = FakeRecognition.made[0]!;
@@ -238,4 +243,49 @@ test("leaving the page while listening stops listening", async () => {
   expect(stopped).toHaveBeenCalledTimes(1);
   vi.advanceTimersByTime(TAIL_MS); // the pending stop was cleared
   expect(stopped).toHaveBeenCalledTimes(1);
+});
+
+test("a quick click or tap keeps listening until the button is clicked again", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+    vi.advanceTimersByTime(80); // a touchpad tap
+    fireEvent.pointerUp(button);
+  });
+  const r = FakeRecognition.made[0]!;
+  expect(button.textContent).toBe("Listening… click to send");
+  expect(console.info).toHaveBeenCalledWith(
+    "Push-to-talk: let go after 80 ms; listening until clicked again",
+  );
+  await act(async () => {
+    vi.advanceTimersByTime(TAIL_MS * 3);
+    r.say("What is a prime?");
+  });
+  expect(calls.heard).toEqual([]);
+  expect(calls.problems).toEqual([null]); // no "didn't hear anything"
+  await act(async () => {
+    fireEvent.pointerDown(button); // clicked again: sent
+    fireEvent.pointerUp(button);
+  });
+  expect(FakeRecognition.made).toHaveLength(1); // not started again
+  await act(async () => {
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(calls.heard).toEqual(["What is a prime?"]);
+  expect(button.textContent).toBe("Hold to talk");
+});
+
+test("the pointer is kept while held, so moving off the button doesn't end listening", async () => {
+  talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  const captured = vi.fn();
+  button.setPointerCapture = captured;
+  await act(async () => {
+    fireEvent.pointerDown(button, { pointerId: 7 });
+    fireEvent.pointerLeave(button);
+    vi.advanceTimersByTime(TAIL_MS * 2);
+  });
+  expect(captured).toHaveBeenCalledWith(7);
+  expect(button.textContent).toBe("Listening… let go to send");
 });
