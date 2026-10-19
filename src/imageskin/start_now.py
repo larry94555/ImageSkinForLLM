@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 import time
+import urllib.error
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -55,6 +56,10 @@ DOWNLOAD_FAILED = (
     "The person couldn't be downloaded. Check the internet connection and click Try again."
 )
 DAMAGED = "The person's download was damaged. Click Try again."
+# The release doesn't have the person's pack: retrying won't help until it is uploaded.
+NOT_PUBLISHED = (
+    "This person isn't available to download yet. Pick another, or use your own photos and voice."
+)
 NOT_READY = "Something went wrong getting the person ready. Click Try again."
 
 
@@ -249,7 +254,8 @@ class StartNow:
             logger.error(
                 "Could not download the default person", extra={"person": name, "error": str(e)}
             )
-            self._set("failed", error=DOWNLOAD_FAILED)
+            missing = isinstance(e.__cause__, urllib.error.HTTPError) and e.__cause__.code == 404
+            self._set("failed", error=NOT_PUBLISHED if missing else DOWNLOAD_FAILED)
             return
         except PackError as e:
             logger.error(

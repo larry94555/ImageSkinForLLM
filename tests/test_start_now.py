@@ -1,10 +1,13 @@
 """Start now with a default person (roadmap R24c)."""
 
 import functools
+import http.server
 import json
 import logging
 import shutil
 import threading
+import urllib.error
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -163,6 +166,33 @@ def test_a_failed_download_says_so_and_chooses_nobody(
     start.start(CHOICE)
     start.wait(10)
     assert start.status().state == "ready"
+
+
+def test_a_pack_not_uploaded_yet_says_so(tmp_path: Path, pack: Path) -> None:
+    not_found = urllib.error.HTTPError("https://x/rel/p.zip", 404, "Not Found", Message(), None)
+    error = DownloadError("gave up")
+    error.__cause__ = not_found
+    start = started(tmp_path, pack, fetch=Fetcher(pack, error))
+    start.start(CHOICE)
+    start.wait(10)
+    assert start.status().error == sn.NOT_PUBLISHED
+
+
+def test_a_real_404_from_the_release_says_not_available(tmp_path: Path, pack: Path) -> None:
+    """download() keeps the server's 404 as the cause of the DownloadError it raises."""
+    empty = tmp_path / "release"
+    empty.mkdir()
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(empty))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}"
+        start = sn.StartNow(tmp_path / "home", renderer([]), packs=packs_of(pack), base_url=url)
+        start.start(CHOICE)
+        start.wait(30)
+    finally:
+        server.shutdown()
+    assert start.status().error == sn.NOT_PUBLISHED
 
 
 def test_a_damaged_pack_is_refused(tmp_path: Path, pack: Path) -> None:
