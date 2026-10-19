@@ -1,10 +1,19 @@
 // Start now with a default person (roadmap R24c, features.md items 56 to 58): pick a gender, an
 // accent, photoreal or animated, and a role, and chat at once with a made-up person in a
-// ready-made voice. Only that person is downloaded, the first time they are chosen.
+// ready-made voice. Only that person is downloaded, the first time they are chosen. A choice with
+// a second face shows both as small pictures, with no label, to pick one (R24c2, item 60).
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { type Gender, type PersonChoice, type StartNowStatus, getStartNow, startNow } from "./api";
+import {
+  type Face,
+  type Gender,
+  type PersonChoice,
+  type StartNowStatus,
+  getFaces,
+  getStartNow,
+  startNow,
+} from "./api";
 
 // The roles, as the server names them. They don't carry a gender; where a role has a word for
 // each gender, the list shows that word (item 56).
@@ -49,7 +58,15 @@ const FIRST: PersonChoice = {
   accent: "American",
   realism: "photoreal",
   role: "Professor",
+  face: 1,
 };
+
+// The faces of the choice, first face first.
+export function facesOf(faces: Face[], choice: PersonChoice): Face[] {
+  return faces
+    .filter((f) => f.gender === choice.gender && f.realism === choice.realism && f.role === choice.role)
+    .sort((a, b) => a.face - b.face);
+}
 
 // How often the page asks how the download is going.
 export const POLL_MS = 500;
@@ -63,6 +80,7 @@ export function progressText(status: StartNowStatus): string {
 
 export function StartNowPage() {
   const [choice, setChoice] = useState<PersonChoice>(FIRST);
+  const [faces, setFaces] = useState<Face[]>([]);
   const [status, setStatus] = useState<StartNowStatus | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const started = useRef(0); // when Start was clicked, for the log
@@ -71,11 +89,21 @@ export function StartNowPage() {
   useEffect(() => {
     getStartNow()
       .then((s) => {
-        if (s.chosen) setChoice(s.chosen);
+        if (s.chosen) setChoice({ face: 1, ...s.chosen });
         if (WORKING.includes(s.state)) setStatus(s);
       })
       .catch((e: unknown) => console.error("Could not read the default person", e));
+    getFaces()
+      .then(setFaces)
+      .catch((e: unknown) => console.error("Could not read the default people's faces", e));
   }, []);
+
+  // Changing a choice shows the new choice's faces, with the first picked. The accent changes only
+  // the voice, so the face stays.
+  function change(part: Partial<PersonChoice>) {
+    setChoice({ ...choice, ...part, face: "accent" in part ? choice.face : 1 });
+  }
+  const shown = facesOf(faces, choice);
 
   const working = status !== null && WORKING.includes(status.state);
   useEffect(() => {
@@ -132,7 +160,7 @@ export function StartNowPage() {
                   name={key}
                   value={value}
                   checked={choice[key] === value}
-                  onChange={() => setChoice({ ...choice, [key]: value })}
+                  onChange={() => change({ [key]: value })}
                 />{" "}
                 {label}
               </label>
@@ -144,7 +172,7 @@ export function StartNowPage() {
           <select
             value={choice.role}
             disabled={working}
-            onChange={(e) => setChoice({ ...choice, role: (e.target as HTMLSelectElement).value })}
+            onChange={(e) => change({ role: (e.target as HTMLSelectElement).value })}
           >
             {ROLES.map((role) => (
               <option key={role} value={role}>
@@ -153,6 +181,24 @@ export function StartNowPage() {
             ))}
           </select>
         </label>
+        {shown.length > 0 && (
+          <fieldset className="faces" disabled={working}>
+            <legend>{shown.length > 1 ? "Pick a face" : "Face"}</legend>
+            {shown.map((f) => (
+              <label key={f.name} className={choice.face === f.face ? "picked" : undefined}>
+                <input
+                  type="radio"
+                  name="face"
+                  value={f.face}
+                  aria-label={`Face ${f.face}`}
+                  checked={choice.face === f.face}
+                  onChange={() => setChoice({ ...choice, face: f.face })}
+                />
+                <img src={`/default-people/${f.name}.jpg`} alt="" width={128} height={128} />
+              </label>
+            ))}
+          </fieldset>
+        )}
         <button type="submit" disabled={working} className={working ? "busy" : undefined}>
           {status?.state === "failed" ? "Try again" : "Start now"}
         </button>

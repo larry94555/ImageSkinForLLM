@@ -223,8 +223,8 @@ export async function getPrepare(): Promise<PrepareStatus> {
 export async function lineUrl(name: "goodbye" | "welcome-back"): Promise<string | null> {
   const start = await getStartNow();
   if (start.chosen) {
-    const { gender, accent, realism, role } = start.chosen;
-    const who = encodeURIComponent([gender, accent, realism, role].join("-"));
+    const { gender, accent, realism, role, face = 1 } = start.chosen;
+    const who = encodeURIComponent([gender, accent, realism, role, face].join("-"));
     return `/api/start-now/lines/${name}?v=${who}`;
   }
   const status = await getPrepare();
@@ -239,6 +239,21 @@ export interface PersonChoice {
   accent: "American" | "British";
   realism: Realism;
   role: string;
+  face?: number; // 2 for the choice's second face, when it has one (R24c2); 1 if left out
+}
+
+// A default person, for showing each choice's faces (R24c2). Their small pictures ship with the
+// app, at /default-people/<name>.jpg.
+export interface Face {
+  gender: Gender;
+  realism: Realism;
+  role: string;
+  face: number;
+  name: string;
+}
+
+export async function getFaces(): Promise<Face[]> {
+  return json<Face[]>(await fetch("/api/start-now/faces"));
 }
 
 // Getting the chosen person ready: their download, then their Goodbye and Welcome back.

@@ -604,3 +604,80 @@ def test_choosing_the_same_person_after_delete_needs_no_download(
     assert status["state"] == "ready" and status["chosen"] == vars(CHOICE)
     assert len(fetch.urls) == 1  # not downloaded again
     assert list((home / "photoreal").glob("*/library.json"))
+
+
+# Pick a face (R24c2)
+
+SECOND = sn.Choice("female", "American", "photoreal", "Professor", face=2)
+ONE_FACE = sn.Choice("female", "British", "animated", "Boss")
+
+
+def test_24_choices_have_a_second_face() -> None:
+    faces = {
+        (g, r, role): sn.faces_of(g, r, role)
+        for g in dp.GENDERS
+        for r in dp.REALISMS
+        for role in dp.ROLES
+    }
+    assert sum(f == [1, 2] for f in faces.values()) == 24
+    assert all(f in ([1], [1, 2]) for f in faces.values())
+    assert faces[("female", "photoreal", "Professor")] == [1, 2]
+
+
+def test_a_second_face_names_its_own_person() -> None:
+    assert SECOND.name == "photoreal_female_professor_2"
+    assert SECOND.problem() is None
+    assert CHOICE.face == 1 and sn.faces_of("female", "animated", "Boss") == [1]
+    assert "Face 2 is not one of 1" in (sn.Choice(**{**vars(ONE_FACE), "face": 2}).problem() or "")
+    assert sn.Choice(**{**vars(SECOND), "face": 3}).problem()
+
+
+def test_the_second_face_downloads_only_its_pack(tmp_path: Path) -> None:
+    library = tmp_path / "lib"
+    fake_library(library, np.random.default_rng(2))
+    picture = tmp_path / "pic.png"
+    picture.write_bytes(b"second face")
+    person = next(p for p in dp.people() if p.name == SECOND.name)
+    served = tmp_path / "served" / f"{SECOND.name}.zip"
+    served.parent.mkdir()
+    dp.pack(person, picture, library, served)
+    fetch = Fetcher(served)
+    packs = {SECOND.name: {"bytes": served.stat().st_size, "sha256": sha256_of(served)}}
+    home = tmp_path / "home"
+    start = sn.StartNow(home, renderer([]), packs=packs, base_url="https://x/rel", fetch=fetch)
+    start.start(SECOND)
+    start.wait(10)
+    assert start.status().state == "ready"
+    assert fetch.urls == [f"https://x/rel/{SECOND.name}.zip"]
+    assert start.chosen() == SECOND
+    assert start.picture() == home / "default-people" / f"{SECOND.name}.png"
+    assert start.clip("goodbye") is not None
+
+
+def test_a_choice_saved_before_faces_is_the_first_face(tmp_path: Path, pack: Path) -> None:
+    start = started(tmp_path, pack)
+    saved = {k: v for k, v in vars(CHOICE).items() if k != "face"}
+    (tmp_path / sn.CHOICE_FILE).write_text(json.dumps(saved))
+    assert start.chosen() == CHOICE
+    (tmp_path / sn.CHOICE_FILE).write_text(json.dumps({**vars(ONE_FACE), "face": 2}))
+    assert start.chosen() is None  # this choice has no second face
+
+
+def test_the_app_lists_every_face(client: TestClient) -> None:
+    faces = client.get("/api/start-now/faces").json()
+    assert len(faces) == 60 and sum(f["face"] == 2 for f in faces) == 24
+    assert {
+        "gender": "female",
+        "realism": "photoreal",
+        "role": "Professor",
+        "face": 2,
+        "name": "photoreal_female_professor_2",
+    } in faces
+    # Each has a small picture that ships with the app.
+    thumbs = Path(__file__).parents[1] / "src" / "imageskin" / "static" / "default-people"
+    assert all((thumbs / f"{f['name']}.jpg").is_file() for f in faces)
+
+
+def test_a_face_the_choice_lacks_is_refused(client: TestClient) -> None:
+    refused = client.post("/api/start-now", json={**vars(ONE_FACE), "face": 2})
+    assert refused.status_code == 400 and "Face 2" in refused.json()["detail"]

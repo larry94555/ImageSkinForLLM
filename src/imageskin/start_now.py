@@ -75,6 +75,7 @@ class Choice:
     accent: str
     realism: str
     role: str
+    face: int = 1  # 2 picks the choice's second face, when it has one (R24c2)
 
     def problem(self) -> str | None:
         """What is wrong with the choice, or None."""
@@ -86,17 +87,20 @@ class Choice:
         ):
             if value not in allowed:
                 return f"{value!r} is not one of {', '.join(allowed)}."
+        faces = faces_of(self.gender, self.realism, self.role)
+        if self.face not in faces:
+            return f"Face {self.face} is not one of {', '.join(map(str, faces))}."
         return None
 
     @property
     def name(self) -> str:
-        """The person's name, such as animated_female_professor (the first face; R24c2 adds
-        picking the second)."""
+        """The person's name, such as animated_female_professor, or animated_female_professor_2
+        for the second face."""
         return next(
             p.name
             for p in people()
-            if p.face == 1
-            and (p.gender, p.realism, p.role) == (self.gender, self.realism, self.role)
+            if (p.gender, p.realism, p.role, p.face)
+            == (self.gender, self.realism, self.role, self.face)
         )
 
     @property
@@ -111,6 +115,13 @@ class StartStatus:
     person: str | None = None
     percent: int = 0  # of the download
     error: str | None = None  # in plain words, for the user
+
+
+def faces_of(gender: str, realism: str, role: str) -> list[int]:
+    """The faces a choice has: [1], or [1, 2] for the 24 that R24b2 gave a second face."""
+    return sorted(
+        p.face for p in people() if (p.gender, p.realism, p.role) == (gender, realism, role)
+    )
 
 
 def load_packs(path: Path = PACKS_FILE) -> dict[str, dict[str, Any]]:
@@ -163,7 +174,10 @@ class StartNow:
         path = self._home / CHOICE_FILE
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            choice = Choice(data["gender"], data["accent"], data["realism"], data["role"])
+            # A choice saved before R24c2 has no face: it was the first.
+            choice = Choice(
+                data["gender"], data["accent"], data["realism"], data["role"], data.get("face", 1)
+            )
         except FileNotFoundError:
             return None
         except (OSError, ValueError, KeyError, TypeError) as e:

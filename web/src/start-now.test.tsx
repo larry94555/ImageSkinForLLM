@@ -1,10 +1,18 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { lineUrl, type StartNowStatus } from "./api";
-import { POLL_MS, progressText, roleLabel, StartNowPage } from "./start-now";
+import { type Face, lineUrl, type StartNowStatus } from "./api";
+import { facesOf, POLL_MS, progressText, roleLabel, StartNowPage } from "./start-now";
 
 const IDLE: StartNowStatus = { state: "idle", person: null, percent: 0, error: null, chosen: null };
+
+// The female photoreal Professor has two faces, listed out of order; the Boss has one.
+const FACES: Face[] = [
+  { gender: "female", realism: "photoreal", role: "Professor", face: 2, name: "photoreal_female_professor_2" },
+  { gender: "female", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_female_professor" },
+  { gender: "female", realism: "photoreal", role: "Boss", face: 1, name: "photoreal_female_boss" },
+  { gender: "male", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_male_professor" },
+];
 
 // A fake server: GET /api/start-now answers each of `reads` in turn, then the last again.
 function server(reads: StartNowStatus[], post: Response | StartNowStatus = reads[0]) {
@@ -13,6 +21,7 @@ function server(reads: StartNowStatus[], post: Response | StartNowStatus = reads
       return post instanceof Response ? post : Response.json(post);
     }
     if (url === "/api/start-now") return Response.json(reads.length > 1 ? reads.shift() : reads[0]);
+    if (url === "/api/start-now/faces") return Response.json(FACES);
     if (url === "/api/prepare") return Response.json({ state: "idle", finished_at: null });
     return new Response("", { status: 404 });
   });
@@ -93,6 +102,7 @@ test("start downloads the person with progress, then opens the chat", async () =
     accent: "British",
     realism: "animated",
     role: "Professor",
+    face: 1,
   });
   await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"), { timeout: 4 * POLL_MS });
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Default person p ready in \d+ ms/));
@@ -148,8 +158,78 @@ test("a default person says Goodbye and Welcome back in their own voice", async 
   const chosen = { gender: "male", accent: "British", realism: "animated", role: "Boss" } as const;
   server([{ ...IDLE, chosen }]);
   expect(await lineUrl("goodbye")).toBe(
-    "/api/start-now/lines/goodbye?v=male-British-animated-Boss",
+    "/api/start-now/lines/goodbye?v=male-British-animated-Boss-1",
+  );
+  server([{ ...IDLE, chosen: { ...chosen, face: 2 } }]);
+  expect(await lineUrl("goodbye")).toBe(
+    "/api/start-now/lines/goodbye?v=male-British-animated-Boss-2",
   );
   server([IDLE]);
   expect(await lineUrl("welcome-back")).toBeNull(); // the user's own, not prepared
+});
+
+test("a choice's faces are its own, first face first", () => {
+  const choice = { gender: "female", accent: "American", realism: "photoreal", role: "Professor" } as const;
+  expect(facesOf(FACES, choice).map((f) => f.face)).toEqual([1, 2]);
+  expect(facesOf(FACES, { ...choice, role: "Boss" }).map((f) => f.name)).toEqual(["photoreal_female_boss"]);
+  expect(facesOf(FACES, { ...choice, realism: "animated" })).toEqual([]);
+});
+
+test("a choice with two faces shows both, unlabelled, and the second can be picked", async () => {
+  const fetchMock = server([IDLE], { ...IDLE, state: "downloading", person: "p" });
+  render(<StartNowPage />);
+  expect(await screen.findByText("Pick a face")).toBeTruthy();
+  const pictures = screen.getAllByRole("img", { hidden: true }) as HTMLImageElement[];
+  expect(pictures.map((i) => i.getAttribute("src"))).toEqual([
+    "/default-people/photoreal_female_professor.jpg",
+    "/default-people/photoreal_female_professor_2.jpg",
+  ]);
+  expect(pictures.every((i) => i.alt === "")).toBe(true);
+  expect(radio("Face 1").checked).toBe(true); // the first, if none is picked
+  fireEvent.click(radio("Face 2"));
+  expect(radio("Face 2").checked).toBe(true);
+  expect(radio("Face 2").closest("label")!.className).toBe("picked");
+  fireEvent.click(screen.getByRole("button", { name: "Start now" }));
+  await vi.waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true));
+  const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(JSON.parse(post[1]!.body as string).face).toBe(2);
+});
+
+test("changing a choice shows the new choice's faces, with the first picked", async () => {
+  server([IDLE]);
+  render(<StartNowPage />);
+  await screen.findByText("Pick a face");
+  fireEvent.click(radio("Face 2"));
+  fireEvent.click(radio("British")); // only the voice changes: the face stays
+  expect(radio("Face 2").checked).toBe(true);
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "Boss" } });
+  expect(screen.getByText("Face")).toBeTruthy();
+  expect(screen.getAllByRole("radio", { name: /^Face/ })).toHaveLength(1);
+  expect(radio("Face 1").checked).toBe(true);
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "Professor" } });
+  expect(radio("Face 1").checked).toBe(true); // back to the first, not the one picked before
+});
+
+test("the face chosen before is picked again", async () => {
+  const chosen = { gender: "female", accent: "American", realism: "photoreal", role: "Professor", face: 2 } as const;
+  server([{ ...IDLE, chosen }]);
+  render(<StartNowPage />);
+  await screen.findByText("Pick a face");
+  await vi.waitFor(() => expect(radio("Face 2").checked).toBe(true));
+});
+
+test("without the faces the choices still work", async () => {
+  server([IDLE]);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === "/api/start-now" ? Response.json(IDLE) : new Response("", { status: 500 }),
+    ),
+  );
+  render(<StartNowPage />);
+  await vi.waitFor(() =>
+    expect(console.error).toHaveBeenCalledWith("Could not read the default people's faces", expect.anything()),
+  );
+  expect(screen.queryByText("Pick a face")).toBeNull();
+  expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
 });

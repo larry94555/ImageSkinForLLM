@@ -969,4 +969,9 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .start-now label.role { display: grid; gap: 6px; font-weight: 600; }
 .start-now label.role select { font-weight: normal; max-width: 280px; }
 .start-now form button { justify-self: start; }
+.start-now fieldset.faces label { border: 2px solid var(--line); border-radius: 12px; padding: 4px; cursor: pointer; line-height: 0; }
+.start-now fieldset.faces label.picked { border-color: var(--accent); }
+.start-now fieldset.faces input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.start-now fieldset.faces input:focus-visible + img { outline: 2px solid var(--accent); outline-offset: 2px; }
+.start-now fieldset.faces img { display: block; width: 128px; height: 128px; border-radius: 8px; }
 .start-now progress { width: 100%; max-width: 520px; }

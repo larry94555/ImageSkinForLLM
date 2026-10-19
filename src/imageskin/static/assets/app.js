@@ -106,16 +106,20 @@ async function getPrepare() {
 async function lineUrl(name) {
 	const start = await getStartNow();
 	if (start.chosen) {
-		const { gender, accent, realism, role } = start.chosen;
+		const { gender, accent, realism, role, face = 1 } = start.chosen;
 		return `/api/start-now/lines/${name}?v=${encodeURIComponent([
 			gender,
 			accent,
 			realism,
-			role
+			role,
+			face
 		].join("-"))}`;
 	}
 	const status = await getPrepare();
 	return status.state === "done" ? clipUrl(name, status) : null;
+}
+async function getFaces() {
+	return json(await fetch("/api/start-now/faces"));
 }
 async function getStartNow() {
 	return json(await fetch("/api/start-now"));
@@ -4663,8 +4667,12 @@ var FIRST = {
 	gender: "female",
 	accent: "American",
 	realism: "photoreal",
-	role: "Professor"
+	role: "Professor",
+	face: 1
 };
+function facesOf(faces, choice) {
+	return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism && f.role === choice.role).sort((a, b) => a.face - b.face);
+}
 var WORKING = [
 	"downloading",
 	"unpacking",
@@ -4676,15 +4684,28 @@ function progressText(status) {
 }
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
+	const [faces, setFaces] = d([]);
 	const [status, setStatus] = d(null);
 	const [refused, setRefused] = d(null);
 	const started = A(0);
 	h(() => {
 		getStartNow().then((s) => {
-			if (s.chosen) setChoice(s.chosen);
+			if (s.chosen) setChoice({
+				face: 1,
+				...s.chosen
+			});
 			if (WORKING.includes(s.state)) setStatus(s);
 		}).catch((e) => console.error("Could not read the default person", e));
+		getFaces().then(setFaces).catch((e) => console.error("Could not read the default people's faces", e));
 	}, []);
+	function change(part) {
+		setChoice({
+			...choice,
+			...part,
+			face: "accent" in part ? choice.face : 1
+		});
+	}
+	const shown = facesOf(faces, choice);
 	const working = status !== null && WORKING.includes(status.state);
 	h(() => {
 		if (status?.state === "ready") {
@@ -4743,10 +4764,7 @@ function StartNowPage() {
 								name: key,
 								value,
 								checked: choice[key] === value,
-								onChange: () => setChoice({
-									...choice,
-									[key]: value
-								})
+								onChange: () => change({ [key]: value })
 							}),
 							" ",
 							label
@@ -4760,16 +4778,36 @@ function StartNowPage() {
 							/* @__PURE__ */ u("select", {
 								value: choice.role,
 								disabled: working,
-								onChange: (e) => setChoice({
-									...choice,
-									role: e.target.value
-								}),
+								onChange: (e) => change({ role: e.target.value }),
 								children: ROLES.map((role) => /* @__PURE__ */ u("option", {
 									value: role,
 									children: roleLabel(role, choice.gender)
 								}, role))
 							})
 						]
+					}),
+					shown.length > 0 && /* @__PURE__ */ u("fieldset", {
+						className: "faces",
+						disabled: working,
+						children: [/* @__PURE__ */ u("legend", { children: shown.length > 1 ? "Pick a face" : "Face" }), shown.map((f) => /* @__PURE__ */ u("label", {
+							className: choice.face === f.face ? "picked" : void 0,
+							children: [/* @__PURE__ */ u("input", {
+								type: "radio",
+								name: "face",
+								value: f.face,
+								"aria-label": `Face ${f.face}`,
+								checked: choice.face === f.face,
+								onChange: () => setChoice({
+									...choice,
+									face: f.face
+								})
+							}), /* @__PURE__ */ u("img", {
+								src: `/default-people/${f.name}.jpg`,
+								alt: "",
+								width: 128,
+								height: 128
+							})]
+						}, f.name))]
 					}),
 					/* @__PURE__ */ u("button", {
 						type: "submit",

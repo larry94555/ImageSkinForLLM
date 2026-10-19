@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from imageskin import __version__, pdf_reading
+from imageskin import __version__, default_people, pdf_reading
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
@@ -127,6 +127,7 @@ class StartNowRequest(BaseModel):
     accent: str
     realism: str
     role: str
+    face: int = 1  # R24c2
 
 
 # A request that waited for Delete my data (roadmap R31) and would write the person's data again.
@@ -840,7 +841,7 @@ def create_app(
 
     @app.post("/api/start-now")
     def post_start_now(body: StartNowRequest, seen: DeletesSeen) -> StartStatus:
-        choice = PersonChoice(body.gender, body.accent, body.realism, body.role)
+        choice = PersonChoice(body.gender, body.accent, body.realism, body.role, body.face)
         problem = choice.problem()
         if problem:
             raise HTTPException(status_code=400, detail=problem)
@@ -850,6 +851,21 @@ def create_app(
                 return start_now.start(choice)
             except PrepareError as e:  # setup is preparing the person's own video
                 raise HTTPException(status_code=409, detail=str(e)) from e
+
+    @app.get("/api/start-now/faces")
+    def get_start_now_faces() -> list[dict[str, object]]:
+        """Every default person, so the page can show each choice's faces (R24c2). Their small
+        pictures ship with the app, at /default-people/<name>.jpg."""
+        return [
+            {
+                "gender": p.gender,
+                "realism": p.realism,
+                "role": p.role,
+                "face": p.face,
+                "name": p.name,
+            }
+            for p in default_people.people()
+        ]
 
     @app.get("/api/start-now/picture")
     def get_start_now_picture() -> FileResponse:
