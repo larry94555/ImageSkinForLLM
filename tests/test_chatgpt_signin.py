@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
+from cryptography.hazmat.primitives.hashes import SHA256
 from fastapi.testclient import TestClient
 
 from imageskin import chatgpt_signin as cs
@@ -21,16 +24,40 @@ DISCOVERY = {
     "authorization_endpoint": f"{cs.ISSUER}/oauth/authorize",
     "token_endpoint": f"{cs.ISSUER}/oauth/token",
     "revocation_endpoint": f"{cs.ISSUER}/oauth/revoke",
+    "jwks_uri": f"{cs.ISSUER}/.well-known/jwks.json",
 }
 NOW = 1_800_000_000.0
 REDIRECT = "http://127.0.0.1:8000/auth/callback"
 
 
-def id_token(**claims: Any) -> str:
-    def part(data: dict[str, Any]) -> str:
-        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+# OpenAI's signing key, and another that isn't OpenAI's.
+OPENAI_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+OTHER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    return f"{part({'alg': 'RS256'})}.{part(claims)}.signature"
+
+def b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def jwk(key: rsa.RSAPrivateKey, kid: str) -> dict[str, str]:
+    numbers = key.public_key().public_numbers()
+
+    def as_bytes(n: int) -> bytes:
+        return n.to_bytes((n.bit_length() + 7) // 8, "big")
+
+    return {"kty": "RSA", "kid": kid, "n": b64(as_bytes(numbers.n)), "e": b64(as_bytes(numbers.e))}
+
+
+def id_token(
+    claims: dict[str, Any],
+    key: rsa.RSAPrivateKey = OPENAI_KEY,
+    header: dict[str, Any] | None = None,
+) -> str:
+    def part(data: dict[str, Any]) -> str:
+        return b64(json.dumps(data).encode())
+
+    signed = f"{part(header or {'alg': 'RS256', 'kid': 'k1'})}.{part(claims)}"
+    return f"{signed}.{b64(key.sign(signed.encode(), PKCS1v15(), SHA256()))}"
 
 
 class FakeOpenAi:
@@ -43,8 +70,14 @@ class FakeOpenAi:
         self.scope = cs.SCOPES
         self.discovery: dict[str, str] = dict(DISCOVERY)
         self.claims: dict[str, Any] = {}
+        self.key = OPENAI_KEY
+        self.header: dict[str, Any] | None = None
+        self.jwks_reads = 0
 
     def __call__(self, url: str, form: dict[str, str] | None) -> tuple[int, Any]:
+        if form is None and url == DISCOVERY["jwks_uri"]:
+            self.jwks_reads += 1
+            return 200, {"keys": [jwk(OPENAI_KEY, "k1")]}
         if form is None:
             return 200, self.discovery
         self.forms.append((url, form))
@@ -52,18 +85,17 @@ class FakeOpenAi:
             return 200, {}
         if self.token_status != 200:
             return self.token_status, {"error": "invalid_grant"}
-        token = id_token(
-            **{
-                "iss": cs.ISSUER,
-                "aud": [form["client_id"]],
-                "sub": "user-1",
-                "email": "larry@example.com",
-                "name": "Larry",
-                "nonce": self.nonce,
-                "exp": NOW + 3600,
-                **self.claims,
-            }
-        )
+        claims = {
+            "iss": cs.ISSUER,
+            "aud": [form["client_id"]],
+            "sub": "user-1",
+            "email": "larry@example.com",
+            "name": "Larry",
+            "nonce": self.nonce,
+            "exp": NOW + 3600,
+            **self.claims,
+        }
+        token = id_token(claims, self.key, self.header)
         return 200, {
             "access_token": "access-secret",
             "refresh_token": "refresh-secret",
@@ -134,6 +166,39 @@ def test_signing_in_again_uses_the_registered_app(
     assert "agent_name_hint" not in again
     signin.finish({"state": again["state"], "code": "c2"})
     assert openai.forms[-1][1]["client_id"] == "app-123"
+    # OpenAI's signing keys are read once and kept.
+    assert openai.jwks_reads == 1
+
+
+def test_every_sign_in_sends_the_same_host_id(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    first = authorize(signin, openai)
+    assert first["ext_agent_host_id"].startswith("urn:uuid:")
+    signin.finish({"state": first["state"], "code": "c1", "client_id": "app-123"})
+    signin.sign_out()
+    returning = authorize(signin, openai)
+    assert returning["ext_agent_host_id"] == first["ext_agent_host_id"]
+    # A new ChatGptSignIn (the app restarted) reads it back from chatgpt.json.
+    restarted = ChatGptSignIn(tmp_path, http=openai, clock=lambda: NOW)
+    assert authorize(restarted, openai)["ext_agent_host_id"] == first["ext_agent_host_id"]
+
+
+def test_a_returning_sign_in_for_another_app_is_refused(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    first = authorize(signin, openai)
+    signin.finish({"state": first["state"], "code": "c1", "client_id": "app-123"})
+    forms = len(openai.forms)
+    again = authorize(signin, openai)
+    with pytest.raises(SignInError, match="didn't match"):
+        signin.finish({"state": again["state"], "code": "c2", "client_id": "app-evil"})
+    assert len(openai.forms) == forms  # the code was never swapped
+    assert json.loads((tmp_path / cs.FILENAME).read_text())["client_id"] == "app-123"
+    # The same client ID coming back is fine.
+    again = authorize(signin, openai)
+    signin.finish({"state": again["state"], "code": "c3", "client_id": "app-123"})
+    assert signin.status()["connected"]
 
 
 def test_a_sign_in_without_plan_usage_says_so(signin: ChatGptSignIn, openai: FakeOpenAi) -> None:
@@ -239,10 +304,61 @@ def test_a_broken_file_reads_as_not_connected(tmp_path: Path, openai: FakeOpenAi
 
 
 def test_an_unreadable_identity_is_refused() -> None:
+    def key(kid: str) -> dict[str, Any]:
+        return jwk(OPENAI_KEY, kid)
+
     with pytest.raises(SignInError, match="can't be read"):
-        cs.claims("no-dots")
+        cs.verified_claims("no-dots", key)
     with pytest.raises(SignInError, match="can't be read"):
-        cs.claims("a.W10.b")  # a list, not an object
+        cs.verified_claims("e30.W10.c2ln", key)  # claims that are a list, not an object
+    with pytest.raises(SignInError, match="can't be read"):
+        cs.verified_claims("e30.!!.c2ln", key)
+
+
+@pytest.mark.parametrize(
+    ("key", "header"),
+    [
+        (OTHER_KEY, None),  # signed, but not by OpenAI
+        (OPENAI_KEY, {"alg": "HS256", "kid": "k1"}),
+        (OPENAI_KEY, {"alg": "none", "kid": "k1"}),
+        (OPENAI_KEY, {"alg": "RS256", "kid": "unknown"}),
+    ],
+)
+def test_an_identity_not_signed_by_openai_is_refused(
+    signin: ChatGptSignIn,
+    openai: FakeOpenAi,
+    caplog: pytest.LogCaptureFixture,
+    key: rsa.RSAPrivateKey,
+    header: dict[str, Any] | None,
+) -> None:
+    openai.key, openai.header = key, header
+    query = authorize(signin, openai)
+    with pytest.raises(SignInError, match="isn't signed by OpenAI"):
+        signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
+    assert not signin.status()["connected"]
+
+
+def test_a_changed_signature_is_refused() -> None:
+    token = id_token({"sub": "user-1"})
+    head, body, signature = token.split(".")
+    forged = b64(json.dumps({"sub": "someone-else"}).encode())
+    with pytest.raises(SignInError, match="isn't signed by OpenAI"):
+        cs.verified_claims(f"{head}.{forged}.{signature}", lambda kid: jwk(OPENAI_KEY, kid))
+    assert cs.verified_claims(token, lambda kid: jwk(OPENAI_KEY, kid)) == {"sub": "user-1"}
+
+
+def test_signing_keys_that_cannot_be_read_stop_the_sign_in(
+    signin: ChatGptSignIn, openai: FakeOpenAi
+) -> None:
+    query = authorize(signin, openai)
+    real = openai.__call__
+
+    def no_keys(url: str, form: dict[str, str] | None) -> tuple[int, Any]:
+        return (503, {}) if url == DISCOVERY["jwks_uri"] else real(url, form)
+
+    signin._http = no_keys
+    with pytest.raises(SignInError, match="can't be reached"):
+        signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
 
 
 @pytest.fixture
