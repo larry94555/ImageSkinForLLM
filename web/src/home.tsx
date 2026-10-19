@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 
-import { getPhotoChoice, getReview, uploadUrl } from "./api";
+import { DEFAULT_PICTURE, getPhotoChoice, getReview, getStartNow, uploadUrl } from "./api";
 
 interface Choice {
   href: string;
@@ -19,8 +19,17 @@ export interface HomeState {
   photo: string | null;
 }
 
-// Before consent, setup can't be done and the server refuses the setup reads, so none are made.
+// With a default person chosen (R24c), setup is done. Otherwise, before consent, setup can't be
+// done and the server refuses the setup reads, so none are made.
 export async function loadHome(consented: boolean): Promise<HomeState> {
+  try {
+    if ((await getStartNow()).chosen) {
+      console.info("Home loaded (a default person is chosen)");
+      return { done: true, photo: DEFAULT_PICTURE };
+    }
+  } catch (e) {
+    console.error("Could not read the default person", e);
+  }
   if (!consented) {
     console.info("Home loaded (setup not started: no consent yet)");
     return { done: false, photo: null };
@@ -46,6 +55,11 @@ export function choices(done: boolean, consented: boolean): Choice[] {
   const setupHref = consented ? "#/setup" : "#/consent";
   if (!done) {
     return [
+      {
+        href: "#/start-now",
+        title: "Start now",
+        text: "Chat at once with a made-up person in a ready-made voice.",
+      },
       {
         href: setupHref,
         title: "Start setup",
@@ -110,7 +124,7 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
           </p>
         </div>
       </div>
-      <ul className={state.done ? "choices three" : "choices"}>
+      <ul className={state.done ? "choices three" : "choices two"}>
         {choices(state.done, consented).map((c) => (
           <li key={c.title}>
             <a href={c.href}>
@@ -130,6 +144,7 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
 const ICONS: Record<string, string> = {
   "#/chat": "M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6a2.5 2.5 0 0 1-2.5 2.5H11l-4 3.5V15h0.5A2.5 2.5 0 0 1 5 12.5z",
   "#/content": "M7 3.5h6.5L18 8v12.5H7zM13.5 3.5V8H18M9.5 12h6M9.5 15.5h6",
+  "#/start-now": "M12 4a3.5 3.5 0 1 1 0 7a3.5 3.5 0 0 1 0-7zM5 20a7 7 0 0 1 14 0",
   setup: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4",
 };
 

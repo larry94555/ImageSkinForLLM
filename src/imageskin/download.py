@@ -41,12 +41,14 @@ def download(
     retries: int = 5,
     log_every: float = 5.0,
     sleep: Callable[[float], None] = time.sleep,
+    progress: Callable[[int, int], None] | None = None,
 ) -> None:
     """Fetch `url` into `dest` unless a verified copy is already there.
 
     `timeout` is how long a connect or a single read may hang before the try counts as
     stalled. `retries` is how many tries in a row may fail without any new bytes before
-    giving up; a try that made progress resets the count.
+    giving up; a try that made progress resets the count. `progress`, if given, is told the
+    bytes saved so far and the file's size as each chunk arrives.
     """
     name = dest.name
     if dest.exists() and dest.stat().st_size == size and sha256_of(dest) == sha256:
@@ -68,7 +70,7 @@ def download(
             else:
                 log.info("%s: downloading %.1f MB from %s", name, size / MB, url.split("?")[0])
             try:
-                _fetch(url, part, have, size, timeout, log_every)
+                _fetch(url, part, have, size, timeout, log_every, progress)
             except (OSError, urllib.error.URLError, DownloadError) as exc:
                 got = part.stat().st_size if part.exists() else 0
                 failures = 0 if got > have else failures + 1
@@ -101,7 +103,15 @@ def download(
         return
 
 
-def _fetch(url: str, part: Path, have: int, size: int, timeout: float, log_every: float) -> None:
+def _fetch(
+    url: str,
+    part: Path,
+    have: int,
+    size: int,
+    timeout: float,
+    log_every: float,
+    progress: Callable[[int, int], None] | None = None,
+) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "imageskin"})
     if have:
         request.add_header("Range", f"bytes={have}-")
@@ -117,6 +127,8 @@ def _fetch(url: str, part: Path, have: int, size: int, timeout: float, log_every
             while chunk := response.read(CHUNK):
                 f.write(chunk)
                 done += len(chunk)
+                if progress is not None:
+                    progress(done, size)
                 now = time.perf_counter()
                 if now - last >= log_every:
                     speed = (done - have) / (now - t0)

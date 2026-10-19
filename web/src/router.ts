@@ -6,6 +6,7 @@ export type Page =
   | "home"
   | "consent"
   | "setup"
+  | "start-now"
   | "chat"
   | "content"
   | "guide"
@@ -18,6 +19,7 @@ const PAGES: Record<string, Page> = {
   "/": "home",
   "/consent": "consent",
   "/setup": "setup",
+  "/start-now": "start-now",
   "/chat": "chat",
   "/content": "content",
   "/guide": "guide",
@@ -79,7 +81,7 @@ export function pageFor(hash: string): Page {
 }
 
 // The pages the student view hides (R41b): it has only the chat and the wiki.
-const TEACHER_PAGES: Page[] = ["home", "consent", "setup", "guide", "content"];
+const TEACHER_PAGES: Page[] = ["home", "consent", "setup", "start-now", "guide", "content"];
 
 // Setup is blocked until the user confirms consent (feature item 22). In the student view a
 // teacher's page, opened by its address, shows the chat instead.

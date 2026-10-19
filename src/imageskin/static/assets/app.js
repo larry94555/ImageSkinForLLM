@@ -104,9 +104,32 @@ async function getPrepare() {
 	return json(await fetch("/api/prepare"));
 }
 async function lineUrl(name) {
+	const start = await getStartNow();
+	if (start.chosen) {
+		const { gender, accent, realism, role } = start.chosen;
+		return `/api/start-now/lines/${name}?v=${encodeURIComponent([
+			gender,
+			accent,
+			realism,
+			role
+		].join("-"))}`;
+	}
 	const status = await getPrepare();
 	return status.state === "done" ? clipUrl(name, status) : null;
 }
+async function getStartNow() {
+	return json(await fetch("/api/start-now"));
+}
+async function startNow(choice) {
+	const response = await fetch("/api/start-now", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(choice)
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
+var DEFAULT_PICTURE = "/api/start-now/picture";
 async function startPrepare() {
 	const response = await fetch("/api/prepare", { method: "POST" });
 	if (!response.ok) throw new Error(await refusal(response));
@@ -2336,6 +2359,17 @@ function GuidePage() {
 //#endregion
 //#region src/home.tsx
 async function loadHome(consented) {
+	try {
+		if ((await getStartNow()).chosen) {
+			console.info("Home loaded (a default person is chosen)");
+			return {
+				done: true,
+				photo: DEFAULT_PICTURE
+			};
+		}
+	} catch (e) {
+		console.error("Could not read the default person", e);
+	}
 	if (!consented) {
 		console.info("Home loaded (setup not started: no consent yet)");
 		return {
@@ -2363,6 +2397,10 @@ async function loadHome(consented) {
 function choices(done, consented) {
 	const setupHref = consented ? "#/setup" : "#/consent";
 	if (!done) return [{
+		href: "#/start-now",
+		title: "Start now",
+		text: "Chat at once with a made-up person in a ready-made voice."
+	}, {
 		href: setupHref,
 		title: "Start setup",
 		text: "Add photos and voice recordings, then review a sample video of the person speaking."
@@ -2419,7 +2457,7 @@ function HomePage({ consented, landing = false }) {
 				children: state.done ? "Setup is done. Pick up where you left off." : "Make a talking video of a person from a few photos and voice recordings. The person then speaks the chatbot's replies."
 			})] })]
 		}), /* @__PURE__ */ u("ul", {
-			className: state.done ? "choices three" : "choices",
+			className: state.done ? "choices three" : "choices two",
 			children: choices(state.done, consented).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
 				href: c.href,
 				children: [
@@ -2440,6 +2478,7 @@ function HomePage({ consented, landing = false }) {
 var ICONS = {
 	"#/chat": "M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6a2.5 2.5 0 0 1-2.5 2.5H11l-4 3.5V15h0.5A2.5 2.5 0 0 1 5 12.5z",
 	"#/content": "M7 3.5h6.5L18 8v12.5H7zM13.5 3.5V8H18M9.5 12h6M9.5 15.5h6",
+	"#/start-now": "M12 4a3.5 3.5 0 1 1 0 7a3.5 3.5 0 0 1 0-7zM5 20a7 7 0 0 1 14 0",
 	setup: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4"
 };
 function ChoiceIcon({ href }) {
@@ -4535,11 +4574,219 @@ function NotFoundPage() {
 	})] });
 }
 //#endregion
+//#region src/start-now.tsx
+var ROLES = [
+	"Professor",
+	"Teaching Assistant",
+	"Student",
+	"Parent",
+	"Teenager",
+	"Boss",
+	"Office Manager",
+	"High School Teacher",
+	"Business Consultant"
+];
+var GENDERED = {
+	Parent: {
+		female: "Mother",
+		male: "Father"
+	},
+	Teenager: {
+		female: "Daughter",
+		male: "Son"
+	}
+};
+function roleLabel(role, gender) {
+	return GENDERED[role]?.[gender] ?? role;
+}
+var OPTIONS = {
+	gender: [{
+		value: "female",
+		label: "Female"
+	}, {
+		value: "male",
+		label: "Male"
+	}],
+	accent: [{
+		value: "American",
+		label: "American"
+	}, {
+		value: "British",
+		label: "British"
+	}],
+	realism: [{
+		value: "photoreal",
+		label: "Photorealistic"
+	}, {
+		value: "animated",
+		label: "Animated"
+	}]
+};
+var LEGENDS = {
+	gender: "Gender",
+	accent: "Accent",
+	realism: "Look"
+};
+var FIRST = {
+	gender: "female",
+	accent: "American",
+	realism: "photoreal",
+	role: "Professor"
+};
+var WORKING = [
+	"downloading",
+	"unpacking",
+	"getting-ready"
+];
+function progressText(status) {
+	if (status.state === "downloading") return `Downloading the person… ${status.percent}%`;
+	return "Getting the person ready…";
+}
+function StartNowPage() {
+	const [choice, setChoice] = d(FIRST);
+	const [status, setStatus] = d(null);
+	const [refused, setRefused] = d(null);
+	const started = A(0);
+	h(() => {
+		getStartNow().then((s) => {
+			if (s.chosen) setChoice(s.chosen);
+			if (WORKING.includes(s.state)) setStatus(s);
+		}).catch((e) => console.error("Could not read the default person", e));
+	}, []);
+	const working = status !== null && WORKING.includes(status.state);
+	h(() => {
+		if (status?.state === "ready") {
+			const ms = Math.round(performance.now() - started.current);
+			console.info(`Default person ${status.person} ready in ${ms} ms; opening the chat`);
+			window.location.hash = "#/chat";
+			return;
+		}
+		if (!working) return;
+		const timer = setTimeout(() => {
+			getStartNow().then(setStatus).catch((e) => {
+				console.error("Could not read how the download is going", e);
+				setStatus((s) => s && {
+					...s,
+					state: "failed",
+					error: "Could not reach the app. Try again."
+				});
+			});
+		}, 500);
+		return () => clearTimeout(timer);
+	}, [status]);
+	async function start() {
+		setRefused(null);
+		started.current = performance.now();
+		console.info("Start now with a default person", choice);
+		try {
+			setStatus(await startNow(choice));
+		} catch (e) {
+			console.error("Could not start with a default person", e);
+			setRefused(e.message);
+		}
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "start-now panel",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Start now with a default person" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Chat at once with a made-up person who speaks in a ready-made voice. You can use your own photos and voice instead later."
+			}),
+			/* @__PURE__ */ u("form", {
+				onSubmit: (e) => {
+					e.preventDefault();
+					start();
+				},
+				children: [
+					[
+						"gender",
+						"accent",
+						"realism"
+					].map((key) => /* @__PURE__ */ u("fieldset", {
+						disabled: working,
+						children: [/* @__PURE__ */ u("legend", { children: LEGENDS[key] }), OPTIONS[key].map(({ value, label }) => /* @__PURE__ */ u("label", { children: [
+							/* @__PURE__ */ u("input", {
+								type: "radio",
+								name: key,
+								value,
+								checked: choice[key] === value,
+								onChange: () => setChoice({
+									...choice,
+									[key]: value
+								})
+							}),
+							" ",
+							label
+						] }, value))]
+					}, key)),
+					/* @__PURE__ */ u("label", {
+						className: "role",
+						children: [
+							"Role",
+							" ",
+							/* @__PURE__ */ u("select", {
+								value: choice.role,
+								disabled: working,
+								onChange: (e) => setChoice({
+									...choice,
+									role: e.target.value
+								}),
+								children: ROLES.map((role) => /* @__PURE__ */ u("option", {
+									value: role,
+									children: roleLabel(role, choice.gender)
+								}, role))
+							})
+						]
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: working,
+						className: working ? "busy" : void 0,
+						children: status?.state === "failed" ? "Try again" : "Start now"
+					})
+				]
+			}),
+			working && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
+				className: "busy",
+				children: progressText(status)
+			}), /* @__PURE__ */ u("progress", {
+				max: 100,
+				value: status.percent,
+				"aria-label": "Downloading",
+				children: [status.percent, "%"]
+			})] }),
+			status?.state === "failed" && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: status.error
+			}),
+			refused && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: refused
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Or ",
+					/* @__PURE__ */ u("a", {
+						href: "#/consent",
+						children: "use your own photos and voice"
+					}),
+					"."
+				]
+			})
+		]
+	});
+}
+//#endregion
 //#region src/router.ts
 var PAGES = {
 	"/": "home",
 	"/consent": "consent",
 	"/setup": "setup",
+	"/start-now": "start-now",
 	"/chat": "chat",
 	"/content": "content",
 	"/guide": "guide",
@@ -4582,6 +4829,7 @@ var TEACHER_PAGES = [
 	"home",
 	"consent",
 	"setup",
+	"start-now",
 	"guide",
 	"content"
 ];
@@ -5504,7 +5752,7 @@ var NAV = [
 	}
 ];
 function current(page) {
-	if (page === "guide") return "setup";
+	if (page === "guide" || page === "start-now") return "setup";
 	return page === "wiki-page" ? "wiki" : page;
 }
 function App() {
@@ -5542,6 +5790,7 @@ function Shell() {
 			window.location.hash = "#/setup";
 		} }),
 		setup: /* @__PURE__ */ u(SetupPage, { change: setupTarget(hash) }),
+		"start-now": /* @__PURE__ */ u(StartNowPage, {}),
 		chat: /* @__PURE__ */ u(ChatPage, {}),
 		content: /* @__PURE__ */ u(ContentPage, {}),
 		guide: /* @__PURE__ */ u(GuidePage, {}),

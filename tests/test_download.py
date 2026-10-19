@@ -126,3 +126,17 @@ def test_gives_up_after_retries_without_progress(tmp_path: Path) -> None:
             sleep=waits.append,
         )
     assert waits == [2.0, 4.0]
+
+
+def test_reports_progress(server: Server, tmp_path: Path) -> None:
+    seen: list[tuple[int, int]] = []
+    download(
+        url(server),
+        tmp_path / "f.bin",
+        len(DATA),
+        SHA,
+        sleep=no_sleep,
+        progress=lambda d, t: seen.append((d, t)),
+    )
+    assert seen[-1] == (len(DATA), len(DATA))
+    assert [d for d, _ in seen] == sorted(d for d, _ in seen)

@@ -7,6 +7,7 @@ import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
 import { HomePage } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
+import { StartNowPage } from "./start-now";
 import { type Page, pageFor, resolve, setupTarget, useHash, wikiTarget } from "./router";
 import {
   SettingsLink,
@@ -26,10 +27,10 @@ const NAV: { page: Page; href: string; label: string; student?: boolean }[] = [
   { page: "content", href: "#/content", label: "Manage Content" },
 ];
 
-// The top bar link to highlight: the recording guide is part of setup, and a detail page of the
-// wiki.
+// The top bar link to highlight: the recording guide and Start now are part of setup, and a
+// detail page of the wiki.
 function current(page: Page | undefined): Page | undefined {
-  if (page === "guide") return "setup";
+  if (page === "guide" || page === "start-now") return "setup";
   return page === "wiki-page" ? "wiki" : page;
 }
 
@@ -91,6 +92,7 @@ function Shell() {
         />
       ),
       setup: <SetupPage change={setupTarget(hash)} />,
+      "start-now": <StartNowPage />,
       chat: <ChatPage />,
       content: <ContentPage />,
       guide: <GuidePage />,

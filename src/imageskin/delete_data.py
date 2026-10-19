@@ -28,6 +28,7 @@ PERSONAL = (
     "review.json",
     "accent.json",
     "consent.json",
+    "default-person.json",  # the default person chosen (R24c); the downloaded people are kept
 )
 
 

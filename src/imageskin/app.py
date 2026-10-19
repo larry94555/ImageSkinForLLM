@@ -64,6 +64,8 @@ from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
+from imageskin.start_now import Choice as PersonChoice
+from imageskin.start_now import PresetVoice, StartNow, StartStatus
 from imageskin.teach import Choice, Explain, Lesson, Say, Teacher, lesson_topics
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
@@ -116,6 +118,13 @@ class PhotoChoiceRequest(BaseModel):
 
 class AccentRequest(BaseModel):
     accent: Accent
+
+
+class StartNowRequest(BaseModel):
+    gender: str
+    accent: str
+    realism: str
+    role: str
 
 
 # A request that waited for Delete my data (roadmap R31) and would write the person's data again.
@@ -471,6 +480,14 @@ def create_app(
     uploads_api = "/api/uploads/{kind}"
     needs_consent = [Depends(require_consent)]
 
+    # A default person (roadmap R24c) is chosen without consent: the chat needs consent only
+    # for the person's own photo and voice (item 58).
+    def require_person() -> None:
+        if start_now.chosen() is None:
+            require_consent()
+
+    needs_person = [Depends(require_person)]
+
     @app.post(uploads_api, dependencies=needs_consent)
     def upload(kind: Kind, file: UploadFile, seen: DeletesSeen) -> Upload:
         try:
@@ -753,11 +770,22 @@ def create_app(
     def accent() -> Accent:
         return load_accent(data_home)
 
-    voice_step, voice_engine, voice, voice_kind = clip_voice(
+    voice_step, own_engine, voice, voice_kind = clip_voice(
         store.voice_sample_file, accent, speakers
     )
+    # While a default person is chosen, they speak in a ready-made Kokoro voice (R24c).
+    voice_engine = PresetVoice(own_engine, lambda: start_now.voice())
+
+    def prepare_own_voice() -> None:
+        if start_now.chosen() is None:  # Kokoro loads on its first word
+            (prepare_voice or voice_step)()
+
+    def reply_voice_id() -> str | None:
+        preset = start_now.voice()
+        return f"preset:{preset[1]}" if preset else job.voice_id()
+
     # The voice is prepared again for replies after the server restarts (roadmap R17).
-    voice_ready = VoiceReady(prepare_voice or voice_step, lambda: job.voice_id())
+    voice_ready = VoiceReady(prepare_own_voice, reply_voice_id)
     # The sample keeps the photo's own size and reply clips are scaled down (roadmap R22c).
     # Each has its own engine, so a prepare and a reply never share one.
     steps = clip_steps or photoreal_steps(data_home, voice_engine, voice)
@@ -777,6 +805,42 @@ def create_app(
     )
     app.state.prepare_job = job
     job.resume()  # a job the server was stopped in the middle of carries on
+    start_now = StartNow(data_home, render, on_ready=lambda: start_reply_warm_up())
+    app.state.start_now = start_now
+
+    @app.get("/api/start-now")
+    def get_start_now() -> dict[str, object]:
+        chosen = start_now.chosen()
+        return {
+            **asdict(start_now.status()),
+            "chosen": None if chosen is None else asdict(chosen),
+        }
+
+    @app.post("/api/start-now")
+    def post_start_now(body: StartNowRequest, seen: DeletesSeen) -> StartStatus:
+        choice = PersonChoice(body.gender, body.accent, body.realism, body.role)
+        problem = choice.problem()
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        with data_lock:
+            not_deleted_since(seen)
+            return start_now.start(choice)
+
+    @app.get("/api/start-now/picture")
+    def get_start_now_picture() -> FileResponse:
+        picture = start_now.picture()
+        if picture is None:
+            raise HTTPException(status_code=404, detail="No default person is chosen.")
+        return FileResponse(picture, media_type="image/png")
+
+    @app.get("/api/start-now/lines/{name}")
+    def get_start_now_line(name: Literal["goodbye", "welcome-back"]) -> FileResponse:
+        path = start_now.clip(name)
+        if path is None:
+            raise HTTPException(status_code=404, detail="Not ready yet.")
+        logger.info("Serving a fixed line", extra={"clip": name, "default_person": True})
+        headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
+        return FileResponse(path, media_type="video/mp4", headers=headers)
 
     @app.get("/api/prepare", dependencies=needs_consent)
     def get_prepare() -> PrepareStatus:
@@ -820,8 +884,16 @@ def create_app(
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
         return FileResponse(path, media_type="video/mp4", headers=headers)
 
-    @app.get("/api/review", dependencies=needs_consent)
+    def accepted() -> bool:
+        """Whether the chat is open: a default person is chosen (R24c), or a sample accepted."""
+        if start_now.chosen() is not None:
+            return True
+        return load_review(data_home, job.status()).accepted
+
+    @app.get("/api/review", dependencies=needs_person)
     def get_review() -> dict[str, object]:
+        if start_now.chosen() is not None:
+            return {"accepted": True, "accepted_at": None, "default_person": True}
         return asdict(load_review(data_home, job.status()))
 
     @app.post("/api/review", dependencies=needs_consent)
@@ -833,6 +905,7 @@ def create_app(
                 review = accept(data_home, job.status())
             except ValueError as e:
                 raise HTTPException(status_code=409, detail=str(e)) from e
+            start_now.forget()  # the person is the user's own now
         start_reply_warm_up()  # the chat opens now: ready the LLM and the engines (R22a)
         return asdict(review)
 
@@ -918,12 +991,12 @@ def create_app(
     # memory; it is read again once they are done.
     wiki.when_idle = conversation.warm_up
 
-    @app.get("/api/chat", dependencies=needs_consent)
+    @app.get("/api/chat", dependencies=needs_person)
     def get_chat() -> dict[str, object]:
         return {"turns": [asdict(t) for t in conversation.turns()]}
 
     def require_accepted() -> None:
-        if not load_review(data_home, job.status()).accepted:
+        if not accepted():
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
 
     # The reply clips use the two steps apart (R22b); an engine given as one `render_clip`
@@ -949,9 +1022,11 @@ def create_app(
     chat_lock = threading.Lock()
 
     def chosen_photo() -> Path | None:
+        if start_now.chosen() is not None:
+            return start_now.picture()
         return store.path("photos", job.status().photo_id or "")
 
-    @app.get("/api/chat/hints", dependencies=needs_consent)
+    @app.get("/api/chat/hints", dependencies=needs_person)
     def get_chat_hints() -> dict[str, object]:
         """What to show under the prompt box (R41g): a line naming a few of the topics, and a few
         example questions drawn from the wiki, read each time so they follow the PDFs."""
@@ -965,20 +1040,23 @@ def create_app(
         )
         return {"line": line, "examples": examples}
 
-    @app.get("/api/chat/photo", dependencies=needs_consent)
+    @app.get("/api/chat/photo", dependencies=needs_person)
     def get_chat_photo() -> dict[str, str | int | None]:
         """The photo the videos are made from, with its size as shown, so the chat can give the
         person's frame its shape before anything is drawn (roadmap R41d)."""
         photo_id = job.status().photo_id
-        photo = store.path("photos", photo_id or "")
+        photo = chosen_photo()
         size = None if photo is None else shown_size(photo)
+        url = f"/api/uploads/photos/{photo_id}"
+        if start_now.chosen() is not None:
+            url = "/api/start-now/picture"
         return {
-            "url": None if photo is None else f"/api/uploads/photos/{photo_id}",
+            "url": None if photo is None else url,
             "width": size[0] if size else None,
             "height": size[1] if size else None,
         }
 
-    @app.post("/api/chat", dependencies=[*needs_consent, Depends(require_accepted)])
+    @app.post("/api/chat", dependencies=[*needs_person, Depends(require_accepted)])
     def post_chat(body: ChatRequest, seen: DeletesSeen) -> dict[str, Any]:
         """The reply, with its place in the conversation to ask for its video by, and whether it
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
@@ -1110,7 +1188,7 @@ def create_app(
             **({"prompt": body.prompt} if body.spoken else {}),
         }
 
-    @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_consent)
+    @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_person)
     def stop_clips(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, bool]:
         """Stop a reply's clips (roadmap R19): no more are made, the one being made is dropped
         after the step under way, and the files are removed. The reply's text still comes.
@@ -1148,7 +1226,7 @@ def create_app(
 
     CLIP_FOLLOW_S = 0.05  # how often a clip still being rendered is read for more of it
 
-    @app.get("/api/chat/clips/{reply_id}", dependencies=needs_consent)
+    @app.get("/api/chat/clips/{reply_id}", dependencies=needs_person)
     def get_clips(
         reply_id: str,
         # With `known`, the browser's count so far: the answer waits (up to `wait` seconds)
@@ -1183,7 +1261,7 @@ def create_app(
             "now": time.perf_counter(),
         }
 
-    @app.get("/api/chat/clips/{reply_id}/{n}", dependencies=needs_consent)
+    @app.get("/api/chat/clips/{reply_id}/{n}", dependencies=needs_person)
     def get_clip_file(reply_id: str, n: int) -> Response:
         """The clip, whole once it is rendered; while it is still being rendered, as much of it
         as there is and then the rest as it is written (roadmap R22d), so the browser can start
@@ -1206,9 +1284,8 @@ def create_app(
     def warm_up_replies() -> None:
         # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
         # Run at the start, and again when a sample is accepted.
-        status = job.status()
-        photo = store.path("photos", status.photo_id or "")
-        if photo is not None and load_review(data_home, status).accepted:
+        photo = chosen_photo()
+        if photo is not None and accepted():
             logger.info("Warming up replies")
             # On its own thread: an LLM that accepts the request but doesn't answer would
             # otherwise hold the engines' warm-up back for its whole timeout.
@@ -1235,7 +1312,7 @@ def create_app(
     start_reply_warm_up()
     app.state.loading.append(app.state.reply_warm_up)
 
-    @app.post("/api/chat/video", dependencies=[*needs_consent, Depends(require_accepted)])
+    @app.post("/api/chat/video", dependencies=[*needs_person, Depends(require_accepted)])
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:
         """Speak a reply in the person's voice and render it on their photo, for an LLM that
         doesn't stream. The video's address, or null when the reply has nothing to say aloud."""
@@ -1291,7 +1368,7 @@ def create_app(
             raise HTTPException(status_code=502, detail=ENGINE_FAILED) from e
         return {"video": "/api/prepare/clips/sample", "seconds": seconds}
 
-    @app.delete("/api/chat", dependencies=needs_consent)
+    @app.delete("/api/chat", dependencies=needs_person)
     def clear_chat(seen: DeletesSeen) -> dict[str, int]:
         """Clear conversation from Settings (roadmap R27b), once the browser has asked to
         confirm. It waits for a prompt being answered, so that reply is cleared too."""
@@ -1372,7 +1449,7 @@ def create_app(
                 raise HTTPException(status_code=409, detail=str(e)) from e
         return asdict(deleted)
 
-    @app.get("/api/chat/idle", dependencies=needs_consent)
+    @app.get("/api/chat/idle", dependencies=needs_person)
     def get_idle_video() -> FileResponse:
         """The person at rest, blinking and moving slightly, shown on a loop between replies
         (roadmap R23). Made by the warm-up, so a request during it waits for it."""
@@ -1384,7 +1461,7 @@ def create_app(
         headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"}
         return FileResponse(path, media_type="video/mp4", headers=headers)
 
-    @app.get("/api/chat/videos/{turn}", dependencies=needs_consent)
+    @app.get("/api/chat/videos/{turn}", dependencies=needs_person)
     def get_reply_video(turn: int) -> FileResponse:
         path = replies.video(turn)
         if path is None:

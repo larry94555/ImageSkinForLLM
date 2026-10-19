@@ -119,3 +119,33 @@ prepare it), so about 15 hours for all 60: every picture first, then the picture
 before preparing, since both at once ran out of 16 GB of memory in R24a. A run picks up where an
 earlier one stopped: packed people are kept, and pictures already made with the same prompt are
 checked rather than made again. `--again` starts over; `--only <name> ...` runs some people.
+
+## Uploading the packs (R24c)
+
+The app downloads each person's pack from the assets of this repository's GitHub release
+`default-people-v1` (`RELEASE_URL` in `src/imageskin/start_now.py`), and checks each download
+against its size and SHA-256 in `src/imageskin/default_people_packs.json`. After making packs
+again, update that file, then upload all 60 packs to the release, replacing the old ones. With
+the [GitHub CLI](https://cli.github.com), from the folder that holds the packs:
+
+macOS / Linux:
+```
+gh release create default-people-v1 --repo larry94555/ImageSkinForLLM --title "Default people v1" --notes "The 60 default people (R24b, R24b2)." --latest=false
+gh release upload default-people-v1 --repo larry94555/ImageSkinForLLM --clobber *.zip
+```
+
+Windows 11, Command Prompt:
+```
+gh release create default-people-v1 --repo larry94555/ImageSkinForLLM --title "Default people v1" --notes "The 60 default people (R24b, R24b2)." --latest=false
+for %f in (*.zip) do gh release upload default-people-v1 --repo larry94555/ImageSkinForLLM --clobber "%f"
+```
+
+Windows 11, PowerShell:
+```
+gh release create default-people-v1 --repo larry94555/ImageSkinForLLM --title "Default people v1" --notes "The 60 default people (R24b, R24b2)." --latest=false
+gh release upload default-people-v1 --repo larry94555/ImageSkinForLLM --clobber (Get-ChildItem *.zip).Name
+```
+
+`gh release create` is needed only the first time. Without the GitHub CLI, open the repository's
+Releases page, click **Draft a new release**, name the tag `default-people-v1`, drag in the 60
+packs and publish it.

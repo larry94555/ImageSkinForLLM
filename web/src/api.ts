@@ -218,11 +218,54 @@ export async function getPrepare(): Promise<PrepareStatus> {
 }
 
 // Where the video of the person saying "Goodbye." or "Welcome back." is, which Prepare made with
-// the sample (roadmap R29), or null when it hasn't been made.
+// the sample (roadmap R29), or null when it hasn't been made. A default person (R24c) says them
+// in their own voice.
 export async function lineUrl(name: "goodbye" | "welcome-back"): Promise<string | null> {
+  const start = await getStartNow();
+  if (start.chosen) {
+    const { gender, accent, realism, role } = start.chosen;
+    const who = encodeURIComponent([gender, accent, realism, role].join("-"));
+    return `/api/start-now/lines/${name}?v=${who}`;
+  }
   const status = await getPrepare();
   return status.state === "done" ? clipUrl(name, status) : null;
 }
+
+// Start now with a default person (roadmap R24c): the four choices.
+export type Gender = "female" | "male";
+export type Realism = "photoreal" | "animated";
+export interface PersonChoice {
+  gender: Gender;
+  accent: "American" | "British";
+  realism: Realism;
+  role: string;
+}
+
+// Getting the chosen person ready: their download, then their Goodbye and Welcome back.
+export interface StartNowStatus {
+  state: "idle" | "downloading" | "unpacking" | "getting-ready" | "ready" | "failed";
+  person: string | null;
+  percent: number; // of the download
+  error: string | null; // in plain words
+  chosen?: PersonChoice | null; // the person the chat uses now, if a default one
+}
+
+export async function getStartNow(): Promise<StartNowStatus> {
+  return json<StartNowStatus>(await fetch("/api/start-now"));
+}
+
+// Starts getting the person ready, or reports on the one being got ready.
+export async function startNow(choice: PersonChoice): Promise<StartNowStatus> {
+  const response = await fetch("/api/start-now", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(choice),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as StartNowStatus;
+}
+
+export const DEFAULT_PICTURE = "/api/start-now/picture";
 
 // Starts the job, or reports on it while it runs. Throws an Error saying what is missing.
 export async function startPrepare(): Promise<PrepareStatus> {
