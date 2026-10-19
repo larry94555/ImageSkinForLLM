@@ -57,6 +57,7 @@ test("the page groups the settings and shows each one as saved", async () => {
     "View",
     "Chat",
     "Display",
+    "LLM",
     "Photos and recordings",
     "Photo, voice and accent",
     "Video and conversation",
@@ -125,4 +126,6 @@ test("opened by its address, Settings returns to the first page of the view", as
   );
   // The photos and recordings are the teacher's, so a student can't delete them (R31).
   expect(screen.queryByRole("button", { name: "Delete my data" })).toBeNull();
+  // Nor pick the LLM or enter its key (R42).
+  expect(screen.queryByRole("heading", { name: "LLM" })).toBeNull();
 });

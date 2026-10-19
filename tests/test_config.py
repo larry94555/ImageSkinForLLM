@@ -25,14 +25,23 @@ def test_general_prompts_are_declined_unless_allowed(tmp_path: Path) -> None:
     assert load_settings(write(tmp_path, "general_prompts = true\n")).general_prompts is True
 
 
-def test_claude_or_openai_with_a_key(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level("INFO")
-    claude = load_settings(write(tmp_path, 'llm_provider = "claude"\nllm_api_key = "sk-ant-1"\n'))
-    assert (claude.llm_provider, claude.llm_api_key) == ("claude", "sk-ant-1")
-    assert "sk-ant-1" not in caplog.text  # the key is never logged
-    assert caplog.records[-1].__dict__["llm_provider"] == "claude"
-    text = 'llm_provider = "openai"\nllm_api_key = "sk-1"\nllm_model = "gpt-4.1-mini"\n'
-    assert load_settings(write(tmp_path, text)).llm_provider == "openai"
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        (
+            'llm_provider = "claude"\nllm_api_key = "sk-ant-1"\n',
+            "llm_provider and llm_api_key .* are",
+        ),
+        ('llm_provider = "local"\n', "llm_provider .* is no longer used"),
+    ],
+)
+def test_the_llm_and_its_key_moved_to_the_settings_page(
+    tmp_path: Path, text: str, said: str
+) -> None:
+    # R42: picked on the Settings page, so a config file that still names them says so.
+    with pytest.raises(ConfigError, match=said) as refused:
+        load_settings(write(tmp_path, text))
+    assert "Settings page" in str(refused.value) and "sk-ant-1" not in str(refused.value)
 
 
 def test_example_config_loads() -> None:
@@ -56,11 +65,6 @@ def test_example_config_loads() -> None:
         ("llm_context_tokens = 512", "llm_context_tokens"),
         ('llm_context_tokens = "4096"', "llm_context_tokens"),
         ('general_prompts = "yes"', "general_prompts"),
-        ('llm_provider = "gemini"', "llm_provider"),
-        ('llm_provider = "claude"', "llm_api_key .*needed"),
-        ('llm_provider = "claude"\nllm_api_key = "  "', "llm_api_key .*needed"),
-        ("llm_api_key = 7", "llm_api_key"),
-        ('llm_provider = "openai"\nllm_api_key = "sk-1"', "llm_model .*OpenAI model"),
     ],
 )
 def test_invalid_files_are_rejected(tmp_path: Path, text: str, message: str) -> None:

@@ -9,6 +9,7 @@ import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
 import { ChangeSetup } from "./change-setup";
 import { DeleteData } from "./delete-data";
+import { LlmSettingSection } from "./llm-setting";
 import { VideoAndChat } from "./video-and-chat";
 import { YourFiles } from "./your-files";
 
@@ -208,6 +209,8 @@ export function SettingsPage({
           ))}
         </section>
       ))}
+      {/* The LLM and its key are the teacher's to pick (R42). */}
+      {settings.view === "teacher" && <LlmSettingSection />}
       <YourFiles />
       {/* Setup is the teacher's (R41b), so the student view has no way to change them. */}
       {settings.view === "teacher" && <ChangeSetup />}

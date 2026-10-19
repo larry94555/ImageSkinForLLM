@@ -3,19 +3,16 @@ host = "127.0.0.1"
 port = 8000
 log_level = "INFO"
 
-# The LLM the chat talks to: llama-server's OpenAI-compatible API. llama-server answers with the
-# model it loaded, whatever llm_model says. The context window in tokens is read from llama-server
-# (its --ctx-size); llm_context_tokens is used for a server that doesn't report it.
+# The local LLM: llama-server's OpenAI-compatible API. Claude, OpenAI, Grok or OpenRouter is
+# picked instead, with your own API key, on the Settings page (roadmap R42). llama-server answers
+# with the model it loaded, whatever llm_model says. The context window in tokens is read from
+# llama-server (its --ctx-size); llm_context_tokens is used for a server that doesn't report it.
 llm_url = "http://127.0.0.1:8080/v1"
 llm_model = "local"
 llm_context_tokens = 4096
 
-# Or Claude or OpenAI with your own API key (roadmap R33). The key stays in this file on the
-# server and is never logged. Claude's model defaults to claude-opus-5-5; OpenAI needs llm_model
-# (such as "gpt-4.1-mini") and uses https://api.openai.com/v1 unless llm_url says otherwise.
-# Raise llm_context_tokens (to 32000, say) to keep more of the conversation word for word.
-# llm_provider = "claude"
-# llm_api_key = "sk-ant-..."
+# With a provider picked on the Settings page, raise llm_context_tokens (to 32000, say) to keep
+# more of the conversation word for word.
 
 # Whether the chat answers prompts that the PDFs added on Manage Content have nothing on (true),
 # or politely declines them (false, the default). Before any PDF is added, every prompt is answered.

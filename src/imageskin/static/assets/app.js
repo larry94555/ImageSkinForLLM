@@ -334,6 +334,30 @@ async function changeSettings(changes) {
 		body: JSON.stringify(changes)
 	})));
 }
+async function getLlm() {
+	return json(await fetch("/api/llm"));
+}
+async function chooseLlm(choice) {
+	const response = await fetch("/api/llm", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(choice)
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+async function listModels(provider, apiKey) {
+	const response = await fetch("/api/llm/models", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(apiKey ? {
+			provider,
+			api_key: apiKey
+		} : { provider })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).models;
+}
 //#endregion
 //#region src/change-setup.tsx
 var CHANGES = [
@@ -559,6 +583,204 @@ function ConfirmDelete({ onCancel, onConfirm }) {
 			]
 		})
 	});
+}
+//#endregion
+//#region src/llm-setting.tsx
+function LlmSettingSection() {
+	const [setting, setSetting] = d(null);
+	const [picked, setPicked] = d("local");
+	const [key, setKey] = d("");
+	const [model, setModel] = d("");
+	const [saving, setSaving] = d(false);
+	const [error, setError] = d(null);
+	const [saved, setSaved] = d(false);
+	const [models, setModels] = d(null);
+	const asking = A(0);
+	h(() => {
+		getLlm().then((read) => {
+			if (!Array.isArray(read.providers)) throw new Error("The LLM setting has no providers");
+			setSetting(read);
+			pick(read.provider, read);
+		}).catch((e) => {
+			console.error("Could not read the LLM setting", e);
+			setError("The LLM setting could not be read. Reload the page to try again.");
+		});
+	}, []);
+	function pick(id, from = setting) {
+		const provider = from?.providers.find((p) => p.id === id);
+		setPicked(id);
+		setKey("");
+		setModel(provider?.model ?? "");
+		setSaved(false);
+		setError(null);
+		setModels(null);
+		asking.current += 1;
+		if (provider?.has_key || provider?.lists_freely) lookUp(id, void 0, provider.has_key);
+	}
+	async function lookUp(id, typedKey, savedKey = false) {
+		const asked = asking.current += 1;
+		setModels({ state: "loading" });
+		const started = performance.now();
+		try {
+			const ids = await listModels(id, typedKey);
+			if (asking.current !== asked) return;
+			console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
+			setModels({
+				state: "listed",
+				ids,
+				checked: Boolean(typedKey) || savedKey
+			});
+		} catch (e) {
+			if (asking.current !== asked) return;
+			console.error(`Could not list the models for ${id}`, e);
+			const refused = e instanceof ServerRefusal && e.status < 500;
+			const error = e instanceof ServerRefusal ? e.message : "The models couldn't be listed.";
+			setModels({
+				state: "failed",
+				error,
+				unreachable: !refused
+			});
+		}
+	}
+	async function use() {
+		setSaving(true);
+		setError(null);
+		setSaved(false);
+		const started = performance.now();
+		try {
+			const local = picked === "local";
+			const typed = key.trim();
+			const now = await chooseLlm({
+				provider: picked,
+				...typed && !local ? { api_key: typed } : {},
+				...local ? {} : { model }
+			});
+			console.info(`LLM changed to ${picked} (${Math.round(performance.now() - started)} ms)`);
+			setSetting(now);
+			setKey("");
+			setSaved(true);
+			if (!local && (typed || models?.state !== "listed")) lookUp(picked, void 0, true);
+		} catch (e) {
+			console.error(`Could not change the LLM to ${picked}`, e);
+			setError(e instanceof ServerRefusal ? e.message : "The LLM could not be changed. Try again.");
+		}
+		setSaving(false);
+	}
+	const current = setting?.providers.find((p) => p.id === setting.provider);
+	const chosen = setting?.providers.find((p) => p.id === picked);
+	const showModel = chosen?.lists_freely || models?.state === "listed" || models?.state === "failed" && models.unreachable;
+	return /* @__PURE__ */ u("section", {
+		className: "panel llm-setting",
+		"aria-labelledby": "settings-llm",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-llm",
+				children: "LLM"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Who writes the replies. A provider other than the local model needs your own API key, which is kept on the app's server and never shown again."
+			}),
+			current && /* @__PURE__ */ u("p", {
+				className: "current-llm",
+				children: ["Answering now: ", /* @__PURE__ */ u("strong", { children: current.label })]
+			}),
+			setting && /* @__PURE__ */ u("form", {
+				onSubmit: (e) => {
+					e.preventDefault();
+					use();
+				},
+				children: [
+					/* @__PURE__ */ u("fieldset", {
+						disabled: saving,
+						children: [/* @__PURE__ */ u("legend", {
+							className: "sr-only",
+							children: "LLM"
+						}), setting.providers.map((p) => /* @__PURE__ */ u("label", {
+							className: "choice",
+							children: [
+								/* @__PURE__ */ u("input", {
+									type: "radio",
+									name: "llm",
+									value: p.id,
+									checked: picked === p.id,
+									onChange: () => pick(p.id)
+								}),
+								" ",
+								/* @__PURE__ */ u("span", { children: [p.label, p.id !== "local" && /* @__PURE__ */ u("span", {
+									className: "muted",
+									children: [" · ", p.has_key ? "key saved" : "needs a key"]
+								})] })
+							]
+						}, p.id))]
+					}),
+					chosen && chosen.id !== "local" && /* @__PURE__ */ u("div", {
+						className: "llm-fields",
+						children: [
+							/* @__PURE__ */ u("label", { children: ["API key", /* @__PURE__ */ u("input", {
+								type: "password",
+								autoComplete: "off",
+								value: key,
+								placeholder: chosen.has_key ? "Saved. Paste a new key to replace it." : `From ${chosen.keys_at}`,
+								onInput: (e) => {
+									setKey(e.target.value);
+									setError(null);
+								},
+								onBlur: () => key.trim() && void lookUp(chosen.id, key.trim()),
+								disabled: saving
+							})] }),
+							showModel && /* @__PURE__ */ u("label", { children: ["Model", /* @__PURE__ */ u("input", {
+								type: "text",
+								list: "llm-models",
+								value: model,
+								placeholder: chosen.default_model,
+								onInput: (e) => setModel(e.target.value),
+								disabled: saving
+							})] }),
+							models?.state === "listed" && /* @__PURE__ */ u("datalist", {
+								id: "llm-models",
+								children: models.ids.map((id) => /* @__PURE__ */ u("option", { value: id }, id))
+							}),
+							/* @__PURE__ */ u("p", {
+								className: "muted",
+								children: modelsNote(models, model || chosen.default_model, chosen)
+							})
+						]
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						className: "use",
+						disabled: saving,
+						children: saving ? "Saving…" : "Use this LLM"
+					})
+				]
+			}),
+			saved && current && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Saved. ",
+					current.label,
+					" answers from the next prompt."
+				]
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: error
+			})
+		]
+	});
+}
+function modelsNote(models, model, provider) {
+	const blank = `Leave the model blank for ${provider.default_model}.`;
+	if (models === null) return `Enter your key to choose one of ${provider.label}'s models.`;
+	if (models.state === "loading") return `Looking up ${provider.label}'s models…`;
+	if (models.state === "failed") return models.unreachable ? `${models.error} You can still type a model's name.` : models.error;
+	const n = models.ids.length;
+	const available = `${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
+	const listed = models.checked ? `The key works. ${available}` : available;
+	if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
+	return `${listed} ${blank}`;
 }
 function reason(e, fallback) {
 	return e instanceof ServerRefusal ? e.message : fallback;
@@ -1120,6 +1342,7 @@ function SettingsPage({ back, onDataDeleted }) {
 					}, name))
 				]
 			}, group)),
+			settings.view === "teacher" && /* @__PURE__ */ u(LlmSettingSection, {}),
 			/* @__PURE__ */ u(YourFiles, {}),
 			settings.view === "teacher" && /* @__PURE__ */ u(ChangeSetup, {}),
 			/* @__PURE__ */ u(VideoAndChat, {}),

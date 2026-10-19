@@ -785,3 +785,52 @@ export async function changeSettings(changes: Partial<UiSettings>): Promise<UiSe
   });
   return settings(await json<Partial<UiSettings>>(response));
 }
+
+// The LLM setting (roadmap R42): which LLM answers. The keys stay on the server: it only says
+// which providers have one.
+export interface LlmProvider {
+  id: string;
+  label: string;
+  keys_at: string; // where to get a key; "" for the local model
+  model: string; // entered on the Settings page; "" for the default
+  default_model: string;
+  has_key: boolean;
+  lists_freely: boolean; // its models can be listed before a key is entered (OpenRouter)
+}
+
+export interface LlmSetting {
+  provider: string;
+  providers: LlmProvider[];
+}
+
+export async function getLlm(): Promise<LlmSetting> {
+  return json<LlmSetting>(await fetch("/api/llm"));
+}
+
+// Makes `provider` the LLM. A key or model left out keeps the one saved; a blank model is the
+// provider's default. Throws a ServerRefusal saying what is wrong.
+export async function chooseLlm(choice: {
+  provider: string;
+  api_key?: string;
+  model?: string;
+}): Promise<LlmSetting> {
+  const response = await fetch("/api/llm", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(choice),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as LlmSetting;
+}
+
+// The models a provider offers to the key given, or to the saved one (R42). Throws a
+// ServerRefusal saying why when they can't be listed.
+export async function listModels(provider: string, apiKey?: string): Promise<string[]> {
+  const response = await fetch("/api/llm/models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(apiKey ? { provider, api_key: apiKey } : { provider }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { models: string[] }).models;
+}

@@ -67,11 +67,11 @@ def reply_text(message: Any) -> str:
 def plain_error(e: anthropic.AnthropicError) -> LlmError:
     """The SDK's error said in plain words, for the chat and the logs."""
     if isinstance(e, anthropic.AuthenticationError):
-        return LlmError("Claude refused the API key. Check llm_api_key in the config file.")
+        return LlmError("Claude refused the API key. Check it on the Settings page.")
     if isinstance(e, anthropic.PermissionDeniedError):
         return LlmError("Claude's API key isn't allowed to use this model.")
     if isinstance(e, anthropic.NotFoundError):
-        return LlmError("Claude doesn't know the model in llm_model. Check the config file.")
+        return LlmError("Claude doesn't know the model. Check it on the Settings page.")
     if isinstance(e, anthropic.RateLimitError):
         return LlmError("Claude is getting too many requests right now. Try again shortly.")
     if isinstance(e, anthropic.APIStatusError):

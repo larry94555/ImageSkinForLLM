@@ -22,7 +22,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 8 | **Spoken prompts.** Push-to-talk microphone input. | R24 | 1 | 0.7% | 1 of 1 |
 | 8a | **The default people, made and packed.** 60 made-up people, photoreal and animated, of each gender and role and a wide range of looks, each checked to animate and talk, packed as one download each of at most 50 MB. | R24a, R24a2, R24b, R24b2 | 4 | 2.9% | 4 of 4 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.1% | 7 of 7 |
-| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R33, R42 to R43 | 3 | 2.2% | 1 of 3 |
+| 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key or subscription. | R33, R42 to R43 | 3 | 2.2% | 2 of 3 |
 | 10 | **Hosted.** Runs on a hosted HTTPS site. | R32 | 1 | 0.7% | 0 |
 | 10a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice, downloaded from the hosted site; replace the picture or voice with your own later. | R24c, R32a, R24c2, R24d | 4 | 2.9% | 1 of 4 |
 | 12 | **Sign-on and accounts.** Administrator sign-on, question and answer only without it, student sign-up and login, and a setting to require sign-up. | R44 to R47 | 4 | 2.9% | 0 |
@@ -577,9 +577,10 @@ Moved by Larry on 2026-10-18 to right after Milestone 9, before hosting (Milesto
 - OpenAI by config, and a small Claude adapter; the user's API key is set in the config file, on the server only. Entering it on the Settings page moved to R42, which adds the LLM setting there (2026-10-18).
 - **Can show:** the same conversation answered by Claude or OpenAI instead of local llama.cpp.
 
-### R42. LLM setting with API keys (Medium) · item 29
+### R42. LLM setting with API keys (Medium) · item 29 · Done in [PR #115](https://github.com/larry94555/ImageSkinForLLM/pull/115)
 - A setting that picks the LLM: local llama.cpp (the default), or Claude, OpenAI, Grok or OpenRouter with an API key entered on the Settings page, building on R33's Claude and OpenAI support. Keys stay on the server. The LLM choice and key are set only on the Settings page: R42 removes R33's `llm_provider` and `llm_api_key` from the config file (Larry, 2026-10-19).
 - **Can show:** the same question answered by the local model and by each provider with a key.
+- **Built:** an **LLM** section on the Settings page (teacher view) picks Local (llama.cpp), Claude, OpenAI, Grok or OpenRouter, with an API key and a model for each provider, picked from the list the provider gives for the key, looked up live since a fixed list goes out of date (Larry, 2026-10-19), or typed (blank for `claude-opus-5-5`, `gpt-4.1-mini`, `grok-4` or `openrouter/auto`). `imageskin.llm_choice` saves the choice and each provider's key and model as `llm.json` in the data folder, readable by the owner only where the system allows, and never logs a key or sends it back to the browser. `SwitchableLlm` is the one client the chat, the wiki and its outline use, so a change holds from the next request. Grok and OpenRouter are asked through R33's OpenAI-compatible client. A config file that still has `llm_provider` or `llm_api_key` says they moved to the Settings page.
 
 ### R43. LLM by subscription (Medium) · item 29
 - Use a Claude, OpenAI or Grok subscription instead of an API key, if the decision before this PR finds a supported way to do it.
