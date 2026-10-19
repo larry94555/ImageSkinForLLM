@@ -42,13 +42,14 @@ from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 from cryptography.hazmat.primitives.hashes import SHA256
 
+from imageskin.chat import LlmError
+from imageskin.chatgpt_plan import RESOURCE
 from imageskin.llm_choice import write_owner_only
 
 logger = logging.getLogger(__name__)
 
 FILENAME = "chatgpt.json"
 ISSUER = "https://auth.openai.com"
-RESOURCE = "https://api.openai.com/v1"
 # Who the person is, a token that renews, and use of their plan for this app's requests.
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
 SCOPES = f"openid profile email offline_access resource.invoke {PLAN_SCOPE}"
@@ -62,6 +63,14 @@ PENDING_S = 600
 MOST_PENDING = 5
 REVOKE_TRIES = 3  # a network failure or 5xx is tried again, after 1 s then 2 s
 REVOKE_BACKOFF_S = 1.0
+# The access token is renewed when it has less than this left, so a reply never starts on a token
+# about to end (R43a).
+RENEW_BEFORE_S = 60
+SIGN_IN_FIRST = "Sign in with ChatGPT on the Settings page first."
+SIGN_IN_AGAIN = "Your ChatGPT sign-in has ended. Sign in with ChatGPT again on the Settings page."
+NO_PLAN_USE = (
+    'ChatGPT wasn\'t allowed to use your plan. Click "Allow use of my plan" on the Settings page.'
+)
 
 # POST a form, or GET when the form is None: the status and the decoded JSON.
 Http = Callable[[str, dict[str, str] | None], tuple[int, Any]]
@@ -173,6 +182,9 @@ class ChatGptSignIn:
         self._sleep = sleep
         self._lock = threading.Lock()  # the pending sign-ins
         self._writing = threading.Lock()  # chatgpt.json: one read-change-write at a time
+        # One renewal at a time: OpenAI replaces the refresh token with each, so two at once
+        # would leave one holding a token already used.
+        self._renewing = threading.Lock()
         self._pending: dict[str, _Pending] = {}
         self._endpoints: dict[str, str] | None = None
         self._keys: dict[str, dict[str, Any]] = {}
@@ -528,3 +540,76 @@ class ChatGptSignIn:
             "Disconnected ChatGPT", extra={"was_connected": bool(token), "revoked": revoked}
         )
         return {**self.status(), "revoked": revoked or not token}
+
+    def access_token(self, renew: bool = False) -> str:
+        """The account in use's access token for its plan (R43a), renewed first when it ends
+        within a minute, or when `renew` because OpenAI refused it; SignInError, in plain words,
+        when there is none to use."""
+        with self._renewing:
+            saved = self._load()
+            client_id = str(saved.get("active", ""))
+            active = self._registrations(saved).get(client_id) or {}
+            credentials = active.get("credentials") or {}
+            if not credentials.get("access_token"):
+                raise SignInError(SIGN_IN_FIRST)
+            if PLAN_SCOPE not in credentials.get("scopes", []):
+                raise SignInError(NO_PLAN_USE)
+            left = float(credentials.get("expires_at", 0)) - self._clock()
+            if not renew and left > RENEW_BEFORE_S:
+                return str(credentials["access_token"])
+            return self._renew(client_id, credentials)
+
+    def plan_token(self, renew: bool = False) -> str:
+        """`access_token` for the ChatGPT plan's client (R43a): LlmError when there is none, so
+        the chat says why in plain words."""
+        try:
+            return self.access_token(renew)
+        except SignInError as e:
+            logger.error("No ChatGPT sign-in to answer with", extra={"error": str(e)})
+            raise LlmError(str(e)) from e
+
+    def _renew(self, client_id: str, credentials: dict[str, Any]) -> str:
+        start = time.perf_counter()
+        refresh = credentials.get("refresh_token")
+        if not refresh:
+            raise SignInError(SIGN_IN_AGAIN)
+        status, data = self._http(
+            self._discover()["token_endpoint"],
+            {
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "refresh_token": refresh,
+                "resource": RESOURCE,
+            },
+        )
+        if status != 200 or not isinstance(data, dict) or not data.get("access_token"):
+            error = data.get("error", "") if isinstance(data, dict) else ""
+            logger.error(
+                "Could not renew the ChatGPT sign-in", extra={"status": status, "error": error}
+            )
+            if status in (400, 401):  # the refresh token was refused: only a sign-in helps
+                raise SignInError(SIGN_IN_AGAIN)
+            raise SignInError("ChatGPT's sign-in can't be reached right now. Try again.")
+        renewed = {
+            "scopes": str(data.get("scope", "")).split() or credentials.get("scopes", []),
+            "access_token": data["access_token"],
+            # OpenAI may send a new refresh token; the old one is then used up.
+            "refresh_token": data.get("refresh_token") or refresh,
+            "expires_at": self._clock() + float(data.get("expires_in", 0)),
+        }
+
+        def keep(saved: dict[str, Any]) -> dict[str, Any]:
+            registrations = self._registrations(saved)
+            current = registrations.get(client_id)
+            # Not if the account was disconnected or signed in again meanwhile.
+            if not current or current.get("credentials") != credentials:
+                return saved
+            registrations[client_id] = {**current, "credentials": renewed}
+            return {**saved, "registrations": list(registrations.values())}
+
+        self._update(keep)
+        logger.info(
+            "Renewed the ChatGPT sign-in",
+            extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
+        )
+        return str(renewed["access_token"])

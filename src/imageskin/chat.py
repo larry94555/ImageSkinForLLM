@@ -152,6 +152,7 @@ PROVIDER_NAMES = {
     "openai": "OpenAI",
     "grok": "Grok",
     "openrouter": "OpenRouter",
+    "chatgpt": "ChatGPT",
 }
 # Said when the LLM declines on purpose: OpenAI's "refusal" in place of a reply (R33).
 DECLINED = "The LLM declined to answer that. Try asking another way."

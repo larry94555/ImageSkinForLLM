@@ -1,7 +1,8 @@
 """Which LLM answers, picked on the Settings page (roadmap R42, feature item 29).
 
 Local llama.cpp (llama-server) is the default. Claude, OpenAI, Grok and OpenRouter answer with
-the user's own API key, entered on the Settings page. The choice and the keys are saved as
+the user's own API key, entered on the Settings page; the ChatGPT plan answers through the
+ChatGPT account signed in there (R43a), with no key. The choice and the keys are saved as
 llm.json in the app's home folder, on the server only: a key is never logged or sent back to the
 browser. Each provider keeps its own key and model, so switching back needs no key again.
 
@@ -26,7 +27,8 @@ from typing import Any
 
 import anthropic
 
-from imageskin.chat import REPLY_TOKENS, ChatLlm, LlmClient, LlmSettings, Message
+from imageskin.chat import REPLY_TOKENS, ChatLlm, LlmClient, LlmError, LlmSettings, Message
+from imageskin.chatgpt_plan import RESOURCE, ChatGptPlanClient, Token, plan_models
 from imageskin.claude import DEFAULT_MODEL as CLAUDE_MODEL
 from imageskin.claude import ClaudeClient
 
@@ -54,6 +56,8 @@ class Provider:
     # Where a key is checked when listing the models doesn't need one (OpenRouter's lists them
     # for anyone).
     key_at: str = ""
+    # Answers through the ChatGPT account signed in on the Settings page (R43), with no key.
+    signs_in: bool = False
 
     @property
     def lists_freely(self) -> bool:
@@ -76,6 +80,8 @@ PROVIDERS: dict[str, Provider] = {
         "openrouter.ai",
         key_at="/key",
     ),
+    # No model of its own: the first in the plan's list is saved when none is entered.
+    "chatgpt": Provider("ChatGPT plan", RESOURCE, signs_in=True),
 }
 
 _saving = threading.Lock()  # one change at a time, so two made together both stay
@@ -99,7 +105,7 @@ def load_choice(home: Path) -> LlmChoice:
         choice = LlmChoice(data["provider"], dict(data["keys"]), dict(data["models"]))
         if choice.provider not in PROVIDERS:
             raise ValueError(f"no provider called {choice.provider!r}")
-        if choice.provider != "local" and not choice.keys.get(choice.provider):
+        if needs_key(choice.provider) and not choice.keys.get(choice.provider):
             raise ValueError(f"no key for {choice.provider}")
     except FileNotFoundError:
         return LlmChoice()
@@ -107,6 +113,10 @@ def load_choice(home: Path) -> LlmChoice:
         logger.error("Could not read the LLM choice", extra={"path": str(path), "error": str(e)})
         return LlmChoice()
     return choice
+
+
+def needs_key(provider: str) -> bool:
+    return provider != "local" and not PROVIDERS[provider].signs_in
 
 
 def save_choice(
@@ -126,9 +136,9 @@ def save_choice(
     with _saving:
         saved = load_choice(home)
         keys, models = dict(saved.keys), dict(saved.models)
-        if key and provider != "local":
+        if key and needs_key(provider):
             keys[provider] = key
-        if provider != "local" and not keys.get(provider):
+        if needs_key(provider) and not keys.get(provider):
             raise ValueError(f"Enter your {label} API key.")
         if name is not None and provider != "local":
             if name:
@@ -155,8 +165,9 @@ def write_owner_only(path: Path, data: dict[str, Any]) -> None:
     os.replace(part, path)
 
 
-def described(choice: LlmChoice) -> dict[str, Any]:
-    """The choice for the Settings page: which providers have a key, but never the keys."""
+def described(choice: LlmChoice, signed_in: bool = False) -> dict[str, Any]:
+    """The choice for the Settings page: which providers have a key, but never the keys. The
+    ChatGPT plan "has a key" while a ChatGPT account that allowed plan use is `signed_in`."""
     return {
         "provider": choice.provider,
         "providers": [
@@ -166,8 +177,9 @@ def described(choice: LlmChoice) -> dict[str, Any]:
                 "keys_at": p.keys_at,
                 "model": choice.models.get(pid, ""),
                 "default_model": p.model,
-                "has_key": bool(choice.keys.get(pid)),
+                "has_key": signed_in if p.signs_in else bool(choice.keys.get(pid)),
                 "lists_freely": p.lists_freely,
+                "signs_in": p.signs_in,
             }
             for pid, p in PROVIDERS.items()
         ],
@@ -185,13 +197,18 @@ def settings_for(base: LlmSettings, choice: LlmChoice) -> LlmSettings:
         url=p.url or base.url,
         model=choice.model(choice.provider),
         provider=choice.provider,
-        api_key=choice.keys[choice.provider],
+        api_key=choice.keys.get(choice.provider, ""),
     )
+
+
+def _no_sign_in(renew: bool) -> str:
+    raise LlmError("Sign in with ChatGPT on the Settings page first.")
 
 
 def llm_client(llm: LlmSettings) -> ChatLlm:
     """The client for the LLM: Claude's own, or the OpenAI-compatible one for llama-server,
-    OpenAI, Grok and OpenRouter (R33, R42)."""
+    OpenAI, Grok and OpenRouter (R33, R42). The ChatGPT plan's needs the sign-in's token, which
+    `SwitchableLlm` gives it."""
     return ClaudeClient(llm) if llm.provider == "claude" else LlmClient(llm)
 
 
@@ -275,6 +292,8 @@ class ModelLists:
     def models(self, provider: str, key: str) -> list[str]:
         if provider not in PROVIDERS or provider == "local":
             raise ModelListError("Only a provider's models can be listed.")
+        if not key and PROVIDERS[provider].signs_in:
+            raise ModelListError("Sign in with ChatGPT on the Settings page first.")
         if not key and not PROVIDERS[provider].lists_freely:
             raise ModelListError(f"Enter your {PROVIDERS[provider].label} API key first.")
         # The key is kept only as a hash, so the cache holds no key.
@@ -308,12 +327,18 @@ class ModelLists:
                 auth = {"Authorization": f"Bearer {key}"} if key else {}
                 if p.key_at and key:
                     self._fetch(p.url + p.key_at, auth)  # refused if the key isn't valid
-                found = _ids(self._fetch(p.url + p.models_at, auth), provider)
+                listed = self._fetch(p.url + p.models_at, auth)
+                # The plan's list keeps its own order (R43a); the others are sorted.
+                found = plan_models(listed) if p.signs_in else _ids(listed, provider)
         except (urllib.error.HTTPError, anthropic.APIStatusError) as e:
             code = getattr(e, "code", None) or getattr(e, "status_code", None)
             logger.error(
                 "Could not list the provider's models", extra={"provider": provider, "status": code}
             )
+            if code in (401, 403) and p.signs_in:
+                raise ModelListError(
+                    "ChatGPT refused the sign-in. Sign in with ChatGPT again.", refused=True
+                ) from e
             if code in (401, 403):
                 raise ModelListError(f"{p.label} refused the API key.", refused=True) from e
             raise ModelListError(f"{p.label} couldn't list its models ({code}).") from e
@@ -338,13 +363,21 @@ class SwitchableLlm:
     """The chosen LLM, which a change on the Settings page swaps (R42): the same calls as
     `chat.LlmClient`, each asking the client chosen when it is made."""
 
-    def __init__(self, base: LlmSettings, choice: LlmChoice) -> None:
+    def __init__(
+        self, base: LlmSettings, choice: LlmChoice, plan_token: Token = _no_sign_in
+    ) -> None:
         self._base = base
+        self._plan_token = plan_token
         self._lock = threading.Lock()
         self.settings = settings_for(base, choice)
-        self._client = llm_client(self.settings)
+        self._client = self._client_for(self.settings)
         # The settings and client a thread is pinned to (see pinned), if it is.
         self._held = threading.local()
+
+    def _client_for(self, settings: LlmSettings) -> ChatLlm:
+        if settings.provider == "chatgpt":  # with the signed-in account's token (R43a)
+            return ChatGptPlanClient(settings, self._plan_token)
+        return llm_client(settings)
 
     @contextmanager
     def pinned(self) -> Iterator[None]:
@@ -363,7 +396,7 @@ class SwitchableLlm:
 
     def use(self, choice: LlmChoice) -> None:
         settings = settings_for(self._base, choice)
-        client = llm_client(settings)
+        client = self._client_for(settings)
         with self._lock:
             self.settings, self._client = settings, client
         logger.info(

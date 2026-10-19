@@ -97,7 +97,10 @@ export async function listUploads(kind: Kind): Promise<Upload[]> {
 export async function uploadFile(kind: Kind, file: File): Promise<Upload> {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch(`/api/uploads/${kind}`, { method: "POST", body: form });
+  const response = await fetch(`/api/uploads/${kind}`, {
+    method: "POST",
+    body: form,
+  });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as Upload;
 }
@@ -105,23 +108,30 @@ export async function uploadFile(kind: Kind, file: File): Promise<Upload> {
 // Runs the checks on an upload again; returns it with the result. Throws a ServerRefusal, with
 // status 503 when no check could run because the checks are off or failed.
 export async function checkUpload(kind: Kind, id: string): Promise<Upload> {
-  const response = await fetch(`${uploadUrl(kind, id)}/check`, { method: "POST" });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  const response = await fetch(`${uploadUrl(kind, id)}/check`, {
+    method: "POST",
+  });
+  if (!response.ok)
+    throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Upload;
 }
 
 // Renders the sample video again from what was prepared (roadmap R27b); returns its address.
 // Throws a ServerRefusal saying why, such as nothing prepared yet.
 export async function runVideoTestAgain(): Promise<string> {
-  const response = await fetch("/api/prepare/clips/sample/again", { method: "POST" });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  const response = await fetch("/api/prepare/clips/sample/again", {
+    method: "POST",
+  });
+  if (!response.ok)
+    throw new ServerRefusal(await refusal(response), response.status);
   return ((await response.json()) as { video: string }).video;
 }
 
 // Clears the whole conversation (roadmap R27b); returns how many turns were cleared.
 export async function clearChat(): Promise<number> {
   const response = await fetch("/api/chat", { method: "DELETE" });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  if (!response.ok)
+    throw new ServerRefusal(await refusal(response), response.status);
   return ((await response.json()) as { cleared: number }).cleared;
 }
 
@@ -135,7 +145,8 @@ export interface Deleted {
 // Throws a ServerRefusal saying why, such as setup still preparing.
 export async function deleteMyData(): Promise<Deleted> {
   const response = await fetch("/api/data", { method: "DELETE" });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  if (!response.ok)
+    throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Deleted;
 }
 
@@ -209,7 +220,10 @@ export interface PrepareStatus {
 
 // A video the prepare job rendered (roadmap R13). The finish time is added so that the browser
 // fetches it afresh after preparing again, which replaces it under the same address.
-export function clipUrl(name: "sample" | "goodbye" | "welcome-back", status: PrepareStatus) {
+export function clipUrl(
+  name: "sample" | "goodbye" | "welcome-back",
+  status: PrepareStatus,
+) {
   return `/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`;
 }
 
@@ -220,7 +234,9 @@ export async function getPrepare(): Promise<PrepareStatus> {
 // Where the video of the person saying "Goodbye." or "Welcome back." is, which Prepare made with
 // the sample (roadmap R29), or null when it hasn't been made. A default person (R24c) says them
 // in their own voice.
-export async function lineUrl(name: "goodbye" | "welcome-back"): Promise<string | null> {
+export async function lineUrl(
+  name: "goodbye" | "welcome-back",
+): Promise<string | null> {
   const start = await getStartNow();
   if (start.chosen) {
     const { gender, accent, realism, role } = start.chosen;
@@ -243,7 +259,13 @@ export interface PersonChoice {
 
 // Getting the chosen person ready: their download, then their Goodbye and Welcome back.
 export interface StartNowStatus {
-  state: "idle" | "downloading" | "unpacking" | "getting-ready" | "ready" | "failed";
+  state:
+    | "idle"
+    | "downloading"
+    | "unpacking"
+    | "getting-ready"
+    | "ready"
+    | "failed";
   person: string | null;
   percent: number; // of the download
   error: string | null; // in plain words
@@ -281,7 +303,11 @@ export interface Review {
   accepted_at: string | null;
 }
 
-export type Decision = "accept" | "reject-image" | "reject-voice" | "change-accent";
+export type Decision =
+  | "accept"
+  | "reject-image"
+  | "reject-voice"
+  | "change-accent";
 
 export async function getReview(): Promise<Review> {
   return json<Review>(await fetch("/api/review"));
@@ -401,7 +427,12 @@ export async function sendPrompt(
   const body: Record<string, unknown> = { prompt };
   if (spoken) body.spoken = true;
   if (replyId) body.reply_id = replyId;
-  if (lesson) body.lesson = { topic: lesson.topic, part: lesson.part, active: lesson.active };
+  if (lesson)
+    body.lesson = {
+      topic: lesson.topic,
+      part: lesson.part,
+      active: lesson.active,
+    };
   if (quiz) {
     const { questions: _, ...kept } = quiz; // the server's own count, not sent back
     body.quiz = kept;
@@ -412,7 +443,8 @@ export async function sendPrompt(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  if (!response.ok)
+    throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Reply;
 }
 
@@ -420,7 +452,10 @@ export async function sendPrompt(
 // conversation. Returns the video's address, or null when the reply has nothing to say aloud.
 // Throws an Error saying why when the voice or the video fails.
 // `replyId`, the reply's id from sendPrompt, lets Stop stop the video being made (roadmap R19).
-export async function speakReply(turn: number, replyId?: string): Promise<string | null> {
+export async function speakReply(
+  turn: number,
+  replyId?: string,
+): Promise<string | null> {
   const response = await fetch("/api/chat/video", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -452,7 +487,10 @@ export interface Clips {
 // With `known`, the clips this page has so far: the server answers as soon as there is more to
 // tell (a new clip, a failure or the end), or after 10 seconds, so a clip is known the moment
 // it is ready.
-export async function getClips(replyId: string, known?: number): Promise<Clips | null> {
+export async function getClips(
+  replyId: string,
+  known?: number,
+): Promise<Clips | null> {
   const query = known === undefined ? "" : `?known=${known}&wait=10`;
   const response = await fetch(`/api/chat/clips/${replyId}${query}`);
   if (response.status === 404) return null;
@@ -462,7 +500,9 @@ export async function getClips(replyId: string, known?: number): Promise<Clips |
 // Stops a reply's clips (roadmap R19): the server makes no more and removes those it made. The
 // reply's text still comes. True when there were clips to stop.
 export async function stopReply(replyId: string): Promise<boolean> {
-  const response = await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" });
+  const response = await fetch(`/api/chat/clips/${replyId}/stop`, {
+    method: "POST",
+  });
   return (await json<{ stopped: boolean }>(response)).stopped;
 }
 
@@ -486,7 +526,9 @@ export interface ChatHints {
 }
 
 export async function getChatHints(): Promise<ChatHints> {
-  const hints = await json<Partial<ChatHints> | null>(await fetch("/api/chat/hints"));
+  const hints = await json<Partial<ChatHints> | null>(
+    await fetch("/api/chat/hints"),
+  );
   return {
     line: typeof hints?.line === "string" ? hints.line : null,
     examples: Array.isArray(hints?.examples) ? hints.examples : [],
@@ -625,19 +667,25 @@ export async function saveWikiEdit(
 
 // Back to what the LLM built, or a lost edit discarded.
 export async function undoWikiEdit(id: string): Promise<void> {
-  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}/edit`, { method: "DELETE" });
+  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}/edit`, {
+    method: "DELETE",
+  });
   if (!response.ok) throw new Error(await refusal(response));
 }
 
 // The user has checked an edit after a rebuild.
 export async function markWikiReviewed(id: string): Promise<void> {
-  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}/reviewed`, { method: "POST" });
+  const response = await fetch(`/api/wiki/${encodeURIComponent(id)}/reviewed`, {
+    method: "POST",
+  });
   if (!response.ok) throw new Error(await refusal(response));
 }
 
 // Builds a PDF's wiki again with the LLM, keeping the user's edits.
 export async function rebuildWiki(pdf: string): Promise<WikiBuild> {
-  const response = await fetch(`/api/content/${pdf}/wiki/rebuild`, { method: "POST" });
+  const response = await fetch(`/api/content/${pdf}/wiki/rebuild`, {
+    method: "POST",
+  });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as WikiBuild;
 }
@@ -683,14 +731,23 @@ export async function listWikiVersions(pdf: string): Promise<WikiVersion[]> {
   return (await response.json()) as WikiVersion[];
 }
 
-export async function getWikiVersion(pdf: string, id: string): Promise<WikiVersionContents> {
-  const response = await fetch(`/api/content/${pdf}/wiki/history/${encodeURIComponent(id)}`);
+export async function getWikiVersion(
+  pdf: string,
+  id: string,
+): Promise<WikiVersionContents> {
+  const response = await fetch(
+    `/api/content/${pdf}/wiki/history/${encodeURIComponent(id)}`,
+  );
   if (!response.ok) return refused(response);
   return (await response.json()) as WikiVersionContents;
 }
 
 // Makes a version the wiki again, as a new version, so it can be undone too.
-export async function restoreWikiVersion(pdf: string, id: string, force = false): Promise<void> {
+export async function restoreWikiVersion(
+  pdf: string,
+  id: string,
+  force = false,
+): Promise<void> {
   const query = force ? "?force=true" : "";
   const response = await fetch(
     `/api/content/${pdf}/wiki/history/${encodeURIComponent(id)}/restore${query}`,
@@ -706,11 +763,18 @@ export function wikiFileUrl(pdf: string): string {
 
 // Loads a file saved from wikiFileUrl: it becomes the wiki, and its history joins this one's.
 // How many versions the history didn't have yet.
-export async function loadWikiFile(pdf: string, file: File, force = false): Promise<number> {
+export async function loadWikiFile(
+  pdf: string,
+  file: File,
+  force = false,
+): Promise<number> {
   const body = new FormData();
   body.append("file", file);
   const query = force ? "?force=true" : "";
-  const response = await fetch(`/api/content/${pdf}/wiki/file${query}`, { method: "POST", body });
+  const response = await fetch(`/api/content/${pdf}/wiki/file${query}`, {
+    method: "POST",
+    body,
+  });
   if (!response.ok) return refused(response);
   return ((await response.json()) as { versions_added: number }).versions_added;
 }
@@ -774,10 +838,14 @@ function settings(data: Partial<UiSettings>): UiSettings {
 }
 
 export async function getSettings(): Promise<UiSettings> {
-  return settings(await json<Partial<UiSettings>>(await fetch("/api/settings")));
+  return settings(
+    await json<Partial<UiSettings>>(await fetch("/api/settings")),
+  );
 }
 
-export async function changeSettings(changes: Partial<UiSettings>): Promise<UiSettings> {
+export async function changeSettings(
+  changes: Partial<UiSettings>,
+): Promise<UiSettings> {
   const response = await fetch("/api/settings", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -796,6 +864,9 @@ export interface LlmProvider {
   default_model: string;
   has_key: boolean;
   lists_freely: boolean; // its models can be listed before a key is entered (OpenRouter)
+  // Answers through the ChatGPT account signed in on the Settings page, with no key (R43a);
+  // `has_key` is then whether one is signed in that allowed use of its plan.
+  signs_in?: boolean;
 }
 
 export interface LlmSetting {
@@ -819,19 +890,24 @@ export async function chooseLlm(choice: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(choice),
   });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  if (!response.ok)
+    throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as LlmSetting;
 }
 
 // The models a provider offers to the key given, or to the saved one (R42). Throws a
 // ServerRefusal saying why when they can't be listed.
-export async function listModels(provider: string, apiKey?: string): Promise<string[]> {
+export async function listModels(
+  provider: string,
+  apiKey?: string,
+): Promise<string[]> {
   const response = await fetch("/api/llm/models", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(apiKey ? { provider, api_key: apiKey } : { provider }),
   });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  if (!response.ok)
+    throw new ServerRefusal(await refusal(response), response.status);
   return ((await response.json()) as { models: string[] }).models;
 }
 
@@ -853,7 +929,9 @@ export async function getChatGpt(): Promise<ChatGptStatus> {
   return json<ChatGptStatus>(await fetch("/api/chatgpt"));
 }
 
-export async function useChatGptAccount(account: string): Promise<ChatGptStatus> {
+export async function useChatGptAccount(
+  account: string,
+): Promise<ChatGptStatus> {
   return json<ChatGptStatus>(
     await fetch("/api/chatgpt/use", {
       method: "POST",
@@ -864,5 +942,7 @@ export async function useChatGptAccount(account: string): Promise<ChatGptStatus>
 }
 
 export async function signOutChatGpt(): Promise<ChatGptStatus> {
-  return json<ChatGptStatus>(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
+  return json<ChatGptStatus>(
+    await fetch("/api/chatgpt/sign-out", { method: "POST" }),
+  );
 }
