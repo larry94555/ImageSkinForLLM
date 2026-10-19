@@ -10,8 +10,10 @@ account is connected and whether it allowed plan usage. R43a makes that plan ans
 
 The first sign-in registers this app with OpenAI and gets back a client ID, bound to the ChatGPT
 account that signed in. Each registration is kept, even after Disconnect, so signing in again
-reuses it; a returning sign-in that comes back with another client ID, or as another account, is
-refused. "Use another ChatGPT account" adds a registration beside the others, and after a
+reuses it, sending its retained ID token as `id_token_hint`; a returning sign-in that comes
+back with another client ID, or as another account, is refused. Each registration keeps its own
+tokens, so "Use another ChatGPT account" adds one beside the others without touching theirs,
+switching back to an account still connected needs no sign-in, and after a
 sign-in that didn't allow plan use, "Allow use of my plan" asks for consent again. Every sign-in
 also sends one host ID, made once and kept, so OpenAI sees the same computer each time. The ID
 token is checked against OpenAI's published keys before any of its claims are used. Claude's and
@@ -147,10 +149,11 @@ class ChatGptSignIn:
     """Signs in with ChatGPT, keeps the connection, and disconnects it.
 
     chatgpt.json holds the host ID, one registration per ChatGPT account this app was registered
-    for (its issued client ID and verified account), which one signing in again uses (`active`),
-    and the connection, if any, with the client ID it came through. A new registration is only
-    written once its code is swapped and its identity checked, so a sign-in that fails leaves the
-    file as it was."""
+    (its issued client ID, verified account and retained ID token) with that account's own
+    credentials (tokens, scopes and expiry, or null after Disconnect), and which registration is
+    in use (`active`). Signing in or out changes only its own registration, so switching accounts
+    leaves the others' credentials as they were. A registration is only written once its code is
+    swapped and its identity checked, so a sign-in that fails leaves the file as it was."""
 
     def __init__(
         self,
@@ -196,20 +199,20 @@ class ChatGptSignIn:
         return {str(r["client_id"]): r for r in found if isinstance(r, dict) and r.get("client_id")}
 
     def status(self) -> dict[str, Any]:
-        """For the Settings page: the connected account, never its tokens, and the accounts this
-        app is registered for, the one signing in again uses first."""
+        """For the Settings page: the account in use and whether it is connected, never its
+        tokens, and the other accounts this app is registered for."""
         saved = self._load()
-        connection = saved.get("connection") or {}
         registrations = self._registrations(saved)
-        active = registrations.get(str(saved.get("active", "")))
+        active = registrations.get(str(saved.get("active", ""))) or {}
+        credentials = active.get("credentials") or {}
         return {
-            "connected": bool(connection),
-            "email": connection.get("email", ""),
-            "name": connection.get("name", ""),
-            "plan_usage": PLAN_SCOPE in connection.get("scopes", []),
-            "registered_email": active.get("email", "") if active else "",
+            "connected": bool(credentials),
+            "email": active.get("email", "") if credentials else "",
+            "name": active.get("name", "") if credentials else "",
+            "plan_usage": PLAN_SCOPE in credentials.get("scopes", []),
+            "registered_email": active.get("email", ""),
             "accounts": [
-                {"id": cid, "email": r.get("email", "")}
+                {"id": cid, "email": r.get("email", ""), "connected": bool(r.get("credentials"))}
                 for cid, r in registrations.items()
                 if r is not active
             ],
@@ -289,8 +292,11 @@ class ChatGptSignIn:
         }
         if not registration:
             params["agent_name_hint"] = APP_NAME
-        elif registration.get("email"):
-            params["login_hint"] = registration["email"]
+        else:
+            if registration.get("email"):
+                params["login_hint"] = registration["email"]
+            if registration.get("id_token"):
+                params["id_token_hint"] = registration["id_token"]
         if consent:
             params["prompt"] = "consent"
         logger.info(
@@ -346,11 +352,7 @@ class ChatGptSignIn:
         ):
             logger.error("ChatGPT identity didn't match the sign-in")
             raise SignInError("ChatGPT's answer didn't match this sign-in. Sign in again.")
-        connection = {
-            "client_id": client_id,
-            "subject": identity["sub"],
-            "email": identity.get("email", ""),
-            "name": identity.get("name", ""),
+        credentials = {
             "scopes": str(data.get("scope", "")).split(),
             "access_token": data["access_token"],
             "refresh_token": data.get("refresh_token", ""),
@@ -370,25 +372,39 @@ class ChatGptSignIn:
             registrations[client_id] = {
                 "client_id": client_id,
                 "subject": identity["sub"],
-                "email": connection["email"],
+                "email": identity.get("email", ""),
+                "name": identity.get("name", ""),
+                "id_token": data["id_token"],
+                "credentials": credentials,
             }
-            return {
-                **saved,
-                "registrations": list(registrations.values()),
-                "active": client_id,
-                "connection": connection,
-            }
+            return {**saved, "registrations": list(registrations.values()), "active": client_id}
 
         self._update(commit)
         logger.info(
             "Signed in with ChatGPT",
             extra={
-                "plan_usage": PLAN_SCOPE in connection["scopes"],
+                "plan_usage": PLAN_SCOPE in credentials["scopes"],
                 "new_registration": not pending.client_id,
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
         return self.status()
+
+    def use(self, account: str) -> dict[str, Any]:
+        """Makes `account`, a registration of this app, the one in use; one still connected is
+        used again with no sign-in."""
+
+        def choose(saved: dict[str, Any]) -> dict[str, Any]:
+            if account not in self._registrations(saved):
+                raise SignInError("That ChatGPT account isn't registered here. Sign in again.")
+            return {**saved, "active": account}
+
+        status = self.status() if account == self._load().get("active") else None
+        if status is None:
+            self._update(choose)
+            status = self.status()
+        logger.info("Switched ChatGPT account", extra={"connected": status["connected"]})
+        return status
 
     def _revoke(self, connection: dict[str, Any], token: str) -> bool:
         """Asks OpenAI to end the connection, retrying with backoff after a network failure or a
@@ -422,22 +438,27 @@ class ChatGptSignIn:
         return False
 
     def sign_out(self) -> dict[str, Any]:
-        """Asks OpenAI to end the connection, then forgets it whatever the outcome; the
-        registrations are kept. The status says `revoked` false when OpenAI couldn't confirm it
-        ended the connection."""
-        connection = self._load().get("connection") or {}
+        """Asks OpenAI to end the active account's connection, then forgets its tokens whatever
+        the outcome; its registration, and the other accounts, are kept. The status says
+        `revoked` false when OpenAI couldn't confirm it ended the connection."""
+        saved = self._load()
+        client_id = str(saved.get("active", ""))
+        active = self._registrations(saved).get(client_id) or {}
+        connection = {**(active.get("credentials") or {}), "client_id": client_id}
         token = connection.get("refresh_token") or connection.get("access_token")
         revoked = self._revoke(connection, token) if token else False
 
         def forget(saved: dict[str, Any]) -> dict[str, Any]:
-            # Only the connection just revoked: a sign-in that finished meanwhile is kept.
-            current = saved.get("connection") or {}
-            if current.get("access_token") != connection.get("access_token"):
+            registrations = self._registrations(saved)
+            current = registrations.get(client_id)
+            # Only the credentials just revoked: a sign-in that finished meanwhile is kept.
+            if not current or current.get("credentials") != active.get("credentials"):
                 return saved
-            return {**saved, "connection": None}
+            registrations[client_id] = {**current, "credentials": None}
+            return {**saved, "registrations": list(registrations.values())}
 
         self._update(forget)
         logger.info(
-            "Disconnected ChatGPT", extra={"was_connected": bool(connection), "revoked": revoked}
+            "Disconnected ChatGPT", extra={"was_connected": bool(token), "revoked": revoked}
         )
         return {**self.status(), "revoked": revoked or not token}

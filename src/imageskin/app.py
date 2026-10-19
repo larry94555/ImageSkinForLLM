@@ -126,6 +126,10 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+class ChatGptAccount(BaseModel):
+    account: str  # a registration's client ID, from the ChatGPT status's accounts
+
+
 class ConsentRequest(BaseModel):
     agreed: bool
 
@@ -1153,6 +1157,13 @@ def create_app(
         except SignInError as e:
             return signed_in_page(str(e), 400)
         return RedirectResponse("/#/settings", status_code=303)
+
+    @app.post("/api/chatgpt/use")
+    def chatgpt_use(body: ChatGptAccount) -> dict[str, Any]:
+        try:
+            return signin.use(body.account)
+        except SignInError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
 
     @app.post("/api/chatgpt/sign-out")
     def chatgpt_sign_out() -> dict[str, Any]:

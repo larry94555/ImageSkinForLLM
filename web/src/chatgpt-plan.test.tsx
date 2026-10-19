@@ -21,10 +21,10 @@ const CONNECTED: ChatGptStatus = {
   accounts: [],
 };
 
-// A fake server: GET /api/chatgpt answers `read`; signing out answers `out`.
+// A fake server: GET /api/chatgpt answers `read`; signing out or switching answers `out`.
 function server(read: ChatGptStatus | Response, out: ChatGptStatus | Response = SIGNED_OUT) {
   const fetchMock = vi.fn(async (url: string) => {
-    const answer = url === "/api/chatgpt/sign-out" ? out : read;
+    const answer = url === "/api/chatgpt/sign-out" || url === "/api/chatgpt/use" ? out : read;
     return answer instanceof Response ? answer : Response.json(answer);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -65,8 +65,8 @@ test("accounts registered before can be signed in as again", async () => {
     ...SIGNED_OUT,
     registered_email: "larry@example.com",
     accounts: [
-      { id: "app-1", email: "first@example.com" },
-      { id: "app 2", email: "" },
+      { id: "app-1", email: "first@example.com", connected: false },
+      { id: "app 2", email: "", connected: false },
     ],
   });
   render(<ChatGptPlanSection />);
@@ -117,4 +117,37 @@ test("a sign-in that can't be read, or a failed disconnect, says so", async () =
   fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
   expect((await screen.findByRole("alert")).textContent).toMatch(/could not be disconnected/);
   expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
+});
+
+test("a connected account switches to another one still connected, with no sign-in", async () => {
+  const second = { id: "app-2", email: "b@example.com", connected: true };
+  const fetchMock = server(
+    { ...CONNECTED, accounts: [second] },
+    {
+      ...CONNECTED,
+      email: "b@example.com",
+      accounts: [{ id: "app-1", email: "larry@example.com", connected: true }],
+    },
+  );
+  render(<ChatGptPlanSection />);
+  expect(await screen.findByText(/Other accounts:/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Switch to b@example.com" }));
+  expect(await screen.findByText("b@example.com")).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith("/api/chatgpt/use", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ account: "app-2" }),
+  });
+  expect(screen.getByRole("button", { name: "Switch to larry@example.com" })).toBeTruthy();
+  expect(console.info).toHaveBeenCalledWith("Switched ChatGPT account (connected)");
+});
+
+test("a failed switch says so", async () => {
+  server(
+    { ...CONNECTED, accounts: [{ id: "app-2", email: "", connected: true }] },
+    new Response("", { status: 500 }),
+  );
+  render(<ChatGptPlanSection />);
+  fireEvent.click(await screen.findByRole("button", { name: "Switch to an earlier account" }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/could not be switched/);
 });

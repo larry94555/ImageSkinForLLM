@@ -3,11 +3,13 @@
 // is a plain link: the server sends the browser to OpenAI, which sends it back to Settings. The
 // page is only told which account is connected; the tokens stay on the server. Signing in again
 // uses the account the app is registered to; "Use another ChatGPT account" registers it anew, and
-// "Allow use of my plan" asks again after a sign-in that didn't allow it.
+// "Allow use of my plan" asks again after a sign-in that didn't allow it. Each account keeps its
+// own tokens, so the other accounts are listed in both views: one still connected is switched to
+// with no sign-in, the rest sign in again.
 
 import { useEffect, useState } from "preact/hooks";
 
-import { type ChatGptStatus, getChatGpt, signOutChatGpt } from "./api";
+import { type ChatGptStatus, getChatGpt, signOutChatGpt, useChatGptAccount } from "./api";
 
 export function ChatGptPlanSection() {
   const [status, setStatus] = useState<ChatGptStatus | null>(null);
@@ -45,6 +47,23 @@ export function ChatGptPlanSection() {
     setBusy(false);
   }
 
+  async function switchTo(account: string) {
+    setBusy(true);
+    setError(null);
+    setUnconfirmed(false);
+    try {
+      const now = await useChatGptAccount(account);
+      setStatus(now);
+      console.info(`Switched ChatGPT account (${now.connected ? "connected" : "not connected"})`);
+    } catch (e) {
+      console.error("Could not switch the ChatGPT account", e);
+      setError("The ChatGPT account could not be switched. Reload the page to try again.");
+    }
+    setBusy(false);
+  }
+
+  const others = status?.accounts ?? [];
+
   return (
     <section className="panel chatgpt-plan" aria-labelledby="settings-chatgpt">
       <h2 id="settings-chatgpt">ChatGPT plan</h2>
@@ -65,20 +84,6 @@ export function ChatGptPlanSection() {
               <a href="/api/chatgpt/sign-in?another=true">Use another ChatGPT account</a>
             </p>
           )}
-          {(status.accounts ?? []).length > 0 && (
-            <p className="muted">
-              Or sign in as{" "}
-              {(status.accounts ?? []).map((a, i) => (
-                <span key={a.id}>
-                  {i > 0 && ", "}
-                  <a href={`/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`}>
-                    {a.email || "an earlier account"}
-                  </a>
-                </span>
-              ))}
-              .
-            </p>
-          )}
         </>
       )}
       {status?.connected && (
@@ -96,6 +101,30 @@ export function ChatGptPlanSection() {
             {busy ? "Disconnecting…" : "Disconnect"}
           </button>
         </>
+      )}
+      {others.length > 0 && (
+        <p className="muted">
+          {status?.connected ? "Other accounts:" : "Or sign in as"}{" "}
+          {others.map((a, i) => (
+            <span key={a.id}>
+              {i > 0 && ", "}
+              {a.connected ? (
+                <button
+                  type="button"
+                  className="link"
+                  disabled={busy}
+                  onClick={() => void switchTo(a.id)}
+                >
+                  Switch to {a.email || "an earlier account"}
+                </button>
+              ) : (
+                <a href={`/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`}>
+                  {a.email || "an earlier account"}
+                </a>
+              )}
+            </span>
+          ))}
+        </p>
       )}
       {unconfirmed && (
         <p className="error" role="alert">

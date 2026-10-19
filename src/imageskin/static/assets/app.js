@@ -361,6 +361,13 @@ async function listModels(provider, apiKey) {
 async function getChatGpt() {
 	return json(await fetch("/api/chatgpt"));
 }
+async function useChatGptAccount(account) {
+	return json(await fetch("/api/chatgpt/use", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ account })
+	}));
+}
 async function signOutChatGpt() {
 	return json(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
 }
@@ -468,6 +475,21 @@ function ChatGptPlanSection() {
 		}
 		setBusy(false);
 	}
+	async function switchTo(account) {
+		setBusy(true);
+		setError(null);
+		setUnconfirmed(false);
+		try {
+			const now = await useChatGptAccount(account);
+			setStatus(now);
+			console.info(`Switched ChatGPT account (${now.connected ? "connected" : "not connected"})`);
+		} catch (e) {
+			console.error("Could not switch the ChatGPT account", e);
+			setError("The ChatGPT account could not be switched. Reload the page to try again.");
+		}
+		setBusy(false);
+	}
+	const others = status?.accounts ?? [];
 	return /* @__PURE__ */ u("section", {
 		className: "panel chatgpt-plan",
 		"aria-labelledby": "settings-chatgpt",
@@ -480,38 +502,23 @@ function ChatGptPlanSection() {
 				className: "muted",
 				children: "Sign in with your ChatGPT account to use your ChatGPT Plus or Pro plan instead of an API key, while the app runs on your own computer."
 			}),
-			status && !status.connected && /* @__PURE__ */ u(S, { children: [
-				/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
-					className: "button",
-					href: "/api/chatgpt/sign-in",
-					children: "Continue with ChatGPT"
-				}) }),
-				status.registered_email && /* @__PURE__ */ u("p", {
-					className: "muted",
-					children: [
-						"Signs in again as ",
-						status.registered_email,
-						".",
-						" ",
-						/* @__PURE__ */ u("a", {
-							href: "/api/chatgpt/sign-in?another=true",
-							children: "Use another ChatGPT account"
-						})
-					]
-				}),
-				(status.accounts ?? []).length > 0 && /* @__PURE__ */ u("p", {
-					className: "muted",
-					children: [
-						"Or sign in as",
-						" ",
-						(status.accounts ?? []).map((a, i) => /* @__PURE__ */ u("span", { children: [i > 0 && ", ", /* @__PURE__ */ u("a", {
-							href: `/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`,
-							children: a.email || "an earlier account"
-						})] }, a.id)),
-						"."
-					]
-				})
-			] }),
+			status && !status.connected && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				className: "button",
+				href: "/api/chatgpt/sign-in",
+				children: "Continue with ChatGPT"
+			}) }), status.registered_email && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Signs in again as ",
+					status.registered_email,
+					".",
+					" ",
+					/* @__PURE__ */ u("a", {
+						href: "/api/chatgpt/sign-in?another=true",
+						children: "Use another ChatGPT account"
+					})
+				]
+			})] }),
 			status?.connected && /* @__PURE__ */ u(S, { children: [
 				/* @__PURE__ */ u("p", { children: ["Connected as ", /* @__PURE__ */ u("strong", { children: status.email || status.name || "your ChatGPT account" })] }),
 				!status.plan_usage && /* @__PURE__ */ u("p", { children: [
@@ -532,6 +539,23 @@ function ChatGptPlanSection() {
 					children: busy ? "Disconnecting…" : "Disconnect"
 				})
 			] }),
+			others.length > 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					status?.connected ? "Other accounts:" : "Or sign in as",
+					" ",
+					others.map((a, i) => /* @__PURE__ */ u("span", { children: [i > 0 && ", ", a.connected ? /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "link",
+						disabled: busy,
+						onClick: () => void switchTo(a.id),
+						children: ["Switch to ", a.email || "an earlier account"]
+					}) : /* @__PURE__ */ u("a", {
+						href: `/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`,
+						children: a.email || "an earlier account"
+					})] }, a.id))
+				]
+			}),
 			unconfirmed && /* @__PURE__ */ u("p", {
 				className: "error",
 				role: "alert",

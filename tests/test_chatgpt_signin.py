@@ -164,12 +164,17 @@ def test_signing_in_keeps_the_account_and_its_tokens_on_the_server(
     challenge = hashlib.sha256(form["code_verifier"].encode()).digest()
     assert base64.urlsafe_b64encode(challenge).rstrip(b"=").decode() == query["code_challenge"]
     saved = json.loads((tmp_path / cs.FILENAME).read_text())
-    assert saved["registrations"] == [
-        {"client_id": "app-123", "subject": "user-1", "email": "larry@example.com"}
-    ]
+    [registration] = saved["registrations"]
+    assert {k: registration[k] for k in ("client_id", "subject", "email", "name")} == {
+        "client_id": "app-123",
+        "subject": "user-1",
+        "email": "larry@example.com",
+        "name": "Larry",
+    }
+    assert registration["id_token"].count(".") == 2
+    assert registration["credentials"]["refresh_token"] == "refresh-secret"
+    assert registration["credentials"]["expires_at"] == NOW + 3600
     assert saved["active"] == "app-123"
-    assert saved["connection"]["client_id"] == "app-123"
-    assert saved["connection"]["refresh_token"] == "refresh-secret"
     assert "Signed in with ChatGPT" in caplog.text
     assert "secret" not in caplog.text
 
@@ -211,6 +216,8 @@ def test_a_returning_sign_in_must_be_the_registered_account(
     assert signin.status()["registered_email"] == "larry@example.com"
     again = authorize(signin, openai)
     assert again["login_hint"] == "larry@example.com"
+    saved = json.loads((tmp_path / cs.FILENAME).read_text())
+    assert again["id_token_hint"] == saved["registrations"][0]["id_token"]
     before = (tmp_path / cs.FILENAME).read_bytes()
     openai.claims = {"sub": "someone-else", "email": "other@example.com"}
     with pytest.raises(SignInError, match="different ChatGPT account from larry@example.com"):
@@ -234,7 +241,9 @@ def test_another_account_registers_the_app_anew(
     status = signin.finish({"state": query["state"], "code": "c2", "client_id": "app-456"})
     assert status["email"] == status["registered_email"] == "second@example.com"
     # The first account's registration is kept, and can be signed in as again.
-    assert status["accounts"] == [{"id": "app-123", "email": "larry@example.com"}]
+    assert status["accounts"] == [
+        {"id": "app-123", "email": "larry@example.com", "connected": False}
+    ]
     saved = json.loads((tmp_path / cs.FILENAME).read_text())
     assert [r["subject"] for r in saved["registrations"]] == ["user-1", "user-2"]
     assert saved["active"] == "app-456"
@@ -245,7 +254,54 @@ def test_another_account_registers_the_app_anew(
     openai.nonce, openai.claims = back["nonce"], {}
     status = signin.finish({"state": back["state"], "code": "c3"})
     assert status["email"] == "larry@example.com"
-    assert status["accounts"] == [{"id": "app-456", "email": "second@example.com"}]
+    assert status["accounts"] == [
+        {"id": "app-456", "email": "second@example.com", "connected": False}
+    ]
+
+
+def test_switching_accounts_keeps_each_accounts_own_credentials(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    def saved() -> dict[str, dict[str, Any]]:
+        data = json.loads((tmp_path / cs.FILENAME).read_text())
+        return {r["client_id"]: r for r in data["registrations"]}
+
+    first = authorize(signin, openai)
+    signin.finish({"state": first["state"], "code": "c1", "client_id": "app-1"})
+    kept = saved()["app-1"]
+    # Switch to a second account while the first is still connected.
+    url = signin.start(REDIRECT, another=True)
+    second = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    openai.nonce, openai.claims = second["nonce"], {"sub": "user-2", "email": "b@example.com"}
+    status = signin.finish({"state": second["state"], "code": "c2", "client_id": "app-2"})
+    assert (status["email"], status["connected"]) == ("b@example.com", True)
+    assert status["accounts"] == [{"id": "app-1", "email": "larry@example.com", "connected": True}]
+    assert saved()["app-1"] == kept  # its refresh, access and ID tokens are untouched
+    assert "revoke" not in " ".join(url for url, _ in openai.forms)
+    # Back to the first with no sign-in: it is still connected.
+    forms = len(openai.forms)
+    status = signin.use("app-1")
+    assert (status["email"], status["connected"]) == ("larry@example.com", True)
+    assert len(openai.forms) == forms
+    # Signing in to it again continues its own registration, with its retained ID token.
+    url = signin.start(REDIRECT)
+    again = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    assert (again["client_id"], again["id_token_hint"]) == ("app-1", kept["id_token"])
+    openai.nonce, openai.claims = again["nonce"], {}
+    signin.finish({"state": again["state"], "code": "c3"})
+    assert saved()["app-1"]["subject"] == "user-1"
+    assert saved()["app-2"]["credentials"]["refresh_token"] == "refresh-secret"
+    # Disconnect ends only the account in use.
+    signin.sign_out()
+    assert saved()["app-1"]["credentials"] is None
+    assert saved()["app-1"]["id_token"]  # kept, to send as id_token_hint next time
+    assert saved()["app-2"]["credentials"]
+    assert signin.use("app-2")["connected"] is True
+
+
+def test_only_a_registered_account_can_be_used(signin: ChatGptSignIn) -> None:
+    with pytest.raises(SignInError, match="isn't registered"):
+        signin.use("app-unknown")
 
 
 @pytest.mark.parametrize("failure", ["code", "signature", "nonce"])
@@ -281,7 +337,8 @@ def test_two_sign_ins_finishing_out_of_order_keep_their_own_accounts(
     saved = json.loads((tmp_path / cs.FILENAME).read_text())
     pairs = {(r["client_id"], r["subject"]) for r in saved["registrations"]}
     assert pairs == {("app-a", "user-a"), ("app-b", "user-b")}
-    assert (saved["active"], saved["connection"]["subject"]) == ("app-a", "user-a")
+    assert saved["active"] == "app-a"
+    assert all(r["credentials"] for r in saved["registrations"])
 
 
 def test_allowing_the_plan_asks_for_consent_again(
@@ -461,7 +518,7 @@ def test_disconnecting_keeps_a_sign_in_that_finished_meanwhile(
 
     def sign_in_again(_: float) -> None:
         saved = json.loads(signin._path.read_text())
-        saved["connection"]["access_token"] = "newer-access"
+        saved["registrations"][0]["credentials"]["access_token"] = "newer-access"
         signin._path.write_text(json.dumps(saved))
 
     signin._sleep = sign_in_again
@@ -635,6 +692,16 @@ def test_the_sign_in_link_can_ask_for_consent_or_another_account(app: TestClient
     assert query("/api/chatgpt/sign-in?consent=true")["prompt"] == "consent"
     assert "prompt" not in query("/api/chatgpt/sign-in")
     assert query("/api/chatgpt/sign-in?another=true")["client_id"] == cs.REGISTER_CLIENT
+
+
+def test_the_page_can_switch_to_a_registered_account(
+    app: TestClient, signin: ChatGptSignIn, openai: FakeOpenAi
+) -> None:
+    query = authorize(signin, openai)
+    signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
+    response = app.post("/api/chatgpt/use", json={"account": "app-1"})
+    assert (response.status_code, response.json()["connected"]) == (200, True)
+    assert app.post("/api/chatgpt/use", json={"account": "nope"}).status_code == 404
 
 
 def test_the_sign_in_link_can_name_an_account(app: TestClient, signin: ChatGptSignIn) -> None:
