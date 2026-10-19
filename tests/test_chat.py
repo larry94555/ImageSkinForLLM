@@ -720,6 +720,30 @@ def chat_app(tmp_path: Path, ask: object) -> TestClient:
     return client
 
 
+@pytest.mark.parametrize(("provider", "shares_cores"), [("local", True), ("claude", False)])
+def test_only_a_local_llm_takes_half_the_cores(
+    tmp_path: Path, provider: str, shares_cores: bool
+) -> None:
+    """Claude and OpenAI run elsewhere, so the voice and video keep every core while they write
+    (review on PR #111)."""
+    with patch("imageskin.app.CoreShare") as share:
+        client = TestClient(
+            create_app(
+                tmp_path,
+                check_photo=lambda p: PhotoResult([], 80),
+                prepare_voice=lambda: None,
+                prepare_face=lambda photo, progress: None,
+                render_clip=lambda photo, text, output: None,
+                llm=LlmSettings(provider=provider, api_key="k"),
+                ask_llm=lambda messages: "Hello.",
+            )
+        )
+        client.post("/api/consent", json={"agreed": True})
+        with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+            assert client.post("/api/chat", json={"prompt": "Hi"}).status_code == 200
+    assert share.return_value.llm.called is shares_cores
+
+
 def test_the_api_chats_once_the_sample_is_accepted(tmp_path: Path) -> None:
     client = chat_app(tmp_path, lambda messages: f"You said {messages[-1]['content']}")
     assert client.get("/api/chat").json() == {"turns": []}

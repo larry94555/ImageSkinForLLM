@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -857,6 +857,9 @@ def create_app(
     # performance cores on a CPU that also has efficiency cores (R22g).
     core_share = CoreShare(cores(performance_cores))
     core_share.llm_done()
+    # Claude and OpenAI run elsewhere, so the engines keep every core while they write (review
+    # on PR #111).
+    llm_busy = core_share.llm if llm.local else nullcontext
     # Each prompt is looked up in the wiki and PDFs, and the LLM answers from what is found (R40).
     content_lookup = ContentLookup(wiki, readings)
 
@@ -906,7 +909,7 @@ def create_app(
             client.count,
             client.stream,
             client.warm_up,
-            llm_busy=core_share.llm,
+            llm_busy=llm_busy,
             find=find_content,
             content_only=content_only,
             topics=content_topics,
@@ -920,7 +923,7 @@ def create_app(
             lambda: llm.context_tokens,
             stream=stream_llm,
             warm_up=warm_up_llm,
-            llm_busy=core_share.llm,
+            llm_busy=llm_busy,
             find=find_content,
             content_only=content_only,
             topics=content_topics,
@@ -999,7 +1002,7 @@ def create_app(
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
         wait_for_warm_up()
-        with chat_lock, core_share.llm():
+        with chat_lock, llm_busy():
             not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
             return chat(body)
 
