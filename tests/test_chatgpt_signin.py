@@ -73,6 +73,8 @@ class FakeOpenAi:
         self.key = OPENAI_KEY
         self.header: dict[str, Any] | None = None
         self.jwks_reads = 0
+        self.revoke_results: list[int] = []  # statuses to answer revocations with; 0: unreachable
+        self.sleeps: list[float] = []
 
     def __call__(self, url: str, form: dict[str, str] | None) -> tuple[int, Any]:
         if form is None and url == DISCOVERY["jwks_uri"]:
@@ -82,7 +84,10 @@ class FakeOpenAi:
             return 200, self.discovery
         self.forms.append((url, form))
         if url.endswith("/revoke"):
-            return 200, {}
+            status = self.revoke_results.pop(0) if self.revoke_results else 200
+            if not status:
+                raise SignInError("ChatGPT's sign-in can't be reached right now. Try again.")
+            return status, {}
         if self.token_status != 200:
             return self.token_status, {"error": "invalid_grant"}
         claims = {
@@ -113,7 +118,7 @@ def openai() -> FakeOpenAi:
 
 @pytest.fixture
 def signin(tmp_path: Path, openai: FakeOpenAi) -> ChatGptSignIn:
-    return ChatGptSignIn(tmp_path, http=openai, clock=lambda: NOW)
+    return ChatGptSignIn(tmp_path, http=openai, clock=lambda: NOW, sleep=openai.sleeps.append)
 
 
 def authorize(signin: ChatGptSignIn, openai: FakeOpenAi) -> dict[str, str]:
@@ -410,6 +415,58 @@ def test_disconnecting_revokes_and_keeps_the_registration(
     }
     assert "Disconnected ChatGPT" in caplog.text
     assert authorize(signin, openai)["client_id"] == "app-1"
+
+
+def test_disconnecting_tries_again_after_a_passing_failure(
+    signin: ChatGptSignIn, openai: FakeOpenAi
+) -> None:
+    query = authorize(signin, openai)
+    signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
+    openai.revoke_results = [0, 503]  # unreachable, then a 5xx, then confirmed
+    out = signin.sign_out()
+    assert (out["connected"], out["revoked"]) == (False, True)
+    revokes = [form for url, form in openai.forms if url.endswith("/revoke")]
+    assert [form["token"] for form in revokes] == ["refresh-secret"] * 3
+    assert openai.sleeps == [1.0, 2.0]
+
+
+def test_disconnecting_forgets_the_tokens_once_the_tries_run_out(
+    tmp_path: Path, signin: ChatGptSignIn, openai: FakeOpenAi, caplog: pytest.LogCaptureFixture
+) -> None:
+    query = authorize(signin, openai)
+    signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
+    openai.revoke_results = [500, 0, 502]
+    out = signin.sign_out()
+    assert (out["connected"], out["revoked"]) == (False, False)
+    assert len([url for url, _ in openai.forms if url.endswith("/revoke")]) == cs.REVOKE_TRIES
+    assert "secret" not in (tmp_path / cs.FILENAME).read_text()
+    assert "Could not end the ChatGPT sign-in" in caplog.text
+
+
+def test_a_refused_revocation_is_not_tried_again(signin: ChatGptSignIn, openai: FakeOpenAi) -> None:
+    query = authorize(signin, openai)
+    signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
+    openai.revoke_results = [400]
+    out = signin.sign_out()
+    assert (out["connected"], out["revoked"]) == (False, False)
+    assert len([url for url, _ in openai.forms if url.endswith("/revoke")]) == 1
+    assert openai.sleeps == []
+
+
+def test_disconnecting_keeps_a_sign_in_that_finished_meanwhile(
+    signin: ChatGptSignIn, openai: FakeOpenAi
+) -> None:
+    query = authorize(signin, openai)
+    signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
+
+    def sign_in_again(_: float) -> None:
+        saved = json.loads(signin._path.read_text())
+        saved["connection"]["access_token"] = "newer-access"
+        signin._path.write_text(json.dumps(saved))
+
+    signin._sleep = sign_in_again
+    openai.revoke_results = [503]
+    assert signin.sign_out()["connected"] is True
 
 
 def test_a_broken_file_reads_as_not_connected(tmp_path: Path, openai: FakeOpenAi) -> None:

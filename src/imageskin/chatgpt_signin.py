@@ -58,6 +58,8 @@ CLIENT_ID = re.compile(r"^[A-Za-z0-9_-]{1,200}$")
 # A sign-in not finished in this long is dropped, and only this many are kept at once.
 PENDING_S = 600
 MOST_PENDING = 5
+REVOKE_TRIES = 3  # a network failure or 5xx is tried again, after 1 s then 2 s
+REVOKE_BACKOFF_S = 1.0
 
 # POST a form, or GET when the form is None: the status and the decoded JSON.
 Http = Callable[[str, dict[str, str] | None], tuple[int, Any]]
@@ -150,10 +152,17 @@ class ChatGptSignIn:
     written once its code is swapped and its identity checked, so a sign-in that fails leaves the
     file as it was."""
 
-    def __init__(self, home: Path, http: Http = _http, clock: Callable[[], float] = time.time):
+    def __init__(
+        self,
+        home: Path,
+        http: Http = _http,
+        clock: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
+    ):
         self._path = home / FILENAME
         self._http = http
         self._clock = clock
+        self._sleep = sleep
         self._lock = threading.Lock()  # the pending sign-ins
         self._writing = threading.Lock()  # chatgpt.json: one read-change-write at a time
         self._pending: dict[str, _Pending] = {}
@@ -381,33 +390,54 @@ class ChatGptSignIn:
         )
         return self.status()
 
+    def _revoke(self, connection: dict[str, Any], token: str) -> bool:
+        """Asks OpenAI to end the connection, retrying with backoff after a network failure or a
+        5xx, while the token is still saved. True when OpenAI confirmed it."""
+        form = {
+            "token": token,
+            "token_type_hint": "refresh_token"
+            if connection.get("refresh_token")
+            else "access_token",
+            "client_id": connection.get("client_id", ""),
+        }
+        for attempt in range(REVOKE_TRIES):
+            if attempt:
+                self._sleep(REVOKE_BACKOFF_S * 2 ** (attempt - 1))
+            try:
+                url = self._discover().get("revocation_endpoint")
+                if not url:
+                    return False
+                code = self._http(url, form)[0]
+            except SignInError as e:
+                logger.error(
+                    "Could not end the ChatGPT sign-in",
+                    extra={"error": str(e), "attempt": attempt + 1},
+                )
+                continue
+            if code < 500:
+                return code == 200
+            logger.error(
+                "Could not end the ChatGPT sign-in", extra={"status": code, "attempt": attempt + 1}
+            )
+        return False
+
     def sign_out(self) -> dict[str, Any]:
-        """Forgets the connection, and asks OpenAI to end it; the registrations are kept. The
-        status says `revoked` false when OpenAI couldn't confirm it ended the connection."""
-        ended: dict[str, Any] = {}
+        """Asks OpenAI to end the connection, then forgets it whatever the outcome; the
+        registrations are kept. The status says `revoked` false when OpenAI couldn't confirm it
+        ended the connection."""
+        connection = self._load().get("connection") or {}
+        token = connection.get("refresh_token") or connection.get("access_token")
+        revoked = self._revoke(connection, token) if token else False
 
         def forget(saved: dict[str, Any]) -> dict[str, Any]:
-            ended.update(saved.get("connection") or {})
+            # Only the connection just revoked: a sign-in that finished meanwhile is kept.
+            current = saved.get("connection") or {}
+            if current.get("access_token") != connection.get("access_token"):
+                return saved
             return {**saved, "connection": None}
 
         self._update(forget)
-        token = ended.get("refresh_token") or ended.get("access_token")
-        revoked = False
-        if token:
-            try:
-                url = self._discover().get("revocation_endpoint")
-                if url:
-                    form = {
-                        "token": token,
-                        "token_type_hint": "refresh_token"
-                        if ended.get("refresh_token")
-                        else "access_token",
-                        "client_id": ended.get("client_id", ""),
-                    }
-                    revoked = self._http(url, form)[0] == 200
-            except SignInError as e:
-                logger.error("Could not end the ChatGPT sign-in", extra={"error": str(e)})
         logger.info(
-            "Disconnected ChatGPT", extra={"was_connected": bool(ended), "revoked": revoked}
+            "Disconnected ChatGPT", extra={"was_connected": bool(connection), "revoked": revoked}
         )
         return {**self.status(), "revoked": revoked or not token}
