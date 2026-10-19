@@ -301,9 +301,10 @@ class ChatGptSignIn:
             "code_challenge": _b64(hashlib.sha256(verifier.encode()).digest()),
             "ext_agent_host_id": host_id,
         }
-        if not registration:
+        if not registered:
+            # Only a dynamic registration names the app; an issued client ID already has it.
             params["agent_name_hint"] = APP_NAME
-        else:
+        elif registration:
             if registration.get("email"):
                 params["login_hint"] = registration["email"]
             if registration.get("id_token"):

@@ -461,7 +461,7 @@ def test_a_refused_code_retries_with_the_issued_client_id(
     url = signin.start(REDIRECT, another=True)
     retry = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
     assert retry["client_id"] == "app-123"
-    assert retry["agent_name_hint"] == "ImageSkinForLLM"
+    assert "agent_name_hint" not in retry  # only for dynamic_agent_client
     assert "id_token_hint" not in retry
     for fresh in ("state", "nonce", "code_challenge"):
         assert retry[fresh] != new[fresh]
