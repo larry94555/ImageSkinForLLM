@@ -53,6 +53,11 @@ class Provider:
     # for anyone).
     key_at: str = ""
 
+    @property
+    def lists_freely(self) -> bool:
+        """Whether its models can be listed before a key is entered (OpenRouter's can)."""
+        return bool(self.key_at)
+
 
 PROVIDERS: dict[str, Provider] = {
     "local": Provider("Local (llama.cpp)"),
@@ -160,6 +165,7 @@ def described(choice: LlmChoice) -> dict[str, Any]:
                 "model": choice.models.get(pid, ""),
                 "default_model": p.model,
                 "has_key": bool(choice.keys.get(pid)),
+                "lists_freely": p.lists_freely,
             }
             for pid, p in PROVIDERS.items()
         ],
@@ -263,7 +269,7 @@ class ModelLists:
     def models(self, provider: str, key: str) -> list[str]:
         if provider not in PROVIDERS or provider == "local":
             raise ModelListError("Only a provider's models can be listed.")
-        if not key:
+        if not key and not PROVIDERS[provider].lists_freely:
             raise ModelListError(f"Enter your {PROVIDERS[provider].label} API key first.")
         # The key is kept only as a hash, so the cache holds no key.
         kept_as = (provider, hashlib.sha256(key.encode()).hexdigest())
@@ -292,8 +298,9 @@ class ModelLists:
             if provider == "claude":
                 found = self._claude(key)
             else:
-                auth = {"Authorization": f"Bearer {key}"}
-                if p.key_at:
+                # Without a key, only a list anyone may read is asked for (Larry, 2026-10-19).
+                auth = {"Authorization": f"Bearer {key}"} if key else {}
+                if p.key_at and key:
                     self._fetch(p.url + p.key_at, auth)  # refused if the key isn't valid
                 found = _ids(self._fetch(p.url + p.models_at, auth), provider)
         except (urllib.error.HTTPError, anthropic.APIStatusError) as e:
@@ -311,7 +318,7 @@ class ModelLists:
             )
             raise ModelListError(f"{p.label}'s models couldn't be listed. Try again.") from e
         if not found:
-            raise ModelListError(f"{p.label} listed no models for this key.")
+            raise ModelListError(f"{p.label} listed no models{' for this key' if key else ''}.")
         return found
 
 

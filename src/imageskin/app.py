@@ -1081,7 +1081,9 @@ def create_app(
         )
         return described(choice)
 
-    # The models a provider offers to the key just entered, or the saved one (R42).
+    # The models a provider offers to the key just entered, or the saved one (R42); OpenRouter's
+    # before any key. 400 when the key is missing or refused, 502 when the provider can't be
+    # reached, so the page offers a typed model name only then.
     @app.post("/api/llm/models")
     def post_llm_models(body: ModelsRequest) -> dict[str, list[str]]:
         if body.provider not in PROVIDERS:
@@ -1090,7 +1092,9 @@ def create_app(
         try:
             return {"models": model_lists.models(body.provider, key)}
         except ModelListError as e:
-            status = 400 if not key or body.provider == "local" else 502
+            p = PROVIDERS[body.provider]
+            asked = body.provider != "local" and bool(key or p.lists_freely)
+            status = 502 if asked and not e.refused else 400
             raise HTTPException(status_code=status, detail=str(e)) from e
 
     @app.get("/api/chat", dependencies=needs_person)

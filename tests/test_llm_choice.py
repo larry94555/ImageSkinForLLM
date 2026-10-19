@@ -295,6 +295,7 @@ def test_the_same_question_is_answered_by_each_llm(
         "model": "grok-4-fast",
         "default_model": "grok-4",
         "has_key": True,
+        "lists_freely": False,
     }
 
 
@@ -354,6 +355,16 @@ def test_openrouter_lists_the_models_that_write_text() -> None:
         "https://openrouter.ai/api/v1/models",
     ]
     assert fetch.asked[0][1] == {"Authorization": f"Bearer {KEY}"}
+
+
+def test_openrouter_lists_its_models_before_a_key() -> None:
+    fetch = Lister({"data": [{"id": "openai/gpt-5"}]})
+    assert lc.ModelLists(fetch).models("openrouter", "") == ["openai/gpt-5"]
+    # No key to check, and none sent.
+    assert fetch.asked == [("https://openrouter.ai/api/v1/models", {})]
+    fetch.answer = {"data": []}
+    with pytest.raises(lc.ModelListError, match=r"^OpenRouter listed no models\.$"):
+        lc.ModelLists(fetch).models("openrouter", "")
 
 
 def test_claude_lists_through_its_sdk() -> None:
@@ -431,7 +442,16 @@ def test_the_app_lists_models_with_the_key_given_or_saved(
     assert app.post("/api/llm/models", json={"provider": "duke"}).status_code == 400
     fetch.answer = http_error(401)
     refused = app.post("/api/llm/models", json={"provider": "grok", "api_key": "bad"})
-    assert refused.status_code == 502 and refused.json()["detail"] == "Grok refused the API key."
+    assert refused.status_code == 400 and refused.json()["detail"] == "Grok refused the API key."
+    # 502 only when the provider couldn't be asked, so the page offers a typed name then.
+    fetch.answer = urllib.error.URLError("down")
+    down = app.post("/api/llm/models", json={"provider": "grok", "api_key": "other"})
+    assert down.status_code == 502
+    fetch.answer = {"data": [{"id": "a/one"}]}
+    anyone = app.post("/api/llm/models", json={"provider": "openrouter"})
+    assert anyone.json() == {"models": ["a/one"]} and fetch.asked[-1][1] == {}
+    assert not app.get("/api/llm").json()["providers"][0]["lists_freely"]
+    assert app.get("/api/llm").json()["providers"][-1]["lists_freely"]
 
 
 def test_a_key_the_provider_refuses_is_not_saved(app: TestClient) -> None:

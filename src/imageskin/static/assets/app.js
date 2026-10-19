@@ -615,9 +615,9 @@ function LlmSettingSection() {
 		setError(null);
 		setModels(null);
 		asking.current = id;
-		if (provider?.has_key) lookUp(id);
+		if (provider?.has_key || provider?.lists_freely) lookUp(id, void 0, provider.has_key);
 	}
-	async function lookUp(id, typedKey) {
+	async function lookUp(id, typedKey, savedKey = false) {
 		asking.current = id;
 		setModels({ state: "loading" });
 		const started = performance.now();
@@ -627,15 +627,18 @@ function LlmSettingSection() {
 			console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
 			setModels({
 				state: "listed",
-				ids
+				ids,
+				checked: Boolean(typedKey) || savedKey
 			});
 		} catch (e) {
 			if (asking.current !== id) return;
 			console.error(`Could not list the models for ${id}`, e);
+			const refused = e instanceof ServerRefusal && e.status < 500;
 			const error = e instanceof ServerRefusal ? e.message : "The models couldn't be listed.";
 			setModels({
 				state: "failed",
-				error
+				error,
+				unreachable: !refused
 			});
 		}
 	}
@@ -646,15 +649,17 @@ function LlmSettingSection() {
 		const started = performance.now();
 		try {
 			const local = picked === "local";
+			const typed = key.trim();
 			const now = await chooseLlm({
 				provider: picked,
-				...key.trim() && !local ? { api_key: key.trim() } : {},
+				...typed && !local ? { api_key: typed } : {},
 				...local ? {} : { model }
 			});
 			console.info(`LLM changed to ${picked} (${Math.round(performance.now() - started)} ms)`);
 			setSetting(now);
 			setKey("");
 			setSaved(true);
+			if (!local && (typed || models?.state !== "listed")) lookUp(picked, void 0, true);
 		} catch (e) {
 			console.error(`Could not change the LLM to ${picked}`, e);
 			setError(e instanceof ServerRefusal ? e.message : "The LLM could not be changed. Try again.");
@@ -663,6 +668,7 @@ function LlmSettingSection() {
 	}
 	const current = setting?.providers.find((p) => p.id === setting.provider);
 	const chosen = setting?.providers.find((p) => p.id === picked);
+	const showModel = chosen?.lists_freely || models?.state === "listed" || models?.state === "failed" && models.unreachable;
 	return /* @__PURE__ */ u("section", {
 		className: "panel llm-setting",
 		"aria-labelledby": "settings-llm",
@@ -723,7 +729,7 @@ function LlmSettingSection() {
 								onBlur: () => key.trim() && void lookUp(chosen.id, key.trim()),
 								disabled: saving
 							})] }),
-							/* @__PURE__ */ u("label", { children: ["Model", /* @__PURE__ */ u("input", {
+							showModel && /* @__PURE__ */ u("label", { children: ["Model", /* @__PURE__ */ u("input", {
 								type: "text",
 								list: "llm-models",
 								value: model,
@@ -767,11 +773,12 @@ function LlmSettingSection() {
 }
 function modelsNote(models, model, provider) {
 	const blank = `Leave the model blank for ${provider.default_model}.`;
-	if (models === null) return `${blank} Enter the key to see ${provider.label}'s models.`;
+	if (models === null) return `Enter your key to choose one of ${provider.label}'s models.`;
 	if (models.state === "loading") return `Looking up ${provider.label}'s models…`;
-	if (models.state === "failed") return `${models.error} You can still type a model's name.`;
+	if (models.state === "failed") return models.unreachable ? `${models.error} You can still type a model's name.` : models.error;
 	const n = models.ids.length;
-	const listed = `The key works. ${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
+	const available = `${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
+	const listed = models.checked ? `The key works. ${available}` : available;
 	if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
 	return `${listed} ${blank}`;
 }

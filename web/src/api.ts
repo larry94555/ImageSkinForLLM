@@ -795,6 +795,7 @@ export interface LlmProvider {
   model: string; // entered on the Settings page; "" for the default
   default_model: string;
   has_key: boolean;
+  lists_freely: boolean; // its models can be listed before a key is entered (OpenRouter)
 }
 
 export interface LlmSetting {

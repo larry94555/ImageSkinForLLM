@@ -3,7 +3,9 @@
 // there: the page is only told that a provider has one. The Model box offers the models the
 // provider lists for the key, looked up live, since a fixed list goes out of date; any name can
 // still be typed. Listing them is also how a key is checked: the server refuses to save a key
-// the provider refuses.
+// the provider refuses. OpenRouter lists its models for anyone, so its list shows at once; for
+// the others the Model box shows only once a key works (Larry, 2026-10-19), or when the provider
+// can't be reached to check it.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -16,8 +18,12 @@ import {
   ServerRefusal,
 } from "./api";
 
-// The provider's models: being looked up, listed, or why they couldn't be.
-type Models = { state: "loading" } | { state: "listed"; ids: string[] } | { state: "failed"; error: string };
+// The provider's models: being looked up, listed (`checked` when a key was asked with), or why
+// they couldn't be (`unreachable` when the provider couldn't be asked, rather than refusing).
+type Models =
+  | { state: "loading" }
+  | { state: "listed"; ids: string[]; checked: boolean }
+  | { state: "failed"; error: string; unreachable: boolean };
 
 export function LlmSettingSection() {
   const [setting, setSetting] = useState<LlmSetting | null>(null);
@@ -52,12 +58,12 @@ export function LlmSettingSection() {
     setError(null);
     setModels(null);
     asking.current = id;
-    if (provider?.has_key) void lookUp(id);
+    if (provider?.has_key || provider?.lists_freely) void lookUp(id, undefined, provider.has_key);
   }
 
   // Asks the provider which models the key can use. A late answer for a provider no longer
   // picked is dropped.
-  async function lookUp(id: string, typedKey?: string) {
+  async function lookUp(id: string, typedKey?: string, savedKey = false) {
     asking.current = id;
     setModels({ state: "loading" });
     const started = performance.now();
@@ -65,12 +71,13 @@ export function LlmSettingSection() {
       const ids = await listModels(id, typedKey);
       if (asking.current !== id) return;
       console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
-      setModels({ state: "listed", ids });
+      setModels({ state: "listed", ids, checked: Boolean(typedKey) || savedKey });
     } catch (e) {
       if (asking.current !== id) return;
       console.error(`Could not list the models for ${id}`, e);
+      const refused = e instanceof ServerRefusal && e.status < 500;
       const error = e instanceof ServerRefusal ? e.message : "The models couldn't be listed.";
-      setModels({ state: "failed", error });
+      setModels({ state: "failed", error, unreachable: !refused });
     }
   }
 
@@ -81,15 +88,18 @@ export function LlmSettingSection() {
     const started = performance.now();
     try {
       const local = picked === "local";
+      const typed = key.trim();
       const now = await chooseLlm({
         provider: picked,
-        ...(key.trim() && !local ? { api_key: key.trim() } : {}),
+        ...(typed && !local ? { api_key: typed } : {}),
         ...(local ? {} : { model }),
       });
       console.info(`LLM changed to ${picked} (${Math.round(performance.now() - started)} ms)`);
       setSetting(now);
       setKey("");
       setSaved(true);
+      // A key just saved was checked by the server, so its models can be offered now.
+      if (!local && (typed || models?.state !== "listed")) void lookUp(picked, undefined, true);
     } catch (e) {
       console.error(`Could not change the LLM to ${picked}`, e);
       setError(e instanceof ServerRefusal ? e.message : "The LLM could not be changed. Try again.");
@@ -99,6 +109,8 @@ export function LlmSettingSection() {
 
   const current = setting?.providers.find((p) => p.id === setting.provider);
   const chosen: LlmProvider | undefined = setting?.providers.find((p) => p.id === picked);
+  const showModel =
+    chosen?.lists_freely || models?.state === "listed" || (models?.state === "failed" && models.unreachable);
 
   return (
     <section className="panel llm-setting" aria-labelledby="settings-llm">
@@ -156,17 +168,19 @@ export function LlmSettingSection() {
                   disabled={saving}
                 />
               </label>
-              <label>
-                Model
-                <input
-                  type="text"
-                  list="llm-models"
-                  value={model}
-                  placeholder={chosen.default_model}
-                  onInput={(e) => setModel((e.target as HTMLInputElement).value)}
-                  disabled={saving}
-                />
-              </label>
+              {showModel && (
+                <label>
+                  Model
+                  <input
+                    type="text"
+                    list="llm-models"
+                    value={model}
+                    placeholder={chosen.default_model}
+                    onInput={(e) => setModel((e.target as HTMLInputElement).value)}
+                    disabled={saving}
+                  />
+                </label>
+              )}
               {models?.state === "listed" && (
                 <datalist id="llm-models">
                   {models.ids.map((id) => (
@@ -195,12 +209,15 @@ export function LlmSettingSection() {
 // What the line under the Model box says about the provider's models.
 export function modelsNote(models: Models | null, model: string, provider: LlmProvider): string {
   const blank = `Leave the model blank for ${provider.default_model}.`;
-  if (models === null) return `${blank} Enter the key to see ${provider.label}'s models.`;
+  if (models === null) return `Enter your key to choose one of ${provider.label}'s models.`;
   if (models.state === "loading") return `Looking up ${provider.label}'s models…`;
-  if (models.state === "failed") return `${models.error} You can still type a model's name.`;
+  if (models.state === "failed") {
+    return models.unreachable ? `${models.error} You can still type a model's name.` : models.error;
+  }
   const n = models.ids.length;
-  // Listing the models needs a key the provider accepts, so a list means the key works.
-  const listed = `The key works. ${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
+  const available = `${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
+  // Listing the models with a key needs one the provider accepts, so such a list means it works.
+  const listed = models.checked ? `The key works. ${available}` : available;
   if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
   return `${listed} ${blank}`;
 }
