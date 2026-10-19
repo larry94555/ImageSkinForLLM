@@ -195,7 +195,8 @@ export function TalkButton(props: {
         press();
       }}
       onPointerUp={release}
-      onPointerCancel={release}
+      // The browser took the pointer over: stopped, never kept on as a tap (review on PR #113).
+      onPointerCancel={stop}
       onKeyDown={(e) => {
         if ((e.key === " " || e.key === "Enter") && !e.repeat) {
           e.preventDefault();

@@ -2655,7 +2655,7 @@ function TalkButton(props) {
 			press();
 		},
 		onPointerUp: release,
-		onPointerCancel: release,
+		onPointerCancel: stop,
 		onKeyDown: (e) => {
 			if ((e.key === " " || e.key === "Enter") && !e.repeat) {
 				e.preventDefault();

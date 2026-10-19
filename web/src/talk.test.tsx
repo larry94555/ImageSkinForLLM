@@ -289,3 +289,20 @@ test("the pointer is kept while held, so moving off the button doesn't end liste
   expect(captured).toHaveBeenCalledWith(7);
   expect(button.textContent).toBe("Listening… let go to send");
 });
+
+test("a pointer the browser cancels stops listening, rather than keeping it on as a tap", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+    vi.advanceTimersByTime(80);
+    FakeRecognition.made[0]!.say("What is");
+    fireEvent.pointerCancel(button);
+  });
+  expect(button.textContent).not.toBe("Listening… click to send");
+  await act(async () => {
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(button.textContent).toBe("Hold to talk");
+  expect(calls.heard).toEqual(["What is"]);
+});

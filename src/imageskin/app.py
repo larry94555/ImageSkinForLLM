@@ -806,12 +806,19 @@ def create_app(
     )
     app.state.prepare_job = job
     job.resume()  # a job the server was stopped in the middle of carries on
+
+    def with_replies_paused(choose: Callable[[], None]) -> None:
+        # A reply being rendered finishes in the voice and face it started with.
+        with replies.paused():
+            choose()
+
     start_now = StartNow(
         data_home,
         render,
         on_ready=lambda: start_reply_warm_up(),
         claim=job.claim,
         release=job.release,
+        activate=with_replies_paused,
     )
     app.state.start_now = start_now
 

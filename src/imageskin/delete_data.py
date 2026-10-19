@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from imageskin.start_now import CHOICE_FILE, CHOICE_SAVING_FILE
+
 logger = logging.getLogger(__name__)
 
 # Folders and files in the home folder, with the files written on the way to a few of them.
@@ -28,7 +30,9 @@ PERSONAL = (
     "review.json",
     "accent.json",
     "consent.json",
-    "default-person.json",  # the default person chosen (R24c); the downloaded people are kept
+    # The default person chosen (R24c). The downloaded people are kept: they are made up.
+    CHOICE_FILE,
+    CHOICE_SAVING_FILE,
 )
 
 

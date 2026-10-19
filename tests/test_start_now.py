@@ -117,7 +117,8 @@ def test_start_downloads_unpacks_and_says_the_lines(
     assert said == ["Goodbye.", "Welcome back."]
     assert start.clip("goodbye") is not None and start.clip("welcome-back") is not None
     assert start.clip("sample") is None
-    assert not list((tmp_path / "default-people" / "downloads").glob("*.zip"))  # unpacked
+    # Kept, so the library can be unpacked again after Delete my data without a download.
+    assert (tmp_path / "default-people" / "downloads" / f"{CHOICE.name}.zip").is_file()
     for message in ("Downloaded default person", "Rendered default person's line"):
         assert message in caplog.text
     record = next(r for r in caplog.records if r.getMessage() == "Default person ready")
@@ -548,3 +549,58 @@ def test_prepare_and_start_now_never_run_together(
         job.release()
     assert refused.status_code == 409
     assert client.get("/api/start-now").json()["chosen"] == vars(CHOICE)
+
+
+def test_the_person_is_chosen_only_once_ready(tmp_path: Path, pack: Path) -> None:
+    # Review on PR #113: while the lines are rendered, and after they fail, the chat stays
+    # with whoever was chosen before.
+    seen: list[sn.Choice | None] = []
+    start = started(tmp_path, pack)
+
+    def render(picture: Path, text: str, output: Path) -> None:
+        seen.append(start.chosen())
+        raise RuntimeError("no video engine")
+
+    start._render_clip = render
+    start.start(CHOICE)
+    start.wait(10)
+    assert seen == [None] and start.status().state == "failed"
+    assert start.chosen() is None and not (tmp_path / sn.CHOICE_FILE).exists()
+
+
+def test_choosing_the_person_pauses_the_replies(tmp_path: Path, pack: Path) -> None:
+    events: list[str] = []
+    start = started(tmp_path, pack)
+
+    def activate(choose: Any) -> None:
+        events.append(f"paused, chosen: {start.chosen() is not None}")
+        choose()
+        events.append(f"resumed, chosen: {start.chosen() is not None}")
+
+    start._activate = activate
+    start.start(CHOICE)
+    start.wait(10)
+    start.start(CHOICE)  # ready at once
+    assert events == [
+        "paused, chosen: False",
+        "resumed, chosen: True",
+        "paused, chosen: True",
+        "resumed, chosen: True",
+    ]
+
+
+def test_choosing_the_same_person_after_delete_needs_no_download(
+    client: TestClient, tmp_path: Path
+) -> None:
+    # Review on PR #113: Delete my data removes the library with photoreal/; the kept pack
+    # puts it back, so neither a download nor preparing the face is needed.
+    home = tmp_path / "home"
+    choose(client)
+    fetch = client.app.state.start_now._fetch  # type: ignore[attr-defined]
+    assert len(fetch.urls) == 1
+    assert client.delete("/api/data").status_code == 200
+    assert not (home / "photoreal").exists()
+    status = choose(client)
+    assert status["state"] == "ready" and status["chosen"] == vars(CHOICE)
+    assert len(fetch.urls) == 1  # not downloaded again
+    assert list((home / "photoreal").glob("*/library.json"))

@@ -32,7 +32,8 @@ from imageskin.default_people import (
     people,
     unpack,
 )
-from imageskin.download import DownloadError, download
+from imageskin.download import DownloadError, download, sha256_of
+from imageskin.photoreal_library import library_key
 from imageskin.voice import Speech, VoiceEngine
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,8 @@ URL_VARIABLE = "IMAGESKIN_DEFAULT_PEOPLE_URL"
 # Each pack's size and SHA-256, so a download is checked before it is unpacked.
 PACKS_FILE = Path(__file__).with_name("default_people_packs.json")
 CHOICE_FILE = "default-person.json"
+# Written first, then moved over CHOICE_FILE, so a save cut short never leaves a broken choice.
+CHOICE_SAVING_FILE = "default-person.saving.json"
 FOLDER = "default-people"
 ACCENTS = ("American", "British")
 # The fixed lines said on exit and on return (roadmap R29), as Prepare renders them.
@@ -132,6 +135,9 @@ class StartNow:
         # `claim` raises to refuse.
         claim: Callable[[], None] = lambda: None,
         release: Callable[[], None] = lambda: None,
+        # Makes the chosen person the one the chat uses: with the reply engines paused, so a
+        # reply being rendered doesn't change voice or face partway (review on PR #113).
+        activate: Callable[[Callable[[], None]], None] = lambda choose: choose(),
     ) -> None:
         self._home = home
         self._folder = home / FOLDER
@@ -143,6 +149,7 @@ class StartNow:
         self._on_ready = on_ready
         self._claim = claim
         self._release = release
+        self._activate = activate
         # The voice the lines are spoken in while they are rendered, for `rendering_voice`.
         self._rendering: tuple[str, str] | None = None
         self._lock = threading.Lock()
@@ -209,7 +216,7 @@ class StartNow:
     def _save(self, choice: Choice) -> None:
         self._home.mkdir(parents=True, exist_ok=True)
         path = self._home / CHOICE_FILE
-        tmp = path.with_name(CHOICE_FILE + ".saving")
+        tmp = self._home / CHOICE_SAVING_FILE
         data = {**asdict(choice), "chosen_at": datetime.now(UTC).isoformat(timespec="seconds")}
         tmp.write_text(json.dumps(data), encoding="utf-8")
         os.replace(tmp, path)
@@ -230,7 +237,7 @@ class StartNow:
                 "Start now with a default person", extra={"person": choice.name, **asdict(choice)}
             )
             if self._ready(choice):
-                self._save(choice)
+                self._activate(lambda: self._save(choice))
                 self._status = StartStatus("ready", choice.name, 100)
                 logger.info("Default person already downloaded", extra={"person": choice.name})
                 self._on_ready()
@@ -249,9 +256,29 @@ class StartNow:
             self._thread.join(timeout)
 
     def _ready(self, choice: Choice) -> bool:
-        return self._picture(choice.name).is_file() and all(
+        return self._unpacked(choice.name) and all(
             (self._lines(choice) / f"{n}.mp4").is_file() for n, _ in LINES
         )
+
+    def _unpacked(self, name: str) -> bool:
+        """The picture and its prepared library are there. Delete my data removes the library
+        with the person's own (it is under photoreal/), so it is unpacked again from the kept
+        pack (review on PR #113)."""
+        picture = self._picture(name)
+        if not picture.is_file():
+            return False
+        return (self._home / "photoreal" / library_key(picture) / "library.json").is_file()
+
+    def _pack(self, name: str) -> Path:
+        return self._folder / "downloads" / f"{name}.zip"
+
+    def _kept(self, name: str) -> Path | None:
+        """The person's pack, downloaded before and complete, or None."""
+        info = self._packs.get(name)
+        pack = self._pack(name)
+        if info is None or not pack.is_file() or pack.stat().st_size != int(info["bytes"]):
+            return None
+        return pack if sha256_of(pack) == info["sha256"] else None
 
     def _set(self, state: State, percent: int = 0, error: str | None = None) -> None:
         with self._lock:
@@ -277,14 +304,16 @@ class StartNow:
         """Download, unpack and render the lines; what went wrong, in plain words, or None."""
         name = choice.name
         try:
-            if not self._picture(name).is_file():
-                pack = self._download(name)
+            if not self._unpacked(name):
+                # The pack is kept: unpacked again after Delete my data, it needs no download.
+                pack = self._kept(name) or self._download(name)
                 self._set("unpacking", 100)
                 self._unpack(pack, self._home)
-                pack.unlink(missing_ok=True)  # unpacked, it is no longer needed
-            self._save(choice)
             self._set("getting-ready", 100)
             self._render_lines(choice)
+            # Chosen only once everything is ready: until then the chat stays locked, and a
+            # failure leaves the person chosen before (review on PR #113).
+            self._activate(lambda: self._save(choice))
         except DownloadError as e:
             logger.error(
                 "Could not download the default person", extra={"person": name, "error": str(e)}
@@ -305,7 +334,7 @@ class StartNow:
         info = self._packs.get(name)
         if info is None:
             raise PackError(f"{name} has no pack")
-        pack = self._folder / "downloads" / f"{name}.zip"
+        pack = self._pack(name)
         size = int(info["bytes"])
 
         def progress(done: int, total: int) -> None:
