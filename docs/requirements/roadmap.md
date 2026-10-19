@@ -650,8 +650,8 @@ Added by Larry on 2026-10-17, to build after R60; on 2026-10-18 Larry moved it t
 - **Can show:** pay for Light with the provider's test card, see the site unpaused and the plan shown in its settings, with the provider's event in the logs. Picking the subdomain at this point comes next, in R63.
 
 ### R63. Picking a subdomain at the first payment (Simple) · item 65
-- A site gets its subdomain only when its customer signs up for the $1 Light membership (R67) and is charged: the name is picked then, checked as it is typed (free, letters, numbers and hyphens only, not reserved). The subdomain shows the same site the trial path did, with all its person, content, settings and history; the trial path then sends visitors to the subdomain *(default)*.
-- **Can show:** start a trial at its trial path, pay for Light with the test card, see a taken name and a reserved name refused with a plain message, then a free name accepted and the same person and content opened at the subdomain; the old trial path now opens the subdomain.
+- A site gets its subdomain only when its customer signs up for the $1 Light membership (R67) and is charged: the name is picked then, checked as it is typed (free, letters, numbers and hyphens only, not reserved). The subdomain shows the same site the trial path did, with all its person, content, settings and history; the trial path then redirects to the subdomain automatically, following any rename (R64), and is reserved so it is never given to another site, even after the site is deleted (Larry, 2026-10-19).
+- **Can show:** start a trial at its trial path, pay for Light with the test card, see a taken name and a reserved name refused with a plain message, then a free name accepted and the same person and content opened at the subdomain; the old trial path now redirects to the subdomain, and a new trial never gets that path (a test forces the random choice to it and sees another picked).
 
 ### R64. Changing the subdomain (Simple) · item 65
 - In the site's settings, the customer changes its name to any free name, with the same checks as R63; the old name is released at once.
