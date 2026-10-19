@@ -183,7 +183,9 @@ class ChatGptSignIn:
         self._lock = threading.Lock()  # the pending sign-ins
         self._writing = threading.Lock()  # chatgpt.json: one read-change-write at a time
         # One renewal at a time: OpenAI replaces the refresh token with each, so two at once
-        # would leave one holding a token already used.
+        # would leave one holding a token already used. Disconnect and a sign-in's save take it
+        # too, so a renewal never crosses them: Disconnect waits for a renewal under way and then
+        # revokes the refresh token it brought (a review on PR #118).
         self._renewing = threading.Lock()
         self._pending: dict[str, _Pending] = {}
         self._endpoints: dict[str, str] | None = None
@@ -454,7 +456,8 @@ class ChatGptSignIn:
                 kept["provisional"] = saved["provisional"]
             return {**kept, "registrations": list(registrations.values()), "active": client_id}
 
-        self._update(commit)
+        with self._renewing:
+            self._update(commit)
         logger.info(
             "Signed in with ChatGPT",
             extra={
@@ -517,6 +520,10 @@ class ChatGptSignIn:
         the outcome; its registration, and the other accounts, are kept. The status says
         `revoked` false when OpenAI couldn't confirm it ended the connection. Its tokens and ID
         token are forgotten either way."""
+        with self._renewing:
+            return self._sign_out()
+
+    def _sign_out(self) -> dict[str, Any]:
         saved = self._load()
         client_id = str(saved.get("active", ""))
         active = self._registrations(saved).get(client_id) or {}
@@ -598,16 +605,26 @@ class ChatGptSignIn:
             "expires_at": self._clock() + float(data.get("expires_in", 0)),
         }
 
+        kept = False
+
         def keep(saved: dict[str, Any]) -> dict[str, Any]:
+            nonlocal kept
             registrations = self._registrations(saved)
             current = registrations.get(client_id)
-            # Not if the account was disconnected or signed in again meanwhile.
+            # Not if the saved credentials changed meanwhile (chatgpt.json edited elsewhere:
+            # Disconnect and sign-ins in this app wait for the renewal).
             if not current or current.get("credentials") != credentials:
                 return saved
             registrations[client_id] = {**current, "credentials": renewed}
+            kept = True
             return {**saved, "registrations": list(registrations.values())}
 
         self._update(keep)
+        if not kept:
+            # Its tokens belong to a session no longer saved: ended at OpenAI, never used.
+            logger.error("ChatGPT sign-in changed while renewing; ending the renewed session")
+            self._revoke({**renewed, "client_id": client_id}, str(renewed["refresh_token"]))
+            raise SignInError(SIGN_IN_FIRST)
         logger.info(
             "Renewed the ChatGPT sign-in",
             extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},

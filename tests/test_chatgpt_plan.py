@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -197,11 +198,17 @@ def test_a_reply_that_fails_says_why_in_plain_words(
     assert "token-1" not in caplog.text
 
 
-def test_an_incomplete_reply_or_done_marker_ends_the_stream() -> None:
+def test_an_incomplete_reply_is_not_an_answer(caplog: pytest.LogCaptureFixture) -> None:
+    # Only response.completed is a whole answer (a review on PR #118).
     delta = {"type": "response.output_text.delta", "delta": "Four"}
-    cut = events(delta, {"type": "response.incomplete"})
-    plan, _ = client(cut, [b"data: [DONE]\n"])
-    assert list(plan.stream(MESSAGES)) == ["Four"]
+    reason = {"response": {"incomplete_details": {"reason": "max_output_tokens"}}}
+    cut = events(delta, {"type": "response.incomplete", **reason})
+    plan, _ = client(cut, events(delta, {"type": "response.incomplete"}), [b"data: [DONE]\n"])
+    with pytest.raises(LlmError, match=r"didn't finish its reply \(max_output_tokens\)"):
+        list(plan.stream(MESSAGES))
+    assert "ChatGPT left its reply unfinished" in caplog.messages
+    with pytest.raises(LlmError, match=r"\(unknown\)"):
+        plan.ask(MESSAGES)  # the part sent is not returned as the answer
     with pytest.raises(LlmError, match="before finishing"):
         list(plan.stream(MESSAGES))
 
@@ -250,6 +257,7 @@ class FakeAuth:
             }
         )
         self.forms: list[dict[str, str]] = []
+        self.revoked: list[str] = []
 
     def __call__(self, url: str, form: dict[str, str] | None) -> tuple[int, Any]:
         if form is None:
@@ -258,7 +266,11 @@ class FakeAuth:
                 "authorization_endpoint": f"{cs.ISSUER}/oauth/authorize",
                 "token_endpoint": f"{cs.ISSUER}/oauth/token",
                 "jwks_uri": f"{cs.ISSUER}/jwks",
+                "revocation_endpoint": f"{cs.ISSUER}/oauth/revoke",
             }
+        if url.endswith("/revoke"):
+            self.revoked.append(form["token"])
+            return 200, {}
         assert url == f"{cs.ISSUER}/oauth/token"
         self.forms.append(form)
         return self.status, self.answer
@@ -360,9 +372,47 @@ def test_a_renewal_doesnt_bring_back_an_account_disconnected_meanwhile(tmp_path:
                 (tmp_path / cs.FILENAME).write_text(json.dumps(data))
             return super().__call__(url, form)
 
-    assert signin(tmp_path, Disconnecting()).access_token() == "access-2"
+    auth = Disconnecting()
+    # The renewed session is ended at OpenAI and its token isn't handed out.
+    with pytest.raises(SignInError, match="Sign in with ChatGPT on the Settings page first"):
+        signin(tmp_path, auth).access_token()
+    assert auth.revoked == ["refresh-2"]
     saved = json.loads((tmp_path / cs.FILENAME).read_text())["registrations"][0]
     assert saved["credentials"] is None
+
+
+def test_disconnect_waits_for_a_renewal_and_revokes_the_token_it_brought(tmp_path: Path) -> None:
+    # A review on PR #118: Disconnect during a renewal must end the renewed session, and no
+    # token is handed out after it.
+    signed_in(tmp_path, NOW - 1)
+    renewing, release = threading.Event(), threading.Event()
+
+    class Slow(FakeAuth):
+        def __call__(self, url: str, form: dict[str, str] | None) -> tuple[int, Any]:
+            if form is not None and form.get("grant_type") == "refresh_token":
+                renewing.set()
+                assert release.wait(5)
+            return super().__call__(url, form)
+
+    auth = Slow()
+    who = signin(tmp_path, auth)
+    got: list[str] = []
+    renewal = threading.Thread(target=lambda: got.append(who.access_token()))
+    renewal.start()
+    assert renewing.wait(5)
+    disconnected: list[dict[str, Any]] = []
+    disconnect = threading.Thread(target=lambda: disconnected.append(who.sign_out()))
+    disconnect.start()
+    disconnect.join(0.2)
+    assert disconnect.is_alive() and auth.revoked == []  # it waits for the renewal
+    release.set()
+    renewal.join(5)
+    disconnect.join(5)
+    assert got == ["access-2"]  # handed out before Disconnect began
+    assert auth.revoked == ["refresh-2"]  # the replacement, not the used-up refresh-1
+    assert disconnected[0]["revoked"] is True and not disconnected[0]["connected"]
+    with pytest.raises(SignInError, match="Sign in with ChatGPT on the Settings page first"):
+        who.access_token()
 
 
 # The ChatGPT plan in the LLM setting

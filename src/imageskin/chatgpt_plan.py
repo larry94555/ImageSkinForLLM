@@ -164,8 +164,15 @@ class ChatGptPlanClient:
                     elif kind == "response.refusal.delta":
                         logger.warning("ChatGPT declined to answer")
                         raise LlmError(DECLINED)
-                    elif kind in ("response.completed", "response.incomplete"):
+                    elif kind == "response.completed":
                         finished = True
+                    elif kind == "response.incomplete":
+                        # Only response.completed is a whole answer (OpenAI's plan docs): the
+                        # part sent so far is not kept as the reply (a review on PR #118).
+                        details = (event.get("response") or {}).get("incomplete_details") or {}
+                        reason = details.get("reason") or "unknown"
+                        logger.error("ChatGPT left its reply unfinished", extra={"reason": reason})
+                        raise LlmError(f"ChatGPT didn't finish its reply ({reason}). Try again.")
                     elif kind in ("response.failed", "error"):
                         error = (event.get("response") or {}).get("error") or event
                         logger.error("ChatGPT failed", extra={"error": str(error)[:300]})
