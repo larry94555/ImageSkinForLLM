@@ -45,6 +45,7 @@ from imageskin.llm_choice import (
     SwitchableLlm,
     described,
     load_choice,
+    pinned,
     save_choice,
 )
 from imageskin.lookup import ContentLookup, as_passages
@@ -317,7 +318,8 @@ def wiki_builder(llm: LlmSettings, client: ChatLlm | None, ask_llm: AskLlm | Non
     def build(
         pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
     ) -> Wiki:
-        return build_wiki(pdf_id, pieces, ask, count, window(), progress, wait)
+        with pinned(client):  # one LLM builds every part (a review on PR #115)
+            return build_wiki(pdf_id, pieces, ask, count, window(), progress, wait)
 
     return build
 
@@ -351,7 +353,8 @@ def outline_builder(
         progress: OutlineProgress,
         wait: WaitForLlm,
     ) -> list[Entry]:
-        return Outliner(pdf_id, ask, count, window(), progress, wait).outline(topics, pieces)
+        with pinned(client):
+            return Outliner(pdf_id, ask, count, window(), progress, wait).outline(topics, pieces)
 
     return build
 
@@ -1048,6 +1051,9 @@ def create_app(
         return described(load_choice(data_home))
 
     model_lists = ModelLists()
+    # A change is saved and made live as one step, so two made together can't leave the file
+    # saying one LLM while the other answers (a review on PR #115).
+    changing_llm = threading.Lock()
 
     @app.put("/api/llm")
     def put_llm(body: LlmRequest) -> dict[str, Any]:
@@ -1068,11 +1074,12 @@ def create_app(
                     "Could not check the API key; saving it unchecked",
                     extra={"provider": body.provider, "reason": str(e)},
                 )
-        try:
-            choice = save_choice(data_home, body.provider, body.api_key, body.model)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-        switchable.use(choice)
+        with changing_llm:
+            try:
+                choice = save_choice(data_home, body.provider, body.api_key, body.model)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
+            switchable.use(choice)
         # From the next request; llama-server reads the system prompt again now (R22a).
         threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True).start()
         logger.info(
@@ -1169,7 +1176,8 @@ def create_app(
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
         wait_for_warm_up()
-        with chat_lock, llm_busy():
+        # One LLM answers the whole prompt, even if it is changed meanwhile (review on PR #115).
+        with chat_lock, pinned(client), llm_busy():
             not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
             return chat(body)
 

@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from imageskin import app as app_module
 from imageskin import llm_choice as lc
 from imageskin.app import create_app
 from imageskin.chat import LlmClient, LlmSettings, Message
@@ -480,3 +481,139 @@ def test_openrouter_refusing_the_key_says_so() -> None:
     with pytest.raises(lc.ModelListError, match="OpenRouter refused the API key") as refused:
         lc.ModelLists(Lister(http_error(401))).models("openrouter", KEY)
     assert refused.value.refused
+
+
+# A change made while the LLM is in use (reviews on PR #115)
+
+
+def in_thread(run: Any) -> threading.Thread:
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread
+
+
+def test_a_pinned_thread_keeps_its_llm_until_it_is_done() -> None:
+    with patch.object(lc, "llm_client", Recorder):
+        switch = lc.SwitchableLlm(BASE, lc.LlmChoice())
+        pinned, changed = threading.Event(), threading.Event()
+        answers: list[str] = []
+
+        def prompt() -> None:
+            with switch.pinned():
+                pinned.set()
+                changed.wait(5)
+                with switch.pinned():  # inside another, the outer one's LLM holds
+                    answers.append(switch.ask([]))
+                answers.append(str(switch.local))
+            answers.append(switch.ask([]))
+
+        thread = in_thread(prompt)
+        pinned.wait(5)
+        switch.use(lc.LlmChoice("grok", {"grok": KEY}))
+        assert switch.ask([]) == "grok 300 None"  # another thread has the new one at once
+        changed.set()
+        thread.join(5)
+    assert answers == ["local 300 None", "True", "grok 300 None"]
+
+
+def test_a_prompt_finishes_on_the_llm_it_began_with(
+    app: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    measuring, changed = threading.Event(), threading.Event()
+
+    class SlowClaude(FakeClaude):
+        def context_tokens(self) -> int:
+            # The prompt has been measured with Claude's window; it is sent after the change.
+            if not measuring.is_set():
+                measuring.set()
+                changed.wait(5)
+            return 4096
+
+    monkeypatch.setattr(lc, "ClaudeClient", SlowClaude)
+    app.put("/api/llm", json={"provider": "claude", "api_key": "sk-ant"})
+    answers: list[str] = []
+    thread = in_thread(lambda: answers.append(ask(app)))
+    assert measuring.wait(5)
+    assert app.put("/api/llm", json={"provider": "openai", "api_key": "sk-oa"}).status_code == 200
+    changed.set()
+    thread.join(10)
+    assert answers == ["Answered by Claude."]
+    assert ask(app) == "Answered by gpt-4.1-mini."  # the next prompt has the new one
+
+
+def test_a_wiki_build_is_made_by_one_llm() -> None:
+    parts: list[str] = []
+    with patch.object(lc, "llm_client", Recorder):
+        switch = lc.SwitchableLlm(BASE, lc.LlmChoice())
+
+        def build_wiki(pdf_id: str, pieces: Any, ask: Any, *rest: Any) -> list[str]:
+            # A part, then the LLM is changed on the Settings page, then the next part.
+            parts.append(ask([]))
+            in_thread(lambda: switch.use(lc.LlmChoice("grok", {"grok": KEY}))).join(5)
+            parts.append(ask([]))
+            return []
+
+        with patch.object(app_module, "build_wiki", build_wiki):
+            app_module.wiki_builder(BASE, switch, None)("p1", [], lambda *a: None, lambda *a: None)
+        assert switch.ask([]).startswith("grok")  # the next build has the new one
+    assert [p.split()[0] for p in parts] == ["local", "local"]
+
+
+def test_an_outline_is_made_by_one_llm() -> None:
+    parts: list[str] = []
+    with patch.object(lc, "llm_client", Recorder):
+        switch = lc.SwitchableLlm(BASE, lc.LlmChoice())
+
+        class Outliner:
+            def __init__(self, pdf_id: str, ask: Any, *rest: Any) -> None:
+                self.ask = ask
+
+            def outline(self, topics: Any, pieces: Any) -> list[str]:
+                parts.append(self.ask([], {}))
+                in_thread(lambda: switch.use(lc.LlmChoice("grok", {"grok": KEY}))).join(5)
+                parts.append(self.ask([], {}))
+                return []
+
+        with patch.object(app_module, "Outliner", Outliner):
+            build = app_module.outline_builder(BASE, switch, None)
+            build("p1", [], [], lambda *a: None, lambda *a: None)
+        assert switch.ask([]).startswith("grok")
+    assert [p.split()[0] for p in parts] == ["local", "local"]
+
+
+def test_two_changes_made_together_end_on_the_same_llm(
+    app: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_save = lc.save_choice
+    first_saved, second_saved = threading.Event(), threading.Event()
+
+    def save(home: Path, provider: str, *args: Any, **kwargs: Any) -> lc.LlmChoice:
+        choice = real_save(home, provider, *args, **kwargs)
+        if provider == "openai":
+            first_saved.set()
+            # Without one step for saving and switching, Grok's change would be saved and made
+            # live here, and then OpenAI's made live after it.
+            second_saved.wait(0.5)
+        else:
+            second_saved.set()
+        return choice
+
+    monkeypatch.setattr("imageskin.app.save_choice", save)
+    statuses: list[int] = []
+    first = in_thread(
+        lambda: statuses.append(
+            app.put("/api/llm", json={"provider": "openai", "api_key": "sk-oa"}).status_code
+        )
+    )
+    assert first_saved.wait(5)
+    second = in_thread(
+        lambda: statuses.append(
+            app.put("/api/llm", json={"provider": "grok", "api_key": "xai-k3y"}).status_code
+        )
+    )
+    first.join(10)
+    second.join(10)
+    assert statuses == [200, 200]
+    assert lc.load_choice(tmp_path).provider == "grok"
+    assert app.get("/api/llm").json()["provider"] == "grok"
+    assert ask(app) == "Answered by grok-4."

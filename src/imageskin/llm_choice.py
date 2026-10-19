@@ -6,7 +6,8 @@ llm.json in the app's home folder, on the server only: a key is never logged or 
 browser. Each provider keeps its own key and model, so switching back needs no key again.
 
 `SwitchableLlm` is the one client the chat, the wiki and its outline are given; a change on the
-Settings page swaps the client inside it, so the change holds from the next request.
+Settings page swaps the client inside it, so the change holds from the next request. A prompt
+or a wiki build in progress is pinned to the client it began with, so it finishes there.
 """
 
 import hashlib
@@ -18,6 +19,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -337,6 +339,23 @@ class SwitchableLlm:
         self._lock = threading.Lock()
         self.settings = settings_for(base, choice)
         self._client = llm_client(self.settings)
+        # The settings and client a thread is pinned to (see pinned), if it is.
+        self._held = threading.local()
+
+    @contextmanager
+    def pinned(self) -> Iterator[None]:
+        """Every call this thread makes inside goes to the client chosen when it began, so one
+        prompt, or one wiki build, is answered by one LLM whole even if the LLM is changed
+        meanwhile (a review on PR #115). Inside another, the outer one's client holds."""
+        if getattr(self._held, "pin", None) is not None:
+            yield
+            return
+        with self._lock:
+            self._held.pin = (self.settings, self._client)
+        try:
+            yield
+        finally:
+            self._held.pin = None
 
     def use(self, choice: LlmChoice) -> None:
         settings = settings_for(self._base, choice)
@@ -348,13 +367,19 @@ class SwitchableLlm:
             extra={"provider": settings.provider, "url": settings.url, "model": settings.model},
         )
 
+    def _pin(self) -> tuple[LlmSettings, ChatLlm]:
+        held: tuple[LlmSettings, ChatLlm] | None = getattr(self._held, "pin", None)
+        if held is not None:
+            return held
+        with self._lock:
+            return self.settings, self._client
+
     @property
     def local(self) -> bool:
-        return self.settings.local
+        return self._pin()[0].local
 
     def _current(self) -> ChatLlm:
-        with self._lock:
-            return self._client
+        return self._pin()[1]
 
     def count(self, text: str) -> int:
         return self._current().count(text)
@@ -375,3 +400,8 @@ class SwitchableLlm:
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
         return self._current().stream(messages)
+
+
+def pinned(client: ChatLlm | None) -> AbstractContextManager[None]:
+    """`SwitchableLlm.pinned` for the LLM picked on the Settings page; nothing for another."""
+    return client.pinned() if isinstance(client, SwitchableLlm) else nullcontext()
