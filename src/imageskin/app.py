@@ -1047,9 +1047,27 @@ def create_app(
     def get_llm() -> dict[str, Any]:
         return described(load_choice(data_home))
 
+    model_lists = ModelLists()
+
     @app.put("/api/llm")
     def put_llm(body: LlmRequest) -> dict[str, Any]:
         start = time.perf_counter()
+        key = (body.api_key or "").strip()
+        if key and body.provider in PROVIDERS and body.provider != "local":
+            # A new key is checked first by listing the provider's models (Larry, 2026-10-19),
+            # so a key the provider refuses isn't saved; if the provider can't be reached, the
+            # key is saved unchecked, and the chat says so if it's wrong.
+            try:
+                model_lists.models(body.provider, key)
+            except ModelListError as e:
+                if e.refused:
+                    raise HTTPException(
+                        status_code=400, detail=f"{e} Check it and paste it again."
+                    ) from e
+                logger.warning(
+                    "Could not check the API key; saving it unchecked",
+                    extra={"provider": body.provider, "reason": str(e)},
+                )
         try:
             choice = save_choice(data_home, body.provider, body.api_key, body.model)
         except ValueError as e:
@@ -1062,8 +1080,6 @@ def create_app(
             extra={"provider": choice.provider, "duration_ms": ms_since(start)},
         )
         return described(choice)
-
-    model_lists = ModelLists()
 
     # The models a provider offers to the key just entered, or the saved one (R42).
     @app.post("/api/llm/models")

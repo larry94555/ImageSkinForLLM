@@ -224,6 +224,9 @@ def app(tmp_path: Path, api: str, monkeypatch: pytest.MonkeyPatch) -> TestClient
     for provider in ("openai", "grok", "openrouter"):
         monkeypatch.setitem(lc.PROVIDERS, provider, replace(lc.PROVIDERS[provider], url=api))
     monkeypatch.setattr(lc, "ClaudeClient", FakeClaude)
+    # Each new key is checked by listing the provider's models.
+    lists = lc.ModelLists(Lister({"data": [{"id": "m"}]}), claude=lambda key: ["claude-x"])
+    monkeypatch.setattr("imageskin.app.ModelLists", lambda: lists)
     client = TestClient(
         create_app(
             tmp_path,
@@ -345,7 +348,12 @@ def test_openrouter_lists_the_models_that_write_text() -> None:
         }
     )
     assert lc.ModelLists(fetch).models("openrouter", KEY) == ["meta/llama", "openai/gpt-5"]
-    assert fetch.asked[0][0] == "https://openrouter.ai/api/v1/models"
+    # The list is anyone's, so the key is checked on its own first.
+    assert [url for url, _ in fetch.asked] == [
+        "https://openrouter.ai/api/v1/key",
+        "https://openrouter.ai/api/v1/models",
+    ]
+    assert fetch.asked[0][1] == {"Authorization": f"Bearer {KEY}"}
 
 
 def test_claude_lists_through_its_sdk() -> None:
@@ -424,3 +432,31 @@ def test_the_app_lists_models_with_the_key_given_or_saved(
     fetch.answer = http_error(401)
     refused = app.post("/api/llm/models", json={"provider": "grok", "api_key": "bad"})
     assert refused.status_code == 502 and refused.json()["detail"] == "Grok refused the API key."
+
+
+def test_a_key_the_provider_refuses_is_not_saved(app: TestClient) -> None:
+    lists = lc.ModelLists(Lister(http_error(401)))
+    with patch.object(lc.ModelLists, "models", lists.models):
+        refused = app.put("/api/llm", json={"provider": "grok", "api_key": "bad-key"})
+    assert refused.status_code == 400
+    assert refused.json()["detail"] == "Grok refused the API key. Check it and paste it again."
+    shown = app.get("/api/llm").json()
+    assert shown["provider"] == "local"
+    assert not next(p for p in shown["providers"] if p["id"] == "grok")["has_key"]
+
+
+def test_a_key_that_cant_be_checked_is_saved_unchecked(
+    app: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    lists = lc.ModelLists(Lister(urllib.error.URLError("down")))
+    with patch.object(lc.ModelLists, "models", lists.models):
+        saved = app.put("/api/llm", json={"provider": "grok", "api_key": "maybe-key"})
+    assert saved.status_code == 200 and saved.json()["provider"] == "grok"
+    assert "Could not check the API key; saving it unchecked" in caplog.messages
+    assert "maybe-key" not in caplog.text
+
+
+def test_openrouter_refusing_the_key_says_so() -> None:
+    with pytest.raises(lc.ModelListError, match="OpenRouter refused the API key") as refused:
+        lc.ModelLists(Lister(http_error(401))).models("openrouter", KEY)
+    assert refused.value.refused

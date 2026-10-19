@@ -111,6 +111,8 @@ test("a refused change says why", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Use this LLM" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Enter your Grok API key.");
   expect(screen.getByText("Answering now:").textContent).toContain("Local");
+  fireEvent.input(screen.getByLabelText("API key"), { target: { value: "xai-2" } });
+  expect(screen.queryByRole("alert")).toBeNull(); // gone once another key is typed
 });
 
 test("a change that can't reach the app says so", async () => {
@@ -133,7 +135,7 @@ test("a provider with a saved key offers the models it lists", async () => {
   const fetchMock = server(LOCAL);
   render(<LlmSettingSection />);
   fireEvent.click(await screen.findByRole("radio", { name: /Claude/ }));
-  expect(await screen.findByText(/^2 models available: pick one or type a name\./)).toBeTruthy();
+  expect(await screen.findByText(/^The key works\. 2 models available: pick one or type a name\./)).toBeTruthy();
   const options = [...document.querySelectorAll("#llm-models option")].map((o) => o.getAttribute("value"));
   expect(options).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
   expect(screen.getByLabelText("Model").getAttribute("list")).toBe("llm-models");
@@ -180,7 +182,7 @@ test("a late list for a provider no longer picked is dropped", async () => {
 test("the note under the Model box", () => {
   const grok = provider("grok", "Grok");
   expect(modelsNote({ state: "listed", ids: ["grok-model"] }, "grok-model", grok)).toBe(
-    "1 model available: pick one or type a name. Leave the model blank for grok-model.",
+    "The key works. 1 model available: pick one or type a name. Leave the model blank for grok-model.",
   );
   expect(modelsNote({ state: "failed", error: "No." }, "x", grok)).toBe("No. You can still type a model's name.");
 });

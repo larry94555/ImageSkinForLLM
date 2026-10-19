@@ -2,7 +2,8 @@
 // Grok or OpenRouter with the user's own API key. The key is sent to the server once and kept
 // there: the page is only told that a provider has one. The Model box offers the models the
 // provider lists for the key, looked up live, since a fixed list goes out of date; any name can
-// still be typed.
+// still be typed. Listing them is also how a key is checked: the server refuses to save a key
+// the provider refuses.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -48,6 +49,7 @@ export function LlmSettingSection() {
     setKey("");
     setModel(provider?.model ?? "");
     setSaved(false);
+    setError(null);
     setModels(null);
     asking.current = id;
     if (provider?.has_key) void lookUp(id);
@@ -146,7 +148,10 @@ export function LlmSettingSection() {
                   autoComplete="off"
                   value={key}
                   placeholder={chosen.has_key ? "Saved. Paste a new key to replace it." : `From ${chosen.keys_at}`}
-                  onInput={(e) => setKey((e.target as HTMLInputElement).value)}
+                  onInput={(e) => {
+                    setKey((e.target as HTMLInputElement).value);
+                    setError(null); // a refused key's message goes once another is typed
+                  }}
                   onBlur={() => key.trim() && void lookUp(chosen.id, key.trim())}
                   disabled={saving}
                 />
@@ -194,7 +199,8 @@ export function modelsNote(models: Models | null, model: string, provider: LlmPr
   if (models.state === "loading") return `Looking up ${provider.label}'s models…`;
   if (models.state === "failed") return `${models.error} You can still type a model's name.`;
   const n = models.ids.length;
-  const listed = `${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
+  // Listing the models needs a key the provider accepts, so a list means the key works.
+  const listed = `The key works. ${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
   if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
   return `${listed} ${blank}`;
 }

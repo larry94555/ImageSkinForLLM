@@ -49,6 +49,9 @@ class Provider:
     # Where the models the key can use are listed, under `url`: Grok's language-models leaves
     # out its image and video models.
     models_at: str = "/models"
+    # Where a key is checked when listing the models doesn't need one (OpenRouter's lists them
+    # for anyone).
+    key_at: str = ""
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -60,7 +63,11 @@ PROVIDERS: dict[str, Provider] = {
     "grok": Provider("Grok", "https://api.x.ai/v1", "grok-4", "console.x.ai", "/language-models"),
     # openrouter/auto picks a model for each prompt from those OpenRouter offers.
     "openrouter": Provider(
-        "OpenRouter", "https://openrouter.ai/api/v1", "openrouter/auto", "openrouter.ai"
+        "OpenRouter",
+        "https://openrouter.ai/api/v1",
+        "openrouter/auto",
+        "openrouter.ai",
+        key_at="/key",
     ),
 }
 
@@ -202,7 +209,12 @@ NOT_CHAT = (
 
 
 class ModelListError(Exception):
-    """The provider's models couldn't be listed; the message says why in plain words."""
+    """The provider's models couldn't be listed; the message says why in plain words.
+    `refused` when it was the key the provider refused."""
+
+    def __init__(self, message: str, refused: bool = False) -> None:
+        super().__init__(message)
+        self.refused = refused
 
 
 Fetch = Callable[[str, dict[str, str]], Any]  # URL, headers: the decoded JSON
@@ -280,16 +292,17 @@ class ModelLists:
             if provider == "claude":
                 found = self._claude(key)
             else:
-                found = _ids(
-                    self._fetch(p.url + p.models_at, {"Authorization": f"Bearer {key}"}), provider
-                )
+                auth = {"Authorization": f"Bearer {key}"}
+                if p.key_at:
+                    self._fetch(p.url + p.key_at, auth)  # refused if the key isn't valid
+                found = _ids(self._fetch(p.url + p.models_at, auth), provider)
         except (urllib.error.HTTPError, anthropic.APIStatusError) as e:
             code = getattr(e, "code", None) or getattr(e, "status_code", None)
             logger.error(
                 "Could not list the provider's models", extra={"provider": provider, "status": code}
             )
             if code in (401, 403):
-                raise ModelListError(f"{p.label} refused the API key.") from e
+                raise ModelListError(f"{p.label} refused the API key.", refused=True) from e
             raise ModelListError(f"{p.label} couldn't list its models ({code}).") from e
         except (OSError, ValueError, TypeError, AttributeError, anthropic.AnthropicError) as e:
             logger.error(

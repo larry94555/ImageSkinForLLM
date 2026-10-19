@@ -612,6 +612,7 @@ function LlmSettingSection() {
 		setKey("");
 		setModel(provider?.model ?? "");
 		setSaved(false);
+		setError(null);
 		setModels(null);
 		asking.current = id;
 		if (provider?.has_key) lookUp(id);
@@ -715,7 +716,10 @@ function LlmSettingSection() {
 								autoComplete: "off",
 								value: key,
 								placeholder: chosen.has_key ? "Saved. Paste a new key to replace it." : `From ${chosen.keys_at}`,
-								onInput: (e) => setKey(e.target.value),
+								onInput: (e) => {
+									setKey(e.target.value);
+									setError(null);
+								},
 								onBlur: () => key.trim() && void lookUp(chosen.id, key.trim()),
 								disabled: saving
 							})] }),
@@ -767,7 +771,7 @@ function modelsNote(models, model, provider) {
 	if (models.state === "loading") return `Looking up ${provider.label}'s models…`;
 	if (models.state === "failed") return `${models.error} You can still type a model's name.`;
 	const n = models.ids.length;
-	const listed = `${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
+	const listed = `The key works. ${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
 	if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
 	return `${listed} ${blank}`;
 }
