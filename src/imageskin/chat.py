@@ -170,6 +170,19 @@ class EmptyReply(LlmError):
     """The LLM answered, but with no words: its output, not the request, was at fault."""
 
 
+def strict(schema: Any) -> Any:
+    """The schema with every object closed to other properties, as the strict structured outputs
+    of Claude and OpenAI require (R33); every property must also be listed as required."""
+    if isinstance(schema, dict):
+        closed = {k: strict(v) for k, v in schema.items()}
+        if closed.get("type") == "object":
+            closed.setdefault("additionalProperties", False)
+        return closed
+    if isinstance(schema, list):
+        return [strict(v) for v in schema]
+    return schema
+
+
 def estimate(text: str) -> int:
     """A count that never falls short of a real tokenizer's, for when the server can't count."""
     return len(text.encode())
@@ -343,7 +356,8 @@ class LlmClient:
         elif schema is not None:
             body["response_format"] = {
                 "type": "json_schema",
-                "json_schema": {"name": "answer", "schema": schema},
+                # strict: OpenAI holds the answer to the schema, as llama-server does (review)
+                "json_schema": {"name": "answer", "strict": True, "schema": strict(schema)},
             }
         headers = {"Content-Type": "application/json"}
         if self.settings.api_key and not local:  # a key is never sent to llama-server

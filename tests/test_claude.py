@@ -16,6 +16,7 @@ from imageskin.chat import (
     LlmClient,
     LlmError,
     LlmSettings,
+    strict,
 )
 from imageskin.claude import (
     DECLINED,
@@ -25,7 +26,6 @@ from imageskin.claude import (
     THINKING_ROOM,
     ClaudeClient,
     split_system,
-    strict,
 )
 
 KEY = "sk-ant-test"

@@ -29,11 +29,14 @@ from imageskin.chat import (
     Turn,
     estimate,
     latest,
+    strict,
     system_message,
     tokens,
 )
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult
+from imageskin.wiki import TOPICS_SCHEMA
+from imageskin.wiki_outline import DETAIL_SCHEMA, SECTIONS_SCHEMA, SUMMARY_SCHEMA
 
 # --- Which turns are sent ---
 
@@ -408,7 +411,11 @@ def test_openai_is_asked_with_the_users_key(fake_llm: str) -> None:
     assert sent["max_completion_tokens"] == 900 and "max_tokens" not in sent
     assert sent["response_format"] == {
         "type": "json_schema",
-        "json_schema": {"name": "answer", "schema": {"type": "object"}},
+        "json_schema": {
+            "name": "answer",
+            "strict": True,
+            "schema": {"type": "object", "additionalProperties": False},
+        },
     }
     assert "sk-test" not in repr(client.settings)
 
@@ -788,3 +795,23 @@ def test_the_api_says_when_the_llm_fails(tmp_path: Path) -> None:
         failed = client.post("/api/chat", json={"prompt": "Hi"})
     assert failed.status_code == 502
     assert "Is llama-server running?" in failed.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [TOPICS_SCHEMA, SECTIONS_SCHEMA, SUMMARY_SCHEMA, DETAIL_SCHEMA],
+    ids=["topics", "sections", "summary", "detail"],
+)
+def test_every_schema_suits_strict_structured_outputs(schema: dict[str, object]) -> None:
+    """OpenAI's strict mode and Claude's structured outputs need every object closed and every
+    property required (R33)."""
+
+    def check(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert node["additionalProperties"] is False
+                assert set(node.get("required", [])) == set(node.get("properties", {}))
+            for value in node.values():
+                check(value)
+
+    check(strict(schema))

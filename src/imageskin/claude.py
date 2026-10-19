@@ -12,7 +12,15 @@ from typing import Any
 
 import anthropic
 
-from imageskin.chat import REPLY_TOKENS, EmptyReply, LlmError, LlmSettings, Message, estimate
+from imageskin.chat import (
+    REPLY_TOKENS,
+    EmptyReply,
+    LlmError,
+    LlmSettings,
+    Message,
+    estimate,
+    strict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,19 +45,6 @@ FALLBACK_MODELS = (
 )
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 DECLINED = "Claude declined to answer that. Try asking another way."
-
-
-def strict(schema: Any) -> Any:
-    """The schema with every object closed to other properties, as Claude's structured
-    outputs require; llama-server and OpenAI take it either way."""
-    if isinstance(schema, dict):
-        closed = {k: strict(v) for k, v in schema.items()}
-        if closed.get("type") == "object":
-            closed.setdefault("additionalProperties", False)
-        return closed
-    if isinstance(schema, list):
-        return [strict(v) for v in schema]
-    return schema
 
 
 def split_system(messages: list[Message]) -> tuple[str, list[Message]]:
