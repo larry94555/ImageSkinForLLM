@@ -21,6 +21,7 @@ from imageskin.chat import (
     TEMPERATURE,
     TOKENS_PER_MESSAGE,
     Conversation,
+    EmptyReply,
     LlmClient,
     LlmError,
     LlmSettings,
@@ -433,6 +434,24 @@ def test_llama_server_is_never_sent_a_key(fake_llm: str) -> None:
         [{"role": "user", "content": "Hi"}]
     )
     assert FakeLlm.keys == [None]
+
+
+def test_an_openai_refusal_is_said_as_one(fake_llm: str, caplog: pytest.LogCaptureFixture) -> None:
+    answer = {"choices": [{"message": {"role": "assistant", "content": None, "refusal": "No."}}]}
+    FakeLlm.answer = (200, json.dumps(answer).encode())
+    with pytest.raises(LlmError, match="declined to answer") as failed:
+        LlmClient(openai(fake_llm)).ask(
+            [{"role": "user", "content": "Hi"}], 900, {"type": "object"}
+        )
+    assert not isinstance(failed.value, EmptyReply)
+    assert "The LLM declined to answer" in caplog.messages
+
+
+def test_a_streamed_openai_refusal_is_said_as_one(fake_llm: str) -> None:
+    refused = 'data: {"choices": [{"delta": {"refusal": "No."}}]}\n\ndata: [DONE]\n\n'
+    FakeLlm.answer = (200, refused.encode())
+    with pytest.raises(LlmError, match="declined to answer"):
+        list(LlmClient(openai(fake_llm)).stream([{"role": "user", "content": "Hi"}]))
 
 
 @pytest.mark.parametrize(

@@ -144,6 +144,8 @@ Count = Callable[[str], int]
 FindContent = Callable[[str], list[str]]
 
 
+# Said when the LLM declines on purpose: OpenAI's "refusal" in place of a reply (R33).
+DECLINED = "The LLM declined to answer that. Try asking another way."
 # What the chat says when OpenAI refuses a request, by HTTP status (R33).
 OPENAI_ERRORS = {
     401: "OpenAI refused the API key. Check llm_api_key in the config file.",
@@ -403,9 +405,13 @@ class LlmClient:
         except ValueError as e:
             raise LlmError(f"The LLM at {url} sent an answer that is not JSON.") from e
         try:
-            content = data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            content = message["content"]
         except (KeyError, IndexError, TypeError) as e:
             raise LlmError(f"The LLM at {url} sent an answer without a reply.") from e
+        if isinstance(message, dict) and message.get("refusal"):
+            logger.warning("The LLM declined to answer", extra={"url": url})
+            raise LlmError(DECLINED)
         if not isinstance(content, str) or not content.strip():
             raise EmptyReply("The LLM sent an empty reply. Try asking again.")
         return content.strip()
@@ -427,7 +433,11 @@ class LlmClient:
                         return
                     choice = json.loads(data)["choices"][0]
                     finished = finished or choice.get("finish_reason") is not None
-                    piece = choice.get("delta", {}).get("content")
+                    delta = choice.get("delta", {})
+                    if delta.get("refusal"):
+                        logger.warning("The LLM declined to answer", extra={"url": url})
+                        raise LlmError(DECLINED)
+                    piece = delta.get("content")
                     if isinstance(piece, str) and piece:
                         yield piece
             except (TimeoutError, OSError) as e:
