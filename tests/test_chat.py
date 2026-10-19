@@ -427,10 +427,33 @@ def test_a_down_openai_is_not_called_llama_server() -> None:
     assert "llama-server" not in str(failed.value)
 
 
-def test_llama_server_is_asked_without_a_key(fake_llm: str) -> None:
+def test_llama_server_is_never_sent_a_key(fake_llm: str) -> None:
     FakeLlm.answer = (200, reply("Hi!"))
-    LlmClient(LlmSettings(url=fake_llm)).ask([{"role": "user", "content": "Hi"}])
+    LlmClient(LlmSettings(url=fake_llm, api_key="sk-secret")).ask(
+        [{"role": "user", "content": "Hi"}]
+    )
     assert FakeLlm.keys == [None]
+
+
+@pytest.mark.parametrize(
+    ("status", "words"),
+    [
+        (401, "refused the API key"),
+        (403, "isn't allowed"),
+        (404, "doesn't know the model"),
+        (429, "too many requests"),
+        (500, r"^OpenAI refused the prompt \(500\)\.$"),
+    ],
+)
+def test_openai_failures_are_said_in_plain_words(
+    fake_llm: str, status: int, words: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    FakeLlm.answer = (status, b'{"error": {"message": "raw provider text"}}')
+    with pytest.raises(LlmError, match=words) as failed:
+        LlmClient(openai(fake_llm)).ask([{"role": "user", "content": "Hi"}])
+    assert "raw provider text" not in str(failed.value)
+    logged = next(r for r in caplog.records if r.message == "OpenAI refused the request")
+    assert logged.__dict__["status"] == status and "raw provider text" in logged.__dict__["detail"]
 
 
 @pytest.mark.parametrize(

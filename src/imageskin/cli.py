@@ -306,7 +306,8 @@ def llm_settings(settings: Settings) -> "LlmSettings":
         settings.llm_model,
         settings.llm_context_tokens,
         provider=settings.llm_provider,
-        api_key=settings.llm_api_key.strip(),
+        # Only for the provider it belongs to: never sent to llama-server (review on PR #111).
+        api_key="" if settings.llm_provider == "local" else settings.llm_api_key.strip(),
     )
 
 

@@ -144,6 +144,15 @@ Count = Callable[[str], int]
 FindContent = Callable[[str], list[str]]
 
 
+# What the chat says when OpenAI refuses a request, by HTTP status (R33).
+OPENAI_ERRORS = {
+    401: "OpenAI refused the API key. Check llm_api_key in the config file.",
+    403: "OpenAI's API key isn't allowed to use this model.",
+    404: "OpenAI doesn't know the model in llm_model. Check the config file.",
+    429: "OpenAI is getting too many requests, or the account is out of credit. Try again shortly.",
+}
+
+
 class ClearFailed(Exception):
     """The saved conversation couldn't be emptied, so nothing was cleared (roadmap R30)."""
 
@@ -335,7 +344,7 @@ class LlmClient:
                 "json_schema": {"name": "answer", "schema": schema},
             }
         headers = {"Content-Type": "application/json"}
-        if self.settings.api_key:
+        if self.settings.api_key and not local:  # a key is never sent to llama-server
             headers["Authorization"] = f"Bearer {self.settings.api_key}"
         request = urllib.request.Request(
             url, data=json.dumps(body).encode(), headers=headers, method="POST"
@@ -347,6 +356,14 @@ class LlmClient:
             return urllib.request.urlopen(request, timeout=self.settings.timeout_s)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:300]
+            if not self.settings.local:
+                # The detail stays in the log; the chat gets a plain, stable message (R33).
+                logger.error(
+                    "OpenAI refused the request", extra={"status": e.code, "detail": detail}
+                )
+                raise LlmError(
+                    OPENAI_ERRORS.get(e.code, f"OpenAI refused the prompt ({e.code}).")
+                ) from e
             raise LlmError(f"The LLM at {url} refused the prompt ({e.code}): {detail}") from e
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             reason = getattr(e, "reason", e)

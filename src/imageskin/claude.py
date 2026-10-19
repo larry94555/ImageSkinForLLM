@@ -25,8 +25,16 @@ EFFORT = "low"
 # is asked for, so a short reply is never cut off by its own thinking.
 THINKING_ROOM = 4000
 # A model that declines a request is asked again by Anthropic with another model in the same
-# call. Only these models take the server-side fallback.
-FALLBACK_MODELS = ("claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5")
+# call (server-side fallback).
+# The API doesn't say it ignores the fallback for other models (Claude Haiku 5.5 has none), so
+# it is sent only to these.
+FALLBACK_MODELS = (
+    "claude-opus-5-5",
+    "claude-opus-5",
+    "claude-fable-5-1",
+    "claude-fable-5",
+    "claude-sonnet-5-5",
+)
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 DECLINED = "Claude declined to answer that. Try asking another way."
 

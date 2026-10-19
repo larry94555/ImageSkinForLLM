@@ -76,6 +76,11 @@ def test_the_chat_llm_comes_from_the_config(settings: Settings, url: str, model:
     assert llm.api_key == settings.llm_api_key.strip()
 
 
+def test_a_key_left_in_the_config_is_not_given_to_llama_server() -> None:
+    settings = Settings(llm_api_key="sk-secret", llm_url="https://other.server/v1")
+    assert llm_settings(settings).api_key == ""
+
+
 def test_serve_logs_the_data_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

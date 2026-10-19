@@ -323,3 +323,11 @@ def test_a_reply_finished_by_the_fallback_model_is_spoken_whole() -> None:
     ).encode()
     fake = FakeClaude(streamed(body))
     assert list(client(fake).stream([{"role": "user", "content": "Hi"}])) == ["Sure. Here."]
+
+
+@pytest.mark.parametrize("model", ["claude-fable-5", "claude-sonnet-5-5"])
+def test_the_models_that_take_the_fallback_are_given_it(model: str) -> None:
+    fake = FakeClaude(httpx2.Response(200, json=message("Hi.", model=model)))
+    client(fake, model).ask([{"role": "user", "content": "Hi"}])
+    assert fake.body()["fallbacks"] == "default"
+    assert FALLBACK_BETA in fake.requests[0].headers["anthropic-beta"]
