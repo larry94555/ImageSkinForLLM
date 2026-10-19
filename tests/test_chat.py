@@ -33,6 +33,7 @@ from imageskin.chat import (
     system_message,
     tokens,
 )
+from imageskin.llm_choice import save_choice
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult
 from imageskin.wiki import TOPICS_SCHEMA
@@ -478,7 +479,7 @@ def test_openai_failures_are_said_in_plain_words(
     with pytest.raises(LlmError, match=words) as failed:
         LlmClient(openai(fake_llm)).ask([{"role": "user", "content": "Hi"}])
     assert "raw provider text" not in str(failed.value)
-    logged = next(r for r in caplog.records if r.message == "OpenAI refused the request")
+    logged = next(r for r in caplog.records if r.message == "The LLM provider refused the request")
     assert logged.__dict__["status"] == status and "raw provider text" in logged.__dict__["detail"]
 
 
@@ -732,7 +733,8 @@ def test_only_a_local_llm_takes_half_the_cores(
     tmp_path: Path, provider: str, shares_cores: bool
 ) -> None:
     """Claude and OpenAI run elsewhere, so the voice and video keep every core while they write
-    (review on PR #111)."""
+    (review on PR #111). The LLM is the one picked on the Settings page (R42)."""
+    save_choice(tmp_path, provider, "k")
     with patch("imageskin.app.CoreShare") as share:
         client = TestClient(
             create_app(
@@ -741,7 +743,6 @@ def test_only_a_local_llm_takes_half_the_cores(
                 prepare_voice=lambda: None,
                 prepare_face=lambda photo, progress: None,
                 render_clip=lambda photo, text, output: None,
-                llm=LlmSettings(provider=provider, api_key="k"),
                 ask_llm=lambda messages: "Hello.",
             )
         )

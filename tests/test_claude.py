@@ -8,7 +8,6 @@ import anthropic
 import httpx2
 import pytest
 
-from imageskin.app import llm_client
 from imageskin.chat import (
     REPLY_TOKENS,
     Conversation,
@@ -27,6 +26,7 @@ from imageskin.claude import (
     ClaudeClient,
     split_system,
 )
+from imageskin.llm_choice import llm_client
 
 KEY = "sk-ant-test"
 Handler = Callable[[httpx2.Request], httpx2.Response]

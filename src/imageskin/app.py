@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -27,19 +27,18 @@ from imageskin.chat import (
     ClearFailed,
     Conversation,
     Count,
-    LlmClient,
     LlmError,
     LlmSettings,
     Message,
     StreamLlm,
     estimate,
 )
-from imageskin.claude import ClaudeClient
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.delete_data import Deleted, delete_my_data
+from imageskin.llm_choice import SwitchableLlm, described, load_choice, save_choice
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
@@ -120,6 +119,12 @@ class PhotoChoiceRequest(BaseModel):
 
 class AccentRequest(BaseModel):
     accent: Accent
+
+
+class LlmRequest(BaseModel):
+    provider: str
+    api_key: str | None = None  # kept from before when left out
+    model: str | None = None  # blank for the provider's default; kept when left out
 
 
 class StartNowRequest(BaseModel):
@@ -336,12 +341,6 @@ def outline_builder(
         return Outliner(pdf_id, ask, count, window(), progress, wait).outline(topics, pieces)
 
     return build
-
-
-def llm_client(llm: LlmSettings) -> ChatLlm:
-    """The client for the LLM the config names: Claude's own, or the OpenAI-compatible one
-    for llama-server and OpenAI (R33)."""
-    return ClaudeClient(llm) if llm.provider == "claude" else LlmClient(llm)
 
 
 def wait_until_loaded(app: FastAPI) -> None:
@@ -591,7 +590,9 @@ def create_app(
     readings = ReadingJob(content, read_pdf or pdf_reading.read_pdf)
     # Then the wiki is built from what was read (R37), with the chat's LLM.
     llm = llm or LlmSettings()
-    client = llm_client(llm) if ask_llm is None else None
+    # The LLM picked on the Settings page (R42), with llama-server's address from the config.
+    switchable = SwitchableLlm(llm, load_choice(data_home))
+    client = switchable if ask_llm is None else None
     if build_wiki is None:
         build_wiki = wiki_builder(llm, client, ask_llm)
         build_outline = build_outline or outline_builder(llm, client, ask_llm)
@@ -937,9 +938,9 @@ def create_app(
     logger.info(
         "Chat LLM",
         extra={
-            "provider": llm.provider,
-            "url": llm.url,
-            "model": llm.model,
+            "provider": switchable.settings.provider,
+            "url": switchable.settings.url,
+            "model": switchable.settings.model,
             "context_tokens": llm.context_tokens,
         },
     )
@@ -947,9 +948,12 @@ def create_app(
     # performance cores on a CPU that also has efficiency cores (R22g).
     core_share = CoreShare(cores(performance_cores))
     core_share.llm_done()
-    # Claude and OpenAI run elsewhere, so the engines keep every core while they write (review
-    # on PR #111).
-    llm_busy = core_share.llm if llm.local else nullcontext
+
+    # Claude and the other providers run elsewhere, so the engines keep every core while they
+    # write (review on PR #111). Asked at each request, as the LLM can be changed (R42).
+    def llm_busy() -> AbstractContextManager[object]:
+        return core_share.llm() if switchable.local else nullcontext()
+
     # Each prompt is looked up in the wiki and PDFs, and the LLM answers from what is found (R40).
     content_lookup = ContentLookup(wiki, readings)
 
@@ -1024,6 +1028,27 @@ def create_app(
     # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's
     # memory; it is read again once they are done.
     wiki.when_idle = conversation.warm_up
+
+    # The LLM setting (R42): which LLM answers, with the user's API key for a provider.
+    @app.get("/api/llm")
+    def get_llm() -> dict[str, Any]:
+        return described(load_choice(data_home))
+
+    @app.put("/api/llm")
+    def put_llm(body: LlmRequest) -> dict[str, Any]:
+        start = time.perf_counter()
+        try:
+            choice = save_choice(data_home, body.provider, body.api_key, body.model)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        switchable.use(choice)
+        # From the next request; llama-server reads the system prompt again now (R22a).
+        threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True).start()
+        logger.info(
+            "LLM setting changed",
+            extra={"provider": choice.provider, "duration_ms": ms_since(start)},
+        )
+        return described(choice)
 
     @app.get("/api/chat", dependencies=needs_person)
     def get_chat() -> dict[str, object]:

@@ -9,7 +9,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
-LLM_PROVIDERS = ("local", "openai", "claude")
+# Moved to the Settings page in roadmap R42 (Larry, 2026-10-19).
+MOVED_TO_SETTINGS = ("llm_provider", "llm_api_key")
 
 
 def default_home() -> Path:
@@ -26,14 +27,11 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: str = "INFO"
-    # The LLM the chat talks to: llama-server's OpenAI-compatible API (roadmap R15).
+    # The local LLM: llama-server's OpenAI-compatible API (roadmap R15). Claude, OpenAI, Grok or
+    # OpenRouter is picked instead on the Settings page (R42); the context window is for all.
     llm_url: str = "http://127.0.0.1:8080/v1"
     llm_model: str = "local"
     llm_context_tokens: int = 4096
-    # Who answers (roadmap R33): llama-server ("local"), OpenAI or Claude. OpenAI and Claude need
-    # the user's API key, which stays in this file on the server and is never logged.
-    llm_provider: str = "local"
-    llm_api_key: str = ""
     # Whether the chat answers prompts the PDFs have nothing on, or politely declines them
     # (roadmap R41, item 28). Declining is the default.
     general_prompts: bool = False
@@ -51,6 +49,12 @@ def load_settings(path: Path | None) -> Settings:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"Config file {path} is not valid TOML: {e}") from e
 
+    moved = [k for k in MOVED_TO_SETTINGS if k in data]
+    if moved:
+        raise ConfigError(
+            f"{' and '.join(moved)} in {path} {'are' if len(moved) > 1 else 'is'} no longer"
+            " used: remove it and pick the LLM, with its API key, on the Settings page"
+        )
     known = {f.name for f in fields(Settings)}
     unknown = sorted(set(data) - known)
     if unknown:
@@ -70,19 +74,9 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"llm_model in {path} must be a string")
     if type(settings.llm_context_tokens) is not int or settings.llm_context_tokens < 1024:
         raise ConfigError(f"llm_context_tokens in {path} must be a number of at least 1024")
-    if settings.llm_provider not in LLM_PROVIDERS:
-        raise ConfigError(f"llm_provider in {path} must be one of {', '.join(LLM_PROVIDERS)}")
-    if not isinstance(settings.llm_api_key, str):
-        raise ConfigError(f"llm_api_key in {path} must be a string")
-    if settings.llm_provider != "local" and not settings.llm_api_key.strip():
-        raise ConfigError(
-            f"llm_api_key in {path} is needed for llm_provider {settings.llm_provider}"
-        )
-    if settings.llm_provider == "openai" and settings.llm_model == "local":
-        raise ConfigError(f"llm_model in {path} must name an OpenAI model, such as gpt-4.1-mini")
     if not isinstance(settings.general_prompts, bool):
         raise ConfigError(f"general_prompts in {path} must be true or false")
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
-    logger.info("Loaded config", extra={"path": str(path), "llm_provider": settings.llm_provider})
+    logger.info("Loaded config", extra={"path": str(path)})
     return settings
