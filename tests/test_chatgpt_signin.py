@@ -216,8 +216,10 @@ def test_a_returning_sign_in_must_be_the_registered_account(
     assert signin.status()["registered_email"] == "larry@example.com"
     again = authorize(signin, openai)
     assert again["login_hint"] == "larry@example.com"
-    saved = json.loads((tmp_path / cs.FILENAME).read_text())
-    assert again["id_token_hint"] == saved["registrations"][0]["id_token"]
+    # Disconnect forgot the ID token, so it isn't sent as a hint.
+    assert again["client_id"] == "app-123"
+    assert "id_token_hint" not in again
+    assert json.loads((tmp_path / cs.FILENAME).read_text())["registrations"][0]["id_token"] == ""
     before = (tmp_path / cs.FILENAME).read_bytes()
     openai.claims = {"sub": "someone-else", "email": "other@example.com"}
     with pytest.raises(SignInError, match="different ChatGPT account from larry@example.com"):
@@ -294,7 +296,8 @@ def test_switching_accounts_keeps_each_accounts_own_credentials(
     # Disconnect ends only the account in use.
     signin.sign_out()
     assert saved()["app-1"]["credentials"] is None
-    assert saved()["app-1"]["id_token"]  # kept, to send as id_token_hint next time
+    assert saved()["app-1"]["id_token"] == ""
+    assert saved()["app-1"]["email"] == "larry@example.com"
     assert saved()["app-2"]["credentials"]
     assert signin.use("app-2")["connected"] is True
 

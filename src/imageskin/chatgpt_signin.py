@@ -9,15 +9,15 @@ system allows. A token is never logged or sent to the browser: the page is told 
 account is connected and whether it allowed plan usage. R43a makes that plan answer the chat.
 
 The first sign-in registers this app with OpenAI and gets back a client ID, bound to the ChatGPT
-account that signed in. Each registration is kept, even after Disconnect, so signing in again
-reuses it, sending its retained ID token as `id_token_hint`; a returning sign-in that comes
-back with another client ID, or as another account, is refused. Each registration keeps its own
-tokens, so "Use another ChatGPT account" adds one beside the others without touching theirs,
-switching back to an account still connected needs no sign-in, and after a
-sign-in that didn't allow plan use, "Allow use of my plan" asks for consent again. Every sign-in
-also sends one host ID, made once and kept, so OpenAI sees the same computer each time. The ID
-token is checked against OpenAI's published keys before any of its claims are used. Claude's and
-Grok's subscriptions offer no supported way for another app to use them (decided before R43).
+account that signed in. Each registration is kept, even after Disconnect, so signing in again reuses
+it, sending its retained ID token as `id_token_hint` unless it was disconnected; a returning sign-in
+that comes back with another client ID, or as another account, is refused. Each registration keeps
+its own tokens, so "Use another ChatGPT account" adds one beside the others without touching theirs,
+switching back to an account still connected needs no sign-in, and after a sign-in that didn't allow
+plan use, "Allow use of my plan" asks for consent again. Every sign-in also sends one host ID, made
+once and kept, so OpenAI sees the same computer each time. The ID token is checked against OpenAI's
+published keys before any of its claims are used. Claude's and Grok's subscriptions offer no
+supported way for another app to use them (decided before R43).
 """
 
 import base64
@@ -151,14 +151,14 @@ class ChatGptSignIn:
     """Signs in with ChatGPT, keeps the connection, and disconnects it.
 
     chatgpt.json holds the host ID, one registration per ChatGPT account this app was registered
-    (its issued client ID, verified account and retained ID token) with that account's own
-    credentials (tokens, scopes and expiry, or null after Disconnect), and which registration is
-    in use (`active`). A new registration whose code was refused keeps its issued client ID as
-    `provisional`, never as an account, so the next new sign-in uses it rather than registering
-    the app again; it becomes a registration once a sign-in through it checks out. Signing in or
-    out changes only its own registration, so switching accounts leaves the others' credentials as
-    they were. A registration is only written once its code is swapped and its identity checked,
-    so a sign-in that fails leaves the accounts as they were."""
+    (its issued client ID, verified account and retained ID token, cleared on Disconnect) with that
+    account's own credentials (tokens, scopes and expiry, or null after Disconnect), and which
+    registration is in use (`active`). A new registration whose code was refused keeps its issued
+    client ID as `provisional`, never as an account, so the next new sign-in uses it rather than
+    registering the app again; it becomes a registration once a sign-in through it checks out.
+    Signing in or out changes only its own registration, so switching accounts leaves the others'
+    credentials as they were. A registration is only written once its code is swapped and its
+    identity checked, so a sign-in that fails leaves the accounts as they were."""
 
     def __init__(
         self,
@@ -464,7 +464,8 @@ class ChatGptSignIn:
     def sign_out(self) -> dict[str, Any]:
         """Asks OpenAI to end the active account's connection, then forgets its tokens whatever
         the outcome; its registration, and the other accounts, are kept. The status says
-        `revoked` false when OpenAI couldn't confirm it ended the connection."""
+        `revoked` false when OpenAI couldn't confirm it ended the connection. Its tokens and ID
+        token are forgotten either way."""
         saved = self._load()
         client_id = str(saved.get("active", ""))
         active = self._registrations(saved).get(client_id) or {}
@@ -478,7 +479,9 @@ class ChatGptSignIn:
             # Only the credentials just revoked: a sign-in that finished meanwhile is kept.
             if not current or current.get("credentials") != active.get("credentials"):
                 return saved
-            registrations[client_id] = {**current, "credentials": None}
+            # Its ID token goes too, so the next sign-in sends no `id_token_hint`; the client ID
+            # and verified account stay, to sign in as it again.
+            registrations[client_id] = {**current, "credentials": None, "id_token": ""}
             return {**saved, "registrations": list(registrations.values())}
 
         self._update(forget)
