@@ -595,7 +595,7 @@ function LlmSettingSection() {
 	const [error, setError] = d(null);
 	const [saved, setSaved] = d(false);
 	const [models, setModels] = d(null);
-	const asking = A("");
+	const asking = A(0);
 	h(() => {
 		getLlm().then((read) => {
 			if (!Array.isArray(read.providers)) throw new Error("The LLM setting has no providers");
@@ -614,16 +614,16 @@ function LlmSettingSection() {
 		setSaved(false);
 		setError(null);
 		setModels(null);
-		asking.current = id;
+		asking.current += 1;
 		if (provider?.has_key || provider?.lists_freely) lookUp(id, void 0, provider.has_key);
 	}
 	async function lookUp(id, typedKey, savedKey = false) {
-		asking.current = id;
+		const asked = asking.current += 1;
 		setModels({ state: "loading" });
 		const started = performance.now();
 		try {
 			const ids = await listModels(id, typedKey);
-			if (asking.current !== id) return;
+			if (asking.current !== asked) return;
 			console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
 			setModels({
 				state: "listed",
@@ -631,7 +631,7 @@ function LlmSettingSection() {
 				checked: Boolean(typedKey) || savedKey
 			});
 		} catch (e) {
-			if (asking.current !== id) return;
+			if (asking.current !== asked) return;
 			console.error(`Could not list the models for ${id}`, e);
 			const refused = e instanceof ServerRefusal && e.status < 500;
 			const error = e instanceof ServerRefusal ? e.message : "The models couldn't be listed.";

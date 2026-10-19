@@ -215,6 +215,27 @@ test("a late list for a provider no longer picked is dropped", async () => {
   expect(screen.getByText("Enter your key to choose one of Grok's models.")).toBeTruthy();
 });
 
+test("a late list for a key since replaced is dropped", async () => {
+  const answers: ((r: Response) => void)[] = [];
+  server(LOCAL, LOCAL, () => new Promise<Response>((r) => answers.push(r)) as unknown as Response);
+  render(<LlmSettingSection />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Grok/ }));
+  const key = screen.getByLabelText("API key");
+  fireEvent.input(key, { target: { value: "xai-a" } });
+  fireEvent.blur(key);
+  fireEvent.input(key, { target: { value: "xai-b" } });
+  fireEvent.blur(key);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(answers).toHaveLength(2);
+  // Key B's refusal comes first, then key A's late list: B's refusal stands.
+  answers[1](Response.json({ detail: "Grok refused the API key." }, { status: 400 }));
+  expect(await screen.findByText("Grok refused the API key.")).toBeTruthy();
+  answers[0](Response.json({ models: ["grok-a"] }));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(screen.getByText("Grok refused the API key.")).toBeTruthy();
+  expect(screen.queryByLabelText("Model")).toBeNull();
+});
+
 test("the note under the Model box", () => {
   const grok = provider("grok", "Grok");
   expect(modelsNote({ state: "listed", ids: ["grok-model"], checked: true }, "grok-model", grok)).toBe(

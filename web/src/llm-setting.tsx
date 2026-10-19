@@ -34,7 +34,7 @@ export function LlmSettingSection() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [models, setModels] = useState<Models | null>(null);
-  const asking = useRef(""); // the provider whose models were asked for last
+  const asking = useRef(0); // which look-up was asked for last; only its answer is shown
 
   useEffect(() => {
     getLlm()
@@ -57,23 +57,23 @@ export function LlmSettingSection() {
     setSaved(false);
     setError(null);
     setModels(null);
-    asking.current = id;
+    asking.current += 1; // a look-up for the provider picked before is dropped
     if (provider?.has_key || provider?.lists_freely) void lookUp(id, undefined, provider.has_key);
   }
 
-  // Asks the provider which models the key can use. A late answer for a provider no longer
-  // picked is dropped.
+  // Asks the provider which models the key can use. A late answer to an earlier look-up, for a
+  // provider no longer picked or a key since replaced, is dropped (a review on PR #115).
   async function lookUp(id: string, typedKey?: string, savedKey = false) {
-    asking.current = id;
+    const asked = (asking.current += 1);
     setModels({ state: "loading" });
     const started = performance.now();
     try {
       const ids = await listModels(id, typedKey);
-      if (asking.current !== id) return;
+      if (asking.current !== asked) return;
       console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
       setModels({ state: "listed", ids, checked: Boolean(typedKey) || savedKey });
     } catch (e) {
-      if (asking.current !== id) return;
+      if (asking.current !== asked) return;
       console.error(`Could not list the models for ${id}`, e);
       const refused = e instanceof ServerRefusal && e.status < 500;
       const error = e instanceof ServerRefusal ? e.message : "The models couldn't be listed.";

@@ -236,7 +236,8 @@ def _get_json(url: str, headers: dict[str, str]) -> Any:
 
 def _ids(data: Any, provider: str) -> list[str]:
     """The chat models in a provider's answer: OpenAI's and OpenRouter's `data`, or Grok's
-    `models`, each an object with an `id`."""
+    `models`, each an object with an `id`, and for Grok its `aliases`, which it accepts too
+    (grok-4, the default, can be one: a review on PR #115)."""
     items = data.get("data", data.get("models")) if isinstance(data, dict) else None
     if not isinstance(items, list):
         raise ValueError("no list of models")
@@ -250,6 +251,9 @@ def _ids(data: Any, provider: str) -> list[str]:
         if provider == "openrouter" and isinstance(outputs, list) and "text" not in outputs:
             continue
         ids.append(item["id"])
+        aliases = item.get("aliases")
+        if isinstance(aliases, list):
+            ids += [a for a in aliases if isinstance(a, str)]
     return sorted(set(ids))
 
 

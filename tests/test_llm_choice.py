@@ -339,6 +339,12 @@ def test_grok_lists_its_language_models() -> None:
     assert fetch.asked[0][0] == "https://api.x.ai/v1/language-models"
 
 
+def test_grok_lists_the_aliases_it_accepts_too() -> None:
+    fetch = Lister({"models": [{"id": "grok-4-0709", "aliases": ["grok-4", "grok-4-latest", 7]}]})
+    assert lc.ModelLists(fetch).models("grok", KEY) == ["grok-4", "grok-4-0709", "grok-4-latest"]
+    assert lc.PROVIDERS["grok"].model == "grok-4"  # so the default is in the list
+
+
 def test_openrouter_lists_the_models_that_write_text() -> None:
     fetch = Lister(
         {
