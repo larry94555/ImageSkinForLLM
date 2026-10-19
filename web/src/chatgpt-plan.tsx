@@ -65,10 +65,10 @@ export function ChatGptPlanSection() {
               <a href="/api/chatgpt/sign-in?another=true">Use another ChatGPT account</a>
             </p>
           )}
-          {status.accounts.length > 0 && (
+          {(status.accounts ?? []).length > 0 && (
             <p className="muted">
               Or sign in as{" "}
-              {status.accounts.map((a, i) => (
+              {(status.accounts ?? []).map((a, i) => (
                 <span key={a.id}>
                   {i > 0 && ", "}
                   <a href={`/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`}>

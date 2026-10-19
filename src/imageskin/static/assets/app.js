@@ -499,12 +499,12 @@ function ChatGptPlanSection() {
 						})
 					]
 				}),
-				status.accounts.length > 0 && /* @__PURE__ */ u("p", {
+				(status.accounts ?? []).length > 0 && /* @__PURE__ */ u("p", {
 					className: "muted",
 					children: [
 						"Or sign in as",
 						" ",
-						status.accounts.map((a, i) => /* @__PURE__ */ u("span", { children: [i > 0 && ", ", /* @__PURE__ */ u("a", {
+						(status.accounts ?? []).map((a, i) => /* @__PURE__ */ u("span", { children: [i > 0 && ", ", /* @__PURE__ */ u("a", {
 							href: `/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`,
 							children: a.email || "an earlier account"
 						})] }, a.id)),
