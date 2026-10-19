@@ -1,0 +1,274 @@
+"""Sign in with ChatGPT on the Settings page (roadmap R43, feature item 29).
+
+OpenAI lets an open-source app that runs on the user's own machine use the user's ChatGPT plan
+in place of an API key, through "Sign in with ChatGPT" (an OAuth sign-in with PKCE). This app
+qualifies while it runs locally. The browser is sent to auth.openai.com, which sends it back to
+this app's own address on 127.0.0.1 with a one-time code; the server swaps the code for tokens
+and keeps them in chatgpt.json in the app's home folder, readable by the owner only where the
+system allows. A token is never logged or sent to the browser: the page is told only which
+account is connected and whether it allowed plan usage. R43a makes that plan answer the chat.
+
+The first sign-in registers this app with OpenAI and gets back a client ID, which is kept, even
+after Disconnect, so signing in again doesn't register another app. Claude's and Grok's
+subscriptions offer no supported way for another app to use them (decided before R43).
+"""
+
+import base64
+import hashlib
+import json
+import logging
+import re
+import secrets
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from imageskin.llm_choice import write_owner_only
+
+logger = logging.getLogger(__name__)
+
+FILENAME = "chatgpt.json"
+ISSUER = "https://auth.openai.com"
+RESOURCE = "https://api.openai.com/v1"
+# Who the person is, a token that renews, and use of their plan for this app's requests.
+PLAN_SCOPE = "chatgpt.tokens.use.direct"
+SCOPES = f"openid profile email offline_access resource.invoke {PLAN_SCOPE}"
+CALLBACK_PATH = "/auth/callback"
+# The client ID asked with before this app is registered; OpenAI returns the real one.
+REGISTER_CLIENT = "dynamic_agent_client"
+APP_NAME = "ImageSkinForLLM"
+CLIENT_ID = re.compile(r"^[A-Za-z0-9_-]{1,200}$")
+# A sign-in not finished in this long is dropped, and only this many are kept at once.
+PENDING_S = 600
+MOST_PENDING = 5
+
+# POST a form, or GET when the form is None: the status and the decoded JSON.
+Http = Callable[[str, dict[str, str] | None], tuple[int, Any]]
+
+
+class SignInError(Exception):
+    """Why signing in with ChatGPT failed, in plain words."""
+
+
+@dataclass(frozen=True)
+class _Pending:
+    verifier: str
+    nonce: str
+    redirect_uri: str
+    started: float
+
+
+def _http(url: str, form: dict[str, str] | None) -> tuple[int, Any]:
+    data = None if form is None else urllib.parse.urlencode(form).encode()
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    request = urllib.request.Request(url, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.status, json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read() or b"{}")
+        except ValueError:
+            return e.code, {}
+    except (OSError, ValueError) as e:
+        logger.error("Could not reach ChatGPT's sign-in", extra={"url": url, "error": str(e)})
+        raise SignInError("ChatGPT's sign-in can't be reached right now. Try again.") from e
+
+
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def claims(id_token: str) -> dict[str, Any]:
+    """The claims in an ID token. It came straight from OpenAI's token endpoint over HTTPS, so
+    its signature needn't be checked (OpenID Connect Core 3.1.3.7); its claims still are."""
+    try:
+        payload = id_token.split(".")[1]
+        data = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except (IndexError, ValueError) as e:
+        raise SignInError("ChatGPT sent an identity that can't be read. Sign in again.") from e
+    if not isinstance(data, dict):
+        raise SignInError("ChatGPT sent an identity that can't be read. Sign in again.")
+    return data
+
+
+class ChatGptSignIn:
+    """Signs in with ChatGPT, keeps the connection, and disconnects it."""
+
+    def __init__(self, home: Path, http: Http = _http, clock: Callable[[], float] = time.time):
+        self._path = home / FILENAME
+        self._http = http
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._pending: dict[str, _Pending] = {}
+        self._endpoints: dict[str, str] | None = None
+
+    def _load(self) -> dict[str, Any]:
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("not an object")
+            return data
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as e:
+            logger.error("Could not read the ChatGPT sign-in", extra={"error": str(e)})
+            return {}
+
+    def status(self) -> dict[str, Any]:
+        """For the Settings page: the connected account, never its tokens."""
+        connection = self._load().get("connection") or {}
+        return {
+            "connected": bool(connection),
+            "email": connection.get("email", ""),
+            "name": connection.get("name", ""),
+            "plan_usage": PLAN_SCOPE in connection.get("scopes", []),
+        }
+
+    def _discover(self) -> dict[str, str]:
+        if self._endpoints is None:
+            status, data = self._http(f"{ISSUER}/.well-known/openid-configuration", None)
+            names = ("authorization_endpoint", "token_endpoint")
+            if (
+                status != 200
+                or not isinstance(data, dict)
+                or data.get("issuer") != ISSUER
+                or any(not str(data.get(n, "")).startswith(ISSUER + "/") for n in names)
+            ):
+                logger.error("Could not read ChatGPT's sign-in settings", extra={"status": status})
+                raise SignInError("ChatGPT's sign-in can't be reached right now. Try again.")
+            revoke = str(data.get("revocation_endpoint", ""))
+            self._endpoints = {n: data[n] for n in names}
+            if revoke.startswith(ISSUER + "/"):
+                self._endpoints["revocation_endpoint"] = revoke
+        return self._endpoints
+
+    def start(self, redirect_uri: str) -> str:
+        """The address on auth.openai.com that the browser is sent to, to sign in."""
+        endpoints = self._discover()
+        saved = self._load()
+        verifier, state, nonce = (_b64(secrets.token_bytes(32)) for _ in range(3))
+        now = self._clock()
+        with self._lock:
+            self._pending = {s: p for s, p in self._pending.items() if now - p.started < PENDING_S}
+            while len(self._pending) >= MOST_PENDING:
+                self._pending.pop(next(iter(self._pending)))
+            self._pending[state] = _Pending(verifier, nonce, redirect_uri, now)
+        params = {
+            "client_id": saved.get("client_id") or REGISTER_CLIENT,
+            "response_type": "code",
+            "redirect_uri": redirect_uri,
+            "scope": SCOPES,
+            "resource": RESOURCE,
+            "state": state,
+            "nonce": nonce,
+            "code_challenge_method": "S256",
+            "code_challenge": _b64(hashlib.sha256(verifier.encode()).digest()),
+        }
+        if not saved.get("client_id"):
+            params["agent_name_hint"] = APP_NAME
+        logger.info("Signing in with ChatGPT", extra={"registered": bool(saved.get("client_id"))})
+        return f"{endpoints['authorization_endpoint']}?{urllib.parse.urlencode(params)}"
+
+    def finish(self, query: dict[str, str]) -> dict[str, Any]:
+        """Completes the sign-in from the query OpenAI sent the browser back with."""
+        start = time.perf_counter()
+        with self._lock:
+            pending = self._pending.pop(query.get("state", ""), None)
+        if pending is None or self._clock() - pending.started >= PENDING_S:
+            raise SignInError("This sign-in has expired or was already used. Sign in again.")
+        if query.get("error"):
+            logger.warning("ChatGPT sign-in refused", extra={"error": query["error"]})
+            if query["error"] == "access_denied":
+                raise SignInError("The sign-in was cancelled.")
+            raise SignInError(f"ChatGPT refused the sign-in ({query['error']}).")
+        saved = self._load()
+        client_id = query.get("client_id") or saved.get("client_id", "")
+        code = query.get("code", "")
+        if not code or not CLIENT_ID.match(client_id) or client_id == REGISTER_CLIENT:
+            raise SignInError("ChatGPT didn't finish registering this app. Sign in again.")
+        if client_id != saved.get("client_id"):
+            # Kept before the code is used, so a failed swap doesn't register another app.
+            self._save({**saved, "client_id": client_id})
+        status, data = self._http(
+            self._discover()["token_endpoint"],
+            {
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "code": code,
+                "code_verifier": pending.verifier,
+                "redirect_uri": pending.redirect_uri,
+                "resource": RESOURCE,
+            },
+        )
+        if status != 200 or not isinstance(data, dict) or not data.get("access_token"):
+            error = data.get("error", "") if isinstance(data, dict) else ""
+            logger.error("ChatGPT sign-in code refused", extra={"status": status, "error": error})
+            raise SignInError("ChatGPT didn't accept the sign-in. Sign in again.")
+        identity = claims(str(data.get("id_token", "")))
+        audience = identity.get("aud")
+        if (
+            identity.get("iss") != ISSUER
+            or client_id not in (audience if isinstance(audience, list) else [audience])
+            or identity.get("nonce") != pending.nonce
+            or not identity.get("sub")
+            or float(identity.get("exp", 0)) < self._clock()
+        ):
+            logger.error("ChatGPT identity didn't match the sign-in")
+            raise SignInError("ChatGPT's answer didn't match this sign-in. Sign in again.")
+        connection = {
+            "subject": identity["sub"],
+            "email": identity.get("email", ""),
+            "name": identity.get("name", ""),
+            "scopes": str(data.get("scope", "")).split(),
+            "access_token": data["access_token"],
+            "refresh_token": data.get("refresh_token", ""),
+            "expires_at": self._clock() + float(data.get("expires_in", 0)),
+        }
+        self._save({"client_id": client_id, "connection": connection})
+        logger.info(
+            "Signed in with ChatGPT",
+            extra={
+                "plan_usage": PLAN_SCOPE in connection["scopes"],
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+        return self.status()
+
+    def sign_out(self) -> dict[str, Any]:
+        """Forgets the connection, and asks OpenAI to end it; the client ID is kept."""
+        saved = self._load()
+        connection = saved.get("connection") or {}
+        self._save({"client_id": saved.get("client_id", ""), "connection": None})
+        token = connection.get("refresh_token") or connection.get("access_token")
+        revoked = False
+        if token:
+            try:
+                url = self._discover().get("revocation_endpoint")
+                if url:
+                    form = {
+                        "token": token,
+                        "token_type_hint": "refresh_token"
+                        if connection.get("refresh_token")
+                        else "access_token",
+                        "client_id": saved.get("client_id", ""),
+                    }
+                    revoked = self._http(url, form)[0] == 200
+            except SignInError as e:
+                logger.error("Could not end the ChatGPT sign-in", extra={"error": str(e)})
+        logger.info(
+            "Disconnected ChatGPT", extra={"was_connected": bool(connection), "revoked": revoked}
+        )
+        return self.status()
+
+    def _save(self, data: dict[str, Any]) -> None:
+        with self._lock:
+            write_owner_only(self._path, data)

@@ -1,6 +1,7 @@
 """FastAPI application: the JSON API under /api and the browser app at /."""
 
 import functools
+import html
 import importlib.util
 import logging
 import threading
@@ -14,7 +15,13 @@ from typing import Annotated, Any, Literal
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
@@ -33,6 +40,7 @@ from imageskin.chat import (
     StreamLlm,
     estimate,
 )
+from imageskin.chatgpt_signin import CALLBACK_PATH, ChatGptSignIn, SignInError
 from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
@@ -366,6 +374,16 @@ def wait_until_loaded(app: FastAPI) -> None:
         thread.join()
 
 
+def signed_in_page(error: str, status: int) -> HTMLResponse:
+    """A plain page saying why signing in with ChatGPT failed, with the way back."""
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8><title>Sign in with ChatGPT</title>"
+        f"<p>Couldn't sign in with ChatGPT: {html.escape(error)}</p>"
+        '<p><a href="/#/settings">Back to Settings</a></p>',
+        status_code=status,
+    )
+
+
 def create_app(
     home: Path | None = None,
     check_photo: PhotoCheck | None = None,
@@ -384,6 +402,8 @@ def create_app(
     build_outline: BuildOutline | None = None,
     # Whether prompts the content has nothing on are answered too, or declined (R41).
     general_prompts: bool = False,
+    # Sign in with ChatGPT (R43); one that asks auth.openai.com when left out.
+    chatgpt: ChatGptSignIn | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     data_home = home or default_home()
@@ -1103,6 +1123,35 @@ def create_app(
             asked = body.provider != "local" and bool(key or p.lists_freely)
             status = 502 if asked and not e.refused else 400
             raise HTTPException(status_code=status, detail=str(e)) from e
+
+    # Sign in with ChatGPT (R43): the browser is sent to OpenAI to sign in, and comes back to
+    # this app's own address on 127.0.0.1, where the server swaps the code for the tokens.
+    signin = chatgpt or ChatGptSignIn(data_home)
+
+    @app.get("/api/chatgpt")
+    def get_chatgpt() -> dict[str, Any]:
+        return signin.status()
+
+    @app.get("/api/chatgpt/sign-in", response_model=None)
+    def chatgpt_sign_in(request: Request) -> Response:
+        # OpenAI sends the browser back to the loopback address, on the port the app is on.
+        redirect_uri = f"http://127.0.0.1:{request.url.port or 80}{CALLBACK_PATH}"
+        try:
+            return RedirectResponse(signin.start(redirect_uri), status_code=303)
+        except SignInError as e:
+            return signed_in_page(str(e), 502)
+
+    @app.get(CALLBACK_PATH, response_model=None)
+    def chatgpt_callback(request: Request) -> Response:
+        try:
+            signin.finish(dict(request.query_params))
+        except SignInError as e:
+            return signed_in_page(str(e), 400)
+        return RedirectResponse("/#/settings", status_code=303)
+
+    @app.post("/api/chatgpt/sign-out")
+    def chatgpt_sign_out() -> dict[str, Any]:
+        return signin.sign_out()
 
     @app.get("/api/chat", dependencies=needs_person)
     def get_chat() -> dict[str, object]:

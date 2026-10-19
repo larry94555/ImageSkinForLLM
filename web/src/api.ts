@@ -834,3 +834,20 @@ export async function listModels(provider: string, apiKey?: string): Promise<str
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return ((await response.json()) as { models: string[] }).models;
 }
+
+// Sign in with ChatGPT (roadmap R43): the account connected, never its tokens, and whether it
+// allowed this app to use the ChatGPT plan.
+export interface ChatGptStatus {
+  connected: boolean;
+  email: string;
+  name: string;
+  plan_usage: boolean;
+}
+
+export async function getChatGpt(): Promise<ChatGptStatus> {
+  return json<ChatGptStatus>(await fetch("/api/chatgpt"));
+}
+
+export async function signOutChatGpt(): Promise<ChatGptStatus> {
+  return json<ChatGptStatus>(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
+}
