@@ -1133,11 +1133,12 @@ def create_app(
         return signin.status()
 
     @app.get("/api/chatgpt/sign-in", response_model=None)
-    def chatgpt_sign_in(request: Request) -> Response:
+    def chatgpt_sign_in(request: Request, consent: bool = False, another: bool = False) -> Response:
         # OpenAI sends the browser back to the loopback address, on the port the app is on.
+        # `consent` asks again for plan use; `another` signs in as another ChatGPT account.
         redirect_uri = f"http://127.0.0.1:{request.url.port or 80}{CALLBACK_PATH}"
         try:
-            return RedirectResponse(signin.start(redirect_uri), status_code=303)
+            return RedirectResponse(signin.start(redirect_uri, consent, another), status_code=303)
         except SignInError as e:
             return signed_in_page(str(e), 502)
 

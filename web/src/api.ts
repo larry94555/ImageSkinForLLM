@@ -842,6 +842,8 @@ export interface ChatGptStatus {
   email: string;
   name: string;
   plan_usage: boolean;
+  registered_email: string; // the account signing in again uses; "" before the first sign-in
+  revoked?: boolean; // after Disconnect: false when ChatGPT couldn't confirm it ended the sign-in
 }
 
 export async function getChatGpt(): Promise<ChatGptStatus> {

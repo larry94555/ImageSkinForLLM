@@ -441,6 +441,7 @@ function ChatGptPlanSection() {
 	const [status, setStatus] = d(null);
 	const [busy, setBusy] = d(false);
 	const [error, setError] = d(null);
+	const [unconfirmed, setUnconfirmed] = d(false);
 	h(() => {
 		getChatGpt().then((read) => {
 			setStatus(read);
@@ -453,10 +454,14 @@ function ChatGptPlanSection() {
 	async function disconnect() {
 		setBusy(true);
 		setError(null);
+		setUnconfirmed(false);
 		const started = performance.now();
 		try {
-			setStatus(await signOutChatGpt());
-			console.info(`Disconnected ChatGPT (${Math.round(performance.now() - started)} ms)`);
+			const now = await signOutChatGpt();
+			setStatus(now);
+			setUnconfirmed(now.revoked === false);
+			const confirmed = now.revoked === false ? ", not confirmed by ChatGPT" : "";
+			console.info(`Disconnected ChatGPT (${Math.round(performance.now() - started)} ms${confirmed})`);
 		} catch (e) {
 			console.error("Could not disconnect ChatGPT", e);
 			setError("ChatGPT could not be disconnected. Try again.");
@@ -475,17 +480,36 @@ function ChatGptPlanSection() {
 				className: "muted",
 				children: "Sign in with your ChatGPT account to use your ChatGPT Plus or Pro plan instead of an API key, while the app runs on your own computer."
 			}),
-			status && !status.connected && /* @__PURE__ */ u("a", {
+			status && !status.connected && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
 				href: "/api/chatgpt/sign-in",
 				children: "Continue with ChatGPT"
-			}),
+			}) }), status.registered_email && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Signs in again as ",
+					status.registered_email,
+					".",
+					" ",
+					/* @__PURE__ */ u("a", {
+						href: "/api/chatgpt/sign-in?another=true",
+						children: "Use another ChatGPT account"
+					})
+				]
+			})] }),
 			status?.connected && /* @__PURE__ */ u(S, { children: [
 				/* @__PURE__ */ u("p", { children: ["Connected as ", /* @__PURE__ */ u("strong", { children: status.email || status.name || "your ChatGPT account" })] }),
-				!status.plan_usage && /* @__PURE__ */ u("p", {
-					className: "error",
-					children: "Using your plan wasn't allowed when you signed in. Disconnect and sign in again to allow it."
-				}),
+				!status.plan_usage && /* @__PURE__ */ u("p", { children: [
+					/* @__PURE__ */ u("span", {
+						className: "error",
+						children: "Using your plan wasn't allowed when you signed in."
+					}),
+					" ",
+					/* @__PURE__ */ u("a", {
+						href: "/api/chatgpt/sign-in?consent=true",
+						children: "Allow use of my plan"
+					})
+				] }),
 				/* @__PURE__ */ u("button", {
 					type: "button",
 					disabled: busy,
@@ -493,6 +517,11 @@ function ChatGptPlanSection() {
 					children: busy ? "Disconnecting…" : "Disconnect"
 				})
 			] }),
+			unconfirmed && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: "Disconnected here, but ChatGPT didn't confirm it ended the sign-in. To be sure, remove ImageSkinForLLM from the connected apps in your ChatGPT settings."
+			}),
 			error && /* @__PURE__ */ u("p", {
 				className: "error",
 				role: "alert",

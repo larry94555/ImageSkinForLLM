@@ -127,7 +127,13 @@ def test_signing_in_keeps_the_account_and_its_tokens_on_the_server(
     signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO)
-    assert signin.status() == {"connected": False, "email": "", "name": "", "plan_usage": False}
+    assert signin.status() == {
+        "connected": False,
+        "email": "",
+        "name": "",
+        "plan_usage": False,
+        "registered_email": "",
+    }
     query = authorize(signin, openai)
     assert query["client_id"] == cs.REGISTER_CLIENT
     assert query["agent_name_hint"] == "ImageSkinForLLM"
@@ -141,6 +147,7 @@ def test_signing_in_keeps_the_account_and_its_tokens_on_the_server(
         "email": "larry@example.com",
         "name": "Larry",
         "plan_usage": True,
+        "registered_email": "larry@example.com",
     }
     url, form = openai.forms[-1]
     assert url == DISCOVERY["token_endpoint"]
@@ -182,6 +189,62 @@ def test_every_sign_in_sends_the_same_host_id(
     # A new ChatGptSignIn (the app restarted) reads it back from chatgpt.json.
     restarted = ChatGptSignIn(tmp_path, http=openai, clock=lambda: NOW)
     assert authorize(restarted, openai)["ext_agent_host_id"] == first["ext_agent_host_id"]
+
+
+def test_a_returning_sign_in_must_be_the_registered_account(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    first = authorize(signin, openai)
+    signin.finish({"state": first["state"], "code": "c1", "client_id": "app-123"})
+    signin.sign_out()
+    assert signin.status()["registered_email"] == "larry@example.com"
+    again = authorize(signin, openai)
+    assert again["login_hint"] == "larry@example.com"
+    openai.claims = {"sub": "someone-else", "email": "other@example.com"}
+    with pytest.raises(SignInError, match="different ChatGPT account from larry@example.com"):
+        signin.finish({"state": again["state"], "code": "c2"})
+    saved = json.loads((tmp_path / cs.FILENAME).read_text())
+    assert (saved["client_id"], saved["subject"], saved["connection"]) == (
+        "app-123",
+        "user-1",
+        None,
+    )
+
+
+def test_another_account_registers_the_app_anew(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    first = authorize(signin, openai)
+    signin.finish({"state": first["state"], "code": "c1", "client_id": "app-123"})
+    signin.sign_out()
+    url = signin.start(REDIRECT, another=True)
+    query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    assert query["client_id"] == cs.REGISTER_CLIENT
+    assert "login_hint" not in query
+    assert query["ext_agent_host_id"] == first["ext_agent_host_id"]
+    openai.nonce = query["nonce"]
+    openai.claims = {"sub": "user-2", "email": "second@example.com"}
+    status = signin.finish({"state": query["state"], "code": "c2", "client_id": "app-456"})
+    assert status["email"] == status["registered_email"] == "second@example.com"
+    saved = json.loads((tmp_path / cs.FILENAME).read_text())
+    assert (saved["client_id"], saved["subject"]) == ("app-456", "user-2")
+
+
+def test_allowing_the_plan_asks_for_consent_again(
+    signin: ChatGptSignIn, openai: FakeOpenAi
+) -> None:
+    openai.scope = "openid profile email offline_access"
+    first = authorize(signin, openai)
+    assert "prompt" not in first
+    assert not signin.finish({"state": first["state"], "code": "c1", "client_id": "app-1"})[
+        "plan_usage"
+    ]
+    url = signin.start(REDIRECT, consent=True)
+    query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    assert query["prompt"] == "consent"
+    assert query["client_id"] == "app-1"
+    assert cs.PLAN_SCOPE in query["scope"].split()
+    assert "prompt" not in authorize(signin, openai)  # an ordinary returning sign-in
 
 
 def test_a_returning_sign_in_for_another_app_is_refused(
@@ -286,7 +349,8 @@ def test_disconnecting_revokes_and_keeps_the_registration(
     caplog.set_level(logging.INFO)
     query = authorize(signin, openai)
     signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
-    assert signin.sign_out()["connected"] is False
+    out = signin.sign_out()
+    assert (out["connected"], out["revoked"]) == (False, True)
     url, form = openai.forms[-1]
     assert url == DISCOVERY["revocation_endpoint"]
     assert form == {
@@ -450,5 +514,17 @@ def test_disconnecting_when_openai_cannot_be_reached_still_forgets_it(
     signin.finish({"state": query["state"], "code": "c", "client_id": "app-1"})
     signin._endpoints = None
     openai.discovery["issuer"] = "https://evil.example"
-    assert signin.sign_out()["connected"] is False
+    status = signin.sign_out()
+    assert status["connected"] is False
+    assert status["revoked"] is False
     assert "Could not end the ChatGPT sign-in" in caplog.text
+
+
+def test_the_sign_in_link_can_ask_for_consent_or_another_account(app: TestClient) -> None:
+    def query(path: str) -> dict[str, str]:
+        location = app.get(path).headers["location"]
+        return dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(location).query))
+
+    assert query("/api/chatgpt/sign-in?consent=true")["prompt"] == "consent"
+    assert "prompt" not in query("/api/chatgpt/sign-in")
+    assert query("/api/chatgpt/sign-in?another=true")["client_id"] == cs.REGISTER_CLIENT

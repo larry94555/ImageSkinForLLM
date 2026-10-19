@@ -1,7 +1,9 @@
 // Sign in with ChatGPT on the Settings page (roadmap R43, item 29). OpenAI lets an open-source
 // app running on the user's own machine use their ChatGPT plan instead of an API key. Signing in
 // is a plain link: the server sends the browser to OpenAI, which sends it back to Settings. The
-// page is only told which account is connected; the tokens stay on the server.
+// page is only told which account is connected; the tokens stay on the server. Signing in again
+// uses the account the app is registered to; "Use another ChatGPT account" registers it anew, and
+// "Allow use of my plan" asks again after a sign-in that didn't allow it.
 
 import { useEffect, useState } from "preact/hooks";
 
@@ -11,6 +13,7 @@ export function ChatGptPlanSection() {
   const [status, setStatus] = useState<ChatGptStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unconfirmed, setUnconfirmed] = useState(false);
 
   useEffect(() => {
     getChatGpt()
@@ -27,10 +30,14 @@ export function ChatGptPlanSection() {
   async function disconnect() {
     setBusy(true);
     setError(null);
+    setUnconfirmed(false);
     const started = performance.now();
     try {
-      setStatus(await signOutChatGpt());
-      console.info(`Disconnected ChatGPT (${Math.round(performance.now() - started)} ms)`);
+      const now = await signOutChatGpt();
+      setStatus(now);
+      setUnconfirmed(now.revoked === false);
+      const confirmed = now.revoked === false ? ", not confirmed by ChatGPT" : "";
+      console.info(`Disconnected ChatGPT (${Math.round(performance.now() - started)} ms${confirmed})`);
     } catch (e) {
       console.error("Could not disconnect ChatGPT", e);
       setError("ChatGPT could not be disconnected. Try again.");
@@ -46,9 +53,19 @@ export function ChatGptPlanSection() {
         API key, while the app runs on your own computer.
       </p>
       {status && !status.connected && (
-        <a className="button" href="/api/chatgpt/sign-in">
-          Continue with ChatGPT
-        </a>
+        <>
+          <p>
+            <a className="button" href="/api/chatgpt/sign-in">
+              Continue with ChatGPT
+            </a>
+          </p>
+          {status.registered_email && (
+            <p className="muted">
+              Signs in again as {status.registered_email}.{" "}
+              <a href="/api/chatgpt/sign-in?another=true">Use another ChatGPT account</a>
+            </p>
+          )}
+        </>
       )}
       {status?.connected && (
         <>
@@ -56,15 +73,21 @@ export function ChatGptPlanSection() {
             Connected as <strong>{status.email || status.name || "your ChatGPT account"}</strong>
           </p>
           {!status.plan_usage && (
-            <p className="error">
-              Using your plan wasn't allowed when you signed in. Disconnect and sign in again to
-              allow it.
+            <p>
+              <span className="error">Using your plan wasn't allowed when you signed in.</span>{" "}
+              <a href="/api/chatgpt/sign-in?consent=true">Allow use of my plan</a>
             </p>
           )}
           <button type="button" disabled={busy} onClick={() => void disconnect()}>
             {busy ? "Disconnecting…" : "Disconnect"}
           </button>
         </>
+      )}
+      {unconfirmed && (
+        <p className="error" role="alert">
+          Disconnected here, but ChatGPT didn't confirm it ended the sign-in. To be sure, remove
+          ImageSkinForLLM from the connected apps in your ChatGPT settings.
+        </p>
       )}
       {error && (
         <p className="error" role="alert">

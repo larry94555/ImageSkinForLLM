@@ -4,12 +4,19 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ChatGptStatus } from "./api";
 import { ChatGptPlanSection } from "./chatgpt-plan";
 
-const SIGNED_OUT: ChatGptStatus = { connected: false, email: "", name: "", plan_usage: false };
+const SIGNED_OUT: ChatGptStatus = {
+  connected: false,
+  email: "",
+  name: "",
+  plan_usage: false,
+  registered_email: "",
+};
 const CONNECTED: ChatGptStatus = {
   connected: true,
   email: "larry@example.com",
   name: "Larry",
   plan_usage: true,
+  registered_email: "larry@example.com",
 };
 
 // A fake server: GET /api/chatgpt answers `read`; signing out answers `out`.
@@ -39,6 +46,15 @@ test("signed out, it offers to continue with ChatGPT", async () => {
   const link = await screen.findByRole("link", { name: "Continue with ChatGPT" });
   expect(link.getAttribute("href")).toBe("/api/chatgpt/sign-in");
   expect(console.info).toHaveBeenCalledWith("ChatGPT sign-in: not connected");
+  expect(screen.queryByText(/Use another ChatGPT account/)).toBeNull();
+});
+
+test("after a disconnect, it signs in again as the registered account or another", async () => {
+  server({ ...SIGNED_OUT, registered_email: "larry@example.com" });
+  render(<ChatGptPlanSection />);
+  expect(await screen.findByText(/Signs in again as larry@example.com/)).toBeTruthy();
+  const another = screen.getByRole("link", { name: "Use another ChatGPT account" });
+  expect(another.getAttribute("href")).toBe("/api/chatgpt/sign-in?another=true");
 });
 
 test("connected, it names the account and disconnects", async () => {
@@ -49,6 +65,7 @@ test("connected, it names the account and disconnects", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
   await screen.findByRole("link", { name: "Continue with ChatGPT" });
   expect(fetchMock).toHaveBeenCalledWith("/api/chatgpt/sign-out", { method: "POST" });
+  expect(screen.queryByText(/didn't confirm/)).toBeNull();
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Disconnected ChatGPT \(\d+ ms\)$/));
 });
 
@@ -57,6 +74,18 @@ test("a sign-in that didn't allow the plan says how to allow it", async () => {
   render(<ChatGptPlanSection />);
   expect(await screen.findByText("Larry")).toBeTruthy();
   expect(screen.getByText(/Using your plan wasn't allowed/)).toBeTruthy();
+  const allow = screen.getByRole("link", { name: "Allow use of my plan" });
+  expect(allow.getAttribute("href")).toBe("/api/chatgpt/sign-in?consent=true");
+});
+
+test("a disconnect ChatGPT didn't confirm says how to finish it", async () => {
+  server(CONNECTED, { ...SIGNED_OUT, registered_email: "larry@example.com", revoked: false });
+  render(<ChatGptPlanSection />);
+  fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/didn't confirm it ended the sign-in/);
+  expect(alert.textContent).toMatch(/ChatGPT settings/);
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/not confirmed by ChatGPT\)$/));
 });
 
 test("a sign-in that can't be read, or a failed disconnect, says so", async () => {

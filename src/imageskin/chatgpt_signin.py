@@ -8,12 +8,14 @@ and keeps them in chatgpt.json in the app's home folder, readable by the owner o
 system allows. A token is never logged or sent to the browser: the page is told only which
 account is connected and whether it allowed plan usage. R43a makes that plan answer the chat.
 
-The first sign-in registers this app with OpenAI and gets back a client ID, which is kept, even
-after Disconnect, so signing in again doesn't register another app; a returning sign-in that
-comes back with another client ID is refused. Every sign-in also sends one host ID, made once and
-kept, so OpenAI sees the same computer each time. The ID token is checked against OpenAI's
-published keys before any of its claims are used. Claude's and Grok's subscriptions offer no
-supported way for another app to use them (decided before R43).
+The first sign-in registers this app with OpenAI and gets back a client ID, bound to the ChatGPT
+account that signed in. Both are kept, even after Disconnect, so signing in again reuses that
+registration; a returning sign-in that comes back with another client ID, or as another account,
+is refused. "Use another ChatGPT account" starts a new registration instead, and after a sign-in
+that didn't allow plan use, "Allow use of my plan" asks for consent again. Every sign-in also
+sends one host ID, made once and kept, so OpenAI sees the same computer each time. The ID token
+is checked against OpenAI's published keys before any of its claims are used. Claude's and
+Grok's subscriptions offer no supported way for another app to use them (decided before R43).
 """
 
 import base64
@@ -164,13 +166,16 @@ class ChatGptSignIn:
             return {}
 
     def status(self) -> dict[str, Any]:
-        """For the Settings page: the connected account, never its tokens."""
-        connection = self._load().get("connection") or {}
+        """For the Settings page: the connected account, never its tokens, and the account this
+        app is registered to, which signing in again uses."""
+        saved = self._load()
+        connection = saved.get("connection") or {}
         return {
             "connected": bool(connection),
             "email": connection.get("email", ""),
             "name": connection.get("name", ""),
             "plan_usage": PLAN_SCOPE in connection.get("scopes", []),
+            "registered_email": saved.get("email", "") if saved.get("client_id") else "",
         }
 
     def _discover(self) -> dict[str, str]:
@@ -210,12 +215,14 @@ class ChatGptSignIn:
             self._save({**saved, "host_id": host_id})
         return host_id
 
-    def start(self, redirect_uri: str) -> str:
-        """The address on auth.openai.com that the browser is sent to, to sign in."""
+    def start(self, redirect_uri: str, consent: bool = False, another: bool = False) -> str:
+        """The address on auth.openai.com that the browser is sent to, to sign in: again with
+        this app's registration, asking for consent again when `consent`, or as `another`
+        ChatGPT account, which registers the app anew."""
         endpoints = self._discover()
         saved = self._load()
         host_id = self._host_id(saved)
-        registered = str(saved.get("client_id") or "")
+        registered = "" if another else str(saved.get("client_id") or "")
         verifier, state, nonce = (_b64(secrets.token_bytes(32)) for _ in range(3))
         now = self._clock()
         with self._lock:
@@ -237,7 +244,14 @@ class ChatGptSignIn:
         }
         if not registered:
             params["agent_name_hint"] = APP_NAME
-        logger.info("Signing in with ChatGPT", extra={"registered": bool(registered)})
+        elif saved.get("email"):
+            params["login_hint"] = saved["email"]
+        if consent:
+            params["prompt"] = "consent"
+        logger.info(
+            "Signing in with ChatGPT",
+            extra={"registered": bool(registered), "consent": consent, "another": another},
+        )
         return f"{endpoints['authorization_endpoint']}?{urllib.parse.urlencode(params)}"
 
     def finish(self, query: dict[str, str]) -> dict[str, Any]:
@@ -263,8 +277,9 @@ class ChatGptSignIn:
         if not code or not CLIENT_ID.match(client_id) or client_id == REGISTER_CLIENT:
             raise SignInError("ChatGPT didn't finish registering this app. Sign in again.")
         if client_id != saved.get("client_id"):
-            # Kept before the code is used, so a failed swap doesn't register another app.
-            self._save({**saved, "client_id": client_id})
+            # Kept before the code is used, so a failed swap doesn't register another app; its
+            # account is known once the identity is checked.
+            self._save({**saved, "client_id": client_id, "subject": "", "email": ""})
         status, data = self._http(
             self._discover()["token_endpoint"],
             {
@@ -291,6 +306,13 @@ class ChatGptSignIn:
         ):
             logger.error("ChatGPT identity didn't match the sign-in")
             raise SignInError("ChatGPT's answer didn't match this sign-in. Sign in again.")
+        bound_to = saved.get("subject")
+        if pending.client_id and bound_to and identity["sub"] != bound_to:
+            logger.error("ChatGPT sign-in came back as another account")
+            raise SignInError(
+                f"That's a different ChatGPT account from {saved.get('email') or 'the one'} "
+                'this app is registered to. Use "Use another ChatGPT account" to switch.'
+            )
         connection = {
             "subject": identity["sub"],
             "email": identity.get("email", ""),
@@ -300,7 +322,15 @@ class ChatGptSignIn:
             "refresh_token": data.get("refresh_token", ""),
             "expires_at": self._clock() + float(data.get("expires_in", 0)),
         }
-        self._save({**self._load(), "client_id": client_id, "connection": connection})
+        self._save(
+            {
+                **self._load(),
+                "client_id": client_id,
+                "subject": identity["sub"],
+                "email": connection["email"],
+                "connection": connection,
+            }
+        )
         logger.info(
             "Signed in with ChatGPT",
             extra={
@@ -311,7 +341,8 @@ class ChatGptSignIn:
         return self.status()
 
     def sign_out(self) -> dict[str, Any]:
-        """Forgets the connection, and asks OpenAI to end it; the client ID is kept."""
+        """Forgets the connection, and asks OpenAI to end it; the registration is kept. The
+        status says `revoked` false when OpenAI couldn't confirm it ended the connection."""
         saved = self._load()
         connection = saved.get("connection") or {}
         self._save({**saved, "connection": None})
@@ -334,7 +365,7 @@ class ChatGptSignIn:
         logger.info(
             "Disconnected ChatGPT", extra={"was_connected": bool(connection), "revoked": revoked}
         )
-        return self.status()
+        return {**self.status(), "revoked": revoked or not token}
 
     def _save(self, data: dict[str, Any]) -> None:
         with self._lock:
