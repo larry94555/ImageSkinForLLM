@@ -10,6 +10,7 @@ const SIGNED_OUT: ChatGptStatus = {
   name: "",
   plan_usage: false,
   registered_email: "",
+  accounts: [],
 };
 const CONNECTED: ChatGptStatus = {
   connected: true,
@@ -17,6 +18,7 @@ const CONNECTED: ChatGptStatus = {
   name: "Larry",
   plan_usage: true,
   registered_email: "larry@example.com",
+  accounts: [],
 };
 
 // A fake server: GET /api/chatgpt answers `read`; signing out answers `out`.
@@ -55,6 +57,23 @@ test("after a disconnect, it signs in again as the registered account or another
   expect(await screen.findByText(/Signs in again as larry@example.com/)).toBeTruthy();
   const another = screen.getByRole("link", { name: "Use another ChatGPT account" });
   expect(another.getAttribute("href")).toBe("/api/chatgpt/sign-in?another=true");
+  expect(screen.queryByText(/Or sign in as/)).toBeNull();
+});
+
+test("accounts registered before can be signed in as again", async () => {
+  server({
+    ...SIGNED_OUT,
+    registered_email: "larry@example.com",
+    accounts: [
+      { id: "app-1", email: "first@example.com" },
+      { id: "app 2", email: "" },
+    ],
+  });
+  render(<ChatGptPlanSection />);
+  const first = await screen.findByRole("link", { name: "first@example.com" });
+  expect(first.getAttribute("href")).toBe("/api/chatgpt/sign-in?account=app-1");
+  const unnamed = screen.getByRole("link", { name: "an earlier account" });
+  expect(unnamed.getAttribute("href")).toBe("/api/chatgpt/sign-in?account=app%202");
 });
 
 test("connected, it names the account and disconnects", async () => {

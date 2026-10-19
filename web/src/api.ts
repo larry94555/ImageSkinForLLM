@@ -843,6 +843,7 @@ export interface ChatGptStatus {
   name: string;
   plan_usage: boolean;
   registered_email: string; // the account signing in again uses; "" before the first sign-in
+  accounts: { id: string; email: string }[]; // other accounts registered before, to sign in as
   revoked?: boolean; // after Disconnect: false when ChatGPT couldn't confirm it ended the sign-in
 }
 

@@ -480,23 +480,38 @@ function ChatGptPlanSection() {
 				className: "muted",
 				children: "Sign in with your ChatGPT account to use your ChatGPT Plus or Pro plan instead of an API key, while the app runs on your own computer."
 			}),
-			status && !status.connected && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
-				className: "button",
-				href: "/api/chatgpt/sign-in",
-				children: "Continue with ChatGPT"
-			}) }), status.registered_email && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: [
-					"Signs in again as ",
-					status.registered_email,
-					".",
-					" ",
-					/* @__PURE__ */ u("a", {
-						href: "/api/chatgpt/sign-in?another=true",
-						children: "Use another ChatGPT account"
-					})
-				]
-			})] }),
+			status && !status.connected && /* @__PURE__ */ u(S, { children: [
+				/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+					className: "button",
+					href: "/api/chatgpt/sign-in",
+					children: "Continue with ChatGPT"
+				}) }),
+				status.registered_email && /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"Signs in again as ",
+						status.registered_email,
+						".",
+						" ",
+						/* @__PURE__ */ u("a", {
+							href: "/api/chatgpt/sign-in?another=true",
+							children: "Use another ChatGPT account"
+						})
+					]
+				}),
+				status.accounts.length > 0 && /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"Or sign in as",
+						" ",
+						status.accounts.map((a, i) => /* @__PURE__ */ u("span", { children: [i > 0 && ", ", /* @__PURE__ */ u("a", {
+							href: `/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`,
+							children: a.email || "an earlier account"
+						})] }, a.id)),
+						"."
+					]
+				})
+			] }),
 			status?.connected && /* @__PURE__ */ u(S, { children: [
 				/* @__PURE__ */ u("p", { children: ["Connected as ", /* @__PURE__ */ u("strong", { children: status.email || status.name || "your ChatGPT account" })] }),
 				!status.plan_usage && /* @__PURE__ */ u("p", { children: [
