@@ -28,7 +28,7 @@ from typing import Any
 import anthropic
 
 from imageskin.chat import REPLY_TOKENS, ChatLlm, LlmClient, LlmError, LlmSettings, Message
-from imageskin.chatgpt_plan import RESOURCE, ChatGptPlanClient, Token, plan_models
+from imageskin.chatgpt_plan import RESOURCE, ChatGptPlanClient, Session, plan_models
 from imageskin.claude import DEFAULT_MODEL as CLAUDE_MODEL
 from imageskin.claude import ClaudeClient
 
@@ -201,8 +201,10 @@ def settings_for(base: LlmSettings, choice: LlmChoice) -> LlmSettings:
     )
 
 
-def _no_sign_in(renew: bool) -> str:
+@contextmanager
+def _no_sign_in(renew: bool) -> Iterator[str]:
     raise LlmError("Sign in with ChatGPT on the Settings page first.")
+    yield ""  # pragma: no cover
 
 
 def llm_client(llm: LlmSettings) -> ChatLlm:
@@ -377,10 +379,10 @@ class SwitchableLlm:
     `chat.LlmClient`, each asking the client chosen when it is made."""
 
     def __init__(
-        self, base: LlmSettings, choice: LlmChoice, plan_token: Token = _no_sign_in
+        self, base: LlmSettings, choice: LlmChoice, plan_session: Session = _no_sign_in
     ) -> None:
         self._base = base
-        self._plan_token = plan_token
+        self._plan_session = plan_session
         self._lock = threading.Lock()
         self.settings = settings_for(base, choice)
         self._client = self._client_for(self.settings)
@@ -389,7 +391,7 @@ class SwitchableLlm:
 
     def _client_for(self, settings: LlmSettings) -> ChatLlm:
         if settings.provider == "chatgpt":  # with the signed-in account's token (R43a)
-            return ChatGptPlanClient(settings, self._plan_token)
+            return ChatGptPlanClient(settings, self._plan_session)
         return llm_client(settings)
 
     @contextmanager

@@ -633,7 +633,7 @@ def create_app(
     # The LLM picked on the Settings page (R42), with llama-server's address from the config.
     # Sign in with ChatGPT (R43), whose plan can answer (R43a).
     signin = chatgpt or ChatGptSignIn(data_home)
-    switchable = SwitchableLlm(llm, load_choice(data_home), signin.plan_token)
+    switchable = SwitchableLlm(llm, load_choice(data_home), signin.plan_session)
     client = switchable if ask_llm is None else None
     if build_wiki is None:
         build_wiki = wiki_builder(llm, client, ask_llm)

@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager
 from typing import Any
 
 from imageskin.chat import (
@@ -57,9 +58,10 @@ ERRORS = {404: NO_MODEL, 429: AT_LIMIT}
 UNREACHABLE = "Could not reach ChatGPT. Is the internet connection working?"
 SIGN_IN_AGAIN = "ChatGPT refused the sign-in. Sign in with ChatGPT again on the Settings page."
 
-# Gets the access token: renewed first when True, since OpenAI refused the one sent. LlmError,
-# in plain words, when there is no sign-in to use (`ChatGptSignIn.plan_token`).
-Token = Callable[[bool], str]
+# Holds the access token while a request is sent with it: renewed first when True, since OpenAI
+# refused the one sent. LlmError, in plain words, when there is no sign-in to use
+# (`ChatGptSignIn.plan_session`).
+Session = Callable[[bool], AbstractContextManager[str]]
 Opener = Callable[..., Any]
 
 
@@ -125,10 +127,10 @@ class ChatGptPlanClient:
     `chat.LlmClient`."""
 
     def __init__(
-        self, settings: LlmSettings, token: Token, opener: Opener = urllib.request.urlopen
+        self, settings: LlmSettings, session: Session, opener: Opener = urllib.request.urlopen
     ) -> None:
         self.settings = settings
-        self._token = token
+        self._session = session
         self._open = opener
 
     def count(self, text: str) -> int:
@@ -143,18 +145,20 @@ class ChatGptPlanClient:
     def _response(self, body: dict[str, Any]) -> Any:
         """The open stream of OpenAI's answer, with the token renewed once if it was refused."""
         for renew in (False, True):
-            request = urllib.request.Request(
-                URL,
-                data=json.dumps(body).encode(),
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "text/event-stream",
-                    "Authorization": f"Bearer {self._token(renew)}",
-                },
-                method="POST",
-            )
             try:
-                return self._open(request, timeout=self.settings.timeout_s)
+                # The token is held until the request is sent, so Disconnect can't come between.
+                with self._session(renew) as token:
+                    request = urllib.request.Request(
+                        URL,
+                        data=json.dumps(body).encode(),
+                        headers={
+                            "Content-Type": "application/json",
+                            "Accept": "text/event-stream",
+                            "Authorization": f"Bearer {token}",
+                        },
+                        method="POST",
+                    )
+                    return self._open(request, timeout=self.settings.timeout_s)
             except urllib.error.HTTPError as e:
                 detail = e.read().decode(errors="replace")[:300]
                 try:

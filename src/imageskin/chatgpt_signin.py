@@ -32,7 +32,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -186,9 +187,10 @@ class ChatGptSignIn:
         self._lock = threading.Lock()  # the pending sign-ins
         self._writing = threading.Lock()  # chatgpt.json: one read-change-write at a time
         # One renewal at a time: OpenAI replaces the refresh token with each, so two at once
-        # would leave one holding a token already used. Disconnect and a sign-in's save take it
-        # too, so a renewal never crosses them: Disconnect waits for a renewal under way and then
-        # revokes the refresh token it brought (a review on PR #118).
+        # would leave one holding a token already used. A plan request holds it until it is
+        # sent (`plan_session`), and Disconnect, a switch and a sign-in's save take it too, so
+        # none crosses them: Disconnect waits for a renewal or a request being sent, revokes the
+        # refresh token a renewal brought, and no request is sent after it (reviews on PR #118).
         self._renewing = threading.Lock()
         self._pending: dict[str, _Pending] = {}
         self._endpoints: dict[str, str] | None = None
@@ -482,7 +484,8 @@ class ChatGptSignIn:
 
         status = self.status() if account == self._load().get("active") else None
         if status is None:
-            self._update(choose)
+            with self._renewing:
+                self._update(choose)
             status = self.status()
         logger.info("Switched ChatGPT account", extra={"connected": status["connected"]})
         return status
@@ -556,27 +559,36 @@ class ChatGptSignIn:
         within a minute, or when `renew` because OpenAI refused it; SignInError, in plain words,
         when there is none to use."""
         with self._renewing:
-            saved = self._load()
-            client_id = str(saved.get("active", ""))
-            active = self._registrations(saved).get(client_id) or {}
-            credentials = active.get("credentials") or {}
-            if not credentials.get("access_token"):
-                raise SignInError(SIGN_IN_FIRST)
-            if PLAN_SCOPE not in credentials.get("scopes", []):
-                raise SignInError(NO_PLAN_USE)
-            left = float(credentials.get("expires_at", 0)) - self._clock()
-            if not renew and left > RENEW_BEFORE_S:
-                return str(credentials["access_token"])
-            return self._renew(client_id, credentials)
+            return self._access_token(renew)
 
-    def plan_token(self, renew: bool = False) -> str:
-        """`access_token` for the ChatGPT plan's client (R43a): LlmError when there is none, so
-        the chat says why in plain words."""
-        try:
-            return self.access_token(renew)
-        except SignInError as e:
-            logger.error("No ChatGPT sign-in to answer with", extra={"error": str(e)})
-            raise LlmError(str(e)) from e
+    def _access_token(self, renew: bool) -> str:
+        saved = self._load()
+        client_id = str(saved.get("active", ""))
+        active = self._registrations(saved).get(client_id) or {}
+        credentials = active.get("credentials") or {}
+        if not credentials.get("access_token"):
+            raise SignInError(SIGN_IN_FIRST)
+        if PLAN_SCOPE not in credentials.get("scopes", []):
+            raise SignInError(NO_PLAN_USE)
+        left = float(credentials.get("expires_at", 0)) - self._clock()
+        if not renew and left > RENEW_BEFORE_S:
+            return str(credentials["access_token"])
+        return self._renew(client_id, credentials)
+
+    @contextmanager
+    def plan_session(self, renew: bool = False) -> Iterator[str]:
+        """The access token for the ChatGPT plan's client (R43a), held until the request it
+        goes with is sent: Disconnect, a switch or a sign-in waits for that, and a request that
+        waited for one of them gets the token in use after it, or LlmError, in plain words, when
+        there is none, so nothing is sent with a token after Disconnect (a review on PR #118).
+        A stream already open goes on to its end."""
+        with self._renewing:
+            try:
+                token = self._access_token(renew)
+            except SignInError as e:
+                logger.error("No ChatGPT sign-in to answer with", extra={"error": str(e)})
+                raise LlmError(str(e)) from e
+            yield token
 
     def _forget_credentials(self, client_id: str, credentials: dict[str, Any]) -> None:
         def forget(saved: dict[str, Any]) -> dict[str, Any]:

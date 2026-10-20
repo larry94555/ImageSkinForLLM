@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
+from contextlib import contextmanager
 from email.message import Message as HttpHeaders
 from pathlib import Path
 from typing import Any
@@ -98,11 +99,12 @@ class Tokens:
         self.n = 1
         self.renewed = 0
 
-    def __call__(self, renew: bool) -> str:
+    @contextmanager
+    def __call__(self, renew: bool) -> Iterator[str]:
         if renew:
             self.n += 1
             self.renewed += 1
-        return f"token-{self.n}"
+        yield f"token-{self.n}"
 
 
 def client(*answers: list[bytes] | BaseException) -> tuple[ChatGptPlanClient, FakeResponses]:
@@ -259,8 +261,10 @@ def test_a_stream_cut_off_says_so() -> None:
 
 
 def test_no_sign_in_says_so() -> None:
-    def none(renew: bool) -> str:
+    @contextmanager
+    def none(renew: bool) -> Iterator[str]:
         raise LlmError(cs.SIGN_IN_FIRST)
+        yield ""
 
     plan = ChatGptPlanClient(SETTINGS, none, opener=FakeResponses())
     with pytest.raises(LlmError, match="Sign in with ChatGPT on the Settings page first"):
@@ -392,7 +396,8 @@ def test_no_sign_in_or_no_plan_use_has_no_token(tmp_path: Path) -> None:
     with pytest.raises(SignInError, match="Sign in with ChatGPT on the Settings page first"):
         who.access_token()
     with pytest.raises(LlmError, match="Sign in with ChatGPT on the Settings page first"):
-        who.plan_token()
+        with who.plan_session():
+            pass
     signed_in(tmp_path, NOW + 3000, scopes="openid email")
     with pytest.raises(SignInError, match="Allow use of my plan"):
         who.access_token()
@@ -461,6 +466,70 @@ def test_disconnect_waits_for_a_renewal_and_revokes_the_token_it_brought(tmp_pat
         who.access_token()
 
 
+def test_no_request_is_sent_after_disconnect(tmp_path: Path) -> None:
+    # A review on PR #118: a request is held with its token until it is sent, so Disconnect
+    # waits for one being sent, and one that waited for Disconnect sends nothing.
+    signed_in(tmp_path, NOW + 3000)
+    auth = FakeAuth()
+    who = signin(tmp_path, auth)
+    sending, release = threading.Event(), threading.Event()
+    sent: list[str] = []
+
+    def opener(request: urllib.request.Request, timeout: float) -> Response:
+        sent.append(request.get_header("Authorization") or "")
+        sending.set()
+        assert release.wait(5)
+        return Response(text("Four."))
+
+    plan = ChatGptPlanClient(SETTINGS, who.plan_session, opener=opener)
+    answered: list[list[str]] = []
+    asking = threading.Thread(target=lambda: answered.append(list(plan.stream(MESSAGES))))
+    asking.start()
+    assert sending.wait(5)
+    disconnect = threading.Thread(target=who.sign_out)
+    disconnect.start()
+    disconnect.join(0.2)
+    assert disconnect.is_alive()  # waits for the request being sent
+    release.set()
+    asking.join(5)
+    disconnect.join(5)
+    assert answered == [["Four."]] and sent == ["Bearer access-1"]
+
+    # Now Disconnect holds things up while a request waits: once it is done, nothing is sent.
+    signed_in(tmp_path, NOW + 3000)
+    revoking, finish = threading.Event(), threading.Event()
+
+    class SlowRevoke(FakeAuth):
+        def __call__(self, url: str, form: dict[str, str] | None) -> tuple[int, Any]:
+            if url.endswith("/revoke"):
+                revoking.set()
+                assert finish.wait(5)
+            return super().__call__(url, form)
+
+    slow = signin(tmp_path, SlowRevoke())
+    plan = ChatGptPlanClient(SETTINGS, slow.plan_session, opener=opener)
+    sent.clear()
+    disconnect = threading.Thread(target=slow.sign_out)
+    disconnect.start()
+    assert revoking.wait(5)
+    errors: list[BaseException] = []
+
+    def ask() -> None:
+        try:
+            list(plan.stream(MESSAGES))
+        except LlmError as e:
+            errors.append(e)
+
+    asking = threading.Thread(target=ask)
+    asking.start()
+    asking.join(0.2)
+    assert asking.is_alive() and sent == []  # waits for Disconnect
+    finish.set()
+    disconnect.join(5)
+    asking.join(5)
+    assert sent == [] and "Sign in with ChatGPT on the Settings page first" in str(errors[0])
+
+
 # The ChatGPT plan in the LLM setting
 
 
@@ -507,7 +576,7 @@ def test_the_plans_models_are_listed_with_its_token_in_its_order() -> None:
 def test_switching_to_the_plan_answers_through_it() -> None:
     api = FakeResponses(text("Through the plan."))
     with patch.object(lc, "ChatGptPlanClient", lambda s, t: ChatGptPlanClient(s, t, api)):
-        llm = lc.SwitchableLlm(LlmSettings(), lc.LlmChoice(), plan_token=Tokens())
+        llm = lc.SwitchableLlm(LlmSettings(), lc.LlmChoice(), plan_session=Tokens())
         llm.use(lc.LlmChoice("chatgpt", models={"chatgpt": "gpt-plan"}))
         assert list(llm.stream(MESSAGES)) == ["Through the plan."]
     unsigned = lc.SwitchableLlm(LlmSettings(), lc.LlmChoice("chatgpt"))
