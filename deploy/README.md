@@ -88,23 +88,52 @@ exit
 
 Connect again with the same `ssh` command as in step 4, so Docker can be used without `sudo`, and check it with `docker run --rm hello-world`.
 
-## 6. Get the app and set the password
+## 6. Get the app and set the address and password
+
+### 6a. Get the app
 
 ```
 git clone https://github.com/larry94555/ImageSkinForLLM.git
 cd ImageSkinForLLM/deploy
 cp .env.example .env
 chmod 600 .env
+```
+
+### 6b. Point a name at the machine
+
+The site needs a name that leads to the machine's public IP address. The IP is on the instance's page in the Oracle console (**Public IP address**, under **Instance access**), or, on the server, `curl -4 ifconfig.me` prints it. The examples below use `129.146.1.2`; use yours.
+
+- **With your domain (me0.ai):** at the company you bought `me0.ai` from (its **DNS** settings), add a record with **Type** `A`, **Name** (or Host) `app`, and **Value** (or Points to) your machine's IP, such as `129.146.1.2`. The site is then `app.me0.ai`. The record can take a few minutes to work: on your laptop, `nslookup app.me0.ai` prints the machine's IP once it does. Don't start the site (step 7) before then, or Let's Encrypt can't give it a certificate.
+- **With no domain:** use the IP with dashes and `.sslip.io`, such as `129-146-1-2.sslip.io`. [sslip.io](https://sslip.io) points that name at that IP for free, so there is nothing to set up.
+
+### 6c. Make the password's hash
+
+```
 docker run --rm -it caddy:2 caddy hash-password
 ```
 
-The last command asks for the password twice and prints its hash, starting `$2a$14$`. Open `.env` with `nano .env` and set:
+Type the password you want, press Enter, type it again and press Enter. It prints one long line starting `$2a$14$`: the password in a form that can't be turned back into it. Copy that whole line (select it with the mouse; in most terminals selecting copies it, or use Ctrl+Shift+C).
 
-- `SITE_ADDRESS`: the site's address. With no domain of your own, use the machine's IP with dashes and `.sslip.io`, such as `129-146-1-2.sslip.io` ([sslip.io](https://sslip.io) points it at that IP, for free). With a domain, add an **A** record for a name such as `app.me0.ai` pointing at the IP at your domain's DNS provider, and use that name.
-- `LOGIN_NAME`: the name the browser will ask for.
-- `LOGIN_PASSWORD_HASH`: the hash, pasted between the single quotes.
+### 6d. Fill in `.env`
 
-Save with Ctrl+O and Enter, and close with Ctrl+X.
+Open it with `nano .env`. Change only the three lines that don't start with `#`, one per setting; leave the `#` lines (notes) as they are. For the site `app.me0.ai`, the name `larry` and the hash from 6c, the whole file reads like this:
+
+```
+# Copy to .env (cp .env.example .env) and fill in. .env stays on the server only.
+
+# The site's address: ...
+SITE_ADDRESS=app.me0.ai
+
+# The name and password the browser asks for. ...
+LOGIN_NAME=larry
+LOGIN_PASSWORD_HASH='$2a$14$Xb3k9mQ1vL7pR2sT8uW0yOeZ4aB6cD5fG1hJ2kL3mN4oP5qR6sT7u'
+```
+
+- `SITE_ADDRESS`: the name from 6b, with no `https://` and no `/` at the end.
+- `LOGIN_NAME`: the name the browser will ask for; any word you like.
+- `LOGIN_PASSWORD_HASH`: your own hash from 6c (the one above is only an example), between the single quotes, which keep its `$` signs as they are. The browser asks for the password you typed in 6c, not the hash.
+
+Save with Ctrl+O and Enter, and close with Ctrl+X. `cat .env` shows it to check.
 
 ## 7. Start it
 
