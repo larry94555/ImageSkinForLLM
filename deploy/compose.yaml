@@ -1,0 +1,38 @@
+# The hosted site (roadmap R32): the app, and Caddy in front of it for HTTPS and the password.
+# Run from this folder: docker compose up -d --build. See README.md here.
+name: imageskin
+services:
+  app:
+    build: ..
+    image: imageskin
+    restart: unless-stopped
+    volumes:
+      - imageskin-data:/data
+      - ./config.toml:/etc/imageskin/config.toml:ro
+    # Not open to the internet: only to Caddy, and to an SSH tunnel through the server's own
+    # 127.0.0.1, which Sign in with ChatGPT needs.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
+      LOGIN_NAME: ${LOGIN_NAME:?set LOGIN_NAME in .env}
+      LOGIN_PASSWORD_HASH: ${LOGIN_PASSWORD_HASH:?set LOGIN_PASSWORD_HASH in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  imageskin-data:
+  caddy-data:
+  caddy-config:

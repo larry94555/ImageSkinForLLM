@@ -1,0 +1,12 @@
+# The hosted app's settings (roadmap R32), read when the app starts: run
+# `docker compose restart app` after a change. See config.example.toml for every setting.
+
+# Listen on every address inside the container. Only Caddy reaches it from outside, with the
+# password, and an SSH tunnel through the server's own 127.0.0.1 (deploy/README.md).
+host = "0.0.0.0"
+port = 8000
+log_level = "INFO"
+
+# There is no local LLM on the server: pick Claude, OpenAI, Grok or OpenRouter, with your API
+# key, or a ChatGPT plan, on the Settings page. A larger window keeps more of the conversation.
+llm_context_tokens = 32000

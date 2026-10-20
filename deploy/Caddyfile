@@ -1,0 +1,13 @@
+# HTTPS and the password in front of the app (roadmap R32). Caddy gets and renews the
+# certificate from Let's Encrypt for SITE_ADDRESS by itself. The values come from .env.
+{$SITE_ADDRESS} {
+	# One name and password for the whole site, asked for once by the browser.
+	basic_auth {
+		{$LOGIN_NAME} {$LOGIN_PASSWORD_HASH}
+	}
+	reverse_proxy app:8000 {
+		# Send each part of a reply's video as soon as it is written (roadmap R22d).
+		flush_interval -1
+	}
+	log
+}
