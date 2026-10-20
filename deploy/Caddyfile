@@ -1,13 +1,36 @@
 # HTTPS and the password in front of the app (roadmap R32). Caddy gets and renews the
 # certificate from Let's Encrypt for SITE_ADDRESS by itself. The values come from .env.
 {$SITE_ADDRESS} {
-	# One name and password for the whole site, asked for once by the browser.
-	basic_auth {
-		{$LOGIN_NAME} {$LOGIN_PASSWORD_HASH}
+	# The default people's packs (roadmap R32a), for Start now on any computer: made-up people,
+	# so they are served without the password. Only the .zip files in default-people/ are sent.
+	handle_path /default-people/* {
+		@pack path_regexp ^/[a-z0-9_]+\.zip$
+		handle @pack {
+			root * /srv/default-people
+			file_server
+		}
+		respond 404
 	}
-	reverse_proxy app:8000 {
-		# Send each part of a reply's video as soon as it is written (roadmap R22d).
-		flush_interval -1
+	handle {
+		# One name and password for the rest of the site, asked for once by the browser.
+		basic_auth {
+			{$LOGIN_NAME} {$LOGIN_PASSWORD_HASH}
+		}
+		reverse_proxy app:8000 {
+			# Send each part of a reply's video as soon as it is written (roadmap R22d).
+			flush_interval -1
+		}
 	}
 	log
+}
+
+# The same packs for the hosted app itself, over plain HTTP inside Docker only (no port of
+# compose.yaml publishes 8090), so it doesn't depend on reaching its own public address.
+:8090 {
+	@pack path_regexp ^/[a-z0-9_]+\.zip$
+	handle @pack {
+		root * /srv/default-people
+		file_server
+	}
+	respond 404
 }

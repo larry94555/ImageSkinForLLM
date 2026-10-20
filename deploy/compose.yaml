@@ -13,6 +13,9 @@ services:
     cpus: 3
     depends_on:
       - llama
+    environment:
+      # Start now downloads the default people from Caddy inside Docker (roadmap R32a).
+      IMAGESKIN_DEFAULT_PEOPLE_URL: http://caddy:8090
     volumes:
       - imageskin-data:/data
       - ./config.toml:/etc/imageskin/config.toml:ro
@@ -51,6 +54,8 @@ services:
       LOGIN_PASSWORD_HASH: ${LOGIN_PASSWORD_HASH:?set LOGIN_PASSWORD_HASH in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The 60 default people's packs, copied here as tools/default_people/README.md says.
+      - ./default-people:/srv/default-people:ro
       - caddy-data:/data
       - caddy-config:/config
 

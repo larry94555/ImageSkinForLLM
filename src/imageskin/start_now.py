@@ -2,7 +2,7 @@
 
 The user picks a gender, an accent, photoreal or animated, and a role, and chats at once with that
 made-up person: no consent, uploads, prepare or review. Only the chosen person's pack is
-downloaded, the first time they are chosen, from the GitHub release that holds the 60 packs; it
+downloaded, the first time they are chosen, from the hosted site that holds the 60 packs (R32a); it
 is unpacked into the app's home and kept, so choosing them again starts at once. Goodbye and
 Welcome back are then rendered in the person's ready-made Kokoro voice.
 
@@ -38,10 +38,12 @@ from imageskin.voice import Speech, VoiceEngine
 
 logger = logging.getLogger(__name__)
 
-# Where the packs are kept: assets of a GitHub release of this repository (picked in R24b).
-RELEASE_URL = "https://github.com/larry94555/ImageSkinForLLM/releases/download/default-people-v1"
-# Set to download the packs from somewhere else, such as a local folder served with
-# `python -m http.server`, to try Start now before the packs are uploaded.
+# Where the packs are kept: on the hosted site, which serves them without its password (R32a,
+# deploy/Caddyfile).
+HOSTED_URL = "https://app.me0.ai/default-people"
+# Set to download the packs from somewhere else: the hosted app sets it to Caddy's own address
+# inside Docker (deploy/compose.yaml), and a local folder served with `python -m http.server`
+# tries Start now before the packs are uploaded.
 URL_VARIABLE = "IMAGESKIN_DEFAULT_PEOPLE_URL"
 # Each pack's size and SHA-256, so a download is checked before it is unpacked.
 PACKS_FILE = Path(__file__).with_name("default_people_packs.json")
@@ -62,7 +64,7 @@ DOWNLOAD_FAILED = (
     "The person couldn't be downloaded. Check the internet connection and click Try again."
 )
 DAMAGED = "The person's download was damaged. Click Try again."
-# The release doesn't have the person's pack: retrying won't help until it is uploaded.
+# The site doesn't have the person's pack: retrying won't help until it is uploaded.
 NOT_PUBLISHED = (
     "This person isn't available to download yet. Pick another, or use your own photos and voice."
 )
@@ -113,6 +115,11 @@ class StartStatus:
     error: str | None = None  # in plain words, for the user
 
 
+def packs_url() -> str:
+    """Where the packs are downloaded from."""
+    return os.environ.get(URL_VARIABLE) or HOSTED_URL
+
+
 def load_packs(path: Path = PACKS_FILE) -> dict[str, dict[str, Any]]:
     packs: dict[str, dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
     return packs
@@ -126,7 +133,7 @@ class StartNow:
         home: Path,
         render_clip: RenderClip,
         packs: dict[str, dict[str, Any]] | None = None,
-        base_url: str | None = None,  # RELEASE_URL
+        base_url: str | None = None,  # packs_url()
         fetch: Fetch = download,
         unpack_pack: Unpack = unpack,
         on_ready: Callable[[], None] = lambda: None,  # the chat opens: warm up the replies
@@ -143,7 +150,7 @@ class StartNow:
         self._folder = home / FOLDER
         self._render_clip = render_clip
         self._packs = load_packs() if packs is None else packs
-        self._base_url = (base_url or os.environ.get(URL_VARIABLE) or RELEASE_URL).rstrip("/")
+        self._base_url = (base_url or packs_url()).rstrip("/")
         self._fetch = fetch
         self._unpack = unpack_pack
         self._on_ready = on_ready

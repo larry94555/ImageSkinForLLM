@@ -604,3 +604,8 @@ def test_choosing_the_same_person_after_delete_needs_no_download(
     assert status["state"] == "ready" and status["chosen"] == vars(CHOICE)
     assert len(fetch.urls) == 1  # not downloaded again
     assert list((home / "photoreal").glob("*/library.json"))
+
+
+def test_the_packs_come_from_the_hosted_site_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(sn.URL_VARIABLE, raising=False)
+    assert sn.packs_url() == "https://app.me0.ai/default-people"
