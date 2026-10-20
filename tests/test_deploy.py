@@ -52,3 +52,9 @@ def test_the_image_installs_the_cloned_voice_as_the_readme_does() -> None:
     torch = re.search(r"torch==([\d.]+)", dockerfile)
     assert torch is not None
     assert f"Tested with torch {torch.group(1)}" in text(ROOT / "clone-requirements.txt")
+
+
+def test_both_containers_have_public_name_servers() -> None:
+    # Oracle's Ubuntu resolves through 127.0.0.53, which a container can't reach (Larry's test).
+    compose = text(DEPLOY / "compose.yaml")
+    assert compose.count("dns:\n      - 1.1.1.1\n      - 8.8.8.8") == 2
