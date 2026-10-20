@@ -442,3 +442,76 @@ def test_spoken_text_logs_an_unreadable_file(
     entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert entry["level"] == "ERROR"
     assert entry["path"].endswith("missing.md")
+
+
+def test_chatgpt_export_writes_the_sign_in_then_import_uses_it_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    transfer = {"kind": "imageskin-chatgpt-sign-in", "registration": {"client_id": "app-123"}}
+    monkeypatch.setenv("IMAGESKIN_HOME", str(tmp_path / "laptop"))
+    output = tmp_path / "sign-in.json"
+    with patch(
+        "imageskin.chatgpt_signin.ChatGptSignIn.export_active",
+        lambda self, write: write(transfer),
+    ):
+        assert main(["chatgpt-export", str(output)]) == 0
+    assert json.loads(output.read_text()) == transfer
+    assert oct(output.stat().st_mode & 0o777) == "0o600"
+    assert "This computer is signed out of ChatGPT now" in capsys.readouterr().out
+
+    seen: list[object] = []
+
+    def imported(self: object, data: object) -> dict[str, object]:
+        seen.append(data)
+        return {"label": "larry@example.com", "plan_usage": True}
+
+    monkeypatch.setenv("IMAGESKIN_HOME", str(tmp_path / "server"))
+    with patch("imageskin.chatgpt_signin.ChatGptSignIn.import_registration", imported):
+        assert main(["chatgpt-import", str(output)]) == 0
+        assert "Signed in with ChatGPT as larry@example.com." in capsys.readouterr().out
+        # Or from standard input, as the hosted guide does through docker compose exec.
+        monkeypatch.setattr("sys.stdin", __import__("io").StringIO(json.dumps(transfer)))
+        assert main(["chatgpt-import", "-"]) == 0
+    assert seen == [transfer, transfer]
+
+
+def test_chatgpt_import_says_when_plan_use_wasnt_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("IMAGESKIN_HOME", str(tmp_path))
+    file = tmp_path / "sign-in.json"
+    file.write_text("{}")
+    with patch(
+        "imageskin.chatgpt_signin.ChatGptSignIn.import_registration",
+        lambda self, data: {"label": "a@example.com", "plan_usage": False},
+    ):
+        assert main(["chatgpt-import", str(file)]) == 0
+    assert '"Allow use of my plan"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("content", [None, "not json", "{}"])
+def test_chatgpt_import_refuses_a_missing_or_wrong_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    content: str | None,
+) -> None:
+    monkeypatch.setenv("IMAGESKIN_HOME", str(tmp_path))
+    file = tmp_path / "sign-in.json"
+    if content is not None:
+        file.write_text(content)
+    assert main(["chatgpt-import", str(file)]) == 1
+    entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert entry["message"] == "Could not import the ChatGPT sign-in"
+    assert not (tmp_path / "chatgpt.json").exists()
+
+
+def test_chatgpt_export_with_no_sign_in_fails_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("IMAGESKIN_HOME", str(tmp_path))
+    output = tmp_path / "sign-in.json"
+    assert main(["chatgpt-export", str(output)]) == 1
+    entry = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert "Sign in with ChatGPT" in entry["error"]
+    assert not output.exists()

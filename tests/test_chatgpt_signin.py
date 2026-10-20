@@ -813,3 +813,145 @@ def test_the_sign_in_link_can_name_an_account(app: TestClient, signin: ChatGptSi
         dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(location).query))["client_id"]
         == cs.REGISTER_CLIENT
     )
+
+
+# Moving the sign-in to a self-hosted server (OpenAI's "Self-hosted VMs" guide; review on PR #120).
+
+
+def signed_in(signin: ChatGptSignIn, openai: FakeOpenAi) -> None:
+    query = authorize(signin, openai)
+    signin.finish({"state": query["state"], "code": "c1", "client_id": "app-123"})
+
+
+def exported(signin: ChatGptSignIn) -> dict[str, Any]:
+    kept: list[dict[str, Any]] = []
+    signin.export_active(kept.append)
+    [transfer] = kept
+    return transfer
+
+
+def test_a_laptop_sign_in_moves_to_the_server_which_keeps_its_own_host_id(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    signed_in(signin, openai)
+    laptop_host = json.loads((tmp_path / cs.FILENAME).read_text())["host_id"]
+    transfer = exported(signin)
+    assert "host_id" not in json.dumps(transfer)
+    # The laptop forgets its tokens, unrevoked, and keeps the registration to sign in again.
+    assert not [f for f in openai.forms if f[0].endswith("/revoke")]
+    laptop = json.loads((tmp_path / cs.FILENAME).read_text())
+    assert laptop["registrations"][0]["credentials"] is None
+    assert laptop["registrations"][0]["client_id"] == "app-123"
+    assert signin.status()["connected"] is False
+
+    server_home = tmp_path / "server"
+    server = ChatGptSignIn(server_home, http=openai, clock=lambda: NOW)
+    server_host = server._host_id()  # made before the import, as the guide says
+    status = server.import_registration(json.loads(json.dumps(transfer)))
+
+    assert status["connected"] and status["plan_usage"]
+    assert status["label"] == "larry@example.com"
+    saved = json.loads((server_home / cs.FILENAME).read_text())
+    assert saved["host_id"] == server_host != laptop_host
+    assert saved["active"] == "app-123"
+    # The server renews the tokens itself, with the laptop's client ID.
+    assert server.access_token(renew=True) == "access-secret"
+    url, form = openai.forms[-1]
+    assert url == DISCOVERY["token_endpoint"]
+    assert form == {**form, "grant_type": "refresh_token", "client_id": "app-123"}
+    assert "Exported the ChatGPT sign-in" in caplog.text
+    assert "Imported the ChatGPT sign-in" in caplog.text
+    assert "secret" not in caplog.text
+
+
+def test_a_server_with_no_host_id_gets_its_own(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    signed_in(signin, openai)
+    transfer = exported(signin)
+    server = ChatGptSignIn(tmp_path / "server", http=openai, clock=lambda: NOW)
+    server.import_registration(transfer)
+    laptop_host = json.loads((tmp_path / cs.FILENAME).read_text())["host_id"]
+    server_host = json.loads((tmp_path / "server" / cs.FILENAME).read_text())["host_id"]
+    assert server_host.startswith("urn:uuid:")
+    assert server_host != laptop_host
+
+
+def test_nothing_is_exported_before_signing_in(signin: ChatGptSignIn) -> None:
+    kept: list[dict[str, Any]] = []
+    with pytest.raises(SignInError, match="Sign in with ChatGPT on the Settings page here first"):
+        signin.export_active(kept.append)
+    assert kept == []
+
+
+def test_the_laptop_keeps_its_tokens_when_the_export_cant_be_written(
+    signin: ChatGptSignIn, openai: FakeOpenAi
+) -> None:
+    signed_in(signin, openai)
+
+    def fail(_: dict[str, Any]) -> None:
+        raise OSError("disk full")
+
+    with pytest.raises(OSError):
+        signin.export_active(fail)
+    assert signin.status()["connected"] is True
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [
+        lambda t: "not a dict",
+        lambda t: {**t, "kind": "something else"},
+        lambda t: {**t, "registration": "not a dict"},
+        lambda t: {**t, "registration": {**t["registration"], "client_id": "bad id!"}},
+        lambda t: {**t, "registration": {**t["registration"], "credentials": None}},
+        lambda t: {**t, "registration": {**t["registration"], "subject": "user-2"}},
+        lambda t: {**t, "registration": {**t["registration"], "client_id": "app-999"}},
+    ],
+)
+def test_a_file_that_isnt_a_genuine_export_is_refused(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path, spoil: Any
+) -> None:
+    signed_in(signin, openai)
+    transfer = exported(signin)
+    server = ChatGptSignIn(tmp_path / "server", http=openai, clock=lambda: NOW)
+    with pytest.raises(SignInError, match="isn't a ChatGPT sign-in made by"):
+        server.import_registration(spoil(transfer))
+    assert server.status()["connected"] is False
+
+
+def test_an_id_token_not_signed_by_openai_is_refused(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    signed_in(signin, openai)
+    transfer = exported(signin)
+    claims = {"iss": cs.ISSUER, "aud": ["app-123"], "sub": "user-1", "exp": NOW + 3600}
+    forged = {**transfer["registration"], "id_token": id_token(claims, OTHER_KEY)}
+    server = ChatGptSignIn(tmp_path / "server", http=openai, clock=lambda: NOW)
+    with pytest.raises(SignInError):
+        server.import_registration({**transfer, "registration": forged})
+    assert not (tmp_path / "server" / cs.FILENAME).exists() or not server.status()["connected"]
+
+
+def test_an_import_sits_beside_the_servers_other_accounts(
+    signin: ChatGptSignIn, openai: FakeOpenAi, tmp_path: Path
+) -> None:
+    signed_in(signin, openai)
+    transfer = exported(signin)
+    server_home = tmp_path / "server"
+    server_home.mkdir()
+    other = {"client_id": "app-555", "label": "larry@example.com", "email": "larry@example.com"}
+    (server_home / cs.FILENAME).write_text(
+        json.dumps({"host_id": "urn:uuid:server", "registrations": [other], "active": "app-555"})
+    )
+    server = ChatGptSignIn(server_home, http=openai, clock=lambda: NOW)
+    status = server.import_registration(transfer)
+    assert status["label"] == "larry@example.com (2)"
+    saved = json.loads((server_home / cs.FILENAME).read_text())
+    assert saved["host_id"] == "urn:uuid:server"
+    assert [r["client_id"] for r in saved["registrations"]] == ["app-555", "app-123"]
+    assert saved["registrations"][0] == other
+    # Importing it again replaces it, with the same label.
+    signed_in(signin, openai)
+    assert server.import_registration(exported(signin))["label"] == "larry@example.com (2)"

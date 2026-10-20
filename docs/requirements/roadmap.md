@@ -23,7 +23,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 8a | **The default people, made and packed.** 60 made-up people, photoreal and animated, of each gender and role and a wide range of looks, each checked to animate and talk, packed as one download each of at most 50 MB. | R24a, R24a2, R24b, R24b2 | 4 | 2.9% | 4 of 4 |
 | 9 | **Settings, exit and return.** Every setting, Goodbye and Welcome back, saved setup, delete my data. | R27 to R31 | 7 | 5.1% | 7 of 7 |
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key, or a ChatGPT subscription. | R33, R42 to R43a | 4 | 2.9% | 4 of 4 |
-| 10 | **Hosted.** Runs on a hosted HTTPS site. | R32 | 1 | 0.7% | 0 |
+| 10 | **Hosted.** Runs on a hosted HTTPS site. | R32 | 1 | 0.7% | 1 |
 | 10a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice, downloaded from the hosted site; replace the picture or voice with your own later. | R24c, R32a, R24c2, R24d | 4 | 2.9% | 1 of 4 |
 | 20 | **Many customers on me0.ai.** A customer signs up for a membership (and can reset a forgotten password), starts a free one-week trial at a path of random characters, picks their own subdomain of me0.ai when they first pay $1 (and can change it), signs in to manage settings that change only their site, pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, visitors and history are separate from every other site. | R61, R62, R62a, R44, R65 to R67, R63, R64, R68 to R71 | 13 | 9.5% | 0 |
 | 12 | **Sign-on and accounts.** On each customer's site: question and answer only without signing in, participant sign-up and login, and a setting to require sign-up. | R45 to R47 | 3 | 2.2% | 0 |
@@ -37,7 +37,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 18 | **Heads-up before deleting.** Participants and the host are told a deleted question is gone from the record for everyone and can't be brought back. | R58 | 1 | 0.7% | 0 |
 | 19 | **Interests and personality.** A profile of each participant's interests and personality, drawn from the questions they ask and how they respond to the answers, for the administrator. | R59 to R60 | 2 | 1.5% | 0 |
 | 22 | **Gathering information from visitors and tickets.** The AI gathers feedback and contact information in conversation, opens tickets, answers from open tickets, and answers a host's or the support staff's questions about what was gathered. | R79 to R83 | 5 | 3.6% | 0 |
-| | **Total** | | **137** | **58.4% done** | **80 of 137** |
+| | **Total** | | **137** | **59.1% done** | **81 of 137** |
 
 Sizes: 36 Simple, 101 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -596,10 +596,11 @@ Moved by Larry on 2026-10-18 to right after Milestone 9, before hosting (Milesto
 
 On 2026-10-18 Larry moved Milestone 11 to right after Milestone 9, before this one, so R33 (cloud LLMs with the user's key) moved into Milestone 11, which builds on it.
 
-### R32. Hosted deployment (Medium) · Deployment
-- Container image and deployment guide for an HTTPS host, with secrets kept on the server.
+### R32. Hosted deployment (Medium) · Deployment · Done in [PR #120](https://github.com/larry94555/ImageSkinForLLM/pull/120)
+- Container image and deployment guide for an HTTPS host, with secrets kept on the server, set up step by step on Oracle Cloud's free tier (Larry, 2026-10-20).
 - Access restricted to the one user by the mechanism decided before this PR.
 - **Can show:** the full app running on a hosted HTTPS URL, with the microphone working.
+- **Built:** the `Dockerfile` makes one image of the app with every voice and video extra (Ubuntu 24.04, Python 3.12, the CPU-only PyTorch, Chatterbox installed as the README does), for x86-64 and for ARM; the uploads, settings, API keys and models are kept in a `/data` volume. `deploy/compose.yaml` runs it with llama.cpp's `llama-server` and the laptop's Gemma 3 4B in a second container (2 threads, as R22a set), behind Caddy, which gets the Let's Encrypt certificate by itself and asks for one name and password (`basic_auth`, the decision's simplest option) before anything is proxied; the password's hash is in `deploy/.env`, on the server only. The app is published only on the server's own `127.0.0.1:8000`, so Sign in with ChatGPT works through an SSH tunnel. `deploy/README.md` sets it up on an Always Free Ampere machine (4 cores, 24 GB), from the account to the first chat, with the laptop's commands for macOS, Linux and Windows, and a free `sslip.io` address when there is no domain. Tested in a cloud session with the address `localhost` (Caddy's own certificate): 401 without the password or with a wrong one, the app with it, `isSecureContext` and the microphone API there; this session couldn't reach Oracle or PyTorch's CPU index, so the real site is Larry's test.
 
 ## Milestone 10a: Start now with a default person
 

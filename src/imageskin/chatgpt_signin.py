@@ -82,6 +82,9 @@ TERMINAL_REFRESH = (
 CLIENT_REFUSED = ("invalid_client", "unauthorized_client")
 SIGN_IN_FIRST = "Sign in with ChatGPT on the Settings page first."
 SIGN_IN_AGAIN = "Your ChatGPT sign-in has ended. Sign in with ChatGPT again on the Settings page."
+# A sign-in moved from the laptop to a self-hosted server (OpenAI's "Self-hosted VMs" guide).
+TRANSFER_KIND = "imageskin-chatgpt-sign-in"
+NOT_A_TRANSFER = "That file isn't a ChatGPT sign-in made by imageskin chatgpt-export."
 NO_PLAN_USE = (
     'ChatGPT wasn\'t allowed to use your plan. Click "Allow use of my plan" on the Settings page.'
 )
@@ -563,6 +566,78 @@ class ChatGptSignIn:
             "Disconnected ChatGPT", extra={"was_connected": bool(token), "revoked": revoked}
         )
         return {**self.status(), "revoked": revoked or not token}
+
+    def export_active(self, write: Callable[[dict[str, Any]], None]) -> None:
+        """The account in use's registration and tokens, to move to a self-hosted server, as
+        OpenAI's "Self-hosted VMs" guide says: sign in on your own computer, where the browser's
+        127.0.0.1 callback reaches the app, then copy that one registration over SSH. Never the
+        host ID: the server keeps its own. The tokens are then forgotten here, unrevoked, as each
+        renewal replaces the refresh token and only one copy can go on renewing; the
+        registration stays, so signing in here again makes new tokens for this computer. They are
+        only forgotten once `write` has kept the export."""
+        with self._renewing:
+            saved = self._load()
+            client_id = str(saved.get("active", ""))
+            active = self._registrations(saved).get(client_id) or {}
+            credentials = active.get("credentials") or {}
+            if not credentials.get("refresh_token") or not active.get("id_token"):
+                raise SignInError("Sign in with ChatGPT on the Settings page here first.")
+            write({"kind": TRANSFER_KIND, "registration": active})
+
+            def forget(saved: dict[str, Any]) -> dict[str, Any]:
+                registrations = self._registrations(saved)
+                registrations[client_id] = {**registrations[client_id], "credentials": None}
+                return {**saved, "registrations": list(registrations.values())}
+
+            self._update(forget)
+        plan_usage = PLAN_SCOPE in credentials.get("scopes", [])
+        logger.info("Exported the ChatGPT sign-in", extra={"plan_usage": plan_usage})
+
+    def import_registration(self, transfer: Any) -> dict[str, Any]:
+        """Saves a registration exported on the user's own computer as the account in use here,
+        beside any others, with this server's own host ID (made now if it has none). Its ID token
+        must be OpenAI's, for that client ID and account."""
+        if not isinstance(transfer, dict) or transfer.get("kind") != TRANSFER_KIND:
+            raise SignInError(NOT_A_TRANSFER)
+        registration = transfer.get("registration")
+        if not isinstance(registration, dict):
+            raise SignInError(NOT_A_TRANSFER)
+        client_id = str(registration.get("client_id", ""))
+        credentials = registration.get("credentials")
+        if (
+            not CLIENT_ID.match(client_id)
+            or not isinstance(credentials, dict)
+            or not credentials.get("refresh_token")
+        ):
+            raise SignInError(NOT_A_TRANSFER)
+        identity = verified_claims(str(registration.get("id_token", "")), self._key)
+        audience = identity.get("aud")
+        if (
+            identity.get("iss") != ISSUER
+            or client_id not in (audience if isinstance(audience, list) else [audience])
+            or not identity.get("sub")
+            or identity.get("sub") != registration.get("subject")
+        ):
+            logger.error("Imported ChatGPT sign-in didn't match OpenAI's ID token")
+            raise SignInError(NOT_A_TRANSFER)
+        self._host_id()
+
+        def add(saved: dict[str, Any]) -> dict[str, Any]:
+            registrations = self._registrations(saved)
+            others = [v for k, v in self._labels(registrations).items() if k != client_id]
+            base = str(registration.get("label") or registration.get("email") or "ChatGPT account")
+            label = base if base not in others else self._label(base, others)
+            registrations[client_id] = {**registration, "label": label}
+            return {**saved, "registrations": list(registrations.values()), "active": client_id}
+
+        with self._renewing:
+            self._update(add)
+        status = self.status()
+        logger.info(
+            "Imported the ChatGPT sign-in",
+            extra={"connected": status["connected"], "plan_usage": status["plan_usage"]},
+        )
+        return status
 
     def access_token(self, renew: bool = False) -> str:
         """The account in use's access token for its plan (R43a), renewed first when it ends

@@ -1,0 +1,61 @@
+# The hosted site (roadmap R32): the app, and Caddy in front of it for HTTPS and the password.
+# Run from this folder: docker compose up -d --build. See README.md here.
+name: imageskin
+services:
+  app:
+    build: ..
+    image: imageskin
+    restart: unless-stopped
+    # Caps, so a heavy step slows down or restarts the container instead of freezing the whole
+    # machine: Prepare with the LLM running froze a 4-core, 24 GB Oracle machine, which has no
+    # swap (Larry's test). The three caps leave about 3 GB and the SSH login to the machine.
+    mem_limit: 14g
+    cpus: 3
+    depends_on:
+      - llama
+    volumes:
+      - imageskin-data:/data
+      - ./config.toml:/etc/imageskin/config.toml:ro
+    # Not published on any port: only Caddy reaches it, with the password. Sign in with ChatGPT is done on the
+    # laptop and imported (README.md here, step 8).
+
+  # The local LLM, as on the laptop (README, "Chat with the LLM"): llama.cpp's llama-server with
+  # Gemma 3 4B, downloaded into its own volume on first start (about 2.5 GB). Half the cores, so
+  # the voice and video keep the other half (roadmap R22a). Only the app reaches it.
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    restart: unless-stopped
+    mem_limit: 6g
+    cpus: 2
+    environment:
+      LLAMA_CACHE: /models
+    volumes:
+      - llama-models:/models
+    command: >-
+      -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --host 0.0.0.0 --port 8080
+      --ctx-size 4096 --threads 2
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    mem_limit: 512m
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
+      LOGIN_NAME: ${LOGIN_NAME:?set LOGIN_NAME in .env}
+      LOGIN_PASSWORD_HASH: ${LOGIN_PASSWORD_HASH:?set LOGIN_PASSWORD_HASH in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  imageskin-data:
+  llama-models:
+  caddy-data:
+  caddy-config:

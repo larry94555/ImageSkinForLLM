@@ -1,0 +1,13 @@
+# The hosted app's settings (roadmap R32), read when the app starts: run
+# `docker compose restart app` after a change. See config.example.toml for every setting.
+
+# Listen on every address inside the container. Only Caddy reaches it, with the password
+# (deploy/README.md).
+host = "0.0.0.0"
+port = 8000
+log_level = "INFO"
+
+# The local LLM: llama-server in the llama container (compose.yaml), with Gemma 3 4B. Claude,
+# OpenAI, Grok, OpenRouter or a ChatGPT plan can be picked instead on the Settings page; with one
+# of those, raise llm_context_tokens (to 32000, say) to keep more of the conversation word for word.
+llm_url = "http://llama:8080/v1"

@@ -8,3 +8,4 @@ __pycache__/
 dist/
 app-constraints.txt
 node_modules/
+deploy/.env
