@@ -53,6 +53,19 @@ export function ChangeSetup() {
           <p className="muted">{about}</p>
         </div>
       ))}
+      <div className="switch">
+        <a
+          className="button secondary"
+          href="#/start-now"
+          onClick={() => console.info("Choosing a default person from Settings")}
+        >
+          Use a default person
+        </a>
+        <p className="muted">
+          Chat with a made-up person in a ready-made voice. Your own photos and recordings are
+          kept.
+        </p>
+      </div>
     </section>
   );
 }

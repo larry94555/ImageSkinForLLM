@@ -46,6 +46,16 @@ test("each change opens setup at its part", async () => {
   expect(console.info).toHaveBeenCalledWith("Changing the accent from Settings");
 });
 
+test("a default person can be chosen instead (R32a)", async () => {
+  server(true);
+  render(<ChangeSetup />);
+  const link = screen.getByRole("link", { name: "Use a default person" });
+  expect(link.getAttribute("href")).toBe("#/start-now");
+  await screen.findByText("The chat is open with the sample you accepted.");
+  fireEvent.click(link);
+  expect(console.info).toHaveBeenCalledWith("Choosing a default person from Settings");
+});
+
 test("a locked chat says a new sample needs accepting", async () => {
   server(false);
   render(<ChangeSetup />);

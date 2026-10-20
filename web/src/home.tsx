@@ -90,6 +90,15 @@ export function choices(done: boolean, consented: boolean, defaultPerson = false
           title: "Setup",
           text: "Change the photos, the voice recordings or the accent.",
         },
+    ...(defaultPerson
+      ? []
+      : [
+          {
+            href: "#/start-now",
+            title: "Default person",
+            text: "Chat with a made-up person in a ready-made voice instead of your own.",
+          },
+        ]),
   ];
 }
 
@@ -118,6 +127,7 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
   }, [consented]);
 
   if (state === null) return <p className="muted busy">Loading…</p>;
+  const list = choices(state.done, consented, state.defaultPerson);
   return (
     <section className="home">
       <div className="hero">
@@ -131,8 +141,9 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
           </p>
         </div>
       </div>
-      <ul className={state.done ? "choices three" : "choices two"}>
-        {choices(state.done, consented, state.defaultPerson).map((c) => (
+      {/* Three in a row; two or four in rows of two. */}
+      <ul className={list.length === 3 ? "choices three" : "choices two"}>
+        {list.map((c) => (
           <li key={c.title}>
             <a href={c.href}>
               <ChoiceIcon href={c.href} />

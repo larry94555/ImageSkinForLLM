@@ -544,7 +544,19 @@ function ChangeSetup() {
 					className: "muted",
 					children: about
 				})]
-			}, part))
+			}, part)),
+			/* @__PURE__ */ u("div", {
+				className: "switch",
+				children: [/* @__PURE__ */ u("a", {
+					className: "button secondary",
+					href: "#/start-now",
+					onClick: () => console.info("Choosing a default person from Settings"),
+					children: "Use a default person"
+				}), /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: "Chat with a made-up person in a ready-made voice. Your own photos and recordings are kept."
+				})]
+			})
 		]
 	});
 }
@@ -2900,7 +2912,12 @@ function choices(done, consented, defaultPerson = false) {
 			href: setupHref,
 			title: "Setup",
 			text: "Change the photos, the voice recordings or the accent."
-		}
+		},
+		...defaultPerson ? [] : [{
+			href: "#/start-now",
+			title: "Default person",
+			text: "Chat with a made-up person in a ready-made voice instead of your own."
+		}]
 	];
 }
 function HomePage({ consented, landing = false }) {
@@ -2924,6 +2941,7 @@ function HomePage({ consented, landing = false }) {
 		className: "muted busy",
 		children: "Loading…"
 	});
+	const list = choices(state.done, consented, state.defaultPerson);
 	return /* @__PURE__ */ u("section", {
 		className: "home",
 		children: [/* @__PURE__ */ u("div", {
@@ -2937,8 +2955,8 @@ function HomePage({ consented, landing = false }) {
 				children: state.done ? "Setup is done. Pick up where you left off." : "Make a talking video of a person from a few photos and voice recordings. The person then speaks the chatbot's replies."
 			})] })]
 		}), /* @__PURE__ */ u("ul", {
-			className: state.done ? "choices three" : "choices two",
-			children: choices(state.done, consented, state.defaultPerson).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
+			className: list.length === 3 ? "choices three" : "choices two",
+			children: list.map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
 				href: c.href,
 				children: [
 					/* @__PURE__ */ u(ChoiceIcon, { href: c.href }),
