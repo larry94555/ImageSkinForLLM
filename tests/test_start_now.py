@@ -432,6 +432,7 @@ def test_the_chat_is_locked_until_a_person_is_chosen(client: TestClient) -> None
         "percent": 0,
         "error": None,
         "chosen": None,
+        "chat_ready": False,
     }
     assert client.get("/api/review").status_code == 403  # no consent and no default person
     assert client.get("/api/start-now/picture").status_code == 404
@@ -447,15 +448,47 @@ def test_a_default_person_opens_the_chat_without_consent(client: TestClient) -> 
     status = choose(client)
     assert status["state"] == "ready" and status["chosen"] == vars(CHOICE)
     assert client.get("/api/review").json()["accepted"] is True
-    assert client.get("/api/start-now/picture").content == b"picture bytes"
+    picture = client.get("/api/start-now/picture")
+    assert picture.content == b"picture bytes" and picture.headers["cache-control"] == "no-cache"
     assert client.get("/api/start-now/lines/goodbye").content == b"mp4"
     assert client.get("/api/start-now/lines/sample").status_code == 422
     photo = client.get("/api/chat/photo").json()
-    assert photo["url"] == "/api/start-now/picture"
+    # Addresses of the person's own, so the browser can't show the person before from its cache.
+    assert photo["url"] == f"/api/start-now/picture?person={CHOICE.name}"
+    assert photo["idle"] == f"/api/chat/idle?photo={CHOICE.name}"
     reply = client.post("/api/chat", json={"prompt": "Hi"})
     assert reply.status_code == 200 and reply.json()["content"] == "Hello there"
     # The uploads still need consent.
     assert client.get("/api/uploads/photos").status_code == 403
+
+
+def test_start_now_waits_for_the_new_persons_idle_video(client: TestClient, tmp_path: Path) -> None:
+    """Larry's test of R32a: the chat opened on the person before. Ready is said only once the
+    chat would show the new one: their idle video is made, or the warm-up making it has ended."""
+    choose(client)
+    client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
+    warming = client.app.state.warm_up  # type: ignore[attr-defined]
+    warming["running"] = True  # as while a warm-up runs
+    status = client.get("/api/start-now").json()
+    assert status["state"] == "ready" and status["chat_ready"] is False  # no idle video yet
+    warming["running"] = False  # the warm-up ended, with or without one
+    assert client.get("/api/start-now").json()["chat_ready"] is True
+    warming["running"] = True
+    picture = client.app.state.start_now.picture()  # type: ignore[attr-defined]
+    idle = tmp_path / "home" / "replies" / "idle" / f"{picture.stem}.mp4"
+    idle.parent.mkdir(parents=True, exist_ok=True)
+    idle.write_bytes(b"mp4")
+    assert client.get("/api/start-now").json()["chat_ready"] is True  # made, while it runs on
+
+
+def test_the_warm_up_starts_before_ready_is_said(tmp_path: Path, pack: Path) -> None:
+    states: list[str] = []
+    people: list[sn.StartNow] = []
+    person = started(tmp_path, pack, on_ready=lambda: states.append(people[0].status().state))
+    people.append(person)
+    person.start(CHOICE)
+    person.wait(10)
+    assert states == ["getting-ready"] and person.status().state == "ready"
 
 
 def test_delete_my_data_forgets_the_default_person(client: TestClient) -> None:
@@ -604,3 +637,8 @@ def test_choosing_the_same_person_after_delete_needs_no_download(
     assert status["state"] == "ready" and status["chosen"] == vars(CHOICE)
     assert len(fetch.urls) == 1  # not downloaded again
     assert list((home / "photoreal").glob("*/library.json"))
+
+
+def test_the_packs_come_from_the_hosted_site_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(sn.URL_VARIABLE, raising=False)
+    assert sn.packs_url() == "https://app.me0.ai/default-people"

@@ -203,6 +203,7 @@ async function getChatHints() {
 		examples: Array.isArray(hints?.examples) ? hints.examples : []
 	};
 }
+var IDLE_VIDEO_URL = "/api/chat/idle";
 function pdfUrl(id) {
 	return `/api/content/${id}`;
 }
@@ -496,14 +497,23 @@ var CHANGES = [
 		about: "Keep the person's own accent or choose another one."
 	}
 ];
+function InUseMark({ shown }) {
+	return shown ? /* @__PURE__ */ u("span", {
+		className: "in-use",
+		children: "In use"
+	}) : null;
+}
 function ChangeSetup() {
 	const [accepted, setAccepted] = d(null);
+	const [inUse, setInUse] = d(null);
 	h(() => {
 		const started = performance.now();
 		getReview().then((r) => {
+			const avatar = r.default_person ? "ready-made" : "own";
 			setAccepted(r.accepted);
+			setInUse(avatar);
 			const took = Math.round(performance.now() - started);
-			console.info(`Sample accepted: ${r.accepted} (${took} ms)`);
+			console.info(`Sample accepted: ${r.accepted}, avatar in use: ${avatar} (${took} ms)`);
 		}).catch((e) => console.error("Could not get the review", e));
 	}, []);
 	return /* @__PURE__ */ u("section", {
@@ -512,39 +522,80 @@ function ChangeSetup() {
 		children: [
 			/* @__PURE__ */ u("h2", {
 				id: "settings-change",
-				children: "Photo, voice and accent"
+				children: "Avatar Choice"
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Changing any of them makes the sample video again, and the chat stays locked until you accept the new one at the end of setup."
+				children: "The person in the video: your own photo and voice, or a ready-made avatar."
 			}),
-			accepted === true && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "The chat is open with the sample you accepted."
-			}),
-			accepted === false && /* @__PURE__ */ u("p", {
-				className: "notice",
-				children: [
-					"The chat is locked until you accept a sample video in ",
-					/* @__PURE__ */ u("a", {
-						href: "#/setup",
-						children: "Setup"
-					}),
-					"."
-				]
-			}),
-			CHANGES.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
-				className: "switch",
-				children: [/* @__PURE__ */ u("a", {
-					className: "button secondary",
-					href: `#/setup/${part}`,
-					onClick: () => console.info(`Changing the ${part} from Settings`),
-					children: label
-				}), /* @__PURE__ */ u("p", {
-					className: "muted",
-					children: about
+			/* @__PURE__ */ u("div", {
+				className: "avatar-options",
+				children: [/* @__PURE__ */ u("div", {
+					className: inUse === "own" ? "avatar-option chosen" : "avatar-option",
+					children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), inUse === "ready-made" ? /* @__PURE__ */ u("div", {
+						className: "switch",
+						children: [/* @__PURE__ */ u("a", {
+							className: "button secondary",
+							href: "#/setup",
+							onClick: () => console.info("Switching to your own photo and voice from Settings"),
+							children: "Use your own photo and voice"
+						}), /* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."
+						})]
+					}) : /* @__PURE__ */ u(S, { children: [
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "Changing any of them makes the sample video again, and the chat stays locked until you accept the new one at the end of setup."
+						}),
+						accepted === true && /* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "The chat is open with the sample you accepted."
+						}),
+						accepted === false && /* @__PURE__ */ u("p", {
+							className: "notice",
+							children: [
+								"The chat is locked until you accept a sample video in ",
+								/* @__PURE__ */ u("a", {
+									href: "#/setup",
+									children: "Setup"
+								}),
+								"."
+							]
+						}),
+						CHANGES.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
+							className: "switch",
+							children: [/* @__PURE__ */ u("a", {
+								className: "button secondary",
+								href: `#/setup/${part}`,
+								onClick: () => console.info(`Changing the ${part} from Settings`),
+								children: label
+							}), /* @__PURE__ */ u("p", {
+								className: "muted",
+								children: about
+							})]
+						}, part))
+					] })]
+				}), /* @__PURE__ */ u("div", {
+					className: inUse === "ready-made" ? "avatar-option chosen" : "avatar-option",
+					children: [
+						/* @__PURE__ */ u("h3", { children: ["Ready-made avatar ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "ready-made" })] }),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "A made-up person in a ready-made voice, chosen by gender, accent, look and role. Your own photos and recordings are kept."
+						}),
+						/* @__PURE__ */ u("div", {
+							className: "switch",
+							children: /* @__PURE__ */ u("a", {
+								className: "button secondary",
+								href: "#/start-now",
+								onClick: () => console.info("Choosing a ready-made avatar from Settings"),
+								children: inUse === "ready-made" ? "Choose another avatar" : "Use a ready-made avatar"
+							})
+						})
+					]
 				})]
-			}, part))
+			})
 		]
 	});
 }
@@ -2875,7 +2926,7 @@ function choices(done, consented, defaultPerson = false) {
 	if (!done) return [{
 		href: "#/start-now",
 		title: "Start now",
-		text: "Chat at once with a made-up person in a ready-made voice."
+		text: "Chat at once with a ready-made avatar: a made-up person in a ready-made voice."
 	}, {
 		href: setupHref,
 		title: "Start setup",
@@ -2895,7 +2946,7 @@ function choices(done, consented, defaultPerson = false) {
 		defaultPerson ? {
 			href: "#/start-now",
 			title: "Setup",
-			text: "Choose another default person, or use your own photos and voice."
+			text: "Choose another ready-made avatar, or use your own photo and voice."
 		} : {
 			href: setupHref,
 			title: "Setup",
@@ -3229,6 +3280,19 @@ function SetupPage({ change }) {
 			/* @__PURE__ */ u("p", {
 				className: "lead",
 				children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it."
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "avatar-instead",
+				children: [
+					"Rather not use your own photo and voice?",
+					" ",
+					/* @__PURE__ */ u("a", {
+						href: "#/start-now",
+						onClick: () => console.info("Choosing a ready-made avatar from Setup"),
+						children: "Use a ready-made avatar instead"
+					}),
+					". Your photos and recordings are kept."
+				]
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "notice",
@@ -3831,8 +3895,12 @@ function ReviewChoices(props) {
 function ChatPage() {
 	const participant = useSettings().view === "participant";
 	const [accepted, setAccepted] = d(null);
+	const [readyMade, setReadyMade] = d(false);
 	h(() => {
-		getReview().then((r) => setAccepted(r.accepted)).catch((e) => {
+		getReview().then((r) => {
+			setAccepted(r.accepted);
+			setReadyMade(r.default_person === true);
+		}).catch((e) => {
 			console.error("Could not get the review", e);
 			setAccepted(false);
 		});
@@ -3862,17 +3930,50 @@ function ChatPage() {
 	}
 	return /* @__PURE__ */ u("div", {
 		className: "chat-page",
-		children: [/* @__PURE__ */ u("h1", {
-			className: "sr-only",
-			children: "Chat"
-		}), /* @__PURE__ */ u(Chat, {
-			welcome: returned,
-			after: asked.current,
-			onExit: (pending) => {
-				asked.current = pending;
-				setExited(true);
-			}
-		})]
+		children: [
+			/* @__PURE__ */ u("h1", {
+				className: "sr-only",
+				children: "Chat"
+			}),
+			!participant && /* @__PURE__ */ u(AvatarLinks, { readyMade }),
+			/* @__PURE__ */ u(Chat, {
+				welcome: returned,
+				after: asked.current,
+				onExit: (pending) => {
+					asked.current = pending;
+					setExited(true);
+				}
+			})
+		]
+	});
+}
+function AvatarLinks({ readyMade }) {
+	return /* @__PURE__ */ u("p", {
+		className: "avatar-links",
+		children: [/* @__PURE__ */ u("span", {
+			className: "muted",
+			children: "Avatar Choice:"
+		}), (readyMade ? [[
+			"#/start-now",
+			"Choose another avatar",
+			"another ready-made avatar"
+		], [
+			"#/setup",
+			"Use your own photo and voice",
+			"their own photo and voice"
+		]] : [[
+			"#/start-now",
+			"Use a ready-made avatar",
+			"a ready-made avatar"
+		], [
+			"#/setup/photos",
+			"Change your photo",
+			"their own photo"
+		]]).map(([href, label, what]) => /* @__PURE__ */ u("a", {
+			href,
+			onClick: () => console.info(`Choosing ${what} from the chat`),
+			children: label
+		}, href))]
 	});
 }
 var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
@@ -4036,10 +4137,12 @@ function Chat(props) {
 		};
 	}, []);
 	h(() => {
-		getChatPhoto().then(({ url, width, height }) => {
+		getChatPhoto().then(({ url, width, height, idle }) => {
+			const ratio = width && height ? width / height : null;
 			setPhoto({
 				url: url ?? null,
-				ratio: width && height ? width / height : null
+				ratio,
+				idle: idle ?? void 0
 			});
 			if (url && width && height) console.info(`Chat photo ${width}x${height}`);
 		}).catch((e) => {
@@ -4306,6 +4409,7 @@ function Chat(props) {
 		onIdle: setIdle,
 		photo: photo?.url,
 		ratio: photo?.ratio,
+		idleUrl: photo === void 0 ? null : photo.idle,
 		children: clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
 			clips,
 			onStarted: started,
@@ -4820,6 +4924,7 @@ function History$1(props) {
 }
 function Stage(props) {
 	const { idle, onIdle, photo, ratio } = props;
+	const idleUrl = props.idleUrl === void 0 ? IDLE_VIDEO_URL : props.idleUrl;
 	const [still, setStill] = d(true);
 	return /* @__PURE__ */ u("div", {
 		className: "stage",
@@ -4834,9 +4939,9 @@ function Stage(props) {
 					setStill(false);
 				}
 			}),
-			idle !== "none" && /* @__PURE__ */ u("video", {
+			idle !== "none" && idleUrl !== null && /* @__PURE__ */ u("video", {
 				className: idle === "ready" ? "idle-video" : "idle-video resting",
-				src: "/api/chat/idle",
+				src: idleUrl,
 				autoPlay: true,
 				loop: true,
 				muted: true,
@@ -5151,9 +5256,25 @@ var WORKING = [
 	"unpacking",
 	"getting-ready"
 ];
+function finishing(status) {
+	return status?.state === "ready" && status.chat_ready === false;
+}
 function progressText(status) {
-	if (status.state === "downloading") return `Downloading the person… ${status.percent}%`;
-	return "Getting the person ready…";
+	if (status.state === "downloading") return `Step 1 of 3: Downloading the avatar… ${status.percent}%`;
+	if (status.state === "unpacking") return "Step 2 of 3: Unpacking the avatar…";
+	if (status.state === "getting-ready") return "Step 2 of 3: Getting the avatar's voice ready…";
+	return "Step 3 of 3: Making the avatar's video for the chat…";
+}
+function useSeconds(on) {
+	const [seconds, setSeconds] = d(0);
+	h(() => {
+		if (!on) return;
+		const from = performance.now();
+		setSeconds(0);
+		const timer = setInterval(() => setSeconds(Math.round((performance.now() - from) / 1e3)), 1e3);
+		return () => clearInterval(timer);
+	}, [on]);
+	return seconds;
 }
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
@@ -5163,12 +5284,16 @@ function StartNowPage() {
 	h(() => {
 		getStartNow().then((s) => {
 			if (s.chosen) setChoice(s.chosen);
-			if (WORKING.includes(s.state)) setStatus(s);
+			if (WORKING.includes(s.state) || finishing(s)) setStatus(s);
 		}).catch((e) => console.error("Could not read the default person", e));
 	}, []);
-	const working = status !== null && WORKING.includes(status.state);
+	const working = status !== null && (WORKING.includes(status.state) || finishing(status));
+	const seconds = useSeconds(finishing(status));
 	h(() => {
-		if (status?.state === "ready") {
+		if (finishing(status)) console.info("Avatar ready; waiting for its idle video for the chat");
+	}, [finishing(status)]);
+	h(() => {
+		if (status?.state === "ready" && !finishing(status)) {
 			const ms = Math.round(performance.now() - started.current);
 			console.info(`Default person ${status.person} ready in ${ms} ms; opening the chat`);
 			window.location.hash = "#/chat";
@@ -5201,10 +5326,10 @@ function StartNowPage() {
 	return /* @__PURE__ */ u("section", {
 		className: "start-now panel",
 		children: [
-			/* @__PURE__ */ u("h1", { children: "Start now with a default person" }),
+			/* @__PURE__ */ u("h1", { children: "Avatar Choice: a ready-made avatar" }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Chat at once with a made-up person who speaks in a ready-made voice. You can use your own photos and voice instead later."
+				children: "Chat at once with a made-up person who speaks in a ready-made voice. You can switch to your own photo and voice at any time in Settings, under Avatar Choice."
 			}),
 			/* @__PURE__ */ u("form", {
 				onSubmit: (e) => {
@@ -5262,13 +5387,13 @@ function StartNowPage() {
 			}),
 			working && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
 				className: "busy",
-				children: progressText(status)
-			}), /* @__PURE__ */ u("progress", {
+				children: [progressText(status), finishing(status) && seconds > 0 && ` ${seconds} s`]
+			}), status.state === "downloading" ? /* @__PURE__ */ u("progress", {
 				max: 100,
 				value: status.percent,
 				"aria-label": "Downloading",
 				children: [status.percent, "%"]
-			})] }),
+			}) : /* @__PURE__ */ u("progress", { "aria-label": "Getting the avatar ready" })] }),
 			status?.state === "failed" && /* @__PURE__ */ u("p", {
 				className: "error",
 				role: "alert",

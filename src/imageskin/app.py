@@ -11,6 +11,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi import Path as PathParam
@@ -876,10 +877,21 @@ def create_app(
     @app.get("/api/start-now")
     def get_start_now() -> dict[str, object]:
         chosen = start_now.chosen()
+        status = start_now.status()
         return {
-            **asdict(start_now.status()),
+            **asdict(status),
             "chosen": None if chosen is None else asdict(chosen),
+            "chat_ready": status.state == "ready" and chat_shows_person(),
         }
+
+    def chat_shows_person() -> bool:
+        """Whether the chat would show the person chosen now: their idle video is made, or the
+        warm-up that makes it has ended (an engine that can't make one, say). Start now waits
+        for this, so the chat doesn't open on the person chosen before (Larry's test of R32a)."""
+        if not warming_up():
+            return True
+        photo = chosen_photo()
+        return photo is not None and replies.idle(photo) is not None
 
     @app.post("/api/start-now")
     def post_start_now(body: StartNowRequest, seen: DeletesSeen) -> StartStatus:
@@ -899,7 +911,8 @@ def create_app(
         picture = start_now.picture()
         if picture is None:
             raise HTTPException(status_code=404, detail="No default person is chosen.")
-        return FileResponse(picture, media_type="image/png")
+        # The same address for every person: checked each time, so a new one shows at once.
+        return FileResponse(picture, media_type="image/png", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/start-now/lines/{name}")
     def get_start_now_line(name: Literal["goodbye", "welcome-back"]) -> FileResponse:
@@ -1310,12 +1323,17 @@ def create_app(
         photo = chosen_photo()
         size = None if photo is None else shown_size(photo)
         url = f"/api/uploads/photos/{photo_id}"
-        if start_now.chosen() is not None:
-            url = "/api/start-now/picture"
+        chosen = start_now.chosen()
+        if chosen is not None:
+            # Each person gets an address of their own: a browser keeps an image it has shown
+            # for the page's life, so one address for all would show the person before.
+            url = f"/api/start-now/picture?person={chosen.name}"
         return {
             "url": None if photo is None else url,
             "width": size[0] if size else None,
             "height": size[1] if size else None,
+            # The same for the idle video, named after the photo it is made from.
+            "idle": None if photo is None else f"/api/chat/idle?photo={quote(photo.stem)}",
         }
 
     @app.post("/api/chat", dependencies=[*needs_person, Depends(require_accepted)])
@@ -1544,9 +1562,9 @@ def create_app(
             clips.follow(n, path, CLIP_FOLLOW_S), media_type="video/mp4", headers=headers
         )
 
-    def warm_up_replies() -> None:
-        # Only once a sample is accepted: before that the chat is locked and Prepare loads them.
-        # Run at the start, and again when a sample is accepted.
+    def warm_up_replies() -> Path | None:
+        """The photo warmed up for. Only once a sample is accepted: before that the chat is
+        locked and Prepare loads them. Run at the start, and again when a sample is accepted."""
         photo = chosen_photo()
         if photo is not None and accepted():
             logger.info("Warming up replies")
@@ -1556,19 +1574,52 @@ def create_app(
             llm.start()
             replies.warm_up(photo)
             llm.join()
+        return photo
 
-    warm_up_lock = threading.Lock()  # guards app.state.reply_warm_up, the warm-up's thread
+    # Whether a warm-up worker still has work to do, and whether one was asked for meanwhile:
+    # both only read and changed under warm_up_lock. The worker gives up the work under the lock
+    # in the same step as it decides to stop, so a request after that starts a worker of its
+    # own, even while the old thread is still ending (review on PR #122).
+    warm_up_lock = threading.Lock()  # also guards app.state.reply_warm_up
+    warm_up = {"running": False, "again": False}
+
+    app.state.warm_up = warm_up
+
+    def warm_up_until_current() -> None:
+        while True:
+            try:
+                photo = warm_up_replies()
+            except Exception:
+                # Never left running: Start now waits on it before opening the chat.
+                logger.exception("Could not warm up replies")
+                photo = None
+            with warm_up_lock:
+                again = warm_up["again"] and chosen_photo() != photo
+                warm_up["again"] = False
+                if not again:
+                    warm_up["running"] = False
+                    break
+            logger.info("Warming up replies again for the person chosen meanwhile")
+        logger.info("Reply warm-up done")
+
+    def warming_up() -> bool:
+        """Whether replies are being warmed up for the person chosen now."""
+        with warm_up_lock:
+            return warm_up["running"]
 
     def start_reply_warm_up() -> None:
-        """Warm up replies on a thread of their own, unless a warm-up is still under way: that
-        one is kept as the thread prompts wait for, so a second accept (or a reject and an
-        accept again) while it runs doesn't put a thread that does nothing in its place."""
+        """Warm up replies on a thread of their own. While a warm-up is under way, that thread
+        is kept, as the one prompts wait for, so a second accept doesn't put a thread that does
+        nothing in its place; if the person changed meanwhile (a default person chosen while
+        the last one's warm-up ran, Larry's test of R32a), it runs once more for the new one,
+        so they get their own idle video."""
         with warm_up_lock:
-            current = getattr(app.state, "reply_warm_up", None)
-            if current is not None and current.is_alive():
+            if warm_up["running"]:
+                warm_up["again"] = True
                 return
+            warm_up["running"] = True
             app.state.reply_warm_up = threading.Thread(
-                target=warm_up_replies, name="reply-warm-up", daemon=True
+                target=warm_up_until_current, name="reply-warm-up", daemon=True
             )
             app.state.reply_warm_up.start()
 

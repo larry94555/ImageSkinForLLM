@@ -81,10 +81,11 @@ set in `SECOND_FACES`. Every one of the 60 pictures was looked at and `looks_sho
 shows; every group of 15 meets every count. The 60 thumbnails are 456 KB in all and ship in
 `web/public/default-people/`.
 
-**Where the packs are hosted:** as assets of a GitHub release of this repository (planned name
-`default-people-1`). Downloading them needs no sign-in and costs nothing, a release asset may
-be up to 2 GB, and they are kept out of the repository's history. R24c uploads them and
-downloads one when it is chosen.
+**Where the packs are hosted:** on the hosted site (R32a), at `https://<site>/default-people/<name>.zip`,
+served by Caddy without the site's password, since they are made-up people and Start now on any
+computer downloads them. The app's default address is `https://app.me0.ai/default-people`
+(`HOSTED_URL` in `src/imageskin/start_now.py`); `IMAGESKIN_DEFAULT_PEOPLE_URL` changes it. They
+were first planned as assets of a GitHub release, which a cloud session can't make.
 
 ## Run it
 
@@ -120,35 +121,57 @@ before preparing, since both at once ran out of 16 GB of memory in R24a. A run p
 earlier one stopped: packed people are kept, and pictures already made with the same prompt are
 checked rather than made again. `--again` starts over; `--only <name> ...` runs some people.
 
-## Uploading the packs (R24c)
+## Uploading the packs to the hosted site (R32a)
 
-The app downloads each person's pack from the assets of this repository's GitHub release
-`default-people-v1` (`RELEASE_URL` in `src/imageskin/start_now.py`), and checks each download
-against its size and SHA-256 in `src/imageskin/default_people_packs.json`. After making packs
-again, update that file, then upload all 60 packs to the release, replacing the old ones. With
-the [GitHub CLI](https://cli.github.com), from the folder that holds the packs:
+The app downloads each person's pack from the hosted site and checks it against its size and
+SHA-256 in `src/imageskin/default_people_packs.json`. Caddy serves the `.zip` files in
+`deploy/default-people` on the server (`deploy/compose.yaml`); the folder isn't in git. After
+making packs again, update that file, then copy all 60 packs there again.
 
-macOS / Linux:
-```
-gh release create default-people-v1 --repo larry94555/ImageSkinForLLM --title "Default people v1" --notes "The 60 default people (R24b, R24b2)." --latest=false
-gh release upload default-people-v1 --repo larry94555/ImageSkinForLLM --clobber *.zip
-```
+1. On the server (connected as in `deploy/README.md`, step 4), make the folder, and update the
+   site so Caddy serves it:
 
-Windows 11, Command Prompt:
-```
-gh release create default-people-v1 --repo larry94555/ImageSkinForLLM --title "Default people v1" --notes "The 60 default people (R24b, R24b2)." --latest=false
-for %f in (*.zip) do gh release upload default-people-v1 --repo larry94555/ImageSkinForLLM --clobber "%f"
-```
+   ```
+   cd ~/ImageSkinForLLM/deploy
+   git pull
+   mkdir -p default-people
+   sudo chown ubuntu:ubuntu default-people
+   docker compose up -d --build
+   ```
 
-Windows 11, PowerShell:
-```
-gh release create default-people-v1 --repo larry94555/ImageSkinForLLM --title "Default people v1" --notes "The 60 default people (R24b, R24b2)." --latest=false
-gh release upload default-people-v1 --repo larry94555/ImageSkinForLLM --clobber (Get-ChildItem *.zip).Name
-```
+2. On your laptop, from the folder that holds the 60 packs, copy them over (replace
+   `129.146.1.2` with your machine's IP, as in step 4 of `deploy/README.md`). About 1.5 GB.
 
-`gh release create` is needed only the first time. Without the GitHub CLI, open the repository's
-Releases page, click **Draft a new release**, name the tag `default-people-v1`, drag in the 60
-packs and publish it.
+   macOS / Linux:
+   ```
+   scp -i ~/.ssh/oracle.key *.zip ubuntu@129.146.1.2:ImageSkinForLLM/deploy/default-people/
+   ```
+
+   Windows 11, Command Prompt:
+   ```
+   for %f in (*.zip) do scp -i "%USERPROFILE%\.ssh\oracle.key" "%f" ubuntu@129.146.1.2:ImageSkinForLLM/deploy/default-people/
+   ```
+
+   Windows 11, PowerShell:
+   ```
+   scp -i "$env:USERPROFILE\.ssh\oracle.key" (Get-ChildItem *.zip).Name ubuntu@129.146.1.2:ImageSkinForLLM/deploy/default-people/
+   ```
+
+3. Check every pack from the real address, on your laptop with the app installed. Leave out
+   `--url` when the site is `app.me0.ai`; otherwise give your `SITE_ADDRESS`. The command is the
+   same on every platform:
+
+   ```
+   imageskin check-packs --url https://129-146-1-2.sslip.io/default-people
+   ```
+
+   It prints a line for each pack and ends with `60 of 60 packs match`. A pack that is missing
+   or differs is printed as `WRONG <name>: ...` and the command exits with 1; copy that pack
+   again. The packs need no password: `https://<site>/default-people/animated_female_boss.zip`
+   downloads in a browser, while the rest of the site still asks for it.
+
+The hosted app gets the packs from Caddy inside Docker (`http://caddy:8090`), so Start now on the
+hosted site works without reaching its own public address.
 
 ### Trying Start now before the packs are uploaded
 

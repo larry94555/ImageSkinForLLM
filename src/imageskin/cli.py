@@ -150,6 +150,13 @@ def build_parser() -> argparse.ArgumentParser:
         "chatgpt-import", help="use a ChatGPT sign-in from imageskin chatgpt-export here"
     )
     imported.add_argument("file", help="the exported file, or - to read it from standard input")
+    check_packs = commands.add_parser(
+        "check-packs",
+        help="download every default person's pack from the hosted site and check it",
+    )
+    check_packs.add_argument(
+        "--url", help="where the packs are, if not the hosted site (such as http://127.0.0.1:9100)"
+    )
     lookup = commands.add_parser(
         "lookup",
         help="print the wiki entries and PDF passages found for questions, with the time taken",
@@ -370,6 +377,23 @@ def serve(settings: Settings) -> None:
         pass
 
 
+def print_pack_checks(url: str | None) -> int:
+    """Check every hosted pack (roadmap R32a), printing a line for each; 1 if any is wrong."""
+    from imageskin.hosted_packs import check_all, line
+    from imageskin.start_now import load_packs, packs_url
+
+    base_url = url or packs_url()
+    print(f"Checking the default people at {base_url}")
+    checks = check_all(base_url, load_packs(), report=lambda check: print(line(check), flush=True))
+    wrong = [c for c in checks if c.problem]
+    seconds = sum(c.seconds for c in checks)
+    total = sum(c.bytes for c in checks) / (1024 * 1024)
+    print(
+        f"{len(checks) - len(wrong)} of {len(checks)} packs match ({total:.0f} MB, {seconds:.0f} s)"
+    )
+    return 1 if wrong else 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     # Hugging Face's Xet transfer crawled on Larry's Windows laptop (GitHub PR #8) while plain
     # HTTP downloads were steady; this must be set before any model library loads. Windows
@@ -414,6 +438,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return chatgpt_export(args.output)
     if args.command == "chatgpt-import":
         return chatgpt_import(args.file)
+    if args.command == "check-packs":
+        return print_pack_checks(args.url)
     if args.command == "lookup":
         return print_lookups(args.questions, args.wiki, args.pdf)
     if args.command == "prepare":

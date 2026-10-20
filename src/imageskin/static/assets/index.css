@@ -287,6 +287,7 @@ button.secondary {
 /* The chat (roadmap R41d): the person in a calm frame, the conversation beside them on a wide */
 /* screen and under them on a narrow one, one status line, and the question box with Send. */
 main:has(.chat-page) { max-width: 1120px; margin-top: 16px; }
+.avatar-links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 8px; }
 .chat { display: grid; gap: 16px; }
 .person, .talk { display: grid; gap: 12px; align-content: start; min-width: 0; }
 /* The person stays in view below the top bar, which sticks too (review on PR #83): on a narrow */
@@ -575,6 +576,13 @@ form.wiki-edit input, form.wiki-edit textarea {
 .settings-page label.choice { font-weight: normal; align-items: flex-start; margin: 6px 0; }
 .settings-page label.choice input { margin-top: 4px; }
 .settings-page .switch { margin-top: 14px; }
+/* Avatar Choice: the user's own photo and voice beside a ready-made avatar. */
+.avatar-options { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-top: 12px; }
+.avatar-option { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--card); }
+.avatar-option.chosen { border-color: var(--accent); background: var(--accent-soft); }
+.avatar-option h3 { margin: 0 0 6px; font-size: 1em; display: flex; align-items: center; gap: 8px; }
+.avatar-option .in-use { font-size: 0.75em; font-weight: 600; color: var(--accent-ink); background: var(--card); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; }
+.settings-page .avatar-option .switch p { margin-left: 0; }
 .settings-page .switch p { margin: 4px 0 0 26px; font-size: 0.9em; }
 .settings-page .panel > p.muted { margin: 0; }
 .settings-page h3 { margin: 16px 0 0; font-size: 1rem; }

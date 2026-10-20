@@ -151,6 +151,17 @@ export function SetupPage({ change }: { change?: SetupPart }) {
         Make the talking person in four steps: add photos, add voice recordings, choose an
         accent, then prepare a sample video and check it.
       </p>
+      {/* Avatar Choice (Larry's test of R32a): the ready-made avatars are a click away. */}
+      <p className="avatar-instead">
+        Rather not use your own photo and voice?{" "}
+        <a
+          href="#/start-now"
+          onClick={() => console.info("Choosing a ready-made avatar from Setup")}
+        >
+          Use a ready-made avatar instead
+        </a>
+        . Your photos and recordings are kept.
+      </p>
       <p className="notice">
         New to this? The <a href="#/guide">recording guide</a> walks you step by step through
         taking the photos and making the voice recordings on a Windows or Mac laptop.
@@ -739,9 +750,13 @@ export function ChatPage() {
   const participant = useSettings().view === "participant"; // setup is the host's (R41b)
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
+  const [readyMade, setReadyMade] = useState(false); // a ready-made avatar, not their own
   useEffect(() => {
     getReview()
-      .then((r) => setAccepted(r.accepted))
+      .then((r) => {
+        setAccepted(r.accepted);
+        setReadyMade(r.default_person === true);
+      })
       .catch((e: unknown) => {
         console.error("Could not get the review", e);
         setAccepted(false);
@@ -788,6 +803,7 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       <h1 className="sr-only">Chat</h1>
+      {!participant && <AvatarLinks readyMade={readyMade} />}
       <Chat
         welcome={returned}
         after={asked.current}
@@ -797,6 +813,30 @@ export function ChatPage() {
         }}
       />
     </div>
+  );
+}
+
+// Avatar Choice from the chat (Larry's test of R32a): another ready-made avatar, or the host's own
+// photo and voice, without going through Settings. The participant view has neither (R41b).
+function AvatarLinks({ readyMade }: { readyMade: boolean }) {
+  const links: [string, string, string][] = readyMade
+    ? [
+        ["#/start-now", "Choose another avatar", "another ready-made avatar"],
+        ["#/setup", "Use your own photo and voice", "their own photo and voice"],
+      ]
+    : [
+        ["#/start-now", "Use a ready-made avatar", "a ready-made avatar"],
+        ["#/setup/photos", "Change your photo", "their own photo"],
+      ];
+  return (
+    <p className="avatar-links">
+      <span className="muted">Avatar Choice:</span>
+      {links.map(([href, label, what]) => (
+        <a key={href} href={href} onClick={() => console.info(`Choosing ${what} from the chat`)}>
+          {label}
+        </a>
+      ))}
+    </p>
   );
 }
 
@@ -987,7 +1027,11 @@ function Chat(props: {
   const [idle, setIdle] = useState<Idle>("loading"); // the idle video (roadmap R23)
   // The photo, shown until the idle video plays, and its shape, which the person's frame takes
   // from its first drawing (R41d); undefined until the server has answered.
-  const [photo, setPhoto] = useState<{ url: string | null; ratio: number | null }>();
+  const [photo, setPhoto] = useState<{
+    url: string | null;
+    ratio: number | null;
+    idle?: string;
+  }>();
   // Between sending a prompt and the person starting to speak, unless the reply has nothing
   // to say aloud, couldn't be spoken, or was stopped (R41d).
   const [waiting, setWaiting] = useState(false);
@@ -1027,8 +1071,9 @@ function Chat(props: {
   }, []);
   useEffect(() => {
     getChatPhoto()
-      .then(({ url, width, height }) => {
-        setPhoto({ url: url ?? null, ratio: width && height ? width / height : null });
+      .then(({ url, width, height, idle }) => {
+        const ratio = width && height ? width / height : null;
+        setPhoto({ url: url ?? null, ratio, idle: idle ?? undefined });
         if (url && width && height) console.info(`Chat photo ${width}x${height}`);
       })
       .catch((e: unknown) => {
@@ -1319,7 +1364,13 @@ function Chat(props: {
   // Something to stop: a reply still being made, or a clip that hasn't finished playing.
   const stoppable = !halted && (speaking || times.some((t) => t.ended === null));
   const stage = (
-    <Stage idle={idle} onIdle={setIdle} photo={photo?.url} ratio={photo?.ratio}>
+    <Stage
+      idle={idle}
+      onIdle={setIdle}
+      photo={photo?.url}
+      ratio={photo?.ratio}
+      idleUrl={photo === undefined ? null : photo.idle}
+    >
       {clips.length > 0 && (
         <ClipPlayer
           clips={clips}
@@ -1877,9 +1928,13 @@ export function Stage(props: {
   // The photo's width over its height. The videos are made from it, so the stage takes its
   // shape and has no empty bands beside or above the person (R41d); a 4:3 box without it.
   ratio?: number | null;
+  // The idle video's address for the photo; null until it is known, so the person before's
+  // isn't fetched first (Larry's test of R32a). IDLE_VIDEO_URL when not given.
+  idleUrl?: string | null;
   children?: ComponentChildren;
 }) {
   const { idle, onIdle, photo, ratio } = props;
+  const idleUrl = props.idleUrl === undefined ? IDLE_VIDEO_URL : props.idleUrl;
   const [still, setStill] = useState(true); // the photo loaded, or is loading
   return (
     <div className="stage" style={ratio ? { "--ratio": String(ratio) } : undefined}>
@@ -1894,10 +1949,10 @@ export function Stage(props: {
           }}
         />
       )}
-      {idle !== "none" && (
+      {idle !== "none" && idleUrl !== null && (
         <video
           className={idle === "ready" ? "idle-video" : "idle-video resting"}
-          src={IDLE_VIDEO_URL}
+          src={idleUrl}
           autoPlay
           loop
           muted

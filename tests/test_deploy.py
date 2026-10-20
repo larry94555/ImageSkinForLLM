@@ -90,3 +90,22 @@ def test_the_containers_leave_room_for_the_machine() -> None:
     gigabytes = sum(int(n) / (1 if unit == "g" else 1024) for n, unit in limits)
     assert len(limits) == 3
     assert gigabytes <= 21
+
+
+def test_the_default_people_are_served_without_the_password() -> None:
+    # Start now on any computer downloads them (roadmap R32a); only the app is behind basic_auth.
+    caddyfile = text(DEPLOY / "Caddyfile")
+    site = caddyfile.split("\n:8090")[0]
+    assert site.index("handle_path /default-people/*") < site.index("basic_auth")
+    assert site.count("root * /srv/default-people") == 1
+    compose = text(DEPLOY / "compose.yaml")
+    assert "./default-people:/srv/default-people:ro" in compose
+    assert "deploy/default-people/" in text(ROOT / ".gitignore").splitlines()  # not committed
+
+
+def test_the_hosted_app_gets_the_packs_from_caddy_inside_docker() -> None:
+    compose = text(DEPLOY / "compose.yaml")
+    assert "IMAGESKIN_DEFAULT_PEOPLE_URL: http://caddy:8090" in compose
+    caddy = compose.split("\n  caddy:")[1]
+    assert "8090" not in caddy  # not published outside Docker
+    assert "\n:8090 {" in text(DEPLOY / "Caddyfile")

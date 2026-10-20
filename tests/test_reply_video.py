@@ -863,6 +863,110 @@ def test_replies_are_warmed_up_when_the_sample_is_accepted(tmp_path: Path) -> No
     assert rendered == ["Hello."]
 
 
+def test_a_change_of_person_during_a_warm_up_is_warmed_up_after_it(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry's test of R32a: a default person chosen while the last one's warm-up still ran kept
+    the last one's idle video, as the second warm-up was dropped."""
+    warming, finish = threading.Event(), threading.Event()
+    photos: list[str] = []
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        photos.append(photo.name)
+        warming.set()
+        finish.wait(5)
+
+    client = video_app(tmp_path, render)
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    assert warming.wait(5)
+    first = client.app.state.reply_warm_up  # type: ignore[attr-defined]
+    other = client.post("/api/uploads/photos", files={"file": ("other.jpg", JPG)}).json()
+    done = PrepareStatus("done", photo_id=other["id"])
+    with caplog.at_level(logging.INFO), patch.object(PrepareJob, "status", return_value=done):
+        assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+        # Prompts still wait for the same thread.
+        assert client.app.state.reply_warm_up is first  # type: ignore[attr-defined]
+        finish.set()
+        first.join(5)
+    assert len(photos) == 2 and photos[0] != photos[1]  # again, for the new photo
+    assert "Warming up replies again for the person chosen meanwhile" in caplog.messages
+
+
+class HoldAt(logging.Handler):
+    """Holds the thread that logs `message` until the test lets it go, after telling the test."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__()
+        self.message, self.reached, self.go = message, threading.Event(), threading.Event()
+
+    # handle(), not emit(): emit runs under the handler's lock, which would hold every other
+    # thread's log lines too.
+    def handle(self, record: logging.LogRecord) -> bool:
+        if record.getMessage() == self.message and not self.reached.is_set():
+            self.reached.set()
+            self.go.wait(5)
+        return True
+
+    def emit(self, record: logging.LogRecord) -> None:
+        pass
+
+
+def test_a_person_chosen_as_the_last_warm_up_ends_gets_a_warm_up_of_their_own(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #122: a person chosen after the worker decided to stop, while its thread was
+    still ending, was neither warmed up by it nor by a new one."""
+    photos: list[str] = []
+    client = video_app(tmp_path, lambda photo, text, output: photos.append(photo.name))
+    hold = HoldAt("Reply warm-up done")
+    caplog.set_level(logging.INFO, logger="imageskin.app")
+    logging.getLogger("imageskin.app").addHandler(hold)
+    try:
+        assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+        assert hold.reached.wait(5)  # stopped, but its thread still alive
+        first = client.app.state.reply_warm_up  # type: ignore[attr-defined]
+        assert first.is_alive()
+        other = client.post("/api/uploads/photos", files={"file": ("other.jpg", JPG)}).json()
+        done = PrepareStatus("done", photo_id=other["id"])
+        with patch.object(PrepareJob, "status", return_value=done):
+            assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+            second = client.app.state.reply_warm_up  # type: ignore[attr-defined]
+            assert second is not first  # a worker of its own
+            hold.go.set()
+            second.join(5)
+            first.join(5)
+    finally:
+        logging.getLogger("imageskin.app").removeHandler(hold)
+    assert len(photos) == 2 and photos[0] != photos[1]
+
+
+def test_two_quick_changes_warm_up_only_the_last_person_once_more(tmp_path: Path) -> None:
+    """A to B to C during A's warm-up: C is warmed up once after it, B never."""
+    warming, finish = threading.Event(), threading.Event()
+    photos: list[str] = []
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        photos.append(photo.name)
+        warming.set()
+        finish.wait(5)
+
+    client = video_app(tmp_path, render)
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    assert warming.wait(5)
+    first = client.app.state.reply_warm_up  # type: ignore[attr-defined]
+    for name in ("b.jpg", "c.jpg"):
+        chosen = client.post("/api/uploads/photos", files={"file": (name, JPG)}).json()
+        done = PrepareStatus("done", photo_id=chosen["id"])
+        patch.object(PrepareJob, "status", return_value=done).start()
+        assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    c_photo = UploadStore(tmp_path).path("photos", chosen["id"])
+    assert c_photo is not None
+    finish.set()
+    first.join(5)
+    assert client.app.state.reply_warm_up is first  # type: ignore[attr-defined]
+    assert len(photos) == 2 and photos[1] == c_photo.name
+
+
 def test_the_api_serves_the_idle_video_once_the_warm_up_made_it(tmp_path: Path) -> None:
     made: list[str] = []
     client = video_app(tmp_path, None, steps=idle_steps(made))
@@ -1463,6 +1567,7 @@ def test_the_chat_is_told_the_photo_and_its_shown_size(tmp_path: Path) -> None:
         "url": f"/api/uploads/photos/{photo_id}",
         "width": 1280,
         "height": 720,
+        "idle": f"/api/chat/idle?photo={path.stem}",
     }
 
 
@@ -1475,7 +1580,12 @@ def test_the_chat_photo_without_a_readable_size_or_a_photo(
     assert answer["width"] is None and answer["height"] is None
     assert "Could not read the photo's size" in caplog.text
     patch.object(PrepareJob, "status", return_value=PrepareStatus("idle")).start()
-    assert client.get("/api/chat/photo").json() == {"url": None, "width": None, "height": None}
+    assert client.get("/api/chat/photo").json() == {
+        "url": None,
+        "width": None,
+        "height": None,
+        "idle": None,
+    }
 
 
 def test_holding_the_engines_waits_for_a_reply_and_readies_the_voice(tmp_path: Path) -> None:

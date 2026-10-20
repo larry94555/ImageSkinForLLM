@@ -59,7 +59,7 @@ export function choices(done: boolean, consented: boolean, defaultPerson = false
       {
         href: "#/start-now",
         title: "Start now",
-        text: "Chat at once with a made-up person in a ready-made voice.",
+        text: "Chat at once with a ready-made avatar: a made-up person in a ready-made voice.",
       },
       {
         href: setupHref,
@@ -83,7 +83,7 @@ export function choices(done: boolean, consented: boolean, defaultPerson = false
       ? {
           href: "#/start-now",
           title: "Setup",
-          text: "Choose another default person, or use your own photos and voice.",
+          text: "Choose another ready-made avatar, or use your own photo and voice.",
         }
       : {
           href: setupHref,

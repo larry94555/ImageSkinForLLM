@@ -9,3 +9,4 @@ dist/
 app-constraints.txt
 node_modules/
 deploy/.env
+deploy/default-people/

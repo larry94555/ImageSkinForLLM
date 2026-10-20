@@ -223,6 +223,7 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 | Change the app's settings (`config.toml` here) | edit it, then `docker compose restart app` |
 | See the app's log | `docker compose logs -f app` (Ctrl+C stops watching) |
 | Stop the site | `docker compose down` (the data is kept) |
+| Host the default people for Start now | copy the packs to `default-people` here, as [tools/default_people/README.md](../tools/default_people/README.md#uploading-the-packs-to-the-hosted-site-r32a) says |
 | Back up the data | `docker run --rm -v imageskin_imageskin-data:/data -v "$PWD":/backup ubuntu tar czf /backup/imageskin-data.tgz -C /data .` |
 
 Ctrl+C on a `docker compose logs -f` only stops showing the log: the site keeps running in the background, since `up -d` started it that way. Only `docker compose down` or `stop` takes it down.
