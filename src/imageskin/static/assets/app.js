@@ -377,6 +377,81 @@ async function signOutChatGpt() {
 	return json(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
 }
 //#endregion
+//#region src/confirm-dialog.tsx
+function ConfirmDialog(props) {
+	const { onCancel } = props;
+	const keep = A(null);
+	const cancel = A(onCancel);
+	cancel.current = onCancel;
+	h(() => {
+		keep.current?.focus();
+		const onKey = (e) => {
+			if (e.key === "Escape") cancel.current();
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, []);
+	return /* @__PURE__ */ u("div", {
+		className: "confirm-backdrop",
+		onClick: (e) => e.target === e.currentTarget && onCancel(),
+		children: /* @__PURE__ */ u("div", {
+			className: "confirm-dialog",
+			role: "alertdialog",
+			"aria-modal": "true",
+			"aria-labelledby": "confirm-title",
+			"aria-describedby": props.children ? "confirm-about" : void 0,
+			children: [
+				/* @__PURE__ */ u("h2", {
+					id: "confirm-title",
+					children: props.title
+				}),
+				props.children && /* @__PURE__ */ u("div", {
+					id: "confirm-about",
+					children: props.children
+				}),
+				/* @__PURE__ */ u("div", {
+					className: "confirm-buttons",
+					children: [/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						ref: keep,
+						onClick: onCancel,
+						children: props.keepLabel
+					}), /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "danger",
+						onClick: props.onConfirm,
+						children: props.confirmLabel
+					})]
+				})
+			]
+		})
+	});
+}
+function useConfirm() {
+	const [asking, setAsking] = d(null);
+	function ask(question) {
+		return new Promise((resolve) => {
+			setAsking({
+				question,
+				answer: (yes) => {
+					console.info(`${question.title} ${yes ? "confirmed" : "cancelled"}`);
+					setAsking(null);
+					resolve(yes);
+				}
+			});
+		});
+	}
+	return {
+		ask,
+		dialog: asking && /* @__PURE__ */ u(ConfirmDialog, {
+			...asking.question,
+			onCancel: () => asking.answer(false),
+			onConfirm: () => asking.answer(true)
+		})
+	};
+}
+//#endregion
 //#region src/change-setup.tsx
 var CHANGES = [
 	{
@@ -670,69 +745,26 @@ function DeleteData({ onDeleted }) {
 					})
 				]
 			}),
-			asking && /* @__PURE__ */ u(ConfirmDelete, {
+			asking && /* @__PURE__ */ u(ConfirmDialog, {
+				title: "Are you sure you want to delete all your data?",
+				keepLabel: "No, keep my data",
+				confirmLabel: "Yes, delete everything",
 				onCancel: cancel,
-				onConfirm: remove
+				onConfirm: remove,
+				children: [
+					/* @__PURE__ */ u("p", { children: "This deletes all of it:" }),
+					/* @__PURE__ */ u("ul", {
+						className: "deleted",
+						children: DELETED.map((item) => /* @__PURE__ */ u("li", { children: item }, item))
+					}),
+					/* @__PURE__ */ u("p", { children: "Setup then starts again from the beginning. Your PDFs and settings are kept." }),
+					/* @__PURE__ */ u("p", {
+						className: "warning",
+						children: "This can't be undone."
+					})
+				]
 			})
 		]
-	});
-}
-function ConfirmDelete({ onCancel, onConfirm }) {
-	const keep = A(null);
-	h(() => {
-		keep.current?.focus();
-		const onKey = (e) => {
-			if (e.key === "Escape") onCancel();
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onCancel]);
-	return /* @__PURE__ */ u("div", {
-		className: "confirm-backdrop",
-		onClick: (e) => e.target === e.currentTarget && onCancel(),
-		children: /* @__PURE__ */ u("div", {
-			className: "confirm-dialog",
-			role: "alertdialog",
-			"aria-modal": "true",
-			"aria-labelledby": "confirm-delete-title",
-			"aria-describedby": "confirm-delete-about",
-			children: [
-				/* @__PURE__ */ u("h2", {
-					id: "confirm-delete-title",
-					children: "Are you sure you want to delete all your data?"
-				}),
-				/* @__PURE__ */ u("div", {
-					id: "confirm-delete-about",
-					children: [
-						/* @__PURE__ */ u("p", { children: "This deletes all of it:" }),
-						/* @__PURE__ */ u("ul", {
-							className: "deleted",
-							children: DELETED.map((item) => /* @__PURE__ */ u("li", { children: item }, item))
-						}),
-						/* @__PURE__ */ u("p", { children: "Setup then starts again from the beginning. Your PDFs and settings are kept." }),
-						/* @__PURE__ */ u("p", {
-							className: "warning",
-							children: "This can't be undone."
-						})
-					]
-				}),
-				/* @__PURE__ */ u("div", {
-					className: "confirm-buttons",
-					children: [/* @__PURE__ */ u("button", {
-						type: "button",
-						className: "secondary",
-						ref: keep,
-						onClick: onCancel,
-						children: "No, keep my data"
-					}), /* @__PURE__ */ u("button", {
-						type: "button",
-						className: "danger",
-						onClick: onConfirm,
-						children: "Yes, delete everything"
-					})]
-				})
-			]
-		})
 	});
 }
 //#endregion
@@ -968,6 +1000,7 @@ function VideoAndChat() {
 	const [clearing, setClearing] = d(false);
 	const [cleared, setCleared] = d(false);
 	const [clearFailed, setClearFailed] = d(null);
+	const { ask, dialog } = useConfirm();
 	async function runAgain() {
 		setRunning(true);
 		setVideo(null);
@@ -984,7 +1017,15 @@ function VideoAndChat() {
 		setRunning(false);
 	}
 	async function clear() {
-		if (!window.confirm("Clear the whole conversation? This can't be undone.")) {
+		if (!await ask({
+			title: "Clear the whole conversation?",
+			children: /* @__PURE__ */ u("p", {
+				className: "warning",
+				children: "This can't be undone."
+			}),
+			keepLabel: "No, keep it",
+			confirmLabel: "Yes, clear it"
+		})) {
 			console.info("Clear conversation cancelled");
 			return;
 		}
@@ -1068,7 +1109,8 @@ function VideoAndChat() {
 						children: clearFailed
 					})
 				]
-			})
+			}),
+			dialog
 		]
 	});
 }
@@ -1537,6 +1579,7 @@ function SettingsPage({ back, onDataDeleted }) {
 var READING_POLL_MS = 1e3;
 function ContentPage() {
 	const [pdfs, setPdfs] = d(null);
+	const { ask, dialog } = useConfirm();
 	const [loadFailed, setLoadFailed] = d(false);
 	const [sending, setSending] = d(null);
 	const [refused, setRefused] = d([]);
@@ -1632,7 +1675,12 @@ function ContentPage() {
 		setDone(`Replaced ${old.name} with ${pdf.name}. ${NEXT}`);
 	}
 	async function remove(pdf) {
-		if (!window.confirm(`Remove ${pdf.name}? Its wiki is removed too.`)) return;
+		if (!await ask({
+			title: `Remove ${pdf.name}?`,
+			children: /* @__PURE__ */ u("p", { children: "Its wiki pages are removed too." }),
+			keepLabel: "No, keep it",
+			confirmLabel: "Yes, remove it"
+		})) return;
 		setRefused([]);
 		setDone(null);
 		try {
@@ -1661,7 +1709,8 @@ function ContentPage() {
 						href: wikiHref(),
 						children: "wiki"
 					}),
-					" you can check. Replace a PDF when it has a newer version, or remove it when it no longer applies."
+					" ",
+					"you can check. Replace a PDF when it has a newer version, or remove it when it no longer applies."
 				]
 			}),
 			/* @__PURE__ */ u("label", {
@@ -1745,7 +1794,8 @@ function ContentPage() {
 						})]
 					})
 				] }, pdf.id))
-			})
+			}),
+			dialog
 		]
 	});
 }
@@ -1794,8 +1844,7 @@ function WikiLine({ id, build }) {
 		className: "muted",
 		children: [
 			wikiText(build, metrics),
-			" ·",
-			" ",
+			" · ",
 			/* @__PURE__ */ u("a", {
 				href: wikiHref(id),
 				children: "Read the wiki"
@@ -3214,6 +3263,7 @@ function UploadSection(props) {
 	const [items, setItems] = d(null);
 	const [loadFailed, setLoadFailed] = d(false);
 	const [sending, setSending] = d(null);
+	const { ask, dialog } = useConfirm();
 	const [refused, setRefused] = d([]);
 	const [toCheck, setToCheck] = d([]);
 	const [soundChanges, setSoundChanges] = d(0);
@@ -3310,7 +3360,11 @@ function UploadSection(props) {
 		setSending(null);
 	}
 	async function remove(item) {
-		if (!window.confirm(`Remove ${item.name}?`)) return;
+		if (!await ask({
+			title: `Remove ${item.name}?`,
+			keepLabel: "No, keep it",
+			confirmLabel: "Yes, remove it"
+		})) return;
 		try {
 			await removeUpload(kind, item.id);
 			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
@@ -3420,7 +3474,8 @@ function UploadSection(props) {
 					]
 				}, item.id))
 			}),
-			kind === "sounds" && /* @__PURE__ */ u(VoiceSampleView, { changes: soundChanges })
+			kind === "sounds" && /* @__PURE__ */ u(VoiceSampleView, { changes: soundChanges }),
+			dialog
 		]
 	});
 }
