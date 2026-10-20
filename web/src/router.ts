@@ -24,7 +24,7 @@ const PAGES: Record<string, Page> = {
   "/content": "content",
   "/guide": "guide",
   "/wiki": "wiki",
-  "/settings": "settings", // in both views, so a student view can be switched back (R27)
+  "/settings": "settings", // in both views, so a participant view can be switched back (R27)
 };
 
 // The wiki's addresses (roadmap R37b): #/wiki/<PDF id> is one PDF's table of contents, and
@@ -80,14 +80,14 @@ export function pageFor(hash: string): Page {
   return PAGES[path] ?? "not-found";
 }
 
-// The pages the student view hides (R41b): it has only the chat and the wiki.
-const TEACHER_PAGES: Page[] = ["home", "consent", "setup", "start-now", "guide", "content"];
+// The pages the participant view hides (R41b): it has only the chat and the wiki.
+const HOST_PAGES: Page[] = ["home", "consent", "setup", "start-now", "guide", "content"];
 
-// Setup is blocked until the user confirms consent (feature item 22). In the student view a
-// teacher's page, opened by its address, shows the chat instead.
-export function resolve(hash: string, consented: boolean, student = false): Route {
+// Setup is blocked until the user confirms consent (feature item 22). In the participant view a
+// host's page, opened by its address, shows the chat instead.
+export function resolve(hash: string, consented: boolean, participant = false): Route {
   const page = pageFor(hash);
-  if (student && TEACHER_PAGES.includes(page)) {
+  if (participant && HOST_PAGES.includes(page)) {
     return { page: "chat", redirect: "#/chat" };
   }
   if (page === "setup" && !consented) {

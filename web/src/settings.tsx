@@ -60,9 +60,10 @@ export function SettingsProvider({ children }: { children: ComponentChildren }) 
   return <SettingsContext.Provider value={{ settings, loaded, change }}>{children}</SettingsContext.Provider>;
 }
 
+// The word in parentheses is today's only context; later it follows the primary context (R84 on).
 const VIEWS: [View, string, string][] = [
-  ["teacher", "Teacher", "every page and option"],
-  ["student", "Student", "the chat and a read-only wiki"],
+  ["host", "Host (Teacher)", "every page and option"],
+  ["participant", "Participant (Student)", "the chat and a read-only wiki"],
 ];
 
 // The on and off settings, in the order shown, each with what it does.
@@ -162,7 +163,7 @@ export function SettingsPage({
   }
 
   return (
-    <div className="teacher-page settings-page" ref={page}>
+    <div className="host-page settings-page" ref={page}>
       <h1>Settings</h1>
       <p className="lead">Changes are saved at once and kept after a restart.</p>
       {failed && <p className="error">The setting could not be changed. Try again.</p>}
@@ -210,16 +211,16 @@ export function SettingsPage({
           ))}
         </section>
       ))}
-      {/* The LLM and its key are the teacher's to pick (R42). */}
-      {settings.view === "teacher" && <LlmSettingSection />}
+      {/* The LLM and its key are the host's to pick (R42). */}
+      {settings.view === "host" && <LlmSettingSection />}
       {/* Signing in with ChatGPT to use the plan in place of a key (R43). */}
-      {settings.view === "teacher" && <ChatGptPlanSection />}
+      {settings.view === "host" && <ChatGptPlanSection />}
       <YourFiles />
-      {/* Setup is the teacher's (R41b), so the student view has no way to change them. */}
-      {settings.view === "teacher" && <ChangeSetup />}
+      {/* Setup is the host's (R41b), so the participant view has no way to change them. */}
+      {settings.view === "host" && <ChangeSetup />}
       <VideoAndChat />
-      {/* The photos and recordings are the teacher's (R41b), so only they can delete them. */}
-      {settings.view === "teacher" && <DeleteData onDeleted={onDataDeleted} />}
+      {/* The photos and recordings are the host's (R41b), so only they can delete them. */}
+      {settings.view === "host" && <DeleteData onDeleted={onDataDeleted} />}
       <p>
         <a className="button" href={back}>
           Return to the app

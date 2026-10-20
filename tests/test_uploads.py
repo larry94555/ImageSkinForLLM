@@ -266,7 +266,7 @@ def test_heic_without_the_extra_says_how_to_add_it(
         with pytest.raises(UploadError, match="Save the photo as JPG") as e:
             UploadStore(tmp_path).save("photos", "me.heic", io.BytesIO(heic))
     assert e.value.status == 415
-    # The teacher is told what to do in plain words; how to install it is in the log (R41e).
+    # The host is told what to do in plain words; how to install it is in the log (R41e).
     assert "pip" not in str(e.value) and ".[heic]" in caplog.text
 
 

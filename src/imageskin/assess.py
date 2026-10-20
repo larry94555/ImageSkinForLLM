@@ -1,4 +1,4 @@
-"""The assessment (roadmap R41j, item 55): what the student knows across all the content.
+"""The assessment (roadmap R41j, item 55): what the participant knows across all the content.
 
 An assessment asks at least AT_LEAST questions, or one per main topic when there are more, one
 at a time. Each is on one main topic (a main wiki entry, R41f) and at one level: recalling a
@@ -35,7 +35,7 @@ from imageskin.quiz import (
     first_question,
     verdict,
 )
-from imageskin.teach import Choice, Part, Teacher, lesson_topics, plain, what
+from imageskin.teach import Choice, Part, Tutor, lesson_topics, plain, what
 from imageskin.topics import spoken_list
 
 logger = logging.getLogger(__name__)
@@ -127,9 +127,9 @@ ANSWER, CLARIFY, PROCESS, TALK, DONT_KNOW = "answer", "clarify", "process", "tal
 # the material, so any material can answer it, however little ("Rain: It falls."); there are
 # none for applying ideas, as the material may not say how they apply (review on PR #90).
 _ASK = (
-    "asks the student to recall one fact from",
-    "asks the student to explain one idea from, in their own words,",
-    "asks the student to apply or connect ideas from",
+    "asks the participant to recall one fact from",
+    "asks the participant to explain one idea from, in their own words,",
+    "asks the participant to apply or connect ideas from",
 )
 PLAIN = (
     (
@@ -307,7 +307,7 @@ def known_answer(text: str, assessment: Assessment) -> str | None:
 
 def kept_short(text: str, most: int) -> str:
     """At most `most` sentences of a help reply, dropping any question it asks back: a small
-    LLM may go on, or ask the student something while a question is waiting."""
+    LLM may go on, or ask the participant something while a question is waiting."""
     said = [t for t in re.split(r"(?<=[.!?])\s+", text.strip()) if t and not t.endswith("?")]
     return " ".join(said[:most])
 
@@ -324,7 +324,7 @@ class Assessor:
         complete: Callable[[], bool] = lambda: True,
     ) -> None:
         self._contents = contents
-        self._teacher = Teacher(contents, find, complete)  # for each part's material
+        self._tutor = Tutor(contents, find, complete)  # for each part's material
         self._write = write
         self._complete = complete
 
@@ -352,7 +352,7 @@ class Assessor:
             return Assessed([STOPPED, *done], None)
         material = None
         if assessment.part < len(parts):
-            material = self._teacher.material(assessment.topic, parts, assessment.part)
+            material = self._tutor.material(assessment.topic, parts, assessment.part)
         if material is None or fingerprint(material) != assessment.source:
             logger.info("Assessment material changed", extra={"question": assessment.number})
             asked = self._asked(assessment.number, topics, assessment.answers)
@@ -400,7 +400,7 @@ class Assessor:
     def _sorted(self, reply: str, assessment: Assessment) -> str:
         """What the LLM takes the reply to be; an answer when it can't say."""
         instruction = (
-            f'In an assessment, a student was asked: "{assessment.question}" The student'
+            f'In an assessment, a participant was asked: "{assessment.question}" The participant'
             f' replied: "{reply}". Which is the reply? A: an answer, even a guess said as a'
             ' statement ("Clouds form"). B: a question about the question: what it means, a'
             ' hint, or whether a guess is right ("Is it the sun?", "Do you mean the first'
@@ -439,16 +439,16 @@ class Assessor:
         if kind == CLARIFY and _HINT.search(text):
             reference = material
             instruction = (
-                f'In an assessment, the student was asked: "{assessment.question}" and asked'
-                f' for a hint: "{reply}". Talking to the student as "you", give one hint of at'
+                f'In an assessment, the participant was asked: "{assessment.question}" and asked'
+                f' for a hint: "{reply}". Talking to the participant as "you", give one hint of at'
                 " most twelve words from the reference text that points them toward the answer"
                 ' by naming what to think about, like "Think about what he multiplied." Never'
                 " state the answer or any part of it, and don't mention the reference text."
             )
         elif kind == CLARIFY:
             instruction = (
-                f'In an assessment, the student was asked: "{assessment.question}" and said:'
-                f' "{reply}". In one or two short sentences, talking to the student as "you",'
+                f'In an assessment, the participant was asked: "{assessment.question}" and said:'
+                f' "{reply}". In one or two short sentences, talking to the participant as "you",'
                 " help them see what the question is asking for, without answering it and"
                 " without saying whether any guess is right; if they guessed, say to give it as"
                 " their answer if they think it is right. Don't say the question again, don't"
@@ -456,7 +456,7 @@ class Assessor:
             )
         else:
             instruction = (
-                f'In an assessment, the student said: "{reply}". These are the facts about it:'
+                f'In an assessment, the participant said: "{reply}". These are the facts about it:'
                 f" this is question {assessment.number} of {assessment.total}, so"
                 f" {assessment.total - assessment.number} more come after it; the questions"
                 " cover every topic at three levels (recalling facts, explaining ideas, applying"
@@ -464,7 +464,7 @@ class Assessor:
                 " the score, the correct answers and the topics to go over are given at the end;"
                 ' "I don\'t know" moves on to the next question; and it is fine to say "stop" at'
                 " any time to stop the assessment and talk about the questions and their"
-                ' answers. Talking to the student as "you",'
+                ' answers. Talking to the participant as "you",'
                 " reply in one or two short sentences from these facts. Don't ask anything."
             )
         try:
@@ -491,9 +491,9 @@ class Assessor:
         ]
         asked.append(f"Question {assessment.number}, not answered yet, was: {assessment.question}")
         instruction = (
-            f'The student stopped an assessment and said: "{reply}". Talking to the student as'
-            ' "you", answer them from the reference text in at most three short sentences.'
-            " Don't mention the reference text."
+            f'The participant stopped an assessment and said: "{reply}". Talking to the'
+            ' participant as "you", answer them from the reference text in at most three short'
+            " sentences. Don't mention the reference text."
         )
         try:
             said = self._write(instruction, [*asked, *material]).strip()
@@ -532,7 +532,7 @@ class Assessor:
         t, level = planned(index, len(names))
         topic, parts = names[t], topics[names[t]]
         part = part_for(level, index, len(names), len(parts))
-        material = self._teacher.material(topic, parts, part)
+        material = self._tutor.material(topic, parts, part)
         asked = tuple(a.question for a in answers)
         question = self._question(topic, parts, part, level, material, asked)
         return Assessment(
@@ -616,10 +616,10 @@ class Assessor:
         """The answer judged, kept with the correct answer for the end, and the next question
         or the evaluation. Nothing is said about the answer now, so nothing is taught."""
         instruction = (
-            f'The student was asked: "{assessment.question}" The student answered: "{answer}".'
-            ' Judge the answer from the reference text. Reply in exactly two lines: "Verdict:"'
-            ' followed by Right, Partly right or Not quite; then "Answer:" followed by the'
-            " correct answer in one short sentence."
+            f'The participant was asked: "{assessment.question}" The participant answered:'
+            f' "{answer}". Judge the answer from the reference text. Reply in exactly two lines:'
+            ' "Verdict:" followed by Right, Partly right or Not quite; then "Answer:" followed by'
+            " the correct answer in one short sentence."
         )
         said = self._write(instruction, material)
         found = re.search(r"verdict\W*(.+)", said, re.IGNORECASE)

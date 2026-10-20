@@ -84,7 +84,7 @@ from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
 from imageskin.start_now import Choice as PersonChoice
 from imageskin.start_now import KokoroVoices, PresetVoice, StartNow, StartStatus
-from imageskin.teach import Choice, Explain, Lesson, Say, Teacher, lesson_topics
+from imageskin.teach import Choice, Explain, Lesson, Say, Tutor, lesson_topics
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
 from imageskin.uploads import (
@@ -1341,7 +1341,7 @@ def create_app(
             thread.join()
             logger.info(f"{what} waited for the warm-up", extra={"wait_ms": ms_since(start)})
 
-    teacher = Teacher(wiki.contents, find_content, topics_complete)
+    tutor = Tutor(wiki.contents, find_content, topics_complete)
     quizzer = Quizzer(wiki.contents, find_content, conversation.write, topics_complete)
     assessor = Assessor(wiki.contents, find_content, conversation.write, topics_complete)
 
@@ -1398,7 +1398,7 @@ def create_app(
                 asking = quizzer.step(body.prompt, quiz)
             step = None
             if asking is None and settings.teach_me:
-                step = teacher.step(body.prompt, lesson)
+                step = tutor.step(body.prompt, lesson)
             choices: list[Choice] = []
             if assessed is not None:
                 reply, turn = conversation.say(body.prompt, assessed.sentences, clips)

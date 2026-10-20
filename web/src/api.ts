@@ -328,7 +328,7 @@ export interface Reply extends Turn {
 
 // Where a lesson is (roadmap R41h): its topic, the part being taught (from 0; the part after
 // the last is the topic's summary) and, from the server, how many parts the topic has. The
-// browser keeps it, so a student who stops picks up where they left off.
+// browser keeps it, so a participant who stops picks up where they left off.
 export interface Lesson {
   topic: string;
   part: number;
@@ -735,7 +735,7 @@ export async function listWikiBuilds(): Promise<Record<string, WikiBuild>> {
 }
 
 // The Settings menu's settings (roadmap R41a), saved on the server for every browser.
-export type View = "teacher" | "student";
+export type View = "host" | "participant";
 
 export interface UiSettings {
   show_metrics: boolean; // the timing readout under the video and the other timings
@@ -752,7 +752,7 @@ export interface UiSettings {
 
 export const DEFAULT_SETTINGS: UiSettings = {
   show_metrics: false,
-  view: "teacher",
+  view: "host",
   teach_me: false,
   quiz_me: false,
   assessment: false,
@@ -764,7 +764,7 @@ export const DEFAULT_SETTINGS: UiSettings = {
 function settings(data: Partial<UiSettings>): UiSettings {
   return {
     show_metrics: data.show_metrics === true,
-    view: data.view === "student" ? "student" : "teacher",
+    view: data.view === "participant" ? "participant" : "host",
     teach_me: data.teach_me === true,
     quiz_me: data.quiz_me === true,
     assessment: data.assessment === true,

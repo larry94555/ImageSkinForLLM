@@ -43,14 +43,14 @@ describe("router", () => {
   });
 });
 
-test("the student view sends a teacher's page to the chat", () => {
+test("the participant view sends a host's page to the chat", () => {
   for (const hash of ["#/", "#/consent", "#/setup", "#/start-now", "#/guide", "#/content"]) {
     expect(resolve(hash, true, true)).toEqual({ page: "chat", redirect: "#/chat" });
   }
   expect(resolve("#/wiki", false, true)).toEqual({ page: "wiki" });
   expect(resolve("#/wiki/page/a1-x", true, true)).toEqual({ page: "wiki-page" });
   expect(resolve("#/chat", true, true)).toEqual({ page: "chat" });
-  expect(resolve("#/content", true)).toEqual({ page: "content" }); // the teacher view
+  expect(resolve("#/content", true)).toEqual({ page: "content" }); // the host view
 });
 
 test("the Settings page is in both views (R27)", () => {

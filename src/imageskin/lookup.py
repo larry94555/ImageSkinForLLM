@@ -53,7 +53,7 @@ MIN_SHARE = 0.4
 MIN_TYPO_CHARS = 5
 WORD = re.compile(r"[^\W_]+")
 # A contraction like "can't" or "don't" is a common word, so it goes whole; the ending of
-# "what's", "you're" or "student's" is left off. Straight and curly apostrophes alike.
+# "what's", "you're" or "participant's" is left off. Straight and curly apostrophes alike.
 NOT_CONTRACTION = re.compile(r"[^\W_]+n['’]t\b")
 CONTRACTION_ENDING = re.compile(r"['’](?:s|re|ve|ll|d|m)\b")
 STOP_WORDS = frozenset(

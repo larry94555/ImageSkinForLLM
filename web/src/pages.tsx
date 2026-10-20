@@ -144,7 +144,7 @@ export function SetupPage({ change }: { change?: SetupPart }) {
   }, [change]);
   const notice = (to: Back) => (back?.to === to ? back.notice : null);
   return (
-    <div className="teacher-page">
+    <div className="host-page">
       <h1>Setup</h1>
       <p className="lead">
         Make the talking person in four steps: add photos, add voice recordings, choose an
@@ -728,7 +728,7 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
 
 // Chat (roadmap R14): locked until a sample video is accepted.
 export function ChatPage() {
-  const student = useSettings().view === "student"; // setup is the teacher's (R41b)
+  const participant = useSettings().view === "participant"; // setup is the host's (R41b)
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
   useEffect(() => {
@@ -759,11 +759,11 @@ export function ChatPage() {
     );
   }
   if (!accepted) {
-    if (student) {
+    if (participant) {
       return (
         <>
           <h1>Chat</h1>
-          <p>The chat isn't ready yet. Ask your teacher to finish setting it up.</p>
+          <p>The chat isn't ready yet. Ask your host to finish setting it up.</p>
         </>
       );
     }
@@ -793,7 +793,7 @@ export function ChatPage() {
 }
 
 // What the chat says when there is no reply, whatever the reason; the reason goes to the
-// browser console and the server log, not to the student (R41d).
+// browser console and the server log, not to the participant (R41d).
 export const CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 
 // How often the chat asks for a reply's new clips while they are being made.
@@ -835,7 +835,7 @@ export interface Sound {
 
 const SOUND_KEY = "imageskin.sound";
 
-// The lesson this browser has (roadmap R41h), kept so a student who stops picks up where they
+// The lesson this browser has (roadmap R41h), kept so a participant who stops picks up where they
 // left off.
 
 export function loadLesson(): Lesson | null {

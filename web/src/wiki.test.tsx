@@ -539,16 +539,16 @@ function withSettings(saved: { show_metrics: boolean; view: string }) {
   );
 }
 
-const STUDENT = { show_metrics: false, view: "student" };
+const PARTICIPANT = { show_metrics: false, view: "participant" };
 
-test("the student view has only the chat and a read-only wiki with its PDFs", async () => {
+test("the participant view has only the chat and a read-only wiki with its PDFs", async () => {
   const edited: WikiContents = {
     ...CONTENTS,
     entries: [{ ...CONTENTS.entries[0], edited: true }],
     lost_edits: [{ id: "a1-old", title: "Old", summary: "Gone." }],
   };
   server([GUIDE, NOTES], [edited], { "a1-drops": DROPS });
-  withSettings({ ...STUDENT });
+  withSettings({ ...PARTICIPANT });
   window.location.hash = "#/wiki";
   render(<App />);
   const pdf = (await screen.findByRole("heading", { name: "guide.pdf" })).closest("article")!;
@@ -576,9 +576,9 @@ test("the student view has only the chat and a read-only wiki with its PDFs", as
   expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
 });
 
-test("in the student view a teacher's page shows the chat instead", async () => {
+test("in the participant view a host's page shows the chat instead", async () => {
   server([], []);
-  withSettings({ ...STUDENT });
+  withSettings({ ...PARTICIPANT });
   for (const hash of ["#/", "#/setup", "#/content", "#/guide", "#/consent"]) {
     window.location.hash = hash;
     render(<App />);
@@ -591,9 +591,9 @@ test("in the student view a teacher's page shows the chat instead", async () => 
   expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull();
 });
 
-test("switching the view on the Settings page shows or hides the teacher's options", async () => {
+test("switching the view on the Settings page shows or hides the host's options", async () => {
   server([GUIDE], [CONTENTS]);
-  const saved = { show_metrics: false, view: "teacher" };
+  const saved = { show_metrics: false, view: "host" };
   withSettings(saved);
   window.location.hash = "#/wiki";
   render(<App />);
@@ -602,22 +602,25 @@ test("switching the view on the Settings page shows or hides the teacher's optio
   expect(screen.getAllByRole("link", { name: "Manage Content" }).length).toBe(2); // bar and text
 
   await openSettings();
-  expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("radio", { name: /Host/ }) as HTMLInputElement).checked).toBe(true);
+  // Teacher and Student were renamed; for now the old words follow in parentheses (2026-10-19).
+  expect(screen.getByText("Host (Teacher)")).toBeTruthy();
+  expect(screen.getByText("Participant (Student)")).toBeTruthy();
   await act(async () => {
-    fireEvent.click(screen.getByRole("radio", { name: /Student/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Participant/ }));
   });
-  expect(saved.view).toBe("student");
+  expect(saved.view).toBe("participant");
   await waitFor(() => expect(screen.queryByRole("link", { name: "Manage Content" })).toBeNull());
   await returnToApp();
   expect(window.location.hash).toBe("#/wiki"); // back where it was opened from
   await screen.findByText("How the weather changes.");
   expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
 
-  await openSettings(); // still there in the student view, to switch back
+  await openSettings(); // still there in the participant view, to switch back
   await act(async () => {
-    fireEvent.click(screen.getByRole("radio", { name: /Teacher/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Host/ }));
   });
-  expect(saved.view).toBe("teacher");
+  expect(saved.view).toBe("host");
   await returnToApp();
   expect((await screen.findAllByRole("button", { name: "Edit" })).length).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "Rebuild the wiki" })).toBeTruthy();
@@ -631,7 +634,7 @@ test("a view that can't be saved says so and stays as it was", async () => {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url !== "/api/settings") return wiki(url, init);
       if (init?.method === "PATCH") return new Response("", { status: 500 });
-      return Response.json({ show_metrics: false, view: "teacher" });
+      return Response.json({ show_metrics: false, view: "host" });
     }),
   );
   window.location.hash = "#/wiki";
@@ -639,16 +642,16 @@ test("a view that can't be saved says so and stays as it was", async () => {
   await screen.findByText("How the weather changes.");
   await openSettings();
   await act(async () => {
-    fireEvent.click(screen.getByRole("radio", { name: /Student/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Participant/ }));
   });
   expect(await screen.findByText("The setting could not be changed. Try again.")).toBeTruthy();
-  expect((screen.getByRole("radio", { name: /Teacher/ }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("radio", { name: /Host/ }) as HTMLInputElement).checked).toBe(true);
   await returnToApp();
   expect((await screen.findAllByRole("button", { name: "Edit" })).length).toBeGreaterThan(0);
 });
 
-test("while the settings load, the top bar shows no teacher's links", async () => {
-  // Review on PR #77: the top bar showed the teacher's links until a Student view was read.
+test("while the settings load, the top bar shows no host's links", async () => {
+  // Review on PR #77: the top bar showed the host's links until a Participant view was read.
   server([GUIDE], [CONTENTS]);
   const wiki = globalThis.fetch;
   let answer: (r: Response) => void = () => {};
@@ -667,20 +670,20 @@ test("while the settings load, the top bar shows no teacher's links", async () =
   expect(screen.queryByText("How the weather changes.")).toBeNull();
   expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
 
-  await act(async () => answer(Response.json(STUDENT)));
+  await act(async () => answer(Response.json(PARTICIPANT)));
   await screen.findByText("How the weather changes.");
   expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
   expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("#/settings");
 });
 
 test("a change saved before the first read finishes is not undone by it", async () => {
-  // Review on PR #77: a slow first read could put the Teacher view back after Student was saved.
+  // Review on PR #77: a slow first read could put the Host view back after Participant was saved.
   let answer: (r: Response) => void = () => {};
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url: string, init?: RequestInit) =>
       init?.method === "PATCH"
-        ? Response.json(STUDENT)
+        ? Response.json(PARTICIPANT)
         : new Promise<Response>((r) => (answer = r)),
     ),
   );
@@ -695,11 +698,11 @@ test("a change saved before the first read finishes is not undone by it", async 
       <Shows />
     </SettingsProvider>,
   );
-  await act(() => change({ view: "student" }));
-  expect(screen.getByText("student")).toBeTruthy();
+  await act(() => change({ view: "participant" }));
+  expect(screen.getByText("participant")).toBeTruthy();
   await act(async () => {
-    answer(Response.json({ show_metrics: false, view: "teacher" }));
+    answer(Response.json({ show_metrics: false, view: "host" }));
     await new Promise((r) => setTimeout(r, 20)); // time for the read to be applied, if it were
   });
-  expect(screen.getByText("student")).toBeTruthy();
+  expect(screen.getByText("participant")).toBeTruthy();
 });
