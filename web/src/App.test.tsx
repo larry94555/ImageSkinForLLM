@@ -1932,7 +1932,7 @@ test("when the LLM fails, a short apology shows and the prompt goes back in the 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
-  // R41d: no addresses or program names for the student; the details go to the console.
+  // R41d: no addresses or program names for the participant; the details go to the console.
   expect((await screen.findByRole("alert")).textContent).toBe(CANT_ANSWER);
   expect(screen.queryByText(/llama-server|127\.0\.0\.1/)).toBeNull();
   expect(promptBox().value).toBe("Hello?");
@@ -3271,20 +3271,20 @@ test("a setting that can't be saved says so and stays as it was", async () => {
   expect(box.checked).toBe(false);
 });
 
-test("in the student view a chat that isn't set up asks for the teacher, not setup", async () => {
+test("in the participant view a chat that isn't set up asks for the host, not setup", async () => {
   serverWithConsent(true);
   const server = globalThis.fetch;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/settings") return Response.json({ show_metrics: false, view: "student" });
+      if (url === "/api/settings") return Response.json({ show_metrics: false, view: "participant" });
       if (url === "/api/review") return Response.json({ accepted: false });
       return server(url, init);
     }),
   );
   await openAt("#/chat");
   expect(
-    await screen.findByText("The chat isn't ready yet. Ask your teacher to finish setting it up."),
+    await screen.findByText("The chat isn't ready yet. Ask your host to finish setting it up."),
   ).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Go to setup" })).toBeNull();
 });
@@ -3638,7 +3638,7 @@ test("after Delete my data, setup stays at consent until it is given again (R31)
       if (url === "/api/data" && init?.method === "DELETE") {
         return Response.json({ files: 9, bytes: 90, left: [] });
       }
-      if (url === "/api/settings") return Response.json({ view: "teacher" });
+      if (url === "/api/settings") return Response.json({ view: "host" });
       return new Response("", { status: 404 });
     }),
   );
@@ -3670,7 +3670,7 @@ test("after a partial delete, setup stays at consent and the progress is gone (R
       if (url === "/api/data" && init?.method === "DELETE") {
         return Response.json({ files: 8, bytes: 80, left: ["replies/idle/a.mp4"] });
       }
-      if (url === "/api/settings") return Response.json({ view: "teacher" });
+      if (url === "/api/settings") return Response.json({ view: "host" });
       return new Response("", { status: 404 });
     }),
   );

@@ -50,7 +50,7 @@ test("every page has the Settings link, and it is marked on the Settings page", 
 });
 
 test("the page groups the settings and shows each one as saved", async () => {
-  server({ view: "teacher", quiz_me: true, general_prompts: true });
+  server({ view: "host", quiz_me: true, general_prompts: true });
   await openAt("#/settings");
   const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
   expect(headings).toEqual([
@@ -120,12 +120,12 @@ test("opened by its address, Settings returns to the first page of the view", as
   expect(window.location.hash).toBe("#/");
   cleanup();
 
-  server({ view: "student" });
+  server({ view: "participant" });
   await openAt("#/settings");
   expect(screen.getByRole("link", { name: "Return to the app" }).getAttribute("href")).toBe(
     "#/chat",
   );
-  // The photos and recordings are the teacher's, so a student can't delete them (R31).
+  // The photos and recordings are the host's, so a participant can't delete them (R31).
   expect(screen.queryByRole("button", { name: "Delete my data" })).toBeNull();
   // Nor pick the LLM or enter its key (R42).
   expect(screen.queryByRole("heading", { name: "LLM" })).toBeNull();

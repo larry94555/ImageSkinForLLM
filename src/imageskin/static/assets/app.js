@@ -306,7 +306,7 @@ async function listWikiBuilds() {
 }
 var DEFAULT_SETTINGS = {
 	show_metrics: false,
-	view: "teacher",
+	view: "host",
 	teach_me: false,
 	quiz_me: false,
 	assessment: false,
@@ -316,7 +316,7 @@ var DEFAULT_SETTINGS = {
 function settings(data) {
 	return {
 		show_metrics: data.show_metrics === true,
-		view: data.view === "student" ? "student" : "teacher",
+		view: data.view === "participant" ? "participant" : "host",
 		teach_me: data.teach_me === true,
 		quiz_me: data.quiz_me === true,
 		assessment: data.assessment === true,
@@ -1311,12 +1311,12 @@ function SettingsProvider({ children }) {
 	});
 }
 var VIEWS = [[
-	"teacher",
-	"Teacher",
+	"host",
+	"Host (Teacher)",
 	"every page and option"
 ], [
-	"student",
-	"Student",
+	"participant",
+	"Participant (Student)",
 	"the chat and a read-only wiki"
 ]];
 var SWITCHES = [{
@@ -1408,7 +1408,7 @@ function SettingsPage({ back, onDataDeleted }) {
 		});
 	}
 	return /* @__PURE__ */ u("div", {
-		className: "teacher-page settings-page",
+		className: "host-page settings-page",
 		ref: page,
 		children: [
 			/* @__PURE__ */ u("h1", { children: "Settings" }),
@@ -1486,12 +1486,12 @@ function SettingsPage({ back, onDataDeleted }) {
 					}, name))
 				]
 			}, group)),
-			settings.view === "teacher" && /* @__PURE__ */ u(LlmSettingSection, {}),
-			settings.view === "teacher" && /* @__PURE__ */ u(ChatGptPlanSection, {}),
+			settings.view === "host" && /* @__PURE__ */ u(LlmSettingSection, {}),
+			settings.view === "host" && /* @__PURE__ */ u(ChatGptPlanSection, {}),
 			/* @__PURE__ */ u(YourFiles, {}),
-			settings.view === "teacher" && /* @__PURE__ */ u(ChangeSetup, {}),
+			settings.view === "host" && /* @__PURE__ */ u(ChangeSetup, {}),
 			/* @__PURE__ */ u(VideoAndChat, {}),
-			settings.view === "teacher" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted }),
+			settings.view === "host" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted }),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
 				href: back,
@@ -1618,7 +1618,7 @@ function ContentPage() {
 	const ready = sending === null && (pdfs !== null || loadFailed);
 	const loading = pdfs === null && !loadFailed;
 	return /* @__PURE__ */ u("div", {
-		className: "teacher-page",
+		className: "host-page",
 		children: [
 			/* @__PURE__ */ u("h1", { children: "Manage Content" }),
 			/* @__PURE__ */ u("p", {
@@ -3116,7 +3116,7 @@ function SetupPage({ change }) {
 	}, [change]);
 	const notice = (to) => back?.to === to ? back.notice : null;
 	return /* @__PURE__ */ u("div", {
-		className: "teacher-page",
+		className: "host-page",
 		children: [
 			/* @__PURE__ */ u("h1", { children: "Setup" }),
 			/* @__PURE__ */ u("p", {
@@ -3716,7 +3716,7 @@ function ReviewChoices(props) {
 	});
 }
 function ChatPage() {
-	const student = useSettings().view === "student";
+	const participant = useSettings().view === "participant";
 	const [accepted, setAccepted] = d(null);
 	h(() => {
 		getReview().then((r) => setAccepted(r.accepted)).catch((e) => {
@@ -3736,7 +3736,7 @@ function ChatPage() {
 		setReturned(true);
 	} });
 	if (!accepted) {
-		if (student) return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u("p", { children: "The chat isn't ready yet. Ask your teacher to finish setting it up." })] });
+		if (participant) return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("h1", { children: "Chat" }), /* @__PURE__ */ u("p", { children: "The chat isn't ready yet. Ask your host to finish setting it up." })] });
 		return /* @__PURE__ */ u(S, { children: [
 			/* @__PURE__ */ u("h1", { children: "Chat" }),
 			/* @__PURE__ */ u("p", { children: "The chat is locked until you accept a sample video at the end of setup." }),
@@ -5225,7 +5225,7 @@ function pageFor(hash) {
 	if (setupTarget(hash)) return "setup";
 	return PAGES[path] ?? "not-found";
 }
-var TEACHER_PAGES = [
+var HOST_PAGES = [
 	"home",
 	"consent",
 	"setup",
@@ -5233,9 +5233,9 @@ var TEACHER_PAGES = [
 	"guide",
 	"content"
 ];
-function resolve(hash, consented, student = false) {
+function resolve(hash, consented, participant = false) {
 	const page = pageFor(hash);
-	if (student && TEACHER_PAGES.includes(page)) return {
+	if (participant && HOST_PAGES.includes(page)) return {
 		page: "chat",
 		redirect: "#/chat"
 	};
@@ -5261,7 +5261,7 @@ function busy(build) {
 	return build?.state === "waiting" || build?.state === "building";
 }
 function WikiPage({ pdf }) {
-	const student = useSettings().view === "student";
+	const participant = useSettings().view === "participant";
 	const [wiki, setWiki] = d(null);
 	const [failed, setFailed] = d(false);
 	const [builds, setBuilds] = d({});
@@ -5322,7 +5322,7 @@ function WikiPage({ pdf }) {
 			pdf ? /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				href: wikiHref(),
 				children: "All PDFs"
-			}) }) : student ? /* @__PURE__ */ u("p", {
+			}) }) : participant ? /* @__PURE__ */ u("p", {
 				className: "lead",
 				children: "What the PDFs say, topic by topic. Open a topic to see its parts, or follow its title to a page of its own."
 			}) : /* @__PURE__ */ u("p", {
@@ -5350,11 +5350,11 @@ function WikiPage({ pdf }) {
 	});
 }
 function WikiList({ wiki, pdf, builds, onRebuild, onChanged }) {
-	const student = useSettings().view === "student";
+	const participant = useSettings().view === "participant";
 	const built = new Set(wiki.contents.map((c) => c.pdf_id));
 	const waiting = wiki.pdfs.filter((p) => !built.has(p.id) && (!pdf || p.id === pdf));
 	if (wiki.pdfs.length === 0) {
-		if (student) return /* @__PURE__ */ u("p", { children: "There are no PDFs yet." });
+		if (participant) return /* @__PURE__ */ u("p", { children: "There are no PDFs yet." });
 		return /* @__PURE__ */ u("p", { children: [
 			"There are no PDFs yet. Add one in ",
 			/* @__PURE__ */ u("a", {
@@ -5376,7 +5376,7 @@ function WikiList({ wiki, pdf, builds, onRebuild, onChanged }) {
 		children: [
 			p.name,
 			": its wiki isn't ready yet.",
-			!student && /* @__PURE__ */ u(S, { children: [
+			!participant && /* @__PURE__ */ u(S, { children: [
 				" ",
 				/* @__PURE__ */ u("a", {
 					href: "#/content",
@@ -5392,7 +5392,7 @@ function Contents({ contents, linked, build, onRebuild, onChanged }) {
 		href: wikiHref(contents.pdf_id),
 		children: contents.pdf_name
 	}) : contents.pdf_name;
-	const student = useSettings().view === "student";
+	const participant = useSettings().view === "participant";
 	return /* @__PURE__ */ u("article", {
 		className: "wiki-pdf panel",
 		children: [
@@ -5405,7 +5405,7 @@ function Contents({ contents, linked, build, onRebuild, onChanged }) {
 					target: "_blank",
 					rel: "noreferrer",
 					children: "Open the PDF"
-				}), !student && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Rebuild, {
+				}), !participant && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u(Rebuild, {
 					build,
 					onRebuild
 				}), /* @__PURE__ */ u(WikiTools, {
@@ -5413,7 +5413,7 @@ function Contents({ contents, linked, build, onRebuild, onChanged }) {
 					onChanged
 				})] })]
 			}),
-			!student && contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
+			!participant && contents.lost_edits.length > 0 && /* @__PURE__ */ u(LostEdits, {
 				edits: contents.lost_edits,
 				onChanged
 			}),
@@ -5785,7 +5785,7 @@ function WikiDetailPage({ entry }) {
 	const [page, setPage] = d(null);
 	const [problem, setProblem] = d(null);
 	const [editing, setEditing] = d(false);
-	const student = useSettings().view === "student";
+	const participant = useSettings().view === "participant";
 	const [version, setVersion] = d(0);
 	const reload = () => setVersion((v) => v + 1);
 	h(() => {
@@ -5870,7 +5870,7 @@ function WikiDetailPage({ entry }) {
 					pdf: page.pdf_id,
 					pages: page.pages
 				}),
-				!student && /* @__PURE__ */ u(EditActions, {
+				!participant && /* @__PURE__ */ u(EditActions, {
 					entry: page,
 					onEdit: () => setEditing(true),
 					onChanged: reload
@@ -5886,7 +5886,7 @@ function WikiDetailPage({ entry }) {
 }
 function Outline({ pdf, entries, onChanged }) {
 	const ref = A(null);
-	const student = useSettings().view === "student";
+	const participant = useSettings().view === "participant";
 	const [editing, setEditing] = d(null);
 	const opens = entries.some((e) => e.entries.length > 0);
 	const openAll = (open) => {
@@ -5916,7 +5916,7 @@ function Outline({ pdf, entries, onChanged }) {
 		}), /* @__PURE__ */ u(Entries, {
 			pdf,
 			entries,
-			edit: student ? void 0 : {
+			edit: participant ? void 0 : {
 				id: editing,
 				start: setEditing,
 				done: (saved) => {
@@ -5956,7 +5956,7 @@ function Entries({ pdf, entries, edit }) {
 	});
 }
 function EntryText({ pdf, entry, edit }) {
-	const student = useSettings().view === "student";
+	const participant = useSettings().view === "participant";
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("span", {
 			className: "entry-title",
@@ -5980,7 +5980,7 @@ function EntryText({ pdf, entry, edit }) {
 			entry,
 			onEdit: () => edit.start(entry.id),
 			onChanged: edit.changed
-		}) : entry.edited && !student && /* @__PURE__ */ u("span", {
+		}) : entry.edited && !participant && /* @__PURE__ */ u("span", {
 			className: "entry-actions muted",
 			children: "Edited by you."
 		})
@@ -6137,13 +6137,13 @@ var NAV = [
 		page: "chat",
 		href: "#/chat",
 		label: "Chat",
-		student: true
+		participant: true
 	},
 	{
 		page: "wiki",
 		href: "#/wiki",
 		label: "Wiki",
-		student: true
+		participant: true
 	},
 	{
 		page: "content",
@@ -6160,9 +6160,9 @@ function App() {
 }
 function Shell() {
 	const hash = useHash();
-	const student = useSettings().view === "student";
+	const participant = useSettings().view === "participant";
 	const settingsLoaded = useSettingsLoaded();
-	const teacher = settingsLoaded && !student;
+	const host = settingsLoaded && !participant;
 	const [consented, setConsented] = d(null);
 	h(() => {
 		getConsent().then((c) => setConsented(c.agreed)).catch((e) => {
@@ -6170,7 +6170,7 @@ function Shell() {
 			setConsented(false);
 		});
 	}, []);
-	const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, student);
+	const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, participant);
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
 	}, [route?.redirect]);
@@ -6197,7 +6197,7 @@ function Shell() {
 		wiki: /* @__PURE__ */ u(WikiPage, { pdf: wikiTarget(hash).pdf }),
 		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
 		settings: /* @__PURE__ */ u(SettingsPage, {
-			back: back.current ?? (student ? "#/chat" : "#/"),
+			back: back.current ?? (participant ? "#/chat" : "#/"),
 			onDataDeleted: () => setConsented(false)
 		}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
@@ -6208,10 +6208,10 @@ function Shell() {
 			children: [
 				/* @__PURE__ */ u("a", {
 					className: "brand",
-					href: teacher ? "#/" : "#/chat",
+					href: host ? "#/" : "#/chat",
 					children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
 				}),
-				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => /* @__PURE__ */ u("a", {
+				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (host || item.participant)).map((item) => /* @__PURE__ */ u("a", {
 					href: item.href,
 					className: current(route?.page) === item.page ? "current" : void 0,
 					children: item.label

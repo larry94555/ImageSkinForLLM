@@ -8,7 +8,7 @@ import { openSettings } from "./settings.test.util";
 
 // A server with consent given, the view saved as `view` and the sample accepted or not; anything
 // else isn't there. review is null when it can't be read.
-function server(accepted: boolean | null, view = "teacher") {
+function server(accepted: boolean | null, view = "host") {
   const fetchMock = vi.fn(async (url: string) => {
     if (url === "/api/consent") return Response.json({ agreed: true });
     if (url === "/api/settings") return Response.json({ view });
@@ -83,8 +83,8 @@ test("from Settings, setup opens at the part to change with what to do there", a
   }
 });
 
-test("the student view has no way to change them", async () => {
-  server(true, "student");
+test("the participant view has no way to change them", async () => {
+  server(true, "participant");
   window.location.hash = "#/settings";
   render(<App />);
   await screen.findByRole("heading", { name: "Settings", level: 1 });

@@ -127,7 +127,7 @@ def test_a_typo_correction_alone_does_not_find_an_off_topic_prompt() -> None:
 def test_contractions_and_possessives_add_no_stray_words() -> None:
     assert words("What's photosynthesis?") == words("photosynthesis")
     assert words("Can't plants? Don’t they?") == ["plant"]
-    assert words("The student's notes, the students’ notes") == ["student", "note"] * 2
+    assert words("The participant's notes, the participants’ notes") == ["participant", "note"] * 2
     assert words("You're, we've, I'll, I'd, I'm, others") == []
     # Review on PR #72: "'s" scored as a word no passage has, so this exact match was dropped.
     passages = [Passage("pdf", "p", "a.pdf", "", "Photosynthesis makes sugar.", [1])]

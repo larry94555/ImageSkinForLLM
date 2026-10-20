@@ -18,12 +18,12 @@ import {
 } from "./settings";
 import { WikiDetailPage, WikiPage } from "./wiki";
 
-// The top bar's pages; the student view (R41b) has only the chat and the wiki.
-const NAV: { page: Page; href: string; label: string; student?: boolean }[] = [
+// The top bar's pages; the participant view (R41b) has only the chat and the wiki.
+const NAV: { page: Page; href: string; label: string; participant?: boolean }[] = [
   { page: "home", href: "#/", label: "Home" },
   { page: "setup", href: "#/setup", label: "Setup" },
-  { page: "chat", href: "#/chat", label: "Chat", student: true },
-  { page: "wiki", href: "#/wiki", label: "Wiki", student: true },
+  { page: "chat", href: "#/chat", label: "Chat", participant: true },
+  { page: "wiki", href: "#/wiki", label: "Wiki", participant: true },
   { page: "content", href: "#/content", label: "Manage Content" },
 ];
 
@@ -44,11 +44,11 @@ export function App() {
 
 function Shell() {
   const hash = useHash();
-  const student = useSettings().view === "student";
+  const participant = useSettings().view === "participant";
   const settingsLoaded = useSettingsLoaded();
-  // Until the settings are read, the top bar has no links, so a student never sees a teacher's
+  // Until the settings are read, the top bar has no links, so a participant never sees a host's
   // (review on PR #77).
-  const teacher = settingsLoaded && !student;
+  const host = settingsLoaded && !participant;
   // null until the server has answered.
   const [consented, setConsented] = useState<boolean | null>(null);
 
@@ -61,7 +61,7 @@ function Shell() {
       });
   }, []);
 
-  const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, student);
+  const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, participant);
   useEffect(() => {
     if (route?.redirect && route.redirect !== window.location.hash) {
       window.location.replace(route.redirect);
@@ -100,7 +100,7 @@ function Shell() {
       "wiki-page": <WikiDetailPage entry={wikiTarget(hash).entry ?? ""} />,
       settings: (
         <SettingsPage
-          back={back.current ?? (student ? "#/chat" : "#/")}
+          back={back.current ?? (participant ? "#/chat" : "#/")}
           // Delete my data removed the consent (R31): setup starts again there.
           onDataDeleted={() => setConsented(false)}
         />
@@ -112,12 +112,12 @@ function Shell() {
   return (
     <>
       <header ref={header}>
-        <a className="brand" href={teacher ? "#/" : "#/chat"}>
+        <a className="brand" href={host ? "#/" : "#/chat"}>
           <Mark />
           ImageSkinForLLM
         </a>
         <nav>
-          {NAV.filter((item) => settingsLoaded && (teacher || item.student)).map((item) => (
+          {NAV.filter((item) => settingsLoaded && (host || item.participant)).map((item) => (
             <a
               key={item.page}
               href={item.href}

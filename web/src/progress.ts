@@ -1,5 +1,5 @@
 // Where this browser keeps a lesson (R41h), a quiz (R41i) and an assessment (R41j) under way, so
-// a reload or a student who stops picks up where they left off.
+// a reload or a participant who stops picks up where they left off.
 
 export const LESSON_KEY = "imageskin.lesson";
 export const QUIZ_KEY = "imageskin.quiz";

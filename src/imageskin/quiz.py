@@ -1,9 +1,9 @@
-"""Quiz me (roadmap R41i, item 54): the person asks the student questions on a topic.
+"""Quiz me (roadmap R41i, item 54): the person asks the participant questions on a topic.
 
 A quiz has QUESTIONS questions on one topic (a main wiki entry, R41f), asked one at a time.
 Each is written by the LLM from one of the topic's parts (its main ideas, then the entries under
 it, spread over the quiz), from that part's wiki entry and what the PDFs say about it. Whatever
-the student types next is their answer: the LLM judges it from the same material as right,
+the participant types next is their answer: the LLM judges it from the same material as right,
 partly right or wrong, with the correct answer and a one-line reason, and the next question
 follows in the same reply. The quiz ends with how many were right and what to go over again,
 and can be stopped at any time. Where the quiz is, is kept by the browser, as a lesson is
@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from imageskin.chat import LlmError, Teach
-from imageskin.teach import Choice, Part, Teacher, lesson_topics, plain, what
+from imageskin.teach import Choice, Part, Tutor, lesson_topics, plain, what
 from imageskin.topics import spoken_list
 
 logger = logging.getLogger(__name__)
@@ -226,7 +226,7 @@ class Quizzer:
         complete: Callable[[], bool] = lambda: True,
     ) -> None:
         self._contents = contents
-        self._teacher = Teacher(contents, find, complete)  # for each part's material
+        self._tutor = Tutor(contents, find, complete)  # for each part's material
         self._write = write
         self._complete = complete
 
@@ -262,7 +262,7 @@ class Quizzer:
 
     def _material(self, topic: str, parts: list[Part], part: int) -> list[str] | None:
         """What the part is taught from now; None when the topic no longer has the part."""
-        return self._teacher.material(topic, parts, part) if part < len(parts) else None
+        return self._tutor.material(topic, parts, part) if part < len(parts) else None
 
     def _rewritten(self, quiz: Quiz, parts: list[Part]) -> Said:
         """A new question in place of one whose material has changed since it was asked (the
@@ -298,11 +298,11 @@ class Quizzer:
     def _sorted(self, reply: str, quiz: Quiz) -> str:
         """What the LLM takes the reply to be; an answer when it can't say."""
         instruction = (
-            f'In a quiz, a student was asked: "{quiz.question}" The student replied: "{reply}".'
-            ' Which is the reply? A: an answer, even a guess ("Clouds form", "Is it the sun?").'
-            ' B: wants to hear the question again ("Say it again"). C: wants the question'
-            ' explained or put another way ("What do you mean?"). D: doesn\'t know, or wants to'
-            ' be told the answer ("No idea, tell me"). Say only the letter.'
+            f'In a quiz, a participant was asked: "{quiz.question}" The participant replied:'
+            f' "{reply}". Which is the reply? A: an answer, even a guess ("Clouds form",'
+            ' "Is it the sun?"). B: wants to hear the question again ("Say it again"). C: wants'
+            ' the question explained or put another way ("What do you mean?"). D: doesn\'t know,'
+            ' or wants to be told the answer ("No idea, tell me"). Say only the letter.'
         )
         try:
             said = self._write(instruction, [])
@@ -317,8 +317,8 @@ class Quizzer:
         where it is. The LLM isn't given the material, so it can't give the answer away (with
         it, the small local model did)."""
         instruction = (
-            f'The student was asked: "{quiz.question}" and said: "{asked}". In one or two short'
-            ' sentences, talking to the student as "you", explain what the question is asking'
+            f'The participant was asked: "{quiz.question}" and said: "{asked}". In one or two short'
+            ' sentences, talking to the participant as "you", explain what the question is asking'
             " for, in simpler words, without answering it. Don't say the question again, and"
             " don't ask anything."
         )
@@ -333,7 +333,7 @@ class Quizzer:
             return Said([STILL_READING_QUIZ if waiting else NO_QUIZ], None)
         if about is None:
             return self._choose(topics)
-        topic = Teacher.topic_named(about, topics)
+        topic = Tutor.topic_named(about, topics)
         if topic is None:
             return self._choose(topics, f"I don't have a topic called {about}.")
         parts = topics[topic]
@@ -364,7 +364,7 @@ class Quizzer:
         )
         if asked:
             instruction += " Don't ask any of these again: " + " ".join(asked)
-        material = self._teacher.material(topic, parts, part)
+        material = self._tutor.material(topic, parts, part)
         try:
             written = self._write(instruction, material)
         except LlmError as e:
@@ -385,21 +385,21 @@ class Quizzer:
         self, answer: str, quiz: Quiz, parts: list[Part], material: list[str], gave_up: bool
     ) -> Judge:
         """The answer judged from the material the question was written from, or, when the
-        student doesn't know, the answer given; then the next question, or the end."""
+        participant doesn't know, the answer given; then the next question, or the end."""
         part = quiz.part
         instruction = (
-            f'The student was asked: "{quiz.question}" The student answered: "{answer}". Judge'
-            ' the answer from the reference text, talking to the student as "you". Start with'
-            ' exactly one of "Right!", "Partly right." or "Not quite." Then give the correct'
-            " answer and a one-line reason, kindly, in at most two more sentences. Don't mention"
-            " the reference text, and don't ask anything."
+            f'The participant was asked: "{quiz.question}" The participant answered:'
+            f' "{answer}". Judge the answer from the reference text, talking to the participant'
+            ' as "you". Start with exactly one of "Right!", "Partly right." or "Not quite." Then'
+            " give the correct answer and a one-line reason, kindly, in at most two more"
+            " sentences. Don't mention the reference text, and don't ask anything."
         )
         if gave_up:
             instruction = (
-                f'The student was asked: "{quiz.question}" and doesn\'t know the answer. Talking'
-                ' to the student as "you", kindly give the correct answer and a one-line reason,'
-                " in at most two sentences. Don't mention the reference text, and don't ask"
-                " anything."
+                f'The participant was asked: "{quiz.question}" and doesn\'t know the answer.'
+                ' Talking to the participant as "you", kindly give the correct answer and a'
+                " one-line reason, in at most two sentences. Don't mention the reference text, and"
+                " don't ask anything."
             )
         judged = Judge(Teach(instruction, material), quiz)
 

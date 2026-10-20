@@ -29,8 +29,8 @@ class UiSettings:
     # Which screens are shown (item 50, R41b): every page and option, or the chat and a read-only
     # wiki with its PDFs. Only the screens change: the server doesn't check it, since anyone can
     # switch it for now.
-    view: str = "teacher"
-    # The Teach me button and lessons in the chat (R41h); off unless a teacher turns it on
+    view: str = "host"
+    # The Teach me button and lessons in the chat (R41h); off unless a host turns it on
     # (Larry, 2026-10-15).
     teach_me: bool = False
     # The Quiz me button and quizzes in the chat (R41i); off like Teach me until turned on.
@@ -50,13 +50,29 @@ DEFAULTS = UiSettings()
 # The values each setting can take.
 CHOICES: dict[str, tuple[object, ...]] = {
     "show_metrics": (True, False),
-    "view": ("teacher", "student"),
+    "view": ("host", "participant"),
     "teach_me": (True, False),
     "quiz_me": (True, False),
     "assessment": (True, False),
     "debug": (True, False),
     "general_prompts": (True, False),
 }
+
+
+# The views were called teacher and student until 2026-10-19 (Larry): a file or a browser that
+# still has an old name gets the new one.
+OLD_VIEWS = {"teacher": "host", "student": "participant"}
+
+
+def renamed(changes: dict[str, Any]) -> dict[str, Any]:
+    """The changes with an old view name replaced by its new one."""
+    view = changes.get("view")
+    if isinstance(view, str) and view in OLD_VIEWS:
+        logger.info(
+            "Old view name read as the new one", extra={"old": view, "new": OLD_VIEWS[view]}
+        )
+        return {**changes, "view": OLD_VIEWS[view]}
+    return changes
 
 
 def load_ui_settings(home: Path, defaults: UiSettings = DEFAULTS) -> UiSettings:
@@ -81,7 +97,7 @@ def saved_changes(home: Path) -> dict[str, Any]:
     except (OSError, ValueError) as e:
         logger.error("Could not read the settings", extra={"path": str(path), "error": str(e)})
         return {}
-    return data if isinstance(data, dict) else {}
+    return renamed(data) if isinstance(data, dict) else {}
 
 
 def checked(settings: UiSettings, changes: dict[str, Any]) -> UiSettings:
@@ -106,6 +122,7 @@ def save_ui_settings(
             checked(defaults, saved)
         except ValueError:
             saved = {}  # a file that can't be used is replaced, as its settings were the defaults
+        changes = renamed(changes)
         saved.update(changes)
         settings = checked(defaults, saved)
         home.mkdir(parents=True, exist_ok=True)

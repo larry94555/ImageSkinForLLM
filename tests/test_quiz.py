@@ -35,7 +35,7 @@ from imageskin.quiz import (
     verdict,
 )
 from imageskin.review import Review
-from imageskin.teach import Choice, Teacher, lesson_topics
+from imageskin.teach import Choice, Tutor, lesson_topics
 
 
 class Writer:
@@ -71,7 +71,7 @@ def kept(
 ) -> Quiz:
     """A quiz as the browser keeps it, with the fingerprint of the material its question was
     written from, as it is now."""
-    material = Teacher(lambda: CONTENTS, lambda q: list(found or [])).material(
+    material = Tutor(lambda: CONTENTS, lambda q: list(found or [])).material(
         topic, lesson_topics(CONTENTS)[topic], part
     )
     return Quiz(topic, number, question, part, *args, **{"source": fingerprint(material), **kw})
@@ -360,7 +360,7 @@ def test_an_answer_is_judged_from_the_question_s_part_then_the_next_is_asked(
     step = judged(q.step("It crosses out multiples", quiz))
     assert step.quiz == quiz  # until the reply is in
     assert (
-        'The student was asked: "What is a sieve?" The student answered: "It crosses out'
+        'The participant was asked: "What is a sieve?" The participant answered: "It crosses out'
         ' multiples".'
     ) in step.teach.instruction
     assert step.teach.material == ["Sieves: A sieve crosses out multiples."]
