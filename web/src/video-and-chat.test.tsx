@@ -1,10 +1,4 @@
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/preact";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { CONFIRM_CLEAR, VideoAndChat } from "./video-and-chat";
@@ -69,15 +63,9 @@ test("Run the video test again makes the sample again and plays it", async () =>
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
-  await act(async () =>
-    answer(Response.json({ video: "/api/prepare/clips/sample", seconds: 90 })),
-  );
-  const video = (await screen.findByLabelText(
-    "Sample video",
-  )) as HTMLVideoElement;
-  expect(video.getAttribute("src")).toMatch(
-    /^\/api\/prepare\/clips\/sample\?made=\d+$/,
-  );
+  await act(async () => answer(Response.json({ video: "/api/prepare/clips/sample", seconds: 90 })));
+  const video = (await screen.findByLabelText("Sample video")) as HTMLVideoElement;
+  expect(video.getAttribute("src")).toMatch(/^\/api\/prepare\/clips\/sample\?made=\d+$/);
   expect(video.autoplay).toBe(true);
   expect(screen.queryByText(/Making the sample video/)).toBeNull();
   expect(console.info).toHaveBeenCalledWith(
@@ -104,9 +92,7 @@ test("Run the video test again has a plain message when the server gives no reas
   });
   render(<VideoAndChat />);
   await click("Run the video test again");
-  expect(
-    await screen.findByText("The video could not be made. Try again."),
-  ).toBeTruthy();
+  expect(await screen.findByText("The video could not be made. Try again.")).toBeTruthy();
 });
 
 test("Clear conversation asks first in the app's own box and clears only once confirmed", async () => {
@@ -138,14 +124,9 @@ test("Clear conversation says when it fails", async () => {
   );
   render(<VideoAndChat />);
   await clearConfirmed();
-  expect(
-    await screen.findByText("That didn't work. Please try again."),
-  ).toBeTruthy();
+  expect(await screen.findByText("That didn't work. Please try again.")).toBeTruthy();
   expect(screen.queryByText("The conversation was cleared.")).toBeNull();
-  expect(console.error).toHaveBeenCalledWith(
-    "Could not clear the conversation",
-    expect.anything(),
-  );
+  expect(console.error).toHaveBeenCalledWith("Could not clear the conversation", expect.anything());
 });
 
 test("Clear conversation has a plain message when the server can't be reached", async () => {
@@ -157,9 +138,5 @@ test("Clear conversation has a plain message when the server can't be reached", 
   );
   render(<VideoAndChat />);
   await clearConfirmed();
-  expect(
-    await screen.findByText(
-      "The conversation could not be cleared. Try again.",
-    ),
-  ).toBeTruthy();
+  expect(await screen.findByText("The conversation could not be cleared. Try again.")).toBeTruthy();
 });

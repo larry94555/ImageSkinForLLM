@@ -33,10 +33,7 @@ export function ContentPage() {
   const { ask, dialog } = useConfirm();
   const [loadFailed, setLoadFailed] = useState(false);
   // What is being sent now: the file's name, and the id of the PDF it replaces, if any.
-  const [sending, setSending] = useState<{
-    name: string;
-    replacing?: string;
-  } | null>(null);
+  const [sending, setSending] = useState<{ name: string; replacing?: string } | null>(null);
   const [refused, setRefused] = useState<Refused[]>([]);
   // What was just added or replaced, said once it is sent (R41e).
   const [done, setDone] = useState<string | null>(null);
@@ -64,22 +61,15 @@ export function ContentPage() {
         .then((next) => {
           if (!stopped) setReadings(next);
         })
-        .catch((e: unknown) =>
-          console.error("Could not check the reading progress", e),
-        );
+        .catch((e: unknown) => console.error("Could not check the reading progress", e));
       listWikiBuilds()
         .then((next) => {
           if (!stopped) setWiki(next);
         })
-        .catch((e: unknown) =>
-          console.error("Could not check the wiki progress", e),
-        );
+        .catch((e: unknown) => console.error("Could not check the wiki progress", e));
     };
     check();
-    const timer =
-      reading || building
-        ? window.setInterval(check, READING_POLL_MS)
-        : undefined;
+    const timer = reading || building ? window.setInterval(check, READING_POLL_MS) : undefined;
     return () => {
       stopped = true;
       window.clearInterval(timer);
@@ -109,14 +99,8 @@ export function ContentPage() {
       );
       return pdf;
     } catch (e) {
-      console.error(
-        `${replacing ? "Replacing" : "Adding"} ${file.name} refused`,
-        e,
-      );
-      setRefused((current) => [
-        ...current,
-        { name: file.name, reason: (e as Error).message },
-      ]);
+      console.error(`${replacing ? "Replacing" : "Adding"} ${file.name} refused`, e);
+      setRefused((current) => [...current, { name: file.name, reason: (e as Error).message }]);
       return null;
     } finally {
       setSending(null);
@@ -150,9 +134,7 @@ export function ContentPage() {
     setDone(null);
     const pdf = await send(file, old);
     if (!pdf) return;
-    setPdfs((current) =>
-      (current ?? []).map((p) => (p.id === pdf.id ? pdf : p)),
-    );
+    setPdfs((current) => (current ?? []).map((p) => (p.id === pdf.id ? pdf : p)));
     setDone(`Replaced ${old.name} with ${pdf.name}. ${NEXT}`);
   }
 
@@ -172,9 +154,7 @@ export function ContentPage() {
       setPdfs((current) => (current ?? []).filter((p) => p.id !== pdf.id));
     } catch (e) {
       console.error(`Could not remove ${pdf.name}`, e);
-      setRefused([
-        { name: pdf.name, reason: "Could not remove it. Please try again." },
-      ]);
+      setRefused([{ name: pdf.name, reason: "Could not remove it. Please try again." }]);
     }
   }
 
@@ -186,10 +166,9 @@ export function ContentPage() {
     <div className="host-page">
       <h1>Manage Content</h1>
       <p className="lead">
-        Add the PDFs the person&apos;s answers will come from, up to 100 MB
-        each. Each one is read and turned into a <a href={wikiHref()}>wiki</a>{" "}
-        you can check. Replace a PDF when it has a newer version, or remove it
-        when it no longer applies.
+        Add the PDFs the person&apos;s answers will come from, up to 100 MB each. Each one is read
+        and turned into a <a href={wikiHref()}>wiki</a> you can check. Replace a PDF when it has a
+        newer version, or remove it when it no longer applies.
       </p>
       <label className={ready ? "button" : "button busy"}>
         {sending && !sending.replacing
@@ -216,22 +195,13 @@ export function ContentPage() {
           {r.name}: {r.reason}
         </p>
       ))}
-      {loadFailed && (
-        <p className="error">
-          Could not load the list. Reload the page to try again.
-        </p>
-      )}
+      {loadFailed && <p className="error">Could not load the list. Reload the page to try again.</p>}
       {loading && <p className="muted busy">Loading the PDFs…</p>}
       {pdfs?.length === 0 && <p className="muted">No PDFs yet.</p>}
       <ul className="pdfs">
         {pdfs?.map((pdf) => (
           <li key={pdf.id}>
-            <a
-              className="name"
-              href={pdfUrl(pdf.id)}
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a className="name" href={pdfUrl(pdf.id)} target="_blank" rel="noreferrer">
               {pdf.name}
             </a>
             <span className="muted">
@@ -241,14 +211,8 @@ export function ContentPage() {
             <ReadingLine reading={readings[pdf.id]} />
             <WikiLine id={pdf.id} build={wiki[pdf.id]} />
             <span className="actions">
-              <label
-                className={
-                  sending?.replacing === pdf.id ? "replace busy" : "replace"
-                }
-              >
-                {sending?.replacing === pdf.id
-                  ? `Uploading ${sending.name}…`
-                  : "Replace"}
+              <label className={sending?.replacing === pdf.id ? "replace busy" : "replace"}>
+                {sending?.replacing === pdf.id ? `Uploading ${sending.name}…` : "Replace"}
                 <input
                   type="file"
                   accept="application/pdf,.pdf"
@@ -258,11 +222,7 @@ export function ContentPage() {
                   className="file"
                 />
               </label>
-              <button
-                type="button"
-                className="remove"
-                onClick={() => remove(pdf)}
-              >
+              <button type="button" className="remove" onClick={() => remove(pdf)}>
                 Remove
               </button>
             </span>
@@ -275,15 +235,12 @@ export function ContentPage() {
 }
 
 // After a PDF is sent: what happens next.
-const NEXT =
-  "It is read first, then its wiki is built. Each PDF below shows how far it has got.";
+const NEXT = "It is read first, then its wiki is built. Each PDF below shows how far it has got.";
 
 function ReadingLine({ reading }: { reading?: Reading }) {
   if (!reading) return null;
-  if (reading.state === "failed")
-    return <span className="error">{readingText(reading)}</span>;
-  if (reading.state !== "done")
-    return <span className="muted busy">{readingText(reading)}</span>;
+  if (reading.state === "failed") return <span className="error">{readingText(reading)}</span>;
+  if (reading.state !== "done") return <span className="muted busy">{readingText(reading)}</span>;
   return <span className="muted">{readingText(reading)}</span>;
 }
 
@@ -298,9 +255,7 @@ export function readingText(r: Reading): string {
     .filter((kind) => r.counts?.[kind])
     .map((kind) => plural(r.counts?.[kind] ?? 0, kind));
   const blank = r.pages_without_text ?? [];
-  let scanned = blank.length
-    ? ` (no text on page ${blank.join(", ")}, maybe scanned)`
-    : "";
+  let scanned = blank.length ? ` (no text on page ${blank.join(", ")}, maybe scanned)` : "";
   if (blank.length && !found.length) scanned = ", maybe scanned";
   return `Read ${plural(r.pages, "page")}: ${found.join(", ") || "no text found"}${scanned}`;
 }
@@ -308,13 +263,12 @@ export function readingText(r: Reading): string {
 function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
   const metrics = useSettings().show_metrics;
   if (!build) return null;
-  if (build.state === "failed")
-    return <span className="error">{wikiText(build, metrics)}</span>;
-  if (build.state !== "done")
-    return <span className="muted busy">{wikiText(build, metrics)}</span>;
+  if (build.state === "failed") return <span className="error">{wikiText(build, metrics)}</span>;
+  if (build.state !== "done") return <span className="muted busy">{wikiText(build, metrics)}</span>;
   return (
     <span className="muted">
-      {wikiText(build, metrics)} · <a href={wikiHref(id)}>Read the wiki</a>
+      {wikiText(build, metrics)} ·{" "}
+      <a href={wikiHref(id)}>Read the wiki</a>
     </span>
   );
 }
@@ -324,16 +278,13 @@ function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
 export function wikiText(b: WikiBuild, metrics = false): string {
   const time = (what = "") => {
     const parts = [];
-    if (metrics && b.elapsed_s != null)
-      parts.push(`${duration(b.elapsed_s)} so far`);
-    if (b.remaining_s != null)
-      parts.push(`about ${duration(b.remaining_s)} left${what}`);
+    if (metrics && b.elapsed_s != null) parts.push(`${duration(b.elapsed_s)} so far`);
+    if (b.remaining_s != null) parts.push(`about ${duration(b.remaining_s)} left${what}`);
     return parts.length ? ` (${parts.join(", ")})` : "";
   };
   const sofar = time();
   if (b.state === "waiting") {
-    if (b.error)
-      return `Waiting for the AI to be ready to build the wiki…${sofar}`;
+    if (b.error) return `Waiting for the AI to be ready to build the wiki…${sofar}`;
     return `Waiting to build the wiki…${sofar}`;
   }
   if (b.state === "building" && b.stage === "outline") {
@@ -351,14 +302,9 @@ export function wikiText(b: WikiBuild, metrics = false): string {
   if (b.state === "failed") return b.error ?? "The wiki could not be built.";
   const n = b.skipped_parts?.length ?? 0;
   const why = "the AI's answer couldn't be used";
-  const skipped = n
-    ? ` (${plural(n, "part")} of ${b.parts} skipped: ${why})`
-    : "";
-  const detail = b.detail_pages
-    ? `, ${plural(b.detail_pages, "detail page")}`
-    : "";
-  const took =
-    metrics && b.elapsed_s != null ? `, built in ${duration(b.elapsed_s)}` : "";
+  const skipped = n ? ` (${plural(n, "part")} of ${b.parts} skipped: ${why})` : "";
+  const detail = b.detail_pages ? `, ${plural(b.detail_pages, "detail page")}` : "";
+  const took = metrics && b.elapsed_s != null ? `, built in ${duration(b.elapsed_s)}` : "";
   return `Wiki ready: ${plural(b.pages ?? 0, "topic")}${detail}${took}${skipped}`;
 }
 

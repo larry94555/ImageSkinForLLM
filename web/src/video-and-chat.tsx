@@ -28,9 +28,7 @@ export function VideoAndChat() {
     const started = performance.now();
     try {
       const url = await runVideoTestAgain();
-      console.info(
-        `Video test run again (${Math.round(performance.now() - started)} ms)`,
-      );
+      console.info(`Video test run again (${Math.round(performance.now() - started)} ms)`);
       setVideo(`${url}?made=${Date.now()}`); // a new address, so the browser doesn't play the old
     } catch (e) {
       console.error("Could not run the video test again", e);
@@ -61,9 +59,7 @@ export function VideoAndChat() {
       setCleared(true);
     } catch (e) {
       console.error("Could not clear the conversation", e);
-      setClearFailed(
-        reason(e, "The conversation could not be cleared. Try again."),
-      );
+      setClearFailed(reason(e, "The conversation could not be cleared. Try again."));
     }
     setClearing(false);
   }
@@ -72,47 +68,27 @@ export function VideoAndChat() {
     <section className="panel" aria-labelledby="settings-video-chat">
       <h2 id="settings-video-chat">Video and conversation</h2>
       <div className="switch">
-        <button
-          type="button"
-          className="use"
-          disabled={running}
-          onClick={runAgain}
-        >
+        <button type="button" className="use" disabled={running} onClick={runAgain}>
           Run the video test again
         </button>
         <p className="muted">
           Makes the sample video again from the photo and voice, and plays it.
         </p>
         {running && (
-          <p className="muted busy">
-            Making the sample video. This can take a few minutes…
-          </p>
+          <p className="muted busy">Making the sample video. This can take a few minutes…</p>
         )}
         {testFailed && <p className="error">{testFailed}</p>}
         {video && (
           <div className="sample-video">
-            <video
-              src={video}
-              controls
-              autoPlay
-              playsInline
-              aria-label="Sample video"
-            />
+            <video src={video} controls autoPlay playsInline aria-label="Sample video" />
           </div>
         )}
       </div>
       <div className="switch">
-        <button
-          type="button"
-          className="use"
-          disabled={clearing}
-          onClick={clear}
-        >
+        <button type="button" className="use" disabled={clearing} onClick={clear}>
           Clear conversation
         </button>
-        <p className="muted">
-          Removes every question and answer from the chat. It asks first.
-        </p>
+        <p className="muted">Removes every question and answer from the chat. It asks first.</p>
         {cleared && <p className="muted">The conversation was cleared.</p>}
         {clearFailed && <p className="error">{clearFailed}</p>}
       </div>

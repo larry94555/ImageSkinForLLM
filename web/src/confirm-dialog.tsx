@@ -2,7 +2,7 @@
 // the browser's box looks unprofessional). First made for Delete my data (roadmap R31).
 
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useId, useRef, useState } from "preact/hooks";
 
 interface Props {
   title: string;
@@ -13,46 +13,70 @@ interface Props {
   onConfirm: () => void;
 }
 
+// What Tab can reach inside the box.
+const FOCUSABLE = "button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
+
 // The box over a dimmed page. The back-out button has the focus, so Enter backs out; Escape and
-// a click outside the box back out too.
+// a click outside the box back out too. Like the browser's confirm(), nothing behind it can be
+// used while it is open: Tab and Shift+Tab go round its own buttons, and focus that lands
+// behind it is brought back. It then gives the focus back to what had it, such as the Remove
+// button (a review on PR #121).
 export function ConfirmDialog(props: Props) {
   const { onCancel } = props;
   const keep = useRef<HTMLButtonElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const id = useId();
   // The latest onCancel, so a page that re-renders (Manage Content checks its PDFs every second)
   // doesn't take the focus back to the button each time.
   const cancel = useRef(onCancel);
   cancel.current = onCancel;
 
   useEffect(() => {
+    const opener = document.activeElement;
     keep.current?.focus();
+    const inside = (el: EventTarget | null) => el instanceof Node && !!box.current?.contains(el);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") cancel.current();
+      if (e.key === "Escape") {
+        cancel.current();
+        return;
+      }
+      if (e.key !== "Tab" || !box.current) return;
+      const items = Array.from(box.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const first = items[0];
+      const last = items[items.length - 1];
+      const at = document.activeElement;
+      if (!inside(at) || at === (e.shiftKey ? first : last)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      }
+    };
+    const onFocus = (e: FocusEvent) => {
+      if (!inside(e.target)) keep.current?.focus();
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("focusin", onFocus);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("focusin", onFocus);
+      // Unless it went with the answer, as a removed PDF's Remove button does.
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
   }, []);
 
   return (
-    <div
-      className="confirm-backdrop"
-      onClick={(e) => e.target === e.currentTarget && onCancel()}
-    >
+    <div className="confirm-backdrop" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div
         className="confirm-dialog"
         role="alertdialog"
         aria-modal="true"
-        aria-labelledby="confirm-title"
-        aria-describedby={props.children ? "confirm-about" : undefined}
+        ref={box}
+        aria-labelledby={`${id}-title`}
+        aria-describedby={props.children ? `${id}-about` : undefined}
       >
-        <h2 id="confirm-title">{props.title}</h2>
-        {props.children && <div id="confirm-about">{props.children}</div>}
+        <h2 id={`${id}-title`}>{props.title}</h2>
+        {props.children && <div id={`${id}-about`}>{props.children}</div>}
         <div className="confirm-buttons">
-          <button
-            type="button"
-            className="secondary"
-            ref={keep}
-            onClick={onCancel}
-          >
+          <button type="button" className="secondary" ref={keep} onClick={onCancel}>
             {props.keepLabel}
           </button>
           <button type="button" className="danger" onClick={props.onConfirm}>

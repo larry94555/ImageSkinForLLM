@@ -1,5 +1,5 @@
 // Generated from web/src/*.tsx by `npm run build` in web/. Do not edit; edit web/src.
-import { a as h, c as S, i as d, l as X, n as A, o as x, r as _, s as R, t as u } from "./preact.js";
+import { a as g, c as R, i as d, l as S, n as A, o as h, r as _, s as x, t as u, u as X } from "./preact.js";
 //#region src/api.ts
 async function json(response) {
 	if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -378,18 +378,43 @@ async function signOutChatGpt() {
 }
 //#endregion
 //#region src/confirm-dialog.tsx
+var FOCUSABLE = "button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
 function ConfirmDialog(props) {
 	const { onCancel } = props;
 	const keep = A(null);
+	const box = A(null);
+	const id = g();
 	const cancel = A(onCancel);
 	cancel.current = onCancel;
 	h(() => {
+		const opener = document.activeElement;
 		keep.current?.focus();
+		const inside = (el) => el instanceof Node && !!box.current?.contains(el);
 		const onKey = (e) => {
-			if (e.key === "Escape") cancel.current();
+			if (e.key === "Escape") {
+				cancel.current();
+				return;
+			}
+			if (e.key !== "Tab" || !box.current) return;
+			const items = Array.from(box.current.querySelectorAll(FOCUSABLE));
+			const first = items[0];
+			const last = items[items.length - 1];
+			const at = document.activeElement;
+			if (!inside(at) || at === (e.shiftKey ? first : last)) {
+				e.preventDefault();
+				(e.shiftKey ? last : first).focus();
+			}
+		};
+		const onFocus = (e) => {
+			if (!inside(e.target)) keep.current?.focus();
 		};
 		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
+		document.addEventListener("focusin", onFocus);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			document.removeEventListener("focusin", onFocus);
+			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+		};
 	}, []);
 	return /* @__PURE__ */ u("div", {
 		className: "confirm-backdrop",
@@ -398,15 +423,16 @@ function ConfirmDialog(props) {
 			className: "confirm-dialog",
 			role: "alertdialog",
 			"aria-modal": "true",
-			"aria-labelledby": "confirm-title",
-			"aria-describedby": props.children ? "confirm-about" : void 0,
+			ref: box,
+			"aria-labelledby": `${id}-title`,
+			"aria-describedby": props.children ? `${id}-about` : void 0,
 			children: [
 				/* @__PURE__ */ u("h2", {
-					id: "confirm-title",
+					id: `${id}-title`,
 					children: props.title
 				}),
 				props.children && /* @__PURE__ */ u("div", {
-					id: "confirm-about",
+					id: `${id}-about`,
 					children: props.children
 				}),
 				/* @__PURE__ */ u("div", {
@@ -1709,8 +1735,7 @@ function ContentPage() {
 						href: wikiHref(),
 						children: "wiki"
 					}),
-					" ",
-					"you can check. Replace a PDF when it has a newer version, or remove it when it no longer applies."
+					" you can check. Replace a PDF when it has a newer version, or remove it when it no longer applies."
 				]
 			}),
 			/* @__PURE__ */ u("label", {
@@ -1844,7 +1869,8 @@ function WikiLine({ id, build }) {
 		className: "muted",
 		children: [
 			wikiText(build, metrics),
-			" · ",
+			" ·",
+			" ",
 			/* @__PURE__ */ u("a", {
 				href: wikiHref(id),
 				children: "Read the wiki"

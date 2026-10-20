@@ -54,9 +54,7 @@ export function DeleteData({ onDeleted }: { onDeleted?: () => void }) {
     } catch (e) {
       console.error("Could not delete my data", e);
       setFailed(
-        e instanceof ServerRefusal
-          ? e.message
-          : "Your data could not be deleted. Try again.",
+        e instanceof ServerRefusal ? e.message : "Your data could not be deleted. Try again.",
       );
     }
     setDeleting(false);
@@ -78,9 +76,8 @@ export function DeleteData({ onDeleted }: { onDeleted?: () => void }) {
           Delete my data
         </button>
         <p className="muted">
-          Deletes the photos, recordings, prepared face and voice, videos and
-          conversation, then starts setup again. The PDFs and these settings are
-          kept. It asks first.
+          Deletes the photos, recordings, prepared face and voice, videos and conversation, then
+          starts setup again. The PDFs and these settings are kept. It asks first.
         </p>
         {deleting && <p className="muted busy">Deleting…</p>}
         {failed && <p className="error">{failed}</p>}
@@ -99,10 +96,7 @@ export function DeleteData({ onDeleted }: { onDeleted?: () => void }) {
               <li key={item}>{item}</li>
             ))}
           </ul>
-          <p>
-            Setup then starts again from the beginning. Your PDFs and settings
-            are kept.
-          </p>
+          <p>Setup then starts again from the beginning. Your PDFs and settings are kept.</p>
           <p className="warning">This can't be undone.</p>
         </ConfirmDialog>
       )}
