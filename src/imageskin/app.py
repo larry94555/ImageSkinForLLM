@@ -1081,24 +1081,34 @@ def create_app(
         status = signin.status()
         return bool(status["connected"] and status["plan_usage"])
 
-    def plan_token() -> str:
-        """The ChatGPT plan's access token; 400 saying why when there is none to use."""
+    def need_plan_sign_in() -> None:
+        """400 saying why when there is no ChatGPT sign-in to use for its plan."""
         try:
-            return signin.access_token()
+            signin.access_token()
         except SignInError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+
+    def plan_list() -> list[str]:
+        """The models in the ChatGPT plan's list, fetched with the sign-in held until the list
+        has come, so Disconnect, a switch or a sign-in waits for it and none is fetched with a
+        token after Disconnect (a review on PR #118). LlmError, in plain words, when there is no
+        sign-in to use."""
+        with signin.plan_session() as token:
+            return model_lists.models("chatgpt", token)
 
     def plan_model(model: str | None) -> str | None:
         """The model to save for the ChatGPT plan: the one entered, the one saved when none is
         entered, or else the first in the plan's list (R43a), since no model is right for every
         plan."""
-        token = plan_token()
+        need_plan_sign_in()  # a model entered is saved only with a sign-in to use it
         if model and model.strip():
             return model
         if model is None and load_choice(data_home).models.get("chatgpt"):
             return None
         try:
-            return model_lists.models("chatgpt", token)[0]
+            return plan_list()[0]
+        except LlmError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except ModelListError as e:
             raise HTTPException(
                 status_code=400 if e.refused else 502,
@@ -1153,18 +1163,25 @@ def create_app(
     def post_llm_models(body: ModelsRequest) -> dict[str, Any]:
         if body.provider not in PROVIDERS:
             raise HTTPException(status_code=400, detail=f"There is no LLM called {body.provider}.")
-        if body.provider == "chatgpt":
-            key = plan_token()  # the plan's own list, with the signed-in account's token
-        else:
+        key = ""
+        if body.provider != "chatgpt":
             key = (body.api_key or "").strip() or load_choice(data_home).keys.get(body.provider, "")
         try:
-            ids = model_lists.models(body.provider, key)
-            if body.provider == "chatgpt":  # shown by the names the plan gives them (R43a)
+            if body.provider == "chatgpt":
+                # The plan's own list, with the signed-in account's token, shown by the names
+                # the plan gives them (R43a).
+                try:
+                    ids = plan_list()
+                except LlmError as e:
+                    raise HTTPException(status_code=400, detail=str(e)) from e
                 return {"models": ids, "names": model_lists.names(ids)}
+            ids = model_lists.models(body.provider, key)
             return {"models": ids}
         except ModelListError as e:
             p = PROVIDERS[body.provider]
-            asked = body.provider != "local" and bool(key or p.lists_freely)
+            asked = body.provider == "chatgpt" or (
+                body.provider != "local" and bool(key or p.lists_freely)
+            )
             status = 502 if asked and not e.refused else 400
             raise HTTPException(status_code=status, detail=str(e)) from e
 
@@ -1216,8 +1233,8 @@ def create_app(
         if load_choice(data_home).provider != "chatgpt":
             return
         try:
-            models = model_lists.models("chatgpt", signin.access_token())
-        except (SignInError, ModelListError) as e:
+            models = plan_list()
+        except (LlmError, ModelListError) as e:
             logger.warning("Could not check the ChatGPT plan's model", extra={"reason": str(e)})
             return
         with changing_llm:

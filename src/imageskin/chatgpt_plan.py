@@ -37,22 +37,30 @@ URL = RESOURCE + "/responses"
 NO_MODEL = "ChatGPT doesn't know the model. Pick another on the Settings page."
 AT_LIMIT = "Your ChatGPT plan has reached its limit for now, or ChatGPT is busy. Try again later."
 PICK_ANOTHER = "Pick another LLM on the Settings page."
-# Said in the chat for OpenAI's plan-usage error codes, before or during a stream (a review on
-# PR #118: a 403 isn't always the model's fault, and a plan's limit can end a stream).
+# Said in the chat for OpenAI's plan-usage error codes, before or during a stream (reviews on
+# PR #118: a 403 isn't always the model's fault, a plan's limit can end a stream, and each code
+# has its own recovery).
+SCOPE = (
+    'ChatGPT wasn\'t allowed to use your plan. Click "Allow use of my plan" on the Settings page.'
+)
+# The request's route or method, which the app chose: not the user's plan, and not fixed by
+# trying again.
+ROUTE = (
+    "ChatGPT doesn't take this app's request through a plan (an unsupported route). This is a "
+    f"problem with the app, not your plan. {PICK_ANOTHER}"
+)
 CODES = {
     "subscription_sharing_usage_limit_exceeded": AT_LIMIT,
     "subscription_sharing_user_not_eligible": (
         f"Your ChatGPT plan can't be used here. {PICK_ANOTHER}"
     ),
-    "subscription_sharing_route_not_supported": (
-        f"ChatGPT doesn't take this request through a plan. {PICK_ANOTHER}"
-    ),
+    "subscription_sharing_route_not_supported": ROUTE,
+    "chatpass_v2_invalid_authorization_context": SCOPE,
     "model_not_found": NO_MODEL,
 }
-# A code naming a scope: the sign-in didn't allow what was asked.
-SCOPE = (
-    'ChatGPT wasn\'t allowed to use your plan. Click "Allow use of my plan" on the Settings page.'
-)
+# Said for a part of the request a plan can't take, named by the error's `param`: sending the
+# same request again won't help.
+UNSUPPORTED = "subscription_sharing_unsupported_capability"
 # Said by HTTP status when the code says nothing more.
 ERRORS = {404: NO_MODEL, 429: AT_LIMIT}
 UNREACHABLE = "Could not reach ChatGPT. Is the internet connection working?"
@@ -87,10 +95,17 @@ def error_code(error: Any) -> str:
     return code if isinstance(code, str) else ""
 
 
-def said_for(code: str, fallback: str) -> str:
-    """What the chat says for an error with this code."""
+def said_for(error: Any, fallback: str) -> str:
+    """What the chat says for OpenAI's error object, by its code (and `param`, where it names
+    what was refused)."""
+    code = error_code(error)
     if code in CODES:
         return CODES[code]
+    if code == UNSUPPORTED:
+        param = error.get("param")
+        named = f" ({param})" if isinstance(param, str) and param else ""
+        return f"ChatGPT can't take part of the app's request through a plan{named}. {PICK_ANOTHER}"
+    # A code naming a scope: the sign-in didn't allow what was asked.
     return SCOPE if "scope" in code else fallback
 
 
@@ -162,9 +177,10 @@ class ChatGptPlanClient:
             except urllib.error.HTTPError as e:
                 detail = e.read().decode(errors="replace")[:300]
                 try:
-                    code = error_code(json.loads(detail).get("error"))
+                    error = json.loads(detail).get("error")
                 except (ValueError, AttributeError):
-                    code = ""
+                    error = None
+                code = error_code(error)
                 logger.error(
                     "ChatGPT refused the request",
                     extra={
@@ -178,10 +194,10 @@ class ChatGptPlanClient:
                 if e.code == 401 and not renew:
                     continue
                 if e.code == 401:
-                    raise LlmError(said_for(code, SIGN_IN_AGAIN)) from e
+                    raise LlmError(said_for(error, SIGN_IN_AGAIN)) from e
                 shown = f"{e.code}: {code}" if code else str(e.code)
                 fallback = ERRORS.get(e.code, f"ChatGPT refused the prompt ({shown}).")
-                raise LlmError(said_for(code, fallback)) from e
+                raise LlmError(said_for(error, fallback)) from e
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 logger.error("Could not reach ChatGPT", extra={"error": str(e)})
                 raise LlmError(UNREACHABLE) from e
@@ -225,12 +241,13 @@ class ChatGptPlanClient:
                             "ChatGPT failed",
                             extra={
                                 "code": code,
+                                "param": error.get("param", "") if isinstance(error, dict) else "",
                                 "response_id": failed.get("id", ""),
                                 "error": str(error)[:300],
                             },
                         )
                         fallback = f"ChatGPT couldn't answer that{f' ({code})' if code else ''}."
-                        raise LlmError(said_for(code, f"{fallback} Try again."))
+                        raise LlmError(said_for(error, f"{fallback} Try again."))
             except (TimeoutError, OSError) as e:
                 raise LlmError(f"ChatGPT stopped answering ({e}). Try again.") from e
             except (ValueError, AttributeError, TypeError) as e:

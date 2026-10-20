@@ -57,8 +57,9 @@ def text(*pieces: str) -> list[bytes]:
     return events({"type": "response.created"}, *deltas, {"type": "response.completed"})
 
 
-def http_error(code: int, error_code: str = "") -> urllib.error.HTTPError:
-    body = json.dumps({"error": {"code": error_code}} if error_code else {"error": 1}).encode()
+def http_error(code: int, error_code: str = "", param: str = "") -> urllib.error.HTTPError:
+    error = {"code": error_code, **({"param": param} if param else {})}
+    body = json.dumps({"error": error} if error_code else {"error": 1}).encode()
     headers = HttpHeaders()
     headers["x-request-id"] = "req-1"
     return urllib.error.HTTPError(URL, code, "refused", headers, io.BytesIO(body))
@@ -190,7 +191,36 @@ def test_a_refused_token_is_renewed_once() -> None:
         # A 403 is not always the model's fault (a review on PR #118).
         (http_error(403), r"refused the prompt \(403\)"),
         (http_error(403, "subscription_sharing_user_not_eligible"), "plan can't be used here"),
-        (http_error(403, "subscription_sharing_route_not_supported"), "through a plan"),
+        # Each code's own recovery: the app's route isn't the plan's fault, a part the plan
+        # can't take is named, and an authorization context is the sign-in's scope (a review
+        # on PR #118). None of them says to try again.
+        (
+            http_error(400, "subscription_sharing_route_not_supported"),
+            r"unsupported route\). This is a problem with the app, not your plan",
+        ),
+        (
+            http_error(400, "subscription_sharing_unsupported_capability", "tools"),
+            r"part of the app's request through a plan \(tools\)\. Pick another LLM",
+        ),
+        (
+            http_error(400, "subscription_sharing_unsupported_capability"),
+            r"through a plan\. Pick another LLM",
+        ),
+        (
+            events(
+                {
+                    "type": "response.failed",
+                    "response": {
+                        "error": {
+                            "code": "subscription_sharing_unsupported_capability",
+                            "param": "text.format",
+                        }
+                    },
+                }
+            ),
+            r"through a plan \(text\.format\)",
+        ),
+        (http_error(403, "chatpass_v2_invalid_authorization_context"), "Allow use of my plan"),
         (http_error(403, "insufficient_scope"), "Allow use of my plan"),
         (http_error(403, "other_thing"), r"refused the prompt \(403: other_thing\)"),
         (http_error(404, "model_not_found"), "doesn't know the model"),
@@ -371,8 +401,15 @@ def test_a_renewal_without_a_new_refresh_token_keeps_the_old_one(tmp_path: Path)
     ("status", "error", "said", "connected"),
     [
         (400, "invalid_grant", "sign-in has ended", False),
-        (401, "invalid_client", "sign-in has ended", False),
-        (400, "unauthorized_client", "sign-in has ended", False),
+        (400, "invalid_refresh_token", "sign-in has ended", False),
+        (401, "token_expired", "sign-in has ended", False),
+        (400, "refresh_token_expired", "sign-in has ended", False),
+        (400, "refresh_token_invalidated", "sign-in has ended", False),
+        (400, "refresh_token_reused", "sign-in has ended", False),
+        # The app's registration, not the account: signing in again won't help, so the tokens
+        # stay (a review on PR #118).
+        (401, "invalid_client", r"registration \(invalid_client\).*not your account", True),
+        (400, "unauthorized_client", "registration", True),
         (400, "temporarily_unavailable", "can't be renewed right now", True),
         (503, "", "can't be renewed right now", True),
     ],
@@ -735,3 +772,84 @@ def test_an_account_whose_list_cant_be_had_keeps_the_model(
     with patch.object(lc.ModelLists, "models") as never:
         client.post("/api/chatgpt/use", json={"account": "app_1"})
     never.assert_not_called()
+
+
+def test_no_model_list_is_fetched_after_disconnect(tmp_path: Path) -> None:
+    # A review on PR #118: the plan's model list is fetched with the sign-in held, as a reply's
+    # request is, so Disconnect waits for a fetch under way, and a fetch that waited for
+    # Disconnect is never sent.
+    fetching, release = threading.Event(), threading.Event()
+    sent: list[str] = []
+
+    def fetch(url: str, headers: dict[str, str]) -> Any:
+        sent.append(headers["Authorization"])
+        fetching.set()
+        assert release.wait(5)
+        return CATALOGS["Bearer access-1"]
+
+    revoking, finish = threading.Event(), threading.Event()
+
+    class SlowRevoke(FakeAuth):
+        slow = False
+
+        def __call__(self, url: str, form: dict[str, str] | None) -> tuple[int, Any]:
+            if url.endswith("/revoke") and self.slow:
+                revoking.set()
+                assert finish.wait(5)
+            return super().__call__(url, form)
+
+    auth = SlowRevoke()
+    lists = lc.ModelLists(fetch)
+    with patch("imageskin.app.ModelLists", lambda: lists):
+        client = TestClient(
+            create_app(
+                tmp_path,
+                check_photo=lambda p: PhotoResult([], 80),
+                prepare_voice=lambda: None,
+                prepare_face=lambda photo, progress: None,
+                render_clip=lambda photo, text, output: None,
+                llm=LlmSettings(model="local"),
+                chatgpt=ChatGptSignIn(tmp_path, http=auth),
+            )
+        )
+    client.post("/api/consent", json={"agreed": True})
+
+    def in_background(path: str, out: list[Any]) -> threading.Thread:
+        body = {"provider": "chatgpt"}
+        thread = threading.Thread(target=lambda: out.append(client.post(path, json=body)))
+        thread.start()
+        return thread
+
+    signed_in(tmp_path, time.time() + 3600)
+    listed: list[Any] = []
+    listing = in_background("/api/llm/models", listed)
+    assert fetching.wait(5)
+    disconnected: list[Any] = []
+    disconnect = in_background("/api/chatgpt/sign-out", disconnected)
+    disconnect.join(0.2)
+    assert disconnect.is_alive()  # waits for the list being fetched
+    release.set()
+    listing.join(5)
+    disconnect.join(5)
+    assert listed[0].json()["models"] == ["gpt-first", "gpt-second"]
+    assert sent == ["Bearer access-1"] and not disconnected[0].json()["connected"]
+
+    # Now Disconnect holds things up while a list is asked for: once it is done, none is fetched
+    # (another token, so the list isn't one fetched before).
+    signed_in(tmp_path, time.time() + 3600)
+    data = json.loads((tmp_path / cs.FILENAME).read_text())
+    data["registrations"][0]["credentials"]["access_token"] = "access-c"
+    (tmp_path / cs.FILENAME).write_text(json.dumps(data))
+    auth.slow = True
+    sent.clear()
+    disconnect = in_background("/api/chatgpt/sign-out", disconnected)
+    assert revoking.wait(5)
+    listed.clear()
+    listing = in_background("/api/llm/models", listed)
+    listing.join(0.2)
+    assert listing.is_alive() and sent == []  # waits for Disconnect
+    finish.set()
+    disconnect.join(5)
+    listing.join(5)
+    assert sent == [] and listed[0].status_code == 400
+    assert listed[0].json()["detail"] == cs.SIGN_IN_FIRST

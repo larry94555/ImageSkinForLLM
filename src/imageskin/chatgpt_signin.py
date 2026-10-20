@@ -67,9 +67,19 @@ REVOKE_BACKOFF_S = 1.0
 # The access token is renewed when it has less than this left, so a reply never starts on a token
 # about to end (R43a).
 RENEW_BEFORE_S = 60
-# The token endpoint's codes for a refresh token that can never be used again; any other failure
-# leaves the tokens saved, to try again.
-TERMINAL_REFRESH = ("invalid_grant", "invalid_client", "unauthorized_client")
+# The token endpoint's codes for a refresh token that can never be used again (OpenAI's plan
+# docs): the tokens are forgotten, to sign in again. Any other failure leaves them saved.
+TERMINAL_REFRESH = (
+    "invalid_grant",
+    "invalid_refresh_token",
+    "token_expired",
+    "refresh_token_expired",
+    "refresh_token_invalidated",
+    "refresh_token_reused",
+)
+# Codes for the app's client registration, not the user's tokens: signing in again won't help,
+# so the tokens stay saved (a review on PR #118).
+CLIENT_REFUSED = ("invalid_client", "unauthorized_client")
 SIGN_IN_FIRST = "Sign in with ChatGPT on the Settings page first."
 SIGN_IN_AGAIN = "Your ChatGPT sign-in has ended. Sign in with ChatGPT again on the Settings page."
 NO_PLAN_USE = (
@@ -626,6 +636,11 @@ class ChatGptSignIn:
                 # registration stays, to sign in as it again (a review on PR #118).
                 self._forget_credentials(client_id, credentials)
                 raise SignInError(SIGN_IN_AGAIN)
+            if error in CLIENT_REFUSED:
+                raise SignInError(
+                    f"ChatGPT refused this app's sign-in registration ({error}), so the sign-in "
+                    "can't be renewed. This is a problem with the app, not your account."
+                )
             raise SignInError("ChatGPT's sign-in can't be renewed right now. Try again.")
         renewed = {
             "scopes": str(data.get("scope", "")).split() or credentials.get("scopes", []),
