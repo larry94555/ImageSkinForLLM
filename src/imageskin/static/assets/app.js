@@ -3282,6 +3282,19 @@ function SetupPage({ change }) {
 				children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it."
 			}),
 			/* @__PURE__ */ u("p", {
+				className: "avatar-instead",
+				children: [
+					"Rather not use your own photo and voice?",
+					" ",
+					/* @__PURE__ */ u("a", {
+						href: "#/start-now",
+						onClick: () => console.info("Choosing a ready-made avatar from Setup"),
+						children: "Use a ready-made avatar instead"
+					}),
+					". Your photos and recordings are kept."
+				]
+			}),
+			/* @__PURE__ */ u("p", {
 				className: "notice",
 				children: [
 					"New to this? The ",

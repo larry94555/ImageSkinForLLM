@@ -219,6 +219,13 @@ test("with consent, setup opens and the nav marks it", async () => {
   expect(screen.getByRole("link", { name: "Setup" }).className).toBe("current");
 });
 
+test("setup offers a ready-made avatar instead of your own photo and voice", async () => {
+  serverWithConsent(true);
+  await openAt("#/setup");
+  const link = await screen.findByRole("link", { name: "Use a ready-made avatar instead" });
+  expect(link.getAttribute("href")).toBe("#/start-now");
+});
+
 test("setup links to the recording guide, which keeps setup marked in the nav", async () => {
   serverWithConsent(true);
   await openAt("#/setup");

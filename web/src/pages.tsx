@@ -151,6 +151,17 @@ export function SetupPage({ change }: { change?: SetupPart }) {
         Make the talking person in four steps: add photos, add voice recordings, choose an
         accent, then prepare a sample video and check it.
       </p>
+      {/* Avatar Choice (Larry's test of R32a): the ready-made avatars are a click away. */}
+      <p className="avatar-instead">
+        Rather not use your own photo and voice?{" "}
+        <a
+          href="#/start-now"
+          onClick={() => console.info("Choosing a ready-made avatar from Setup")}
+        >
+          Use a ready-made avatar instead
+        </a>
+        . Your photos and recordings are kept.
+      </p>
       <p className="notice">
         New to this? The <a href="#/guide">recording guide</a> walks you step by step through
         taking the photos and making the voice recordings on a Windows or Mac laptop.
