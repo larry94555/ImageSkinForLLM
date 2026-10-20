@@ -184,9 +184,28 @@ def test_a_refused_token_is_renewed_once() -> None:
     twice, _ = client(http_error(401), http_error(401))
     with pytest.raises(LlmError, match="Sign in with ChatGPT again"):
         list(twice.stream(MESSAGES))
-    scoped, _ = client(http_error(401, "missing_scope"), http_error(401, "missing_scope"))
-    with pytest.raises(LlmError, match="Allow use of my plan"):
-        list(scoped.stream(MESSAGES))
+    # An account OpenAI won't take even with a renewed token keeps its sign-in, and the
+    # request ID is given (a review on PR #118).
+    invalid = http_error(401, "subscription_sharing_invalid_user")
+    refused, api = client(invalid, http_error(401, "subscription_sharing_invalid_user"))
+    with pytest.raises(LlmError, match=r"\(request ID req-1\)\. Your sign-in is kept") as said:
+        list(refused.stream(MESSAGES))
+    assert "Sign in" not in str(said.value) and len(api.asked) == 2
+
+
+def test_a_plan_service_down_for_now_is_tried_again_after_a_wait() -> None:
+    # A review on PR #118: OpenAI's temporary 503s are tried again with a growing wait, and the
+    # sign-in is kept.
+    for code in ("subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable"):
+        waits: list[float] = []
+        api = FakeResponses(http_error(503, code), http_error(503, code), text("Four."))
+        plan = ChatGptPlanClient(SETTINGS, Tokens(), opener=api, sleep=waits.append)
+        assert list(plan.stream(MESSAGES)) == ["Four."] and waits == [1.0, 2.0]
+        api = FakeResponses(*[http_error(503, code) for _ in range(3)])
+        plan = ChatGptPlanClient(SETTINGS, Tokens(), opener=api, sleep=waits.append)
+        with pytest.raises(LlmError, match="can't use your plan right now. Your sign-in is kept"):
+            list(plan.stream(MESSAGES))
+        assert len(api.asked) == 3
     assert SIGN_IN_AGAIN.startswith("ChatGPT refused the sign-in")
 
 
@@ -232,8 +251,24 @@ def test_a_refused_token_is_renewed_once() -> None:
             http_error(400, "subscription_sharing_unsupported_capability", "tools", "x" * 2000),
             r"through a plan \(tools\)",
         ),
-        (http_error(403, "chatpass_v2_invalid_authorization_context"), "Allow use of my plan"),
-        (http_error(403, "insufficient_scope"), "Allow use of my plan"),
+        # The app's grant, which signing in or allowing plan use again won't fix.
+        (
+            http_error(403, "chatpass_v2_invalid_authorization_context"),
+            r"access to plans \(chatpass_v2_invalid_authorization_context\)\. This is a problem",
+        ),
+        (
+            http_error(403, "chatpass_v2_scope_not_authorized"),
+            r"refused this app's access to plans \(chatpass_v2_scope_not_authorized\)",
+        ),
+        (
+            events(
+                {
+                    "type": "response.failed",
+                    "response": {"error": {"code": "subscription_sharing_user_unavailable"}},
+                }
+            ),
+            "can't use your plan right now",
+        ),
         (http_error(403, "other_thing"), r"refused the prompt \(403: other_thing\)"),
         (http_error(404, "model_not_found"), "doesn't know the model"),
         (http_error(400, "subscription_sharing_usage_limit_exceeded"), "reached its limit"),

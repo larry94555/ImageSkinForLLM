@@ -40,9 +40,18 @@ PICK_ANOTHER = "Pick another LLM on the Settings page."
 # Said in the chat for OpenAI's plan-usage error codes, before or during a stream (reviews on
 # PR #118: a 403 isn't always the model's fault, a plan's limit can end a stream, and each code
 # has its own recovery).
-SCOPE = (
-    'ChatGPT wasn\'t allowed to use your plan. Click "Allow use of my plan" on the Settings page.'
-)
+# Codes for the app's own grant or client setup: the saved sign-in already allows plan use
+# (`plan_session` checks), so asking for it again wouldn't help.
+GRANT_CODES = ("chatpass_v2_scope_not_authorized", "chatpass_v2_invalid_authorization_context")
+# Codes for a plan service that is down for now: tried again after a short wait, and the sign-in
+# is kept.
+BUSY_CODES = ("subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable")
+BUSY = "ChatGPT can't use your plan right now. Your sign-in is kept. Try again in a little while."
+BUSY_TRIES = 3  # tried again after 1 s, then 2 s
+BUSY_BACKOFF_S = 1.0
+# OpenAI didn't accept the account even with a renewed token. The renewal would have said to
+# sign in again if the sign-in had ended, so the sign-in is kept.
+INVALID_USER = "subscription_sharing_invalid_user"
 # The request's route or method, which the app chose: not the user's plan, and not fixed by
 # trying again.
 ROUTE = (
@@ -55,7 +64,7 @@ CODES = {
         f"Your ChatGPT plan can't be used here. {PICK_ANOTHER}"
     ),
     "subscription_sharing_route_not_supported": ROUTE,
-    "chatpass_v2_invalid_authorization_context": SCOPE,
+    **dict.fromkeys(BUSY_CODES, BUSY),
     "model_not_found": NO_MODEL,
 }
 # Said for a part of the request a plan can't take, named by the error's `param`: sending the
@@ -106,8 +115,12 @@ def said_for(error: Any, fallback: str) -> str:
         param = error.get("param")
         named = f" ({param})" if isinstance(param, str) and param else ""
         return f"ChatGPT can't take part of the app's request through a plan{named}. {PICK_ANOTHER}"
-    # A code naming a scope: the sign-in didn't allow what was asked.
-    return SCOPE if "scope" in code else fallback
+    if code in GRANT_CODES:
+        return (
+            f"ChatGPT refused this app's access to plans ({code}). This is a problem with the "
+            f"app's setup, not your account. {PICK_ANOTHER}"
+        )
+    return fallback
 
 
 def request_body(
@@ -143,11 +156,16 @@ class ChatGptPlanClient:
     `chat.LlmClient`."""
 
     def __init__(
-        self, settings: LlmSettings, session: Session, opener: Opener = urllib.request.urlopen
+        self,
+        settings: LlmSettings,
+        session: Session,
+        opener: Opener = urllib.request.urlopen,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.settings = settings
         self._session = session
         self._open = opener
+        self._sleep = sleep
 
     def count(self, text: str) -> int:
         return estimate(text)  # OpenAI doesn't count for free; the safe estimate never falls short
@@ -159,8 +177,10 @@ class ChatGptPlanClient:
         logger.info("The ChatGPT plan needs no warm-up", extra={"model": self.settings.model})
 
     def _response(self, body: dict[str, Any]) -> Any:
-        """The open stream of OpenAI's answer, with the token renewed once if it was refused."""
-        for renew in (False, True):
+        """The open stream of OpenAI's answer, with the token renewed once if it was refused, and
+        the request tried again, after a wait, while the plan service is down for now."""
+        renew, busy = False, 0
+        while True:
             try:
                 # The token is held until the request is sent, so Disconnect can't come between.
                 with self._session(renew) as token:
@@ -185,18 +205,30 @@ class ChatGptPlanClient:
                 except (ValueError, AttributeError):
                     error = None
                 code = error_code(error)
+                request_id = e.headers.get("x-request-id", "") if e.headers else ""
                 logger.error(
                     "ChatGPT refused the request",
                     extra={
                         "status": e.code,
                         "code": code,
-                        "request_id": e.headers.get("x-request-id", "") if e.headers else "",
+                        "request_id": request_id,
                         "model": body["model"],
                         "detail": detail,
                     },
                 )
                 if e.code == 401 and not renew:
+                    renew = True
                     continue
+                if code in BUSY_CODES and busy < BUSY_TRIES - 1:
+                    self._sleep(BUSY_BACKOFF_S * 2**busy)
+                    busy += 1
+                    continue
+                if code == INVALID_USER:
+                    raise LlmError(
+                        "ChatGPT didn't accept your account for plan use, even with a renewed "
+                        f"sign-in (request ID {request_id or 'none'}). Your sign-in is kept. "
+                        "Try again later, or pick another LLM on the Settings page."
+                    ) from e
                 if e.code == 401:
                     raise LlmError(said_for(error, SIGN_IN_AGAIN)) from e
                 shown = f"{e.code}: {code}" if code else str(e.code)
@@ -205,7 +237,6 @@ class ChatGptPlanClient:
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 logger.error("Could not reach ChatGPT", extra={"error": str(e)})
                 raise LlmError(UNREACHABLE) from e
-        raise AssertionError("unreachable")  # pragma: no cover
 
     def _pieces(self, body: dict[str, Any]) -> Iterator[str]:
         """The reply's text as OpenAI streams it, read from the server-sent events."""
