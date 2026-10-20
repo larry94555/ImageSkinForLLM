@@ -54,6 +54,19 @@ def test_the_image_installs_the_cloned_voice_as_the_readme_does() -> None:
     assert f"Tested with torch {torch.group(1)}" in text(ROOT / "clone-requirements.txt")
 
 
+def test_torchaudio_comes_from_the_cpu_index_with_torch() -> None:
+    # PyPI's Linux torchaudio needs CUDA, which the CPU-only image lacks (Larry's test on Oracle).
+    install = re.search(
+        r"pip install .*torch==.*--index-url \"\$TORCH_INDEX\"", text(ROOT / "Dockerfile")
+    )
+    assert install is not None
+    version = re.search(
+        r"^torchaudio==([\d.]+)$", text(ROOT / "clone-requirements.txt"), re.MULTILINE
+    )
+    assert version is not None
+    assert f"torchaudio=={version.group(1)}" in install.group()
+
+
 def test_the_app_asks_the_llama_container_with_the_laptops_model() -> None:
     settings = load_settings(DEPLOY / "config.toml")
     assert settings.llm_url == "http://llama:8080/v1"

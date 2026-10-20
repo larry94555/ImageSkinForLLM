@@ -14,10 +14,11 @@ RUN python3.12 -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 
 WORKDIR /app
-# The CPU-only PyTorch: the server has no GPU, and it is far smaller. The version the cloned
-# voice was tested with (clone-requirements.txt).
+# The CPU-only PyTorch and torchaudio: the server has no GPU, and they are far smaller. The
+# versions the cloned voice was tested with (clone-requirements.txt). torchaudio must come from
+# the same index: PyPI's Linux build needs CUDA (libcudart.so.13), so Chatterbox couldn't load it.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir torch==2.14.1 --index-url "$TORCH_INDEX"
+RUN pip install --no-cache-dir torch==2.14.1 torchaudio==2.11.0 --index-url "$TORCH_INDEX"
 
 COPY pyproject.toml README.md LICENSE clone-requirements.txt ./
 COPY src ./src
