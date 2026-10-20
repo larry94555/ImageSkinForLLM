@@ -170,7 +170,7 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 ## If it doesn't work
 
 - **The browser says `ERR_SSL_PROTOCOL_ERROR` or "can't provide a secure connection":** Caddy has no certificate yet. `docker compose logs caddy --tail 40` says why. `lookup acme-v02.api.letsencrypt.org on 127.0.0.53:53 ... connection refused` means the containers couldn't look up names; `compose.yaml` now gives them public name servers, so get the latest with `git pull` and run `docker compose up -d`. `NXDOMAIN` or a timeout on your address means the A record (step 6b) isn't working yet, or ports 80 and 443 aren't open (steps 3 and 5). Caddy tries again every minute by itself; once the log says `certificate obtained successfully`, reload the page.
-- **`docker compose up` says port 80 or 443 is already in use (`address already in use`):** something else on the machine is using it, such as an earlier web server or container. `sudo ss -ltnp 'sport = :80'` names the program, and `docker ps` lists running containers. Stop it (`docker stop <name>` for a container, or `sudo systemctl disable --now nginx` for nginx, say), then run `docker compose up -d` again.
+- **`docker compose up` says port 80 or 443 is already in use (`address already in use`):** something else on the machine is using it, such as an earlier web server or container. `sudo ss -ltnp 'sport = :80'` names the program, and `docker ps` lists running containers. Stop it: `docker rm -f <name>` for a container, or, for a web server installed on the machine itself, `sudo systemctl disable --now caddy` (or `nginx`, or `apache2`), then run `docker compose up -d` again.
 
 ## Looking after it
 
