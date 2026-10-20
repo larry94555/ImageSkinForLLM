@@ -179,11 +179,14 @@ class ChatGptPlanClient:
     def _response(self, body: dict[str, Any]) -> Any:
         """The open stream of OpenAI's answer, with the token renewed once if it was refused, and
         the request tried again, after a wait, while the plan service is down for now."""
-        renew, busy = False, 0
+        renew, renewed, busy = False, False, 0
         while True:
             try:
                 # The token is held until the request is sent, so Disconnect can't come between.
+                # It is renewed only for the try right after a 401, not again for each wait
+                # after it (a review on PR #118).
                 with self._session(renew) as token:
+                    renew = False
                     request = urllib.request.Request(
                         URL,
                         data=json.dumps(body).encode(),
@@ -216,8 +219,8 @@ class ChatGptPlanClient:
                         "detail": detail,
                     },
                 )
-                if e.code == 401 and not renew:
-                    renew = True
+                if e.code == 401 and not renewed:
+                    renew = renewed = True
                     continue
                 # A 503 before the stream may carry only `detail`, no code: down for now too
                 # (a review on PR #118).

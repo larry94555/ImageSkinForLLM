@@ -208,6 +208,18 @@ def test_a_plan_service_down_for_now_is_tried_again_after_a_wait() -> None:
         assert len(api.asked) == 3
 
 
+def test_waits_after_a_renewal_dont_renew_again() -> None:
+    # A review on PR #118: 401, then the plan service down twice, renews the sign-in once.
+    waits: list[float] = []
+    busy = "subscription_sharing_usage_unavailable"
+    api = FakeResponses(http_error(401), http_error(503, busy), http_error(503), text("Four."))
+    tokens = Tokens()
+    plan = ChatGptPlanClient(SETTINGS, tokens, opener=api, sleep=waits.append)
+    assert list(plan.stream(MESSAGES)) == ["Four."]
+    assert tokens.renewed == 1 and waits == [1.0, 2.0]
+    assert [auth for _, auth in api.asked] == ["Bearer token-1"] + ["Bearer token-2"] * 3
+
+
 def test_a_503_with_only_a_detail_is_tried_again_after_a_wait() -> None:
     # A review on PR #118: before a stream opens, a 503 may say only {"detail": ...}.
     def down() -> urllib.error.HTTPError:
@@ -674,6 +686,24 @@ def test_the_plans_models_are_listed_with_its_token_in_its_order() -> None:
     assert e.value.refused
 
 
+def test_each_accounts_list_keeps_its_own_model_names() -> None:
+    # A review on PR #118: the same slug can have another name in another account's plan, and
+    # a list kept from before brings its own names back with it.
+    shown = {"Bearer access-a": "GPT X A", "Bearer access-b": "GPT X B"}
+    asked: list[str] = []
+
+    def fetch(url: str, headers: dict[str, str]) -> Any:
+        asked.append(headers["Authorization"])
+        name = shown[headers["Authorization"]]
+        return {"models": [{"slug": "gpt-x", "display_name": name, "visibility": "list"}]}
+
+    lists = lc.ModelLists(fetch)
+    assert lists.named_models("chatgpt", "access-a") == (["gpt-x"], {"gpt-x": "GPT X A"})
+    assert lists.named_models("chatgpt", "access-b") == (["gpt-x"], {"gpt-x": "GPT X B"})
+    assert lists.named_models("chatgpt", "access-a") == (["gpt-x"], {"gpt-x": "GPT X A"})
+    assert asked == ["Bearer access-a", "Bearer access-b"]  # A's second list was kept
+
+
 def test_switching_to_the_plan_answers_through_it() -> None:
     api = FakeResponses(text("Through the plan."))
     with patch.object(lc, "ChatGptPlanClient", lambda s, t: ChatGptPlanClient(s, t, api)):
@@ -775,7 +805,7 @@ def test_a_plan_list_that_cant_be_had_asks_for_a_model_name(
     def down(provider: str, key: str) -> list[str]:
         raise lc.ModelListError("ChatGPT plan's models couldn't be listed. Try again.")
 
-    with patch.object(lc.ModelLists, "models", side_effect=down):
+    with patch.object(lc.ModelLists, "named_models", side_effect=down):
         refused = client.put("/api/llm", json={"provider": "chatgpt", "model": ""})
     assert refused.status_code == 502
     assert "Type a model's name" in refused.json()["detail"]
@@ -827,13 +857,13 @@ def test_an_account_whose_list_cant_be_had_keeps_the_model(
     client, _ = app
     signed_in(tmp_path, time.time() + 3600)
     assert client.put("/api/llm", json={"provider": "chatgpt", "model": "gpt-second"}).is_success
-    with patch.object(lc.ModelLists, "models", side_effect=lc.ModelListError("down")):
+    with patch.object(lc.ModelLists, "named_models", side_effect=lc.ModelListError("down")):
         client.post("/api/chatgpt/use", json={"account": "app_1"})
     assert client.get("/api/llm").json()["providers"][-1]["model"] == "gpt-second"
     assert "Could not check the ChatGPT plan's model" in caplog.messages
     # Not answering through the plan: nothing to check.
     client.put("/api/llm", json={"provider": "local"})
-    with patch.object(lc.ModelLists, "models") as never:
+    with patch.object(lc.ModelLists, "named_models") as never:
         client.post("/api/chatgpt/use", json={"account": "app_1"})
     never.assert_not_called()
 

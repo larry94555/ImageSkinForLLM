@@ -1088,13 +1088,13 @@ def create_app(
         except SignInError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
-    def plan_list() -> list[str]:
+    def plan_list() -> tuple[list[str], dict[str, str]]:
         """The models in the ChatGPT plan's list, fetched with the sign-in held until the list
         has come, so Disconnect, a switch or a sign-in waits for it and none is fetched with a
         token after Disconnect (a review on PR #118). LlmError, in plain words, when there is no
         sign-in to use."""
         with signin.plan_session() as token:
-            return model_lists.models("chatgpt", token)
+            return model_lists.named_models("chatgpt", token)
 
     def plan_model(model: str | None) -> str | None:
         """The model to save for the ChatGPT plan: the one entered, the one saved when none is
@@ -1106,7 +1106,7 @@ def create_app(
         if model is None and load_choice(data_home).models.get("chatgpt"):
             return None
         try:
-            return plan_list()[0]
+            return plan_list()[0][0]
         except LlmError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         except ModelListError as e:
@@ -1171,10 +1171,10 @@ def create_app(
                 # The plan's own list, with the signed-in account's token, shown by the names
                 # the plan gives them (R43a).
                 try:
-                    ids = plan_list()
+                    ids, names = plan_list()
                 except LlmError as e:
                     raise HTTPException(status_code=400, detail=str(e)) from e
-                return {"models": ids, "names": model_lists.names(ids)}
+                return {"models": ids, "names": names}
             ids = model_lists.models(body.provider, key)
             return {"models": ids}
         except ModelListError as e:
@@ -1233,7 +1233,7 @@ def create_app(
         if load_choice(data_home).provider != "chatgpt":
             return
         try:
-            models = plan_list()
+            models = plan_list()[0]
         except (LlmError, ModelListError) as e:
             logger.warning("Could not check the ChatGPT plan's model", extra={"reason": str(e)})
             return

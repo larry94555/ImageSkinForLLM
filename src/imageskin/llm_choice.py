@@ -288,17 +288,18 @@ class ModelLists:
         self._fetch = fetch
         self._claude = claude or _claude_models
         self._clock = clock
-        self._kept: dict[tuple[str, str], tuple[float, list[str]]] = {}
+        # Each list with the names it shows for its models, where they differ from the IDs
+        # (the ChatGPT plan's `display_name`s, R43a): kept per key, since each account's plan
+        # has its own (a review on PR #118).
+        self._kept: dict[tuple[str, str], tuple[float, list[str], dict[str, str]]] = {}
         self._lock = threading.Lock()
-        # The names the ChatGPT plan's list shows for its models' slugs (R43a).
-        self._names: dict[str, str] = {}
-
-    def names(self, ids: list[str]) -> dict[str, str]:
-        """The display names known for these models, where they differ from the slug."""
-        with self._lock:
-            return {i: self._names[i] for i in ids if self._names.get(i, i) != i}
 
     def models(self, provider: str, key: str) -> list[str]:
+        return self.named_models(provider, key)[0]
+
+    def named_models(self, provider: str, key: str) -> tuple[list[str], dict[str, str]]:
+        """The models a provider offers to this key, and the names shown for those whose name
+        isn't their ID."""
         if provider not in PROVIDERS or provider == "local":
             raise ModelListError("Only a provider's models can be listed.")
         if not key and PROVIDERS[provider].signs_in:
@@ -311,11 +312,11 @@ class ModelLists:
         with self._lock:
             kept = self._kept.get(kept_as)
         if kept is not None and now - kept[0] < MODELS_KEPT_S:
-            return kept[1]
+            return kept[1], kept[2]
         start = time.perf_counter()
-        found = self._look_up(provider, key)
+        found, names = self._look_up(provider, key)
         with self._lock:
-            self._kept[kept_as] = (now, found)
+            self._kept[kept_as] = (now, found, names)
         logger.info(
             "Listed the provider's models",
             extra={
@@ -324,10 +325,11 @@ class ModelLists:
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
-        return found
+        return found, names
 
-    def _look_up(self, provider: str, key: str) -> list[str]:
+    def _look_up(self, provider: str, key: str) -> tuple[list[str], dict[str, str]]:
         p = PROVIDERS[provider]
+        names: dict[str, str] = {}
         try:
             if provider == "claude":
                 found = self._claude(key)
@@ -340,8 +342,7 @@ class ModelLists:
                 # The plan's list keeps its own order (R43a); the others are sorted.
                 if p.signs_in:
                     pairs = plan_models(listed)
-                    with self._lock:
-                        self._names.update(pairs)
+                    names = {slug: name for slug, name in pairs if name != slug}
                     found = [slug for slug, _ in pairs]
                 else:
                     found = _ids(listed, provider)
@@ -365,7 +366,7 @@ class ModelLists:
             raise ModelListError(f"{p.label}'s models couldn't be listed. Try again.") from e
         if not found:
             raise ModelListError(f"{p.label} listed no models{' for this key' if key else ''}.")
-        return found
+        return found, names
 
 
 def _claude_models(key: str) -> list[str]:
