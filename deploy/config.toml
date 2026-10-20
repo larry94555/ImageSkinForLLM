@@ -7,6 +7,7 @@ host = "0.0.0.0"
 port = 8000
 log_level = "INFO"
 
-# There is no local LLM on the server: pick Claude, OpenAI, Grok or OpenRouter, with your API
-# key, or a ChatGPT plan, on the Settings page. A larger window keeps more of the conversation.
-llm_context_tokens = 32000
+# The local LLM: llama-server in the llama container (compose.yaml), with Gemma 3 4B. Claude,
+# OpenAI, Grok, OpenRouter or a ChatGPT plan can be picked instead on the Settings page; with one
+# of those, raise llm_context_tokens (to 32000, say) to keep more of the conversation word for word.
+llm_url = "http://llama:8080/v1"

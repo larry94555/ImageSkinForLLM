@@ -54,7 +54,13 @@ def test_the_image_installs_the_cloned_voice_as_the_readme_does() -> None:
     assert f"Tested with torch {torch.group(1)}" in text(ROOT / "clone-requirements.txt")
 
 
-def test_both_containers_have_public_name_servers() -> None:
-    # Oracle's Ubuntu resolves through 127.0.0.53, which a container can't reach (Larry's test).
+def test_the_app_asks_the_llama_container_with_the_laptops_model() -> None:
+    settings = load_settings(DEPLOY / "config.toml")
+    assert settings.llm_url == "http://llama:8080/v1"
     compose = text(DEPLOY / "compose.yaml")
-    assert compose.count("dns:\n      - 1.1.1.1\n      - 8.8.8.8") == 2
+    assert "--port 8080" in compose
+    # The same model as the README's llama-server line, and no port open outside Docker.
+    assert "-hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj" in text(ROOT / "README.md")
+    assert "-hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj" in compose
+    llama = compose.split("\n  llama:")[1].split("\n  caddy:")[0]
+    assert "ports:" not in llama

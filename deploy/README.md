@@ -2,11 +2,12 @@
 
 This puts the whole app on a hosted HTTPS site (roadmap R32), on a machine Oracle gives away for free: 4 ARM cores, 24 GB of memory and up to 200 GB of disk, with no time limit. The microphone works there, since browsers allow it only over HTTPS. The site asks for one name and password before anything is shown, so only you can use it.
 
-Three pieces run on the machine, with Docker:
+Four pieces run on the machine, with Docker:
 
 - **the app**, from the `Dockerfile` at the top of the repository, with every voice and video extra installed;
+- **the LLM**, llama.cpp's `llama-server` with Gemma 3 4B, the same model as on the laptop, which only the app can reach;
 - **Caddy**, a web server in front of it, which gets the HTTPS certificate from Let's Encrypt (and renews it) by itself and asks for the password;
-- **a data volume**, `/data` inside the app, which keeps the uploads, the prepared face, the settings and any API keys, and the downloaded models, through restarts and new versions.
+- **data volumes**: `/data` inside the app, which keeps the uploads, the prepared face, the settings and any API keys, and the downloaded models, and another keeps the LLM's model, through restarts and new versions.
 
 The secrets stay on the server: the password's hash is in `deploy/.env` there, which is never committed, and API keys typed on the Settings page are saved in the data volume, readable only by the app.
 
@@ -153,9 +154,17 @@ docker compose logs caddy | grep -i "certificate obtained"
 
 Open `https://<SITE_ADDRESS>` (such as https://129-146-1-2.sslip.io) in your browser. It asks for the name and password; then the app opens as it does on your laptop, with a padlock in the address bar. A wrong password asks again and shows nothing of the app.
 
-## 8. Pick the LLM
+## 8. The LLM
 
-There is no local LLM on the server. On the Settings page (host view), under **LLM**, pick **Claude**, **OpenAI**, **Grok** or **OpenRouter** and paste your API key. It is saved on the server only, in the data volume.
+The chat answers with the same open model as on the laptop: llama.cpp's `llama-server` with Gemma 3 4B, in its own container (`llama` in `compose.yaml`), started by step 7 like the rest. The first time it starts, it downloads the model (about 2.5 GB) into its own volume; until then the chat says the LLM can't be reached. Watch it with:
+
+```
+docker compose logs -f llama
+```
+
+It is ready when the log says `server is listening on http://0.0.0.0:8080` (Ctrl+C stops watching). It uses 2 of the 4 cores (`--threads 2`) and leaves the other 2 to the voice and the video, as on the laptop. To try another model, change the `-hf` name under `llama` in `compose.yaml` and run `docker compose up -d`.
+
+To use a cloud LLM instead, go to the Settings page (host view), under **LLM** pick **Claude**, **OpenAI**, **Grok** or **OpenRouter**, and paste your API key. It is saved on the server only, in the data volume. **Local (llama.cpp)** on the same page goes back to llama-server.
 
 **ChatGPT plan** works too, but OpenAI sends the browser back to the app's own address on `127.0.0.1`, so sign in through an SSH tunnel from your laptop once. Stop any `imageskin serve` on your laptop first (it uses port 8000 too), then connect with `-L 8000:127.0.0.1:8000` added to the `ssh` command from step 4, such as:
 
@@ -169,8 +178,8 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 
 ## If it doesn't work
 
-- **The browser says `ERR_SSL_PROTOCOL_ERROR` or "can't provide a secure connection":** Caddy has no certificate yet. `docker compose logs caddy --tail 40` says why. `lookup acme-v02.api.letsencrypt.org on 127.0.0.53:53 ... connection refused` means the containers couldn't look up names; `compose.yaml` now gives them public name servers, so get the latest with `git pull` and run `docker compose up -d`. `NXDOMAIN` or a timeout on your address means the A record (step 6b) isn't working yet, or ports 80 and 443 aren't open (steps 3 and 5). Caddy tries again every minute by itself; once the log says `certificate obtained successfully`, reload the page.
-- **`docker compose up` says port 80 or 443 is already in use (`address already in use`):** something else on the machine is using it, such as an earlier web server or container. `sudo ss -ltnp 'sport = :80'` names the program, and `docker ps` lists running containers. Stop it: `docker rm -f <name>` for a container, or, for a web server installed on the machine itself, `sudo systemctl disable --now caddy` (or `nginx`, or `apache2`), then run `docker compose up -d` again.
+- **The browser says `ERR_SSL_PROTOCOL_ERROR` or "can't provide a secure connection":** Caddy has no certificate yet. `docker compose logs caddy --tail 40` says why. `NXDOMAIN` or a timeout on your address means the A record (step 6b) isn't working yet, or ports 80 and 443 aren't open (steps 3 and 5). A lookup on `127.0.0.53` that is refused, or `network is unreachable`, means the Caddy container has no network, which happens when it was first started while port 80 was taken (next point): `docker inspect imageskin-caddy-1 --format '{{json .NetworkSettings.Networks}}'` prints `{}`. Make it again with `docker compose up -d --force-recreate caddy`. Caddy tries again every minute by itself; once the log says `certificate obtained successfully`, reload the page.
+- **`docker compose up` says port 80 or 443 is already in use (`address already in use`):** something else on the machine is using it, such as an earlier web server or container. `sudo ss -ltnp 'sport = :80'` names the program, and `docker ps` lists running containers. Stop it: `docker rm -f <name>` for a container, or, for a web server installed on the machine itself, `sudo systemctl disable --now caddy` (or `nginx`, or `apache2`), then run `docker compose up -d --force-recreate` so the containers are made again with their network.
 
 ## Looking after it
 

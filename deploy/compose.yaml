@@ -6,11 +6,8 @@ services:
     build: ..
     image: imageskin
     restart: unless-stopped
-    # Public name servers: on Oracle's Ubuntu the host's own (127.0.0.53) can't be reached from a
-    # container, so Caddy couldn't look up Let's Encrypt and the app couldn't reach the LLMs.
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    depends_on:
+      - llama
     volumes:
       - imageskin-data:/data
       - ./config.toml:/etc/imageskin/config.toml:ro
@@ -19,14 +16,23 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
 
+  # The local LLM, as on the laptop (README, "Chat with the LLM"): llama.cpp's llama-server with
+  # Gemma 3 4B, downloaded into its own volume on first start (about 2.5 GB). Half the cores, so
+  # the voice and video keep the other half (roadmap R22a). Only the app reaches it.
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    restart: unless-stopped
+    environment:
+      LLAMA_CACHE: /models
+    volumes:
+      - llama-models:/models
+    command: >-
+      -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --host 0.0.0.0 --port 8080
+      --ctx-size 4096 --threads 2
+
   caddy:
     image: caddy:2
     restart: unless-stopped
-    # Public name servers: on Oracle's Ubuntu the host's own (127.0.0.53) can't be reached from a
-    # container, so Caddy couldn't look up Let's Encrypt and the app couldn't reach the LLMs.
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
     depends_on:
       - app
     ports:
@@ -44,5 +50,6 @@ services:
 
 volumes:
   imageskin-data:
+  llama-models:
   caddy-data:
   caddy-config:
