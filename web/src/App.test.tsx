@@ -300,6 +300,16 @@ function uploadServer(stored: Upload[], posted: Response[] = [], voice = NO_VOIC
   return fetchMock;
 }
 
+// Clicks a Remove button, then Yes in the box that asks first.
+async function removeConfirmed(button: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Yes, remove it" }));
+  });
+}
+
 function chooseFiles(label: string, files: File[]) {
   const input = screen.getByText(label).querySelector("input") as HTMLInputElement;
   Object.defineProperty(input, "files", { value: files, configurable: true });
@@ -500,7 +510,6 @@ test("removing the photo being chosen falls back to the best one", async () => {
   const saving = new Promise<void>((resolve) => {
     finishSave = resolve;
   });
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -523,9 +532,7 @@ test("removing the photo being chosen falls back to the best one", async () => {
   await act(async () => {
     fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
   });
-  await act(async () => {
-    fireEvent.click(within(other).getByRole("button", { name: "Remove" }));
-  });
+  await removeConfirmed(within(other).getByRole("button", { name: "Remove" }));
   await act(async () => {
     finishSave();
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -548,7 +555,6 @@ test("a refused choice says why", async () => {
 
 test("the choice is asked again after a good photo is uploaded or the chosen one removed", async () => {
   const fetchMock = uploadServer([PHOTO], [Response.json({ ...PHOTO, id: "c".repeat(32) })]);
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   await openAt("#/setup");
   await screen.findByText("Used for the video (best score)");
   const asked = () => fetchMock.mock.calls.filter(([url]) => url.endsWith("/chosen")).length;
@@ -558,9 +564,7 @@ test("the choice is asked again after a good photo is uploaded or the chosen one
   });
   await waitFor(() => expect(asked()).toBe(2));
   const chosen = screen.getByText("Used for the video (best score)").closest("li") as HTMLElement;
-  await act(async () => {
-    fireEvent.click(within(chosen).getByRole("button", { name: "Remove" }));
-  });
+  await removeConfirmed(within(chosen).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(asked()).toBe(3));
 });
 
@@ -668,30 +672,33 @@ test("a refusal without a JSON reason still says something", async () => {
   expect(await screen.findByText("voice1.wav: That didn't work. Please try again.")).toBeTruthy();
 });
 
-test("remove asks first, then deletes the file", async () => {
+test("remove asks first in the app's own box, then deletes the file", async () => {
   const fetchMock = uploadServer([PHOTO]);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+  const confirm = vi.spyOn(window, "confirm");
   await openAt("#/setup");
   await screen.findByAltText("front.jpg");
-  fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-  expect(screen.queryByAltText("front.jpg")).toBeTruthy();
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
   });
+  expect(screen.getByRole("alertdialog", { name: "Remove front.jpg?" })).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "No, keep it" }));
+  });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.queryByAltText("front.jpg")).toBeTruthy();
+  expect(fetchMock).not.toHaveBeenCalledWith(expect.anything(), { method: "DELETE" });
+  await removeConfirmed(screen.getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(screen.queryByAltText("front.jpg")).toBeNull());
-  expect(confirm).toHaveBeenCalledWith("Remove front.jpg?");
+  expect(confirm).not.toHaveBeenCalled(); // not the browser's box
   expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/photos/${PHOTO.id}`, { method: "DELETE" });
 });
 
 test("a failed remove keeps the file and says so", async () => {
   uploadServer([PHOTO]);
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   await openAt("#/setup");
   await screen.findByAltText("front.jpg");
   vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-  });
+  await removeConfirmed(screen.getByRole("button", { name: "Remove" }));
   expect(await screen.findByText("front.jpg: Could not remove it. Please try again.")).toBeTruthy();
   expect(screen.getByAltText("front.jpg")).toBeTruthy();
 });
@@ -816,7 +823,6 @@ test("the voice sample is read again after a recording is added, checked or remo
     [Response.json(PASSED_SOUND), Response.json({ ...PASSED_SOUND, id: "c".repeat(32) })],
     ONE_VOICE,
   );
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const reads = () => fetchMock.mock.calls.filter(([url]) => url === "/api/voice-sample").length;
   await openAt("#/setup");
   // The stored recording predates the checks, so it is checked first, then the sample read.
@@ -832,9 +838,7 @@ test("the voice sample is read again after a recording is added, checked or remo
   expect(document.querySelector(".voice-sample audio")?.getAttribute("src")).toBe(
     "/api/voice-sample/audio?v=2",
   );
-  await act(async () => {
-    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
-  });
+  await removeConfirmed(screen.getAllByRole("button", { name: "Remove" })[0]);
   await waitFor(() => expect(reads()).toBe(4));
 });
 
@@ -1020,7 +1024,6 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
     return Response.json([]);
   });
   vi.stubGlobal("fetch", fetchMock);
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   await openAt("#/setup");
   expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
 
@@ -1032,7 +1035,7 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
   expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
 
   const recording = (await screen.findByText(/voice1\.m4a/)).closest("li") as HTMLElement;
-  fireEvent.click(within(recording).getByRole("button", { name: "Remove" }));
+  await removeConfirmed(within(recording).getByRole("button", { name: "Remove" }));
   expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
 });
 

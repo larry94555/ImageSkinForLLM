@@ -50,6 +50,7 @@ import {
   voiceSampleAudioUrl,
 } from "./api";
 import { Checks, minutes } from "./checks";
+import { useConfirm } from "./confirm-dialog";
 import { ExitScreen } from "./exit";
 import { ASSESSMENT_KEY, LESSON_KEY, QUIZ_KEY } from "./progress";
 import type { SetupPart } from "./router";
@@ -205,6 +206,7 @@ function UploadSection(props: {
   const [items, setItems] = useState<Upload[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
   const [refused, setRefused] = useState<Refused[]>([]);
   // Uploads still to be checked, in order; the first one is being checked now.
   const [toCheck, setToCheck] = useState<string[]>([]);
@@ -318,7 +320,12 @@ function UploadSection(props: {
   }
 
   async function remove(item: Upload) {
-    if (!window.confirm(`Remove ${item.name}?`)) return;
+    const yes = await ask({
+      title: `Remove ${item.name}?`,
+      keepLabel: "No, keep it",
+      confirmLabel: "Yes, remove it",
+    });
+    if (!yes) return;
     try {
       await removeUpload(kind, item.id);
       setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
@@ -401,6 +408,7 @@ function UploadSection(props: {
         ))}
       </ul>
       {kind === "sounds" && <VoiceSampleView changes={soundChanges} />}
+      {dialog}
     </section>
   );
 }

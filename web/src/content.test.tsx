@@ -106,6 +106,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// Clicks a Remove button, then Yes in the box that asks first.
+async function removeConfirmed(button: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Yes, remove it" }));
+  });
+}
+
 test("the nav's Manage Content link opens the page", async () => {
   server([GUIDE]);
   window.location.hash = "#/content";
@@ -195,17 +205,23 @@ test("choosing no file to replace with changes nothing", async () => {
   expect(changes(fetchMock)).toHaveLength(0);
 });
 
-test("removes a PDF after asking", async () => {
+test("removes a PDF after asking in the app's own box", async () => {
   const fetchMock = server([GUIDE, { ...GUIDE, id: "b2", name: "other.pdf" }]);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+  const confirm = vi.spyOn(window, "confirm");
   render(<ContentPage />);
   const item = (await screen.findByRole("link", { name: "guide.pdf" })).closest("li")!;
-  fireEvent.click(within(item).getByRole("button", { name: "Remove" }));
-  expect(changes(fetchMock)).toHaveLength(0);
   await act(async () => {
     fireEvent.click(within(item).getByRole("button", { name: "Remove" }));
   });
-  expect(confirm).toHaveBeenCalledWith("Remove guide.pdf? Its wiki is removed too.");
+  const dialog = screen.getByRole("alertdialog", { name: "Remove guide.pdf?" });
+  expect(dialog.textContent).toContain("Its wiki pages are removed too.");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "No, keep it" }));
+  });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(changes(fetchMock)).toHaveLength(0);
+  await removeConfirmed(within(item).getByRole("button", { name: "Remove" }));
+  expect(confirm).not.toHaveBeenCalled(); // not the browser's box
   expect(fetchMock).toHaveBeenCalledWith("/api/content/a1", { method: "DELETE" });
   await waitFor(() => expect(screen.queryByRole("link", { name: "guide.pdf" })).toBeNull());
   expect(screen.getByRole("link", { name: "other.pdf" })).toBeTruthy();
@@ -213,15 +229,12 @@ test("removes a PDF after asking", async () => {
 
 test("a failed removal says so and keeps the PDF", async () => {
   server([GUIDE]);
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.mocked(fetch).mockImplementation(async (_url, init) =>
     init?.method === "DELETE" ? new Response("", { status: 500 }) : Response.json([GUIDE]),
   );
   render(<ContentPage />);
   await screen.findByRole("link", { name: "guide.pdf" });
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-  });
+  await removeConfirmed(screen.getByRole("button", { name: "Remove" }));
   expect(await screen.findByText("guide.pdf: Could not remove it. Please try again.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "guide.pdf" })).toBeTruthy();
 });

@@ -36,6 +36,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// Clicks Clear conversation, then Yes in the box that asks first.
+async function clearConfirmed() {
+  await click("Clear conversation");
+  await click("Yes, clear it");
+}
+
 test("Run the video test again makes the sample again and plays it", async () => {
   // Answered by the test, so it can see the page while the video is made.
   let answer: (r: Response) => void = () => {};
@@ -89,17 +95,21 @@ test("Run the video test again has a plain message when the server gives no reas
   expect(await screen.findByText("The video could not be made. Try again.")).toBeTruthy();
 });
 
-test("Clear conversation asks first and clears only once confirmed", async () => {
+test("Clear conversation asks first in the app's own box and clears only once confirmed", async () => {
   const fetchMock = server(() => new Response());
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const confirm = vi.spyOn(window, "confirm");
   render(<VideoAndChat />);
   await click("Clear conversation");
-  expect(confirm).toHaveBeenCalledWith(CONFIRM_CLEAR);
+  const dialog = screen.getByRole("alertdialog", { name: CONFIRM_CLEAR });
+  expect(dialog.textContent).toContain("This can't be undone.");
+  await click("No, keep it");
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
   expect(screen.queryByText("The conversation was cleared.")).toBeNull();
+  expect(console.info).toHaveBeenCalledWith("Clear conversation cancelled");
 
-  confirm.mockReturnValue(true);
-  await click("Clear conversation");
+  await clearConfirmed();
+  expect(confirm).not.toHaveBeenCalled(); // not the browser's box
   expect(fetchMock).toHaveBeenCalledWith("/api/chat", { method: "DELETE" });
   expect(await screen.findByText("The conversation was cleared.")).toBeTruthy();
   expect(console.info).toHaveBeenCalledWith(
@@ -112,9 +122,8 @@ test("Clear conversation says when it fails", async () => {
     () => new Response(),
     () => new Response("", { status: 500 }),
   );
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<VideoAndChat />);
-  await click("Clear conversation");
+  await clearConfirmed();
   expect(await screen.findByText("That didn't work. Please try again.")).toBeTruthy();
   expect(screen.queryByText("The conversation was cleared.")).toBeNull();
   expect(console.error).toHaveBeenCalledWith("Could not clear the conversation", expect.anything());
@@ -127,8 +136,7 @@ test("Clear conversation has a plain message when the server can't be reached", 
       throw new TypeError("Failed to fetch");
     },
   );
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<VideoAndChat />);
-  await click("Clear conversation");
+  await clearConfirmed();
   expect(await screen.findByText("The conversation could not be cleared. Try again.")).toBeTruthy();
 });

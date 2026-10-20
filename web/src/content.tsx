@@ -16,6 +16,7 @@ import {
   type WikiBuild,
   wikiHref,
 } from "./api";
+import { useConfirm } from "./confirm-dialog";
 import { useSettings } from "./settings";
 
 // How often the reading and wiki progress is checked while a PDF is being read or built.
@@ -29,6 +30,7 @@ interface Refused {
 export function ContentPage() {
   // null until the list has loaded.
   const [pdfs, setPdfs] = useState<Pdf[] | null>(null);
+  const { ask, dialog } = useConfirm();
   const [loadFailed, setLoadFailed] = useState(false);
   // What is being sent now: the file's name, and the id of the PDF it replaces, if any.
   const [sending, setSending] = useState<{ name: string; replacing?: string } | null>(null);
@@ -137,7 +139,13 @@ export function ContentPage() {
   }
 
   async function remove(pdf: Pdf) {
-    if (!window.confirm(`Remove ${pdf.name}? Its wiki is removed too.`)) return;
+    const yes = await ask({
+      title: `Remove ${pdf.name}?`,
+      children: <p>Its wiki pages are removed too.</p>,
+      keepLabel: "No, keep it",
+      confirmLabel: "Yes, remove it",
+    });
+    if (!yes) return;
     setRefused([]);
     setDone(null);
     try {
@@ -221,6 +229,7 @@ export function ContentPage() {
           </li>
         ))}
       </ul>
+      {dialog}
     </div>
   );
 }

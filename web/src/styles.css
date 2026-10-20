@@ -940,7 +940,7 @@ ul.pdfs a.name:hover { color: var(--accent); text-decoration: underline; }
 .exit-screen { display: grid; justify-items: center; gap: 12px; padding: 48px 16px; text-align: center; }
 .exit-screen h1 { margin: 0; }
 
-/* The confirmation before Delete my data (R31): a box in the app's look over a dimmed page. */
+/* The app's own confirmation box (confirm-dialog.tsx), first made for Delete my data (R31). */
 .confirm-backdrop {
   position: fixed;
   inset: 0;

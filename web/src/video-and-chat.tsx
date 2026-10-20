@@ -3,8 +3,9 @@
 import { useState } from "preact/hooks";
 
 import { clearChat, runVideoTestAgain, ServerRefusal } from "./api";
+import { useConfirm } from "./confirm-dialog";
 
-export const CONFIRM_CLEAR = "Clear the whole conversation? This can't be undone.";
+export const CONFIRM_CLEAR = "Clear the whole conversation?";
 
 // What went wrong, in the server's words when it gave a reason.
 function reason(e: unknown, fallback: string): string {
@@ -18,6 +19,7 @@ export function VideoAndChat() {
   const [clearing, setClearing] = useState(false);
   const [cleared, setCleared] = useState(false);
   const [clearFailed, setClearFailed] = useState<string | null>(null);
+  const { ask, dialog } = useConfirm();
 
   async function runAgain() {
     setRunning(true);
@@ -36,7 +38,13 @@ export function VideoAndChat() {
   }
 
   async function clear() {
-    if (!window.confirm(CONFIRM_CLEAR)) {
+    const yes = await ask({
+      title: CONFIRM_CLEAR,
+      children: <p className="warning">This can't be undone.</p>,
+      keepLabel: "No, keep it",
+      confirmLabel: "Yes, clear it",
+    });
+    if (!yes) {
       console.info("Clear conversation cancelled");
       return;
     }
@@ -84,6 +92,7 @@ export function VideoAndChat() {
         {cleared && <p className="muted">The conversation was cleared.</p>}
         {clearFailed && <p className="error">{clearFailed}</p>}
       </div>
+      {dialog}
     </section>
   );
 }
