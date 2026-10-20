@@ -739,9 +739,13 @@ export function ChatPage() {
   const participant = useSettings().view === "participant"; // setup is the host's (R41b)
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
+  const [readyMade, setReadyMade] = useState(false); // a ready-made avatar, not their own
   useEffect(() => {
     getReview()
-      .then((r) => setAccepted(r.accepted))
+      .then((r) => {
+        setAccepted(r.accepted);
+        setReadyMade(r.default_person === true);
+      })
       .catch((e: unknown) => {
         console.error("Could not get the review", e);
         setAccepted(false);
@@ -788,6 +792,7 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       <h1 className="sr-only">Chat</h1>
+      {!participant && <AvatarLinks readyMade={readyMade} />}
       <Chat
         welcome={returned}
         after={asked.current}
@@ -797,6 +802,30 @@ export function ChatPage() {
         }}
       />
     </div>
+  );
+}
+
+// Avatar Choice from the chat (Larry's test of R32a): another ready-made avatar, or the host's own
+// photo and voice, without going through Settings. The participant view has neither (R41b).
+function AvatarLinks({ readyMade }: { readyMade: boolean }) {
+  const links: [string, string, string][] = readyMade
+    ? [
+        ["#/start-now", "Choose another avatar", "another ready-made avatar"],
+        ["#/setup", "Use your own photo and voice", "their own photo and voice"],
+      ]
+    : [
+        ["#/start-now", "Use a ready-made avatar", "a ready-made avatar"],
+        ["#/setup/photos", "Change your photo", "their own photo"],
+      ];
+  return (
+    <p className="avatar-links">
+      <span className="muted">Avatar Choice:</span>
+      {links.map(([href, label, what]) => (
+        <a key={href} href={href} onClick={() => console.info(`Choosing ${what} from the chat`)}>
+          {label}
+        </a>
+      ))}
+    </p>
   );
 }
 

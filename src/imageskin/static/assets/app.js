@@ -3881,8 +3881,12 @@ function ReviewChoices(props) {
 function ChatPage() {
 	const participant = useSettings().view === "participant";
 	const [accepted, setAccepted] = d(null);
+	const [readyMade, setReadyMade] = d(false);
 	h(() => {
-		getReview().then((r) => setAccepted(r.accepted)).catch((e) => {
+		getReview().then((r) => {
+			setAccepted(r.accepted);
+			setReadyMade(r.default_person === true);
+		}).catch((e) => {
 			console.error("Could not get the review", e);
 			setAccepted(false);
 		});
@@ -3912,17 +3916,50 @@ function ChatPage() {
 	}
 	return /* @__PURE__ */ u("div", {
 		className: "chat-page",
-		children: [/* @__PURE__ */ u("h1", {
-			className: "sr-only",
-			children: "Chat"
-		}), /* @__PURE__ */ u(Chat, {
-			welcome: returned,
-			after: asked.current,
-			onExit: (pending) => {
-				asked.current = pending;
-				setExited(true);
-			}
-		})]
+		children: [
+			/* @__PURE__ */ u("h1", {
+				className: "sr-only",
+				children: "Chat"
+			}),
+			!participant && /* @__PURE__ */ u(AvatarLinks, { readyMade }),
+			/* @__PURE__ */ u(Chat, {
+				welcome: returned,
+				after: asked.current,
+				onExit: (pending) => {
+					asked.current = pending;
+					setExited(true);
+				}
+			})
+		]
+	});
+}
+function AvatarLinks({ readyMade }) {
+	return /* @__PURE__ */ u("p", {
+		className: "avatar-links",
+		children: [/* @__PURE__ */ u("span", {
+			className: "muted",
+			children: "Avatar Choice:"
+		}), (readyMade ? [[
+			"#/start-now",
+			"Choose another avatar",
+			"another ready-made avatar"
+		], [
+			"#/setup",
+			"Use your own photo and voice",
+			"their own photo and voice"
+		]] : [[
+			"#/start-now",
+			"Use a ready-made avatar",
+			"a ready-made avatar"
+		], [
+			"#/setup/photos",
+			"Change your photo",
+			"their own photo"
+		]]).map(([href, label, what]) => /* @__PURE__ */ u("a", {
+			href,
+			onClick: () => console.info(`Choosing ${what} from the chat`),
+			children: label
+		}, href))]
 	});
 }
 var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";

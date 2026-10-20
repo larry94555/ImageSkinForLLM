@@ -3696,3 +3696,48 @@ test("after a partial delete, setup stays at consent and the progress is gone (R
   await waitFor(() => expect(window.location.hash).toBe("#/consent"));
   expect(screen.getByText("Before you start")).toBeTruthy();
 });
+
+// --- Avatar Choice from the chat (Larry's test of R32a) ---
+
+function avatarServer(readyMade: boolean, view: "host" | "participant" = "host") {
+  const chat = chatServer([], () => Response.json({}));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/settings") return Response.json({ show_metrics: false, view });
+      if (url === "/api/review") {
+        return Response.json({ accepted: true, accepted_at: null, default_person: readyMade });
+      }
+      return chat(url, init);
+    }),
+  );
+}
+
+test("the chat links to a ready-made avatar or a new photo while the host's own is in use", async () => {
+  avatarServer(false);
+  const info = vi.spyOn(console, "info");
+  await openAt("#/chat");
+  const readyMade = await screen.findByRole("link", { name: "Use a ready-made avatar" });
+  expect(readyMade.getAttribute("href")).toBe("#/start-now");
+  const photo = screen.getByRole("link", { name: "Change your photo" });
+  expect(photo.getAttribute("href")).toBe("#/setup/photos");
+  fireEvent.click(readyMade);
+  expect(info).toHaveBeenCalledWith("Choosing a ready-made avatar from the chat");
+});
+
+test("the chat links to another avatar or the host's own while a ready-made one is in use", async () => {
+  avatarServer(true);
+  await openAt("#/chat");
+  const another = await screen.findByRole("link", { name: "Choose another avatar" });
+  expect(another.getAttribute("href")).toBe("#/start-now");
+  const own = screen.getByRole("link", { name: "Use your own photo and voice" });
+  expect(own.getAttribute("href")).toBe("#/setup");
+});
+
+test("the participant view's chat has no Avatar Choice links", async () => {
+  avatarServer(true, "participant");
+  await openAt("#/chat");
+  expect(await screen.findByRole("textbox", { name: "Your message" })).toBeTruthy();
+  expect(screen.queryByText("Avatar Choice:")).toBeNull();
+  expect(screen.queryByRole("link", { name: "Choose another avatar" })).toBeNull();
+});

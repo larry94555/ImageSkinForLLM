@@ -287,6 +287,7 @@ button.secondary {
 /* The chat (roadmap R41d): the person in a calm frame, the conversation beside them on a wide */
 /* screen and under them on a narrow one, one status line, and the question box with Send. */
 main:has(.chat-page) { max-width: 1120px; margin-top: 16px; }
+.avatar-links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 8px; }
 .chat { display: grid; gap: 16px; }
 .person, .talk { display: grid; gap: 12px; align-content: start; min-width: 0; }
 /* The person stays in view below the top bar, which sticks too (review on PR #83): on a narrow */
