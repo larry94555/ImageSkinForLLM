@@ -1,13 +1,13 @@
 """Teach me (roadmap R41h, item 54): the person teaches the content a part at a time.
 
 A lesson goes through the topics (the wiki's main entries, R41f) in order, from the one the
-student picks. Each topic is taught in parts: first its main ideas (the topic's own wiki entry),
+participant picks. Each topic is taught in parts: first its main ideas (the topic's own wiki entry),
 then each entry under it, in the order the wiki has them, then a one-line summary, and on to the
-next topic. After each part the student can say "next", ask for it again more simply, or ask a
+next topic. After each part the participant can say "next", ask for it again more simply, or ask a
 question about it. Where the lesson is kept is up to the caller: the browser keeps it, so a
-student who stops picks up where they left off (`Lesson`).
+participant who stops picks up where they left off (`Lesson`).
 
-Each prompt is given to `Teacher.step`, which says what to do with it: nothing (an ordinary
+Each prompt is given to `Tutor.step`, which says what to do with it: nothing (an ordinary
 prompt), a reply made here (`Say`), or a part for the LLM to teach (`Explain`).
 """
 
@@ -64,7 +64,7 @@ NOT_YET = (
 @dataclass(frozen=True)
 class Lesson:
     """Where a lesson is: the topic (its title) and the part being taught, from 0. The part
-    after a topic's last is its summary. `active` is false once the student stops."""
+    after a topic's last is its summary. `active` is false once the participant stops."""
 
     topic: str
     part: int
@@ -79,7 +79,7 @@ class Part:
 
 @dataclass(frozen=True)
 class Choice:
-    """A choice offered when the student hasn't said what to learn: shown as a button that
+    """A choice offered when the participant hasn't said what to learn: shown as a button that
     sends `prompt`."""
 
     label: str
@@ -184,12 +184,12 @@ def explain(topic: str, parts: list[Part], part: int, simpler: bool = False) -> 
             " sentences, with everyday words and an everyday example. Don't ask me anything."
         )
     return (
-        f"Teach me {what(topic, parts, part)}, as a teacher talking to a student new to it, in"
+        f"Teach me {what(topic, parts, part)}, as a tutor talking to someone new to it, in"
         " two to four short sentences. Don't ask me anything."
     )
 
 
-class Teacher:
+class Tutor:
     """Decides what each prompt does to the lesson, from the wiki as it is now."""
 
     def __init__(

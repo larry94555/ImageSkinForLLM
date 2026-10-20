@@ -459,7 +459,7 @@ class PrepareJob:
             return
         except (VoiceError, VideoError) as e:
             # These name programs, packages and files, for whoever runs the app: the log keeps
-            # them, and the teacher is told in plain words (review on PR #82).
+            # them, and the host is told in plain words (review on PR #82).
             logger.error("Prepare job failed", extra={"error": str(e)})
             self._finish("failed", ENGINE_FAILED)
             return

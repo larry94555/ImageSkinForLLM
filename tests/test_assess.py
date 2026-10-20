@@ -60,11 +60,11 @@ class Writer:
         if instruction.startswith("Write one short quiz question"):
             self.written += 1
             return self.questions.pop(0) if self.questions else f"Q{self.written}?"
-        if instruction.startswith("In an assessment, a student was asked"):
+        if instruction.startswith("In an assessment, a participant was asked"):
             return self.sorts.pop(0) if self.sorts else "A"
-        if instruction.startswith("In an assessment, the student"):
+        if instruction.startswith("In an assessment, the participant"):
             return "It asks what Euler set out to do."
-        if instruction.startswith("The student stopped an assessment"):
+        if instruction.startswith("The participant stopped an assessment"):
             return "Euler started by counting the primes."
         return self.verdicts.pop(0) if self.verdicts else "Verdict: Right\nAnswer: Yes."
 
@@ -253,7 +253,7 @@ def test_a_whole_assessment_then_its_evaluation(caplog: pytest.LogCaptureFixture
     assert [r.verdict for r in judged[:3]] == [RIGHT, PARTLY, WRONG]  # type: ignore[attr-defined]
     assert "Assessment finished" in caplog.text
     instruction, material = write.asked[1]  # the first answer judged from its question's part
-    assert 'The student answered: "Reply 1"' in instruction and "Verdict:" in instruction
+    assert 'The participant answered: "Reply 1"' in instruction and "Verdict:" in instruction
     assert material[0].startswith("Prime Numbers: ")
     # Each question asked so far is given, so it isn't asked again.
     assert "Don't ask any of these again: Q1? Q2?" in write.asked[-2][0]
@@ -383,7 +383,7 @@ def test_saying_not_to_give_the_answer_without_a_hint_is_sorted_by_the_llm() -> 
     first = started(a)
     step = assessed(a.step("Don't tell me the answer yet", first))
     assert step.assessment == first  # not "I don't know", and not a stop
-    assert write.asked[-2][0].startswith("In an assessment, a student was asked")
+    assert write.asked[-2][0].startswith("In an assessment, a participant was asked")
 
 
 def test_a_judgement_with_no_answer_asks_for_the_correct_one(

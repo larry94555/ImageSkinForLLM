@@ -96,8 +96,8 @@ def corrected(heard: str, terms: list[str], write: Callable[[str, list[str]], st
     if not terms:
         return heard
     instruction = (
-        f'A student asked a question out loud, and speech recognition wrote it down as: "{heard}"'
-        ' Speech recognition often mishears names and terms, such as "Oiler" or "Boiler"'
+        f"A participant asked a question out loud, and speech recognition wrote it down as:"
+        f' "{heard}" Speech recognition often mishears names and terms, such as "Oiler" or "Boiler"'
         ' for "Euler". The names and terms of the subject are in the reference text. If a word'
         " in the question sounds like one of them and the question makes more sense with it,"
         " put that name or term in its place. Change nothing else. Say only the question."

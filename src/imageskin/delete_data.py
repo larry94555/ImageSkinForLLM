@@ -3,7 +3,7 @@ everything made from the person: the uploaded photos and recordings, the prepare
 with the sample, Goodbye and Welcome back, the reply videos, the conversation, the review, the
 accent and the consent, so setup starts again from the beginning.
 
-What isn't the person's is kept: the downloaded models, the PDFs and their wiki (the teacher's
+What isn't the person's is kept: the downloaded models, the PDFs and their wiki (the host's
 content) and the Settings page's settings.
 """
 

@@ -155,7 +155,7 @@ export function ContentPage() {
   const loading = pdfs === null && !loadFailed;
 
   return (
-    <div className="teacher-page">
+    <div className="host-page">
       <h1>Manage Content</h1>
       <p className="lead">
         Add the PDFs the person&apos;s answers will come from, up to 100 MB each. Each one is read
