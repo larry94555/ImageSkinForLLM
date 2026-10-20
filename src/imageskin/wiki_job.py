@@ -87,6 +87,10 @@ class WikiStatus:
     elapsed_s: float | None = None  # how long the build has taken so far, or took once done
     # About how long this stage has left, from how long its steps have taken so far.
     remaining_s: float | None = None
+    # While queued: how many PDFs are built first, counting the one being built now, and that
+    # one's name.
+    ahead: int = 0
+    building_name: str | None = None
 
 
 def done_status(saved: dict[str, Any]) -> WikiStatus:
@@ -157,9 +161,11 @@ class WikiJob:
             if pdf_id not in self._waiting:
                 self._waiting.append(pdf_id)
             self._status[pdf_id] = WikiStatus("waiting")
+            ahead = self._waiting.index(pdf_id) + (self._building is not None)
             if self._worker is None or not self._worker.is_alive():
                 self._worker = threading.Thread(target=self._run, name="wiki", daemon=True)
                 self._worker.start()
+        logger.info("Wiki queued", extra={"id": pdf_id, "ahead": ahead})
 
     def reset(self, pdf_id: str) -> None:
         """After a PDF is replaced: its pages are out of date until it is read again."""
@@ -403,12 +409,25 @@ class WikiJob:
                     elapsed_s=round(now - started, 1),
                     remaining_s=remaining(status, last_step - stage_started, now - last_step),
                 )
+            if status is not None and status.state == "waiting" and status.error is None:
+                status = self._queued(pdf.id, status)
             if status is None or status.state == "done":
                 saved = self._saved(pdf.id)
                 status = done_status(saved) if saved else None
             if status is not None:
                 result[pdf.id] = status
         return result
+
+    def _queued(self, pdf_id: str, status: WikiStatus) -> WikiStatus:
+        """A queued PDF's status, with what is built before it."""
+        with self._lock:
+            if pdf_id not in self._waiting:
+                return status
+            building = self._building
+            ahead = self._waiting.index(pdf_id) + (building is not None)
+        now = self.store.get(building[0]) if building is not None else None
+        name = now.name if now is not None and now.id != pdf_id else None
+        return replace(status, ahead=ahead, building_name=name)
 
     def pages(self, pdf_id: str | None = None) -> list[dict[str, Any]]:
         """Every up-to-date page (or one PDF's), without its text: id, title, PDF and pages."""

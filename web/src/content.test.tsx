@@ -390,6 +390,12 @@ test("a failed wiki progress check is logged", async () => {
 test("wiki progress reads as a sentence", () => {
   const waiting: WikiBuild = { ...BUILT, state: "waiting", parts: 0, pages: null };
   expect(wikiText(waiting)).toBe("Waiting to build the wiki…");
+  expect(wikiText({ ...waiting, ahead: 1, building_name: "notes.pdf" })).toBe(
+    "Waiting to build the wiki: 1 PDF ahead, building “notes.pdf” now…",
+  );
+  expect(wikiText({ ...waiting, ahead: 2, building_name: null })).toBe(
+    "Waiting to build the wiki: 2 PDFs ahead…",
+  );
   expect(wikiText({ ...waiting, error: "Could not reach the LLM" })).toBe(
     "Waiting for the AI to be ready to build the wiki…",
   );

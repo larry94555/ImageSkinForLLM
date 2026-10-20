@@ -1888,6 +1888,10 @@ function wikiText(b, metrics = false) {
 	const sofar = time();
 	if (b.state === "waiting") {
 		if (b.error) return `Waiting for the AI to be ready to build the wiki…${sofar}`;
+		if (b.ahead) {
+			const now = b.building_name ? `, building “${b.building_name}” now` : "";
+			return `Waiting to build the wiki: ${plural(b.ahead, "PDF")} ahead${now}…${sofar}`;
+		}
 		return `Waiting to build the wiki…${sofar}`;
 	}
 	if (b.state === "building" && b.stage === "outline") {

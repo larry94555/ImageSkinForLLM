@@ -542,3 +542,36 @@ def test_a_reading_redone_for_a_new_format_keeps_a_current_wiki_on_startup(
     assert TestClient(restarted).post(f"/api/content/{pdf['id']}/wiki/rebuild").status_code < 300
     settle(restarted.state.readings, restarted.state.wiki)
     assert built == [pdf["id"]]  # until the user rebuilds it
+
+
+def test_a_queued_pdf_says_what_is_built_first(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    started, go_on = threading.Event(), threading.Event()
+
+    def slow(
+        pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
+    ) -> Wiki:
+        started.set()
+        go_on.wait(5)
+        return one_page_per_piece(pdf_id, pieces, progress)
+
+    store, readings, wiki = jobs(tmp_path, slow)
+    first = store.add("first.pdf", io.BytesIO(PDF))
+    second = store.add("second.pdf", io.BytesIO(b"%PDF-1.4" + PDF))
+    third = store.add("third.pdf", io.BytesIO(b"%PDF-1.5" + PDF))
+    with caplog.at_level(logging.INFO):
+        readings.queue(first)
+        assert started.wait(5)
+        readings.queue(second)
+        readings.queue(third)
+        readings.wait()
+    statuses = wiki.statuses()
+    assert statuses[second.id] == WikiStatus("waiting", ahead=1, building_name="first.pdf")
+    assert statuses[third.id] == WikiStatus("waiting", ahead=2, building_name="first.pdf")
+    assert statuses[first.id].ahead == 0  # being built: nothing ahead
+    queued = [r.ahead for r in caplog.records if r.message == "Wiki queued"]  # type: ignore[attr-defined]
+    assert queued == [0, 1, 2]
+
+    go_on.set()
+    settle(readings, wiki)
