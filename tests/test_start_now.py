@@ -447,7 +447,8 @@ def test_a_default_person_opens_the_chat_without_consent(client: TestClient) -> 
     status = choose(client)
     assert status["state"] == "ready" and status["chosen"] == vars(CHOICE)
     assert client.get("/api/review").json()["accepted"] is True
-    assert client.get("/api/start-now/picture").content == b"picture bytes"
+    picture = client.get("/api/start-now/picture")
+    assert picture.content == b"picture bytes" and picture.headers["cache-control"] == "no-cache"
     assert client.get("/api/start-now/lines/goodbye").content == b"mp4"
     assert client.get("/api/start-now/lines/sample").status_code == 422
     photo = client.get("/api/chat/photo").json()

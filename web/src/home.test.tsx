@@ -76,16 +76,11 @@ test("with a default person chosen, setup is done without consent (R24c)", async
   expect(portrait.getAttribute("src")).toBe("/api/start-now/picture");
 });
 
-test("once setup is done, chat, manage content and a default person stand beside setup", async () => {
+test("once setup is done, chat and manage content stand beside setup", async () => {
   server(true);
   render(<HomePage consented />);
   expect(await screen.findByText("Welcome back")).toBeTruthy();
-  expect(hrefs()).toEqual({
-    Chat: "#/chat",
-    "Manage Content": "#/content",
-    Setup: "#/setup",
-    "Default person": "#/start-now",
-  });
+  expect(hrefs()).toEqual({ Chat: "#/chat", "Manage Content": "#/content", Setup: "#/setup" });
   const portrait = screen.getByRole("img", { name: "The person in the video" });
   expect(portrait.getAttribute("src")).toBe(`/api/uploads/photos/${PHOTO_ID}`);
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Home loaded in \d+ ms \(setup done\)$/));
@@ -107,18 +102,11 @@ test("if the server can't be reached, home offers setup and logs why", async () 
   );
 });
 
-test("the choices keep the same order: chat, manage content, setup, default person", () => {
+test("the choices keep the same order: chat, manage content, setup", () => {
   expect(choices(true, false).map((c) => [c.title, c.href])).toEqual([
     ["Chat", "#/chat"],
     ["Manage Content", "#/content"],
     ["Setup", "#/consent"],
-    ["Default person", "#/start-now"],
-  ]);
-  // With a default person chosen, Setup itself opens Start now, so it isn't offered twice.
-  expect(choices(true, true, true).map((c) => c.href)).toEqual([
-    "#/chat",
-    "#/content",
-    "#/start-now",
   ]);
 });
 
@@ -129,8 +117,8 @@ test("each choice has its own picture, hidden from screen readers (R41e2)", asyn
   const pictures = screen
     .getAllByRole("link")
     .map((a) => a.querySelector(".icon[aria-hidden='true'] path")?.getAttribute("d"));
-  expect(pictures).toHaveLength(4);
-  expect(new Set(pictures).size).toBe(4); // the chat, the content, setup and the default person differ
+  expect(pictures).toHaveLength(3);
+  expect(new Set(pictures).size).toBe(3); // the chat, the content and setup differ
   expect(screen.getByRole("link", { name: /^Chat/ })).toBeTruthy(); // the name is still the words
 });
 

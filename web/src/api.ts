@@ -279,6 +279,7 @@ export async function startPrepare(): Promise<PrepareStatus> {
 export interface Review {
   accepted: boolean;
   accepted_at: string | null;
+  default_person?: boolean; // a ready-made avatar is in use (R24c)
 }
 
 export type Decision = "accept" | "reject-image" | "reject-voice" | "change-accent";

@@ -496,14 +496,23 @@ var CHANGES = [
 		about: "Keep the person's own accent or choose another one."
 	}
 ];
+function InUseMark({ shown }) {
+	return shown ? /* @__PURE__ */ u("span", {
+		className: "in-use",
+		children: "In use"
+	}) : null;
+}
 function ChangeSetup() {
 	const [accepted, setAccepted] = d(null);
+	const [inUse, setInUse] = d(null);
 	h(() => {
 		const started = performance.now();
 		getReview().then((r) => {
+			const avatar = r.default_person ? "ready-made" : "own";
 			setAccepted(r.accepted);
+			setInUse(avatar);
 			const took = Math.round(performance.now() - started);
-			console.info(`Sample accepted: ${r.accepted} (${took} ms)`);
+			console.info(`Sample accepted: ${r.accepted}, avatar in use: ${avatar} (${took} ms)`);
 		}).catch((e) => console.error("Could not get the review", e));
 	}, []);
 	return /* @__PURE__ */ u("section", {
@@ -512,49 +521,78 @@ function ChangeSetup() {
 		children: [
 			/* @__PURE__ */ u("h2", {
 				id: "settings-change",
-				children: "Photo, voice and accent"
+				children: "Avatar Choice"
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Changing any of them makes the sample video again, and the chat stays locked until you accept the new one at the end of setup."
+				children: "The person in the video: your own photo and voice, or a ready-made avatar."
 			}),
-			accepted === true && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "The chat is open with the sample you accepted."
-			}),
-			accepted === false && /* @__PURE__ */ u("p", {
-				className: "notice",
-				children: [
-					"The chat is locked until you accept a sample video in ",
-					/* @__PURE__ */ u("a", {
-						href: "#/setup",
-						children: "Setup"
-					}),
-					"."
-				]
-			}),
-			CHANGES.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
-				className: "switch",
-				children: [/* @__PURE__ */ u("a", {
-					className: "button secondary",
-					href: `#/setup/${part}`,
-					onClick: () => console.info(`Changing the ${part} from Settings`),
-					children: label
-				}), /* @__PURE__ */ u("p", {
-					className: "muted",
-					children: about
-				})]
-			}, part)),
 			/* @__PURE__ */ u("div", {
-				className: "switch",
-				children: [/* @__PURE__ */ u("a", {
-					className: "button secondary",
-					href: "#/start-now",
-					onClick: () => console.info("Choosing a default person from Settings"),
-					children: "Use a default person"
-				}), /* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "Chat with a made-up person in a ready-made voice. Your own photos and recordings are kept."
+				className: "avatar-options",
+				children: [/* @__PURE__ */ u("div", {
+					className: inUse === "own" ? "avatar-option chosen" : "avatar-option",
+					children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), inUse === "ready-made" ? /* @__PURE__ */ u("div", {
+						className: "switch",
+						children: [/* @__PURE__ */ u("a", {
+							className: "button secondary",
+							href: "#/setup",
+							onClick: () => console.info("Switching to your own photo and voice from Settings"),
+							children: "Use your own photo and voice"
+						}), /* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."
+						})]
+					}) : /* @__PURE__ */ u(S, { children: [
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "Changing any of them makes the sample video again, and the chat stays locked until you accept the new one at the end of setup."
+						}),
+						accepted === true && /* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "The chat is open with the sample you accepted."
+						}),
+						accepted === false && /* @__PURE__ */ u("p", {
+							className: "notice",
+							children: [
+								"The chat is locked until you accept a sample video in ",
+								/* @__PURE__ */ u("a", {
+									href: "#/setup",
+									children: "Setup"
+								}),
+								"."
+							]
+						}),
+						CHANGES.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
+							className: "switch",
+							children: [/* @__PURE__ */ u("a", {
+								className: "button secondary",
+								href: `#/setup/${part}`,
+								onClick: () => console.info(`Changing the ${part} from Settings`),
+								children: label
+							}), /* @__PURE__ */ u("p", {
+								className: "muted",
+								children: about
+							})]
+						}, part))
+					] })]
+				}), /* @__PURE__ */ u("div", {
+					className: inUse === "ready-made" ? "avatar-option chosen" : "avatar-option",
+					children: [
+						/* @__PURE__ */ u("h3", { children: ["Ready-made avatar ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "ready-made" })] }),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "A made-up person in a ready-made voice, chosen by gender, accent, look and role. Your own photos and recordings are kept."
+						}),
+						/* @__PURE__ */ u("div", {
+							className: "switch",
+							children: /* @__PURE__ */ u("a", {
+								className: "button secondary",
+								href: "#/start-now",
+								onClick: () => console.info("Choosing a ready-made avatar from Settings"),
+								children: inUse === "ready-made" ? "Choose another avatar" : "Use a ready-made avatar"
+							})
+						})
+					]
 				})]
 			})
 		]
@@ -2887,7 +2925,7 @@ function choices(done, consented, defaultPerson = false) {
 	if (!done) return [{
 		href: "#/start-now",
 		title: "Start now",
-		text: "Chat at once with a made-up person in a ready-made voice."
+		text: "Chat at once with a ready-made avatar: a made-up person in a ready-made voice."
 	}, {
 		href: setupHref,
 		title: "Start setup",
@@ -2907,17 +2945,12 @@ function choices(done, consented, defaultPerson = false) {
 		defaultPerson ? {
 			href: "#/start-now",
 			title: "Setup",
-			text: "Choose another default person, or use your own photos and voice."
+			text: "Choose another ready-made avatar, or use your own photo and voice."
 		} : {
 			href: setupHref,
 			title: "Setup",
 			text: "Change the photos, the voice recordings or the accent."
-		},
-		...defaultPerson ? [] : [{
-			href: "#/start-now",
-			title: "Default person",
-			text: "Chat with a made-up person in a ready-made voice instead of your own."
-		}]
+		}
 	];
 }
 function HomePage({ consented, landing = false }) {
@@ -2941,7 +2974,6 @@ function HomePage({ consented, landing = false }) {
 		className: "muted busy",
 		children: "Loading…"
 	});
-	const list = choices(state.done, consented, state.defaultPerson);
 	return /* @__PURE__ */ u("section", {
 		className: "home",
 		children: [/* @__PURE__ */ u("div", {
@@ -2955,8 +2987,8 @@ function HomePage({ consented, landing = false }) {
 				children: state.done ? "Setup is done. Pick up where you left off." : "Make a talking video of a person from a few photos and voice recordings. The person then speaks the chatbot's replies."
 			})] })]
 		}), /* @__PURE__ */ u("ul", {
-			className: list.length === 3 ? "choices three" : "choices two",
-			children: list.map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
+			className: state.done ? "choices three" : "choices two",
+			children: choices(state.done, consented, state.defaultPerson).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
 				href: c.href,
 				children: [
 					/* @__PURE__ */ u(ChoiceIcon, { href: c.href }),
@@ -5219,10 +5251,10 @@ function StartNowPage() {
 	return /* @__PURE__ */ u("section", {
 		className: "start-now panel",
 		children: [
-			/* @__PURE__ */ u("h1", { children: "Start now with a default person" }),
+			/* @__PURE__ */ u("h1", { children: "Avatar Choice: a ready-made avatar" }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Chat at once with a made-up person who speaks in a ready-made voice. You can use your own photos and voice instead later."
+				children: "Chat at once with a made-up person who speaks in a ready-made voice. You can switch to your own photo and voice at any time in Settings, under Avatar Choice."
 			}),
 			/* @__PURE__ */ u("form", {
 				onSubmit: (e) => {

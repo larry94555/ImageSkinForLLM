@@ -8,12 +8,13 @@ import { openSettings } from "./settings.test.util";
 
 // A server with consent given, the view saved as `view` and the sample accepted or not; anything
 // else isn't there. review is null when it can't be read.
-function server(accepted: boolean | null, view = "host") {
+function server(accepted: boolean | null, view = "host", defaultPerson = false) {
   const fetchMock = vi.fn(async (url: string) => {
     if (url === "/api/consent") return Response.json({ agreed: true });
     if (url === "/api/settings") return Response.json({ view });
     if (url === "/api/review" && accepted !== null) {
-      return Response.json({ accepted, accepted_at: accepted ? "2026-10-17T10:00:00+00:00" : null });
+      const at = accepted && !defaultPerson ? "2026-10-17T10:00:00+00:00" : null;
+      return Response.json({ accepted, accepted_at: at, default_person: defaultPerson });
     }
     return new Response("", { status: 404 });
   });
@@ -41,19 +42,38 @@ test("each change opens setup at its part", async () => {
   expect(href("Change recordings")).toBe("#/setup/sounds");
   expect(href("Change accent")).toBe("#/setup/accent");
   await screen.findByText("The chat is open with the sample you accepted.");
-  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Sample accepted: true \(\d+ ms\)$/));
+  expect(console.info).toHaveBeenCalledWith(
+    expect.stringMatching(/^Sample accepted: true, avatar in use: own \(\d+ ms\)$/),
+  );
   fireEvent.click(screen.getByRole("link", { name: "Change accent" }));
   expect(console.info).toHaveBeenCalledWith("Changing the accent from Settings");
 });
 
-test("a default person can be chosen instead (R32a)", async () => {
+test("Avatar Choice shows your own and a ready-made avatar side by side (R32a)", async () => {
   server(true);
   render(<ChangeSetup />);
-  const link = screen.getByRole("link", { name: "Use a default person" });
-  expect(link.getAttribute("href")).toBe("#/start-now");
   await screen.findByText("The chat is open with the sample you accepted.");
-  fireEvent.click(link);
-  expect(console.info).toHaveBeenCalledWith("Choosing a default person from Settings");
+  const own = screen.getByRole("heading", { name: /Your own photo and voice/ });
+  expect(within(own).getByText("In use")).toBeTruthy();
+  expect(within(screen.getByRole("heading", { name: /Ready-made avatar/ })).queryByText("In use")).toBeNull();
+  const ready = screen.getByRole("link", { name: "Use a ready-made avatar" });
+  expect(ready.getAttribute("href")).toBe("#/start-now");
+  fireEvent.click(ready);
+  expect(console.info).toHaveBeenCalledWith("Choosing a ready-made avatar from Settings");
+});
+
+test("with a ready-made avatar in use, your own is one click away (R32a)", async () => {
+  server(true, "host", true);
+  render(<ChangeSetup />);
+  const own = await screen.findByRole("link", { name: "Use your own photo and voice" });
+  expect(own.getAttribute("href")).toBe("#/setup");
+  const ready = screen.getByRole("heading", { name: /Ready-made avatar/ });
+  expect(within(ready).getByText("In use")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Choose another avatar" }).getAttribute("href")).toBe("#/start-now");
+  expect(screen.queryByRole("link", { name: "Change photos" })).toBeNull();
+  expect(screen.queryByText(/The chat is (open|locked)/)).toBeNull();
+  fireEvent.click(own);
+  expect(console.info).toHaveBeenCalledWith("Switching to your own photo and voice from Settings");
 });
 
 test("a locked chat says a new sample needs accepting", async () => {

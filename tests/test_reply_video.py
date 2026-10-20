@@ -863,6 +863,36 @@ def test_replies_are_warmed_up_when_the_sample_is_accepted(tmp_path: Path) -> No
     assert rendered == ["Hello."]
 
 
+def test_a_change_of_person_during_a_warm_up_is_warmed_up_after_it(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry's test of R32a: a default person chosen while the last one's warm-up still ran kept
+    the last one's idle video, as the second warm-up was dropped."""
+    warming, finish = threading.Event(), threading.Event()
+    photos: list[str] = []
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        photos.append(photo.name)
+        warming.set()
+        finish.wait(5)
+
+    client = video_app(tmp_path, render)
+    assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+    assert warming.wait(5)
+    first = client.app.state.reply_warm_up  # type: ignore[attr-defined]
+    other = client.post("/api/uploads/photos", files={"file": ("other.jpg", JPG)}).json()
+    patch.object(
+        PrepareJob, "status", return_value=PrepareStatus("done", photo_id=other["id"])
+    ).start()
+    with caplog.at_level(logging.INFO):
+        assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+        assert client.app.state.reply_warm_up is first  # prompts still wait for the same thread
+        finish.set()
+        first.join(5)
+    assert len(photos) == 2 and photos[0] != photos[1]  # again, for the new photo
+    assert "Warming up replies again for the person chosen meanwhile" in caplog.messages
+
+
 def test_the_api_serves_the_idle_video_once_the_warm_up_made_it(tmp_path: Path) -> None:
     made: list[str] = []
     client = video_app(tmp_path, None, steps=idle_steps(made))

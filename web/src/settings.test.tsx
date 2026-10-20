@@ -60,7 +60,7 @@ test("the page groups the settings and shows each one as saved", async () => {
     "LLM",
     "ChatGPT plan",
     "Photos and recordings",
-    "Photo, voice and accent",
+    "Avatar Choice",
     "Video and conversation",
     "Your data",
   ]);

@@ -111,10 +111,10 @@ export function StartNowPage() {
 
   return (
     <section className="start-now panel">
-      <h1>Start now with a default person</h1>
+      <h1>Avatar Choice: a ready-made avatar</h1>
       <p className="muted">
-        Chat at once with a made-up person who speaks in a ready-made voice. You can use your own
-        photos and voice instead later.
+        Chat at once with a made-up person who speaks in a ready-made voice. You can switch to
+        your own photo and voice at any time in Settings, under Avatar Choice.
       </p>
       <form
         onSubmit={(e) => {
