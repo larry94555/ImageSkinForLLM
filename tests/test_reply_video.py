@@ -881,12 +881,11 @@ def test_a_change_of_person_during_a_warm_up_is_warmed_up_after_it(
     assert warming.wait(5)
     first = client.app.state.reply_warm_up  # type: ignore[attr-defined]
     other = client.post("/api/uploads/photos", files={"file": ("other.jpg", JPG)}).json()
-    patch.object(
-        PrepareJob, "status", return_value=PrepareStatus("done", photo_id=other["id"])
-    ).start()
-    with caplog.at_level(logging.INFO):
+    done = PrepareStatus("done", photo_id=other["id"])
+    with caplog.at_level(logging.INFO), patch.object(PrepareJob, "status", return_value=done):
         assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
-        assert client.app.state.reply_warm_up is first  # prompts still wait for the same thread
+        # Prompts still wait for the same thread.
+        assert client.app.state.reply_warm_up is first  # type: ignore[attr-defined]
         finish.set()
         first.join(5)
     assert len(photos) == 2 and photos[0] != photos[1]  # again, for the new photo
