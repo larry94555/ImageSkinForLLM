@@ -203,6 +203,7 @@ async function getChatHints() {
 		examples: Array.isArray(hints?.examples) ? hints.examples : []
 	};
 }
+var IDLE_VIDEO_URL = "/api/chat/idle";
 function pdfUrl(id) {
 	return `/api/content/${id}`;
 }
@@ -4123,10 +4124,12 @@ function Chat(props) {
 		};
 	}, []);
 	h(() => {
-		getChatPhoto().then(({ url, width, height }) => {
+		getChatPhoto().then(({ url, width, height, idle }) => {
+			const ratio = width && height ? width / height : null;
 			setPhoto({
 				url: url ?? null,
-				ratio: width && height ? width / height : null
+				ratio,
+				idle: idle ?? void 0
 			});
 			if (url && width && height) console.info(`Chat photo ${width}x${height}`);
 		}).catch((e) => {
@@ -4393,6 +4396,7 @@ function Chat(props) {
 		onIdle: setIdle,
 		photo: photo?.url,
 		ratio: photo?.ratio,
+		idleUrl: photo === void 0 ? null : photo.idle,
 		children: clips.length > 0 && /* @__PURE__ */ u(ClipPlayer, {
 			clips,
 			onStarted: started,
@@ -4907,6 +4911,7 @@ function History$1(props) {
 }
 function Stage(props) {
 	const { idle, onIdle, photo, ratio } = props;
+	const idleUrl = props.idleUrl === void 0 ? IDLE_VIDEO_URL : props.idleUrl;
 	const [still, setStill] = d(true);
 	return /* @__PURE__ */ u("div", {
 		className: "stage",
@@ -4921,9 +4926,9 @@ function Stage(props) {
 					setStill(false);
 				}
 			}),
-			idle !== "none" && /* @__PURE__ */ u("video", {
+			idle !== "none" && idleUrl !== null && /* @__PURE__ */ u("video", {
 				className: idle === "ready" ? "idle-video" : "idle-video resting",
-				src: "/api/chat/idle",
+				src: idleUrl,
 				autoPlay: true,
 				loop: true,
 				muted: true,
@@ -5238,9 +5243,25 @@ var WORKING = [
 	"unpacking",
 	"getting-ready"
 ];
+function finishing(status) {
+	return status?.state === "ready" && status.chat_ready === false;
+}
 function progressText(status) {
-	if (status.state === "downloading") return `Downloading the person… ${status.percent}%`;
-	return "Getting the person ready…";
+	if (status.state === "downloading") return `Step 1 of 3: Downloading the avatar… ${status.percent}%`;
+	if (status.state === "unpacking") return "Step 2 of 3: Unpacking the avatar…";
+	if (status.state === "getting-ready") return "Step 2 of 3: Getting the avatar's voice ready…";
+	return "Step 3 of 3: Making the avatar's video for the chat…";
+}
+function useSeconds(on) {
+	const [seconds, setSeconds] = d(0);
+	h(() => {
+		if (!on) return;
+		const from = performance.now();
+		setSeconds(0);
+		const timer = setInterval(() => setSeconds(Math.round((performance.now() - from) / 1e3)), 1e3);
+		return () => clearInterval(timer);
+	}, [on]);
+	return seconds;
 }
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
@@ -5250,12 +5271,16 @@ function StartNowPage() {
 	h(() => {
 		getStartNow().then((s) => {
 			if (s.chosen) setChoice(s.chosen);
-			if (WORKING.includes(s.state)) setStatus(s);
+			if (WORKING.includes(s.state) || finishing(s)) setStatus(s);
 		}).catch((e) => console.error("Could not read the default person", e));
 	}, []);
-	const working = status !== null && WORKING.includes(status.state);
+	const working = status !== null && (WORKING.includes(status.state) || finishing(status));
+	const seconds = useSeconds(finishing(status));
 	h(() => {
-		if (status?.state === "ready") {
+		if (finishing(status)) console.info("Avatar ready; waiting for its idle video for the chat");
+	}, [finishing(status)]);
+	h(() => {
+		if (status?.state === "ready" && !finishing(status)) {
 			const ms = Math.round(performance.now() - started.current);
 			console.info(`Default person ${status.person} ready in ${ms} ms; opening the chat`);
 			window.location.hash = "#/chat";
@@ -5349,13 +5374,13 @@ function StartNowPage() {
 			}),
 			working && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
 				className: "busy",
-				children: progressText(status)
-			}), /* @__PURE__ */ u("progress", {
+				children: [progressText(status), finishing(status) && seconds > 0 && ` ${seconds} s`]
+			}), status.state === "downloading" ? /* @__PURE__ */ u("progress", {
 				max: 100,
 				value: status.percent,
 				"aria-label": "Downloading",
 				children: [status.percent, "%"]
-			})] }),
+			}) : /* @__PURE__ */ u("progress", { "aria-label": "Getting the avatar ready" })] }),
 			status?.state === "failed" && /* @__PURE__ */ u("p", {
 				className: "error",
 				role: "alert",

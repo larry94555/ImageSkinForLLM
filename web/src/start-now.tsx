@@ -56,9 +56,33 @@ export const POLL_MS = 500;
 
 const WORKING = ["downloading", "unpacking", "getting-ready"];
 
+// Ready, but the chat would still show the person before: their idle video is being made
+// (Larry's test of R32a). A server that doesn't say counts as done.
+function finishing(status: StartNowStatus | null): boolean {
+  return status?.state === "ready" && status.chat_ready === false;
+}
+
+// Where getting the person ready has got to, as one of three steps.
 export function progressText(status: StartNowStatus): string {
-  if (status.state === "downloading") return `Downloading the person… ${status.percent}%`;
-  return "Getting the person ready…";
+  if (status.state === "downloading") {
+    return `Step 1 of 3: Downloading the avatar… ${status.percent}%`;
+  }
+  if (status.state === "unpacking") return "Step 2 of 3: Unpacking the avatar…";
+  if (status.state === "getting-ready") return "Step 2 of 3: Getting the avatar's voice ready…";
+  return "Step 3 of 3: Making the avatar's video for the chat…";
+}
+
+// Seconds since `from` (performance.now()), counted up once a second while `on`.
+function useSeconds(on: boolean): number {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const from = performance.now();
+    setSeconds(0);
+    const timer = setInterval(() => setSeconds(Math.round((performance.now() - from) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [on]);
+  return seconds;
 }
 
 export function StartNowPage() {
@@ -72,14 +96,18 @@ export function StartNowPage() {
     getStartNow()
       .then((s) => {
         if (s.chosen) setChoice(s.chosen);
-        if (WORKING.includes(s.state)) setStatus(s);
+        if (WORKING.includes(s.state) || finishing(s)) setStatus(s);
       })
       .catch((e: unknown) => console.error("Could not read the default person", e));
   }, []);
 
-  const working = status !== null && WORKING.includes(status.state);
+  const working = status !== null && (WORKING.includes(status.state) || finishing(status));
+  const seconds = useSeconds(finishing(status));
   useEffect(() => {
-    if (status?.state === "ready") {
+    if (finishing(status)) console.info("Avatar ready; waiting for its idle video for the chat");
+  }, [finishing(status)]);
+  useEffect(() => {
+    if (status?.state === "ready" && !finishing(status)) {
       const ms = Math.round(performance.now() - started.current);
       console.info(`Default person ${status.person} ready in ${ms} ms; opening the chat`);
       window.location.hash = "#/chat";
@@ -159,10 +187,17 @@ export function StartNowPage() {
       </form>
       {working && (
         <>
-          <p className="busy">{progressText(status)}</p>
-          <progress max={100} value={status.percent} aria-label="Downloading">
-            {status.percent}%
-          </progress>
+          <p className="busy">
+            {progressText(status)}
+            {finishing(status) && seconds > 0 && ` ${seconds} s`}
+          </p>
+          {status.state === "downloading" ? (
+            <progress max={100} value={status.percent} aria-label="Downloading">
+              {status.percent}%
+            </progress>
+          ) : (
+            <progress aria-label="Getting the avatar ready" />
+          )}
         </>
       )}
       {status?.state === "failed" && (

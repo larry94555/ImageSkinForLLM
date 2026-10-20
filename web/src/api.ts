@@ -248,6 +248,8 @@ export interface StartNowStatus {
   percent: number; // of the download
   error: string | null; // in plain words
   chosen?: PersonChoice | null; // the person the chat uses now, if a default one
+  // Ready, and the chat would show this person: their idle video is made, or can't be.
+  chat_ready?: boolean;
 }
 
 export async function getStartNow(): Promise<StartNowStatus> {
@@ -473,6 +475,9 @@ export interface ChatPhoto {
   url: string | null;
   width: number | null;
   height: number | null;
+  // The idle video's address for this photo, so a new person's isn't the old one's from the
+  // browser's cache (Larry's test of R32a); IDLE_VIDEO_URL when the server doesn't say.
+  idle?: string | null;
 }
 
 export async function getChatPhoto(): Promise<ChatPhoto> {

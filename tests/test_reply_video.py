@@ -1492,6 +1492,7 @@ def test_the_chat_is_told_the_photo_and_its_shown_size(tmp_path: Path) -> None:
         "url": f"/api/uploads/photos/{photo_id}",
         "width": 1280,
         "height": 720,
+        "idle": f"/api/chat/idle?photo={path.stem}",
     }
 
 
@@ -1504,7 +1505,12 @@ def test_the_chat_photo_without_a_readable_size_or_a_photo(
     assert answer["width"] is None and answer["height"] is None
     assert "Could not read the photo's size" in caplog.text
     patch.object(PrepareJob, "status", return_value=PrepareStatus("idle")).start()
-    assert client.get("/api/chat/photo").json() == {"url": None, "width": None, "height": None}
+    assert client.get("/api/chat/photo").json() == {
+        "url": None,
+        "width": None,
+        "height": None,
+        "idle": None,
+    }
 
 
 def test_holding_the_engines_waits_for_a_reply_and_readies_the_voice(tmp_path: Path) -> None:

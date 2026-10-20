@@ -2684,6 +2684,14 @@ test("the stage shows the photo under the videos, and goes without it if it can'
   expect(error).toHaveBeenCalledWith(expect.stringContaining("/api/uploads/photos/p1"));
 });
 
+test("the stage plays the idle video at the photo's own address, once that is known", () => {
+  const { rerender } = render(<Stage idle="loading" onIdle={() => {}} idleUrl={null} />);
+  expect(document.querySelector(".stage video")).toBeNull(); // not the person before's
+  rerender(<Stage idle="loading" onIdle={() => {}} idleUrl="/api/chat/idle?photo=boss" />);
+  const video = document.querySelector(".stage video") as HTMLVideoElement;
+  expect(video.getAttribute("src")).toBe("/api/chat/idle?photo=boss");
+});
+
 test("a clip that can't be played is passed over quietly and the next one plays", () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const ended = vi.fn();

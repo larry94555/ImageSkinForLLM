@@ -84,7 +84,7 @@ test("start downloads the person with progress, then opens the chat", async () =
   fireEvent.click(radio("British"));
   fireEvent.click(radio("Animated"));
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
-  expect(await screen.findByText("Downloading the person… 40%")).toBeTruthy();
+  expect(await screen.findByText("Step 1 of 3: Downloading the avatar… 40%")).toBeTruthy();
   expect(screen.getByRole("progressbar")).toBeTruthy();
   expect(radio("Female").closest("fieldset")!.disabled).toBe(true);
   const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
@@ -122,7 +122,7 @@ test("losing the app while downloading says so", async () => {
   const fetchMock = server([IDLE], downloading);
   render(<StartNowPage />);
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
-  await screen.findByText("Downloading the person… 5%");
+  await screen.findByText("Step 1 of 3: Downloading the avatar… 5%");
   fetchMock.mockImplementation(async () => new Response("", { status: 503 }));
   expect((await screen.findByRole("alert", {}, { timeout: 4 * POLL_MS })).textContent).toBe(
     "Could not reach the app. Try again.",
@@ -132,16 +132,36 @@ test("losing the app while downloading says so", async () => {
 test("a download already under way is shown on opening the page", async () => {
   server([{ ...IDLE, state: "getting-ready", person: "p", percent: 100 }]);
   render(<StartNowPage />);
-  expect(await screen.findByText("Getting the person ready…")).toBeTruthy();
+  expect(await screen.findByText("Step 2 of 3: Getting the avatar's voice ready…")).toBeTruthy();
 });
 
 test("progress text", () => {
   expect(progressText({ ...IDLE, state: "downloading", percent: 12 })).toBe(
-    "Downloading the person… 12%",
+    "Step 1 of 3: Downloading the avatar… 12%",
   );
   expect(progressText({ ...IDLE, state: "unpacking", percent: 100 })).toBe(
-    "Getting the person ready…",
+    "Step 2 of 3: Unpacking the avatar…",
   );
+  expect(progressText({ ...IDLE, state: "ready", percent: 100, chat_ready: false })).toBe(
+    "Step 3 of 3: Making the avatar's video for the chat…",
+  );
+});
+
+test("the chat opens only once the new avatar's video for it is made", async () => {
+  const making = { ...IDLE, state: "ready", person: "boss", percent: 100, chat_ready: false } as const;
+  const made = { ...making, chat_ready: true };
+  server([IDLE, making, making, made], making);
+  render(<StartNowPage />);
+  fireEvent.click(screen.getByRole("button", { name: "Start now" }));
+  expect(
+    await screen.findByText(/^Step 3 of 3: Making the avatar's video for the chat…/),
+  ).toBeTruthy();
+  expect(screen.getByRole("progressbar", { name: "Getting the avatar ready" })).toBeTruthy();
+  expect(window.location.hash).toBe(""); // not yet: the chat would show the person before
+  await vi.waitFor(() =>
+    expect(console.info).toHaveBeenCalledWith("Avatar ready; waiting for its idle video for the chat"),
+  );
+  await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"), { timeout: 6 * POLL_MS });
 });
 
 test("a default person says Goodbye and Welcome back in their own voice", async () => {

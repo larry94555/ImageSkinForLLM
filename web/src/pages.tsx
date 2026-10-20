@@ -1016,7 +1016,11 @@ function Chat(props: {
   const [idle, setIdle] = useState<Idle>("loading"); // the idle video (roadmap R23)
   // The photo, shown until the idle video plays, and its shape, which the person's frame takes
   // from its first drawing (R41d); undefined until the server has answered.
-  const [photo, setPhoto] = useState<{ url: string | null; ratio: number | null }>();
+  const [photo, setPhoto] = useState<{
+    url: string | null;
+    ratio: number | null;
+    idle?: string;
+  }>();
   // Between sending a prompt and the person starting to speak, unless the reply has nothing
   // to say aloud, couldn't be spoken, or was stopped (R41d).
   const [waiting, setWaiting] = useState(false);
@@ -1056,8 +1060,9 @@ function Chat(props: {
   }, []);
   useEffect(() => {
     getChatPhoto()
-      .then(({ url, width, height }) => {
-        setPhoto({ url: url ?? null, ratio: width && height ? width / height : null });
+      .then(({ url, width, height, idle }) => {
+        const ratio = width && height ? width / height : null;
+        setPhoto({ url: url ?? null, ratio, idle: idle ?? undefined });
         if (url && width && height) console.info(`Chat photo ${width}x${height}`);
       })
       .catch((e: unknown) => {
@@ -1348,7 +1353,13 @@ function Chat(props: {
   // Something to stop: a reply still being made, or a clip that hasn't finished playing.
   const stoppable = !halted && (speaking || times.some((t) => t.ended === null));
   const stage = (
-    <Stage idle={idle} onIdle={setIdle} photo={photo?.url} ratio={photo?.ratio}>
+    <Stage
+      idle={idle}
+      onIdle={setIdle}
+      photo={photo?.url}
+      ratio={photo?.ratio}
+      idleUrl={photo === undefined ? null : photo.idle}
+    >
       {clips.length > 0 && (
         <ClipPlayer
           clips={clips}
@@ -1906,9 +1917,13 @@ export function Stage(props: {
   // The photo's width over its height. The videos are made from it, so the stage takes its
   // shape and has no empty bands beside or above the person (R41d); a 4:3 box without it.
   ratio?: number | null;
+  // The idle video's address for the photo; null until it is known, so the person before's
+  // isn't fetched first (Larry's test of R32a). IDLE_VIDEO_URL when not given.
+  idleUrl?: string | null;
   children?: ComponentChildren;
 }) {
   const { idle, onIdle, photo, ratio } = props;
+  const idleUrl = props.idleUrl === undefined ? IDLE_VIDEO_URL : props.idleUrl;
   const [still, setStill] = useState(true); // the photo loaded, or is loading
   return (
     <div className="stage" style={ratio ? { "--ratio": String(ratio) } : undefined}>
@@ -1923,10 +1938,10 @@ export function Stage(props: {
           }}
         />
       )}
-      {idle !== "none" && (
+      {idle !== "none" && idleUrl !== null && (
         <video
           className={idle === "ready" ? "idle-video" : "idle-video resting"}
-          src={IDLE_VIDEO_URL}
+          src={idleUrl}
           autoPlay
           loop
           muted

@@ -11,6 +11,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
 from fastapi import Path as PathParam
@@ -876,10 +877,22 @@ def create_app(
     @app.get("/api/start-now")
     def get_start_now() -> dict[str, object]:
         chosen = start_now.chosen()
+        status = start_now.status()
         return {
-            **asdict(start_now.status()),
+            **asdict(status),
             "chosen": None if chosen is None else asdict(chosen),
+            "chat_ready": status.state == "ready" and chat_shows_person(),
         }
+
+    def chat_shows_person() -> bool:
+        """Whether the chat would show the person chosen now: their idle video is made, or the
+        warm-up that makes it has ended (an engine that can't make one, say). Start now waits
+        for this, so the chat doesn't open on the person chosen before (Larry's test of R32a)."""
+        thread = getattr(app.state, "reply_warm_up", None)
+        if thread is None or not thread.is_alive():
+            return True
+        photo = chosen_photo()
+        return photo is not None and replies.idle(photo) is not None
 
     @app.post("/api/start-now")
     def post_start_now(body: StartNowRequest, seen: DeletesSeen) -> StartStatus:
@@ -1311,12 +1324,17 @@ def create_app(
         photo = chosen_photo()
         size = None if photo is None else shown_size(photo)
         url = f"/api/uploads/photos/{photo_id}"
-        if start_now.chosen() is not None:
-            url = "/api/start-now/picture"
+        chosen = start_now.chosen()
+        if chosen is not None:
+            # Each person gets an address of their own: a browser keeps an image it has shown
+            # for the page's life, so one address for all would show the person before.
+            url = f"/api/start-now/picture?person={chosen.name}"
         return {
             "url": None if photo is None else url,
             "width": size[0] if size else None,
             "height": size[1] if size else None,
+            # The same for the idle video, named after the photo it is made from.
+            "idle": None if photo is None else f"/api/chat/idle?photo={quote(photo.stem)}",
         }
 
     @app.post("/api/chat", dependencies=[*needs_person, Depends(require_accepted)])

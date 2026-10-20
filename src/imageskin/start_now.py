@@ -300,8 +300,10 @@ class StartNow:
         if error is not None:
             self._set("failed", error=error)
             return
-        self._set("ready", 100)
+        # The warm-up starts first, so whoever sees "ready" can also see it running and wait
+        # for the new person's idle video before opening the chat (Larry's test of R32a).
         self._on_ready()
+        self._set("ready", 100)
         logger.info(
             "Default person ready",
             extra={"person": choice.name, "duration_s": round(time.perf_counter() - start, 1)},
