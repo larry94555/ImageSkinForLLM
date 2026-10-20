@@ -29,11 +29,16 @@ def test_the_password_is_asked_before_anything_is_proxied() -> None:
     assert "{$LOGIN_NAME} {$LOGIN_PASSWORD_HASH}" in caddyfile
 
 
-def test_the_app_is_published_only_on_the_servers_own_loopback() -> None:
+def test_only_caddy_reaches_the_app() -> None:
+    # No port of its own, not even on the server's loopback: the SSH tunnel it was for is gone,
+    # as OpenAI has the ChatGPT sign-in done on the laptop and moved over (review on PR #120).
     compose = text(DEPLOY / "compose.yaml")
-    app = compose.split("\n  caddy:")[0]
-    published = re.findall(r'^\s+- "(.+:\d+)"$', app.split("ports:")[1], re.MULTILINE)
-    assert published == ["127.0.0.1:8000:8000"]  # the SSH tunnel for Sign in with ChatGPT
+    app = compose.split("\n  app:")[1].split("\n  llama:")[0]
+    assert "ports:" not in app
+    readme = text(DEPLOY / "README.md")
+    assert "imageskin chatgpt-export chatgpt-sign-in.json" in readme
+    assert "docker compose exec -T app imageskin chatgpt-import -" in readme
+    assert "-L 8000" not in readme
 
 
 def test_every_variable_compose_needs_is_in_the_example_env() -> None:

@@ -1,8 +1,8 @@
 # The hosted app's settings (roadmap R32), read when the app starts: run
 # `docker compose restart app` after a change. See config.example.toml for every setting.
 
-# Listen on every address inside the container. Only Caddy reaches it from outside, with the
-# password, and an SSH tunnel through the server's own 127.0.0.1 (deploy/README.md).
+# Listen on every address inside the container. Only Caddy reaches it, with the password
+# (deploy/README.md).
 host = "0.0.0.0"
 port = 8000
 log_level = "INFO"

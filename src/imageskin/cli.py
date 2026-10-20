@@ -139,6 +139,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="opencv: quick mouth animation (default); photoreal: LivePortrait, with a "
         "one-time setup per photo",
     )
+    # Sign in with ChatGPT on a self-hosted server (deploy/README.md, step 8): OpenAI's guide has
+    # the sign-in done on the user's own computer, then moved to the server.
+    export = commands.add_parser(
+        "chatgpt-export",
+        help="move this computer's ChatGPT sign-in into a file, for a self-hosted server",
+    )
+    export.add_argument("output", type=Path, help="the file to write, such as chatgpt-sign-in.json")
+    imported = commands.add_parser(
+        "chatgpt-import", help="use a ChatGPT sign-in from imageskin chatgpt-export here"
+    )
+    imported.add_argument("file", help="the exported file, or - to read it from standard input")
     lookup = commands.add_parser(
         "lookup",
         help="print the wiki entries and PDF passages found for questions, with the time taken",
@@ -230,6 +241,40 @@ def print_spoken_text(text: str | None, file: Path | None) -> int:
         },
     )
     print(spoken)
+    return 0
+
+
+def chatgpt_export(output: Path) -> int:
+    from imageskin.chatgpt_signin import ChatGptSignIn, SignInError
+    from imageskin.llm_choice import write_owner_only
+
+    try:
+        ChatGptSignIn(default_home()).export_active(lambda data: write_owner_only(output, data))
+    except (SignInError, OSError) as e:
+        logger.error("Could not export the ChatGPT sign-in", extra={"error": str(e)})
+        return 1
+    print(
+        f"Wrote {output.resolve()}. It holds your ChatGPT sign-in: copy it to the server, import "
+        "it there, then delete it. This computer is signed out of ChatGPT now, as only one copy "
+        "of a sign-in can keep renewing; sign in here again to use the plan here too."
+    )
+    return 0
+
+
+def chatgpt_import(file: str) -> int:
+    import json
+
+    from imageskin.chatgpt_signin import NOT_A_TRANSFER, ChatGptSignIn, SignInError
+
+    try:
+        text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+        status = ChatGptSignIn(default_home()).import_registration(json.loads(text))
+    except (OSError, ValueError, SignInError) as e:
+        reason = str(e) if isinstance(e, (OSError, SignInError)) else NOT_A_TRANSFER
+        logger.error("Could not import the ChatGPT sign-in", extra={"error": reason})
+        return 1
+    plan = "" if status["plan_usage"] else ', but click "Allow use of my plan" on Settings'
+    print(f"Signed in with ChatGPT as {status['label']}{plan}. Delete the exported file now.")
     return 0
 
 
@@ -365,6 +410,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "spoken-text":
         return print_spoken_text(" ".join(args.text) if args.text else None, args.file)
+    if args.command == "chatgpt-export":
+        return chatgpt_export(args.output)
+    if args.command == "chatgpt-import":
+        return chatgpt_import(args.file)
     if args.command == "lookup":
         return print_lookups(args.questions, args.wiki, args.pdf)
     if args.command == "prepare":

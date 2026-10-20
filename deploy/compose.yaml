@@ -16,10 +16,8 @@ services:
     volumes:
       - imageskin-data:/data
       - ./config.toml:/etc/imageskin/config.toml:ro
-    # Not open to the internet: only to Caddy, and to an SSH tunnel through the server's own
-    # 127.0.0.1, which Sign in with ChatGPT needs.
-    ports:
-      - "127.0.0.1:8000:8000"
+    # Not published on any port: only Caddy reaches it, with the password. Sign in with ChatGPT is done on the
+    # laptop and imported (README.md here, step 8).
 
   # The local LLM, as on the laptop (README, "Chat with the LLM"): llama.cpp's llama-server with
   # Gemma 3 4B, downloaded into its own volume on first start (about 2.5 GB). Half the cores, so

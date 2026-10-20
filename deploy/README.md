@@ -166,13 +166,45 @@ It is ready when the log says `server is listening on http://0.0.0.0:8080` (Ctrl
 
 To use a cloud LLM instead, go to the Settings page (host view), under **LLM** pick **Claude**, **OpenAI**, **Grok** or **OpenRouter**, and paste your API key. It is saved on the server only, in the data volume. **Local (llama.cpp)** on the same page goes back to llama-server.
 
-**ChatGPT plan** works too, but OpenAI sends the browser back to the app's own address on `127.0.0.1`, so sign in through an SSH tunnel from your laptop once. Stop any `imageskin serve` on your laptop first (it uses port 8000 too), then connect with `-L 8000:127.0.0.1:8000` added to the `ssh` command from step 4, such as:
+**ChatGPT plan** works too, the way OpenAI's [Self-hosted VMs](https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms) guide says: sign in on your laptop, where OpenAI can send the browser back to the app on `127.0.0.1`, then move that sign-in to the server, which keeps its own host ID and renews the tokens itself. **Continue with ChatGPT** on the hosted site's own Settings page can't finish, as OpenAI only sends the browser back to `127.0.0.1`.
 
-```
-ssh -i ~/.ssh/oracle.key -L 8000:127.0.0.1:8000 ubuntu@129.146.1.2
-```
+1. On your laptop, with the app installed as in the main README, run `imageskin serve`, open http://127.0.0.1:8000/#/settings, click **Continue with ChatGPT** and sign in with the account the hosted site should use. Then stop it with Ctrl+C.
+2. Still on your laptop, move the sign-in into a file and copy it to the server. Your laptop is signed out of ChatGPT afterwards, since only one copy of a sign-in can keep renewing; sign in there again later to use the plan on the laptop too. Replace `129.146.1.2` as in step 4.
 
-(on Windows, the same with the key path from step 4). While it is connected, open http://127.0.0.1:8000/#/settings on your laptop, click **Continue with ChatGPT** and sign in. The tokens are saved on the server, so the hosted site answers through the plan after the tunnel is closed. The tunnel reaches the app without the password, but only for someone who already has the machine's SSH key.
+   macOS / Linux:
+
+   ```
+   imageskin chatgpt-export chatgpt-sign-in.json
+   scp -i ~/.ssh/oracle.key chatgpt-sign-in.json ubuntu@129.146.1.2:
+   rm chatgpt-sign-in.json
+   ```
+
+   Windows 11, Command Prompt:
+
+   ```
+   imageskin chatgpt-export chatgpt-sign-in.json
+   scp -i "%USERPROFILE%\.ssh\oracle.key" chatgpt-sign-in.json ubuntu@129.146.1.2:
+   del chatgpt-sign-in.json
+   ```
+
+   Windows 11, PowerShell:
+
+   ```
+   imageskin chatgpt-export chatgpt-sign-in.json
+   scp -i "$env:USERPROFILE\.ssh\oracle.key" chatgpt-sign-in.json ubuntu@129.146.1.2:
+   Remove-Item chatgpt-sign-in.json
+   ```
+
+3. On the server, in `~/ImageSkinForLLM/deploy`, import it and delete the copy:
+
+   ```
+   docker compose exec -T app imageskin chatgpt-import - < ~/chatgpt-sign-in.json
+   rm ~/chatgpt-sign-in.json
+   ```
+
+   It prints `Signed in with ChatGPT as` your account's email. On the hosted site's Settings page, pick **ChatGPT plan** under **LLM**.
+
+The file holds the sign-in's tokens, so it only goes over SSH and is deleted on both sides. To move to another account, do the same again with that account.
 
 Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare is slower on the free machine's cores than on a fast laptop.
 
