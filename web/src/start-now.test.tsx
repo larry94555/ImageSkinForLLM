@@ -1,14 +1,22 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { lineUrl, type StartNowStatus } from "./api";
-import { POLL_MS, progressText, roleLabel, StartNowPage } from "./start-now";
+import { type Face, lineUrl, type StartNowStatus } from "./api";
+import { facesOf, POLL_MS, progressText, roleLabel, StartNowPage } from "./start-now";
 
 const IDLE: StartNowStatus = { state: "idle", person: null, percent: 0, error: null, chosen: null };
 
 // A fake server: GET /api/start-now answers each of `reads` in turn, then the last again.
+// Professor has two faces for a woman in a photo, one for a man (as R24b2 made them).
+const FACES: Face[] = [
+  { gender: "female", realism: "photoreal", role: "Professor", face: 2, name: "photoreal_female_professor_2" },
+  { gender: "female", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_female_professor" },
+  { gender: "male", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_male_professor" },
+];
+
 function server(reads: StartNowStatus[], post: Response | StartNowStatus = reads[0]) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/start-now/faces") return Response.json(FACES);
     if (url === "/api/start-now" && init?.method === "POST") {
       return post instanceof Response ? post : Response.json(post);
     }
@@ -93,6 +101,7 @@ test("start downloads the person with progress, then opens the chat", async () =
     accent: "British",
     realism: "animated",
     role: "Professor",
+    face: 1,
   });
   await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"), { timeout: 4 * POLL_MS });
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Default person p ready in \d+ ms/));
@@ -172,4 +181,47 @@ test("a default person says Goodbye and Welcome back in their own voice", async 
   );
   server([IDLE]);
   expect(await lineUrl("welcome-back")).toBeNull(); // the user's own, not prepared
+});
+
+test("a choice's faces are shown as pictures, and the one picked is the one started", async () => {
+  const fetchMock = server([IDLE], { ...IDLE, state: "downloading", person: "p" });
+  render(<StartNowPage />);
+  const first = (await screen.findByRole("radio", { name: "Face 1 of 2" })) as HTMLInputElement;
+  expect(first.checked).toBe(true); // the first face unless another is picked
+  const img = screen.getByAltText("Face 2 of 2") as HTMLImageElement;
+  expect(img.getAttribute("src")).toBe("/faces/photoreal_female_professor_2.jpg");
+  fireEvent.click(screen.getByRole("radio", { name: "Face 2 of 2" }));
+  expect(console.info).toHaveBeenCalledWith("Face 2 of 2 picked: photoreal_female_professor_2");
+  fireEvent.click(screen.getByRole("button", { name: "Start now" }));
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true),
+  );
+  const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(JSON.parse(post[1]!.body as string).face).toBe(2);
+});
+
+test("changing a choice shows its own faces, from the first", async () => {
+  server([IDLE]);
+  render(<StartNowPage />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Face 2 of 2" }));
+  fireEvent.click(radio("Male"));
+  const only = screen.getByRole("radio", { name: "Face 1 of 1" }) as HTMLInputElement;
+  expect(only.checked).toBe(true);
+  expect(screen.queryByRole("radio", { name: "Face 2 of 2" })).toBeNull();
+  fireEvent.click(radio("Female"));
+  expect((screen.getByRole("radio", { name: "Face 1 of 2" }) as HTMLInputElement).checked).toBe(true);
+});
+
+test("the face picked before is picked again on opening the page", async () => {
+  const chosen = { gender: "female", accent: "American", realism: "photoreal", role: "Professor", face: 2 } as const;
+  server([{ ...IDLE, chosen }]);
+  render(<StartNowPage />);
+  const second = (await screen.findByRole("radio", { name: "Face 2 of 2" })) as HTMLInputElement;
+  await vi.waitFor(() => expect(second.checked).toBe(true));
+});
+
+test("faces are those of the choice, first face first", () => {
+  const choice = { gender: "female", accent: "British", realism: "photoreal", role: "Professor" } as const;
+  expect(facesOf(FACES, choice).map((f) => f.face)).toEqual([1, 2]);
+  expect(facesOf(FACES, { ...choice, role: "Boss" })).toEqual([]);
 });

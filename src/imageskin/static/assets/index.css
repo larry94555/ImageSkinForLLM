@@ -982,4 +982,10 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .start-now label.role { display: grid; gap: 6px; font-weight: 600; }
 .start-now label.role select { font-weight: normal; max-width: 280px; }
 .start-now form button { justify-self: start; }
+/* The choice's faces (R24c2): pictures with no label, the picked one ringed. */
+.start-now .faces label.face { position: relative; cursor: pointer; border-radius: 10px; border: 3px solid transparent; padding: 2px; }
+.start-now .faces label.face.picked { border-color: var(--accent); }
+.start-now .faces input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.start-now .faces input:focus-visible + img { outline: 2px solid var(--accent); outline-offset: 2px; }
+.start-now .faces img { display: block; width: 96px; height: 96px; border-radius: 7px; object-fit: cover; }
 .start-now progress { width: 100%; max-width: 520px; }

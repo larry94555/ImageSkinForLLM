@@ -4,7 +4,16 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { type Gender, type PersonChoice, type StartNowStatus, getStartNow, startNow } from "./api";
+import {
+  type Face,
+  type Gender,
+  type PersonChoice,
+  type StartNowStatus,
+  faceUrl,
+  getFaces,
+  getStartNow,
+  startNow,
+} from "./api";
 
 // The roles, as the server names them. They don't carry a gender; where a role has a word for
 // each gender, the list shows that word (item 56).
@@ -85,14 +94,33 @@ function useSeconds(on: boolean): number {
   return seconds;
 }
 
+// The faces the choice has (R24c2), first face first.
+export function facesOf(faces: Face[], choice: PersonChoice): Face[] {
+  return faces
+    .filter(
+      (f) => f.gender === choice.gender && f.realism === choice.realism && f.role === choice.role,
+    )
+    .sort((a, b) => a.face - b.face);
+}
+
 export function StartNowPage() {
   const [choice, setChoice] = useState<PersonChoice>(FIRST);
+  const [faces, setFaces] = useState<Face[]>([]);
+  // Changing gender, look or role starts at the new choice's first face.
+  const change = (changes: Partial<PersonChoice>) => setChoice({ ...choice, ...changes, face: 1 });
   const [status, setStatus] = useState<StartNowStatus | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const started = useRef(0); // when Start was clicked, for the log
 
   // The person chosen before, if any, is where the choices start.
   useEffect(() => {
+    const asked = performance.now();
+    getFaces()
+      .then((f) => {
+        setFaces(f);
+        console.info(`${f.length} faces to pick from (${Math.round(performance.now() - asked)} ms)`);
+      })
+      .catch((e: unknown) => console.error("Could not read the faces", e));
     getStartNow()
       .then((s) => {
         if (s.chosen) setChoice(s.chosen);
@@ -137,6 +165,8 @@ export function StartNowPage() {
     }
   }
 
+  const shown = facesOf(faces, choice);
+  const face = choice.face ?? 1;
   return (
     <section className="start-now panel">
       <h1>Avatar Choice: a ready-made avatar</h1>
@@ -160,7 +190,7 @@ export function StartNowPage() {
                   name={key}
                   value={value}
                   checked={choice[key] === value}
-                  onChange={() => setChoice({ ...choice, [key]: value })}
+                  onChange={() => change({ [key]: value })}
                 />{" "}
                 {label}
               </label>
@@ -172,7 +202,7 @@ export function StartNowPage() {
           <select
             value={choice.role}
             disabled={working}
-            onChange={(e) => setChoice({ ...choice, role: (e.target as HTMLSelectElement).value })}
+            onChange={(e) => change({ role: (e.target as HTMLSelectElement).value })}
           >
             {ROLES.map((role) => (
               <option key={role} value={role}>
@@ -181,6 +211,26 @@ export function StartNowPage() {
             ))}
           </select>
         </label>
+        {shown.length > 0 && (
+          <fieldset className="faces" disabled={working}>
+            <legend>Face</legend>
+            {shown.map((f) => (
+              <label key={f.name} className={f.face === face ? "face picked" : "face"}>
+                <input
+                  type="radio"
+                  name="face"
+                  value={f.face}
+                  checked={f.face === face}
+                  onChange={() => {
+                    console.info(`Face ${f.face} of ${shown.length} picked: ${f.name}`);
+                    setChoice({ ...choice, face: f.face });
+                  }}
+                />
+                <img src={faceUrl(f.name)} alt={`Face ${f.face} of ${shown.length}`} />
+              </label>
+            ))}
+          </fieldset>
+        )}
         <button type="submit" disabled={working} className={working ? "busy" : undefined}>
           {status?.state === "failed" ? "Try again" : "Start now"}
         </button>

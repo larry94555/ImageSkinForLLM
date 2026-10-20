@@ -117,6 +117,12 @@ async function lineUrl(name) {
 	const status = await getPrepare();
 	return status.state === "done" ? clipUrl(name, status) : null;
 }
+async function getFaces() {
+	return json(await fetch("/api/start-now/faces"));
+}
+function faceUrl(name) {
+	return `/faces/${name}.jpg`;
+}
 async function getStartNow() {
 	return json(await fetch("/api/start-now"));
 }
@@ -5276,12 +5282,26 @@ function useSeconds(on) {
 	}, [on]);
 	return seconds;
 }
+function facesOf(faces, choice) {
+	return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism && f.role === choice.role).sort((a, b) => a.face - b.face);
+}
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
+	const [faces, setFaces] = d([]);
+	const change = (changes) => setChoice({
+		...choice,
+		...changes,
+		face: 1
+	});
 	const [status, setStatus] = d(null);
 	const [refused, setRefused] = d(null);
 	const started = A(0);
 	h(() => {
+		const asked = performance.now();
+		getFaces().then((f) => {
+			setFaces(f);
+			console.info(`${f.length} faces to pick from (${Math.round(performance.now() - asked)} ms)`);
+		}).catch((e) => console.error("Could not read the faces", e));
 		getStartNow().then((s) => {
 			if (s.chosen) setChoice(s.chosen);
 			if (WORKING.includes(s.state) || finishing(s)) setStatus(s);
@@ -5323,6 +5343,8 @@ function StartNowPage() {
 			setRefused(e.message);
 		}
 	}
+	const shown = facesOf(faces, choice);
+	const face = choice.face ?? 1;
 	return /* @__PURE__ */ u("section", {
 		className: "start-now panel",
 		children: [
@@ -5349,10 +5371,7 @@ function StartNowPage() {
 								name: key,
 								value,
 								checked: choice[key] === value,
-								onChange: () => setChoice({
-									...choice,
-									[key]: value
-								})
+								onChange: () => change({ [key]: value })
 							}),
 							" ",
 							label
@@ -5366,16 +5385,36 @@ function StartNowPage() {
 							/* @__PURE__ */ u("select", {
 								value: choice.role,
 								disabled: working,
-								onChange: (e) => setChoice({
-									...choice,
-									role: e.target.value
-								}),
+								onChange: (e) => change({ role: e.target.value }),
 								children: ROLES.map((role) => /* @__PURE__ */ u("option", {
 									value: role,
 									children: roleLabel(role, choice.gender)
 								}, role))
 							})
 						]
+					}),
+					shown.length > 0 && /* @__PURE__ */ u("fieldset", {
+						className: "faces",
+						disabled: working,
+						children: [/* @__PURE__ */ u("legend", { children: "Face" }), shown.map((f) => /* @__PURE__ */ u("label", {
+							className: f.face === face ? "face picked" : "face",
+							children: [/* @__PURE__ */ u("input", {
+								type: "radio",
+								name: "face",
+								value: f.face,
+								checked: f.face === face,
+								onChange: () => {
+									console.info(`Face ${f.face} of ${shown.length} picked: ${f.name}`);
+									setChoice({
+										...choice,
+										face: f.face
+									});
+								}
+							}), /* @__PURE__ */ u("img", {
+								src: faceUrl(f.name),
+								alt: `Face ${f.face} of ${shown.length}`
+							})]
+						}, f.name))]
 					}),
 					/* @__PURE__ */ u("button", {
 						type: "submit",
