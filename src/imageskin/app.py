@@ -888,8 +888,7 @@ def create_app(
         """Whether the chat would show the person chosen now: their idle video is made, or the
         warm-up that makes it has ended (an engine that can't make one, say). Start now waits
         for this, so the chat doesn't open on the person chosen before (Larry's test of R32a)."""
-        thread = getattr(app.state, "reply_warm_up", None)
-        if thread is None or not thread.is_alive():
+        if not warming_up():
             return True
         photo = chosen_photo()
         return photo is not None and replies.idle(photo) is not None
@@ -1577,18 +1576,36 @@ def create_app(
             llm.join()
         return photo
 
-    warm_up_lock = threading.Lock()  # guards app.state.reply_warm_up and warm_up_again
-    warm_up_again = threading.Event()  # asked for while a warm-up ran
+    # Whether a warm-up worker still has work to do, and whether one was asked for meanwhile:
+    # both only read and changed under warm_up_lock. The worker gives up the work under the lock
+    # in the same step as it decides to stop, so a request after that starts a worker of its
+    # own, even while the old thread is still ending (review on PR #122).
+    warm_up_lock = threading.Lock()  # also guards app.state.reply_warm_up
+    warm_up = {"running": False, "again": False}
+
+    app.state.warm_up = warm_up
 
     def warm_up_until_current() -> None:
         while True:
-            photo = warm_up_replies()
+            try:
+                photo = warm_up_replies()
+            except Exception:
+                # Never left running: Start now waits on it before opening the chat.
+                logger.exception("Could not warm up replies")
+                photo = None
             with warm_up_lock:
-                again = warm_up_again.is_set() and chosen_photo() != photo
-                warm_up_again.clear()
+                again = warm_up["again"] and chosen_photo() != photo
+                warm_up["again"] = False
                 if not again:
-                    return
+                    warm_up["running"] = False
+                    break
             logger.info("Warming up replies again for the person chosen meanwhile")
+        logger.info("Reply warm-up done")
+
+    def warming_up() -> bool:
+        """Whether replies are being warmed up for the person chosen now."""
+        with warm_up_lock:
+            return warm_up["running"]
 
     def start_reply_warm_up() -> None:
         """Warm up replies on a thread of their own. While a warm-up is under way, that thread
@@ -1597,10 +1614,10 @@ def create_app(
         the last one's warm-up ran, Larry's test of R32a), it runs once more for the new one,
         so they get their own idle video."""
         with warm_up_lock:
-            current = getattr(app.state, "reply_warm_up", None)
-            if current is not None and current.is_alive():
-                warm_up_again.set()
+            if warm_up["running"]:
+                warm_up["again"] = True
                 return
+            warm_up["running"] = True
             app.state.reply_warm_up = threading.Thread(
                 target=warm_up_until_current, name="reply-warm-up", daemon=True
             )

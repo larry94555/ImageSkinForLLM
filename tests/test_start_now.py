@@ -462,28 +462,18 @@ def test_a_default_person_opens_the_chat_without_consent(client: TestClient) -> 
     assert client.get("/api/uploads/photos").status_code == 403
 
 
-class Warming:
-    """A warm-up still running, for as long as the test says."""
-
-    def __init__(self) -> None:
-        self.running = True
-
-    def is_alive(self) -> bool:
-        return self.running
-
-
 def test_start_now_waits_for_the_new_persons_idle_video(client: TestClient, tmp_path: Path) -> None:
     """Larry's test of R32a: the chat opened on the person before. Ready is said only once the
     chat would show the new one: their idle video is made, or the warm-up making it has ended."""
     choose(client)
     client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
-    warming = Warming()
-    client.app.state.reply_warm_up = warming  # type: ignore[attr-defined]
+    warming = client.app.state.warm_up  # type: ignore[attr-defined]
+    warming["running"] = True  # as while a warm-up runs
     status = client.get("/api/start-now").json()
     assert status["state"] == "ready" and status["chat_ready"] is False  # no idle video yet
-    warming.running = False  # the warm-up ended, with or without one
+    warming["running"] = False  # the warm-up ended, with or without one
     assert client.get("/api/start-now").json()["chat_ready"] is True
-    warming.running = True
+    warming["running"] = True
     picture = client.app.state.start_now.picture()  # type: ignore[attr-defined]
     idle = tmp_path / "home" / "replies" / "idle" / f"{picture.stem}.mp4"
     idle.parent.mkdir(parents=True, exist_ok=True)
