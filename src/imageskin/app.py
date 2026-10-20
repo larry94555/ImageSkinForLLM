@@ -631,7 +631,9 @@ def create_app(
     # Then the wiki is built from what was read (R37), with the chat's LLM.
     llm = llm or LlmSettings()
     # The LLM picked on the Settings page (R42), with llama-server's address from the config.
-    switchable = SwitchableLlm(llm, load_choice(data_home))
+    # Sign in with ChatGPT (R43), whose plan can answer (R43a).
+    signin = chatgpt or ChatGptSignIn(data_home)
+    switchable = SwitchableLlm(llm, load_choice(data_home), signin.plan_session)
     client = switchable if ask_llm is None else None
     if build_wiki is None:
         build_wiki = wiki_builder(llm, client, ask_llm)
@@ -1072,7 +1074,46 @@ def create_app(
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.
     @app.get("/api/llm")
     def get_llm() -> dict[str, Any]:
-        return described(load_choice(data_home))
+        return described(load_choice(data_home), plan_ready())
+
+    def plan_ready() -> bool:
+        """Whether a ChatGPT account is signed in that allowed use of its plan (R43a)."""
+        status = signin.status()
+        return bool(status["connected"] and status["plan_usage"])
+
+    def need_plan_sign_in() -> None:
+        """400 saying why when there is no ChatGPT sign-in to use for its plan."""
+        try:
+            signin.access_token()
+        except SignInError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    def plan_list() -> tuple[list[str], dict[str, str]]:
+        """The models in the ChatGPT plan's list, fetched with the sign-in held until the list
+        has come, so Disconnect, a switch or a sign-in waits for it and none is fetched with a
+        token after Disconnect (a review on PR #118). LlmError, in plain words, when there is no
+        sign-in to use."""
+        with signin.plan_session() as token:
+            return model_lists.named_models("chatgpt", token)
+
+    def plan_model(model: str | None) -> str | None:
+        """The model to save for the ChatGPT plan: the one entered, the one saved when none is
+        entered, or else the first in the plan's list (R43a), since no model is right for every
+        plan."""
+        need_plan_sign_in()  # a model entered is saved only with a sign-in to use it
+        if model and model.strip():
+            return model
+        if model is None and load_choice(data_home).models.get("chatgpt"):
+            return None
+        try:
+            return plan_list()[0][0]
+        except LlmError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except ModelListError as e:
+            raise HTTPException(
+                status_code=400 if e.refused else 502,
+                detail=f"{e} Type a model's name to use the plan without the list.",
+            ) from e
 
     model_lists = ModelLists()
     # A change is saved and made live as one step, so two made together can't leave the file
@@ -1083,7 +1124,10 @@ def create_app(
     def put_llm(body: LlmRequest) -> dict[str, Any]:
         start = time.perf_counter()
         key = (body.api_key or "").strip()
-        if key and body.provider in PROVIDERS and body.provider != "local":
+        model = body.model
+        if body.provider == "chatgpt":
+            model = plan_model(model)  # needs the sign-in, not a key
+        elif key and body.provider in PROVIDERS and body.provider != "local":
             # A new key is checked first by listing the provider's models (Larry, 2026-10-19),
             # so a key the provider refuses isn't saved; if the provider can't be reached, the
             # key is saved unchecked, and the chat says so if it's wrong.
@@ -1100,7 +1144,7 @@ def create_app(
                 )
         with changing_llm:
             try:
-                choice = save_choice(data_home, body.provider, body.api_key, body.model)
+                choice = save_choice(data_home, body.provider, body.api_key, model)
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e)) from e
             switchable.use(choice)
@@ -1110,27 +1154,39 @@ def create_app(
             "LLM setting changed",
             extra={"provider": choice.provider, "duration_ms": ms_since(start)},
         )
-        return described(choice)
+        return described(choice, plan_ready())
 
     # The models a provider offers to the key just entered, or the saved one (R42); OpenRouter's
     # before any key. 400 when the key is missing or refused, 502 when the provider can't be
     # reached, so the page offers a typed model name only then.
     @app.post("/api/llm/models")
-    def post_llm_models(body: ModelsRequest) -> dict[str, list[str]]:
+    def post_llm_models(body: ModelsRequest) -> dict[str, Any]:
         if body.provider not in PROVIDERS:
             raise HTTPException(status_code=400, detail=f"There is no LLM called {body.provider}.")
-        key = (body.api_key or "").strip() or load_choice(data_home).keys.get(body.provider, "")
+        key = ""
+        if body.provider != "chatgpt":
+            key = (body.api_key or "").strip() or load_choice(data_home).keys.get(body.provider, "")
         try:
-            return {"models": model_lists.models(body.provider, key)}
+            if body.provider == "chatgpt":
+                # The plan's own list, with the signed-in account's token, shown by the names
+                # the plan gives them (R43a).
+                try:
+                    ids, names = plan_list()
+                except LlmError as e:
+                    raise HTTPException(status_code=400, detail=str(e)) from e
+                return {"models": ids, "names": names}
+            ids = model_lists.models(body.provider, key)
+            return {"models": ids}
         except ModelListError as e:
             p = PROVIDERS[body.provider]
-            asked = body.provider != "local" and bool(key or p.lists_freely)
+            asked = body.provider == "chatgpt" or (
+                body.provider != "local" and bool(key or p.lists_freely)
+            )
             status = 502 if asked and not e.refused else 400
             raise HTTPException(status_code=status, detail=str(e)) from e
 
     # Sign in with ChatGPT (R43): the browser is sent to OpenAI to sign in, and comes back to
     # this app's own address on 127.0.0.1, where the server swaps the code for the tokens.
-    signin = chatgpt or ChatGptSignIn(data_home)
 
     @app.get("/api/chatgpt")
     def get_chatgpt() -> dict[str, Any]:
@@ -1156,14 +1212,42 @@ def create_app(
             signin.finish(dict(request.query_params))
         except SignInError as e:
             return signed_in_page(str(e), 400)
+        follow_plan_account()
         return RedirectResponse("/#/settings", status_code=303)
 
     @app.post("/api/chatgpt/use")
     def chatgpt_use(body: ChatGptAccount) -> dict[str, Any]:
         try:
-            return signin.use(body.account)
+            status = signin.use(body.account)
         except SignInError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
+        follow_plan_account()
+        return status
+
+    def follow_plan_account() -> None:
+        """When the ChatGPT plan answers and another account is now in use, its saved model is
+        checked against that account's own list, and the list's first is saved in its place if
+        it isn't there, so the next prompt doesn't ask for a model the account can't use (a
+        review on PR #118). Nothing changes when the list can't be had; the chat then says
+        why."""
+        if load_choice(data_home).provider != "chatgpt":
+            return
+        try:
+            models = plan_list()[0]
+        except (LlmError, ModelListError) as e:
+            logger.warning("Could not check the ChatGPT plan's model", extra={"reason": str(e)})
+            return
+        with changing_llm:
+            choice = load_choice(data_home)
+            if choice.provider != "chatgpt" or choice.model("chatgpt") in models:
+                return
+            was = choice.model("chatgpt")
+            choice = save_choice(data_home, "chatgpt", model=models[0])
+            switchable.use(choice)
+        logger.info(
+            "ChatGPT plan model changed for the account in use",
+            extra={"was": was, "model": models[0]},
+        )
 
     @app.post("/api/chatgpt/sign-out")
     def chatgpt_sign_out() -> dict[str, Any]:

@@ -39,6 +39,7 @@ def test_local_llama_cpp_is_the_default(tmp_path: Path) -> None:
         "openai",
         "grok",
         "openrouter",
+        "chatgpt",
     ]
 
 
@@ -297,6 +298,7 @@ def test_the_same_question_is_answered_by_each_llm(
         "default_model": "grok-4",
         "has_key": True,
         "lists_freely": False,
+        "signs_in": False,
     }
 
 
@@ -458,7 +460,7 @@ def test_the_app_lists_models_with_the_key_given_or_saved(
     anyone = app.post("/api/llm/models", json={"provider": "openrouter"})
     assert anyone.json() == {"models": ["a/one"]} and fetch.asked[-1][1] == {}
     assert not app.get("/api/llm").json()["providers"][0]["lists_freely"]
-    assert app.get("/api/llm").json()["providers"][-1]["lists_freely"]
+    assert app.get("/api/llm").json()["providers"][4]["lists_freely"]  # OpenRouter
 
 
 def test_a_key_the_provider_refuses_is_not_saved(app: TestClient) -> None:

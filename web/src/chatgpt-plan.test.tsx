@@ -132,10 +132,15 @@ test("a connected account switches to another one still connected, with no sign-
       accounts: [{ id: "app-1", email: "larry@example.com", label: "", connected: true }],
     },
   );
+  const changed = vi.fn();
+  window.addEventListener("chatgpt-account-changed", changed);
   render(<ChatGptPlanSection />);
   expect(await screen.findByText(/Other accounts:/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Switch to b@example.com" }));
   expect(await screen.findByText("b@example.com")).toBeTruthy();
+  // The LLM setting is told, to read the new account's models (a review on PR #118).
+  expect(changed).toHaveBeenCalledTimes(1);
+  window.removeEventListener("chatgpt-account-changed", changed);
   expect(fetchMock).toHaveBeenCalledWith("/api/chatgpt/use", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

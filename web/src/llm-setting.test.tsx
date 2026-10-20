@@ -238,14 +238,85 @@ test("a late list for a key since replaced is dropped", async () => {
 
 test("the note under the Model box", () => {
   const grok = provider("grok", "Grok");
-  expect(modelsNote({ state: "listed", ids: ["grok-model"], checked: true }, "grok-model", grok)).toBe(
+  expect(modelsNote({ state: "listed", ids: ["grok-model"], names: {}, checked: true }, "grok-model", grok)).toBe(
     "The key works. 1 model available: pick one or type a name. Leave the model blank for grok-model.",
   );
-  expect(modelsNote({ state: "listed", ids: ["grok-model"], checked: false }, "grok-model", grok)).toBe(
+  expect(modelsNote({ state: "listed", ids: ["grok-model"], names: {}, checked: false }, "grok-model", grok)).toBe(
     "1 model available: pick one or type a name. Leave the model blank for grok-model.",
   );
   expect(modelsNote({ state: "failed", error: "No.", unreachable: true }, "x", grok)).toBe(
     "No. You can still type a model's name.",
   );
   expect(modelsNote({ state: "failed", error: "Refused.", unreachable: false }, "x", grok)).toBe("Refused.");
+});
+
+// The ChatGPT plan (R43a): a ChatGPT sign-in in place of a key.
+
+const PLAN = provider("chatgpt", "ChatGPT plan", { keys_at: "", default_model: "", signs_in: true });
+
+test("the ChatGPT plan asks for a sign-in, not a key", async () => {
+  const fetchMock = server({ ...LOCAL, providers: [...LOCAL.providers, PLAN] });
+  render(<LlmSettingSection />);
+  expect(await screen.findByText("· needs a ChatGPT sign-in")).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: /ChatGPT plan/ }));
+  expect(screen.queryByLabelText("API key")).toBeNull();
+  expect(screen.queryByLabelText("Model")).toBeNull();
+  expect(screen.getByText("Sign in with ChatGPT under ChatGPT plan below to choose one of your plan's models.")).toBeTruthy();
+  expect(fetchMock.mock.calls.some(([url]) => url === "/api/llm/models")).toBe(false);
+});
+
+test("signed in, the ChatGPT plan offers its own models and is chosen with no key", async () => {
+  const signed = { ...LOCAL, providers: [...LOCAL.providers, { ...PLAN, has_key: true }] };
+  const now = { ...signed, provider: "chatgpt" };
+  now.providers = signed.providers.map((p) => (p.id === "chatgpt" ? { ...p, model: "gpt-a" } : p));
+  const fetchMock = server(signed, now, () =>
+    Response.json({ models: ["gpt-a", "gpt-b"], names: { "gpt-a": "GPT A" } }),
+  );
+  render(<LlmSettingSection />);
+  expect(await screen.findByText("· signed in")).toBeTruthy();
+  fireEvent.click(screen.getByRole("radio", { name: /ChatGPT plan/ }));
+  expect(
+    await screen.findByText(
+      "Signed in. 2 models available: pick one or type a name. Leave the model blank for the first in your plan's list.",
+    ),
+  ).toBeTruthy();
+  const model = screen.getByLabelText("Model") as HTMLInputElement;
+  expect(model.placeholder).toBe("First in your plan's list");
+  // The plan's own names are shown; the model sent is its id.
+  const options = [...document.querySelectorAll("#llm-models option")];
+  expect(options.map((o) => [o.getAttribute("value"), o.getAttribute("label")])).toEqual([
+    ["gpt-a", "GPT A"],
+    ["gpt-b", null],
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: "Use this LLM" }));
+  expect(await screen.findByText("Saved. ChatGPT plan answers from the next prompt.")).toBeTruthy();
+  // A blank model is saved as the first in the plan's list, which the box then shows.
+  expect(sent(fetchMock)).toEqual({ provider: "chatgpt", model: "" });
+  expect(model.value).toBe("gpt-a");
+});
+
+test("another ChatGPT account in use reads the setting and the plan's models again", async () => {
+  const signed = { ...LOCAL, provider: "chatgpt", providers: [...LOCAL.providers, { ...PLAN, has_key: true }] };
+  let catalog = ["gpt-a"];
+  const fetchMock = server(signed, signed, () => Response.json({ models: catalog }));
+  render(<LlmSettingSection />);
+  expect(await screen.findByText(/^Signed in\. 1 model available/)).toBeTruthy();
+  catalog = ["gpt-x", "gpt-y"];
+  window.dispatchEvent(new Event("chatgpt-account-changed"));
+  expect(await screen.findByText(/^Signed in\. 2 models available/)).toBeTruthy();
+  const options = [...document.querySelectorAll("#llm-models option")].map((o) => o.getAttribute("value"));
+  expect(options).toEqual(["gpt-x", "gpt-y"]);
+  expect(fetchMock.mock.calls.filter(([url]) => url === "/api/llm")).toHaveLength(2);
+  expect(console.info).toHaveBeenCalledWith("ChatGPT account changed; LLM setting read again");
+});
+
+test("an account change that can't be read again leaves the setting as it was", async () => {
+  server(LOCAL);
+  render(<LlmSettingSection />);
+  await screen.findByText("Answering now:");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
+  window.dispatchEvent(new Event("chatgpt-account-changed"));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(console.error).toHaveBeenCalledWith("Could not read the LLM setting again", expect.anything());
+  expect(radio(/Local/).checked).toBe(true);
 });

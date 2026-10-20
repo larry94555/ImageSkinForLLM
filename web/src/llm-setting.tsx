@@ -5,11 +5,13 @@
 // still be typed. Listing them is also how a key is checked: the server refuses to save a key
 // the provider refuses. OpenRouter lists its models for anyone, so its list shows at once; for
 // the others the Model box shows only once a key works (Larry, 2026-10-19), or when the provider
-// can't be reached to check it.
+// can't be reached to check it. The ChatGPT plan (R43a) needs no key: it answers through the
+// ChatGPT account signed in under ChatGPT plan, and lists the plan's own models once one is.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
+  CHATGPT_ACCOUNT_CHANGED,
   chooseLlm,
   getLlm,
   listModels,
@@ -22,7 +24,7 @@ import {
 // they couldn't be (`unreachable` when the provider couldn't be asked, rather than refusing).
 type Models =
   | { state: "loading" }
-  | { state: "listed"; ids: string[]; checked: boolean }
+  | { state: "listed"; ids: string[]; names: Record<string, string>; checked: boolean }
   | { state: "failed"; error: string; unreachable: boolean };
 
 export function LlmSettingSection() {
@@ -35,6 +37,23 @@ export function LlmSettingSection() {
   const [saved, setSaved] = useState(false);
   const [models, setModels] = useState<Models | null>(null);
   const asking = useRef(0); // which look-up was asked for last; only its answer is shown
+  const pickedNow = useRef("local"); // for the account-change listener, which outlives renders
+
+  // Another ChatGPT account in use (or none) has its own models and sign-in state, so the
+  // setting is read again, and the plan's list too while it is picked (a review on PR #118).
+  useEffect(() => {
+    function accountChanged() {
+      getLlm()
+        .then((read) => {
+          console.info("ChatGPT account changed; LLM setting read again");
+          setSetting(read);
+          if (pickedNow.current === "chatgpt") pick("chatgpt", read);
+        })
+        .catch((e: unknown) => console.error("Could not read the LLM setting again", e));
+    }
+    window.addEventListener(CHATGPT_ACCOUNT_CHANGED, accountChanged);
+    return () => window.removeEventListener(CHATGPT_ACCOUNT_CHANGED, accountChanged);
+  }, []);
 
   useEffect(() => {
     getLlm()
@@ -51,6 +70,7 @@ export function LlmSettingSection() {
 
   function pick(id: string, from: LlmSetting | null = setting) {
     const provider = from?.providers.find((p) => p.id === id);
+    pickedNow.current = id;
     setPicked(id);
     setKey("");
     setModel(provider?.model ?? "");
@@ -68,10 +88,10 @@ export function LlmSettingSection() {
     setModels({ state: "loading" });
     const started = performance.now();
     try {
-      const ids = await listModels(id, typedKey);
+      const { ids, names } = await listModels(id, typedKey);
       if (asking.current !== asked) return;
       console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
-      setModels({ state: "listed", ids, checked: Boolean(typedKey) || savedKey });
+      setModels({ state: "listed", ids, names, checked: Boolean(typedKey) || savedKey });
     } catch (e) {
       if (asking.current !== asked) return;
       console.error(`Could not list the models for ${id}`, e);
@@ -97,6 +117,8 @@ export function LlmSettingSection() {
       console.info(`LLM changed to ${picked} (${Math.round(performance.now() - started)} ms)`);
       setSetting(now);
       setKey("");
+      // The model saved: the ChatGPT plan's blank one is saved as the first in its list.
+      setModel(now.providers.find((p) => p.id === picked)?.model ?? model);
       setSaved(true);
       // A key just saved was checked by the server, so its models can be offered now.
       if (!local && (typed || models?.state !== "listed")) void lookUp(picked, undefined, true);
@@ -117,7 +139,8 @@ export function LlmSettingSection() {
       <h2 id="settings-llm">LLM</h2>
       <p className="muted">
         Who writes the replies. A provider other than the local model needs your own API key,
-        which is kept on the app's server and never shown again.
+        which is kept on the app's server and never shown again. The ChatGPT plan needs a
+        ChatGPT sign-in instead, under ChatGPT plan below.
       </p>
       {current && (
         <p className="current-llm">
@@ -144,30 +167,30 @@ export function LlmSettingSection() {
                 />{" "}
                 <span>
                   {p.label}
-                  {p.id !== "local" && (
-                    <span className="muted"> · {p.has_key ? "key saved" : "needs a key"}</span>
-                  )}
+                  {p.id !== "local" && <span className="muted"> · {keyState(p)}</span>}
                 </span>
               </label>
             ))}
           </fieldset>
           {chosen && chosen.id !== "local" && (
             <div className="llm-fields">
-              <label>
-                API key
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={key}
-                  placeholder={chosen.has_key ? "Saved. Paste a new key to replace it." : `From ${chosen.keys_at}`}
-                  onInput={(e) => {
-                    setKey((e.target as HTMLInputElement).value);
-                    setError(null); // a refused key's message goes once another is typed
-                  }}
-                  onBlur={() => key.trim() && void lookUp(chosen.id, key.trim())}
-                  disabled={saving}
-                />
-              </label>
+              {!chosen.signs_in && (
+                <label>
+                  API key
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={key}
+                    placeholder={chosen.has_key ? "Saved. Paste a new key to replace it." : `From ${chosen.keys_at}`}
+                    onInput={(e) => {
+                      setKey((e.target as HTMLInputElement).value);
+                      setError(null); // a refused key's message goes once another is typed
+                    }}
+                    onBlur={() => key.trim() && void lookUp(chosen.id, key.trim())}
+                    disabled={saving}
+                  />
+                </label>
+              )}
               {showModel && (
                 <label>
                   Model
@@ -175,7 +198,7 @@ export function LlmSettingSection() {
                     type="text"
                     list="llm-models"
                     value={model}
-                    placeholder={chosen.default_model}
+                    placeholder={chosen.default_model || "First in your plan's list"}
                     onInput={(e) => setModel((e.target as HTMLInputElement).value)}
                     disabled={saving}
                   />
@@ -184,7 +207,7 @@ export function LlmSettingSection() {
               {models?.state === "listed" && (
                 <datalist id="llm-models">
                   {models.ids.map((id) => (
-                    <option key={id} value={id} />
+                    <option key={id} value={id} label={models.names[id]} />
                   ))}
                 </datalist>
               )}
@@ -206,9 +229,20 @@ export function LlmSettingSection() {
   );
 }
 
+// What the radio button says beside a provider: whether it has what it needs to answer.
+function keyState(provider: LlmProvider): string {
+  if (provider.signs_in) return provider.has_key ? "signed in" : "needs a ChatGPT sign-in";
+  return provider.has_key ? "key saved" : "needs a key";
+}
+
 // What the line under the Model box says about the provider's models.
 export function modelsNote(models: Models | null, model: string, provider: LlmProvider): string {
-  const blank = `Leave the model blank for ${provider.default_model}.`;
+  const blank = provider.default_model
+    ? `Leave the model blank for ${provider.default_model}.`
+    : "Leave the model blank for the first in your plan's list.";
+  if (models === null && provider.signs_in) {
+    return "Sign in with ChatGPT under ChatGPT plan below to choose one of your plan's models.";
+  }
   if (models === null) return `Enter your key to choose one of ${provider.label}'s models.`;
   if (models.state === "loading") return `Looking up ${provider.label}'s models…`;
   if (models.state === "failed") {
@@ -217,7 +251,9 @@ export function modelsNote(models: Models | null, model: string, provider: LlmPr
   const n = models.ids.length;
   const available = `${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
   // Listing the models with a key needs one the provider accepts, so such a list means it works.
-  const listed = models.checked ? `The key works. ${available}` : available;
+  const works = provider.signs_in ? "Signed in." : "The key works.";
+  const listed = models.checked ? `${works} ${available}` : available;
+  if (!model) return `${listed} ${blank}`;
   if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
   return `${listed} ${blank}`;
 }

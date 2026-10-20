@@ -356,8 +356,13 @@ async function listModels(provider, apiKey) {
 		} : { provider })
 	});
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-	return (await response.json()).models;
+	const listed = await response.json();
+	return {
+		ids: listed.models,
+		names: listed.names ?? {}
+	};
 }
+var CHATGPT_ACCOUNT_CHANGED = "chatgpt-account-changed";
 async function getChatGpt() {
 	return json(await fetch("/api/chatgpt"));
 }
@@ -466,6 +471,7 @@ function ChatGptPlanSection() {
 		try {
 			const now = await signOutChatGpt();
 			setStatus(now);
+			window.dispatchEvent(new Event(CHATGPT_ACCOUNT_CHANGED));
 			setUnconfirmed(now.revoked === false);
 			const confirmed = now.revoked === false ? ", not confirmed by ChatGPT" : "";
 			console.info(`Disconnected ChatGPT (${Math.round(performance.now() - started)} ms${confirmed})`);
@@ -482,6 +488,7 @@ function ChatGptPlanSection() {
 		try {
 			const now = await useChatGptAccount(account);
 			setStatus(now);
+			window.dispatchEvent(new Event(CHATGPT_ACCOUNT_CHANGED));
 			console.info(`Switched ChatGPT account (${now.connected ? "connected" : "not connected"})`);
 		} catch (e) {
 			console.error("Could not switch the ChatGPT account", e);
@@ -740,6 +747,18 @@ function LlmSettingSection() {
 	const [saved, setSaved] = d(false);
 	const [models, setModels] = d(null);
 	const asking = A(0);
+	const pickedNow = A("local");
+	h(() => {
+		function accountChanged() {
+			getLlm().then((read) => {
+				console.info("ChatGPT account changed; LLM setting read again");
+				setSetting(read);
+				if (pickedNow.current === "chatgpt") pick("chatgpt", read);
+			}).catch((e) => console.error("Could not read the LLM setting again", e));
+		}
+		window.addEventListener(CHATGPT_ACCOUNT_CHANGED, accountChanged);
+		return () => window.removeEventListener(CHATGPT_ACCOUNT_CHANGED, accountChanged);
+	}, []);
 	h(() => {
 		getLlm().then((read) => {
 			if (!Array.isArray(read.providers)) throw new Error("The LLM setting has no providers");
@@ -752,6 +771,7 @@ function LlmSettingSection() {
 	}, []);
 	function pick(id, from = setting) {
 		const provider = from?.providers.find((p) => p.id === id);
+		pickedNow.current = id;
 		setPicked(id);
 		setKey("");
 		setModel(provider?.model ?? "");
@@ -766,12 +786,13 @@ function LlmSettingSection() {
 		setModels({ state: "loading" });
 		const started = performance.now();
 		try {
-			const ids = await listModels(id, typedKey);
+			const { ids, names } = await listModels(id, typedKey);
 			if (asking.current !== asked) return;
 			console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
 			setModels({
 				state: "listed",
 				ids,
+				names,
 				checked: Boolean(typedKey) || savedKey
 			});
 		} catch (e) {
@@ -802,6 +823,7 @@ function LlmSettingSection() {
 			console.info(`LLM changed to ${picked} (${Math.round(performance.now() - started)} ms)`);
 			setSetting(now);
 			setKey("");
+			setModel(now.providers.find((p) => p.id === picked)?.model ?? model);
 			setSaved(true);
 			if (!local && (typed || models?.state !== "listed")) lookUp(picked, void 0, true);
 		} catch (e) {
@@ -823,7 +845,7 @@ function LlmSettingSection() {
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Who writes the replies. A provider other than the local model needs your own API key, which is kept on the app's server and never shown again."
+				children: "Who writes the replies. A provider other than the local model needs your own API key, which is kept on the app's server and never shown again. The ChatGPT plan needs a ChatGPT sign-in instead, under ChatGPT plan below."
 			}),
 			current && /* @__PURE__ */ u("p", {
 				className: "current-llm",
@@ -853,7 +875,7 @@ function LlmSettingSection() {
 								" ",
 								/* @__PURE__ */ u("span", { children: [p.label, p.id !== "local" && /* @__PURE__ */ u("span", {
 									className: "muted",
-									children: [" · ", p.has_key ? "key saved" : "needs a key"]
+									children: [" · ", keyState(p)]
 								})] })
 							]
 						}, p.id))]
@@ -861,7 +883,7 @@ function LlmSettingSection() {
 					chosen && chosen.id !== "local" && /* @__PURE__ */ u("div", {
 						className: "llm-fields",
 						children: [
-							/* @__PURE__ */ u("label", { children: ["API key", /* @__PURE__ */ u("input", {
+							!chosen.signs_in && /* @__PURE__ */ u("label", { children: ["API key", /* @__PURE__ */ u("input", {
 								type: "password",
 								autoComplete: "off",
 								value: key,
@@ -877,13 +899,16 @@ function LlmSettingSection() {
 								type: "text",
 								list: "llm-models",
 								value: model,
-								placeholder: chosen.default_model,
+								placeholder: chosen.default_model || "First in your plan's list",
 								onInput: (e) => setModel(e.target.value),
 								disabled: saving
 							})] }),
 							models?.state === "listed" && /* @__PURE__ */ u("datalist", {
 								id: "llm-models",
-								children: models.ids.map((id) => /* @__PURE__ */ u("option", { value: id }, id))
+								children: models.ids.map((id) => /* @__PURE__ */ u("option", {
+									value: id,
+									label: models.names[id]
+								}, id))
 							}),
 							/* @__PURE__ */ u("p", {
 								className: "muted",
@@ -915,14 +940,21 @@ function LlmSettingSection() {
 		]
 	});
 }
+function keyState(provider) {
+	if (provider.signs_in) return provider.has_key ? "signed in" : "needs a ChatGPT sign-in";
+	return provider.has_key ? "key saved" : "needs a key";
+}
 function modelsNote(models, model, provider) {
-	const blank = `Leave the model blank for ${provider.default_model}.`;
+	const blank = provider.default_model ? `Leave the model blank for ${provider.default_model}.` : "Leave the model blank for the first in your plan's list.";
+	if (models === null && provider.signs_in) return "Sign in with ChatGPT under ChatGPT plan below to choose one of your plan's models.";
 	if (models === null) return `Enter your key to choose one of ${provider.label}'s models.`;
 	if (models.state === "loading") return `Looking up ${provider.label}'s models…`;
 	if (models.state === "failed") return models.unreachable ? `${models.error} You can still type a model's name.` : models.error;
 	const n = models.ids.length;
 	const available = `${n} model${n === 1 ? "" : "s"} available: pick one or type a name.`;
-	const listed = models.checked ? `The key works. ${available}` : available;
+	const works = provider.signs_in ? "Signed in." : "The key works.";
+	const listed = models.checked ? `${works} ${available}` : available;
+	if (!model) return `${listed} ${blank}`;
 	if (!models.ids.includes(model)) return `${listed} ${model} isn't in ${provider.label}'s list for this key.`;
 	return `${listed} ${blank}`;
 }
