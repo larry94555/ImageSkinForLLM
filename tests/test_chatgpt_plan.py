@@ -206,6 +206,23 @@ def test_a_plan_service_down_for_now_is_tried_again_after_a_wait() -> None:
         with pytest.raises(LlmError, match="can't use your plan right now. Your sign-in is kept"):
             list(plan.stream(MESSAGES))
         assert len(api.asked) == 3
+
+
+def test_a_503_with_only_a_detail_is_tried_again_after_a_wait() -> None:
+    # A review on PR #118: before a stream opens, a 503 may say only {"detail": ...}.
+    def down() -> urllib.error.HTTPError:
+        body = io.BytesIO(b'{"detail":"routing temporarily unavailable"}')
+        return urllib.error.HTTPError(URL, 503, "unavailable", HttpHeaders(), body)
+
+    waits: list[float] = []
+    api = FakeResponses(down(), text("Four."))
+    plan = ChatGptPlanClient(SETTINGS, Tokens(), opener=api, sleep=waits.append)
+    assert list(plan.stream(MESSAGES)) == ["Four."] and waits == [1.0]
+    api = FakeResponses(down(), down(), down())
+    plan = ChatGptPlanClient(SETTINGS, Tokens(), opener=api, sleep=waits.append)
+    with pytest.raises(LlmError, match="Your sign-in is kept"):
+        list(plan.stream(MESSAGES))
+    assert len(api.asked) == 3
     assert SIGN_IN_AGAIN.startswith("ChatGPT refused the sign-in")
 
 

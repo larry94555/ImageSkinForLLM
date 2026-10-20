@@ -71,7 +71,7 @@ CODES = {
 # same request again won't help.
 UNSUPPORTED = "subscription_sharing_unsupported_capability"
 # Said by HTTP status when the code says nothing more.
-ERRORS = {404: NO_MODEL, 429: AT_LIMIT}
+ERRORS = {404: NO_MODEL, 429: AT_LIMIT, 503: BUSY}
 ERROR_BODY_BYTES = 64 * 1024  # the most of an error's body read, to find its code
 UNREACHABLE = "Could not reach ChatGPT. Is the internet connection working?"
 SIGN_IN_AGAIN = "ChatGPT refused the sign-in. Sign in with ChatGPT again on the Settings page."
@@ -219,7 +219,10 @@ class ChatGptPlanClient:
                 if e.code == 401 and not renew:
                     renew = True
                     continue
-                if code in BUSY_CODES and busy < BUSY_TRIES - 1:
+                # A 503 before the stream may carry only `detail`, no code: down for now too
+                # (a review on PR #118).
+                down = code in BUSY_CODES or (e.code == 503 and not code)
+                if down and busy < BUSY_TRIES - 1:
                     self._sleep(BUSY_BACKOFF_S * 2**busy)
                     busy += 1
                     continue
