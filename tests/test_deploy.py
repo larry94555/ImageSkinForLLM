@@ -77,3 +77,11 @@ def test_the_app_asks_the_llama_container_with_the_laptops_model() -> None:
     assert "-hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj" in compose
     llama = compose.split("\n  llama:")[1].split("\n  caddy:")[0]
     assert "ports:" not in llama
+
+
+def test_the_containers_leave_room_for_the_machine() -> None:
+    # Without caps, Prepare and the LLM together froze a 24 GB machine with no swap.
+    limits = re.findall(r"mem_limit: (\d+)([gm])", text(DEPLOY / "compose.yaml"))
+    gigabytes = sum(int(n) / (1 if unit == "g" else 1024) for n, unit in limits)
+    assert len(limits) == 3
+    assert gigabytes <= 21

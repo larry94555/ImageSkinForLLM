@@ -6,6 +6,11 @@ services:
     build: ..
     image: imageskin
     restart: unless-stopped
+    # Caps, so a heavy step slows down or restarts the container instead of freezing the whole
+    # machine: Prepare with the LLM running froze a 4-core, 24 GB Oracle machine, which has no
+    # swap (Larry's test). The three caps leave about 3 GB and the SSH login to the machine.
+    mem_limit: 14g
+    cpus: 3
     depends_on:
       - llama
     volumes:
@@ -22,6 +27,8 @@ services:
   llama:
     image: ghcr.io/ggml-org/llama.cpp:server
     restart: unless-stopped
+    mem_limit: 6g
+    cpus: 2
     environment:
       LLAMA_CACHE: /models
     volumes:
@@ -33,6 +40,7 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
+    mem_limit: 512m
     depends_on:
       - app
     ports:
