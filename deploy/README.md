@@ -192,6 +192,8 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 | Stop the site | `docker compose down` (the data is kept) |
 | Back up the data | `docker run --rm -v imageskin_imageskin-data:/data -v "$PWD":/backup ubuntu tar czf /backup/imageskin-data.tgz -C /data .` |
 
+Ctrl+C on a `docker compose logs -f` only stops showing the log: the site keeps running in the background, since `up -d` started it that way. Only `docker compose down` or `stop` takes it down.
+
 `docker compose down -v` would delete the data volume, with every upload, setting and key: don't use it unless you mean to start over.
 
 The containers start again by themselves after the machine restarts.
