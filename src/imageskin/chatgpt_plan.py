@@ -63,6 +63,7 @@ CODES = {
 UNSUPPORTED = "subscription_sharing_unsupported_capability"
 # Said by HTTP status when the code says nothing more.
 ERRORS = {404: NO_MODEL, 429: AT_LIMIT}
+ERROR_BODY_BYTES = 64 * 1024  # the most of an error's body read, to find its code
 UNREACHABLE = "Could not reach ChatGPT. Is the internet connection working?"
 SIGN_IN_AGAIN = "ChatGPT refused the sign-in. Sign in with ChatGPT again on the Settings page."
 
@@ -175,9 +176,12 @@ class ChatGptPlanClient:
                     )
                     return self._open(request, timeout=self.settings.timeout_s)
             except urllib.error.HTTPError as e:
-                detail = e.read().decode(errors="replace")[:300]
+                # Parsed whole (up to a bound), so a long body keeps its code and param; only
+                # the logged text is cut (a review on PR #118).
+                whole = e.read(ERROR_BODY_BYTES).decode(errors="replace")
+                detail = whole[:300]
                 try:
-                    error = json.loads(detail).get("error")
+                    error = json.loads(whole).get("error")
                 except (ValueError, AttributeError):
                     error = None
                 code = error_code(error)

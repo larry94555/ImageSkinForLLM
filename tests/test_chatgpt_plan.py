@@ -57,8 +57,14 @@ def text(*pieces: str) -> list[bytes]:
     return events({"type": "response.created"}, *deltas, {"type": "response.completed"})
 
 
-def http_error(code: int, error_code: str = "", param: str = "") -> urllib.error.HTTPError:
-    error = {"code": error_code, **({"param": param} if param else {})}
+def http_error(
+    code: int, error_code: str = "", param: str = "", message: str = ""
+) -> urllib.error.HTTPError:
+    error = {
+        "message": message,
+        "code": error_code,
+        **({"param": param} if param else {}),
+    }
     body = json.dumps({"error": error} if error_code else {"error": 1}).encode()
     headers = HttpHeaders()
     headers["x-request-id"] = "req-1"
@@ -219,6 +225,12 @@ def test_a_refused_token_is_renewed_once() -> None:
                 }
             ),
             r"through a plan \(text\.format\)",
+        ),
+        # A body longer than the logged part still gives its code and param (a review on
+        # PR #118).
+        (
+            http_error(400, "subscription_sharing_unsupported_capability", "tools", "x" * 2000),
+            r"through a plan \(tools\)",
         ),
         (http_error(403, "chatpass_v2_invalid_authorization_context"), "Allow use of my plan"),
         (http_error(403, "insufficient_scope"), "Allow use of my plan"),
