@@ -828,15 +828,27 @@ export async function chooseLlm(choice: {
 
 // The models a provider offers to the key given, or to the saved one (R42). Throws a
 // ServerRefusal saying why when they can't be listed.
-export async function listModels(provider: string, apiKey?: string): Promise<string[]> {
+// The models a provider lists; the ChatGPT plan's come with the names it shows (`names`, by
+// model, where they differ from the model's id).
+export interface ModelList {
+  ids: string[];
+  names: Record<string, string>;
+}
+
+export async function listModels(provider: string, apiKey?: string): Promise<ModelList> {
   const response = await fetch("/api/llm/models", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(apiKey ? { provider, api_key: apiKey } : { provider }),
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-  return ((await response.json()) as { models: string[] }).models;
+  const listed = (await response.json()) as { models: string[]; names?: Record<string, string> };
+  return { ids: listed.models, names: listed.names ?? {} };
 }
+
+// Said by the ChatGPT plan section when the account in use changes, so the LLM setting reads its
+// models again for the new account (a review on PR #118).
+export const CHATGPT_ACCOUNT_CHANGED = "chatgpt-account-changed";
 
 // Sign in with ChatGPT (roadmap R43): the account connected, never its tokens, and whether it
 // allowed this app to use the ChatGPT plan.

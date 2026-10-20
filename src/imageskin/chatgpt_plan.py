@@ -33,12 +33,27 @@ logger = logging.getLogger(__name__)
 # The API a plan's requests go to: the sign-in's `resource` (chatgpt_signin.RESOURCE).
 RESOURCE = "https://api.openai.com/v1"
 URL = RESOURCE + "/responses"
-# Said in the chat when OpenAI refuses a plan's request, by HTTP status.
-ERRORS = {
-    403: "Your ChatGPT plan isn't allowed to use this model. Pick another on the Settings page.",
-    404: "ChatGPT doesn't know the model. Pick another on the Settings page.",
-    429: "Your ChatGPT plan has reached its limit for now, or ChatGPT is busy. Try again later.",
+NO_MODEL = "ChatGPT doesn't know the model. Pick another on the Settings page."
+AT_LIMIT = "Your ChatGPT plan has reached its limit for now, or ChatGPT is busy. Try again later."
+PICK_ANOTHER = "Pick another LLM on the Settings page."
+# Said in the chat for OpenAI's plan-usage error codes, before or during a stream (a review on
+# PR #118: a 403 isn't always the model's fault, and a plan's limit can end a stream).
+CODES = {
+    "subscription_sharing_usage_limit_exceeded": AT_LIMIT,
+    "subscription_sharing_user_not_eligible": (
+        f"Your ChatGPT plan can't be used here. {PICK_ANOTHER}"
+    ),
+    "subscription_sharing_route_not_supported": (
+        f"ChatGPT doesn't take this request through a plan. {PICK_ANOTHER}"
+    ),
+    "model_not_found": NO_MODEL,
 }
+# A code naming a scope: the sign-in didn't allow what was asked.
+SCOPE = (
+    'ChatGPT wasn\'t allowed to use your plan. Click "Allow use of my plan" on the Settings page.'
+)
+# Said by HTTP status when the code says nothing more.
+ERRORS = {404: NO_MODEL, 429: AT_LIMIT}
 UNREACHABLE = "Could not reach ChatGPT. Is the internet connection working?"
 SIGN_IN_AGAIN = "ChatGPT refused the sign-in. Sign in with ChatGPT again on the Settings page."
 
@@ -48,20 +63,33 @@ Token = Callable[[bool], str]
 Opener = Callable[..., Any]
 
 
-def plan_models(data: Any) -> list[str]:
-    """The models in the plan's list that are meant to be shown, in the list's order: each an
-    object with a `slug` (or an `id`) and, when it says, `visibility` "list"."""
-    items = data.get("models", data.get("data")) if isinstance(data, dict) else None
+def plan_models(data: Any) -> list[tuple[str, str]]:
+    """The models in the plan's list marked `visibility` "list", in the list's order: each its
+    `slug`, sent as the model, and its `display_name`, shown (the slug when it has none)."""
+    items = data.get("models") if isinstance(data, dict) else None
     if not isinstance(items, list):
         raise ValueError("no list of models")
-    found: list[str] = []
+    found: dict[str, str] = {}
     for item in items:
-        if not isinstance(item, dict) or item.get("visibility", "list") != "list":
+        if not isinstance(item, dict) or item.get("visibility") != "list":
             continue
-        slug = item.get("slug") or item.get("id")
+        slug, name = item.get("slug"), item.get("display_name")
         if isinstance(slug, str) and slug and slug not in found:
-            found.append(slug)
-    return found
+            found[slug] = name if isinstance(name, str) and name else slug
+    return list(found.items())
+
+
+def error_code(error: Any) -> str:
+    """OpenAI's machine-readable code in an error object, or ""."""
+    code = error.get("code") if isinstance(error, dict) else None
+    return code if isinstance(code, str) else ""
+
+
+def said_for(code: str, fallback: str) -> str:
+    """What the chat says for an error with this code."""
+    if code in CODES:
+        return CODES[code]
+    return SCOPE if "scope" in code else fallback
 
 
 def request_body(
@@ -129,16 +157,27 @@ class ChatGptPlanClient:
                 return self._open(request, timeout=self.settings.timeout_s)
             except urllib.error.HTTPError as e:
                 detail = e.read().decode(errors="replace")[:300]
+                try:
+                    code = error_code(json.loads(detail).get("error"))
+                except (ValueError, AttributeError):
+                    code = ""
                 logger.error(
                     "ChatGPT refused the request",
-                    extra={"status": e.code, "model": body["model"], "detail": detail},
+                    extra={
+                        "status": e.code,
+                        "code": code,
+                        "request_id": e.headers.get("x-request-id", "") if e.headers else "",
+                        "model": body["model"],
+                        "detail": detail,
+                    },
                 )
                 if e.code == 401 and not renew:
                     continue
                 if e.code == 401:
-                    raise LlmError(SIGN_IN_AGAIN) from e
-                said = ERRORS.get(e.code, f"ChatGPT refused the prompt ({e.code}).")
-                raise LlmError(said) from e
+                    raise LlmError(said_for(code, SIGN_IN_AGAIN)) from e
+                shown = f"{e.code}: {code}" if code else str(e.code)
+                fallback = ERRORS.get(e.code, f"ChatGPT refused the prompt ({shown}).")
+                raise LlmError(said_for(code, fallback)) from e
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 logger.error("Could not reach ChatGPT", extra={"error": str(e)})
                 raise LlmError(UNREACHABLE) from e
@@ -174,9 +213,20 @@ class ChatGptPlanClient:
                         logger.error("ChatGPT left its reply unfinished", extra={"reason": reason})
                         raise LlmError(f"ChatGPT didn't finish its reply ({reason}). Try again.")
                     elif kind in ("response.failed", "error"):
-                        error = (event.get("response") or {}).get("error") or event
-                        logger.error("ChatGPT failed", extra={"error": str(error)[:300]})
-                        raise LlmError("ChatGPT couldn't answer that. Try again.")
+                        # A plan's limit can end a stream this way (OpenAI's plan docs).
+                        failed = event.get("response") or {}
+                        error = failed.get("error") or event
+                        code = error_code(error)
+                        logger.error(
+                            "ChatGPT failed",
+                            extra={
+                                "code": code,
+                                "response_id": failed.get("id", ""),
+                                "error": str(error)[:300],
+                            },
+                        )
+                        fallback = f"ChatGPT couldn't answer that{f' ({code})' if code else ''}."
+                        raise LlmError(said_for(code, f"{fallback} Try again."))
             except (TimeoutError, OSError) as e:
                 raise LlmError(f"ChatGPT stopped answering ({e}). Try again.") from e
             except (ValueError, AttributeError, TypeError) as e:

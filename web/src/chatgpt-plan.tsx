@@ -9,7 +9,13 @@
 
 import { useEffect, useState } from "preact/hooks";
 
-import { type ChatGptStatus, getChatGpt, signOutChatGpt, useChatGptAccount } from "./api";
+import {
+  CHATGPT_ACCOUNT_CHANGED,
+  type ChatGptStatus,
+  getChatGpt,
+  signOutChatGpt,
+  useChatGptAccount,
+} from "./api";
 
 export function ChatGptPlanSection() {
   const [status, setStatus] = useState<ChatGptStatus | null>(null);
@@ -37,6 +43,7 @@ export function ChatGptPlanSection() {
     try {
       const now = await signOutChatGpt();
       setStatus(now);
+      window.dispatchEvent(new Event(CHATGPT_ACCOUNT_CHANGED));
       setUnconfirmed(now.revoked === false);
       const confirmed = now.revoked === false ? ", not confirmed by ChatGPT" : "";
       console.info(`Disconnected ChatGPT (${Math.round(performance.now() - started)} ms${confirmed})`);
@@ -54,6 +61,7 @@ export function ChatGptPlanSection() {
     try {
       const now = await useChatGptAccount(account);
       setStatus(now);
+      window.dispatchEvent(new Event(CHATGPT_ACCOUNT_CHANGED));
       console.info(`Switched ChatGPT account (${now.connected ? "connected" : "not connected"})`);
     } catch (e) {
       console.error("Could not switch the ChatGPT account", e);

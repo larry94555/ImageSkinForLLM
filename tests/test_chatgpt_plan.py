@@ -56,8 +56,11 @@ def text(*pieces: str) -> list[bytes]:
     return events({"type": "response.created"}, *deltas, {"type": "response.completed"})
 
 
-def http_error(code: int) -> urllib.error.HTTPError:
-    return urllib.error.HTTPError(URL, code, "refused", HttpHeaders(), io.BytesIO(b'{"error": 1}'))
+def http_error(code: int, error_code: str = "") -> urllib.error.HTTPError:
+    body = json.dumps({"error": {"code": error_code}} if error_code else {"error": 1}).encode()
+    headers = HttpHeaders()
+    headers["x-request-id"] = "req-1"
+    return urllib.error.HTTPError(URL, code, "refused", headers, io.BytesIO(body))
 
 
 class Response:
@@ -108,21 +111,22 @@ def client(*answers: list[bytes] | BaseException) -> tuple[ChatGptPlanClient, Fa
 
 
 def test_the_plan_lists_the_models_meant_to_be_shown_in_its_order() -> None:
+    # Only those marked "list" (a review on PR #118), shown by their display names.
     listed = {
         "models": [
-            {"slug": "gpt-b", "visibility": "list"},
-            {"slug": "gpt-hidden", "visibility": "hide"},
-            {"slug": "gpt-a"},
+            {"slug": "gpt-b", "display_name": "GPT B", "visibility": "list"},
+            {"slug": "gpt-hidden", "display_name": "Hidden", "visibility": "hide"},
+            {"slug": "gpt-unmarked", "display_name": "Unmarked"},
+            {"slug": "gpt-a", "visibility": "list"},
             {"id": "gpt-c", "visibility": "list"},
             {"slug": "gpt-b", "visibility": "list"},
             "not a model",
             {"visibility": "list"},
         ]
     }
-    assert plan_models(listed) == ["gpt-b", "gpt-a", "gpt-c"]
-    assert plan_models({"data": [{"id": "gpt-d"}]}) == ["gpt-d"]
+    assert plan_models(listed) == [("gpt-b", "GPT B"), ("gpt-a", "gpt-a")]
     with pytest.raises(ValueError):
-        plan_models({"error": "nothing"})
+        plan_models({"data": [{"slug": "gpt-d", "visibility": "list"}]})
 
 
 def test_a_request_is_streamed_unstored_with_the_system_prompt_as_instructions() -> None:
@@ -171,6 +175,9 @@ def test_a_refused_token_is_renewed_once() -> None:
     twice, _ = client(http_error(401), http_error(401))
     with pytest.raises(LlmError, match="Sign in with ChatGPT again"):
         list(twice.stream(MESSAGES))
+    scoped, _ = client(http_error(401, "missing_scope"), http_error(401, "missing_scope"))
+    with pytest.raises(LlmError, match="Allow use of my plan"):
+        list(scoped.stream(MESSAGES))
     assert SIGN_IN_AGAIN.startswith("ChatGPT refused the sign-in")
 
 
@@ -178,7 +185,32 @@ def test_a_refused_token_is_renewed_once() -> None:
     ("answer", "said"),
     [
         (http_error(429), "reached its limit"),
-        (http_error(403), "isn't allowed to use this model"),
+        # A 403 is not always the model's fault (a review on PR #118).
+        (http_error(403), r"refused the prompt \(403\)"),
+        (http_error(403, "subscription_sharing_user_not_eligible"), "plan can't be used here"),
+        (http_error(403, "subscription_sharing_route_not_supported"), "through a plan"),
+        (http_error(403, "insufficient_scope"), "Allow use of my plan"),
+        (http_error(403, "other_thing"), r"refused the prompt \(403: other_thing\)"),
+        (http_error(404, "model_not_found"), "doesn't know the model"),
+        (http_error(400, "subscription_sharing_usage_limit_exceeded"), "reached its limit"),
+        # A plan's limit can also end a stream that had begun.
+        (
+            events(
+                {"type": "response.output_text.delta", "delta": "Fo"},
+                {
+                    "type": "response.failed",
+                    "response": {
+                        "id": "resp_1",
+                        "error": {"code": "subscription_sharing_usage_limit_exceeded"},
+                    },
+                },
+            ),
+            "reached its limit",
+        ),
+        (
+            events({"type": "response.failed", "response": {"error": {"code": "odd"}}}),
+            r"couldn't answer that \(odd\)",
+        ),
         (http_error(404), "doesn't know the model"),
         (http_error(400), r"refused the prompt \(400\)"),
         (urllib.error.URLError("down"), "Could not reach ChatGPT"),
@@ -332,13 +364,27 @@ def test_a_renewal_without_a_new_refresh_token_keeps_the_old_one(tmp_path: Path)
 
 
 @pytest.mark.parametrize(
-    ("status", "said"),
-    [(400, "sign-in has ended"), (401, "sign-in has ended"), (503, "can't be reached")],
+    ("status", "error", "said", "connected"),
+    [
+        (400, "invalid_grant", "sign-in has ended", False),
+        (401, "invalid_client", "sign-in has ended", False),
+        (400, "unauthorized_client", "sign-in has ended", False),
+        (400, "temporarily_unavailable", "can't be renewed right now", True),
+        (503, "", "can't be renewed right now", True),
+    ],
 )
-def test_a_renewal_that_fails_says_why(tmp_path: Path, status: int, said: str) -> None:
+def test_a_renewal_that_fails_says_why(
+    tmp_path: Path, status: int, error: str, said: str, connected: bool
+) -> None:
+    # Tokens OpenAI won't renew are forgotten, so the page asks for a sign-in; a failure that
+    # may pass keeps them (a review on PR #118).
     signed_in(tmp_path, NOW - 1)
+    who = signin(tmp_path, FakeAuth(status, {"error": error}))
     with pytest.raises(SignInError, match=said):
-        signin(tmp_path, FakeAuth(status, {"error": "invalid_grant"})).access_token()
+        who.access_token()
+    assert who.status()["connected"] is connected
+    registration = json.loads((tmp_path / cs.FILENAME).read_text())["registrations"][0]
+    assert registration["client_id"] == "app_1"  # kept, to sign in as it again
 
 
 def test_no_sign_in_or_no_plan_use_has_no_token(tmp_path: Path) -> None:
@@ -437,7 +483,12 @@ def test_the_plans_models_are_listed_with_its_token_in_its_order() -> None:
 
     def fetch(url: str, headers: dict[str, str]) -> Any:
         asked.append((url, headers))
-        return {"models": [{"slug": "gpt-z"}, {"slug": "gpt-a"}]}
+        return {
+            "models": [
+                {"slug": "gpt-z", "visibility": "list"},
+                {"slug": "gpt-a", "display_name": "GPT A", "visibility": "list"},
+            ]
+        }
 
     lists = lc.ModelLists(fetch)
     assert lists.models("chatgpt", "access-1") == ["gpt-z", "gpt-a"]
@@ -466,14 +517,25 @@ def test_switching_to_the_plan_answers_through_it() -> None:
     never.assert_not_called()
 
 
+# Each account's own models, by its token.
+CATALOGS = {
+    "Bearer access-1": {
+        "models": [
+            {"slug": "gpt-first", "display_name": "GPT First", "visibility": "list"},
+            {"slug": "gpt-second", "visibility": "list"},
+        ]
+    },
+    "Bearer access-b": {"models": [{"slug": "gpt-other", "visibility": "list"}]},
+}
+
+
 @pytest.fixture
 def app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, FakeResponses]:
     api = FakeResponses(text("Answered through the plan."))
     monkeypatch.setattr(lc, "ChatGptPlanClient", lambda s, t: ChatGptPlanClient(s, t, api))
 
     def fetch(url: str, headers: dict[str, str]) -> Any:
-        assert headers == {"Authorization": "Bearer access-1"}
-        return {"models": [{"slug": "gpt-first"}, {"slug": "gpt-second"}]}
+        return CATALOGS[headers["Authorization"]]
 
     lists = lc.ModelLists(fetch)
     monkeypatch.setattr("imageskin.app.ModelLists", lambda: lists)
@@ -511,7 +573,10 @@ def test_a_question_is_answered_through_the_plan(
     signed_in(tmp_path, time.time() + 3600)
     assert client.get("/api/llm").json()["providers"][-1]["has_key"]
     listed = client.post("/api/llm/models", json={"provider": "chatgpt"})
-    assert listed.json() == {"models": ["gpt-first", "gpt-second"]}
+    assert listed.json() == {
+        "models": ["gpt-first", "gpt-second"],
+        "names": {"gpt-first": "GPT First"},
+    }
     chosen = client.put("/api/llm", json={"provider": "chatgpt"})
     assert chosen.status_code == 200, chosen.text
     plan = chosen.json()["providers"][-1]
@@ -546,3 +611,58 @@ def test_a_plan_list_that_cant_be_had_asks_for_a_model_name(
     assert "Type a model's name" in refused.json()["detail"]
     typed = client.put("/api/llm", json={"provider": "chatgpt", "model": "gpt-typed"})
     assert typed.status_code == 200 and typed.json()["providers"][-1]["model"] == "gpt-typed"
+
+
+def test_switching_account_follows_its_own_models(
+    app: tuple[TestClient, FakeResponses], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A review on PR #118: after a switch, the next request uses the new account's token with a
+    # model from its own list, not the one saved for the account before.
+    caplog.set_level(logging.INFO)
+    client, api = app
+    signed_in(tmp_path, time.time() + 3600)
+    data = json.loads((tmp_path / cs.FILENAME).read_text())
+    other = {
+        "client_id": "app_b",
+        "email": "other@example.com",
+        "credentials": {
+            "scopes": cs.SCOPES.split(),
+            "access_token": "access-b",
+            "refresh_token": "refresh-b",
+            "expires_at": time.time() + 3600,
+        },
+    }
+    data["registrations"].append(other)
+    (tmp_path / cs.FILENAME).write_text(json.dumps(data))
+    assert client.put("/api/llm", json={"provider": "chatgpt", "model": "gpt-second"}).is_success
+    switched = client.post("/api/chatgpt/use", json={"account": "app_b"})
+    assert switched.json()["email"] == "other@example.com"
+    plan = client.get("/api/llm").json()["providers"][-1]
+    assert plan["model"] == "gpt-other"
+    assert "ChatGPT plan model changed for the account in use" in caplog.messages
+    listed = client.post("/api/llm/models", json={"provider": "chatgpt"})
+    assert listed.json()["models"] == ["gpt-other"]
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "What is two plus two?"})
+    body, auth = api.asked[-1]
+    assert (body["model"], auth) == ("gpt-other", "Bearer access-b")
+    # Back to the first account: its list has neither, so its first is saved again.
+    client.post("/api/chatgpt/use", json={"account": "app_1"})
+    assert client.get("/api/llm").json()["providers"][-1]["model"] == "gpt-first"
+
+
+def test_an_account_whose_list_cant_be_had_keeps_the_model(
+    app: tuple[TestClient, FakeResponses], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    client, _ = app
+    signed_in(tmp_path, time.time() + 3600)
+    assert client.put("/api/llm", json={"provider": "chatgpt", "model": "gpt-second"}).is_success
+    with patch.object(lc.ModelLists, "models", side_effect=lc.ModelListError("down")):
+        client.post("/api/chatgpt/use", json={"account": "app_1"})
+    assert client.get("/api/llm").json()["providers"][-1]["model"] == "gpt-second"
+    assert "Could not check the ChatGPT plan's model" in caplog.messages
+    # Not answering through the plan: nothing to check.
+    client.put("/api/llm", json={"provider": "local"})
+    with patch.object(lc.ModelLists, "models") as never:
+        client.post("/api/chatgpt/use", json={"account": "app_1"})
+    never.assert_not_called()

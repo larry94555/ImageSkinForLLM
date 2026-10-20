@@ -288,6 +288,13 @@ class ModelLists:
         self._clock = clock
         self._kept: dict[tuple[str, str], tuple[float, list[str]]] = {}
         self._lock = threading.Lock()
+        # The names the ChatGPT plan's list shows for its models' slugs (R43a).
+        self._names: dict[str, str] = {}
+
+    def names(self, ids: list[str]) -> dict[str, str]:
+        """The display names known for these models, where they differ from the slug."""
+        with self._lock:
+            return {i: self._names[i] for i in ids if self._names.get(i, i) != i}
 
     def models(self, provider: str, key: str) -> list[str]:
         if provider not in PROVIDERS or provider == "local":
@@ -329,7 +336,13 @@ class ModelLists:
                     self._fetch(p.url + p.key_at, auth)  # refused if the key isn't valid
                 listed = self._fetch(p.url + p.models_at, auth)
                 # The plan's list keeps its own order (R43a); the others are sorted.
-                found = plan_models(listed) if p.signs_in else _ids(listed, provider)
+                if p.signs_in:
+                    pairs = plan_models(listed)
+                    with self._lock:
+                        self._names.update(pairs)
+                    found = [slug for slug, _ in pairs]
+                else:
+                    found = _ids(listed, provider)
         except (urllib.error.HTTPError, anthropic.APIStatusError) as e:
             code = getattr(e, "code", None) or getattr(e, "status_code", None)
             logger.error(

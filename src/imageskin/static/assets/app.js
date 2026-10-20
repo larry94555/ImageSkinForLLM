@@ -356,8 +356,13 @@ async function listModels(provider, apiKey) {
 		} : { provider })
 	});
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-	return (await response.json()).models;
+	const listed = await response.json();
+	return {
+		ids: listed.models,
+		names: listed.names ?? {}
+	};
 }
+var CHATGPT_ACCOUNT_CHANGED = "chatgpt-account-changed";
 async function getChatGpt() {
 	return json(await fetch("/api/chatgpt"));
 }
@@ -466,6 +471,7 @@ function ChatGptPlanSection() {
 		try {
 			const now = await signOutChatGpt();
 			setStatus(now);
+			window.dispatchEvent(new Event(CHATGPT_ACCOUNT_CHANGED));
 			setUnconfirmed(now.revoked === false);
 			const confirmed = now.revoked === false ? ", not confirmed by ChatGPT" : "";
 			console.info(`Disconnected ChatGPT (${Math.round(performance.now() - started)} ms${confirmed})`);
@@ -482,6 +488,7 @@ function ChatGptPlanSection() {
 		try {
 			const now = await useChatGptAccount(account);
 			setStatus(now);
+			window.dispatchEvent(new Event(CHATGPT_ACCOUNT_CHANGED));
 			console.info(`Switched ChatGPT account (${now.connected ? "connected" : "not connected"})`);
 		} catch (e) {
 			console.error("Could not switch the ChatGPT account", e);
@@ -740,6 +747,18 @@ function LlmSettingSection() {
 	const [saved, setSaved] = d(false);
 	const [models, setModels] = d(null);
 	const asking = A(0);
+	const pickedNow = A("local");
+	h(() => {
+		function accountChanged() {
+			getLlm().then((read) => {
+				console.info("ChatGPT account changed; LLM setting read again");
+				setSetting(read);
+				if (pickedNow.current === "chatgpt") pick("chatgpt", read);
+			}).catch((e) => console.error("Could not read the LLM setting again", e));
+		}
+		window.addEventListener(CHATGPT_ACCOUNT_CHANGED, accountChanged);
+		return () => window.removeEventListener(CHATGPT_ACCOUNT_CHANGED, accountChanged);
+	}, []);
 	h(() => {
 		getLlm().then((read) => {
 			if (!Array.isArray(read.providers)) throw new Error("The LLM setting has no providers");
@@ -752,6 +771,7 @@ function LlmSettingSection() {
 	}, []);
 	function pick(id, from = setting) {
 		const provider = from?.providers.find((p) => p.id === id);
+		pickedNow.current = id;
 		setPicked(id);
 		setKey("");
 		setModel(provider?.model ?? "");
@@ -766,12 +786,13 @@ function LlmSettingSection() {
 		setModels({ state: "loading" });
 		const started = performance.now();
 		try {
-			const ids = await listModels(id, typedKey);
+			const { ids, names } = await listModels(id, typedKey);
 			if (asking.current !== asked) return;
 			console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
 			setModels({
 				state: "listed",
 				ids,
+				names,
 				checked: Boolean(typedKey) || savedKey
 			});
 		} catch (e) {
@@ -884,7 +905,10 @@ function LlmSettingSection() {
 							})] }),
 							models?.state === "listed" && /* @__PURE__ */ u("datalist", {
 								id: "llm-models",
-								children: models.ids.map((id) => /* @__PURE__ */ u("option", { value: id }, id))
+								children: models.ids.map((id) => /* @__PURE__ */ u("option", {
+									value: id,
+									label: models.names[id]
+								}, id))
 							}),
 							/* @__PURE__ */ u("p", {
 								className: "muted",

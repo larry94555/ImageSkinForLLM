@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
+  CHATGPT_ACCOUNT_CHANGED,
   chooseLlm,
   getLlm,
   listModels,
@@ -23,7 +24,7 @@ import {
 // they couldn't be (`unreachable` when the provider couldn't be asked, rather than refusing).
 type Models =
   | { state: "loading" }
-  | { state: "listed"; ids: string[]; checked: boolean }
+  | { state: "listed"; ids: string[]; names: Record<string, string>; checked: boolean }
   | { state: "failed"; error: string; unreachable: boolean };
 
 export function LlmSettingSection() {
@@ -36,6 +37,23 @@ export function LlmSettingSection() {
   const [saved, setSaved] = useState(false);
   const [models, setModels] = useState<Models | null>(null);
   const asking = useRef(0); // which look-up was asked for last; only its answer is shown
+  const pickedNow = useRef("local"); // for the account-change listener, which outlives renders
+
+  // Another ChatGPT account in use (or none) has its own models and sign-in state, so the
+  // setting is read again, and the plan's list too while it is picked (a review on PR #118).
+  useEffect(() => {
+    function accountChanged() {
+      getLlm()
+        .then((read) => {
+          console.info("ChatGPT account changed; LLM setting read again");
+          setSetting(read);
+          if (pickedNow.current === "chatgpt") pick("chatgpt", read);
+        })
+        .catch((e: unknown) => console.error("Could not read the LLM setting again", e));
+    }
+    window.addEventListener(CHATGPT_ACCOUNT_CHANGED, accountChanged);
+    return () => window.removeEventListener(CHATGPT_ACCOUNT_CHANGED, accountChanged);
+  }, []);
 
   useEffect(() => {
     getLlm()
@@ -52,6 +70,7 @@ export function LlmSettingSection() {
 
   function pick(id: string, from: LlmSetting | null = setting) {
     const provider = from?.providers.find((p) => p.id === id);
+    pickedNow.current = id;
     setPicked(id);
     setKey("");
     setModel(provider?.model ?? "");
@@ -69,10 +88,10 @@ export function LlmSettingSection() {
     setModels({ state: "loading" });
     const started = performance.now();
     try {
-      const ids = await listModels(id, typedKey);
+      const { ids, names } = await listModels(id, typedKey);
       if (asking.current !== asked) return;
       console.info(`Listed ${ids.length} models for ${id} (${Math.round(performance.now() - started)} ms)`);
-      setModels({ state: "listed", ids, checked: Boolean(typedKey) || savedKey });
+      setModels({ state: "listed", ids, names, checked: Boolean(typedKey) || savedKey });
     } catch (e) {
       if (asking.current !== asked) return;
       console.error(`Could not list the models for ${id}`, e);
@@ -188,7 +207,7 @@ export function LlmSettingSection() {
               {models?.state === "listed" && (
                 <datalist id="llm-models">
                   {models.ids.map((id) => (
-                    <option key={id} value={id} />
+                    <option key={id} value={id} label={models.names[id]} />
                   ))}
                 </datalist>
               )}

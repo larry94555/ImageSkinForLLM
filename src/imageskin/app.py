@@ -1150,7 +1150,7 @@ def create_app(
     # before any key. 400 when the key is missing or refused, 502 when the provider can't be
     # reached, so the page offers a typed model name only then.
     @app.post("/api/llm/models")
-    def post_llm_models(body: ModelsRequest) -> dict[str, list[str]]:
+    def post_llm_models(body: ModelsRequest) -> dict[str, Any]:
         if body.provider not in PROVIDERS:
             raise HTTPException(status_code=400, detail=f"There is no LLM called {body.provider}.")
         if body.provider == "chatgpt":
@@ -1158,7 +1158,10 @@ def create_app(
         else:
             key = (body.api_key or "").strip() or load_choice(data_home).keys.get(body.provider, "")
         try:
-            return {"models": model_lists.models(body.provider, key)}
+            ids = model_lists.models(body.provider, key)
+            if body.provider == "chatgpt":  # shown by the names the plan gives them (R43a)
+                return {"models": ids, "names": model_lists.names(ids)}
+            return {"models": ids}
         except ModelListError as e:
             p = PROVIDERS[body.provider]
             asked = body.provider != "local" and bool(key or p.lists_freely)
@@ -1192,14 +1195,42 @@ def create_app(
             signin.finish(dict(request.query_params))
         except SignInError as e:
             return signed_in_page(str(e), 400)
+        follow_plan_account()
         return RedirectResponse("/#/settings", status_code=303)
 
     @app.post("/api/chatgpt/use")
     def chatgpt_use(body: ChatGptAccount) -> dict[str, Any]:
         try:
-            return signin.use(body.account)
+            status = signin.use(body.account)
         except SignInError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
+        follow_plan_account()
+        return status
+
+    def follow_plan_account() -> None:
+        """When the ChatGPT plan answers and another account is now in use, its saved model is
+        checked against that account's own list, and the list's first is saved in its place if
+        it isn't there, so the next prompt doesn't ask for a model the account can't use (a
+        review on PR #118). Nothing changes when the list can't be had; the chat then says
+        why."""
+        if load_choice(data_home).provider != "chatgpt":
+            return
+        try:
+            models = model_lists.models("chatgpt", signin.access_token())
+        except (SignInError, ModelListError) as e:
+            logger.warning("Could not check the ChatGPT plan's model", extra={"reason": str(e)})
+            return
+        with changing_llm:
+            choice = load_choice(data_home)
+            if choice.provider != "chatgpt" or choice.model("chatgpt") in models:
+                return
+            was = choice.model("chatgpt")
+            choice = save_choice(data_home, "chatgpt", model=models[0])
+            switchable.use(choice)
+        logger.info(
+            "ChatGPT plan model changed for the account in use",
+            extra={"was": was, "model": models[0]},
+        )
 
     @app.post("/api/chatgpt/sign-out")
     def chatgpt_sign_out() -> dict[str, Any]:

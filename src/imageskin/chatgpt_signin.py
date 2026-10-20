@@ -66,6 +66,9 @@ REVOKE_BACKOFF_S = 1.0
 # The access token is renewed when it has less than this left, so a reply never starts on a token
 # about to end (R43a).
 RENEW_BEFORE_S = 60
+# The token endpoint's codes for a refresh token that can never be used again; any other failure
+# leaves the tokens saved, to try again.
+TERMINAL_REFRESH = ("invalid_grant", "invalid_client", "unauthorized_client")
 SIGN_IN_FIRST = "Sign in with ChatGPT on the Settings page first."
 SIGN_IN_AGAIN = "Your ChatGPT sign-in has ended. Sign in with ChatGPT again on the Settings page."
 NO_PLAN_USE = (
@@ -575,6 +578,18 @@ class ChatGptSignIn:
             logger.error("No ChatGPT sign-in to answer with", extra={"error": str(e)})
             raise LlmError(str(e)) from e
 
+    def _forget_credentials(self, client_id: str, credentials: dict[str, Any]) -> None:
+        def forget(saved: dict[str, Any]) -> dict[str, Any]:
+            registrations = self._registrations(saved)
+            current = registrations.get(client_id)
+            if not current or current.get("credentials") != credentials:
+                return saved
+            registrations[client_id] = {**current, "credentials": None}
+            return {**saved, "registrations": list(registrations.values())}
+
+        self._update(forget)
+        logger.info("Forgot the ChatGPT tokens OpenAI won't renew")
+
     def _renew(self, client_id: str, credentials: dict[str, Any]) -> str:
         start = time.perf_counter()
         refresh = credentials.get("refresh_token")
@@ -594,9 +609,12 @@ class ChatGptSignIn:
             logger.error(
                 "Could not renew the ChatGPT sign-in", extra={"status": status, "error": error}
             )
-            if status in (400, 401):  # the refresh token was refused: only a sign-in helps
+            if error in TERMINAL_REFRESH:
+                # The tokens can't be used again: forgotten, so the page says to sign in; the
+                # registration stays, to sign in as it again (a review on PR #118).
+                self._forget_credentials(client_id, credentials)
                 raise SignInError(SIGN_IN_AGAIN)
-            raise SignInError("ChatGPT's sign-in can't be reached right now. Try again.")
+            raise SignInError("ChatGPT's sign-in can't be renewed right now. Try again.")
         renewed = {
             "scopes": str(data.get("scope", "")).split() or credentials.get("scopes", []),
             "access_token": data["access_token"],
