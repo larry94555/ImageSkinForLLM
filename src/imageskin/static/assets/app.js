@@ -1861,6 +1861,18 @@ function WikiLine({ id, build }) {
 		className: "error",
 		children: wikiText(build, metrics)
 	});
+	if (build.state === "building" && build.stage !== "outline" && build.parts) return /* @__PURE__ */ u("span", {
+		className: "muted busy",
+		children: [
+			wikiText(build, metrics),
+			" ",
+			/* @__PURE__ */ u("progress", {
+				max: build.parts,
+				value: build.part,
+				"aria-label": "Wiki parts built"
+			})
+		]
+	});
 	if (build.state !== "done") return /* @__PURE__ */ u("span", {
 		className: "muted busy",
 		children: wikiText(build, metrics)
@@ -1879,10 +1891,11 @@ function WikiLine({ id, build }) {
 	});
 }
 function wikiText(b, metrics = false) {
-	const time = (what = "") => {
+	const time = (what = "", pending = "") => {
 		const parts = [];
-		if (metrics && b.elapsed_s != null) parts.push(`${duration$1(b.elapsed_s)} so far`);
+		if (b.elapsed_s != null) parts.push(`${duration$1(b.elapsed_s)} so far`);
 		if (b.remaining_s != null) parts.push(`about ${duration$1(b.remaining_s)} left${what}`);
+		else if (pending) parts.push(pending);
 		return parts.length ? ` (${parts.join(", ")})` : "";
 	};
 	const sofar = time();
@@ -1900,7 +1913,10 @@ function wikiText(b, metrics = false) {
 	}
 	if (b.state === "building") {
 		const part = Math.min(b.part + 1, b.parts);
-		return b.parts ? `Building the wiki: part ${part} of ${b.parts}…${time(" before arranging its topics")}` : `Building the wiki…${sofar}`;
+		if (!b.parts) return `Building the wiki…${sofar}`;
+		const done = Math.round(100 * b.part / b.parts);
+		const left = time(" before arranging its topics", "the time left shows once part 1 is done");
+		return `Building the wiki: part ${part} of ${b.parts}, ${done}% done…${left}`;
 	}
 	if (b.state === "failed") return b.error ?? "The wiki could not be built.";
 	const n = b.skipped_parts?.length ?? 0;

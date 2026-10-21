@@ -506,6 +506,9 @@ def test_the_time_left_is_estimated_from_the_steps_done_so_far() -> None:
     assert remaining(topics, 60, 20) == 70  # counting down until the next part is done
     assert remaining(topics, 60, 200) == 0
     assert remaining(WikiStatus("building", 0, 5), 0, 60) is None  # nothing to go on yet
+    # Before the first part is done, the last build's time a part stands in, counting down.
+    assert remaining(WikiStatus("building", 0, 5), 0, 60, part_s=40) == 140
+    assert remaining(WikiStatus("building", 0, 0), 0, 60, part_s=40) is None  # parts not known
     outline = WikiStatus("building", 5, 5, stage="outline", steps=3, steps_planned=4)
     assert remaining(outline, 30, 0) == 10
     assert remaining(replace(outline, steps_planned=3), 30, 0) == 0
@@ -575,3 +578,40 @@ def test_a_queued_pdf_says_what_is_built_first(
 
     go_on.set()
     settle(readings, wiki)
+
+
+def test_the_last_builds_time_a_part_is_kept_for_the_next_first_part(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry's test of PR #123: the first part showed no time left, only "Building the wiki…"."""
+    store, readings, wiki = jobs(tmp_path)
+    with caplog.at_level(logging.INFO):
+        readings.queue(store.add("weather.pdf", io.BytesIO(PDF)))
+        settle(readings, wiki)
+    pace = json.loads((wiki.folder / "pace.json").read_text(encoding="utf-8"))
+    assert pace["part_s"] >= 0 and "Wiki pace" in caplog.messages
+    (wiki.folder / "pace.json").write_text('{"part_s": 42.5}', encoding="utf-8")
+    assert WikiJob(store, readings, one_page_per_piece)._part_s == 42.5  # read on starting
+    (wiki.folder / "pace.json").write_text("not json", encoding="utf-8")
+    assert WikiJob(store, readings, one_page_per_piece)._part_s is None
+
+
+def test_the_parts_are_known_before_the_first_is_built(tmp_path: Path) -> None:
+    seen: list[WikiStatus] = []
+    asked = threading.Event()
+    go = threading.Event()
+
+    def slow(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: Any) -> Wiki:
+        progress(0, 3)
+        asked.set()
+        go.wait(5)
+        return one_page_per_piece(pdf_id, pieces, progress)
+
+    store, readings, wiki = jobs(tmp_path, slow)
+    pdf = store.add("weather.pdf", io.BytesIO(PDF))
+    readings.queue(pdf)
+    assert asked.wait(5)
+    seen.append(wiki.statuses()[pdf.id])
+    go.set()
+    settle(readings, wiki)
+    assert (seen[0].state, seen[0].part, seen[0].parts) == ("building", 0, 3)

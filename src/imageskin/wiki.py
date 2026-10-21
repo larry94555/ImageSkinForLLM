@@ -119,6 +119,8 @@ def build_wiki(
         )
     parts = split(pieces, budget, count)
     wiki = Wiki(len(parts))
+    if progress:
+        progress(0, len(parts))  # how many parts there are, before the first is asked for
     topics: dict[str, WikiPage] = {}  # by normalized title, in the order found
     for number, part in enumerate(parts, start=1):
         start = time.perf_counter()

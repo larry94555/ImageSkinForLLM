@@ -264,6 +264,14 @@ function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
   const metrics = useSettings().show_metrics;
   if (!build) return null;
   if (build.state === "failed") return <span className="error">{wikiText(build, metrics)}</span>;
+  if (build.state === "building" && build.stage !== "outline" && build.parts) {
+    return (
+      <span className="muted busy">
+        {wikiText(build, metrics)}{" "}
+        <progress max={build.parts} value={build.part} aria-label="Wiki parts built" />
+      </span>
+    );
+  }
   if (build.state !== "done") return <span className="muted busy">{wikiText(build, metrics)}</span>;
   return (
     <span className="muted">
@@ -273,13 +281,15 @@ function WikiLine({ id, build }: { id: string; build?: WikiBuild }) {
   );
 }
 
-// "Wiki ready: 7 topics", or how far building them has got. How long it has taken is shown only with
-// `metrics` (R41a); how long is left is always shown.
+// "Wiki ready: 7 topics", or how far building them has got. While it is under way, how long it has
+// taken and how long is left are always shown, counting each second (Larry's test of PR #123);
+// once done, how long it took is shown only with `metrics` (R41a).
 export function wikiText(b: WikiBuild, metrics = false): string {
-  const time = (what = "") => {
+  const time = (what = "", pending = "") => {
     const parts = [];
-    if (metrics && b.elapsed_s != null) parts.push(`${duration(b.elapsed_s)} so far`);
+    if (b.elapsed_s != null) parts.push(`${duration(b.elapsed_s)} so far`);
     if (b.remaining_s != null) parts.push(`about ${duration(b.remaining_s)} left${what}`);
+    else if (pending) parts.push(pending);
     return parts.length ? ` (${parts.join(", ")})` : "";
   };
   const sofar = time();
@@ -299,9 +309,10 @@ export function wikiText(b: WikiBuild, metrics = false): string {
   }
   if (b.state === "building") {
     const part = Math.min(b.part + 1, b.parts);
-    return b.parts
-      ? `Building the wiki: part ${part} of ${b.parts}…${time(" before arranging its topics")}`
-      : `Building the wiki…${sofar}`;
+    if (!b.parts) return `Building the wiki…${sofar}`;
+    const done = Math.round((100 * b.part) / b.parts);
+    const left = time(" before arranging its topics", "the time left shows once part 1 is done");
+    return `Building the wiki: part ${part} of ${b.parts}, ${done}% done…${left}`;
   }
   if (b.state === "failed") return b.error ?? "The wiki could not be built.";
   const n = b.skipped_parts?.length ?? 0;

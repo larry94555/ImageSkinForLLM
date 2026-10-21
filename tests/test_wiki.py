@@ -177,7 +177,7 @@ def test_the_wiki_has_one_page_per_topic_merged_across_parts(
         (f"{PDF_ID}-the-water-cycle", "The Water Cycle", [1, 3], "Water evaporates.\n\nRain."),
         (f"{PDF_ID}-clouds", "Clouds", [2, 3], "They form.\n\nRain clouds."),
     ]
-    assert progress == [(1, 2), (2, 2)]
+    assert progress == [(0, 2), (1, 2), (2, 2)]  # the count first, before any part is asked
     assert asked[1][0]["content"].endswith(f"{KNOWN_PROMPT} The Water Cycle; Clouds")
     done = [r for r in caplog.records if r.message == "Wiki part done"]
     assert [r.__dict__["topics"] for r in done] == [2, 2]

@@ -51,6 +51,8 @@ from imageskin.wiki_outline import (
 
 logger = logging.getLogger(__name__)
 
+PACE_FILE = "pace.json"  # in the wiki folder: how long a part took in the last build
+
 State = Literal["waiting", "building", "done", "failed"]
 Stage = Literal["topics", "outline"]
 # Builds the wiki pages for a PDF (its id and the pieces read from it).
@@ -133,6 +135,9 @@ class WikiJob:
         self._status: dict[str, WikiStatus] = {}
         self._worker: threading.Thread | None = None
         self._building: tuple[str, str] | None = None  # the PDF and version being built now
+        # Seconds a part took in the last build, so the first part of the next one has a time
+        # left too (Larry's test of PR #123), not only once a part is done.
+        self._part_s: float | None = self._load_pace()
         self._started: dict[str, float] = {}  # when the build now running started (monotonic)
         self._stage_started: dict[str, float] = {}  # and when its stage started
         self._last_step: dict[str, float] = {}  # and when its last step was done
@@ -407,7 +412,9 @@ class WikiJob:
                 status = replace(
                     status,
                     elapsed_s=round(now - started, 1),
-                    remaining_s=remaining(status, last_step - stage_started, now - last_step),
+                    remaining_s=remaining(
+                        status, last_step - stage_started, now - last_step, self._part_s
+                    ),
                 )
             if status is not None and status.state == "waiting" and status.error is None:
                 status = self._queued(pdf.id, status)
@@ -549,7 +556,8 @@ class WikiJob:
         self._set(pdf_id, WikiStatus("building"))
 
         def progress(part: int, parts: int) -> None:
-            self._stepped(pdf_id)
+            if part:  # 0: the parts are known, none is done yet
+                self._stepped(pdf_id)
             self._set(pdf_id, WikiStatus("building", part, parts))
 
         def pause(error: LlmError, building: WikiStatus, step: int) -> None:
@@ -578,8 +586,11 @@ class WikiJob:
             pause(error, WikiStatus("building", part - 1, parts), part)
 
         try:
+            parts_started = time.monotonic()
             wiki = self.build(pdf_id, reading["pieces"], progress, wait_for_llm)
             parts = wiki.parts
+            if parts:
+                self._save_pace((time.monotonic() - parts_started) / parts)
 
             planned = 0
 
@@ -677,6 +688,24 @@ class WikiJob:
         self._status[pdf_id] = done_status(saved)
         return True
 
+    def _load_pace(self) -> float | None:
+        try:
+            pace = json.loads((self.folder / PACE_FILE).read_text(encoding="utf-8"))["part_s"]
+            return float(pace) if pace > 0 else None
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _save_pace(self, part_s: float) -> None:
+        self._part_s = part_s
+        try:
+            self.folder.mkdir(parents=True, exist_ok=True)
+            (self.folder / PACE_FILE).write_text(
+                json.dumps({"part_s": round(part_s, 1)}), encoding="utf-8"
+            )
+        except OSError as e:
+            logger.error("Could not save the wiki's pace", extra={"error": str(e)})
+        logger.info("Wiki pace", extra={"part_s": round(part_s, 1)})
+
     def _stepped(self, pdf_id: str) -> None:
         with self._lock:
             self._last_step[pdf_id] = time.monotonic()
@@ -688,10 +717,15 @@ class WikiJob:
                 self._status[pdf_id] = status
 
 
-def remaining(status: WikiStatus, steps_s: float, since_s: float) -> float | None:
+def remaining(
+    status: WikiStatus, steps_s: float, since_s: float, part_s: float | None = None
+) -> float | None:
     """About how long the stage has left: the time its steps done so far took (`steps_s`), on
     average, for each step left, less the time since the last one (`since_s`), so it counts
-    down between steps; None until a step is done."""
+    down between steps. Before the first part is done, the last build's time a part (`part_s`)
+    stands in for it; with none, None."""
+    if status.stage != "outline" and status.part < 1 and status.parts and part_s:
+        return round(max(0.0, part_s * status.parts - since_s), 1)
     done, total = (
         (status.steps, status.steps_planned)
         if status.stage == "outline"
