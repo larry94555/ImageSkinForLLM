@@ -19,6 +19,7 @@ export type Page =
 const PAGES: Record<string, Page> = {
   "/": "home",
   "/consent": "consent",
+  "/consent/own": "consent", // choosing your own image and voice over a ready-made avatar
   "/setup": "setup",
   "/start-now": "start-now",
   "/avatar-voice": "avatar-voice", // R24d: a ready-made avatar in the user's own voice
@@ -36,6 +37,10 @@ const WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
 // Setup opened at what to change from Settings (roadmap R28): #/setup/photos, #/setup/sounds or
 // #/setup/accent.
 const SETUP_PART = /^\/setup\/(photos|sounds|accent)$/;
+
+// Choosing your own image and voice over a ready-made avatar shows Before you start again, even
+// if it was confirmed before (Larry's test of PR #131).
+export const OWN_CONSENT = "#/consent/own";
 
 export type SetupPart = "photos" | "sounds" | "accent";
 

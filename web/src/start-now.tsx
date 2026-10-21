@@ -13,6 +13,7 @@ import {
   getStartNow,
   startNow,
 } from "./api";
+import { OWN_CONSENT } from "./router";
 
 const OPTIONS = {
   gender: [
@@ -168,7 +169,7 @@ export function StartNowPage() {
         Rather use your own image and voice?{" "}
         <a
           className="button secondary"
-          href="#/setup"
+          href={OWN_CONSENT}
           onClick={() => console.info("Choosing your own image and voice from Avatar Choice")}
         >
           Use your own image and voice
@@ -257,7 +258,7 @@ export function StartNowPage() {
         </p>
       )}
       <p className="muted">
-        Or <a href="#/consent">use your own photos and voice</a>.
+        Or <a href={OWN_CONSENT}>use your own photos and voice</a>.
       </p>
     </section>
   );

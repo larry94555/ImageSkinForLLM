@@ -59,7 +59,7 @@ import { useConfirm } from "./confirm-dialog";
 import { ExitScreen } from "./exit";
 import { useLeaveGuard } from "./leave-guard";
 import { ASSESSMENT_KEY, LESSON_KEY, QUIZ_KEY } from "./progress";
-import type { SetupPart } from "./router";
+import { OWN_CONSENT, type SetupPart } from "./router";
 import { useSettings } from "./settings";
 import { TalkButton } from "./talk";
 
@@ -948,13 +948,11 @@ export function ChatPage() {
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
   const [readyMade, setReadyMade] = useState(false); // a ready-made avatar, not their own
-  const [ownAccepted, setOwnAccepted] = useState(false); // their own sample, with an avatar in use
   useEffect(() => {
     getReview()
       .then((r) => {
         setAccepted(r.accepted);
         setReadyMade(r.default_person === true);
-        setOwnAccepted(r.own_sample_accepted === true);
       })
       .catch((e: unknown) => {
         console.error("Could not get the review", e);
@@ -1002,7 +1000,7 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       <h1 className="sr-only">Chat</h1>
-      {!participant && <AvatarLinks readyMade={readyMade} ownAccepted={ownAccepted} />}
+      {!participant && <AvatarLinks readyMade={readyMade} />}
       <Chat
         welcome={returned}
         after={asked.current}
@@ -1017,11 +1015,11 @@ export function ChatPage() {
 
 // Avatar Choice from the chat (Larry's test of R32a): another ready-made avatar, or the host's own
 // photo and voice, without going through Settings. The participant view has neither (R41b).
-function AvatarLinks({ readyMade, ownAccepted }: { readyMade: boolean; ownAccepted: boolean }) {
+function AvatarLinks({ readyMade }: { readyMade: boolean }) {
   const links: [string, string, string][] = readyMade
     ? [
         ["#/start-now", "Choose another avatar", "another ready-made avatar"],
-        ["#/setup", "Use your own photo and voice", "their own photo and voice"],
+        [OWN_CONSENT, "Use your own photo and voice", "their own photo and voice"],
       ]
     : [
         ["#/start-now", "Use a ready-made avatar", "a ready-made avatar"],
@@ -1034,14 +1032,7 @@ function AvatarLinks({ readyMade, ownAccepted }: { readyMade: boolean; ownAccept
         <a
           key={href}
           href={href}
-          onClick={(e) => {
-            console.info(`Choosing ${what} from the chat`);
-            if (href !== "#/setup" || !readyMade) return;
-            e.preventDefault();
-            switchToOwn(ownAccepted, "the chat")
-              .then(() => ownAccepted && window.location.reload()) // the chat shows their own now
-              .catch((err: unknown) => console.error("Could not switch to your own photo and voice", err));
-          }}
+          onClick={() => console.info(`Choosing ${what} from the chat`)}
         >
           {label}
         </a>

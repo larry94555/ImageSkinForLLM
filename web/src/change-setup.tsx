@@ -7,7 +7,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getReview, useAvatarReadyVoice, useOwnPerson } from "./api";
-import type { SetupPart } from "./router";
+import { OWN_CONSENT, type SetupPart } from "./router";
 
 const CHANGES: { part: SetupPart; label: string; about: string }[] = [
   { part: "photos", label: "Change photos", about: "Add, remove or choose the photo the video is made from." },
@@ -32,6 +32,13 @@ export async function switchToOwn(ownAccepted: boolean, from: string): Promise<v
   window.location.hash = "#/chat";
 }
 
+// After Before you start, shown again when choosing your own image and voice over a ready-made
+// avatar (Larry's test of PR #131).
+export async function ownAfterConsent(): Promise<void> {
+  const review = await getReview();
+  await switchToOwn(review.default_person === true && review.own_sample_accepted === true, "Before you start");
+}
+
 function InUseMark({ shown }: { shown: boolean }) {
   return shown ? <span className="in-use">In use</span> : null;
 }
@@ -49,7 +56,6 @@ export function ChangeSetup() {
     chosen: false,
     accepted: false,
   });
-  const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
     const started = performance.now();
@@ -99,15 +105,8 @@ export function ChangeSetup() {
             <div className="switch">
               <a
                 className="button secondary"
-                href="#/setup"
-                onClick={(e) => {
-                  console.info("Switching to your own photo and voice from Settings");
-                  e.preventDefault();
-                  switchToOwn(ownAccepted, "Settings").catch((err: unknown) => {
-                    console.error("Could not switch to your own photo and voice", err);
-                    setFailed((err as Error).message);
-                  });
-                }}
+                href={OWN_CONSENT}
+                onClick={() => console.info("Switching to your own photo and voice from Settings")}
               >
                 Use your own photo and voice
               </a>
@@ -116,7 +115,6 @@ export function ChangeSetup() {
                   ? "Your sample video is already accepted: the chat switches to it at once."
                   : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."}
               </p>
-              {failed && <p className="error">{failed}</p>}
             </div>
           ) : (
             <>

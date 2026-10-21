@@ -520,6 +520,7 @@ function useConfirm() {
 var PAGES = {
 	"/": "home",
 	"/consent": "consent",
+	"/consent/own": "consent",
 	"/setup": "setup",
 	"/start-now": "start-now",
 	"/avatar-voice": "avatar-voice",
@@ -532,6 +533,7 @@ var PAGES = {
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
 var SETUP_PART = /^\/setup\/(photos|sounds|accent)$/;
+var OWN_CONSENT = "#/consent/own";
 function setupTarget(hash) {
 	return SETUP_PART.exec(pathOf(hash))?.[1];
 }
@@ -667,6 +669,10 @@ async function switchToOwn(ownAccepted, from) {
 	console.info(`Switched to your own photo and voice from ${from} (${Math.round(performance.now() - started)} ms)`);
 	window.location.hash = "#/chat";
 }
+async function ownAfterConsent() {
+	const review = await getReview();
+	await switchToOwn(review.default_person === true && review.own_sample_accepted === true, "Before you start");
+}
 function InUseMark({ shown }) {
 	return shown ? /* @__PURE__ */ u("span", {
 		className: "in-use",
@@ -684,7 +690,6 @@ function ChangeSetup() {
 		chosen: false,
 		accepted: false
 	});
-	const [failed, setFailed] = d(null);
 	h(() => {
 		const started = performance.now();
 		getReview().then((r) => {
@@ -738,29 +743,15 @@ function ChangeSetup() {
 						className: inUse === "own" ? "avatar-option chosen" : "avatar-option",
 						children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), inUse === "ready-made" ? /* @__PURE__ */ u("div", {
 							className: "switch",
-							children: [
-								/* @__PURE__ */ u("a", {
-									className: "button secondary",
-									href: "#/setup",
-									onClick: (e) => {
-										console.info("Switching to your own photo and voice from Settings");
-										e.preventDefault();
-										switchToOwn(ownAccepted, "Settings").catch((err) => {
-											console.error("Could not switch to your own photo and voice", err);
-											setFailed(err.message);
-										});
-									},
-									children: "Use your own photo and voice"
-								}),
-								/* @__PURE__ */ u("p", {
-									className: "muted",
-									children: ownAccepted ? "Your sample video is already accepted: the chat switches to it at once." : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."
-								}),
-								failed && /* @__PURE__ */ u("p", {
-									className: "error",
-									children: failed
-								})
-							]
+							children: [/* @__PURE__ */ u("a", {
+								className: "button secondary",
+								href: OWN_CONSENT,
+								onClick: () => console.info("Switching to your own photo and voice from Settings"),
+								children: "Use your own photo and voice"
+							}), /* @__PURE__ */ u("p", {
+								className: "muted",
+								children: ownAccepted ? "Your sample video is already accepted: the chat switches to it at once." : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."
+							})]
 						}) : /* @__PURE__ */ u(S, { children: [
 							/* @__PURE__ */ u("p", {
 								className: "muted",
@@ -2982,12 +2973,10 @@ function ChatPage() {
 	const participant = useSettings().view === "participant";
 	const [accepted, setAccepted] = d(null);
 	const [readyMade, setReadyMade] = d(false);
-	const [ownAccepted, setOwnAccepted] = d(false);
 	h(() => {
 		getReview().then((r) => {
 			setAccepted(r.accepted);
 			setReadyMade(r.default_person === true);
-			setOwnAccepted(r.own_sample_accepted === true);
 		}).catch((e) => {
 			console.error("Could not get the review", e);
 			setAccepted(false);
@@ -3023,10 +3012,7 @@ function ChatPage() {
 				className: "sr-only",
 				children: "Chat"
 			}),
-			!participant && /* @__PURE__ */ u(AvatarLinks, {
-				readyMade,
-				ownAccepted
-			}),
+			!participant && /* @__PURE__ */ u(AvatarLinks, { readyMade }),
 			/* @__PURE__ */ u(Chat, {
 				welcome: returned,
 				after: asked.current,
@@ -3038,7 +3024,7 @@ function ChatPage() {
 		]
 	});
 }
-function AvatarLinks({ readyMade, ownAccepted }) {
+function AvatarLinks({ readyMade }) {
 	return /* @__PURE__ */ u("p", {
 		className: "avatar-links",
 		children: [/* @__PURE__ */ u("span", {
@@ -3049,7 +3035,7 @@ function AvatarLinks({ readyMade, ownAccepted }) {
 			"Choose another avatar",
 			"another ready-made avatar"
 		], [
-			"#/setup",
+			OWN_CONSENT,
 			"Use your own photo and voice",
 			"their own photo and voice"
 		]] : [[
@@ -3062,12 +3048,7 @@ function AvatarLinks({ readyMade, ownAccepted }) {
 			"their own photo"
 		]]).map(([href, label, what]) => /* @__PURE__ */ u("a", {
 			href,
-			onClick: (e) => {
-				console.info(`Choosing ${what} from the chat`);
-				if (href !== "#/setup" || !readyMade) return;
-				e.preventDefault();
-				switchToOwn(ownAccepted, "the chat").then(() => ownAccepted && window.location.reload()).catch((err) => console.error("Could not switch to your own photo and voice", err));
-			},
+			onClick: () => console.info(`Choosing ${what} from the chat`),
 			children: label
 		}, href))]
 	});
@@ -6025,7 +6006,7 @@ function StartNowPage() {
 					" ",
 					/* @__PURE__ */ u("a", {
 						className: "button secondary",
-						href: "#/setup",
+						href: OWN_CONSENT,
 						onClick: () => console.info("Choosing your own image and voice from Avatar Choice"),
 						children: "Use your own image and voice"
 					})
@@ -6124,7 +6105,7 @@ function StartNowPage() {
 				children: [
 					"Or ",
 					/* @__PURE__ */ u("a", {
-						href: "#/consent",
+						href: OWN_CONSENT,
 						children: "use your own photos and voice"
 					}),
 					"."
@@ -7097,7 +7078,14 @@ function Shell() {
 		}),
 		consent: /* @__PURE__ */ u(ConsentPage, { onConfirmed: () => {
 			setConsented(true);
-			window.location.hash = "#/setup";
+			if (hash !== "#/consent/own") {
+				window.location.hash = "#/setup";
+				return;
+			}
+			ownAfterConsent().catch((e) => {
+				console.error("Could not switch to your own photo and voice", e);
+				window.location.hash = "#/setup";
+			});
 		} }),
 		setup: /* @__PURE__ */ u(SetupPage, { change: setupTarget(hash) }),
 		"start-now": /* @__PURE__ */ u(StartNowPage, {}),
