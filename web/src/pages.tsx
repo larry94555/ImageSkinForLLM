@@ -26,6 +26,9 @@ import {
   clipUrl,
   getPrepare,
   getReview,
+  getReadyVoice,
+  chooseReadyVoice,
+  type ReadyVoice,
   lineUrl,
   getVoiceSample,
   type Kind,
@@ -149,7 +152,8 @@ export function SetupPage({ change }: { change?: SetupPart }) {
       <h1>Setup</h1>
       <p className="lead">
         Make the talking person in four steps: add photos, add voice recordings, choose an
-        accent, then prepare a sample video and check it.
+        accent, then prepare a sample video and check it. Without recordings, the person speaks
+        in a ready-made voice.
       </p>
       {/* Avatar Choice (Larry's test of R32a): the ready-made avatars are a click away. */}
       <p className="avatar-instead">
@@ -186,9 +190,73 @@ export function SetupPage({ change }: { change?: SetupPart }) {
         notice={notice("sounds")}
         onChange={changed}
       />
+      <ReadyVoiceChoice changes={changes} onChange={changed} />
       <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
       <PrepareSection changes={changes} onRunning={setPreparing} onBack={goBack} />
     </div>
+  );
+}
+
+// Kokoro's ready-made voices (item 58), as the user sees them.
+const READY_VOICES: { voice: string; label: string }[] = [
+  { voice: "af_heart", label: "American woman" },
+  { voice: "am_michael", label: "American man" },
+  { voice: "bf_emma", label: "British woman" },
+  { voice: "bm_george", label: "British man" },
+];
+
+// Under the recordings (item 59): without any that pass the checks (none added, or all rejected
+// or removed), the person speaks in a ready-made voice, which can be chosen here.
+function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
+  const [ready, setReady] = useState<ReadyVoice | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    getReadyVoice()
+      .then((r) => {
+        setReady(r);
+        console.info(`Ready-made voice: ${r.voice}, in use: ${r.in_use}`);
+      })
+      .catch((e: unknown) => console.error("Could not read the ready-made voice", e));
+  }, [props.changes]);
+  if (ready === null) return null;
+
+  async function choose(voice: string) {
+    const started = performance.now();
+    setFailed(null);
+    try {
+      setReady(await chooseReadyVoice(voice));
+      console.info(`Ready-made voice chosen: ${voice} (${Math.round(performance.now() - started)} ms)`);
+      props.onChange(); // a sample made in the other voice needs preparing again
+    } catch (e) {
+      console.error("Could not choose the ready-made voice", e);
+      setFailed((e as Error).message);
+    }
+  }
+
+  return (
+    <section className="panel ready-voice" aria-labelledby="ready-voice">
+      <h3 id="ready-voice">No recordings?</h3>
+      <p className="muted">
+        Recordings are optional. Until one passes the checks, or if they are all removed, the person
+        speaks in a ready-made voice instead of their own.
+      </p>
+      <label>
+        Ready-made voice{" "}
+        <select value={ready.voice} onChange={(e) => void choose(e.currentTarget.value)}>
+          {READY_VOICES.map(({ voice, label }) => (
+            <option key={voice} value={voice}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className={ready.in_use ? "notice" : "muted"}>
+        {ready.in_use
+          ? "In use now: no recording has passed the checks."
+          : "Not in use: the voice is made from your recordings."}
+      </p>
+      {failed && <p className="error">{failed}</p>}
+    </section>
   );
 }
 

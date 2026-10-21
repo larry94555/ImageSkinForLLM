@@ -647,7 +647,9 @@ def test_the_voice_check_and_the_clips_share_one_voice_engine(tmp_path: Path) ->
         raise RuntimeError("stop here")
 
     no_clone = patch("imageskin.chatterbox_engine.check_installed", side_effect=VoiceError("no"))
-    with patch("imageskin.kokoro_engine.KokoroEngine.speak", speak), no_clone:
+    # As with recordings: without any, the clips are spoken in a ready-made voice (item 59).
+    recordings = patch("imageskin.app.NO_VOICE", "not this")
+    with patch("imageskin.kokoro_engine.KokoroEngine.speak", speak), no_clone, recordings:
         job = create_app(tmp_path, check_photo=lambda p: PhotoResult([], 80)).state.prepare_job
         with pytest.raises(RuntimeError):
             job._prepare_voice()
