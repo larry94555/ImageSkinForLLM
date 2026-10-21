@@ -5283,7 +5283,8 @@ function useSeconds(on) {
 	return seconds;
 }
 function facesOf(faces, choice) {
-	return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism && f.role === choice.role).sort((a, b) => a.face - b.face);
+	const order = (f) => ROLES.indexOf(f.role);
+	return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism).sort((a, b) => order(a) - order(b) || a.face - b.face);
 }
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
@@ -5396,25 +5397,30 @@ function StartNowPage() {
 					shown.length > 0 && /* @__PURE__ */ u("fieldset", {
 						className: "faces",
 						disabled: working,
-						children: [/* @__PURE__ */ u("legend", { children: "Face" }), shown.map((f) => /* @__PURE__ */ u("label", {
-							className: f.face === face ? "face picked" : "face",
-							children: [/* @__PURE__ */ u("input", {
-								type: "radio",
-								name: "face",
-								value: f.face,
-								checked: f.face === face,
-								onChange: () => {
-									console.info(`Face ${f.face} of ${shown.length} picked: ${f.name}`);
-									setChoice({
-										...choice,
-										face: f.face
-									});
-								}
-							}), /* @__PURE__ */ u("img", {
-								src: faceUrl(f.name),
-								alt: `Face ${f.face} of ${shown.length}`
-							})]
-						}, f.name))]
+						children: [/* @__PURE__ */ u("legend", { children: "Face" }), shown.map((f, i) => {
+							const picked = f.role === choice.role && f.face === face;
+							const name = `Face ${i + 1} of ${shown.length}`;
+							return /* @__PURE__ */ u("label", {
+								className: picked ? "face picked" : "face",
+								children: [/* @__PURE__ */ u("input", {
+									type: "radio",
+									name: "face",
+									value: f.name,
+									checked: picked,
+									onChange: () => {
+										console.info(`${name} picked: ${f.name}`);
+										setChoice({
+											...choice,
+											role: f.role,
+											face: f.face
+										});
+									}
+								}), /* @__PURE__ */ u("img", {
+									src: faceUrl(f.name),
+									alt: name
+								})]
+							}, f.name);
+						})]
 					}),
 					/* @__PURE__ */ u("button", {
 						type: "submit",

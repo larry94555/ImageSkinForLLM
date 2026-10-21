@@ -1,14 +1,18 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { type Face, lineUrl, type StartNowStatus } from "./api";
+import { type Face, lineUrl, type PersonChoice, type StartNowStatus } from "./api";
 import { facesOf, POLL_MS, progressText, roleLabel, StartNowPage } from "./start-now";
 
 const IDLE: StartNowStatus = { state: "idle", person: null, percent: 0, error: null, chosen: null };
 
 // A fake server: GET /api/start-now answers each of `reads` in turn, then the last again.
-// Professor has two faces for a woman in a photo, one for a man (as R24b2 made them).
+// Professor has two faces for a woman in a photo, one for a man (as R24b2 made them); Boss and
+// Student have one each for a woman in a photo, and Boss one for an animated woman.
 const FACES: Face[] = [
+  { gender: "female", realism: "photoreal", role: "Boss", face: 1, name: "photoreal_female_boss" },
+  { gender: "female", realism: "animated", role: "Boss", face: 1, name: "animated_female_boss" },
+  { gender: "female", realism: "photoreal", role: "Student", face: 1, name: "photoreal_female_student" },
   { gender: "female", realism: "photoreal", role: "Professor", face: 2, name: "photoreal_female_professor_2" },
   { gender: "female", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_female_professor" },
   { gender: "male", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_male_professor" },
@@ -186,12 +190,12 @@ test("a default person says Goodbye and Welcome back in their own voice", async 
 test("a choice's faces are shown as pictures, and the one picked is the one started", async () => {
   const fetchMock = server([IDLE], { ...IDLE, state: "downloading", person: "p" });
   render(<StartNowPage />);
-  const first = (await screen.findByRole("radio", { name: "Face 1 of 2" })) as HTMLInputElement;
+  const first = (await screen.findByRole("radio", { name: "Face 1 of 4" })) as HTMLInputElement;
   expect(first.checked).toBe(true); // the first face unless another is picked
-  const img = screen.getByAltText("Face 2 of 2") as HTMLImageElement;
+  const img = screen.getByAltText("Face 2 of 4") as HTMLImageElement;
   expect(img.getAttribute("src")).toBe("/faces/photoreal_female_professor_2.jpg");
-  fireEvent.click(screen.getByRole("radio", { name: "Face 2 of 2" }));
-  expect(console.info).toHaveBeenCalledWith("Face 2 of 2 picked: photoreal_female_professor_2");
+  fireEvent.click(screen.getByRole("radio", { name: "Face 2 of 4" }));
+  expect(console.info).toHaveBeenCalledWith("Face 2 of 4 picked: photoreal_female_professor_2");
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
   await vi.waitFor(() =>
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true),
@@ -203,25 +207,49 @@ test("a choice's faces are shown as pictures, and the one picked is the one star
 test("changing a choice shows its own faces, from the first", async () => {
   server([IDLE]);
   render(<StartNowPage />);
-  fireEvent.click(await screen.findByRole("radio", { name: "Face 2 of 2" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "Face 2 of 4" }));
   fireEvent.click(radio("Male"));
   const only = screen.getByRole("radio", { name: "Face 1 of 1" }) as HTMLInputElement;
   expect(only.checked).toBe(true);
-  expect(screen.queryByRole("radio", { name: "Face 2 of 2" })).toBeNull();
+  expect(screen.queryByRole("radio", { name: "Face 2 of 4" })).toBeNull();
   fireEvent.click(radio("Female"));
-  expect((screen.getByRole("radio", { name: "Face 1 of 2" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("radio", { name: "Face 1 of 4" }) as HTMLInputElement).checked).toBe(true);
 });
 
 test("the face picked before is picked again on opening the page", async () => {
   const chosen = { gender: "female", accent: "American", realism: "photoreal", role: "Professor", face: 2 } as const;
   server([{ ...IDLE, chosen }]);
   render(<StartNowPage />);
-  const second = (await screen.findByRole("radio", { name: "Face 2 of 2" })) as HTMLInputElement;
+  const second = (await screen.findByRole("radio", { name: "Face 2 of 4" })) as HTMLInputElement;
   await vi.waitFor(() => expect(second.checked).toBe(true));
 });
 
-test("faces are those of the choice, first face first", () => {
+test("the faces are every person of the gender and look, in the role list's order", () => {
   const choice = { gender: "female", accent: "British", realism: "photoreal", role: "Professor" } as const;
-  expect(facesOf(FACES, choice).map((f) => f.face)).toEqual([1, 2]);
-  expect(facesOf(FACES, { ...choice, role: "Boss" })).toEqual([]);
+  const names = (c: PersonChoice) => facesOf(FACES, c).map((f) => f.name);
+  expect(names(choice)).toEqual([
+    "photoreal_female_professor",
+    "photoreal_female_professor_2",
+    "photoreal_female_student", // in the role list's order: Student before Boss
+    "photoreal_female_boss",
+  ]);
+  expect(names({ ...choice, role: "Boss" })).toEqual(names(choice)); // the order stays put
+  expect(names({ ...choice, realism: "animated" })).toEqual(["animated_female_boss"]);
+});
+
+test("picking a face of another role picks that role, and that person is started", async () => {
+  const fetchMock = server([IDLE], { ...IDLE, state: "downloading", person: "p" });
+  render(<StartNowPage />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Face 4 of 4" }));
+  expect(console.info).toHaveBeenCalledWith("Face 4 of 4 picked: photoreal_female_boss");
+  // The role follows the face.
+  expect((screen.getByRole("combobox", { name: "Role" }) as HTMLSelectElement).value).toBe("Boss");
+  expect((screen.getByRole("radio", { name: "Face 4 of 4" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("radio", { name: "Face 1 of 4" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Start now" }));
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true),
+  );
+  const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(JSON.parse(post[1]!.body as string)).toMatchObject({ role: "Boss", face: 1 });
 });

@@ -94,13 +94,15 @@ function useSeconds(on: boolean): number {
   return seconds;
 }
 
-// The faces the choice has (R24c2), first face first.
+// The faces to pick from (R24c2): every person of the chosen gender and look, in the role list's
+// order, which stays put as faces are picked. The range of heritages, ages, glasses
+// and wheelchairs R24b2 made is across a gender and look's 15 people, and a role has only one or
+// two of them (Larry's test of PR #124), so picking a face of another role picks that role too.
 export function facesOf(faces: Face[], choice: PersonChoice): Face[] {
+  const order = (f: Face) => ROLES.indexOf(f.role);
   return faces
-    .filter(
-      (f) => f.gender === choice.gender && f.realism === choice.realism && f.role === choice.role,
-    )
-    .sort((a, b) => a.face - b.face);
+    .filter((f) => f.gender === choice.gender && f.realism === choice.realism)
+    .sort((a, b) => order(a) - order(b) || a.face - b.face);
 }
 
 export function StartNowPage() {
@@ -214,21 +216,25 @@ export function StartNowPage() {
         {shown.length > 0 && (
           <fieldset className="faces" disabled={working}>
             <legend>Face</legend>
-            {shown.map((f) => (
-              <label key={f.name} className={f.face === face ? "face picked" : "face"}>
-                <input
-                  type="radio"
-                  name="face"
-                  value={f.face}
-                  checked={f.face === face}
-                  onChange={() => {
-                    console.info(`Face ${f.face} of ${shown.length} picked: ${f.name}`);
-                    setChoice({ ...choice, face: f.face });
-                  }}
-                />
-                <img src={faceUrl(f.name)} alt={`Face ${f.face} of ${shown.length}`} />
-              </label>
-            ))}
+            {shown.map((f, i) => {
+              const picked = f.role === choice.role && f.face === face;
+              const name = `Face ${i + 1} of ${shown.length}`;
+              return (
+                <label key={f.name} className={picked ? "face picked" : "face"}>
+                  <input
+                    type="radio"
+                    name="face"
+                    value={f.name}
+                    checked={picked}
+                    onChange={() => {
+                      console.info(`${name} picked: ${f.name}`);
+                      setChoice({ ...choice, role: f.role, face: f.face });
+                    }}
+                  />
+                  <img src={faceUrl(f.name)} alt={name} />
+                </label>
+              );
+            })}
           </fieldset>
         )}
         <button type="submit" disabled={working} className={working ? "busy" : undefined}>
