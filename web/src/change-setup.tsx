@@ -74,7 +74,7 @@ export function ChangeSetup() {
       await useAvatarReadyVoice();
       setAvatarVoice({ chosen: false, accepted: false });
       setReadyVoiceDone(true);
-      console.info(`Avatar's ready-made voice used again from Settings (${Math.round(performance.now() - started)} ms)`);
+      console.info(`Avatar's default voice used again from Settings (${Math.round(performance.now() - started)} ms)`);
     } catch (e) {
       console.error("Could not use the avatar's ready-made voice again", e);
       setReadyVoiceFailed((e as Error).message);
@@ -82,6 +82,8 @@ export function ChangeSetup() {
     setReadyVoiceBusy(false);
   }
 
+  // The avatar speaks in its ready-made voice: chosen, and not (yet) in the user's own.
+  const defaultVoice = inUse === "ready-made" && !avatarVoice.accepted;
   return (
     <section className="panel" aria-labelledby="settings-change">
       <h2 id="settings-change">Avatar Choice</h2>
@@ -178,25 +180,46 @@ export function ChangeSetup() {
                     ? "The avatar speaks in its ready-made voice until you accept the sample video in your voice."
                     : "Keep the avatar's picture and replace its voice with one made from your recordings."}
               </p>
-              {avatarVoice.chosen && (
-                // Back to the ready-made voice in one click, with nothing to accept (Larry's test
-                // of PR #131). Your recordings are kept.
-                <div className="switch">
-                  <button
-                    type="button"
-                    className={readyVoiceBusy ? "secondary busy" : "secondary"}
-                    disabled={readyVoiceBusy}
-                    onClick={() => void readyVoice()}
-                  >
-                    Use the avatar&apos;s ready-made voice
-                  </button>
-                  <p className="muted">Switches back at once. Your recordings are kept.</p>
-                </div>
-              )}
-              {readyVoiceDone && <p className="done">The avatar speaks in its ready-made voice again.</p>}
-              {readyVoiceFailed && <p className="error">{readyVoiceFailed}</p>}
             </div>
           )}
+        </div>
+        {/* The third choice (Larry's test of PR #131): the avatar in its own ready-made voice,
+            back in one click with nothing to accept. Your recordings are kept. */}
+        <div className={defaultVoice ? "avatar-option chosen" : "avatar-option"}>
+          <h3>
+            Default voice for the avatar <InUseMark shown={defaultVoice} />
+          </h3>
+          <p className="muted">
+            The ready-made avatar speaks in its own ready-made voice. There is nothing to accept,
+            and your recordings are kept.
+          </p>
+          {inUse === "ready-made" && avatarVoice.chosen && (
+            <div className="switch">
+              <button
+                type="button"
+                className={readyVoiceBusy ? "secondary busy" : "secondary"}
+                disabled={readyVoiceBusy}
+                onClick={() => void readyVoice()}
+              >
+                Use the Default Voice for the Avatar
+              </button>
+              <p className="muted">Switches back at once.</p>
+            </div>
+          )}
+          {inUse === "own" && (
+            <div className="switch">
+              <a
+                className="button secondary"
+                href="#/start-now"
+                onClick={() => console.info("Choosing an avatar in its default voice from Settings")}
+              >
+                Use the Default Voice for the Avatar
+              </a>
+              <p className="muted">Choose an avatar: it starts in its default voice.</p>
+            </div>
+          )}
+          {readyVoiceDone && <p className="done">The avatar speaks in its default voice again.</p>}
+          {readyVoiceFailed && <p className="error">{readyVoiceFailed}</p>}
         </div>
       </div>
     </section>

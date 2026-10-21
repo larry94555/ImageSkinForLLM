@@ -583,7 +583,7 @@ form.wiki-edit input, form.wiki-edit textarea {
 /* R24d: the ready-made avatar whose voice is being replaced. */
 .avatar-picture { display: block; width: 200px; max-width: 100%; height: auto; border-radius: 8px; }
 .avatar-option h3 { margin: 0 0 6px; font-size: 1em; display: flex; align-items: center; gap: 8px; }
-.avatar-option .in-use { font-size: 0.75em; font-weight: 600; color: var(--accent-ink); background: var(--card); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; }
+.avatar-option .in-use { white-space: nowrap; font-size: 0.75em; font-weight: 600; color: var(--accent-ink); background: var(--card); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; }
 .settings-page .avatar-option .switch p { margin-left: 0; }
 .settings-page .switch p { margin: 4px 0 0 26px; font-size: 0.9em; }
 .settings-page .panel > p.muted { margin: 0; }

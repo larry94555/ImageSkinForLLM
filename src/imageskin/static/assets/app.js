@@ -711,13 +711,14 @@ function ChangeSetup() {
 				accepted: false
 			});
 			setReadyVoiceDone(true);
-			console.info(`Avatar's ready-made voice used again from Settings (${Math.round(performance.now() - started)} ms)`);
+			console.info(`Avatar's default voice used again from Settings (${Math.round(performance.now() - started)} ms)`);
 		} catch (e) {
 			console.error("Could not use the avatar's ready-made voice again", e);
 			setReadyVoiceFailed(e.message);
 		}
 		setReadyVoiceBusy(false);
 	}
+	const defaultVoice = inUse === "ready-made" && !avatarVoice.accepted;
 	return /* @__PURE__ */ u("section", {
 		className: "panel",
 		"aria-labelledby": "settings-change",
@@ -732,121 +733,143 @@ function ChangeSetup() {
 			}),
 			/* @__PURE__ */ u("div", {
 				className: "avatar-options",
-				children: [/* @__PURE__ */ u("div", {
-					className: inUse === "own" ? "avatar-option chosen" : "avatar-option",
-					children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), inUse === "ready-made" ? /* @__PURE__ */ u("div", {
-						className: "switch",
-						children: [
-							/* @__PURE__ */ u("a", {
-								className: "button secondary",
-								href: "#/setup",
-								onClick: (e) => {
-									console.info("Switching to your own photo and voice from Settings");
-									e.preventDefault();
-									switchToOwn(ownAccepted, "Settings").catch((err) => {
-										console.error("Could not switch to your own photo and voice", err);
-										setFailed(err.message);
-									});
-								},
-								children: "Use your own photo and voice"
-							}),
-							/* @__PURE__ */ u("p", {
-								className: "muted",
-								children: ownAccepted ? "Your sample video is already accepted: the chat switches to it at once." : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."
-							}),
-							failed && /* @__PURE__ */ u("p", {
-								className: "error",
-								children: failed
-							})
-						]
-					}) : /* @__PURE__ */ u(S, { children: [
-						/* @__PURE__ */ u("p", {
-							className: "muted",
-							children: "Changing any of them makes the sample video again, and the chat stays locked until you accept the new one at the end of setup."
-						}),
-						accepted === true && /* @__PURE__ */ u("p", {
-							className: "muted",
-							children: "The chat is open with the sample you accepted."
-						}),
-						accepted === false && /* @__PURE__ */ u("p", {
-							className: "notice",
-							children: [
-								"The chat is locked until you accept a sample video in ",
-								/* @__PURE__ */ u("a", {
-									href: "#/setup",
-									children: "Setup"
-								}),
-								"."
-							]
-						}),
-						CHANGES.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
-							className: "switch",
-							children: [/* @__PURE__ */ u("a", {
-								className: "button secondary",
-								href: `#/setup/${part}`,
-								onClick: () => console.info(`Changing the ${part} from Settings`),
-								children: label
-							}), /* @__PURE__ */ u("p", {
-								className: "muted",
-								children: about
-							})]
-						}, part))
-					] })]
-				}), /* @__PURE__ */ u("div", {
-					className: inUse === "ready-made" ? "avatar-option chosen" : "avatar-option",
-					children: [
-						/* @__PURE__ */ u("h3", { children: ["Ready-made avatar ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "ready-made" })] }),
-						/* @__PURE__ */ u("p", {
-							className: "muted",
-							children: "A made-up person in a ready-made voice, chosen by gender, accent, look and role. Your own photos and recordings are kept."
-						}),
-						/* @__PURE__ */ u("div", {
-							className: "switch",
-							children: /* @__PURE__ */ u("a", {
-								className: "button secondary",
-								href: "#/start-now",
-								onClick: () => console.info("Choosing a ready-made avatar from Settings"),
-								children: inUse === "ready-made" ? "Choose another avatar" : "Use a ready-made avatar"
-							})
-						}),
-						inUse === "ready-made" && /* @__PURE__ */ u("div", {
+				children: [
+					/* @__PURE__ */ u("div", {
+						className: inUse === "own" ? "avatar-option chosen" : "avatar-option",
+						children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), inUse === "ready-made" ? /* @__PURE__ */ u("div", {
 							className: "switch",
 							children: [
 								/* @__PURE__ */ u("a", {
 									className: "button secondary",
-									href: "#/avatar-voice",
-									onClick: () => console.info("Giving the avatar your own voice from Settings"),
-									children: avatarVoice.chosen ? "Change your voice for the avatar" : "Use my own voice"
+									href: "#/setup",
+									onClick: (e) => {
+										console.info("Switching to your own photo and voice from Settings");
+										e.preventDefault();
+										switchToOwn(ownAccepted, "Settings").catch((err) => {
+											console.error("Could not switch to your own photo and voice", err);
+											setFailed(err.message);
+										});
+									},
+									children: "Use your own photo and voice"
 								}),
 								/* @__PURE__ */ u("p", {
 									className: "muted",
-									children: avatarVoice.accepted ? "The avatar speaks in your voice, made from your recordings." : avatarVoice.chosen ? "The avatar speaks in its ready-made voice until you accept the sample video in your voice." : "Keep the avatar's picture and replace its voice with one made from your recordings."
+									children: ownAccepted ? "Your sample video is already accepted: the chat switches to it at once." : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."
 								}),
-								avatarVoice.chosen && /* @__PURE__ */ u("div", {
-									className: "switch",
-									children: [/* @__PURE__ */ u("button", {
-										type: "button",
-										className: readyVoiceBusy ? "secondary busy" : "secondary",
-										disabled: readyVoiceBusy,
-										onClick: () => void readyVoice(),
-										children: "Use the avatar's ready-made voice"
-									}), /* @__PURE__ */ u("p", {
-										className: "muted",
-										children: "Switches back at once. Your recordings are kept."
-									})]
-								}),
-								readyVoiceDone && /* @__PURE__ */ u("p", {
-									className: "done",
-									children: "The avatar speaks in its ready-made voice again."
-								}),
-								readyVoiceFailed && /* @__PURE__ */ u("p", {
+								failed && /* @__PURE__ */ u("p", {
 									className: "error",
-									children: readyVoiceFailed
+									children: failed
 								})
 							]
-						})
-					]
-				})]
+						}) : /* @__PURE__ */ u(S, { children: [
+							/* @__PURE__ */ u("p", {
+								className: "muted",
+								children: "Changing any of them makes the sample video again, and the chat stays locked until you accept the new one at the end of setup."
+							}),
+							accepted === true && /* @__PURE__ */ u("p", {
+								className: "muted",
+								children: "The chat is open with the sample you accepted."
+							}),
+							accepted === false && /* @__PURE__ */ u("p", {
+								className: "notice",
+								children: [
+									"The chat is locked until you accept a sample video in ",
+									/* @__PURE__ */ u("a", {
+										href: "#/setup",
+										children: "Setup"
+									}),
+									"."
+								]
+							}),
+							CHANGES.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
+								className: "switch",
+								children: [/* @__PURE__ */ u("a", {
+									className: "button secondary",
+									href: `#/setup/${part}`,
+									onClick: () => console.info(`Changing the ${part} from Settings`),
+									children: label
+								}), /* @__PURE__ */ u("p", {
+									className: "muted",
+									children: about
+								})]
+							}, part))
+						] })]
+					}),
+					/* @__PURE__ */ u("div", {
+						className: inUse === "ready-made" ? "avatar-option chosen" : "avatar-option",
+						children: [
+							/* @__PURE__ */ u("h3", { children: ["Ready-made avatar ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "ready-made" })] }),
+							/* @__PURE__ */ u("p", {
+								className: "muted",
+								children: "A made-up person in a ready-made voice, chosen by gender, accent, look and role. Your own photos and recordings are kept."
+							}),
+							/* @__PURE__ */ u("div", {
+								className: "switch",
+								children: /* @__PURE__ */ u("a", {
+									className: "button secondary",
+									href: "#/start-now",
+									onClick: () => console.info("Choosing a ready-made avatar from Settings"),
+									children: inUse === "ready-made" ? "Choose another avatar" : "Use a ready-made avatar"
+								})
+							}),
+							inUse === "ready-made" && /* @__PURE__ */ u("div", {
+								className: "switch",
+								children: [/* @__PURE__ */ u("a", {
+									className: "button secondary",
+									href: "#/avatar-voice",
+									onClick: () => console.info("Giving the avatar your own voice from Settings"),
+									children: avatarVoice.chosen ? "Change your voice for the avatar" : "Use my own voice"
+								}), /* @__PURE__ */ u("p", {
+									className: "muted",
+									children: avatarVoice.accepted ? "The avatar speaks in your voice, made from your recordings." : avatarVoice.chosen ? "The avatar speaks in its ready-made voice until you accept the sample video in your voice." : "Keep the avatar's picture and replace its voice with one made from your recordings."
+								})]
+							})
+						]
+					}),
+					/* @__PURE__ */ u("div", {
+						className: defaultVoice ? "avatar-option chosen" : "avatar-option",
+						children: [
+							/* @__PURE__ */ u("h3", { children: ["Default voice for the avatar ", /* @__PURE__ */ u(InUseMark, { shown: defaultVoice })] }),
+							/* @__PURE__ */ u("p", {
+								className: "muted",
+								children: "The ready-made avatar speaks in its own ready-made voice. There is nothing to accept, and your recordings are kept."
+							}),
+							inUse === "ready-made" && avatarVoice.chosen && /* @__PURE__ */ u("div", {
+								className: "switch",
+								children: [/* @__PURE__ */ u("button", {
+									type: "button",
+									className: readyVoiceBusy ? "secondary busy" : "secondary",
+									disabled: readyVoiceBusy,
+									onClick: () => void readyVoice(),
+									children: "Use the Default Voice for the Avatar"
+								}), /* @__PURE__ */ u("p", {
+									className: "muted",
+									children: "Switches back at once."
+								})]
+							}),
+							inUse === "own" && /* @__PURE__ */ u("div", {
+								className: "switch",
+								children: [/* @__PURE__ */ u("a", {
+									className: "button secondary",
+									href: "#/start-now",
+									onClick: () => console.info("Choosing an avatar in its default voice from Settings"),
+									children: "Use the Default Voice for the Avatar"
+								}), /* @__PURE__ */ u("p", {
+									className: "muted",
+									children: "Choose an avatar: it starts in its default voice."
+								})]
+							}),
+							readyVoiceDone && /* @__PURE__ */ u("p", {
+								className: "done",
+								children: "The avatar speaks in its default voice again."
+							}),
+							readyVoiceFailed && /* @__PURE__ */ u("p", {
+								className: "error",
+								children: readyVoiceFailed
+							})
+						]
+					})
+				]
 			})
 		]
 	});

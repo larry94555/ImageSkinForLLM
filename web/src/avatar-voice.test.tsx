@@ -208,36 +208,47 @@ test("a refused undo in setup says why", async () => {
   expect(await screen.findByText("Not now.")).toBeTruthy();
 });
 
-test("Settings switches back to the avatar's ready-made voice in one click", async () => {
+test("Settings' third choice switches back to the default voice in one click", async () => {
   const fetchMock = server({ ownVoice: true, accepted: true });
   render(<ChangeSetup />);
-  const button = await screen.findByRole("button", { name: "Use the avatar's ready-made voice" });
-  expect(screen.getByText(/Switches back at once/)).toBeTruthy();
+  const button = await screen.findByRole("button", { name: "Use the Default Voice for the Avatar" });
+  expect(screen.getByRole("heading", { name: "Default voice for the avatar" })).toBeTruthy();
+  expect(screen.getAllByText("In use")).toHaveLength(1); // the avatar, in the user's voice
   await act(async () => {
     fireEvent.click(button);
   });
   expect(fetchMock).toHaveBeenCalledWith("/api/start-now/own-voice", { method: "DELETE" });
-  expect(await screen.findByText("The avatar speaks in its ready-made voice again.")).toBeTruthy();
+  expect(await screen.findByText("The avatar speaks in its default voice again.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Use my own voice" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Use the avatar's ready-made voice" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Use the Default Voice for the Avatar" })).toBeNull();
+  expect(screen.getAllByText("In use")).toHaveLength(2); // the avatar and its default voice
   expect(console.info).toHaveBeenCalledWith(
-    expect.stringMatching(/^Avatar's ready-made voice used again from Settings \(\d+ ms\)$/),
+    expect.stringMatching(/^Avatar's default voice used again from Settings \(\d+ ms\)$/),
   );
 });
 
-test("Settings says why the ready-made voice was refused", async () => {
+test("Settings says why the default voice was refused", async () => {
   server({ ownVoice: true, refuse: "Wait until Prepare finishes, then try again." });
   render(<ChangeSetup />);
-  const button = await screen.findByRole("button", { name: "Use the avatar's ready-made voice" });
+  const button = await screen.findByRole("button", { name: "Use the Default Voice for the Avatar" });
   await act(async () => {
     fireEvent.click(button);
   });
   expect(await screen.findByText("Wait until Prepare finishes, then try again.")).toBeTruthy();
 });
 
-test("Settings offers the ready-made voice only once your own is chosen", async () => {
+test("with the default voice in use, the third choice is marked and has no button", async () => {
   server({});
   render(<ChangeSetup />);
   await screen.findByRole("link", { name: "Use my own voice" });
-  expect(screen.queryByRole("button", { name: "Use the avatar's ready-made voice" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Use the Default Voice for the Avatar" })).toBeNull();
+  expect(screen.getAllByText("In use")).toHaveLength(2);
+});
+
+test("with your own photo in use, the third choice opens the avatars", async () => {
+  server({ avatar: false });
+  render(<ChangeSetup />);
+  const link = await screen.findByRole("link", { name: "Use the Default Voice for the Avatar" });
+  expect(link.getAttribute("href")).toBe("#/start-now");
+  expect(screen.getByText(/it starts in its default voice/)).toBeTruthy();
 });
