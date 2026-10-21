@@ -5435,6 +5435,7 @@ function WikiPage({ pdf }) {
 	return /* @__PURE__ */ u("section", {
 		className: "wiki",
 		children: [
+			!participant && /* @__PURE__ */ u(HostTrail, {}),
 			/* @__PURE__ */ u("h1", { children: "Wiki" }),
 			pdf ? /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				href: wikiHref(),
@@ -5953,6 +5954,13 @@ function WikiDetailPage({ entry }) {
 				className: "trail",
 				"aria-label": "Where this page is",
 				children: [
+					!participant && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("a", {
+						href: "#/content",
+						children: "Manage Content"
+					}), /* @__PURE__ */ u("span", {
+						"aria-hidden": "true",
+						children: " › "
+					})] }),
 					/* @__PURE__ */ u("a", {
 						href: wikiHref(),
 						children: "Wiki"
@@ -6237,47 +6245,69 @@ function PageLinks({ pdf, pages }) {
 		})] }, n))]
 	});
 }
+function HostTrail() {
+	return /* @__PURE__ */ u("nav", {
+		className: "trail",
+		"aria-label": "Where this page is",
+		children: [
+			/* @__PURE__ */ u("a", {
+				href: "#/content",
+				children: "Manage Content"
+			}),
+			/* @__PURE__ */ u("span", {
+				"aria-hidden": "true",
+				children: " › "
+			}),
+			/* @__PURE__ */ u("span", { children: "Wiki" })
+		]
+	});
+}
 //#endregion
 //#region src/App.tsx
 var NAV = [
 	{
 		page: "home",
 		href: "#/",
-		label: "Home"
+		label: "Home",
+		views: ["host"]
 	},
 	{
 		page: "setup",
 		href: "#/setup",
-		label: "Setup"
+		label: "Setup",
+		views: ["host"]
 	},
 	{
 		page: "chat",
 		href: "#/chat",
 		label: "Chat",
-		participant: true
+		views: ["host", "participant"]
 	},
 	{
 		page: "wiki",
 		href: "#/wiki",
 		label: "Wiki",
-		participant: true
+		views: ["participant"]
 	},
 	{
 		page: "content",
 		href: "#/content",
-		label: "Manage Content"
+		label: "Manage Content",
+		views: ["host"]
 	}
 ];
-function current(page) {
+function current(page, view) {
 	if (page === "guide" || page === "start-now") return "setup";
-	return page === "wiki-page" ? "wiki" : page;
+	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
+	return page;
 }
 function App() {
 	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(Shell, {}) });
 }
 function Shell() {
 	const hash = useHash();
-	const participant = useSettings().view === "participant";
+	const view = useSettings().view;
+	const participant = view === "participant";
 	const settingsLoaded = useSettingsLoaded();
 	const host = settingsLoaded && !participant;
 	const [consented, setConsented] = d(null);
@@ -6328,9 +6358,9 @@ function Shell() {
 					href: host ? "#/" : "#/chat",
 					children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
 				}),
-				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (host || item.participant)).map((item) => /* @__PURE__ */ u("a", {
+				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && item.views.includes(view)).map((item) => /* @__PURE__ */ u("a", {
 					href: item.href,
-					className: current(route?.page) === item.page ? "current" : void 0,
+					className: current(route?.page, view) === item.page ? "current" : void 0,
 					children: item.label
 				}, item.page)) }),
 				settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })

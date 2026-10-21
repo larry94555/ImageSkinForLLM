@@ -114,6 +114,7 @@ export function WikiPage({ pdf }: { pdf?: string }) {
 
   return (
     <section className="wiki">
+      {!participant && <HostTrail />}
       <h1>Wiki</h1>
       {pdf ? (
         <p>
@@ -668,6 +669,12 @@ export function WikiDetailPage({ entry }: { entry: string }) {
   return (
     <section className="wiki">
       <nav className="trail" aria-label="Where this page is">
+        {!participant && (
+          <>
+            <a href="#/content">Manage Content</a>
+            <span aria-hidden="true"> › </span>
+          </>
+        )}
         <a href={wikiHref()}>Wiki</a>
         <span aria-hidden="true"> › </span>
         <a href={wikiHref(page.pdf_id)}>{page.pdf_name}</a>
@@ -956,5 +963,17 @@ function PageLinks({ pdf, pages }: { pdf: string; pages: number[] }) {
         </span>
       ))}
     </span>
+  );
+}
+
+// For the host, the wiki is part of Manage Content, which the top bar marks (Larry's review of
+// PR #123): the way back to it, above the wiki's own heading.
+function HostTrail() {
+  return (
+    <nav className="trail" aria-label="Where this page is">
+      <a href="#/content">Manage Content</a>
+      <span aria-hidden="true"> › </span>
+      <span>Wiki</span>
+    </nav>
   );
 }
