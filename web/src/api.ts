@@ -301,6 +301,16 @@ export interface Review {
   accepted: boolean;
   accepted_at: string | null;
   default_person?: boolean; // a ready-made avatar is in use (R24c)
+  // With a ready-made avatar in use: whether the sample of the user's own is accepted too.
+  own_sample_accepted?: boolean;
+}
+
+// Back to the user's own photo and voice from a ready-made avatar, when their sample is already
+// accepted. Throws an Error saying why when refused.
+export async function useOwnPerson(): Promise<Review> {
+  const response = await fetch("/api/start-now", { method: "DELETE" });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as Review;
 }
 
 export type Decision = "accept" | "reject-image" | "reject-voice" | "change-accent";

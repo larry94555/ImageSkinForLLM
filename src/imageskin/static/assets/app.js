@@ -141,6 +141,11 @@ async function startPrepare() {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function useOwnPerson() {
+	const response = await fetch("/api/start-now", { method: "DELETE" });
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 async function getReview() {
 	return json(await fetch("/api/review"));
 }
@@ -503,6 +508,16 @@ var CHANGES = [
 		about: "Keep the person's own accent or choose another one."
 	}
 ];
+async function switchToOwn(ownAccepted, from) {
+	if (!ownAccepted) {
+		window.location.hash = "#/setup";
+		return;
+	}
+	const started = performance.now();
+	await useOwnPerson();
+	console.info(`Switched to your own photo and voice from ${from} (${Math.round(performance.now() - started)} ms)`);
+	window.location.hash = "#/chat";
+}
 function InUseMark({ shown }) {
 	return shown ? /* @__PURE__ */ u("span", {
 		className: "in-use",
@@ -512,12 +527,15 @@ function InUseMark({ shown }) {
 function ChangeSetup() {
 	const [accepted, setAccepted] = d(null);
 	const [inUse, setInUse] = d(null);
+	const [ownAccepted, setOwnAccepted] = d(false);
+	const [failed, setFailed] = d(null);
 	h(() => {
 		const started = performance.now();
 		getReview().then((r) => {
 			const avatar = r.default_person ? "ready-made" : "own";
 			setAccepted(r.accepted);
 			setInUse(avatar);
+			setOwnAccepted(r.own_sample_accepted === true);
 			const took = Math.round(performance.now() - started);
 			console.info(`Sample accepted: ${r.accepted}, avatar in use: ${avatar} (${took} ms)`);
 		}).catch((e) => console.error("Could not get the review", e));
@@ -540,15 +558,29 @@ function ChangeSetup() {
 					className: inUse === "own" ? "avatar-option chosen" : "avatar-option",
 					children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), inUse === "ready-made" ? /* @__PURE__ */ u("div", {
 						className: "switch",
-						children: [/* @__PURE__ */ u("a", {
-							className: "button secondary",
-							href: "#/setup",
-							onClick: () => console.info("Switching to your own photo and voice from Settings"),
-							children: "Use your own photo and voice"
-						}), /* @__PURE__ */ u("p", {
-							className: "muted",
-							children: "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."
-						})]
+						children: [
+							/* @__PURE__ */ u("a", {
+								className: "button secondary",
+								href: "#/setup",
+								onClick: (e) => {
+									console.info("Switching to your own photo and voice from Settings");
+									e.preventDefault();
+									switchToOwn(ownAccepted, "Settings").catch((err) => {
+										console.error("Could not switch to your own photo and voice", err);
+										setFailed(err.message);
+									});
+								},
+								children: "Use your own photo and voice"
+							}),
+							/* @__PURE__ */ u("p", {
+								className: "muted",
+								children: ownAccepted ? "Your sample video is already accepted: the chat switches to it at once." : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."
+							}),
+							failed && /* @__PURE__ */ u("p", {
+								className: "error",
+								children: failed
+							})
+						]
 					}) : /* @__PURE__ */ u(S, { children: [
 						/* @__PURE__ */ u("p", {
 							className: "muted",
@@ -3882,11 +3914,37 @@ function ReviewChoices(props) {
 		}
 		setSaving(null);
 	}
+	const avatar = current?.default_person === true;
+	const accepted = avatar ? current?.own_sample_accepted === true : current?.accepted;
+	async function useIt() {
+		setSaving("accept");
+		setFailed(null);
+		try {
+			await switchToOwn(true, "Setup");
+		} catch (e) {
+			console.error("Could not switch to your own photo and voice", e);
+			setFailed(`Could not switch: ${e.message}`);
+		}
+		setSaving(null);
+	}
 	return /* @__PURE__ */ u("div", {
 		className: "review",
 		children: [
 			/* @__PURE__ */ u("h3", { children: "Is this right?" }),
-			current?.accepted ? /* @__PURE__ */ u("p", {
+			accepted && avatar ? /* @__PURE__ */ u("p", {
+				className: "done",
+				children: [
+					"You accepted this sample, but the chat uses a ready-made avatar.",
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "link",
+						disabled: saving !== null,
+						onClick: () => void useIt(),
+						children: "Use your own photo and voice in the chat"
+					})
+				]
+			}) : accepted ? /* @__PURE__ */ u("p", {
 				className: "done",
 				children: ["You accepted this sample. ", /* @__PURE__ */ u("a", {
 					href: "#/chat",
@@ -3898,7 +3956,7 @@ function ReviewChoices(props) {
 			}),
 			/* @__PURE__ */ u("div", {
 				className: "choices",
-				children: [!current?.accepted && /* @__PURE__ */ u("button", {
+				children: [!accepted && /* @__PURE__ */ u("button", {
 					type: "button",
 					className: saving === "accept" ? "busy" : void 0,
 					disabled: saving !== null,
@@ -3923,10 +3981,12 @@ function ChatPage() {
 	const participant = useSettings().view === "participant";
 	const [accepted, setAccepted] = d(null);
 	const [readyMade, setReadyMade] = d(false);
+	const [ownAccepted, setOwnAccepted] = d(false);
 	h(() => {
 		getReview().then((r) => {
 			setAccepted(r.accepted);
 			setReadyMade(r.default_person === true);
+			setOwnAccepted(r.own_sample_accepted === true);
 		}).catch((e) => {
 			console.error("Could not get the review", e);
 			setAccepted(false);
@@ -3962,7 +4022,10 @@ function ChatPage() {
 				className: "sr-only",
 				children: "Chat"
 			}),
-			!participant && /* @__PURE__ */ u(AvatarLinks, { readyMade }),
+			!participant && /* @__PURE__ */ u(AvatarLinks, {
+				readyMade,
+				ownAccepted
+			}),
 			/* @__PURE__ */ u(Chat, {
 				welcome: returned,
 				after: asked.current,
@@ -3974,7 +4037,7 @@ function ChatPage() {
 		]
 	});
 }
-function AvatarLinks({ readyMade }) {
+function AvatarLinks({ readyMade, ownAccepted }) {
 	return /* @__PURE__ */ u("p", {
 		className: "avatar-links",
 		children: [/* @__PURE__ */ u("span", {
@@ -3998,7 +4061,12 @@ function AvatarLinks({ readyMade }) {
 			"their own photo"
 		]]).map(([href, label, what]) => /* @__PURE__ */ u("a", {
 			href,
-			onClick: () => console.info(`Choosing ${what} from the chat`),
+			onClick: (e) => {
+				console.info(`Choosing ${what} from the chat`);
+				if (href !== "#/setup" || !readyMade) return;
+				e.preventDefault();
+				switchToOwn(ownAccepted, "the chat").then(() => ownAccepted && window.location.reload()).catch((err) => console.error("Could not switch to your own photo and voice", err));
+			},
 			children: label
 		}, href))]
 	});
