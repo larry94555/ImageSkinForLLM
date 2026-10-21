@@ -3,6 +3,7 @@ reviewed with the user's recordings, and its ready-made voice until that sample 
 
 import functools
 import logging
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,11 +20,12 @@ from imageskin.app import (
     WAIT_FOR_PREPARE_AVATAR,
     create_app,
 )
-from imageskin.prepare_job import AVATAR_PREFIX, PrepareStatus
-from imageskin.uploads import NO_VOICE, UploadStore, VoiceSample
+from imageskin.prepare_job import AVATAR_PREFIX, PrepareError, PrepareStatus
+from imageskin.uploads import NO_VOICE, PhotoResult, UploadStore, VoiceSample
 
 pack = test_start_now.pack  # the fixture: a real, small pack of the person CHOICE names
 RECORDINGS = VoiceSample(2, 40, 35, None)  # recordings that passed the checks
+JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
 
 
 @pytest.fixture
@@ -32,9 +34,31 @@ def rendered() -> list[tuple[str, str]]:
     return []
 
 
+class Gate:
+    """Holds Prepare's voice step, when closed, until opened: Prepare is then running."""
+
+    def __init__(self) -> None:
+        self.reached = threading.Event()
+        self.opened = threading.Event()
+        self.opened.set()
+
+    def __call__(self) -> None:
+        self.reached.set()
+        assert self.opened.wait(10)
+
+
+@pytest.fixture
+def gate() -> Gate:
+    return Gate()
+
+
 @pytest.fixture
 def client(
-    tmp_path: Path, pack: Path, rendered: list[tuple[str, str]], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    pack: Path,
+    rendered: list[tuple[str, str]],
+    gate: Gate,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> TestClient:
     monkeypatch.setattr(
         "imageskin.app.StartNow",
@@ -49,7 +73,8 @@ def client(
     return TestClient(
         create_app(
             tmp_path,
-            prepare_voice=lambda: None,
+            check_photo=lambda photo: PhotoResult([], 80),
+            prepare_voice=gate,
             prepare_face=lambda photo, progress: None,
             render_clip=render,
             ask_llm=lambda messages: "Hello there",
@@ -151,13 +176,53 @@ def test_an_avatar_is_needed(client: TestClient) -> None:
     assert refused.status_code == 409 and refused.json()["detail"] == NO_AVATAR
 
 
-def test_waits_for_a_prepare_running(client: TestClient) -> None:
+def test_ready_voice_waits_for_the_avatar_being_prepared(
+    client: TestClient, gate: Gate, rendered: list[tuple[str, str]]
+) -> None:
+    """Codex's review of PR #131: switching back mid-Prepare left the job without its picture.
+    Now it is refused until Prepare has finished, with the avatar still in the user's voice."""
+    choose(client)
+    client.put("/api/start-now/own-voice", json={"agreed": True})
+    picture = client.app.state.start_now.picture()  # type: ignore[attr-defined]
+    rendered.clear()
+    gate.opened.clear()
+    with patch.object(UploadStore, "voice_sample", return_value=RECORDINGS):
+        assert client.post("/api/prepare").json()["state"] == "running"
+        assert gate.reached.wait(10)  # Prepare holds in its voice step
+        refused = client.delete("/api/start-now/own-voice")
+        assert refused.status_code == 409 and refused.json()["detail"] == WAIT_FOR_PREPARE_AVATAR
+        assert client.app.state.start_now.own_voice() is True  # type: ignore[attr-defined]
+        gate.opened.set()
+        job = client.app.state.prepare_job  # type: ignore[attr-defined]
+        job.wait(10)
+        assert job.status().state == "done"  # for the avatar, as it was asked
+        assert {name for name, _ in rendered} == {picture.name}
+        assert client.delete("/api/start-now/own-voice").status_code == 200
+
+
+def test_own_voice_waits_for_your_own_photo_being_prepared(client: TestClient, gate: Gate) -> None:
+    """A Prepare of the user's own photo started first is not switched to the avatar midway."""
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    choose(client)
+    gate.opened.clear()
+    with patch.object(UploadStore, "voice_sample", return_value=RECORDINGS):
+        assert client.post("/api/prepare").json()["state"] == "running"
+        assert gate.reached.wait(10)
+        refused = client.put("/api/start-now/own-voice", json={"agreed": True})
+        assert refused.status_code == 409 and refused.json()["detail"] == WAIT_FOR_PREPARE_AVATAR
+        assert client.app.state.start_now.own_voice() is False  # type: ignore[attr-defined]
+        gate.opened.set()
+        client.app.state.prepare_job.wait(10)  # type: ignore[attr-defined]
+        assert client.put("/api/start-now/own-voice", json={"agreed": True}).status_code == 200
+
+
+def test_the_change_is_refused_while_a_sample_is_made_again(client: TestClient) -> None:
     choose(client)
     job = client.app.state.prepare_job  # type: ignore[attr-defined]
-    running = PrepareStatus("running", "x")
-    with patch.object(type(job), "status", return_value=running):
+    with patch.object(type(job), "change_voice", side_effect=PrepareError("busy")):
         refused = client.put("/api/start-now/own-voice", json={"agreed": True})
-    assert refused.status_code == 409 and refused.json()["detail"] == WAIT_FOR_PREPARE_AVATAR
+    assert refused.status_code == 409 and refused.json()["detail"] == "busy"
 
 
 def test_choosing_an_avatar_again_brings_its_ready_made_voice(client: TestClient) -> None:

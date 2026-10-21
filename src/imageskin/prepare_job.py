@@ -255,10 +255,16 @@ class PrepareJob:
                 return PrepareStatus("idle")
         return status
 
-    def change_voice(self, change: Callable[[], object]) -> bool:
-        """Change the accent, or the ready-made voice used without recordings (item 59), with
-        `change`, unless a job is running: it would finish in the voice from before. While the
-        sample is made again, PrepareError. When the clips were ready, prepare again at once
+    def peek(self) -> PrepareStatus:
+        """status() without the job's lock, for the replies' voice (R24d): a reply holds the
+        voice engine, which Delete my data takes under this lock. One reference read is atomic."""
+        return self._current(self._status)
+
+    def change_voice(self, change: Callable[[], object], prepare_again: bool = True) -> bool:
+        """Change the accent, or the ready-made voice used without recordings (item 59), or
+        whether the ready-made avatar speaks in the user's voice (R24d), with `change`, unless a
+        job is running: it would finish in the voice from before. While the sample is made
+        again, PrepareError. When the clips were ready and `prepare_again`, prepare again at once
         (the face is kept, so only the voice and the clips are redone).
         Whether it was changed.
 
@@ -270,7 +276,7 @@ class PrepareJob:
             self._refuse_if_busy()
             prepared = self._current(self._status).state == "done"
             change()
-            if prepared and self._current(self._status).state == "idle":
+            if prepare_again and prepared and self._current(self._status).state == "idle":
                 logger.info("Voice changed; preparing the sample again")
                 try:
                     self._start()

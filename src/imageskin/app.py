@@ -867,7 +867,7 @@ def create_app(
     def avatar_in_own_voice() -> bool:
         """Whether the ready-made avatar speaks in the user's own voice now (R24d): it was asked
         to, and its sample in that voice is accepted."""
-        return start_now.own_voice() and load_review(data_home, job.status()).accepted
+        return start_now.own_voice() and load_review(data_home, job.peek()).accepted
 
     def reply_preset() -> tuple[str, str] | None:
         """The ready-made voice the replies speak in, or None for the user's own."""
@@ -1105,22 +1105,36 @@ def create_app(
         the sample is accepted, the avatar keeps its ready-made voice."""
         if not body.agreed:
             raise HTTPException(status_code=400, detail=VOICE_CONSENT_NEEDED)
+
+        def change() -> None:
+            save_consent(data_home)  # opens the recordings, Prepare and review
+            start_now.set_own_voice(True)
+
         with data_lock:
             not_deleted_since(seen)
             if start_now.chosen() is None:
                 raise HTTPException(status_code=409, detail=NO_AVATAR)
-            if job.status().state == "running":  # it would finish for what was prepared before
-                raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE_AVATAR)
-            save_consent(data_home)  # opens the recordings, Prepare and review
-            start_now.set_own_voice(True)
+            change_avatar_voice(change)
         return get_review()
+
+    def change_avatar_voice(change: Callable[[], None]) -> None:
+        """Under the prepare job's lock, as the accent is: refused while Prepare runs, which
+        would finish for the picture and voice from before (Codex's review of PR #131), and
+        while the sample is made again or an avatar is got ready."""
+        try:
+            changed = job.change_voice(change, prepare_again=False)
+        except PrepareError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        if not changed:
+            logger.warning("Avatar's voice not changed while Prepare runs")
+            raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE_AVATAR)
 
     @app.delete("/api/start-now/own-voice", dependencies=needs_consent)
     def use_ready_voice(seen: DeletesSeen) -> dict[str, object]:
         """The ready-made avatar speaks in its ready-made voice again (R24d)."""
         with personal_write(seen):
             if start_now.chosen() is not None:
-                start_now.set_own_voice(False)
+                change_avatar_voice(lambda: start_now.set_own_voice(False))
         return get_review()
 
     @app.post("/api/review", dependencies=needs_consent)
