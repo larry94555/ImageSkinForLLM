@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
+from imageskin.reply_times import note, note_llm, note_now
 from imageskin.sentences import SentenceSplitter
 from imageskin.topics import (
     asks_for_topics,
@@ -619,7 +620,9 @@ class LlmClient:
                     data = line.removeprefix("data:").strip()
                     if data == "[DONE]":
                         return
-                    choice = json.loads(data)["choices"][0]
+                    event = json.loads(data)
+                    note_llm(event.get("timings"))  # llama-server's, with the last piece (R96)
+                    choice = event["choices"][0]
                     finished = finished or choice.get("finish_reason") is not None
                     delta = choice.get("delta", {})
                     if delta.get("refusal"):
@@ -944,6 +947,7 @@ class Conversation:
             *map(as_message, turns),
             {"role": "user", "content": asked},
         ]
+        note(history_tokens=history_tokens(self._summary, turns, count))
         logger.info(
             "Chat prompt sent",
             extra={
@@ -1129,6 +1133,7 @@ class Conversation:
         over as a sentence of its own, so the first clip is short (roadmap R22b)."""
         assert self._stream is not None
         start = time.perf_counter()
+        note(prompt_sent_at=start)
         splitter = SentenceSplitter(first_clause=on_sentence is not None)
         pieces: list[str] = []
         count = 0  # sentences so far
@@ -1137,6 +1142,7 @@ class Conversation:
             nonlocal count
             for sentence in sentences:
                 count += 1
+                note_now("first_sentence_at")
                 logger.info(
                     "Reply sentence ready",
                     extra={
@@ -1153,11 +1159,13 @@ class Conversation:
             if stop is not None and stop.is_set():  # a provider's stream, which isn't cut off
                 raise LlmCancelled("Cut off while the LLM was answering.")
             if not pieces:
+                note_now("first_token_at")
                 logger.info("Reply started", extra={"since_prompt_ms": ms_since(start)})
                 if on_sentence is not None:
                     on_sentence(None)
             pieces.append(piece)
             ready(splitter.feed(piece))
+        note_now("last_token_at")
         ready(splitter.flush())
         content = "".join(pieces).strip()
         if not content:

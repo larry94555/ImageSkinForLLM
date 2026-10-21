@@ -83,6 +83,7 @@ class ClipTime:
 
     sentence_at: float
     ready_at: float
+    started_at: float | None = None  # when its voice step began (roadmap R96)
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class Spoken:
     n: int  # the sentence's number in the reply
     wav: Path
     sentence_at: float
+    started_at: float | None = None  # when it began to be spoken
 
 
 def text_steps(render_clip: RenderClip) -> ClipSteps:
@@ -118,6 +120,7 @@ class SentenceClips:
         self.clips: list[Path] = []  # listed as soon as each is being written (roadmap R22d)
         self.rendered = 0  # how many of them are whole
         self.times: list[ClipTime] = []  # one per clip
+        self.whole_at: list[float] = []  # when each clip was whole, so far (roadmap R96)
         self.sentences = 0  # given so far
         self._queue: queue.Queue[tuple[str, float] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -261,7 +264,7 @@ class SentenceClips:
                 "since_sentence_ms": ms_since(sentence_at),
             },
         )
-        return Spoken(n, wav, sentence_at)
+        return Spoken(n, wav, sentence_at, start)
 
     def _render(self, spoken: Spoken) -> float:
         """Render the spoken sentence's clip, listed as soon as the video step starts so the
@@ -270,7 +273,7 @@ class SentenceClips:
         path = self.folder / f"{len(self.clips) + 1}.mp4"
         listed_at = time.perf_counter()
         with self._changed:
-            self.times.append(ClipTime(spoken.sentence_at, listed_at))
+            self.times.append(ClipTime(spoken.sentence_at, listed_at, spoken.started_at))
             self.clips.append(path)
             self._changed.notify_all()
         try:
@@ -286,6 +289,7 @@ class SentenceClips:
             spoken.wav.with_suffix(".json").unlink(missing_ok=True)
         with self._changed:
             self.rendered += 1
+            self.whole_at.append(time.perf_counter())
             self._changed.notify_all()
         return listed_at
 

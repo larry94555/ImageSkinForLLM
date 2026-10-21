@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from imageskin import reply_times
 from imageskin.app import CHAT_LOCKED, create_app
 from imageskin.chat import (
     EARLIER,
@@ -528,6 +529,51 @@ def test_the_client_streams_the_reply(fake_llm: str) -> None:
     assert FakeLlm.received[0]["stream"] is True
 
 
+def test_llama_servers_timings_are_kept_for_the_prompt(fake_llm: str) -> None:
+    """R96: llama-server sends its own timings with the last piece; they are kept for the
+    prompt being answered, without the fields the readout doesn't use."""
+    timings = {"cache_n": 120, "prompt_n": 30, "prompt_per_second": 41.5, "predicted_n": 9}
+    last = {"choices": [{"delta": {}, "finish_reason": "stop"}], "timings": {**timings, "x": 1}}
+    answer = events("Hello.").replace(b"data: [DONE]", b"data: " + json.dumps(last).encode())
+    FakeLlm.answer = (200, answer + b"\n\ndata: [DONE]\n\n")
+    times = reply_times.ReplyTimes(received_at=time.perf_counter())
+    token = reply_times.current.set(times)
+    try:
+        client = LlmClient(LlmSettings(url=fake_llm))
+        assert list(client.stream([{"role": "user", "content": "Hi"}])) == ["Hello."]
+    finally:
+        reply_times.current.reset(token)
+    assert times.llm == timings
+
+
+def test_a_streamed_replys_times_are_kept_for_the_prompt() -> None:
+    """R96: the first token, first sentence and last token, and the history sent."""
+
+    def stream(messages: list[Message]) -> Iterator[str]:
+        yield from ["Hi there. ", "Bye", " now."]
+
+    conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream)
+    times = reply_times.ReplyTimes(received_at=time.perf_counter())
+    token = reply_times.current.set(times)
+    try:
+        conversation.send("Hi")
+    finally:
+        reply_times.current.reset(token)
+    assert times.prompt_sent_at is not None and times.first_token_at is not None
+    assert times.first_sentence_at is not None and times.last_token_at is not None
+    assert times.prompt_sent_at <= times.first_token_at <= times.first_sentence_at
+    assert times.first_sentence_at <= times.last_token_at
+    assert times.history_tokens == 0  # nothing said before it
+    conversation.send("Again")  # with no times being kept, nothing fails
+    again = reply_times.ReplyTimes(received_at=time.perf_counter())
+    token = reply_times.current.set(again)
+    try:
+        conversation.send("Once more")
+    finally:
+        reply_times.current.reset(token)
+    assert again.history_tokens is not None and again.history_tokens > 0
+
+
 @pytest.mark.parametrize(
     ("answer", "message"),
     [
@@ -768,7 +814,9 @@ def test_the_api_chats_once_the_sample_is_accepted(tmp_path: Path) -> None:
 
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         answer = client.post("/api/chat", json={"prompt": "Hi"})
-        assert answer.json() == {
+        times = answer.json().pop("timings")  # where the time went (R96): not streamed, no tokens
+        assert times["first_token_at"] is None and times["answered_at"] >= times["received_at"]
+        assert {k: v for k, v in answer.json().items() if k != "timings"} == {
             "role": "assistant",
             "content": "You said Hi",
             "turn": 1,

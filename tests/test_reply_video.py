@@ -766,6 +766,7 @@ def test_the_api_speaks_a_reply_and_serves_its_video(tmp_path: Path) -> None:
     client = video_app(tmp_path, render)
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         reply = client.post("/api/chat", json={"prompt": "Hi"}).json()
+        assert reply.pop("timings")["llm"] is None  # where the time went (R96)
         assert reply == {
             "role": "assistant",
             "content": "You said **Hi**",
@@ -1059,6 +1060,16 @@ def test_the_api_serves_a_streamed_replys_clips_as_they_are_made(tmp_path: Path)
         # Each clip says when its sentence arrived and when it was ready, on the server's clock.
         for clip in status["clips"]:
             assert clip["sentence_at"] <= clip["ready_at"] <= status["now"]
+            # R96: and when its voice began and when its video was whole.
+            assert clip["sentence_at"] <= clip["started_at"] <= clip["ready_at"]
+            assert clip["ready_at"] <= clip["whole_at"] <= status["now"]
+        # R96: the reply comes with where its time went, on the same clock.
+        times = sent.json()["timings"]
+        assert times["waited_turn_ms"] >= 0 and times["llm"] is None
+        assert times["received_at"] <= times["prompt_sent_at"] <= times["first_token_at"]
+        assert times["first_token_at"] <= times["first_sentence_at"] <= times["last_token_at"]
+        assert times["last_token_at"] <= times["answered_at"]
+        assert status["clips"][0]["sentence_at"] >= times["first_sentence_at"]
         assert said == ["Hi Larry.", "How are you?"]
         clip = client.get(f"{clips_api}/2")
         assert clip.headers["content-type"] == "video/mp4" and clip.content[4:8] == b"ftyp"
