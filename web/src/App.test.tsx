@@ -3860,17 +3860,49 @@ function avatarServer(readyMade: boolean, view: "host" | "participant" = "host",
   return fetchMock;
 }
 
-test("the chat switches back to the host's own at once when its sample is accepted", async () => {
-  const fetchMock = avatarServer(true, "host", true);
-  const reload = vi.fn();
-  vi.stubGlobal("location", { ...window.location, hash: "#/chat", reload });
+// Choosing your own over a ready-made avatar shows Before you start again, though consent was
+// given before (Larry's test of PR #131).
+async function chooseOwnFromChat() {
   await openAt("#/chat");
   const own = await screen.findByRole("link", { name: "Use your own photo and voice" });
+  expect(own.getAttribute("href")).toBe("#/consent/own");
   await act(async () => {
     fireEvent.click(own);
   });
-  await waitFor(() => expect(reload).toHaveBeenCalled());
+  expect(await screen.findByRole("heading", { name: "Before you start" })).toBeTruthy();
+  expect(screen.getByText("Only use images you have the right to use. Ideally, use your own picture.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("checkbox"));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  });
+}
+
+test("from the chat, your own accepted sample is used at once after Before you start", async () => {
+  const fetchMock = avatarServer(true, "host", true);
+  await chooseOwnFromChat();
+  await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  expect(fetchMock).toHaveBeenCalledWith("/api/consent", expect.objectContaining({ method: "POST" }));
   expect(fetchMock).toHaveBeenCalledWith("/api/start-now", { method: "DELETE" });
+});
+
+test("from the chat, Before you start leads to setup when your own sample isn't accepted", async () => {
+  const fetchMock = avatarServer(true, "host", false);
+  await chooseOwnFromChat();
+  await waitFor(() => expect(window.location.hash).toBe("#/setup"));
+  expect(fetchMock).not.toHaveBeenCalledWith("/api/start-now", { method: "DELETE" });
+});
+
+test("a failed switch after Before you start opens setup", async () => {
+  const fetchMock = avatarServer(true, "host", true);
+  const passOn = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+    url === "/api/start-now" && init?.method === "DELETE"
+      ? Response.json({ detail: "Accept it first." }, { status: 409 })
+      : passOn(url, init),
+  );
+  await chooseOwnFromChat();
+  await waitFor(() => expect(window.location.hash).toBe("#/setup"));
+  expect(console.error).toHaveBeenCalledWith("Could not switch to your own photo and voice", expect.anything());
 });
 
 test("the chat links to a ready-made avatar or a new photo while the host's own is in use", async () => {
@@ -3883,6 +3915,8 @@ test("the chat links to a ready-made avatar or a new photo while the host's own 
   expect(photo.getAttribute("href")).toBe("#/setup/photos");
   fireEvent.click(readyMade);
   expect(info).toHaveBeenCalledWith("Choosing a ready-made avatar from the chat");
+  // The click's navigation lands before the next test opens its page.
+  await waitFor(() => expect(window.location.hash).toBe("#/start-now"));
 });
 
 test("the chat links to another avatar or the host's own while a ready-made one is in use", async () => {
@@ -3891,7 +3925,7 @@ test("the chat links to another avatar or the host's own while a ready-made one 
   const another = await screen.findByRole("link", { name: "Choose another avatar" });
   expect(another.getAttribute("href")).toBe("#/start-now");
   const own = screen.getByRole("link", { name: "Use your own photo and voice" });
-  expect(own.getAttribute("href")).toBe("#/setup");
+  expect(own.getAttribute("href")).toBe("#/consent/own");
 });
 
 test("the participant view's chat has no Avatar Choice links", async () => {

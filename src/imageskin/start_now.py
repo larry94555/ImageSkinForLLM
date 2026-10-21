@@ -11,7 +11,9 @@ The page offers no role (Larry's test of PR #124) and no gender (Larry, 2026-10-
 person is still named by the gender and role they were made for and their face number, which the
 choice carries; the gender picks the voice. The choice is saved as
 default-person.json in the home. While it is there, the chat uses the default person's picture
-and voice instead of the person's own (see `PresetVoice`).
+and voice instead of the person's own (see `PresetVoice`). With `own_voice` set in it (R24d), the
+avatar is to speak in the user's own recorded voice instead, once its sample in that voice is
+accepted; choosing an avatar again starts it in its ready-made voice.
 """
 
 import json
@@ -191,6 +193,24 @@ class StartNow:
             return None
         return None if choice.problem() else choice
 
+    def own_voice(self) -> bool:
+        """Whether the chosen avatar is to speak in the user's own recorded voice (R24d)."""
+        try:
+            data = json.loads((self._home / CHOICE_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False  # none chosen; chosen() logs a file that can't be read
+        return isinstance(data, dict) and data.get("own_voice") is True and bool(self.chosen())
+
+    def set_own_voice(self, on: bool) -> None:
+        """Make the chosen avatar speak in the user's own voice (R24d), or in its ready-made
+        one again. ValueError when no avatar is chosen."""
+        choice = self.chosen()
+        if choice is None:
+            raise ValueError("No ready-made avatar is chosen.")
+        # With the replies paused: once its sample is accepted, the voice changes at once.
+        self._activate(lambda: self._write(choice, own_voice=on))
+        logger.info("Avatar's voice chosen", extra={"person": choice.name, "own_voice": on})
+
     def picture(self) -> Path | None:
         """The chosen default person's picture, the photo the videos are made from."""
         choice = self.chosen()
@@ -249,14 +269,21 @@ class StartNow:
         return self._folder / "lines" / f"{choice.name}_{choice.accent.lower()}"
 
     def _save(self, choice: Choice) -> None:
+        self._write(choice)  # in its ready-made voice, even if chosen before in the user's own
+        # The user's own photo speaks in it until they add recordings (item 59).
+        save_ready_voice(self._home, choice.voice[1])
+
+    def _write(self, choice: Choice, own_voice: bool = False) -> None:
         self._home.mkdir(parents=True, exist_ok=True)
         path = self._home / CHOICE_FILE
         tmp = self._home / CHOICE_SAVING_FILE
-        data = {**asdict(choice), "chosen_at": datetime.now(UTC).isoformat(timespec="seconds")}
+        data = {
+            **asdict(choice),
+            "chosen_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "own_voice": own_voice,
+        }
         tmp.write_text(json.dumps(data), encoding="utf-8")
         os.replace(tmp, path)
-        # The user's own photo speaks in it until they add recordings (item 59).
-        save_ready_voice(self._home, choice.voice[1])
 
     # Getting the person ready
 

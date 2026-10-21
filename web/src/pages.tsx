@@ -29,6 +29,7 @@ import {
   getReadyVoice,
   chooseReadyVoice,
   type ReadyVoice,
+  useAvatarReadyVoice,
   lineUrl,
   getVoiceSample,
   type Kind,
@@ -56,8 +57,9 @@ import { switchToOwn } from "./change-setup";
 import { Checks, minutes } from "./checks";
 import { useConfirm } from "./confirm-dialog";
 import { ExitScreen } from "./exit";
+import { useLeaveGuard } from "./leave-guard";
 import { ASSESSMENT_KEY, LESSON_KEY, QUIZ_KEY } from "./progress";
-import type { SetupPart } from "./router";
+import { OWN_CONSENT, type SetupPart } from "./router";
 import { useSettings } from "./settings";
 import { TalkButton } from "./talk";
 
@@ -146,7 +148,48 @@ export function SetupPage({ change }: { change?: SetupPart }) {
     console.info(`Setup opened to change the ${change}`);
     goBack(change, CHANGE_NOTICE[change]);
   }, [change]);
+  // While a ready-made avatar is to speak in the user's voice (R24d), Prepare makes the avatar's
+  // video, so setting up their own photo starts by undoing that.
+  const [avatarVoice, setAvatarVoice] = useState(false);
+  const [undoFailed, setUndoFailed] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
+  useEffect(() => {
+    getReview()
+      .then((r) => setAvatarVoice(r.own_voice === true))
+      .catch((e: unknown) => console.error("Could not get the review", e));
+  }, []);
+  async function ownPhotoInstead() {
+    const started = performance.now();
+    setUndoFailed(null);
+    try {
+      await useAvatarReadyVoice();
+      console.info(`Setting up your own photo instead of the avatar's voice (${Math.round(performance.now() - started)} ms)`);
+      setAvatarVoice(false);
+      changed();
+    } catch (e) {
+      console.error("Could not set up your own photo instead", e);
+      setUndoFailed((e as Error).message);
+    }
+  }
   const notice = (to: Back) => (back?.to === to ? back.notice : null);
+  if (avatarVoice) {
+    return (
+      <div className="host-page">
+        <h1>Setup</h1>
+        <p className="notice">
+          The ready-made avatar is set to speak in your voice, so Prepare makes the avatar&apos;s
+          video. <a href="#/avatar-voice">Go to your voice for the avatar</a>, or set up your own
+          photo instead: the avatar then speaks in its ready-made voice until you accept your own
+          sample video.
+        </p>
+        <button type="button" onClick={() => void ownPhotoInstead()}>
+          Set up my own photo instead
+        </button>
+        {undoFailed && <p className="error">{undoFailed}</p>}
+      </div>
+    );
+  }
   return (
     <div className="host-page">
       <h1>Setup</h1>
@@ -192,7 +235,13 @@ export function SetupPage({ change }: { change?: SetupPart }) {
       />
       <ReadyVoiceChoice changes={changes} onChange={changed} />
       <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
-      <PrepareSection changes={changes} onRunning={setPreparing} onBack={goBack} />
+      <PrepareSection
+        changes={changes}
+        onRunning={setPreparing}
+        onBack={goBack}
+        onPending={setPending}
+      />
+      {leaveDialog}
     </div>
   );
 }
@@ -266,11 +315,11 @@ interface Refused {
 }
 
 // "Step 2 of 4" over a Setup section's heading.
-function StepOf({ n }: { n: number }) {
+export function StepOf({ n }: { n: number }) {
   return <p className="step-of">Step {n} of 4</p>;
 }
 
-function UploadSection(props: {
+export function UploadSection(props: {
   kind: Kind;
   step: number;
   title: string;
@@ -542,7 +591,7 @@ const ACCENTS: { accent: Accent; label: string }[] = [
 
 // Setup (roadmap R26): the person's voice keeps their own accent or speaks with another one.
 // Changing it after the sample is ready makes the sample again in the new accent.
-function AccentSection(props: {
+export function AccentSection(props: {
   onChange: () => void;
   preparing: boolean;
   notice: string | null;
@@ -621,10 +670,12 @@ export const PREPARE_POLL_MS = 1000;
 // Setup step 2 (roadmap R12): get the voice and the face ready for the video, with a progress
 // bar, then play the sample video it renders (R13). The job runs on the server, so the page can
 // be closed or reloaded meanwhile.
-function PrepareSection(props: {
+export function PrepareSection(props: {
   changes: number;
   onRunning: (running: boolean) => void;
   onBack: (to: Back) => void;
+  avatarVoice?: boolean; // a ready-made avatar's picture in the user's voice (R24d)
+  onPending?: (pending: boolean) => void; // a sample is neither accepted nor rejected
 }) {
   const { changes, onRunning } = props;
   // null until the server has answered.
@@ -733,7 +784,12 @@ function PrepareSection(props: {
             src={clipUrl("sample", status)}
             aria-label="Sample video"
           />
-          <ReviewChoices sample={status.finished_at} onBack={props.onBack} />
+          <ReviewChoices
+            sample={status.finished_at}
+            onBack={props.onBack}
+            avatarVoice={props.avatarVoice}
+            onPending={props.onPending}
+          />
         </div>
       )}
       {status?.state === "failed" && <p className="error">{status.error}</p>}
@@ -749,10 +805,17 @@ const REJECTS: { decision: Decision; label: string; back: Back }[] = [
 
 // Under the sample video (roadmap R14): accept it and go to the chat, or go back to the photos,
 // the recordings or the accent. sample tells samples apart, so a new one is read afresh.
-function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => void }) {
+function ReviewChoices(props: {
+  sample: string | null;
+  onBack: (to: Back) => void;
+  avatarVoice?: boolean;
+  onPending?: (pending: boolean) => void;
+}) {
   // null until the server has answered.
   const [current, setCurrent] = useState<Review | null>(null);
-  const [saving, setSaving] = useState<Decision | null>(null);
+  // The sample rejected here, so leaving the page afterwards doesn't ask (Larry's test of #131).
+  const [rejected, setRejected] = useState<string | null>(null);
+  const [saving, setSaving] = useState<Decision | "default-voice" | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
@@ -761,11 +824,27 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
       .catch((e: unknown) => console.error("Could not get the review", e));
   }, [props.sample]);
 
+  async function defaultVoice() {
+    const started = performance.now();
+    setSaving("default-voice");
+    setFailed(null);
+    try {
+      setCurrent(await useAvatarReadyVoice());
+      console.info(`Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`);
+      window.location.hash = "#/chat";
+    } catch (e) {
+      console.error("Could not use the avatar's default voice again", e);
+      setFailed(`Could not return to the default voice: ${(e as Error).message}`);
+    }
+    setSaving(null);
+  }
+
   async function decide(decision: Decision, back?: Back) {
     setSaving(decision);
     setFailed(null);
     try {
       setCurrent(await review(decision));
+      if (back) setRejected(props.sample);
       if (back) props.onBack(back);
       else window.location.hash = "#/chat";
     } catch (e) {
@@ -776,9 +855,22 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
   }
 
   // With a ready-made avatar in use, the chat is open whatever this sample's review; what counts
-  // is whether this sample, of the user's own, is accepted (Larry's test of PR #128).
+  // is whether this sample, of the user's own, is accepted (Larry's test of PR #128), or, with
+  // the avatar to speak in the user's voice, the avatar's sample in that voice (R24d).
   const avatar = current?.default_person === true;
-  const accepted = avatar ? current?.own_sample_accepted === true : current?.accepted;
+  const avatarVoice = props.avatarVoice === true || (avatar && current?.own_voice === true);
+  const accepted = avatarVoice
+    ? current?.voice_accepted === true
+    : avatar
+      ? current?.own_sample_accepted === true
+      : current?.accepted;
+  // Neither accepted nor rejected yet: leaving setup asks first (Larry's test of PR #131).
+  const pending = current !== null && !accepted && rejected !== props.sample;
+  const { onPending } = props;
+  useEffect(() => onPending?.(pending), [pending]);
+  useEffect(() => () => onPending?.(false), []);
+  // The avatar's picture is not the user's to reject (R24d).
+  const rejects = avatarVoice ? REJECTS.filter((r) => r.back !== "photos") : REJECTS;
   async function useIt() {
     setSaving("accept");
     setFailed(null);
@@ -793,7 +885,7 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
   return (
     <div className="review">
       <h3>Is this right?</h3>
-      {accepted && avatar ? (
+      {accepted && avatar && !avatarVoice ? (
         <p className="done">
           You accepted this sample, but the chat uses a ready-made avatar.{" "}
           <button type="button" className="link" disabled={saving !== null} onClick={() => void useIt()}>
@@ -805,7 +897,11 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
           You accepted this sample. <a href="#/chat">Go to the chat</a>
         </p>
       ) : (
-        <p className="muted">Accept it to unlock the chat, or go back and change what is wrong.</p>
+        <p className="muted">
+          {avatarVoice
+            ? "Accept it to have the avatar speak in your voice, go back and change what is wrong, or return to the avatar's default voice."
+            : "Accept it to unlock the chat, or go back and change what is wrong."}
+        </p>
       )}
       <div className="choices">
         {!accepted && (
@@ -818,7 +914,7 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
             Accept
           </button>
         )}
-        {REJECTS.map(({ decision, label, back }) => (
+        {rejects.map(({ decision, label, back }) => (
           <button
             key={decision}
             type="button"
@@ -829,6 +925,17 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
             {label}
           </button>
         ))}
+        {avatarVoice && (
+          // Back to the avatar's default voice, with nothing to accept (Larry's test of #131).
+          <button
+            type="button"
+            className={saving === "default-voice" ? "secondary busy" : "secondary"}
+            disabled={saving !== null}
+            onClick={() => void defaultVoice()}
+          >
+            Return to default voice for avatar
+          </button>
+        )}
       </div>
       {failed && <p className="error">{failed}</p>}
     </div>
@@ -841,13 +948,11 @@ export function ChatPage() {
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
   const [readyMade, setReadyMade] = useState(false); // a ready-made avatar, not their own
-  const [ownAccepted, setOwnAccepted] = useState(false); // their own sample, with an avatar in use
   useEffect(() => {
     getReview()
       .then((r) => {
         setAccepted(r.accepted);
         setReadyMade(r.default_person === true);
-        setOwnAccepted(r.own_sample_accepted === true);
       })
       .catch((e: unknown) => {
         console.error("Could not get the review", e);
@@ -895,7 +1000,7 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       <h1 className="sr-only">Chat</h1>
-      {!participant && <AvatarLinks readyMade={readyMade} ownAccepted={ownAccepted} />}
+      {!participant && <AvatarLinks readyMade={readyMade} />}
       <Chat
         welcome={returned}
         after={asked.current}
@@ -910,11 +1015,11 @@ export function ChatPage() {
 
 // Avatar Choice from the chat (Larry's test of R32a): another ready-made avatar, or the host's own
 // photo and voice, without going through Settings. The participant view has neither (R41b).
-function AvatarLinks({ readyMade, ownAccepted }: { readyMade: boolean; ownAccepted: boolean }) {
+function AvatarLinks({ readyMade }: { readyMade: boolean }) {
   const links: [string, string, string][] = readyMade
     ? [
         ["#/start-now", "Choose another avatar", "another ready-made avatar"],
-        ["#/setup", "Use your own photo and voice", "their own photo and voice"],
+        [OWN_CONSENT, "Use your own photo and voice", "their own photo and voice"],
       ]
     : [
         ["#/start-now", "Use a ready-made avatar", "a ready-made avatar"],
@@ -927,14 +1032,7 @@ function AvatarLinks({ readyMade, ownAccepted }: { readyMade: boolean; ownAccept
         <a
           key={href}
           href={href}
-          onClick={(e) => {
-            console.info(`Choosing ${what} from the chat`);
-            if (href !== "#/setup" || !readyMade) return;
-            e.preventDefault();
-            switchToOwn(ownAccepted, "the chat")
-              .then(() => ownAccepted && window.location.reload()) // the chat shows their own now
-              .catch((err: unknown) => console.error("Could not switch to your own photo and voice", err));
-          }}
+          onClick={() => console.info(`Choosing ${what} from the chat`)}
         >
           {label}
         </a>

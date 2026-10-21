@@ -115,6 +115,8 @@ WAIT_TO_DELETE = "Setup is preparing the video. Try again once it has finished."
 # Start now waits for a prepare, which uses the same engines.
 WAIT_TO_START_NOW = "Setup is preparing your own video. Try again once it has finished."
 DEFAULT_PERSON_BEING_READIED = "A default person is being got ready. Try again once they are ready."
+# Before the avatar's name in a photo id, when the avatar is prepared in the user's voice (R24d).
+AVATAR_PREFIX = "avatar-"
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
 CLONES = ("pocket", "clone")
 
@@ -185,6 +187,9 @@ class PrepareJob:
         # The ready-made Kokoro voice kept while the user's own photo replaces a default
         # person's picture (R24d), or None: then no recordings are needed or prepared.
         kept_voice: Callable[[], str | None] = lambda: None,
+        # The ready-made avatar's picture while the avatar is to speak in the user's own voice
+        # (R24d), or None: then the picture is prepared with the recordings, not the photo.
+        avatar: Callable[[], Path | None] = lambda: None,
     ) -> None:
         self._file = home / "prepare.json"
         self.clips_folder = home / "clips"
@@ -195,6 +200,7 @@ class PrepareJob:
         self._voice_kind = voice_kind
         self._accent = accent
         self._kept_voice = kept_voice
+        self._avatar = avatar
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         # The sample is being rendered again (roadmap R27b): no prepare runs meanwhile, as it
@@ -241,7 +247,7 @@ class PrepareJob:
 
     def _current(self, status: PrepareStatus) -> PrepareStatus:
         if status.state in ("done", "failed"):
-            if status.photo_id != self._store.photo_choice().id:
+            if status.photo_id != self._photo_id():
                 return PrepareStatus("idle")
             if self._voice_problem():
                 return PrepareStatus("idle")
@@ -249,10 +255,16 @@ class PrepareJob:
                 return PrepareStatus("idle")
         return status
 
-    def change_voice(self, change: Callable[[], object]) -> bool:
-        """Change the accent, or the ready-made voice used without recordings (item 59), with
-        `change`, unless a job is running: it would finish in the voice from before. While the
-        sample is made again, PrepareError. When the clips were ready, prepare again at once
+    def peek(self) -> PrepareStatus:
+        """status() without the job's lock, for the replies' voice (R24d): a reply holds the
+        voice engine, which Delete my data takes under this lock. One reference read is atomic."""
+        return self._current(self._status)
+
+    def change_voice(self, change: Callable[[], object], prepare_again: bool = True) -> bool:
+        """Change the accent, or the ready-made voice used without recordings (item 59), or
+        whether the ready-made avatar speaks in the user's voice (R24d), with `change`, unless a
+        job is running: it would finish in the voice from before. While the sample is made
+        again, PrepareError. When the clips were ready and `prepare_again`, prepare again at once
         (the face is kept, so only the voice and the clips are redone).
         Whether it was changed.
 
@@ -264,7 +276,7 @@ class PrepareJob:
             self._refuse_if_busy()
             prepared = self._current(self._status).state == "done"
             change()
-            if prepared and self._current(self._status).state == "idle":
+            if prepare_again and prepared and self._current(self._status).state == "idle":
                 logger.info("Voice changed; preparing the sample again")
                 try:
                     self._start()
@@ -289,7 +301,7 @@ class PrepareJob:
             if before.state != "done" or before.photo_id is None:
                 raise PrepareError(NOT_PREPARED)
             self._refuse_if_busy()
-            photo = self._store.path("photos", before.photo_id)
+            photo = self._photo(before.photo_id)
             if photo is None:
                 raise PrepareError(NOT_PREPARED)
             self._rendering_again = True
@@ -356,7 +368,7 @@ class PrepareJob:
         if self._status.state == "running":
             return self._status
         self._refuse_if_busy()
-        photo_id = self._store.photo_choice().id
+        photo_id = self._photo_id()
         if photo_id is None:
             raise PrepareError(NO_PHOTO)
         problem = self._voice_problem()
@@ -369,6 +381,19 @@ class PrepareJob:
         self._save()
         self._run_in_background()
         return self._status
+
+    def _photo_id(self) -> str | None:
+        """What is prepared: the chosen photo, or the avatar to speak in the user's voice."""
+        avatar = self._avatar()
+        if avatar is not None:
+            return f"{AVATAR_PREFIX}{avatar.stem}"
+        return self._store.photo_choice().id
+
+    def _photo(self, photo_id: str) -> Path | None:
+        if photo_id.startswith(AVATAR_PREFIX):
+            avatar = self._avatar()
+            return avatar if avatar is not None and photo_id == self._photo_id() else None
+        return self._store.path("photos", photo_id)
 
     def _voice_problem(self) -> str | None:
         """Why the recordings can't make the voice, unless a ready-made one is kept (R24d)."""
@@ -459,7 +484,7 @@ class PrepareJob:
                 self._status = replace(self._status, voice_id=voice_id)
                 self._save()
         try:
-            photo = self._store.path("photos", photo_id)
+            photo = self._photo(photo_id)
             if photo is None:
                 raise PrepareError("The photo to prepare was removed. Choose another one.")
             self._progress("voice", 0, 1)

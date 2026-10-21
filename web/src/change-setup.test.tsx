@@ -66,7 +66,7 @@ test("with a ready-made avatar in use, your own is one click away (R32a)", async
   server(true, "host", true);
   render(<ChangeSetup />);
   const own = await screen.findByRole("link", { name: "Use your own photo and voice" });
-  expect(own.getAttribute("href")).toBe("#/setup");
+  expect(own.getAttribute("href")).toBe("#/consent/own");
   const ready = screen.getByRole("heading", { name: /Ready-made avatar/ });
   expect(within(ready).getByText("In use")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Choose another avatar" }).getAttribute("href")).toBe("#/start-now");

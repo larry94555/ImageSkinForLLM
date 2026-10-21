@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { getConsent, getStartNow, type View } from "./api";
+import { AvatarVoicePage } from "./avatar-voice";
+import { ownAfterConsent } from "./change-setup";
 import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
 import { HomePage, setupLink } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { StartNowPage } from "./start-now";
-import { type Page, pageFor, resolve, setupTarget, useHash, wikiTarget } from "./router";
+import { OWN_CONSENT, type Page, pageFor, resolve, setupTarget, useHash, wikiTarget } from "./router";
 import {
   SettingsLink,
   SettingsPage,
@@ -32,7 +34,7 @@ const NAV: { page: Page; href: string; label: string; views: View[] }[] = [
 // The top bar link to highlight: the recording guide and Start now are part of setup, and the
 // wiki's pages are part of Manage Content for the host, and of Wiki for a participant.
 function current(page: Page | undefined, view: View): Page | undefined {
-  if (page === "guide" || page === "start-now") return "setup";
+  if (page === "guide" || page === "start-now" || page === "avatar-voice") return "setup";
   if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
   return page;
 }
@@ -95,12 +97,20 @@ function Shell() {
         <ConsentPage
           onConfirmed={() => {
             setConsented(true);
-            window.location.hash = "#/setup";
+            if (hash !== OWN_CONSENT) {
+              window.location.hash = "#/setup";
+              return;
+            }
+            ownAfterConsent().catch((e: unknown) => {
+              console.error("Could not switch to your own photo and voice", e);
+              window.location.hash = "#/setup";
+            });
           }}
         />
       ),
       setup: <SetupPage change={setupTarget(hash)} />,
       "start-now": <StartNowPage />,
+      "avatar-voice": <AvatarVoicePage />,
       chat: <ChatPage />,
       content: <ContentPage />,
       guide: <GuidePage />,

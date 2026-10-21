@@ -7,6 +7,7 @@ export type Page =
   | "consent"
   | "setup"
   | "start-now"
+  | "avatar-voice"
   | "chat"
   | "content"
   | "guide"
@@ -18,8 +19,10 @@ export type Page =
 const PAGES: Record<string, Page> = {
   "/": "home",
   "/consent": "consent",
+  "/consent/own": "consent", // choosing your own image and voice over a ready-made avatar
   "/setup": "setup",
   "/start-now": "start-now",
+  "/avatar-voice": "avatar-voice", // R24d: a ready-made avatar in the user's own voice
   "/chat": "chat",
   "/content": "content",
   "/guide": "guide",
@@ -34,6 +37,10 @@ const WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
 // Setup opened at what to change from Settings (roadmap R28): #/setup/photos, #/setup/sounds or
 // #/setup/accent.
 const SETUP_PART = /^\/setup\/(photos|sounds|accent)$/;
+
+// Choosing your own image and voice over a ready-made avatar shows Before you start again, even
+// if it was confirmed before (Larry's test of PR #131).
+export const OWN_CONSENT = "#/consent/own";
 
 export type SetupPart = "photos" | "sounds" | "accent";
 
@@ -81,7 +88,15 @@ export function pageFor(hash: string): Page {
 }
 
 // The pages the participant view hides (R41b): it has only the chat and the wiki.
-const HOST_PAGES: Page[] = ["home", "consent", "setup", "start-now", "guide", "content"];
+const HOST_PAGES: Page[] = [
+  "home",
+  "consent",
+  "setup",
+  "start-now",
+  "avatar-voice",
+  "guide",
+  "content",
+];
 
 // Setup is blocked until the user confirms consent (feature item 22). In the participant view a
 // host's page, opened by its address, shows the chat instead.
@@ -96,11 +111,22 @@ export function resolve(hash: string, consented: boolean, participant = false): 
   return { page };
 }
 
-// The current URL hash, updated when it changes.
+// A page can hold on to the address while the user confirms leaving it (leave-guard.tsx, after
+// Codex's review of PR #131): it returns true to stay, and the page shown doesn't change.
+type Blocker = (from: string, to: string) => boolean;
+let blocker: Blocker | null = null;
+export function blockLeaving(fn: Blocker | null) {
+  blocker = fn;
+}
+
+// The current URL hash, updated when it changes, unless a page holds on to it.
 export function useHash(): string {
   const [hash, setHash] = useState(window.location.hash);
   useEffect(() => {
-    const update = () => setHash(window.location.hash);
+    const update = (e: HashChangeEvent) => {
+      if (blocker?.(new URL(e.oldURL).hash, new URL(e.newURL).hash)) return;
+      setHash(window.location.hash);
+    };
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
   }, []);
