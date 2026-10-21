@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { choices, HomePage, loadHome } from "./home";
+import { choices, HomePage, loadHome, setupLink } from "./home";
 
 const PHOTO_ID = "a".repeat(32);
 
@@ -108,6 +108,13 @@ test("the choices keep the same order: chat, manage content, setup", () => {
     ["Manage Content", "#/content"],
     ["Setup", "#/consent"],
   ]);
+});
+
+test("Setup goes to Start now with a ready-made avatar, else to setup or consent", () => {
+  expect(setupLink(true, true)).toBe("#/start-now");
+  expect(setupLink(false, true)).toBe("#/start-now");
+  expect(setupLink(true)).toBe("#/setup");
+  expect(setupLink(false)).toBe("#/consent");
 });
 
 test("each choice has its own picture, hidden from screen readers (R41e2)", async () => {

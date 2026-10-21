@@ -2992,8 +2992,12 @@ async function loadHome(consented) {
 		};
 	}
 }
+function setupLink(consented, defaultPerson = false) {
+	if (defaultPerson) return "#/start-now";
+	return consented ? "#/setup" : "#/consent";
+}
 function choices(done, consented, defaultPerson = false) {
-	const setupHref = consented ? "#/setup" : "#/consent";
+	const setupHref = setupLink(consented);
 	if (!done) return [{
 		href: "#/start-now",
 		title: "Start now",
@@ -3015,7 +3019,7 @@ function choices(done, consented, defaultPerson = false) {
 			text: "Add, replace or remove the PDFs that answers come from."
 		},
 		defaultPerson ? {
-			href: "#/start-now",
+			href: setupLink(consented, true),
 			title: "Setup",
 			text: "Choose another ready-made avatar, or use your own photo and voice."
 		} : {
@@ -6646,6 +6650,7 @@ function Shell() {
 			setConsented(false);
 		});
 	}, []);
+	const defaultPerson = useDefaultPerson(hash, host);
 	const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, participant);
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
@@ -6688,7 +6693,7 @@ function Shell() {
 					children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
 				}),
 				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && item.views.includes(view)).map((item) => /* @__PURE__ */ u("a", {
-					href: item.href,
+					href: item.page === "setup" ? setupLink(consented === true, defaultPerson) : item.href,
 					className: current(route?.page, view) === item.page ? "current" : void 0,
 					children: item.label
 				}, item.page)) }),
@@ -6698,6 +6703,24 @@ function Shell() {
 		/* @__PURE__ */ u("main", { children: content }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
 	] });
+}
+function useDefaultPerson(hash, host) {
+	const [chosen, setChosen] = d(false);
+	h(() => {
+		if (!host) return;
+		let active = true;
+		const started = performance.now();
+		getStartNow().then((s) => {
+			if (!active) return;
+			const yes = Boolean(s.chosen);
+			console.info(`Top bar Setup link: ${yes ? "Start now (a ready-made avatar is in use)" : "setup"} (read in ${Math.round(performance.now() - started)} ms)`);
+			setChosen(yes);
+		}).catch((e) => console.error("Could not read the default person for the top bar", e));
+		return () => {
+			active = false;
+		};
+	}, [hash, host]);
+	return chosen;
 }
 function useHeaderHeight() {
 	const ref = A(null);

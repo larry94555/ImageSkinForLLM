@@ -52,8 +52,16 @@ export async function loadHome(consented: boolean): Promise<HomeState> {
   }
 }
 
+// Where Setup goes, on the home page and in the top bar alike: with a ready-made avatar in use
+// (R24c), to Start now to choose another or use your own photo and voice; before consent, to the
+// consent page; otherwise to setup.
+export function setupLink(consented: boolean, defaultPerson = false): string {
+  if (defaultPerson) return "#/start-now";
+  return consented ? "#/setup" : "#/consent";
+}
+
 export function choices(done: boolean, consented: boolean, defaultPerson = false): Choice[] {
-  const setupHref = consented ? "#/setup" : "#/consent";
+  const setupHref = setupLink(consented);
   if (!done) {
     return [
       {
@@ -81,7 +89,7 @@ export function choices(done: boolean, consented: boolean, defaultPerson = false
     },
     defaultPerson
       ? {
-          href: "#/start-now",
+          href: setupLink(consented, true),
           title: "Setup",
           text: "Choose another ready-made avatar, or use your own photo and voice.",
         }
