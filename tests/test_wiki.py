@@ -4,7 +4,7 @@ import urllib.error
 
 import pytest
 
-from imageskin.chat import EmptyReply, LlmError, Message, estimate
+from imageskin.chat import EmptyReply, LlmError, LlmStarting, Message, estimate
 from imageskin.wiki import (
     KNOWN_PROMPT,
     TITLES_TOKENS,
@@ -217,6 +217,28 @@ def test_titles_become_unique_ids() -> None:
         "p-a-2",
         "p-a-3",
     ]
+
+
+def test_an_llm_still_loading_its_model_is_waited_for() -> None:
+    answers: list[str | LlmError] = [LlmStarting("still starting"), answer(("A", [1], "x"))]
+
+    def ask(messages: list[Message]) -> str:
+        next_answer = answers.pop(0)
+        if isinstance(next_answer, LlmError):
+            raise next_answer
+        return next_answer
+
+    waits: list[tuple[int, int]] = []
+    wiki = build_wiki(
+        PDF_ID,
+        [piece(1, "a")],
+        ask,
+        estimate,
+        WINDOW,
+        wait_for_llm=lambda e, n, of: waits.append((n, of)),
+    )
+    assert waits == [(1, 1)]
+    assert [p.title for p in wiki.pages] == ["A"]
 
 
 def test_an_unreachable_llm_is_waited_for_and_the_same_part_asked_again() -> None:

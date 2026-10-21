@@ -18,7 +18,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from imageskin.chat import TOKENS_PER_MESSAGE, Count, EmptyReply, LlmError, Message, unreachable
+from imageskin.chat import (
+    TOKENS_PER_MESSAGE,
+    Count,
+    EmptyReply,
+    LlmError,
+    LlmStarting,
+    Message,
+    unreachable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -231,8 +239,9 @@ def latest_titles(titles: list[str], count: Count) -> list[str]:
 
 
 def down(e: LlmError) -> bool:
-    """Whether the LLM couldn't be reached at all, as opposed to answering badly or refusing."""
-    return e.__cause__ is not None and unreachable(e.__cause__)
+    """Whether the LLM couldn't be reached at all, or is still loading its model, as opposed to
+    answering badly or refusing."""
+    return isinstance(e, LlmStarting) or e.__cause__ is not None and unreachable(e.__cause__)
 
 
 def ask_part(
