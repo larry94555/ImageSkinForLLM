@@ -150,8 +150,8 @@ export function ChangeSetup() {
             Ready-made avatar <InUseMark shown={inUse === "ready-made"} />
           </h3>
           <p className="muted">
-            A made-up person in a ready-made voice, chosen by gender, accent, look and role. Your
-            own photos and recordings are kept.
+            A made-up person in a ready-made voice, chosen by face, accent and look. Your own
+            photos and recordings are kept.
           </p>
           <div className="switch">
             <a

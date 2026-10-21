@@ -500,6 +500,16 @@ def test_the_page_is_told_every_face(client: TestClient) -> None:
         "photoreal_female_teaching_assistant",
     ]
     assert len(women) == 15 and women[-1] == "photoreal_female_business_consultant"
+    # The page shows a look's women and men together (no gender to pick): by role, then face,
+    # then gender, so they take turns.
+    photoreal = [f["name"] for f in faces if f["realism"] == "photoreal"]
+    assert photoreal[:4] == [
+        "photoreal_female_professor",
+        "photoreal_male_professor",
+        "photoreal_female_professor_2",
+        "photoreal_female_teaching_assistant",
+    ]
+    assert len(photoreal) == 30
 
 
 def test_a_default_person_opens_the_chat_without_consent(client: TestClient) -> None:

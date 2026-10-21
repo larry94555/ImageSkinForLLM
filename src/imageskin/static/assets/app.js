@@ -816,7 +816,7 @@ function ChangeSetup() {
 							/* @__PURE__ */ u("h3", { children: ["Ready-made avatar ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "ready-made" })] }),
 							/* @__PURE__ */ u("p", {
 								className: "muted",
-								children: "A made-up person in a ready-made voice, chosen by gender, accent, look and role. Your own photos and recordings are kept."
+								children: "A made-up person in a ready-made voice, chosen by face, accent and look. Your own photos and recordings are kept."
 							}),
 							/* @__PURE__ */ u("div", {
 								className: "switch",
@@ -5881,13 +5881,6 @@ function ChoiceIcon({ href }) {
 //#endregion
 //#region src/start-now.tsx
 var OPTIONS = {
-	gender: [{
-		value: "female",
-		label: "Female"
-	}, {
-		value: "male",
-		label: "Male"
-	}],
 	accent: [{
 		value: "American",
 		label: "American"
@@ -5904,7 +5897,6 @@ var OPTIONS = {
 	}]
 };
 var LEGENDS = {
-	gender: "Gender",
 	accent: "Accent",
 	realism: "Look"
 };
@@ -5940,7 +5932,15 @@ function useSeconds(on) {
 	return seconds;
 }
 function facesOf(faces, choice) {
-	return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism);
+	return faces.filter((f) => f.realism === choice.realism);
+}
+function withFace(choice, face) {
+	return {
+		...choice,
+		gender: face.gender,
+		role: face.role,
+		face: face.face
+	};
 }
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
@@ -5952,12 +5952,7 @@ function StartNowPage() {
 			...changes
 		};
 		const first = facesOf(faces ?? [], next)[0];
-		const sameFaces = next.gender === choice.gender && next.realism === choice.realism;
-		setChoice(sameFaces || !first ? next : {
-			...next,
-			role: first.role,
-			face: first.face
-		});
+		setChoice(next.realism === choice.realism || !first ? next : withFace(next, first));
 	};
 	const [status, setStatus] = d(null);
 	const [refused, setRefused] = d(null);
@@ -6042,11 +6037,7 @@ function StartNowPage() {
 					start();
 				},
 				children: [
-					[
-						"gender",
-						"accent",
-						"realism"
-					].map((key) => /* @__PURE__ */ u("fieldset", {
+					["accent", "realism"].map((key) => /* @__PURE__ */ u("fieldset", {
 						disabled: locked,
 						children: [/* @__PURE__ */ u("legend", { children: LEGENDS[key] }), OPTIONS[key].map(({ value, label }) => /* @__PURE__ */ u("label", { children: [
 							/* @__PURE__ */ u("input", {
@@ -6073,7 +6064,7 @@ function StartNowPage() {
 						className: "faces",
 						disabled: working,
 						children: [/* @__PURE__ */ u("legend", { children: "Face" }), shown.map((f, i) => {
-							const picked = f.role === choice.role && f.face === face;
+							const picked = f.gender === choice.gender && f.role === choice.role && f.face === face;
 							const name = `Face ${i + 1} of ${shown.length}`;
 							return /* @__PURE__ */ u("label", {
 								className: picked ? "face picked" : "face",
@@ -6084,11 +6075,7 @@ function StartNowPage() {
 									checked: picked,
 									onChange: () => {
 										console.info(`${name} picked: ${f.name}`);
-										setChoice({
-											...choice,
-											role: f.role,
-											face: f.face
-										});
+										setChoice(withFace(choice, f));
 									}
 								}), /* @__PURE__ */ u("img", {
 									src: faceUrl(f.name),

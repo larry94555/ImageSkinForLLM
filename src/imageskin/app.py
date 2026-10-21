@@ -49,6 +49,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
+from imageskin.default_people import GENDERS as DEFAULT_GENDERS
 from imageskin.default_people import ROLES as DEFAULT_ROLES
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
@@ -984,9 +985,10 @@ def create_app(
 
     @app.get("/api/start-now/faces")
     def get_start_now_faces() -> list[dict[str, object]]:
-        """Every default person, so the page can show the faces of a gender and look as the
-        thumbnails that ship with it (R24c2), with no label. They come in the order the page
-        shows them, which stays the same: by role, then face (Codex's review of PR #124)."""
+        """Every default person, so the page can show the faces of a look as the thumbnails
+        that ship with it (R24c2), with no label. They come in the order the page shows them,
+        which stays the same: by role, then face, then gender (Codex's review of PR #124), so
+        women and men take turns rather than one after the other (Larry, 2026-10-21)."""
         return [
             {
                 "gender": p.gender,
@@ -995,7 +997,14 @@ def create_app(
                 "face": p.face,
                 "name": p.name,
             }
-            for p in sorted(default_people(), key=lambda p: (DEFAULT_ROLES.index(p.role), p.face))
+            for p in sorted(
+                default_people(),
+                key=lambda p: (
+                    DEFAULT_ROLES.index(p.role),
+                    p.face,
+                    DEFAULT_GENDERS.index(p.gender),
+                ),
+            )
         ]
 
     @app.get("/api/start-now/picture")
