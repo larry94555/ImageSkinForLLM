@@ -226,6 +226,91 @@ test("setup offers a ready-made avatar instead of your own photo and voice", asy
   expect(link.getAttribute("href")).toBe("#/start-now");
 });
 
+// Larry's report: with a ready-made avatar in use, the home page's Setup goes to Start now, and
+// the top bar's Setup went to the photo and voice setup instead. Both now go to Start now.
+function serverWithAvatar() {
+  const server = serverWithConsent(true);
+  const chosen = { gender: "female", accent: "american", realism: "photoreal", role: "boss" };
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) =>
+    url === "/api/start-now" && !init?.method
+      ? Response.json({ state: "done", chosen })
+      : server(url, init),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("with a ready-made avatar, the top bar's Setup goes where the home page's does", async () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  serverWithAvatar();
+  // Opened from the top bar, home shows its choices (a visit starting there goes to the chat).
+  await openAt("#/chat");
+  await screen.findAllByRole("link", { name: "Setup" });
+  await act(async () => {
+    window.location.hash = "#/";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await screen.findByText("Choose another ready-made avatar, or use your own photo and voice.");
+  const home = screen.getByText("Choose another ready-made avatar, or use your own photo and voice.").closest("a")!;
+  expect(home.getAttribute("href")).toBe("#/start-now");
+  const nav = within(document.querySelector("nav")!).getByRole("link", { name: "Setup" });
+  await waitFor(() => expect(nav.getAttribute("href")).toBe("#/start-now"));
+  expect(info).toHaveBeenCalledWith(
+    expect.stringMatching(/^Top bar Setup link: Start now \(a ready-made avatar is in use\)/),
+  );
+});
+
+test("without a ready-made avatar, the top bar's Setup goes to setup", async () => {
+  serverWithConsent(true);
+  await openAt("#/chat");
+  const nav = await within(document.querySelector("nav")!).findByRole("link", { name: "Setup" });
+  await act(async () => {});
+  expect(nav.getAttribute("href")).toBe("#/setup");
+});
+
+test("before consent, the top bar's Setup goes to the consent page, as home's does", async () => {
+  serverWithConsent(false);
+  await openAt("#/");
+  const nav = await within(document.querySelector("nav")!).findByRole("link", { name: "Setup" });
+  expect(nav.getAttribute("href")).toBe("#/consent");
+});
+
+test("the top bar's Setup is read again on each page change", async () => {
+  const fetchMock = serverWithAvatar();
+  await openAt("#/chat");
+  await waitFor(() =>
+    expect(within(document.querySelector("nav")!).getByRole("link", { name: "Setup" }).getAttribute("href")).toBe(
+      "#/start-now",
+    ),
+  );
+  const reads = () => fetchMock.mock.calls.filter(([u, i]) => u === "/api/start-now" && !i?.method).length;
+  const before = reads();
+  await act(async () => {
+    window.location.hash = "#/guide";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await waitFor(() => expect(reads()).toBeGreaterThan(before));
+});
+
+test("if the avatar can't be read, the top bar's Setup still goes to setup and that is logged", async () => {
+  const server = serverWithConsent(true);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) =>
+      url === "/api/start-now" ? new Response("", { status: 500 }) : server(url, init),
+    ),
+  );
+  await openAt("#/chat");
+  await waitFor(() =>
+    expect(console.error).toHaveBeenCalledWith(
+      "Could not read the default person for the top bar",
+      expect.anything(),
+    ),
+  );
+  const nav = within(document.querySelector("nav")!).getByRole("link", { name: "Setup" });
+  expect(nav.getAttribute("href")).toBe("#/setup");
+});
+
 test("setup links to the recording guide, which keeps setup marked in the nav", async () => {
   serverWithConsent(true);
   await openAt("#/setup");
