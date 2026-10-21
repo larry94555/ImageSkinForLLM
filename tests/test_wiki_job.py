@@ -615,3 +615,44 @@ def test_the_parts_are_known_before_the_first_is_built(tmp_path: Path) -> None:
     go.set()
     settle(readings, wiki)
     assert (seen[0].state, seen[0].part, seen[0].parts) == ("building", 0, 3)
+
+
+def test_a_pdf_removed_while_it_is_built_stops_after_the_answer_being_given(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry's test of PR #123: a removed PDF still showed as 1 PDF ahead, as its build went
+    on through every part. It now stops once the LLM gives the answer it is giving."""
+    asking, answer = threading.Event(), threading.Event()
+    asked: list[tuple[str, int]] = []
+
+    def slow(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: Any) -> Wiki:
+        progress(0, 5)
+        for part in range(1, 6):
+            asked.append((pdf_id, part))
+            if pdf_id == first.id:
+                asking.set()
+                answer.wait(5)
+            progress(part, 5)
+        return Wiki(5, [])
+
+    store, readings, wiki = jobs(tmp_path, slow)
+    first = store.add("a.pdf", io.BytesIO(PDF))
+    second = store.add("b.pdf", io.BytesIO(PDF))
+    readings.queue(first)
+    assert asking.wait(5)
+    readings.queue(second)
+    readings.wait()
+    queued = wiki.statuses()[second.id]
+    assert (queued.ahead, queued.building_name, queued.stopping) == (1, "a.pdf", False)
+
+    store.remove(first.id)
+    wiki.forget(first.id)
+    queued = wiki.statuses()[second.id]
+    assert (queued.ahead, queued.building_name, queued.stopping) == (1, None, True)
+    with caplog.at_level(logging.INFO):
+        answer.set()
+        wiki.wait()
+    assert [part for pdf_id, part in asked if pdf_id == first.id] == [1]  # no part after it
+    assert "Wiki build stopped: the PDF was removed or replaced" in caplog.messages
+    assert wiki.statuses()[second.id].state == "done"
+    assert first.id not in wiki.statuses()

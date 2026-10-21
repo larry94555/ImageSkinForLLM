@@ -400,6 +400,12 @@ test("wiki progress reads as a sentence", () => {
   expect(wikiText({ ...waiting, ahead: 2, building_name: null })).toBe(
     "Waiting to build the wiki: 2 PDFs ahead…",
   );
+  expect(wikiText({ ...waiting, ahead: 1, stopping: true })).toBe(
+    "Waiting to build the wiki: the AI is finishing its answer for a removed PDF…",
+  );
+  expect(wikiText({ ...waiting, ahead: 3, stopping: true })).toBe(
+    "Waiting to build the wiki: the AI is finishing its answer for a removed PDF, then 2 PDFs ahead…",
+  );
   expect(wikiText({ ...waiting, error: "Could not reach the LLM" })).toBe(
     "Waiting for the AI to be ready to build the wiki…",
   );
