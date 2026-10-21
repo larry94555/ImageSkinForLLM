@@ -979,8 +979,6 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .start-now form { display: grid; gap: 14px; margin: 16px 0; max-width: 520px; }
 .start-now fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; }
 .start-now legend { padding: 0; margin-bottom: 6px; font-weight: 600; width: 100%; }
-.start-now label.role { display: grid; gap: 6px; font-weight: 600; }
-.start-now label.role select { font-weight: normal; max-width: 280px; }
 .start-now form button { justify-self: start; }
 /* The choice's faces (R24c2): pictures with no label, the picked one ringed. */
 .start-now .faces label.face { position: relative; cursor: pointer; border-radius: 10px; border: 3px solid transparent; padding: 2px; }

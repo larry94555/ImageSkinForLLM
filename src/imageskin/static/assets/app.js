@@ -5231,19 +5231,6 @@ var ROLES = [
 	"High School Teacher",
 	"Business Consultant"
 ];
-var GENDERED = {
-	Parent: {
-		female: "Mother",
-		male: "Father"
-	},
-	Teenager: {
-		female: "Daughter",
-		male: "Son"
-	}
-};
-function roleLabel(role, gender) {
-	return GENDERED[role]?.[gender] ?? role;
-}
 var OPTIONS = {
 	gender: [{
 		value: "female",
@@ -5310,11 +5297,19 @@ function facesOf(faces, choice) {
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
 	const [faces, setFaces] = d([]);
-	const change = (changes) => setChoice({
-		...choice,
-		...changes,
-		face: 1
-	});
+	const change = (changes) => {
+		const next = {
+			...choice,
+			...changes
+		};
+		const first = facesOf(faces, next)[0];
+		const sameFaces = next.gender === choice.gender && next.realism === choice.realism;
+		setChoice(sameFaces || !first ? next : {
+			...next,
+			role: first.role,
+			face: first.face
+		});
+	};
 	const [status, setStatus] = d(null);
 	const [refused, setRefused] = d(null);
 	const started = A(0);
@@ -5399,22 +5394,6 @@ function StartNowPage() {
 							label
 						] }, value))]
 					}, key)),
-					/* @__PURE__ */ u("label", {
-						className: "role",
-						children: [
-							"Role",
-							" ",
-							/* @__PURE__ */ u("select", {
-								value: choice.role,
-								disabled: working,
-								onChange: (e) => change({ role: e.target.value }),
-								children: ROLES.map((role) => /* @__PURE__ */ u("option", {
-									value: role,
-									children: roleLabel(role, choice.gender)
-								}, role))
-							})
-						]
-					}),
 					shown.length > 0 && /* @__PURE__ */ u("fieldset", {
 						className: "faces",
 						disabled: working,

@@ -1,12 +1,11 @@
 // Start now with a default person (roadmap R24c, features.md items 56 to 58): pick a gender, an
-// accent, photoreal or animated, and a role, and chat at once with a made-up person in a
+// accent, photoreal or animated, and a face, and chat at once with a made-up person in a
 // ready-made voice. Only that person is downloaded, the first time they are chosen.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
   type Face,
-  type Gender,
   type PersonChoice,
   type StartNowStatus,
   faceUrl,
@@ -15,9 +14,11 @@ import {
   startNow,
 } from "./api";
 
-// The roles, as the server names them. They don't carry a gender; where a role has a word for
-// each gender, the list shows that word (item 56).
-export const ROLES = [
+// Each made-up person was made for a role (the server's names, in this order), but the page
+// doesn't offer roles: each role has only one or two people, so a role would tie it to a look
+// instead of letting each user imagine it their own way (Larry's test of PR #124). The order only
+// sets where each face shows.
+const ROLES = [
   "Professor",
   "Teaching Assistant",
   "Student",
@@ -28,14 +29,6 @@ export const ROLES = [
   "High School Teacher",
   "Business Consultant",
 ];
-const GENDERED: Record<string, Record<Gender, string>> = {
-  Parent: { female: "Mother", male: "Father" },
-  Teenager: { female: "Daughter", male: "Son" },
-};
-
-export function roleLabel(role: string, gender: Gender): string {
-  return GENDERED[role]?.[gender] ?? role;
-}
 
 const OPTIONS = {
   gender: [
@@ -94,10 +87,8 @@ function useSeconds(on: boolean): number {
   return seconds;
 }
 
-// The faces to pick from (R24c2): every person of the chosen gender and look, in the role list's
-// order, which stays put as faces are picked. The range of heritages, ages, glasses
-// and wheelchairs R24b2 made is across a gender and look's 15 people, and a role has only one or
-// two of them (Larry's test of PR #124), so picking a face of another role picks that role too.
+// The faces to pick from (R24c2): all 15 people of the chosen gender and look, with the range of
+// heritages, ages, glasses and wheelchairs R24b2 made, always in the same order.
 export function facesOf(faces: Face[], choice: PersonChoice): Face[] {
   const order = (f: Face) => ROLES.indexOf(f.role);
   return faces
@@ -108,8 +99,14 @@ export function facesOf(faces: Face[], choice: PersonChoice): Face[] {
 export function StartNowPage() {
   const [choice, setChoice] = useState<PersonChoice>(FIRST);
   const [faces, setFaces] = useState<Face[]>([]);
-  // Changing gender, look or role starts at the new choice's first face.
-  const change = (changes: Partial<PersonChoice>) => setChoice({ ...choice, ...changes, face: 1 });
+  // Changing gender or look starts at its first face; the accent keeps the face. The person
+  // picked goes to the server as their role and face number, which name them.
+  const change = (changes: Partial<PersonChoice>) => {
+    const next = { ...choice, ...changes };
+    const first = facesOf(faces, next)[0];
+    const sameFaces = next.gender === choice.gender && next.realism === choice.realism;
+    setChoice(sameFaces || !first ? next : { ...next, role: first.role, face: first.face });
+  };
   const [status, setStatus] = useState<StartNowStatus | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const started = useRef(0); // when Start was clicked, for the log
@@ -199,20 +196,6 @@ export function StartNowPage() {
             ))}
           </fieldset>
         ))}
-        <label className="role">
-          Role{" "}
-          <select
-            value={choice.role}
-            disabled={working}
-            onChange={(e) => change({ role: (e.target as HTMLSelectElement).value })}
-          >
-            {ROLES.map((role) => (
-              <option key={role} value={role}>
-                {roleLabel(role, choice.gender)}
-              </option>
-            ))}
-          </select>
-        </label>
         {shown.length > 0 && (
           <fieldset className="faces" disabled={working}>
             <legend>Face</legend>

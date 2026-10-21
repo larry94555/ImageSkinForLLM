@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { type Face, lineUrl, type PersonChoice, type StartNowStatus } from "./api";
-import { facesOf, POLL_MS, progressText, roleLabel, StartNowPage } from "./start-now";
+import { facesOf, POLL_MS, progressText, StartNowPage } from "./start-now";
 
 const IDLE: StartNowStatus = { state: "idle", person: null, percent: 0, error: null, chosen: null };
 
@@ -36,10 +36,6 @@ function radio(name: string): HTMLInputElement {
   return screen.getByRole("radio", { name }) as HTMLInputElement;
 }
 
-function roles(): string[] {
-  return screen.getAllByRole("option").map((o) => o.textContent ?? "");
-}
-
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "info").mockImplementation(() => {});
@@ -53,39 +49,26 @@ afterEach(() => {
   window.location.hash = "";
 });
 
-test("a role with a word for each gender shows that word", () => {
-  expect(roleLabel("Parent", "female")).toBe("Mother");
-  expect(roleLabel("Parent", "male")).toBe("Father");
-  expect(roleLabel("Teenager", "male")).toBe("Son");
-  expect(roleLabel("Teenager", "female")).toBe("Daughter");
-  expect(roleLabel("Boss", "female")).toBe("Boss");
-});
-
-test("the four choices start on the first of each, and the roles follow the gender", async () => {
+test("the choices start on the first of each, with no role to pick", async () => {
   server([IDLE]);
   render(<StartNowPage />);
   expect(radio("Female").checked).toBe(true);
   expect(radio("American").checked).toBe(true);
   expect(radio("Photorealistic").checked).toBe(true);
-  expect(roles()).toHaveLength(9);
-  expect(roles()).toContain("Mother");
-  const role = screen.getByRole("combobox") as HTMLSelectElement;
-  fireEvent.change(role, { target: { value: "Parent" } });
-  fireEvent.click(radio("Male"));
-  // Changing the gender keeps the role, so Mother becomes Father.
-  expect(roles()).toContain("Father");
-  expect(roles()).not.toContain("Mother");
-  expect(role.value).toBe("Parent");
+  expect(await screen.findByRole("radio", { name: "Face 1 of 4" })).toBeTruthy();
+  // A role would tie a role to a look (Larry's test of PR #124): only the faces are picked.
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.queryByText(/Role/)).toBeNull();
 });
 
 test("the person chosen before is where the choices start", async () => {
-  const chosen = { gender: "male", accent: "British", realism: "animated", role: "Teenager" } as const;
+  const chosen = { gender: "female", accent: "British", realism: "photoreal", role: "Boss", face: 1 } as const;
   server([{ ...IDLE, chosen }]);
   render(<StartNowPage />);
-  await vi.waitFor(() => expect(radio("Male").checked).toBe(true));
-  expect(radio("British").checked).toBe(true);
-  expect(radio("Animated").checked).toBe(true);
-  expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("Teenager");
+  await vi.waitFor(() => expect(radio("British").checked).toBe(true));
+  expect(radio("Female").checked).toBe(true);
+  expect(radio("Photorealistic").checked).toBe(true);
+  await vi.waitFor(() => expect(radio("Face 4 of 4").checked).toBe(true));
 });
 
 test("start downloads the person with progress, then opens the chat", async () => {
@@ -93,6 +76,7 @@ test("start downloads the person with progress, then opens the chat", async () =
   const ready = { ...IDLE, state: "ready", person: "p", percent: 100 } as const;
   const fetchMock = server([IDLE, downloading, ready], downloading);
   render(<StartNowPage />);
+  await screen.findByRole("radio", { name: "Face 1 of 4" });
   fireEvent.click(radio("British"));
   fireEvent.click(radio("Animated"));
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
@@ -104,7 +88,7 @@ test("start downloads the person with progress, then opens the chat", async () =
     gender: "female",
     accent: "British",
     realism: "animated",
-    role: "Professor",
+    role: "Boss", // the animated woman's only face here
     face: 1,
   });
   await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"), { timeout: 4 * POLL_MS });
@@ -204,16 +188,17 @@ test("a choice's faces are shown as pictures, and the one picked is the one star
   expect(JSON.parse(post[1]!.body as string).face).toBe(2);
 });
 
-test("changing a choice shows its own faces, from the first", async () => {
+test("changing the gender or look shows its own faces, from the first; the accent keeps the face", async () => {
   server([IDLE]);
   render(<StartNowPage />);
   fireEvent.click(await screen.findByRole("radio", { name: "Face 2 of 4" }));
+  fireEvent.click(radio("British"));
+  expect(radio("Face 2 of 4").checked).toBe(true);
   fireEvent.click(radio("Male"));
-  const only = screen.getByRole("radio", { name: "Face 1 of 1" }) as HTMLInputElement;
-  expect(only.checked).toBe(true);
+  expect(radio("Face 1 of 1").checked).toBe(true);
   expect(screen.queryByRole("radio", { name: "Face 2 of 4" })).toBeNull();
   fireEvent.click(radio("Female"));
-  expect((screen.getByRole("radio", { name: "Face 1 of 4" }) as HTMLInputElement).checked).toBe(true);
+  expect(radio("Face 1 of 4").checked).toBe(true);
 });
 
 test("the face picked before is picked again on opening the page", async () => {
@@ -224,28 +209,26 @@ test("the face picked before is picked again on opening the page", async () => {
   await vi.waitFor(() => expect(second.checked).toBe(true));
 });
 
-test("the faces are every person of the gender and look, in the role list's order", () => {
+test("the faces are all the people of the gender and look, always in the same order", () => {
   const choice = { gender: "female", accent: "British", realism: "photoreal", role: "Professor" } as const;
   const names = (c: PersonChoice) => facesOf(FACES, c).map((f) => f.name);
   expect(names(choice)).toEqual([
     "photoreal_female_professor",
     "photoreal_female_professor_2",
-    "photoreal_female_student", // in the role list's order: Student before Boss
+    "photoreal_female_student",
     "photoreal_female_boss",
   ]);
-  expect(names({ ...choice, role: "Boss" })).toEqual(names(choice)); // the order stays put
+  expect(names({ ...choice, role: "Boss" })).toEqual(names(choice));
   expect(names({ ...choice, realism: "animated" })).toEqual(["animated_female_boss"]);
 });
 
-test("picking a face of another role picks that role, and that person is started", async () => {
+test("any face can be picked, and that person is started", async () => {
   const fetchMock = server([IDLE], { ...IDLE, state: "downloading", person: "p" });
   render(<StartNowPage />);
   fireEvent.click(await screen.findByRole("radio", { name: "Face 4 of 4" }));
   expect(console.info).toHaveBeenCalledWith("Face 4 of 4 picked: photoreal_female_boss");
-  // The role follows the face.
-  expect((screen.getByRole("combobox", { name: "Role" }) as HTMLSelectElement).value).toBe("Boss");
-  expect((screen.getByRole("radio", { name: "Face 4 of 4" }) as HTMLInputElement).checked).toBe(true);
-  expect((screen.getByRole("radio", { name: "Face 1 of 4" }) as HTMLInputElement).checked).toBe(false);
+  expect(radio("Face 4 of 4").checked).toBe(true);
+  expect(radio("Face 1 of 4").checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
   await vi.waitFor(() =>
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true),
