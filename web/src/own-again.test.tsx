@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { ChangeSetup } from "./change-setup";
+import { ChangeSetup, ownAfterConsent } from "./change-setup";
 import { SetupPage } from "./pages";
 
 const DONE = {
@@ -54,41 +54,38 @@ afterEach(() => {
   window.location.hash = "";
 });
 
-test("with your own sample accepted, Settings switches back to it at once", async () => {
-  const fetchMock = server(true);
+test("Settings goes through Before you start to your own photo and voice", async () => {
+  server(true);
   render(<ChangeSetup />);
   expect(await screen.findByText(/already accepted: the chat switches to it at once/)).toBeTruthy();
   const link = screen.getByRole("link", { name: "Use your own photo and voice" });
-  await act(async () => {
-    fireEvent.click(link);
-  });
-  await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  expect(link.getAttribute("href")).toBe("#/consent/own");
+  cleanup();
+  server(false);
+  render(<ChangeSetup />);
+  expect(await screen.findByText(/Accept their sample video at the end of setup to switch/)).toBeTruthy();
+});
+
+test("after Before you start, your own accepted sample is used at once", async () => {
+  const fetchMock = server(true);
+  await ownAfterConsent();
+  expect(window.location.hash).toBe("#/chat");
   expect(fetchMock).toHaveBeenCalledWith("/api/start-now", { method: "DELETE" });
   expect(console.info).toHaveBeenCalledWith(
-    expect.stringMatching(/^Switched to your own photo and voice from Settings \(\d+ ms\)$/),
+    expect.stringMatching(/^Switched to your own photo and voice from Before you start \(\d+ ms\)$/),
   );
 });
 
-test("without your own sample accepted, Settings opens setup", async () => {
+test("after Before you start, setup opens when your own sample isn't accepted", async () => {
   const fetchMock = server(false);
-  render(<ChangeSetup />);
-  const link = await screen.findByRole("link", { name: "Use your own photo and voice" });
-  await screen.findByText(/Accept their sample video at the end of setup to switch/);
-  await act(async () => {
-    fireEvent.click(link);
-  });
+  await ownAfterConsent();
   expect(window.location.hash).toBe("#/setup");
   expect(fetchMock).not.toHaveBeenCalledWith("/api/start-now", { method: "DELETE" });
 });
 
-test("a refused switch says why", async () => {
+test("a refused switch after Before you start is passed on", async () => {
   server(true, false);
-  render(<ChangeSetup />);
-  await screen.findByText(/already accepted/);
-  await act(async () => {
-    fireEvent.click(screen.getByRole("link", { name: "Use your own photo and voice" }));
-  });
-  expect(await screen.findByText("Accept it first.")).toBeTruthy();
+  await expect(ownAfterConsent()).rejects.toThrow("Accept it first.");
 });
 
 test("setup with an avatar in use offers Accept until your own sample is accepted", async () => {

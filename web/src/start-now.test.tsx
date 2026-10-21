@@ -114,7 +114,7 @@ test("a failed download says why, with Try again and the usual setup", async () 
   expect((await screen.findByRole("alert")).textContent).toBe("Couldn't download.");
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   expect(screen.getByRole("link", { name: "use your own photos and voice" }).getAttribute("href")).toBe(
-    "#/consent",
+    "#/consent/own",
   );
 });
 
@@ -283,4 +283,17 @@ test("faces that can't be read are said, and Start stays off", async () => {
   expect((screen.getByRole("button", { name: "Start now" }) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.queryByText("Loading the faces…")).toBeNull();
   expect(console.error).toHaveBeenCalledWith("Could not read the faces", expect.anything());
+});
+
+test("your own image and voice is offered at the top too", async () => {
+  server([IDLE]);
+  render(<StartNowPage />);
+  await facesShown();
+  const top = screen.getByRole("link", { name: "Use your own image and voice" });
+  expect(top.getAttribute("href")).toBe("#/consent/own");
+  // Before the first choice on the page, so it is seen from the start.
+  const gender = screen.getAllByRole("group")[0];
+  expect(top.compareDocumentPosition(gender) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(top);
+  expect(console.info).toHaveBeenCalledWith("Choosing your own image and voice from Avatar Choice");
 });

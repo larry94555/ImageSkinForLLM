@@ -13,6 +13,7 @@ import {
   getStartNow,
   startNow,
 } from "./api";
+import { OWN_CONSENT } from "./router";
 
 const OPTIONS = {
   gender: [
@@ -163,6 +164,17 @@ export function StartNowPage() {
         Chat at once with a made-up person who speaks in a ready-made voice. You can switch to
         your own photo and voice at any time in Settings, under Avatar Choice.
       </p>
+      {/* Your own is an obvious choice from the start, not only at the bottom (Larry, 2026-10-21). */}
+      <p className="avatar-instead">
+        Rather use your own image and voice?{" "}
+        <a
+          className="button secondary"
+          href={OWN_CONSENT}
+          onClick={() => console.info("Choosing your own image and voice from Avatar Choice")}
+        >
+          Use your own image and voice
+        </a>
+      </p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -246,7 +258,7 @@ export function StartNowPage() {
         </p>
       )}
       <p className="muted">
-        Or <a href="#/consent">use your own photos and voice</a>.
+        Or <a href={OWN_CONSENT}>use your own photos and voice</a>.
       </p>
     </section>
   );
