@@ -691,7 +691,7 @@ def test_choosing_another_accent_prepares_the_sample_again(
             again = client.put("/api/accent", json={"accent": "british"})
         assert again.json() == {"accent": "british", "available": True}
         assert job.status().state == "running"  # the sample is made again, in the new accent
-        assert "Accent changed; preparing the sample again" in caplog.text
+        assert "Voice changed; preparing the sample again" in caplog.text
         job.wait(5)
         assert job.status().state == "done" and "clone-british" in str(job.status().voice_id)
         with patch.object(PrepareJob, "_start", side_effect=PrepareError(NO_PHOTO)):
@@ -929,7 +929,7 @@ def test_prepare_waits_for_the_sample_being_made_again(tmp_path: Path) -> None:
     with pytest.raises(PrepareError, match=SAMPLE_BEING_MADE):
         job.start()
     with pytest.raises(PrepareError, match=SAMPLE_BEING_MADE):
-        job.change_accent(lambda: None)
+        job.change_voice(lambda: None)
     with pytest.raises(PrepareError, match=SAMPLE_BEING_MADE):
         job.render_sample_again()
     assert (tmp_path / "clips" / "sample.again.mp4").is_file()
@@ -997,7 +997,7 @@ def test_the_api_refuses_another_accent_while_the_sample_is_made_again(tmp_path:
     client = TestClient(create_app(tmp_path, prepare_voice=lambda: None, render_clip=write_clip))
     client.post("/api/consent", json={"agreed": True})
     refusal = PrepareError(SAMPLE_BEING_MADE)
-    with patch.object(PrepareJob, "change_accent", side_effect=refusal):
+    with patch.object(PrepareJob, "change_voice", side_effect=refusal):
         refused = client.put("/api/accent", json={"accent": "own"})
     assert refused.status_code == 409 and refused.json()["detail"] == SAMPLE_BEING_MADE
 
@@ -1011,7 +1011,7 @@ def test_a_default_person_being_got_ready_holds_off_prepare_and_delete(tmp_path:
     refused = (
         lambda: job.forget(lambda: None),
         job.render_sample_again,
-        lambda: job.change_accent(lambda: None),
+        lambda: job.change_voice(lambda: None),
         job.claim,  # one at a time
     )
     for call in refused:

@@ -1,6 +1,7 @@
 """A ready-made voice until recordings are added (features.md item 59)."""
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,7 @@ import test_start_now
 from fastapi.testclient import TestClient
 from test_start_now import CHOICE, started
 
-from imageskin.app import create_app
+from imageskin.app import WAIT_FOR_PREPARE_VOICE, create_app
 from imageskin.ready_voice import DEFAULT, FILENAME, load_ready_voice, preset, save_ready_voice
 from imageskin.uploads import PhotoResult
 
@@ -89,11 +90,43 @@ def test_without_recordings_your_photo_speaks_in_the_ready_voice(
     # Another ready-made voice makes the sample again, in it.
     chosen = client.put("/api/ready-voice", json={"voice": "bm_george"})
     assert chosen.json() == {"voice": "bm_george", "in_use": True}
-    assert client.get("/api/prepare").json()["state"] == "idle"
-    assert prepared(client)["voice_id"] == "preset:bm_george"
+    client.app.state.prepare_job.wait(10)  # type: ignore[attr-defined]
+    again = client.get("/api/prepare").json()
+    assert again["state"] == "done" and again["voice_id"] == "preset:bm_george"
+
+
+def test_the_ready_voice_waits_for_a_running_prepare(tmp_path: Path) -> None:
+    release = threading.Event()
+
+    def prepare_face(photo: Path, progress: object) -> None:
+        release.wait(10)
+
+    client = TestClient(
+        create_app(
+            tmp_path,
+            check_photo=lambda photo: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=prepare_face,
+            render_clip=test_start_now.renderer([]),
+            ask_llm=lambda messages: "Hello there",
+        )
+    )
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    assert client.post("/api/prepare").status_code == 200
+    try:
+        refused = client.put("/api/ready-voice", json={"voice": "bm_george"})
+        assert refused.status_code == 409
+        assert refused.json()["detail"] == WAIT_FOR_PREPARE_VOICE
+        assert load_ready_voice(tmp_path) == DEFAULT
+    finally:
+        release.set()
+    client.app.state.prepare_job.wait(10)  # type: ignore[attr-defined]
+    done = client.get("/api/prepare").json()
+    assert done["state"] == "done" and done["voice_id"] == "preset:af_heart"
 
 
 def test_an_unknown_ready_voice_is_refused(client: TestClient) -> None:
     client.post("/api/consent", json={"agreed": True})
     refused = client.put("/api/ready-voice", json={"voice": "nobody"})
-    assert refused.status_code == 400 and "not one of" in refused.json()["detail"]
+    assert refused.status_code == 400 and "is not a ready-made voice" in refused.json()["detail"]

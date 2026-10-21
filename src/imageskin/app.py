@@ -80,6 +80,7 @@ from imageskin.prepare_job import (
 )
 from imageskin.quiz import QUESTIONS, Judge, Quiz, Quizzer, Said
 from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
+from imageskin.ready_voice import LANGS as READY_VOICES
 from imageskin.ready_voice import load_ready_voice, save_ready_voice
 from imageskin.ready_voice import preset as ready_preset
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
@@ -268,6 +269,7 @@ class ReviewRequest(BaseModel):
 
 NEEDS_CLONE = "Another accent needs the voice add-on, which isn't installed on this computer yet."
 WAIT_FOR_PREPARE = "Wait until Prepare finishes, then choose the accent."
+WAIT_FOR_PREPARE_VOICE = "Wait until Prepare finishes, then choose the voice."
 
 
 class AccentChoice(BaseModel):
@@ -887,11 +889,19 @@ def create_app(
 
     @app.put("/api/ready-voice", dependencies=needs_consent)
     def put_ready_voice(body: ReadyVoiceRequest, seen: DeletesSeen) -> dict[str, object]:
+        if body.voice not in READY_VOICES:
+            raise HTTPException(
+                status_code=400, detail=f"{body.voice!r} is not a ready-made voice."
+            )
+        # Guarded as the accent is: refused while Prepare runs, and the sample is made again in
+        # the new voice when one was ready (Codex's review of PR #128).
         try:
             with personal_write(seen):
-                save_ready_voice(data_home, body.voice)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
+                changed = job.change_voice(lambda: save_ready_voice(data_home, body.voice))
+        except PrepareError as e:  # the sample is being made again (R27b)
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        if not changed:
+            raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE_VOICE)
         return get_ready_voice()
 
     job.resume()  # a job the server was stopped in the middle of carries on
@@ -999,7 +1009,7 @@ def create_app(
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
         try:
             with personal_write(seen):
-                changed = job.change_accent(lambda: save_accent(data_home, body.accent))
+                changed = job.change_voice(lambda: save_accent(data_home, body.accent))
         except PrepareError as e:  # the sample is being made again (R27b)
             raise HTTPException(status_code=409, detail=str(e)) from e
         if not changed:

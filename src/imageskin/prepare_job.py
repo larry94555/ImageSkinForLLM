@@ -249,10 +249,11 @@ class PrepareJob:
                 return PrepareStatus("idle")
         return status
 
-    def change_accent(self, change: Callable[[], None]) -> bool:
-        """Change the accent with `change`, unless a job is running: it would finish in the voice
-        from before. While the sample is made again, PrepareError. When the clips were ready,
-        prepare again at once (the face is kept, so only the voice and the clips are redone).
+    def change_voice(self, change: Callable[[], object]) -> bool:
+        """Change the accent, or the ready-made voice used without recordings (item 59), with
+        `change`, unless a job is running: it would finish in the voice from before. While the
+        sample is made again, PrepareError. When the clips were ready, prepare again at once
+        (the face is kept, so only the voice and the clips are redone).
         Whether it was changed.
 
         Done under the job's lock, so a Prepare started at the same time either runs with the
@@ -264,7 +265,7 @@ class PrepareJob:
             prepared = self._current(self._status).state == "done"
             change()
             if prepared and self._current(self._status).state == "idle":
-                logger.info("Accent changed; preparing the sample again")
+                logger.info("Voice changed; preparing the sample again")
                 try:
                     self._start()
                 except PrepareError as e:  # the uploads changed meanwhile; Prepare says what to do
