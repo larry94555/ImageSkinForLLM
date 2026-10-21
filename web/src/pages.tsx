@@ -52,6 +52,7 @@ import {
   type VoiceSample,
   voiceSampleAudioUrl,
 } from "./api";
+import { switchToOwn } from "./change-setup";
 import { Checks, minutes } from "./checks";
 import { useConfirm } from "./confirm-dialog";
 import { ExitScreen } from "./exit";
@@ -775,10 +776,32 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
     setSaving(null);
   }
 
+  // With a ready-made avatar in use, the chat is open whatever this sample's review; what counts
+  // is whether this sample, of the user's own, is accepted (Larry's test of PR #128).
+  const avatar = current?.default_person === true;
+  const accepted = avatar ? current?.own_sample_accepted === true : current?.accepted;
+  async function useIt() {
+    setSaving("accept");
+    setFailed(null);
+    try {
+      await switchToOwn(true, "Setup");
+    } catch (e) {
+      console.error("Could not switch to your own photo and voice", e);
+      setFailed(`Could not switch: ${(e as Error).message}`);
+    }
+    setSaving(null);
+  }
   return (
     <div className="review">
       <h3>Is this right?</h3>
-      {current?.accepted ? (
+      {accepted && avatar ? (
+        <p className="done">
+          You accepted this sample, but the chat uses a ready-made avatar.{" "}
+          <button type="button" className="link" disabled={saving !== null} onClick={() => void useIt()}>
+            Use your own photo and voice in the chat
+          </button>
+        </p>
+      ) : accepted ? (
         <p className="done">
           You accepted this sample. <a href="#/chat">Go to the chat</a>
         </p>
@@ -786,7 +809,7 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
         <p className="muted">Accept it to unlock the chat, or go back and change what is wrong.</p>
       )}
       <div className="choices">
-        {!current?.accepted && (
+        {!accepted && (
           <button
             type="button"
             className={saving === "accept" ? "busy" : undefined}
@@ -819,11 +842,13 @@ export function ChatPage() {
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
   const [readyMade, setReadyMade] = useState(false); // a ready-made avatar, not their own
+  const [ownAccepted, setOwnAccepted] = useState(false); // their own sample, with an avatar in use
   useEffect(() => {
     getReview()
       .then((r) => {
         setAccepted(r.accepted);
         setReadyMade(r.default_person === true);
+        setOwnAccepted(r.own_sample_accepted === true);
       })
       .catch((e: unknown) => {
         console.error("Could not get the review", e);
@@ -871,7 +896,7 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       <h1 className="sr-only">Chat</h1>
-      {!participant && <AvatarLinks readyMade={readyMade} />}
+      {!participant && <AvatarLinks readyMade={readyMade} ownAccepted={ownAccepted} />}
       <Chat
         welcome={returned}
         after={asked.current}
@@ -886,7 +911,7 @@ export function ChatPage() {
 
 // Avatar Choice from the chat (Larry's test of R32a): another ready-made avatar, or the host's own
 // photo and voice, without going through Settings. The participant view has neither (R41b).
-function AvatarLinks({ readyMade }: { readyMade: boolean }) {
+function AvatarLinks({ readyMade, ownAccepted }: { readyMade: boolean; ownAccepted: boolean }) {
   const links: [string, string, string][] = readyMade
     ? [
         ["#/start-now", "Choose another avatar", "another ready-made avatar"],
@@ -900,7 +925,18 @@ function AvatarLinks({ readyMade }: { readyMade: boolean }) {
     <p className="avatar-links">
       <span className="muted">Avatar Choice:</span>
       {links.map(([href, label, what]) => (
-        <a key={href} href={href} onClick={() => console.info(`Choosing ${what} from the chat`)}>
+        <a
+          key={href}
+          href={href}
+          onClick={(e) => {
+            console.info(`Choosing ${what} from the chat`);
+            if (href !== "#/setup" || !readyMade) return;
+            e.preventDefault();
+            switchToOwn(ownAccepted, "the chat")
+              .then(() => ownAccepted && window.location.reload()) // the chat shows their own now
+              .catch((err: unknown) => console.error("Could not switch to your own photo and voice", err));
+          }}
+        >
           {label}
         </a>
       ))}
