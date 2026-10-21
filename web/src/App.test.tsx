@@ -3019,6 +3019,33 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   ); // the next prompt can be sent
 });
 
+test("Stop while it is thinking stops the thinking, and the prompt goes back in the box", async () => {
+  // Larry's test of PR #129: Stop left the LLM thinking.
+  const [answer, reply] = later();
+  const fetchMock = chatServer([], answer);
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Thinking…");
+  expect(stopButton().disabled).toBe(false);
+  fireEvent.click(stopButton());
+  expect(screen.getByText("Stopping…")).toBeTruthy(); // until the server has cut the LLM off
+  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/stop"))).toHaveLength(1);
+  await act(async () => {
+    reply(Response.json({ detail: "Stopped." }, { status: 409 }));
+  });
+  await waitFor(() => expect(promptBox().value).toBe("Tell me a story"));
+  expect(screen.queryByText("Stopping…")).toBeNull();
+  expect(screen.queryByText(CANT_ANSWER)).toBeNull(); // nothing went wrong
+  expect(screen.getByText("Ask a question to start the conversation.")).toBeTruthy();
+  expect(info).toHaveBeenCalledWith("Prompt stopped while it was answered");
+  expect(error).not.toHaveBeenCalledWith("Could not get a reply", expect.anything());
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
 test("Stop frees the chat at once while a reply's one video is still being made", async () => {
   const [speak, spoken] = later();
   const fetchMock = chatServer(

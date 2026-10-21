@@ -73,7 +73,7 @@ Items 1 to 16 match the original feature list. Items 17 to 23 were added after r
 ## Added after review
 
 17. **Idle video.** Between replies the person blinks and moves slightly instead of freezing.
-18. **Stop.** A button stops the video mid-reply.
+18. **Stop.** A button stops the video mid-reply, and stops the thinking too while the reply is still being written: the prompt goes back in the box (Larry, 2026-10-21).
 19. **Saved setup.** After acceptance, the prepared face and voice are saved so a returning user skips setup.
 20. **Errors in chat.** If the voice or video step fails, the text reply still shows, with a short friendly note. If the LLM fails, a plain message says so.
 21. **Volume and mute** controls.

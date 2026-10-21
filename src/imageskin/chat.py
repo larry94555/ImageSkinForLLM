@@ -210,6 +210,30 @@ class LlmCancelled(Exception):
 ask_stop: ContextVar[threading.Event | None] = ContextVar("ask_stop", default=None)
 
 
+class PromptStop(threading.Event):
+    """An `ask_stop` for a chat prompt: either Stop comes before the reply is kept, and the
+    prompt is dropped, or the reply is kept and Stop no longer stops it, never both (review on
+    PR #130: a Stop in between said it had stopped a prompt that was kept)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._guard = threading.Lock()
+        self._kept = False
+
+    def stop(self) -> bool:
+        """Stop the prompt, unless its reply is kept already. Whether it was stopped."""
+        with self._guard:
+            if not self._kept:
+                self.set()
+            return not self._kept
+
+    def keep(self) -> bool:
+        """Keep the reply, unless the prompt was stopped. Whether it may be kept."""
+        with self._guard:
+            self._kept = not self.is_set()
+            return self._kept
+
+
 def strict(schema: Any) -> Any:
     """The schema with every object closed to other properties, as the strict structured outputs
     of Claude and OpenAI require (R33); every property must also be listed as required."""
@@ -977,9 +1001,15 @@ class Conversation:
         """Keep the prompt and its reply, and return the reply's place. With `turns` (the ones
         sent with this prompt), they are also sent with later prompts, and the older ones are
         summarized once the history passes the budget, whether the LLM wrote the reply or it
-        was made here (review on PR #85)."""
+        was made here (review on PR #85). A prompt stopped meanwhile (`ask_stop`) is not kept:
+        LlmCancelled, as when it was cut off, since a provider's answer can't be."""
+        stop = ask_stop.get()
         said = [Turn("user", prompt), reply]
         with self._lock:
+            if stop is not None and not (
+                stop.keep() if isinstance(stop, PromptStop) else not stop.is_set()
+            ):
+                raise LlmCancelled("Stopped before the reply was kept.")
             if turns is not None:
                 self._turns = [*turns, *said]
             self._transcript += said
@@ -1118,7 +1148,10 @@ class Conversation:
                 if on_sentence is not None:
                     on_sentence(sentence)
 
+        stop = ask_stop.get()
         for piece in self._stream(messages):
+            if stop is not None and stop.is_set():  # a provider's stream, which isn't cut off
+                raise LlmCancelled("Cut off while the LLM was answering.")
             if not pieces:
                 logger.info("Reply started", extra={"since_prompt_ms": ms_since(start)})
                 if on_sentence is not None:

@@ -30,6 +30,7 @@ from imageskin.chat import (
     LlmSettings,
     LlmStarting,
     Message,
+    PromptStop,
     StoppableResponse,
     Turn,
     ask_stop,
@@ -1049,3 +1050,28 @@ def test_llama_server_loading_its_model_is_not_ready_yet(fake_llm: str, cut_off:
             LlmClient(LlmSettings(url=fake_llm)).ask([{"role": "user", "content": "Hi"}])
     finally:
         ask_stop.reset(token)
+
+
+def test_a_prompt_stopped_while_it_was_answered_is_not_kept() -> None:
+    """Larry's test of PR #129: a provider's answer can't be cut off, so a reply that comes
+    after Stop is dropped with its prompt, whoever wrote it."""
+    stop = threading.Event()
+    conversation = Conversation(lambda messages: "Hi there.", lambda: 2048)
+    token = ask_stop.set(stop)
+    try:
+        stop.set()
+        with pytest.raises(LlmCancelled, match="Stopped before the reply was kept"):
+            conversation.send("Hello")
+        with pytest.raises(LlmCancelled):
+            conversation.say("Teach me", ["A lesson."])
+    finally:
+        ask_stop.reset(token)
+    assert conversation.turns() == []
+    assert conversation.send("Hello")[0].content == "Hi there."
+
+
+def test_a_prompt_stop_comes_before_the_reply_is_kept_or_not_at_all() -> None:
+    stop = PromptStop()
+    assert stop.keep() and not stop.stop() and not stop.is_set()  # kept first
+    stop = PromptStop()
+    assert stop.stop() and not stop.keep() and stop.is_set()  # stopped first

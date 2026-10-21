@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from imageskin.app import CHAT_LOCKED, NO_SUCH_REPLY, create_app
+from imageskin.app import CHAT_LOCKED, NO_SUCH_REPLY, PROMPT_STOPPED, create_app
 from imageskin.chat import Conversation, LlmError
 from imageskin.prepare_job import ClipSteps, PrepareJob, PrepareStatus, steps_clip
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, text_steps
@@ -1460,7 +1460,9 @@ def test_a_video_stopped_before_it_is_asked_for_is_not_made(
     assert log.step == "before voice"  # type: ignore[attr-defined]
 
 
-def test_a_reply_stopped_before_its_prompt_arrives_gets_no_clips(tmp_path: Path) -> None:
+def test_a_prompt_stopped_before_it_arrives_is_not_answered(tmp_path: Path) -> None:
+    """Larry's test of PR #129: Stop stops the thinking too, even when it reaches the server
+    before the prompt does."""
     rendered: list[str] = []
 
     def render(photo: Path, text: str, output: Path) -> None:
@@ -1475,13 +1477,127 @@ def test_a_reply_stopped_before_its_prompt_arrives_gets_no_clips(tmp_path: Path)
         stopped = client.post(f"/api/chat/clips/{REPLY_ID}/stop")
         assert stopped.json() == {"stopped": False}
         sent = client.post("/api/chat", json={"prompt": "Count", "reply_id": REPLY_ID})
-        assert sent.json()["content"] == "One. Two."
-        assert sent.json()["streamed"] is False
+        assert sent.status_code == 409 and sent.json()["detail"] == PROMPT_STOPPED
+        assert client.get("/api/chat").json()["turns"] == []  # the prompt is dropped
         assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 404
-        # Only that once: the same id sent again is spoken as usual.
-        client.post("/api/chat", json={"prompt": "Again", "reply_id": REPLY_ID})
+        # Only that once: the same id sent again is answered and spoken as usual.
+        again = client.post("/api/chat", json={"prompt": "Again", "reply_id": REPLY_ID})
+        assert again.json()["content"] == "One. Two."
         assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 200
     assert rendered[:1] == ["One."]
+
+
+def test_stop_cuts_off_the_llm_while_it_is_thinking(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry's test of PR #129: Stop while the reply is being written ends the LLM's work, and
+    the prompt is dropped with the reply it would have had."""
+    thinking, go = threading.Event(), threading.Event()
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        thinking.set()
+        go.wait(5)  # a provider's stream: the next piece is where it is cut off
+        yield "One. "
+        yield "Two."
+
+    caplog.set_level(logging.INFO, logger="imageskin.app")
+    client = video_app(tmp_path, write_text, stream)
+    answers: dict[str, Any] = {}
+
+    def post() -> None:
+        sent = client.post("/api/chat", json={"prompt": "Count", "reply_id": REPLY_ID})
+        answers["status"], answers["detail"] = sent.status_code, sent.json()["detail"]
+
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        asking = threading.Thread(target=post)
+        asking.start()
+        assert thinking.wait(5)
+        stopped = client.post(f"/api/chat/clips/{REPLY_ID}/stop")
+        assert stopped.json() == {"stopped": True}
+        go.set()
+        asking.join(5)
+        assert answers == {"status": 409, "detail": PROMPT_STOPPED}
+        assert client.get("/api/chat").json()["turns"] == []
+        assert client.get(f"/api/chat/clips/{REPLY_ID}").status_code == 404
+        # The next prompt is answered as usual.
+        go.set()
+        sent = client.post("/api/chat", json={"prompt": "Again", "reply_id": "b" * 8})
+        assert sent.json()["content"] == "One. Two."
+    [log] = [r for r in caplog.records if r.message == "Reply stopped"]
+    assert log.answering is True  # type: ignore[attr-defined]
+    [log] = [r for r in caplog.records if r.message == "Prompt stopped"]
+    assert log.duration_ms >= 0  # type: ignore[attr-defined]
+
+
+def test_a_stop_after_the_reply_is_kept_stops_only_its_clips(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #130: a Stop while the reply was being saved said it had stopped the prompt,
+    which was kept. Once the reply is kept, Stop stops only its clips, and says so."""
+    saving, go = threading.Event(), threading.Event()
+    save = Conversation._save
+
+    def held(self: Conversation) -> None:
+        saving.set()
+        go.wait(5)
+        save(self)
+
+    caplog.set_level(logging.INFO, logger="imageskin.app")
+    client = video_app(tmp_path, write_text, lambda messages: iter(["One. Two."]))
+    answers: dict[str, Any] = {}
+
+    def post() -> None:
+        sent = client.post("/api/chat", json={"prompt": "Count", "reply_id": REPLY_ID})
+        answers["status"], answers["content"] = sent.status_code, sent.json().get("content")
+
+    with (
+        patch("imageskin.app.load_review", return_value=Review(accepted=True)),
+        patch.object(Conversation, "_save", held),
+    ):
+        asking = threading.Thread(target=post)
+        asking.start()
+        assert saving.wait(5)  # kept, and being saved
+        assert client.post(f"/api/chat/clips/{REPLY_ID}/stop").json() == {"stopped": True}
+        go.set()
+        asking.join(5)
+        turns = client.get("/api/chat").json()["turns"]
+    assert answers == {"status": 200, "content": "One. Two."}
+    assert [t["content"] for t in turns] == ["Count", "One. Two."]
+    [log] = [r for r in caplog.records if r.message == "Reply stopped"]
+    assert log.answering is False and log.clips is not None  # type: ignore[attr-defined]
+
+
+def test_a_prompt_stopped_while_it_waits_for_another_is_not_answered(tmp_path: Path) -> None:
+    """Stop reaches a prompt waiting for the one before it to be answered."""
+    thinking, go = threading.Event(), threading.Event()
+    asked: list[str] = []
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        asked.append(messages[-1]["content"])
+        thinking.set()
+        go.wait(5)
+        yield "Done."
+
+    client = video_app(tmp_path, write_text, stream)
+    answers: dict[str, int] = {}
+
+    def post(prompt: str, reply_id: str) -> None:
+        sent = client.post("/api/chat", json={"prompt": prompt, "reply_id": reply_id})
+        answers[prompt] = sent.status_code
+
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        first = threading.Thread(target=post, args=("First", "a" * 8))
+        first.start()
+        assert thinking.wait(5)
+        second = threading.Thread(target=post, args=("Second", "b" * 8))
+        second.start()
+        time.sleep(0.2)  # the second waits for the first
+        assert client.post(f"/api/chat/clips/{'b' * 8}/stop").json() == {"stopped": True}
+        go.set()
+        first.join(5)
+        second.join(5)
+    assert answers == {"First": 200, "Second": 409}
+    assert len(asked) == 1 and "First" in asked[0]  # the second never reached the LLM
 
 
 def test_only_so_many_early_stops_are_remembered(tmp_path: Path) -> None:
@@ -1494,8 +1610,8 @@ def test_only_so_many_early_stops_are_remembered(tmp_path: Path) -> None:
             client.post(f"/api/chat/clips/{reply_id}/stop")
         client.post("/api/chat", json={"prompt": "Hi", "reply_id": "a" * 8})
         assert client.get(f"/api/chat/clips/{'a' * 8}").status_code == 200
-        client.post("/api/chat", json={"prompt": "Hi", "reply_id": "c" * 8})
-        assert client.get(f"/api/chat/clips/{'c' * 8}").status_code == 404
+        sent = client.post("/api/chat", json={"prompt": "Hi", "reply_id": "c" * 8})
+        assert sent.status_code == 409
 
 
 def test_a_stop_that_fails_is_logged(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

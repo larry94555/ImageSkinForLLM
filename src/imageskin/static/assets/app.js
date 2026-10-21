@@ -4523,10 +4523,12 @@ function Chat(props) {
 				content
 			}]);
 		} catch (e) {
-			console.error("Could not get a reply", e);
+			const halt = e instanceof ServerRefusal && e.status === 409 && stopped.current === replyId;
+			if (halt) console.info("Prompt stopped while it was answered");
+			else console.error("Could not get a reply", e);
 			setTurns((t) => (t ?? []).slice(0, -1));
-			setPrompt(text);
-			setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
+			setPrompt((typed) => halt && typed ? typed : text);
+			if (!halt) setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
 			replied = true;
 			await Promise.race([following, stopping]);
 			setClips([]);
@@ -4622,7 +4624,7 @@ function Chat(props) {
 			})
 		})]
 	});
-	const status = sending ? "Thinking…" : waiting ? "Getting ready to say it…" : null;
+	const status = sending ? halted ? "Stopping…" : "Thinking…" : waiting ? "Getting ready to say it…" : null;
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [/* @__PURE__ */ u("div", {
