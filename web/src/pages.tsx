@@ -57,6 +57,7 @@ import { switchToOwn } from "./change-setup";
 import { Checks, minutes } from "./checks";
 import { useConfirm } from "./confirm-dialog";
 import { ExitScreen } from "./exit";
+import { useLeaveGuard } from "./leave-guard";
 import { ASSESSMENT_KEY, LESSON_KEY, QUIZ_KEY } from "./progress";
 import type { SetupPart } from "./router";
 import { useSettings } from "./settings";
@@ -152,6 +153,8 @@ export function SetupPage({ change }: { change?: SetupPart }) {
   // video, so setting up their own photo starts by undoing that.
   const [avatarVoice, setAvatarVoice] = useState(false);
   const [undoFailed, setUndoFailed] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
   useEffect(() => {
     getReview()
       .then((r) => setAvatarVoice(r.own_voice === true))
@@ -233,7 +236,13 @@ export function SetupPage({ change }: { change?: SetupPart }) {
       />
       <ReadyVoiceChoice changes={changes} onChange={changed} />
       <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
-      <PrepareSection changes={changes} onRunning={setPreparing} onBack={goBack} />
+      <PrepareSection
+        changes={changes}
+        onRunning={setPreparing}
+        onBack={goBack}
+        onPending={setPending}
+      />
+      {leaveDialog}
     </div>
   );
 }
@@ -667,6 +676,7 @@ export function PrepareSection(props: {
   onRunning: (running: boolean) => void;
   onBack: (to: Back) => void;
   avatarVoice?: boolean; // a ready-made avatar's picture in the user's voice (R24d)
+  onPending?: (pending: boolean) => void; // a sample is neither accepted nor rejected
 }) {
   const { changes, onRunning } = props;
   // null until the server has answered.
@@ -779,6 +789,7 @@ export function PrepareSection(props: {
             sample={status.finished_at}
             onBack={props.onBack}
             avatarVoice={props.avatarVoice}
+            onPending={props.onPending}
           />
         </div>
       )}
@@ -799,9 +810,12 @@ function ReviewChoices(props: {
   sample: string | null;
   onBack: (to: Back) => void;
   avatarVoice?: boolean;
+  onPending?: (pending: boolean) => void;
 }) {
   // null until the server has answered.
   const [current, setCurrent] = useState<Review | null>(null);
+  // The sample rejected here, so leaving the page afterwards doesn't ask (Larry's test of #131).
+  const [rejected, setRejected] = useState<string | null>(null);
   const [saving, setSaving] = useState<Decision | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -816,6 +830,7 @@ function ReviewChoices(props: {
     setFailed(null);
     try {
       setCurrent(await review(decision));
+      if (back) setRejected(props.sample);
       if (back) props.onBack(back);
       else window.location.hash = "#/chat";
     } catch (e) {
@@ -835,6 +850,11 @@ function ReviewChoices(props: {
     : avatar
       ? current?.own_sample_accepted === true
       : current?.accepted;
+  // Neither accepted nor rejected yet: leaving setup asks first (Larry's test of PR #131).
+  const pending = current !== null && !accepted && rejected !== props.sample;
+  const { onPending } = props;
+  useEffect(() => onPending?.(pending), [pending]);
+  useEffect(() => () => onPending?.(false), []);
   // The avatar's picture is not the user's to reject (R24d).
   const rejects = avatarVoice ? REJECTS.filter((r) => r.back !== "photos") : REJECTS;
   async function useIt() {

@@ -207,3 +207,37 @@ test("a refused undo in setup says why", async () => {
   });
   expect(await screen.findByText("Not now.")).toBeTruthy();
 });
+
+test("Settings switches back to the avatar's ready-made voice in one click", async () => {
+  const fetchMock = server({ ownVoice: true, accepted: true });
+  render(<ChangeSetup />);
+  const button = await screen.findByRole("button", { name: "Use the avatar's ready-made voice" });
+  expect(screen.getByText(/Switches back at once/)).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  expect(fetchMock).toHaveBeenCalledWith("/api/start-now/own-voice", { method: "DELETE" });
+  expect(await screen.findByText("The avatar speaks in its ready-made voice again.")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Use my own voice" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Use the avatar's ready-made voice" })).toBeNull();
+  expect(console.info).toHaveBeenCalledWith(
+    expect.stringMatching(/^Avatar's ready-made voice used again from Settings \(\d+ ms\)$/),
+  );
+});
+
+test("Settings says why the ready-made voice was refused", async () => {
+  server({ ownVoice: true, refuse: "Wait until Prepare finishes, then try again." });
+  render(<ChangeSetup />);
+  const button = await screen.findByRole("button", { name: "Use the avatar's ready-made voice" });
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  expect(await screen.findByText("Wait until Prepare finishes, then try again.")).toBeTruthy();
+});
+
+test("Settings offers the ready-made voice only once your own is chosen", async () => {
+  server({});
+  render(<ChangeSetup />);
+  await screen.findByRole("link", { name: "Use my own voice" });
+  expect(screen.queryByRole("button", { name: "Use the avatar's ready-made voice" })).toBeNull();
+});

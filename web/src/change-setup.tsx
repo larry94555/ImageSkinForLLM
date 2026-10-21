@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 
-import { getReview, useOwnPerson } from "./api";
+import { getReview, useAvatarReadyVoice, useOwnPerson } from "./api";
 import type { SetupPart } from "./router";
 
 const CHANGES: { part: SetupPart; label: string; about: string }[] = [
@@ -42,6 +42,9 @@ export function ChangeSetup() {
   const [inUse, setInUse] = useState<InUse | null>(null);
   const [ownAccepted, setOwnAccepted] = useState(false); // their own sample, with an avatar in use
   // The avatar is to speak in the user's voice (R24d), and does once its sample is accepted.
+  const [readyVoiceBusy, setReadyVoiceBusy] = useState(false);
+  const [readyVoiceDone, setReadyVoiceDone] = useState(false);
+  const [readyVoiceFailed, setReadyVoiceFailed] = useState<string | null>(null);
   const [avatarVoice, setAvatarVoice] = useState<{ chosen: boolean; accepted: boolean }>({
     chosen: false,
     accepted: false,
@@ -62,6 +65,22 @@ export function ChangeSetup() {
       })
       .catch((e: unknown) => console.error("Could not get the review", e));
   }, []);
+
+  async function readyVoice() {
+    const started = performance.now();
+    setReadyVoiceBusy(true);
+    setReadyVoiceFailed(null);
+    try {
+      await useAvatarReadyVoice();
+      setAvatarVoice({ chosen: false, accepted: false });
+      setReadyVoiceDone(true);
+      console.info(`Avatar's ready-made voice used again from Settings (${Math.round(performance.now() - started)} ms)`);
+    } catch (e) {
+      console.error("Could not use the avatar's ready-made voice again", e);
+      setReadyVoiceFailed((e as Error).message);
+    }
+    setReadyVoiceBusy(false);
+  }
 
   return (
     <section className="panel" aria-labelledby="settings-change">
@@ -159,6 +178,23 @@ export function ChangeSetup() {
                     ? "The avatar speaks in its ready-made voice until you accept the sample video in your voice."
                     : "Keep the avatar's picture and replace its voice with one made from your recordings."}
               </p>
+              {avatarVoice.chosen && (
+                // Back to the ready-made voice in one click, with nothing to accept (Larry's test
+                // of PR #131). Your recordings are kept.
+                <div className="switch">
+                  <button
+                    type="button"
+                    className={readyVoiceBusy ? "secondary busy" : "secondary"}
+                    disabled={readyVoiceBusy}
+                    onClick={() => void readyVoice()}
+                  >
+                    Use the avatar&apos;s ready-made voice
+                  </button>
+                  <p className="muted">Switches back at once. Your recordings are kept.</p>
+                </div>
+              )}
+              {readyVoiceDone && <p className="done">The avatar speaks in its ready-made voice again.</p>}
+              {readyVoiceFailed && <p className="error">{readyVoiceFailed}</p>}
             </div>
           )}
         </div>

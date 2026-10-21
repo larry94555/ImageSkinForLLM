@@ -6,6 +6,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { DEFAULT_PICTURE, getReview, type Review, useAvatarOwnVoice, useAvatarReadyVoice } from "./api";
+import { useLeaveGuard } from "./leave-guard";
 import { AccentSection, PrepareSection, StepOf, UploadSection } from "./pages";
 import type { SetupPart } from "./router";
 
@@ -22,6 +23,8 @@ export function AvatarVoicePage() {
   const changed = () => setChanges((n) => n + 1);
   const [preparing, setPreparing] = useState(false);
   const [back, setBack] = useState<SetupPart | null>(null);
+  const [pending, setPending] = useState(false);
+  const leaveDialog = useLeaveGuard(pending, "The avatar keeps the voice it has now.");
 
   useEffect(() => {
     const started = performance.now();
@@ -103,12 +106,14 @@ export function AvatarVoicePage() {
       <PrepareSection
         changes={changes}
         onRunning={setPreparing}
+        onPending={setPending}
         avatarVoice
         onBack={(to) => {
           setBack(to);
           window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
         }}
       />
+      {leaveDialog}
     </div>
   );
 }
