@@ -252,3 +252,35 @@ test("with your own photo in use, the third choice opens the avatars", async () 
   expect(link.getAttribute("href")).toBe("#/start-now");
   expect(screen.getByText(/it starts in its default voice/)).toBeTruthy();
 });
+
+test("the review offers a return to the avatar's default voice", async () => {
+  const fetchMock = server({ ownVoice: true });
+  render(<AvatarVoicePage />);
+  const button = await screen.findByRole("button", { name: "Return to default voice for avatar" });
+  expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  expect(fetchMock).toHaveBeenCalledWith("/api/start-now/own-voice", { method: "DELETE" });
+  expect(console.info).toHaveBeenCalledWith(
+    expect.stringMatching(/^Avatar's default voice used again from the review \(\d+ ms\)$/),
+  );
+});
+
+test("a refused return to the default voice says why", async () => {
+  server({ ownVoice: true, refuse: "Not now." });
+  render(<AvatarVoicePage />);
+  const button = await screen.findByRole("button", { name: "Return to default voice for avatar" });
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  expect(await screen.findByText("Could not return to the default voice: Not now.")).toBeTruthy();
+});
+
+test("setup for your own photo has no return to an avatar's voice", async () => {
+  server({ avatar: false });
+  render(<SetupPage />);
+  await screen.findByRole("button", { name: "Reject image" });
+  expect(screen.queryByRole("button", { name: "Return to default voice for avatar" })).toBeNull();
+});

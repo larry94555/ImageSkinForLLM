@@ -2871,6 +2871,20 @@ function ReviewChoices(props) {
 	h(() => {
 		getReview().then(setCurrent).catch((e) => console.error("Could not get the review", e));
 	}, [props.sample]);
+	async function defaultVoice() {
+		const started = performance.now();
+		setSaving("default-voice");
+		setFailed(null);
+		try {
+			setCurrent(await useAvatarReadyVoice());
+			console.info(`Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`);
+			window.location.hash = "#/chat";
+		} catch (e) {
+			console.error("Could not use the avatar's default voice again", e);
+			setFailed(`Could not return to the default voice: ${e.message}`);
+		}
+		setSaving(null);
+	}
 	async function decide(decision, back) {
 		setSaving(decision);
 		setFailed(null);
@@ -2929,23 +2943,33 @@ function ReviewChoices(props) {
 				})]
 			}) : /* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Accept it to unlock the chat, or go back and change what is wrong."
+				children: avatarVoice ? "Accept it to have the avatar speak in your voice, go back and change what is wrong, or return to the avatar's default voice." : "Accept it to unlock the chat, or go back and change what is wrong."
 			}),
 			/* @__PURE__ */ u("div", {
 				className: "choices",
-				children: [!accepted && /* @__PURE__ */ u("button", {
-					type: "button",
-					className: saving === "accept" ? "busy" : void 0,
-					disabled: saving !== null,
-					onClick: () => void decide("accept"),
-					children: "Accept"
-				}), rejects.map(({ decision, label, back }) => /* @__PURE__ */ u("button", {
-					type: "button",
-					className: saving === decision ? "secondary busy" : "secondary",
-					disabled: saving !== null,
-					onClick: () => void decide(decision, back),
-					children: label
-				}, decision))]
+				children: [
+					!accepted && /* @__PURE__ */ u("button", {
+						type: "button",
+						className: saving === "accept" ? "busy" : void 0,
+						disabled: saving !== null,
+						onClick: () => void decide("accept"),
+						children: "Accept"
+					}),
+					rejects.map(({ decision, label, back }) => /* @__PURE__ */ u("button", {
+						type: "button",
+						className: saving === decision ? "secondary busy" : "secondary",
+						disabled: saving !== null,
+						onClick: () => void decide(decision, back),
+						children: label
+					}, decision)),
+					avatarVoice && /* @__PURE__ */ u("button", {
+						type: "button",
+						className: saving === "default-voice" ? "secondary busy" : "secondary",
+						disabled: saving !== null,
+						onClick: () => void defaultVoice(),
+						children: "Return to default voice for avatar"
+					})
+				]
 			}),
 			failed && /* @__PURE__ */ u("p", {
 				className: "error",

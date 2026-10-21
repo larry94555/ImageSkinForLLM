@@ -816,7 +816,7 @@ function ReviewChoices(props: {
   const [current, setCurrent] = useState<Review | null>(null);
   // The sample rejected here, so leaving the page afterwards doesn't ask (Larry's test of #131).
   const [rejected, setRejected] = useState<string | null>(null);
-  const [saving, setSaving] = useState<Decision | null>(null);
+  const [saving, setSaving] = useState<Decision | "default-voice" | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
@@ -824,6 +824,21 @@ function ReviewChoices(props: {
       .then(setCurrent)
       .catch((e: unknown) => console.error("Could not get the review", e));
   }, [props.sample]);
+
+  async function defaultVoice() {
+    const started = performance.now();
+    setSaving("default-voice");
+    setFailed(null);
+    try {
+      setCurrent(await useAvatarReadyVoice());
+      console.info(`Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`);
+      window.location.hash = "#/chat";
+    } catch (e) {
+      console.error("Could not use the avatar's default voice again", e);
+      setFailed(`Could not return to the default voice: ${(e as Error).message}`);
+    }
+    setSaving(null);
+  }
 
   async function decide(decision: Decision, back?: Back) {
     setSaving(decision);
@@ -883,7 +898,11 @@ function ReviewChoices(props: {
           You accepted this sample. <a href="#/chat">Go to the chat</a>
         </p>
       ) : (
-        <p className="muted">Accept it to unlock the chat, or go back and change what is wrong.</p>
+        <p className="muted">
+          {avatarVoice
+            ? "Accept it to have the avatar speak in your voice, go back and change what is wrong, or return to the avatar's default voice."
+            : "Accept it to unlock the chat, or go back and change what is wrong."}
+        </p>
       )}
       <div className="choices">
         {!accepted && (
@@ -907,6 +926,17 @@ function ReviewChoices(props: {
             {label}
           </button>
         ))}
+        {avatarVoice && (
+          // Back to the avatar's default voice, with nothing to accept (Larry's test of #131).
+          <button
+            type="button"
+            className={saving === "default-voice" ? "secondary busy" : "secondary"}
+            disabled={saving !== null}
+            onClick={() => void defaultVoice()}
+          >
+            Return to default voice for avatar
+          </button>
+        )}
       </div>
       {failed && <p className="error">{failed}</p>}
     </div>
