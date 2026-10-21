@@ -6014,6 +6014,19 @@ function StartNowPage() {
 				className: "muted",
 				children: "Chat at once with a made-up person who speaks in a ready-made voice. You can switch to your own photo and voice at any time in Settings, under Avatar Choice."
 			}),
+			/* @__PURE__ */ u("p", {
+				className: "avatar-instead",
+				children: [
+					"Rather use your own image and voice?",
+					" ",
+					/* @__PURE__ */ u("a", {
+						className: "button secondary",
+						href: "#/setup",
+						onClick: () => console.info("Choosing your own image and voice from Avatar Choice"),
+						children: "Use your own image and voice"
+					})
+				]
+			}),
 			/* @__PURE__ */ u("form", {
 				onSubmit: (e) => {
 					e.preventDefault();

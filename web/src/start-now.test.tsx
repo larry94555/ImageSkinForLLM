@@ -284,3 +284,16 @@ test("faces that can't be read are said, and Start stays off", async () => {
   expect(screen.queryByText("Loading the faces…")).toBeNull();
   expect(console.error).toHaveBeenCalledWith("Could not read the faces", expect.anything());
 });
+
+test("your own image and voice is offered at the top too", async () => {
+  server([IDLE]);
+  render(<StartNowPage />);
+  await facesShown();
+  const top = screen.getByRole("link", { name: "Use your own image and voice" });
+  expect(top.getAttribute("href")).toBe("#/setup");
+  // Before the first choice on the page, so it is seen from the start.
+  const gender = screen.getAllByRole("group")[0];
+  expect(top.compareDocumentPosition(gender) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(top);
+  expect(console.info).toHaveBeenCalledWith("Choosing your own image and voice from Avatar Choice");
+});
