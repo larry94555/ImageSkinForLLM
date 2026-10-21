@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 
-import { getReview } from "./api";
+import { getReview, useOwnPerson } from "./api";
 import type { SetupPart } from "./router";
 
 const CHANGES: { part: SetupPart; label: string; about: string }[] = [
@@ -18,6 +18,20 @@ const CHANGES: { part: SetupPart; label: string; about: string }[] = [
 // Whose avatar the chat uses now, once the server has said.
 type InUse = "own" | "ready-made";
 
+// Use your own photo and voice, from a ready-made avatar (Larry's test of PR #128): straight to
+// the chat when their sample is already accepted, since nothing needs preparing; otherwise to
+// setup, to accept one.
+export async function switchToOwn(ownAccepted: boolean, from: string): Promise<void> {
+  if (!ownAccepted) {
+    window.location.hash = "#/setup";
+    return;
+  }
+  const started = performance.now();
+  await useOwnPerson();
+  console.info(`Switched to your own photo and voice from ${from} (${Math.round(performance.now() - started)} ms)`);
+  window.location.hash = "#/chat";
+}
+
 function InUseMark({ shown }: { shown: boolean }) {
   return shown ? <span className="in-use">In use</span> : null;
 }
@@ -26,6 +40,8 @@ export function ChangeSetup() {
   // null until the server has answered, or if it couldn't (before consent, say).
   const [accepted, setAccepted] = useState<boolean | null>(null);
   const [inUse, setInUse] = useState<InUse | null>(null);
+  const [ownAccepted, setOwnAccepted] = useState(false); // their own sample, with an avatar in use
+  const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
     const started = performance.now();
@@ -34,6 +50,7 @@ export function ChangeSetup() {
         const avatar = r.default_person ? "ready-made" : "own";
         setAccepted(r.accepted);
         setInUse(avatar);
+        setOwnAccepted(r.own_sample_accepted === true);
         const took = Math.round(performance.now() - started);
         console.info(`Sample accepted: ${r.accepted}, avatar in use: ${avatar} (${took} ms)`);
       })
@@ -56,14 +73,23 @@ export function ChangeSetup() {
               <a
                 className="button secondary"
                 href="#/setup"
-                onClick={() => console.info("Switching to your own photo and voice from Settings")}
+                onClick={(e) => {
+                  console.info("Switching to your own photo and voice from Settings");
+                  e.preventDefault();
+                  switchToOwn(ownAccepted, "Settings").catch((err: unknown) => {
+                    console.error("Could not switch to your own photo and voice", err);
+                    setFailed((err as Error).message);
+                  });
+                }}
               >
                 Use your own photo and voice
               </a>
               <p className="muted">
-                Your photos and recordings are kept. Accept their sample video at the end of setup
-                to switch.
+                {ownAccepted
+                  ? "Your sample video is already accepted: the chat switches to it at once."
+                  : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."}
               </p>
+              {failed && <p className="error">{failed}</p>}
             </div>
           ) : (
             <>

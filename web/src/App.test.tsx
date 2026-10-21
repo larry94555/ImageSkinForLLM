@@ -3741,19 +3741,37 @@ test("after a partial delete, setup stays at consent and the progress is gone (R
 
 // --- Avatar Choice from the chat (Larry's test of R32a) ---
 
-function avatarServer(readyMade: boolean, view: "host" | "participant" = "host") {
+function avatarServer(readyMade: boolean, view: "host" | "participant" = "host", ownAccepted = false) {
   const chat = chatServer([], () => Response.json({}));
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/settings") return Response.json({ show_metrics: false, view });
-      if (url === "/api/review") {
-        return Response.json({ accepted: true, accepted_at: null, default_person: readyMade });
-      }
-      return chat(url, init);
-    }),
-  );
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/settings") return Response.json({ show_metrics: false, view });
+    if (url === "/api/start-now" && init?.method === "DELETE") return Response.json({ accepted: true });
+    if (url === "/api/review") {
+      return Response.json({
+        accepted: true,
+        accepted_at: null,
+        default_person: readyMade,
+        own_sample_accepted: ownAccepted,
+      });
+    }
+    return chat(url, init);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
+
+test("the chat switches back to the host's own at once when its sample is accepted", async () => {
+  const fetchMock = avatarServer(true, "host", true);
+  const reload = vi.fn();
+  vi.stubGlobal("location", { ...window.location, hash: "#/chat", reload });
+  await openAt("#/chat");
+  const own = await screen.findByRole("link", { name: "Use your own photo and voice" });
+  await act(async () => {
+    fireEvent.click(own);
+  });
+  await waitFor(() => expect(reload).toHaveBeenCalled());
+  expect(fetchMock).toHaveBeenCalledWith("/api/start-now", { method: "DELETE" });
+});
 
 test("the chat links to a ready-made avatar or a new photo while the host's own is in use", async () => {
   avatarServer(false);

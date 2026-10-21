@@ -176,6 +176,8 @@ class StartNowRequest(BaseModel):
 
 # A request that waited for Delete my data (roadmap R31) and would write the person's data again.
 DELETED_MEANWHILE = "Your data was deleted while this was waiting. Start setup again."
+OWN_NOT_ACCEPTED = "Accept the sample video of your own photo and voice at the end of setup first."
+WAIT_FOR_AVATAR = "Wait until the ready-made avatar is ready, then switch to your own photo."
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # The conversation is saved in the data folder, so it is still there after a restart (R30).
 CONVERSATION_FILE = "conversation.json"
@@ -1041,7 +1043,30 @@ def create_app(
     @app.get("/api/review", dependencies=needs_person)
     def get_review() -> dict[str, object]:
         if start_now.chosen() is not None:
-            return {"accepted": True, "accepted_at": None, "default_person": True}
+            # Whether the user's own sample is accepted too, so setup can switch to it at once.
+            own = load_review(data_home, job.status()).accepted
+            return {
+                "accepted": True,
+                "accepted_at": None,
+                "default_person": True,
+                "own_sample_accepted": own,
+            }
+        return asdict(load_review(data_home, job.status()))
+
+    @app.delete("/api/start-now", dependencies=needs_consent)
+    def use_own_person(seen: DeletesSeen) -> dict[str, object]:
+        """Use your own photo and voice again, from a ready-made avatar, when their sample is
+        already accepted: the avatar is no longer chosen, and nothing needs preparing again."""
+        start = time.perf_counter()
+        with personal_write(seen):
+            if not load_review(data_home, job.status()).accepted:
+                logger.warning("Own photo and voice asked for before their sample is accepted")
+                raise HTTPException(status_code=409, detail=OWN_NOT_ACCEPTED)
+            # A reply being rendered keeps its face and voice.
+            if not start_now.forget_unless_busy():
+                raise HTTPException(status_code=409, detail=WAIT_FOR_AVATAR)
+        start_reply_warm_up()  # the chat now shows the person's own: ready their idle video
+        logger.info("Switched to your own photo and voice", extra={"duration_ms": ms_since(start)})
         return asdict(load_review(data_home, job.status()))
 
     @app.post("/api/review", dependencies=needs_consent)
