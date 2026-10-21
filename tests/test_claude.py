@@ -112,7 +112,9 @@ def test_claude_is_asked_with_the_users_key(caplog: pytest.LogCaptureFixture) ->
     ]
     assert client(fake).ask(messages) == "Hello there!"
     request = fake.requests[0]
-    assert request.headers["x-api-key"] == KEY
+    # The SDK sent the key as x-api-key before version 2.0, and as a bearer token since.
+    sent = request.headers.get("x-api-key") or request.headers.get("authorization", "")
+    assert sent in (KEY, f"Bearer {KEY}")
     assert FALLBACK_BETA in request.headers["anthropic-beta"]
     assert fake.body() == {
         "model": DEFAULT_MODEL,
