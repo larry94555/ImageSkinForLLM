@@ -46,6 +46,8 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
+from imageskin.default_people import ROLES as DEFAULT_ROLES
+from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -159,6 +161,7 @@ class StartNowRequest(BaseModel):
     accent: str
     realism: str
     role: str
+    face: int = 1  # R24c2
 
 
 # A request that waited for Delete my data (roadmap R31) and would write the person's data again.
@@ -895,7 +898,7 @@ def create_app(
 
     @app.post("/api/start-now")
     def post_start_now(body: StartNowRequest, seen: DeletesSeen) -> StartStatus:
-        choice = PersonChoice(body.gender, body.accent, body.realism, body.role)
+        choice = PersonChoice(body.gender, body.accent, body.realism, body.role, body.face)
         problem = choice.problem()
         if problem:
             raise HTTPException(status_code=400, detail=problem)
@@ -905,6 +908,22 @@ def create_app(
                 return start_now.start(choice)
             except PrepareError as e:  # setup is preparing the person's own video
                 raise HTTPException(status_code=409, detail=str(e)) from e
+
+    @app.get("/api/start-now/faces")
+    def get_start_now_faces() -> list[dict[str, object]]:
+        """Every default person, so the page can show the faces of a gender and look as the
+        thumbnails that ship with it (R24c2), with no label. They come in the order the page
+        shows them, which stays the same: by role, then face (Codex's review of PR #124)."""
+        return [
+            {
+                "gender": p.gender,
+                "realism": p.realism,
+                "role": p.role,
+                "face": p.face,
+                "name": p.name,
+            }
+            for p in sorted(default_people(), key=lambda p: (DEFAULT_ROLES.index(p.role), p.face))
+        ]
 
     @app.get("/api/start-now/picture")
     def get_start_now_picture() -> FileResponse:

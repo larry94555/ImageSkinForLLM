@@ -117,6 +117,12 @@ async function lineUrl(name) {
 	const status = await getPrepare();
 	return status.state === "done" ? clipUrl(name, status) : null;
 }
+async function getFaces() {
+	return json(await fetch("/api/start-now/faces"));
+}
+function faceUrl(name) {
+	return `/faces/${name}.jpg`;
+}
 async function getStartNow() {
 	return json(await fetch("/api/start-now"));
 }
@@ -5214,30 +5220,6 @@ function NotFoundPage() {
 }
 //#endregion
 //#region src/start-now.tsx
-var ROLES = [
-	"Professor",
-	"Teaching Assistant",
-	"Student",
-	"Parent",
-	"Teenager",
-	"Boss",
-	"Office Manager",
-	"High School Teacher",
-	"Business Consultant"
-];
-var GENDERED = {
-	Parent: {
-		female: "Mother",
-		male: "Father"
-	},
-	Teenager: {
-		female: "Daughter",
-		male: "Son"
-	}
-};
-function roleLabel(role, gender) {
-	return GENDERED[role]?.[gender] ?? role;
-}
 var OPTIONS = {
 	gender: [{
 		value: "female",
@@ -5297,12 +5279,38 @@ function useSeconds(on) {
 	}, [on]);
 	return seconds;
 }
+function facesOf(faces, choice) {
+	return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism);
+}
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
+	const [faces, setFaces] = d(null);
+	const [facesFailed, setFacesFailed] = d(false);
+	const change = (changes) => {
+		const next = {
+			...choice,
+			...changes
+		};
+		const first = facesOf(faces ?? [], next)[0];
+		const sameFaces = next.gender === choice.gender && next.realism === choice.realism;
+		setChoice(sameFaces || !first ? next : {
+			...next,
+			role: first.role,
+			face: first.face
+		});
+	};
 	const [status, setStatus] = d(null);
 	const [refused, setRefused] = d(null);
 	const started = A(0);
 	h(() => {
+		const asked = performance.now();
+		getFaces().then((f) => {
+			setFaces(f);
+			console.info(`${f.length} faces to pick from (${Math.round(performance.now() - asked)} ms)`);
+		}).catch((e) => {
+			console.error("Could not read the faces", e);
+			setFacesFailed(true);
+		});
 		getStartNow().then((s) => {
 			if (s.chosen) setChoice(s.chosen);
 			if (WORKING.includes(s.state) || finishing(s)) setStatus(s);
@@ -5344,6 +5352,9 @@ function StartNowPage() {
 			setRefused(e.message);
 		}
 	}
+	const shown = facesOf(faces ?? [], choice);
+	const locked = working || faces === null;
+	const face = choice.face ?? 1;
 	return /* @__PURE__ */ u("section", {
 		className: "start-now panel",
 		children: [
@@ -5363,44 +5374,59 @@ function StartNowPage() {
 						"accent",
 						"realism"
 					].map((key) => /* @__PURE__ */ u("fieldset", {
-						disabled: working,
+						disabled: locked,
 						children: [/* @__PURE__ */ u("legend", { children: LEGENDS[key] }), OPTIONS[key].map(({ value, label }) => /* @__PURE__ */ u("label", { children: [
 							/* @__PURE__ */ u("input", {
 								type: "radio",
 								name: key,
 								value,
 								checked: choice[key] === value,
-								onChange: () => setChoice({
-									...choice,
-									[key]: value
-								})
+								onChange: () => change({ [key]: value })
 							}),
 							" ",
 							label
 						] }, value))]
 					}, key)),
-					/* @__PURE__ */ u("label", {
-						className: "role",
-						children: [
-							"Role",
-							" ",
-							/* @__PURE__ */ u("select", {
-								value: choice.role,
-								disabled: working,
-								onChange: (e) => setChoice({
-									...choice,
-									role: e.target.value
-								}),
-								children: ROLES.map((role) => /* @__PURE__ */ u("option", {
-									value: role,
-									children: roleLabel(role, choice.gender)
-								}, role))
-							})
-						]
+					faces === null && !facesFailed && /* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Loading the faces…"
+					}),
+					facesFailed && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: "Couldn't load the faces to pick from. Reload the page to try again."
+					}),
+					shown.length > 0 && /* @__PURE__ */ u("fieldset", {
+						className: "faces",
+						disabled: working,
+						children: [/* @__PURE__ */ u("legend", { children: "Face" }), shown.map((f, i) => {
+							const picked = f.role === choice.role && f.face === face;
+							const name = `Face ${i + 1} of ${shown.length}`;
+							return /* @__PURE__ */ u("label", {
+								className: picked ? "face picked" : "face",
+								children: [/* @__PURE__ */ u("input", {
+									type: "radio",
+									name: "face",
+									value: f.name,
+									checked: picked,
+									onChange: () => {
+										console.info(`${name} picked: ${f.name}`);
+										setChoice({
+											...choice,
+											role: f.role,
+											face: f.face
+										});
+									}
+								}), /* @__PURE__ */ u("img", {
+									src: faceUrl(f.name),
+									alt: name
+								})]
+							}, f.name);
+						})]
 					}),
 					/* @__PURE__ */ u("button", {
 						type: "submit",
-						disabled: working,
+						disabled: locked,
 						className: working ? "busy" : void 0,
 						children: status?.state === "failed" ? "Try again" : "Start now"
 					})

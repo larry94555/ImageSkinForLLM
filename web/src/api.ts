@@ -239,6 +239,25 @@ export interface PersonChoice {
   accent: "American" | "British";
   realism: Realism;
   role: string;
+  face?: number; // R24c2: which of the choice's faces, 1 when not given
+}
+
+// One default person, to show as one of their choice's faces (R24c2).
+export interface Face {
+  gender: Gender;
+  realism: Realism;
+  role: string;
+  face: number;
+  name: string;
+}
+
+export async function getFaces(): Promise<Face[]> {
+  return json<Face[]>(await fetch("/api/start-now/faces"));
+}
+
+// The face's thumbnail, which ships with the app (R24b2 made them).
+export function faceUrl(name: string): string {
+  return `/faces/${name}.jpg`;
 }
 
 // Getting the chosen person ready: their download, then their Goodbye and Welcome back.
