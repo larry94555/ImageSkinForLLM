@@ -3299,7 +3299,7 @@ function ConsentPage({ onConfirmed }) {
 							onChange: (e) => setChecked(e.currentTarget.checked)
 						}),
 						" ",
-						"The person in the photos and recordings I will upload agreed to have their face and voice copied by this app."
+						"I have the right to use the photos and recording that will be used by the app."
 					]
 				}),
 				/* @__PURE__ */ u("button", {

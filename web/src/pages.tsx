@@ -91,8 +91,7 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
             checked={checked}
             onChange={(e) => setChecked(e.currentTarget.checked)}
           />{" "}
-          The person in the photos and recordings I will upload agreed to have their face and voice
-          copied by this app.
+          I have the right to use the photos and recording that will be used by the app.
         </label>
         <button type="submit" disabled={!checked || saving}>
           Continue

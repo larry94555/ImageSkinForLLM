@@ -96,7 +96,7 @@ test("setup without consent goes to the consent page", async () => {
   );
 });
 
-test("the consent page shows Larry's short image disclaimer", async () => {
+test("the consent page shows Larry's short image disclaimer and checkbox", async () => {
   serverWithConsent(false);
   await openAt("#/consent");
   expect(
@@ -105,6 +105,10 @@ test("the consent page shows Larry's short image disclaimer", async () => {
     ),
   ).toBeTruthy();
   expect(screen.queryByText(/Only use photos and recordings of someone/)).toBeNull();
+  expect(
+    screen.getByText("I have the right to use the photos and recording that will be used by the app."),
+  ).toBeTruthy();
+  expect(screen.queryByText(/agreed to have their face and voice/)).toBeNull();
 });
 
 test("ticking the box and continuing saves consent and opens setup", async () => {
