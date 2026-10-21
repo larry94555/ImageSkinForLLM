@@ -59,6 +59,8 @@ ACCENTS = ("American", "British")
 LINES = (("goodbye", "Goodbye."), ("welcome-back", "Welcome back."))
 
 State = Literal["idle", "downloading", "unpacking", "getting-ready", "ready", "failed"]
+# While a person is being got ready, on the background thread.
+BUSY = ("downloading", "unpacking", "getting-ready")
 Fetch = Callable[..., None]  # download()'s signature
 Unpack = Callable[[Path, Path], Path]  # pack, home: the picture
 RenderClip = Callable[[Path, str, Path], None]  # picture, what to say, MP4 to write
@@ -223,6 +225,21 @@ class StartNow:
         except FileNotFoundError:
             pass
 
+    def forget_unless_busy(self) -> bool:
+        """Forget the chosen person, as the user's own photo and voice are wanted again, unless
+        a person is being got ready now: it would be chosen once ready, undoing this (review
+        on PR #129). Whether it was forgotten. Under the lock `start` chooses with, so a person
+        ready at once is either chosen before this or after it, never in between."""
+        with self._lock:
+            if self._status.state in BUSY:
+                logger.warning(
+                    "Own photo and voice asked for while a person is got ready",
+                    extra={"person": self._status.person, "state": self._status.state},
+                )
+                return False
+            self._activate(self.forget)
+            return True
+
     def _picture(self, name: str) -> Path:
         return self._folder / f"{name}.png"
 
@@ -247,7 +264,7 @@ class StartNow:
         """Get the chosen person ready, unless a person is being got ready now: then report on
         that one. A person downloaded before, with their lines rendered, is ready at once."""
         with self._lock:
-            if self._status.state in ("downloading", "unpacking", "getting-ready"):
+            if self._status.state in BUSY:
                 return self._status
             logger.info(
                 "Start now with a default person", extra={"person": choice.name, **asdict(choice)}

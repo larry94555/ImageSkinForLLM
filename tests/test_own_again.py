@@ -3,6 +3,7 @@
 
 import functools
 import logging
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 from test_start_now import CHOICE, Fetcher, packs_of, renderer
 
 from imageskin import start_now as sn
-from imageskin.app import OWN_NOT_ACCEPTED, create_app
+from imageskin.app import OWN_NOT_ACCEPTED, WAIT_FOR_AVATAR, create_app
 from imageskin.uploads import PhotoResult, UploadStore, VoiceSample
 
 pack = test_start_now.pack  # the fixture: a real, small pack of the person CHOICE names
@@ -76,3 +77,39 @@ def test_your_own_accepted_sample_is_used_again_at_once(
 
 def test_switching_back_needs_consent(client: TestClient) -> None:
     assert client.delete("/api/start-now").status_code == 403
+
+
+def test_switching_back_waits_for_an_avatar_being_got_ready(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #129: switching back while an avatar was downloaded was undone once it was
+    ready, as it was chosen then. Now it is refused until then, and works after."""
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    saving, go = threading.Event(), threading.Event()
+    save = sn.StartNow._save
+
+    def held(self: sn.StartNow, choice: sn.Choice) -> None:
+        saving.set()
+        go.wait(10)
+        save(self, choice)
+
+    with (
+        patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)),
+        patch.object(sn.StartNow, "_save", held),
+    ):
+        client.post("/api/prepare")
+        client.app.state.prepare_job.wait(10)  # type: ignore[attr-defined]
+        assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+        assert client.post("/api/start-now", json=vars(CHOICE)).status_code == 200
+        assert saving.wait(10)  # about to choose it
+        with caplog.at_level(logging.WARNING):
+            refused = client.delete("/api/start-now")
+        assert refused.status_code == 409 and refused.json()["detail"] == WAIT_FOR_AVATAR
+        assert any("while a person is got ready" in r.getMessage() for r in caplog.records)
+        go.set()
+        client.app.state.start_now.wait(10)  # type: ignore[attr-defined]
+        assert client.get("/api/start-now").json()["chosen"] is not None  # as the page said
+        back = client.delete("/api/start-now")
+        assert back.status_code == 200
+        assert client.get("/api/start-now").json()["chosen"] is None
