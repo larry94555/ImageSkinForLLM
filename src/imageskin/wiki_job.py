@@ -26,7 +26,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
-from imageskin.chat import LlmError
+from imageskin.chat import LlmCancelled, LlmError, ask_stop
 from imageskin.content import ContentStore
 from imageskin.reading_job import ReadingJob, version
 from imageskin.wiki import Progress, WaitForLlm, Wiki, WikiError, WikiPage
@@ -51,6 +51,8 @@ from imageskin.wiki_outline import (
 
 logger = logging.getLogger(__name__)
 
+PACE_FILE = "pace.json"  # in the wiki folder: how long a part took in the last build
+
 State = Literal["waiting", "building", "done", "failed"]
 Stage = Literal["topics", "outline"]
 # Builds the wiki pages for a PDF (its id and the pieces read from it).
@@ -69,7 +71,7 @@ AI_REFUSED = "The AI couldn't build a wiki from this PDF. Rebuild the wiki to tr
 
 
 class Superseded(Exception):
-    """The PDF was replaced or removed while its build waited for the LLM."""
+    """The PDF was replaced or removed while it was built."""
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,12 @@ class WikiStatus:
     elapsed_s: float | None = None  # how long the build has taken so far, or took once done
     # About how long this stage has left, from how long its steps have taken so far.
     remaining_s: float | None = None
+    # While queued: the PDF being built was removed or replaced, and its build is stopping.
+    stopping: bool = False
+    # While queued: how many PDFs are built first, counting the one being built now, and that
+    # one's name.
+    ahead: int = 0
+    building_name: str | None = None
 
 
 def done_status(saved: dict[str, Any]) -> WikiStatus:
@@ -129,6 +137,10 @@ class WikiJob:
         self._status: dict[str, WikiStatus] = {}
         self._worker: threading.Thread | None = None
         self._building: tuple[str, str] | None = None  # the PDF and version being built now
+        self._stop = threading.Event()  # set to cut the LLM off while _building is built
+        # Seconds a part took in the last build, so the first part of the next one has a time
+        # left too (Larry's test of PR #123), not only once a part is done.
+        self._part_s: float | None = self._load_pace()
         self._started: dict[str, float] = {}  # when the build now running started (monotonic)
         self._stage_started: dict[str, float] = {}  # and when its stage started
         self._last_step: dict[str, float] = {}  # and when its last step was done
@@ -154,12 +166,15 @@ class WikiJob:
         with self._lock:
             if pdf is not None and self._building == (pdf_id, version(pdf)):
                 return  # this very version is being built now
+            self._stop_if_building(pdf_id)  # an older version: its answers are not wanted
             if pdf_id not in self._waiting:
                 self._waiting.append(pdf_id)
             self._status[pdf_id] = WikiStatus("waiting")
+            ahead = self._waiting.index(pdf_id) + (self._building is not None)
             if self._worker is None or not self._worker.is_alive():
                 self._worker = threading.Thread(target=self._run, name="wiki", daemon=True)
                 self._worker.start()
+        logger.info("Wiki queued", extra={"id": pdf_id, "ahead": ahead})
 
     def reset(self, pdf_id: str) -> None:
         """After a PDF is replaced: its pages are out of date until it is read again."""
@@ -167,6 +182,15 @@ class WikiJob:
             self._status.pop(pdf_id, None)
             if pdf_id in self._waiting:
                 self._waiting.remove(pdf_id)
+            self._stop_if_building(pdf_id)
+
+    def _stop_if_building(self, pdf_id: str) -> None:
+        """Cut off the LLM's answer for the PDF being built, if it is this one (under the
+        lock): it is removed or replaced, so the next PDF starts now, not once the LLM is
+        done (Larry's test of PR #123)."""
+        if self._building is not None and self._building[0] == pdf_id and not self._stop.is_set():
+            logger.info("Stopping the wiki build", extra={"id": pdf_id})
+            self._stop.set()
 
     def forget(self, pdf_id: str) -> None:
         """After a PDF is removed: its pages go too, and the user's edits to them."""
@@ -401,14 +425,32 @@ class WikiJob:
                 status = replace(
                     status,
                     elapsed_s=round(now - started, 1),
-                    remaining_s=remaining(status, last_step - stage_started, now - last_step),
+                    remaining_s=remaining(
+                        status, last_step - stage_started, now - last_step, self._part_s
+                    ),
                 )
+            if status is not None and status.state == "waiting" and status.error is None:
+                status = self._queued(pdf.id, status)
             if status is None or status.state == "done":
                 saved = self._saved(pdf.id)
                 status = done_status(saved) if saved else None
             if status is not None:
                 result[pdf.id] = status
         return result
+
+    def _queued(self, pdf_id: str, status: WikiStatus) -> WikiStatus:
+        """A queued PDF's status, with what is built before it."""
+        with self._lock:
+            if pdf_id not in self._waiting:
+                return status
+            building = self._building
+            ahead = self._waiting.index(pdf_id) + (building is not None)
+        now = self.store.get(building[0]) if building is not None else None
+        name = now.name if now is not None and now.id != pdf_id else None
+        # The PDF being built was removed or replaced: its build stops once the LLM has given
+        # the answer it is giving now.
+        gone = building is not None and (now is None or version(now) != building[1])
+        return replace(status, ahead=ahead, building_name=name, stopping=gone)
 
     def pages(self, pdf_id: str | None = None) -> list[dict[str, Any]]:
         """Every up-to-date page (or one PDF's), without its text: id, title, PDF and pages."""
@@ -503,12 +545,16 @@ class WikiJob:
                 pdf_id = self._waiting.pop(0)
                 pdf = self.store.get(pdf_id)
                 self._building = (pdf_id, version(pdf)) if pdf else None
+                self._stop = threading.Event()
+                stop = self._stop
+            token = ask_stop.set(stop)  # the LLM's answers for this PDF can be cut off
             try:
                 built = self._build(pdf_id) or built
             except Exception as e:  # never let one PDF stop the PDFs queued after it
                 logger.exception("Could not build the wiki", extra={"id": pdf_id, "error": repr(e)})
                 self._set(pdf_id, WikiStatus("failed", error="Something went wrong building it."))
             finally:
+                ask_stop.reset(token)
                 with self._lock:
                     self._building = None
                     self._started.pop(pdf_id, None)
@@ -529,8 +575,21 @@ class WikiJob:
         logger.info("Building wiki pages", extra={"id": pdf_id, "upload_name": pdf.name})
         self._set(pdf_id, WikiStatus("building"))
 
+        def still_wanted() -> None:
+            """Stops the build, by Superseded, once the PDF is removed or replaced: after the
+            answer the LLM is giving now, not after every part (Larry's test of PR #123)."""
+            with self._lock:
+                if (
+                    self.store.get(pdf_id) != pdf
+                    or pdf_id not in self._status
+                    or pdf_id in self._waiting
+                ):
+                    raise Superseded
+
         def progress(part: int, parts: int) -> None:
-            self._stepped(pdf_id)
+            still_wanted()
+            if part:  # 0: the parts are known, none is done yet
+                self._stepped(pdf_id)
             self._set(pdf_id, WikiStatus("building", part, parts))
 
         def pause(error: LlmError, building: WikiStatus, step: int) -> None:
@@ -546,25 +605,23 @@ class WikiJob:
             )
             self._set(pdf_id, replace(building, state="waiting", error=str(error)))
             time.sleep(self.retry_s)
-            with self._lock:
-                if (
-                    self.store.get(pdf_id) != pdf
-                    or pdf_id not in self._status
-                    or pdf_id in self._waiting
-                ):
-                    raise Superseded  # replaced or removed meanwhile
+            still_wanted()  # replaced or removed meanwhile
             self._set(pdf_id, building)
 
         def wait_for_llm(error: LlmError, part: int, parts: int) -> None:
             pause(error, WikiStatus("building", part - 1, parts), part)
 
         try:
+            parts_started = time.monotonic()
             wiki = self.build(pdf_id, reading["pieces"], progress, wait_for_llm)
             parts = wiki.parts
+            if parts:
+                self._save_pace((time.monotonic() - parts_started) / parts)
 
             planned = 0
 
             def outline_progress(steps: int, steps_planned: int) -> None:
+                still_wanted()
                 self._stepped(pdf_id)
                 nonlocal planned
                 planned = steps_planned
@@ -588,7 +645,11 @@ class WikiJob:
                     "Could not build the wiki outline", extra={"id": pdf_id, "error": str(e)}
                 )
                 outline = plain_outline(wiki.pages)
-        except Superseded:
+        except (Superseded, LlmCancelled):
+            logger.info(
+                "Wiki build stopped: the PDF was removed or replaced",
+                extra={"id": pdf_id, "duration_s": round(time.perf_counter() - start, 1)},
+            )
             return True
         except (WikiError, LlmError) as e:  # an LlmError here is a refusal, not an outage
             logger.error("Could not build the wiki", extra={"id": pdf_id, "error": str(e)})
@@ -658,6 +719,24 @@ class WikiJob:
         self._status[pdf_id] = done_status(saved)
         return True
 
+    def _load_pace(self) -> float | None:
+        try:
+            pace = json.loads((self.folder / PACE_FILE).read_text(encoding="utf-8"))["part_s"]
+            return float(pace) if pace > 0 else None
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _save_pace(self, part_s: float) -> None:
+        self._part_s = part_s
+        try:
+            self.folder.mkdir(parents=True, exist_ok=True)
+            (self.folder / PACE_FILE).write_text(
+                json.dumps({"part_s": round(part_s, 1)}), encoding="utf-8"
+            )
+        except OSError as e:
+            logger.error("Could not save the wiki's pace", extra={"error": str(e)})
+        logger.info("Wiki pace", extra={"part_s": round(part_s, 1)})
+
     def _stepped(self, pdf_id: str) -> None:
         with self._lock:
             self._last_step[pdf_id] = time.monotonic()
@@ -669,10 +748,15 @@ class WikiJob:
                 self._status[pdf_id] = status
 
 
-def remaining(status: WikiStatus, steps_s: float, since_s: float) -> float | None:
+def remaining(
+    status: WikiStatus, steps_s: float, since_s: float, part_s: float | None = None
+) -> float | None:
     """About how long the stage has left: the time its steps done so far took (`steps_s`), on
     average, for each step left, less the time since the last one (`since_s`), so it counts
-    down between steps; None until a step is done."""
+    down between steps. Before the first part is done, the last build's time a part (`part_s`)
+    stands in for it; with none, None."""
+    if status.stage != "outline" and status.part < 1 and status.parts and part_s:
+        return round(max(0.0, part_s * status.parts - since_s), 1)
     done, total = (
         (status.steps, status.steps_planned)
         if status.stage == "outline"

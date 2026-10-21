@@ -1918,6 +1918,18 @@ function WikiLine({ id, build }) {
 		className: "error",
 		children: wikiText(build, metrics)
 	});
+	if (build.state === "building" && build.stage !== "outline" && build.parts) return /* @__PURE__ */ u("span", {
+		className: "muted busy",
+		children: [
+			wikiText(build, metrics),
+			" ",
+			/* @__PURE__ */ u("progress", {
+				max: build.parts,
+				value: build.part,
+				"aria-label": "Wiki parts built"
+			})
+		]
+	});
 	if (build.state !== "done") return /* @__PURE__ */ u("span", {
 		className: "muted busy",
 		children: wikiText(build, metrics)
@@ -1936,15 +1948,21 @@ function WikiLine({ id, build }) {
 	});
 }
 function wikiText(b, metrics = false) {
-	const time = (what = "") => {
+	const time = (what = "", pending = "") => {
 		const parts = [];
-		if (metrics && b.elapsed_s != null) parts.push(`${duration$1(b.elapsed_s)} so far`);
+		if (b.elapsed_s != null) parts.push(`${duration$1(b.elapsed_s)} so far`);
 		if (b.remaining_s != null) parts.push(`about ${duration$1(b.remaining_s)} left${what}`);
+		else if (pending) parts.push(pending);
 		return parts.length ? ` (${parts.join(", ")})` : "";
 	};
 	const sofar = time();
 	if (b.state === "waiting") {
 		if (b.error) return `Waiting for the AI to be ready to build the wiki…${sofar}`;
+		if (b.stopping) return `Waiting to build the wiki: stopping the removed PDF's build${b.ahead && b.ahead > 1 ? `, then ${plural(b.ahead - 1, "PDF")} ahead` : ""}…${sofar}`;
+		if (b.ahead) {
+			const now = b.building_name ? `, building “${b.building_name}” now` : "";
+			return `Waiting to build the wiki: ${plural(b.ahead, "PDF")} ahead${now}…${sofar}`;
+		}
 		return `Waiting to build the wiki…${sofar}`;
 	}
 	if (b.state === "building" && b.stage === "outline") {
@@ -1953,7 +1971,10 @@ function wikiText(b, metrics = false) {
 	}
 	if (b.state === "building") {
 		const part = Math.min(b.part + 1, b.parts);
-		return b.parts ? `Building the wiki: part ${part} of ${b.parts}…${time(" before arranging its topics")}` : `Building the wiki…${sofar}`;
+		if (!b.parts) return `Building the wiki…${sofar}`;
+		const done = Math.round(100 * b.part / b.parts);
+		const left = time(" before arranging its topics", "the time left shows once part 1 is done");
+		return `Building the wiki: part ${part} of ${b.parts}, ${done}% done…${left}`;
 	}
 	if (b.state === "failed") return b.error ?? "The wiki could not be built.";
 	const n = b.skipped_parts?.length ?? 0;
@@ -5601,6 +5622,7 @@ function WikiPage({ pdf }) {
 	return /* @__PURE__ */ u("section", {
 		className: "wiki",
 		children: [
+			!participant && /* @__PURE__ */ u(HostTrail, {}),
 			/* @__PURE__ */ u("h1", { children: "Wiki" }),
 			pdf ? /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				href: wikiHref(),
@@ -6119,6 +6141,13 @@ function WikiDetailPage({ entry }) {
 				className: "trail",
 				"aria-label": "Where this page is",
 				children: [
+					!participant && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("a", {
+						href: "#/content",
+						children: "Manage Content"
+					}), /* @__PURE__ */ u("span", {
+						"aria-hidden": "true",
+						children: " › "
+					})] }),
 					/* @__PURE__ */ u("a", {
 						href: wikiHref(),
 						children: "Wiki"
@@ -6403,47 +6432,69 @@ function PageLinks({ pdf, pages }) {
 		})] }, n))]
 	});
 }
+function HostTrail() {
+	return /* @__PURE__ */ u("nav", {
+		className: "trail",
+		"aria-label": "Where this page is",
+		children: [
+			/* @__PURE__ */ u("a", {
+				href: "#/content",
+				children: "Manage Content"
+			}),
+			/* @__PURE__ */ u("span", {
+				"aria-hidden": "true",
+				children: " › "
+			}),
+			/* @__PURE__ */ u("span", { children: "Wiki" })
+		]
+	});
+}
 //#endregion
 //#region src/App.tsx
 var NAV = [
 	{
 		page: "home",
 		href: "#/",
-		label: "Home"
+		label: "Home",
+		views: ["host"]
 	},
 	{
 		page: "setup",
 		href: "#/setup",
-		label: "Setup"
+		label: "Setup",
+		views: ["host"]
 	},
 	{
 		page: "chat",
 		href: "#/chat",
 		label: "Chat",
-		participant: true
+		views: ["host", "participant"]
 	},
 	{
 		page: "wiki",
 		href: "#/wiki",
 		label: "Wiki",
-		participant: true
+		views: ["participant"]
 	},
 	{
 		page: "content",
 		href: "#/content",
-		label: "Manage Content"
+		label: "Manage Content",
+		views: ["host"]
 	}
 ];
-function current(page) {
+function current(page, view) {
 	if (page === "guide" || page === "start-now") return "setup";
-	return page === "wiki-page" ? "wiki" : page;
+	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
+	return page;
 }
 function App() {
 	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(Shell, {}) });
 }
 function Shell() {
 	const hash = useHash();
-	const participant = useSettings().view === "participant";
+	const view = useSettings().view;
+	const participant = view === "participant";
 	const settingsLoaded = useSettingsLoaded();
 	const host = settingsLoaded && !participant;
 	const [consented, setConsented] = d(null);
@@ -6494,9 +6545,9 @@ function Shell() {
 					href: host ? "#/" : "#/chat",
 					children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
 				}),
-				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && (host || item.participant)).map((item) => /* @__PURE__ */ u("a", {
+				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && item.views.includes(view)).map((item) => /* @__PURE__ */ u("a", {
 					href: item.href,
-					className: current(route?.page) === item.page ? "current" : void 0,
+					className: current(route?.page, view) === item.page ? "current" : void 0,
 					children: item.label
 				}, item.page)) }),
 				settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })

@@ -587,6 +587,9 @@ export interface WikiBuild {
   detail_pages: number | null; // once done: the outline's detail pages
   elapsed_s: number | null; // how long the build has taken so far, or took once done
   remaining_s: number | null; // about how long this stage has left, once a step is done
+  ahead?: number; // while queued: PDFs built first, counting the one being built now
+  building_name?: string | null; // while queued: the name of the PDF being built now
+  stopping?: boolean; // while queued: the PDF being built was removed or replaced, and is stopping
 }
 
 // One entry of a PDF's wiki outline (roadmap R37a): a section, topic or part, with its summary

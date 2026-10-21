@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { getConsent } from "./api";
+import { getConsent, type View } from "./api";
 import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
 import { HomePage } from "./home";
@@ -18,20 +18,23 @@ import {
 } from "./settings";
 import { WikiDetailPage, WikiPage } from "./wiki";
 
-// The top bar's pages; the participant view (R41b) has only the chat and the wiki.
-const NAV: { page: Page; href: string; label: string; participant?: boolean }[] = [
-  { page: "home", href: "#/", label: "Home" },
-  { page: "setup", href: "#/setup", label: "Setup" },
-  { page: "chat", href: "#/chat", label: "Chat", participant: true },
-  { page: "wiki", href: "#/wiki", label: "Wiki", participant: true },
-  { page: "content", href: "#/content", label: "Manage Content" },
+// The top bar's pages for each view: the participant view (R41b) has only the chat and the wiki.
+// The host reaches the wiki from Manage Content, as it is built from the PDFs there (Larry's
+// review of PR #123).
+const NAV: { page: Page; href: string; label: string; views: View[] }[] = [
+  { page: "home", href: "#/", label: "Home", views: ["host"] },
+  { page: "setup", href: "#/setup", label: "Setup", views: ["host"] },
+  { page: "chat", href: "#/chat", label: "Chat", views: ["host", "participant"] },
+  { page: "wiki", href: "#/wiki", label: "Wiki", views: ["participant"] },
+  { page: "content", href: "#/content", label: "Manage Content", views: ["host"] },
 ];
 
-// The top bar link to highlight: the recording guide and Start now are part of setup, and a
-// detail page of the wiki.
-function current(page: Page | undefined): Page | undefined {
+// The top bar link to highlight: the recording guide and Start now are part of setup, and the
+// wiki's pages are part of Manage Content for the host, and of Wiki for a participant.
+function current(page: Page | undefined, view: View): Page | undefined {
   if (page === "guide" || page === "start-now") return "setup";
-  return page === "wiki-page" ? "wiki" : page;
+  if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
+  return page;
 }
 
 export function App() {
@@ -44,7 +47,8 @@ export function App() {
 
 function Shell() {
   const hash = useHash();
-  const participant = useSettings().view === "participant";
+  const view = useSettings().view;
+  const participant = view === "participant";
   const settingsLoaded = useSettingsLoaded();
   // Until the settings are read, the top bar has no links, so a participant never sees a host's
   // (review on PR #77).
@@ -117,11 +121,11 @@ function Shell() {
           ImageSkinForLLM
         </a>
         <nav>
-          {NAV.filter((item) => settingsLoaded && (host || item.participant)).map((item) => (
+          {NAV.filter((item) => settingsLoaded && item.views.includes(view)).map((item) => (
             <a
               key={item.page}
               href={item.href}
-              className={current(route?.page) === item.page ? "current" : undefined}
+              className={current(route?.page, view) === item.page ? "current" : undefined}
             >
               {item.label}
             </a>
