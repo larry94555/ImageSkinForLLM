@@ -1,10 +1,12 @@
 import http.client
 import json
 import logging
+import socket
 import threading
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,11 +24,14 @@ from imageskin.chat import (
     TOKENS_PER_MESSAGE,
     Conversation,
     EmptyReply,
+    LlmCancelled,
     LlmClient,
     LlmError,
     LlmSettings,
     Message,
+    StoppableResponse,
     Turn,
+    ask_stop,
     estimate,
     latest,
     strict,
@@ -816,3 +821,203 @@ def test_every_schema_suits_strict_structured_outputs(schema: dict[str, object])
                 check(value)
 
     check(strict(schema))
+
+
+# --- Cutting a request off (Larry's test of PR #123) ---
+
+
+class SlowLlm(BaseHTTPRequestHandler):
+    """Answers only once it is told to, and says whether the client hung up first."""
+
+    go = threading.Event()
+    hung_up = threading.Event()
+    # What it sends before it waits: nothing, part of a JSON answer, or a first streamed piece.
+    first: bytes | None = None
+    streamed = False
+
+    def do_POST(self) -> None:  # noqa: N802 (the name http.server calls)
+        self.rfile.read(int(self.headers["Content-Length"]))
+        if SlowLlm.first is not None:
+            self.send_response(200)
+            self.send_header(
+                "Content-Type", "text/event-stream" if SlowLlm.streamed else "application/json"
+            )
+            if not SlowLlm.streamed:
+                self.send_header("Content-Length", "1000")
+            self.end_headers()
+            self.wfile.write(SlowLlm.first)
+            self.wfile.flush()
+        self.connection.settimeout(0.05)
+        while not SlowLlm.go.is_set():
+            try:
+                if self.connection.recv(1, socket.MSG_PEEK) == b"":
+                    SlowLlm.hung_up.set()  # as llama-server sees it, and stops working
+                    return
+            except TimeoutError:
+                continue
+            except OSError:
+                SlowLlm.hung_up.set()
+                return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(reply("Rain falls."))
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+@pytest.fixture
+def slow_llm() -> Iterator[str]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), SlowLlm)
+    SlowLlm.go, SlowLlm.hung_up = threading.Event(), threading.Event()
+    SlowLlm.first, SlowLlm.streamed = None, False
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}/v1"
+    SlowLlm.go.set()
+    server.shutdown()
+    server.server_close()
+
+
+def test_a_request_is_cut_off_the_moment_its_answer_is_no_longer_wanted(
+    slow_llm: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = LlmClient(LlmSettings(url=slow_llm))
+    stop = threading.Event()
+    failed: list[BaseException] = []
+
+    def ask() -> None:
+        token = ask_stop.set(stop)
+        try:
+            client.ask([{"role": "user", "content": "Hi"}])
+        except BaseException as e:  # noqa: BLE001 (what the test checks)
+            failed.append(e)
+        finally:
+            ask_stop.reset(token)
+
+    asking = threading.Thread(target=ask)
+    with caplog.at_level(logging.INFO):
+        asking.start()
+        time.sleep(0.2)  # the request is sent; the "LLM" is working on it
+        started = time.perf_counter()
+        stop.set()
+        asking.join(5)
+    assert time.perf_counter() - started < 2  # at once, not when the answer is done
+    assert len(failed) == 1 and isinstance(failed[0], LlmCancelled)
+    assert SlowLlm.hung_up.wait(5)  # the server saw the connection close
+    assert "Cutting off an LLM request" in caplog.messages
+
+
+def cut_off(ask: Callable[[], object]) -> BaseException | None:
+    """Starts ask() with a stop it can be cut off by, sets the stop, and gives what it raised."""
+    stop = threading.Event()
+    failed: list[BaseException] = []
+
+    def run() -> None:
+        token = ask_stop.set(stop)
+        try:
+            ask()
+        except BaseException as e:  # noqa: BLE001 (what the test checks)
+            failed.append(e)
+        finally:
+            ask_stop.reset(token)
+
+    asking = threading.Thread(target=run)
+    asking.start()
+    time.sleep(0.2)
+    started = time.perf_counter()
+    stop.set()
+    asking.join(5)
+    assert time.perf_counter() - started < 2
+    assert SlowLlm.hung_up.wait(5)
+    return failed[0] if failed else None
+
+
+def test_an_answer_is_cut_off_while_it_is_being_read(slow_llm: str) -> None:
+    SlowLlm.first = b'{"choices": ['
+    client = LlmClient(LlmSettings(url=slow_llm))
+    assert isinstance(
+        cut_off(lambda: client.ask([{"role": "user", "content": "Hi"}])), LlmCancelled
+    )
+
+
+def test_a_streamed_reply_is_cut_off_while_it_is_being_written(slow_llm: str) -> None:
+    SlowLlm.first, SlowLlm.streamed = (
+        b'data: {"choices": [{"delta": {"content": "Rain"}}]}\n\n',
+        True,
+    )
+    client = LlmClient(LlmSettings(url=slow_llm))
+    pieces: list[str] = []
+
+    def ask() -> None:
+        pieces.extend(client.stream([{"role": "user", "content": "Hi"}]))
+
+    assert isinstance(cut_off(ask), LlmCancelled)
+    assert pieces == ["Rain"]  # what came before the cut-off
+
+
+def test_a_request_that_can_be_cut_off_is_answered_as_usual(slow_llm: str) -> None:
+    SlowLlm.go.set()
+    token = ask_stop.set(threading.Event())
+    try:
+        assert LlmClient(LlmSettings(url=slow_llm)).ask([{"role": "user", "content": "Hi"}]) == (
+            "Rain falls."
+        )
+    finally:
+        ask_stop.reset(token)
+    already = threading.Event()
+    already.set()
+    token = ask_stop.set(already)
+    try:
+        with pytest.raises(LlmCancelled):
+            LlmClient(LlmSettings(url=slow_llm)).ask([{"role": "user", "content": "Hi"}])
+    finally:
+        ask_stop.reset(token)
+
+
+def test_a_refusal_from_a_request_that_can_be_cut_off_is_said(fake_llm: str) -> None:
+    FakeLlm.answer = (400, b"too long")
+    token = ask_stop.set(threading.Event())
+    try:
+        with pytest.raises(LlmError, match=r"refused the prompt \(400\): too long"):
+            LlmClient(LlmSettings(url=fake_llm)).ask([{"role": "user", "content": "Hi"}])
+    finally:
+        ask_stop.reset(token)
+
+
+class Broken:
+    """An answer whose connection breaks while it is read."""
+
+    def read(self) -> bytes:
+        raise ConnectionResetError("reset")
+
+    def __iter__(self) -> Iterator[bytes]:
+        raise ConnectionResetError("reset")
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+def test_a_broken_answer_is_cut_off_only_when_it_was_stopped(stopped: bool) -> None:
+    stop = threading.Event()
+    if stopped:
+        stop.set()
+    connection = http.client.HTTPConnection("localhost")
+    response = StoppableResponse(Broken(), connection, stop, threading.Event())  # type: ignore[arg-type]
+    expected = LlmCancelled if stopped else ConnectionResetError
+    with pytest.raises(expected):
+        response.read()
+    with pytest.raises(expected):
+        list(response)
+
+
+def test_a_request_that_can_be_cut_off_says_when_the_llm_cannot_be_reached() -> None:
+    with socket.socket() as unused:
+        unused.bind(("127.0.0.1", 0))
+        port = unused.getsockname()[1]
+    token = ask_stop.set(threading.Event())
+    try:
+        with pytest.raises(LlmError, match="Could not reach the LLM"):
+            LlmClient(LlmSettings(url=f"http://127.0.0.1:{port}/v1")).ask(
+                [{"role": "user", "content": "Hi"}]
+            )
+    finally:
+        ask_stop.reset(token)

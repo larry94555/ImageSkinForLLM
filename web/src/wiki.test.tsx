@@ -211,6 +211,7 @@ test("a detail page has a trail back up, its PDF pages and its own parts", async
   expect(await screen.findByRole("heading", { name: "Drops", level: 1 })).toBeTruthy();
   const trail = within(screen.getByRole("navigation", { name: "Where this page is" }));
   expect(trail.getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+    ["Manage Content", "#/content"],
     ["Wiki", "#/wiki"],
     ["guide.pdf", "#/wiki/a1"],
     ["Rain", "#/wiki/page/a1-rain"],
@@ -272,17 +273,28 @@ test("the wiki says when it can't be loaded", async () => {
   expect(errors).toHaveBeenCalled();
 });
 
-test("the top bar links to the wiki, and a detail page's link opens it", async () => {
+test("for the host the wiki is part of Manage Content, with no top bar link of its own", async () => {
+  // Larry's review of PR #123: the wiki is built from the PDFs, so it is reached from there.
   server([GUIDE], [CONTENTS], { "a1-drops": DROPS });
   window.location.hash = "#/wiki";
   render(<App />);
   const nav = within(screen.getByRole("navigation", { name: "" }));
   await screen.findByText("How the weather changes.");
-  expect(nav.getByRole("link", { name: "Wiki" }).className).toBe("current");
+  expect(nav.queryByRole("link", { name: "Wiki" })).toBeNull();
+  expect(nav.getByRole("link", { name: "Manage Content" }).className).toBe("current");
+  const trail = within(screen.getByRole("navigation", { name: "Where this page is" }));
+  expect(trail.getByRole("link", { name: "Manage Content" }).getAttribute("href")).toBe("#/content");
   window.location.hash = "#/wiki/page/a1-drops";
   window.dispatchEvent(new HashChangeEvent("hashchange"));
   expect(await screen.findByRole("heading", { name: "Drops", level: 1 })).toBeTruthy();
-  await waitFor(() => expect(nav.getByRole("link", { name: "Wiki" }).className).toBe("current"));
+  await waitFor(() =>
+    expect(nav.getByRole("link", { name: "Manage Content" }).className).toBe("current"),
+  );
+  const detail = within(screen.getByRole("navigation", { name: "Where this page is" }));
+  expect(detail.getAllByRole("link").map((a) => a.textContent).slice(0, 2)).toEqual([
+    "Manage Content",
+    "Wiki",
+  ]);
 });
 
 test("an entry's title and summary are edited and saved", async () => {
@@ -599,7 +611,8 @@ test("switching the view on the Settings page shows or hides the host's options"
   render(<App />);
   await screen.findByText("How the weather changes.");
   expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
-  expect(screen.getAllByRole("link", { name: "Manage Content" }).length).toBe(2); // bar and text
+  // The top bar, the trail and the text.
+  expect(screen.getAllByRole("link", { name: "Manage Content" }).length).toBe(3);
 
   await openSettings();
   expect((screen.getByRole("radio", { name: /Host/ }) as HTMLInputElement).checked).toBe(true);

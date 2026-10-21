@@ -8,16 +8,21 @@ of the model's context window, which leaves room for the prompt and the reply: w
 the older turns are summarized by the LLM, and the summary is sent in their place.
 """
 
+import contextlib
+import http.client
 import json
 import logging
 import os
 import random
+import socket
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
@@ -180,6 +185,18 @@ class EmptyReply(LlmError):
     """The LLM answered, but with no words: its output, not the request, was at fault."""
 
 
+class LlmCancelled(Exception):
+    """The request was cut off, as `ask_stop` asked: its answer is no longer wanted. Not an
+    LlmError, so nothing waits for the LLM and tries again."""
+
+
+# Set while a request's answer may stop being wanted, as while a PDF's wiki is built (Larry's
+# test of PR #123: a removed PDF's build waited out the answer being written). Once the event
+# is set, a request to llama-server is cut off by closing its connection, which llama-server
+# takes as the end of the request and stops working on it.
+ask_stop: ContextVar[threading.Event | None] = ContextVar("ask_stop", default=None)
+
+
 def strict(schema: Any) -> Any:
     """The schema with every object closed to other properties, as the strict structured outputs
     of Claude and OpenAI require (R33); every property must also be listed as required."""
@@ -271,6 +288,53 @@ class ChatLlm(Protocol):
         schema: dict[str, Any] | None = None,
     ) -> str: ...
     def stream(self, messages: list[Message]) -> Iterator[str]: ...
+
+
+class StoppableResponse:
+    """A llama-server answer read until `stop` cuts it off (see `ask_stop`)."""
+
+    def __init__(
+        self,
+        response: http.client.HTTPResponse,
+        connection: http.client.HTTPConnection,
+        stop: threading.Event,
+        done: threading.Event,
+    ) -> None:
+        self._response, self._connection, self._stop, self._done = response, connection, stop, done
+
+    # A cut-off answer can also end early with no error, or as an incomplete read; once the
+    # stop is set, what was read is not wanted either way.
+    def read(self) -> bytes:
+        try:
+            data = self._response.read()
+        except (OSError, http.client.HTTPException) as e:
+            if self._stop.is_set():
+                raise LlmCancelled("Cut off while the LLM was answering.") from e
+            raise
+        self._raise_if_stopped()
+        return data
+
+    def __iter__(self) -> Iterator[bytes]:
+        try:
+            for line in self._response:
+                self._raise_if_stopped()
+                yield line
+        except (OSError, http.client.HTTPException) as e:
+            if self._stop.is_set():
+                raise LlmCancelled("Cut off while the LLM was answering.") from e
+            raise
+        self._raise_if_stopped()
+
+    def _raise_if_stopped(self) -> None:
+        if self._stop.is_set():
+            raise LlmCancelled("Cut off while the LLM was answering.")
+
+    def __enter__(self) -> "StoppableResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._done.set()
+        self._connection.close()
 
 
 class LlmClient:
@@ -384,6 +448,9 @@ class LlmClient:
         return url, request
 
     def _open(self, url: str, request: urllib.request.Request) -> Any:
+        stop = ask_stop.get()
+        if stop is not None and self.settings.local and url.startswith("http://"):
+            return self._open_stoppable(url, request, stop)
         try:
             return urllib.request.urlopen(request, timeout=self.settings.timeout_s)
         except urllib.error.HTTPError as e:
@@ -401,6 +468,54 @@ class LlmClient:
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             reason = getattr(e, "reason", e)
             raise LlmError(f"Could not reach the LLM at {url} ({reason}).{self._hint}") from e
+
+    def _open_stoppable(
+        self, url: str, request: urllib.request.Request, stop: threading.Event
+    ) -> "StoppableResponse":
+        """Like `_open`, for llama-server over plain HTTP, but closing the connection the moment
+        `stop` is set, even while llama-server is still working on the answer."""
+        if stop.is_set():
+            raise LlmCancelled("Cut off before it was sent.")
+        parts = urllib.parse.urlsplit(url)
+        connection = http.client.HTTPConnection(
+            parts.hostname or "localhost", parts.port or 80, timeout=self.settings.timeout_s
+        )
+        path = parts.path + (f"?{parts.query}" if parts.query else "")
+        done = threading.Event()
+
+        def hang_up(sock: socket.socket) -> None:
+            while not done.is_set():
+                if stop.wait(0.1):
+                    if not done.is_set():
+                        logger.info("Cutting off an LLM request", extra={"url": url})
+                        with contextlib.suppress(OSError):
+                            sock.shutdown(socket.SHUT_RDWR)
+                    return
+
+        try:
+            connection.connect()
+            # The socket itself: the connection lets go of it once the answer's headers are in
+            # when the server closes after answering, while the answer is still being read.
+            threading.Thread(
+                target=hang_up, args=(connection.sock,), name="llm-hang-up", daemon=True
+            ).start()
+            connection.request(
+                request.get_method(), path, body=request.data, headers=dict(request.header_items())
+            )
+            response = connection.getresponse()
+        except OSError as e:
+            done.set()
+            connection.close()
+            if stop.is_set():
+                raise LlmCancelled("Cut off while the LLM was answering.") from e
+            reason = getattr(e, "reason", e)
+            raise LlmError(f"Could not reach the LLM at {url} ({reason}).{self._hint}") from e
+        if response.status >= 400:
+            detail = response.read().decode(errors="replace")[:300]
+            done.set()
+            connection.close()
+            raise LlmError(f"The LLM at {url} refused the prompt ({response.status}): {detail}")
+        return StoppableResponse(response, connection, stop, done)
 
     def warm_up(self) -> None:
         """Have the server read the system prompt now, so the first reply starts sooner:

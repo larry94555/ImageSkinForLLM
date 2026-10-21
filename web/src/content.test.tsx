@@ -344,7 +344,11 @@ test("shows the wiki pages being built once a PDF is read, checking until they a
   });
   render(<ContentPage />);
   expect(await screen.findByText(/Read 3 pages/)).toBeTruthy();
-  for (const text of ["Building the wiki: part 1 of 2…", "part 2 of 2", "Wiki ready: 7 topics"]) {
+  for (const text of [
+    "Building the wiki: part 1 of 2, 0% done…",
+    "part 2 of 2, 50% done",
+    "Wiki ready: 7 topics",
+  ]) {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(READING_POLL_MS);
     });
@@ -390,6 +394,18 @@ test("a failed wiki progress check is logged", async () => {
 test("wiki progress reads as a sentence", () => {
   const waiting: WikiBuild = { ...BUILT, state: "waiting", parts: 0, pages: null };
   expect(wikiText(waiting)).toBe("Waiting to build the wiki…");
+  expect(wikiText({ ...waiting, ahead: 1, building_name: "notes.pdf" })).toBe(
+    "Waiting to build the wiki: 1 PDF ahead, building “notes.pdf” now…",
+  );
+  expect(wikiText({ ...waiting, ahead: 2, building_name: null })).toBe(
+    "Waiting to build the wiki: 2 PDFs ahead…",
+  );
+  expect(wikiText({ ...waiting, ahead: 1, stopping: true })).toBe(
+    "Waiting to build the wiki: stopping the removed PDF's build…",
+  );
+  expect(wikiText({ ...waiting, ahead: 3, stopping: true })).toBe(
+    "Waiting to build the wiki: stopping the removed PDF's build, then 2 PDFs ahead…",
+  );
   expect(wikiText({ ...waiting, error: "Could not reach the LLM" })).toBe(
     "Waiting for the AI to be ready to build the wiki…",
   );
@@ -411,10 +427,10 @@ test("wiki progress reads as a sentence", () => {
     wikiText({ ...outline, steps: 2, steps_planned: 5, elapsed_s: 252.4, remaining_s: 90 }, true),
   ).toBe("Arranging the wiki's topics: step 3 of about 5… (4 min 12 s so far, about 1 min 30 s left)");
   expect(wikiText({ ...BUILT, state: "building", part: 1, elapsed_s: 40, remaining_s: 40 }, true)).toBe(
-    "Building the wiki: part 2 of 2… (40 s so far, about 40 s left before arranging its topics)",
+    "Building the wiki: part 2 of 2, 50% done… (40 s so far, about 40 s left before arranging its topics)",
   );
   expect(wikiText({ ...BUILT, state: "building", part: 0, elapsed_s: 5 }, true)).toBe(
-    "Building the wiki: part 1 of 2… (5 s so far)",
+    "Building the wiki: part 1 of 2, 0% done… (5 s so far, the time left shows once part 1 is done)",
   );
   expect(wikiText({ ...waiting, error: "down", elapsed_s: 61 }, true)).toBe(
     "Waiting for the AI to be ready to build the wiki… (1 min 1 s so far)",
@@ -422,11 +438,21 @@ test("wiki progress reads as a sentence", () => {
   expect(wikiText({ ...BUILT, elapsed_s: 3780 }, true)).toBe("Wiki ready: 7 topics, built in 1 h 3 min");
 });
 
-test("without the timing metrics, wiki progress says only how long is left", () => {
+test("without the timing metrics, wiki progress still says how long so far and how long is left", () => {
+  // Larry's test of PR #123: "Building the wiki…" alone showed nothing moving.
   const building: WikiBuild = { ...BUILT, state: "building", part: 1, elapsed_s: 40 };
   expect(wikiText({ ...building, remaining_s: 40 })).toBe(
-    "Building the wiki: part 2 of 2… (about 40 s left before arranging its topics)",
+    "Building the wiki: part 2 of 2, 50% done… (40 s so far, about 40 s left before arranging its topics)",
   );
-  expect(wikiText(building)).toBe("Building the wiki: part 2 of 2…");
-  expect(wikiText({ ...BUILT, elapsed_s: 3780 })).toBe("Wiki ready: 7 topics");
+  expect(wikiText({ ...building, remaining_s: 39 })).toContain("about 39 s left"); // counting down
+  expect(wikiText({ ...BUILT, elapsed_s: 3780 })).toBe("Wiki ready: 7 topics"); // done: metrics only
+});
+
+test("a wiki being built shows a bar of the parts built", async () => {
+  const building: WikiBuild = { ...BUILT, state: "building", part: 1, pages: null };
+  server([GUIDE], { readings: [{ a1: READ }], wiki: [{ a1: building }] });
+  render(<ContentPage />);
+  const bar = (await screen.findByRole("progressbar", { name: "Wiki parts built" })) as HTMLProgressElement;
+  expect(bar.value).toBe(1);
+  expect(bar.max).toBe(2);
 });
