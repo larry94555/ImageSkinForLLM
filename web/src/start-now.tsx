@@ -14,22 +14,6 @@ import {
   startNow,
 } from "./api";
 
-// Each made-up person was made for a role (the server's names, in this order), but the page
-// doesn't offer roles: each role has only one or two people, so a role would tie it to a look
-// instead of letting each user imagine it their own way (Larry's test of PR #124). The order only
-// sets where each face shows.
-const ROLES = [
-  "Professor",
-  "Teaching Assistant",
-  "Student",
-  "Parent",
-  "Teenager",
-  "Boss",
-  "Office Manager",
-  "High School Teacher",
-  "Business Consultant",
-];
-
 const OPTIONS = {
   gender: [
     { value: "female", label: "Female" },
@@ -88,22 +72,24 @@ function useSeconds(on: boolean): number {
 }
 
 // The faces to pick from (R24c2): all 15 people of the chosen gender and look, with the range of
-// heritages, ages, glasses and wheelchairs R24b2 made, always in the same order.
+// heritages, ages, glasses and wheelchairs R24b2 made, in the server's order, which stays the
+// same. Each person was made for a role, but the page doesn't offer roles: each role has only
+// one or two people, so a role would tie it to a look (Larry's test of PR #124).
 export function facesOf(faces: Face[], choice: PersonChoice): Face[] {
-  const order = (f: Face) => ROLES.indexOf(f.role);
-  return faces
-    .filter((f) => f.gender === choice.gender && f.realism === choice.realism)
-    .sort((a, b) => order(a) - order(b) || a.face - b.face);
+  return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism);
 }
 
 export function StartNowPage() {
   const [choice, setChoice] = useState<PersonChoice>(FIRST);
-  const [faces, setFaces] = useState<Face[]>([]);
+  // null until the faces are read; the choices wait for them, since changing gender or look
+  // picks the new group's first face (Codex's review of PR #124).
+  const [faces, setFaces] = useState<Face[] | null>(null);
+  const [facesFailed, setFacesFailed] = useState(false);
   // Changing gender or look starts at its first face; the accent keeps the face. The person
   // picked goes to the server as their role and face number, which name them.
   const change = (changes: Partial<PersonChoice>) => {
     const next = { ...choice, ...changes };
-    const first = facesOf(faces, next)[0];
+    const first = facesOf(faces ?? [], next)[0];
     const sameFaces = next.gender === choice.gender && next.realism === choice.realism;
     setChoice(sameFaces || !first ? next : { ...next, role: first.role, face: first.face });
   };
@@ -119,7 +105,10 @@ export function StartNowPage() {
         setFaces(f);
         console.info(`${f.length} faces to pick from (${Math.round(performance.now() - asked)} ms)`);
       })
-      .catch((e: unknown) => console.error("Could not read the faces", e));
+      .catch((e: unknown) => {
+        console.error("Could not read the faces", e);
+        setFacesFailed(true);
+      });
     getStartNow()
       .then((s) => {
         if (s.chosen) setChoice(s.chosen);
@@ -164,7 +153,8 @@ export function StartNowPage() {
     }
   }
 
-  const shown = facesOf(faces, choice);
+  const shown = facesOf(faces ?? [], choice);
+  const locked = working || faces === null;
   const face = choice.face ?? 1;
   return (
     <section className="start-now panel">
@@ -180,7 +170,7 @@ export function StartNowPage() {
         }}
       >
         {(["gender", "accent", "realism"] as const).map((key) => (
-          <fieldset key={key} disabled={working}>
+          <fieldset key={key} disabled={locked}>
             <legend>{LEGENDS[key]}</legend>
             {OPTIONS[key].map(({ value, label }) => (
               <label key={value}>
@@ -196,6 +186,12 @@ export function StartNowPage() {
             ))}
           </fieldset>
         ))}
+        {faces === null && !facesFailed && <p className="muted">Loading the faces…</p>}
+        {facesFailed && (
+          <p className="error" role="alert">
+            Couldn't load the faces to pick from. Reload the page to try again.
+          </p>
+        )}
         {shown.length > 0 && (
           <fieldset className="faces" disabled={working}>
             <legend>Face</legend>
@@ -220,7 +216,7 @@ export function StartNowPage() {
             })}
           </fieldset>
         )}
-        <button type="submit" disabled={working} className={working ? "busy" : undefined}>
+        <button type="submit" disabled={locked} className={working ? "busy" : undefined}>
           {status?.state === "failed" ? "Try again" : "Start now"}
         </button>
       </form>

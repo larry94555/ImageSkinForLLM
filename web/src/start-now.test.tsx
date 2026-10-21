@@ -7,20 +7,25 @@ import { facesOf, POLL_MS, progressText, StartNowPage } from "./start-now";
 const IDLE: StartNowStatus = { state: "idle", person: null, percent: 0, error: null, chosen: null };
 
 // A fake server: GET /api/start-now answers each of `reads` in turn, then the last again.
-// Professor has two faces for a woman in a photo, one for a man (as R24b2 made them); Boss and
-// Student have one each for a woman in a photo, and Boss one for an animated woman.
+// In the server's order (by role, then face): Professor has two faces for a woman in a photo,
+// one for a man (as R24b2 made them); Student and Boss have one each for a woman in a photo, and
+// Boss one for an animated woman.
 const FACES: Face[] = [
+  { gender: "female", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_female_professor" },
+  { gender: "female", realism: "photoreal", role: "Professor", face: 2, name: "photoreal_female_professor_2" },
+  { gender: "male", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_male_professor" },
+  { gender: "female", realism: "photoreal", role: "Student", face: 1, name: "photoreal_female_student" },
   { gender: "female", realism: "photoreal", role: "Boss", face: 1, name: "photoreal_female_boss" },
   { gender: "female", realism: "animated", role: "Boss", face: 1, name: "animated_female_boss" },
-  { gender: "female", realism: "photoreal", role: "Student", face: 1, name: "photoreal_female_student" },
-  { gender: "female", realism: "photoreal", role: "Professor", face: 2, name: "photoreal_female_professor_2" },
-  { gender: "female", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_female_professor" },
-  { gender: "male", realism: "photoreal", role: "Professor", face: 1, name: "photoreal_male_professor" },
 ];
 
-function server(reads: StartNowStatus[], post: Response | StartNowStatus = reads[0]) {
+function server(
+  reads: StartNowStatus[],
+  post: Response | StartNowStatus = reads[0],
+  faces: () => Promise<Response> = async () => Response.json(FACES),
+) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/start-now/faces") return Response.json(FACES);
+    if (url === "/api/start-now/faces") return faces();
     if (url === "/api/start-now" && init?.method === "POST") {
       return post instanceof Response ? post : Response.json(post);
     }
@@ -30,6 +35,11 @@ function server(reads: StartNowStatus[], post: Response | StartNowStatus = reads
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+// The choices wait for the faces, which the fake server answers at once.
+async function facesShown(): Promise<void> {
+  await screen.findByRole("radio", { name: /^Face 1 of/ });
 }
 
 function radio(name: string): HTMLInputElement {
@@ -99,6 +109,7 @@ test("a failed download says why, with Try again and the usual setup", async () 
   const failed = { ...IDLE, state: "failed", person: "p", error: "Couldn't download." } as const;
   server([IDLE, failed], { ...IDLE, state: "downloading", person: "p" });
   render(<StartNowPage />);
+  await facesShown();
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Couldn't download.");
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
@@ -110,6 +121,7 @@ test("a failed download says why, with Try again and the usual setup", async () 
 test("a refused start says why", async () => {
   server([IDLE], Response.json({ detail: "'Duke' is not one of …" }, { status: 400 }));
   render(<StartNowPage />);
+  await facesShown();
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Duke");
 });
@@ -118,6 +130,7 @@ test("losing the app while downloading says so", async () => {
   const downloading = { ...IDLE, state: "downloading", person: "p", percent: 5 } as const;
   const fetchMock = server([IDLE], downloading);
   render(<StartNowPage />);
+  await facesShown();
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
   await screen.findByText("Step 1 of 3: Downloading the avatar… 5%");
   fetchMock.mockImplementation(async () => new Response("", { status: 503 }));
@@ -149,6 +162,7 @@ test("the chat opens only once the new avatar's video for it is made", async () 
   const made = { ...making, chat_ready: true };
   server([IDLE, making, making, made], making);
   render(<StartNowPage />);
+  await facesShown();
   fireEvent.click(screen.getByRole("button", { name: "Start now" }));
   expect(
     await screen.findByText(/^Step 3 of 3: Making the avatar's video for the chat…/),
@@ -235,4 +249,38 @@ test("any face can be picked, and that person is started", async () => {
   );
   const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
   expect(JSON.parse(post[1]!.body as string)).toMatchObject({ role: "Boss", face: 1 });
+});
+
+test("the choices wait for the faces, then a change of look picks its first face", async () => {
+  // Codex's review of PR #124: changed before the faces came, the look kept the old face.
+  let answer = (_: Response) => {};
+  const chosen = { gender: "female", accent: "American", realism: "photoreal", role: "Professor", face: 2 } as const;
+  const later = () => new Promise<Response>((r) => (answer = r));
+  const fetchMock = server([{ ...IDLE, chosen }], { ...IDLE, state: "downloading", person: "p" }, later);
+  render(<StartNowPage />);
+  expect(await screen.findByText("Loading the faces…")).toBeTruthy();
+  expect(radio("Animated").closest("fieldset")!.disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Start now" }) as HTMLButtonElement).disabled).toBe(true);
+  answer(Response.json(FACES));
+  await facesShown();
+  expect(radio("Animated").closest("fieldset")!.disabled).toBe(false);
+  fireEvent.click(radio("Animated"));
+  expect(radio("Face 1 of 1").checked).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Start now" }));
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true),
+  );
+  const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+  expect(JSON.parse(post[1]!.body as string)).toMatchObject({ realism: "animated", role: "Boss", face: 1 });
+});
+
+test("faces that can't be read are said, and Start stays off", async () => {
+  server([IDLE], IDLE, async () => new Response("", { status: 500 }));
+  render(<StartNowPage />);
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "Couldn't load the faces to pick from. Reload the page to try again.",
+  );
+  expect((screen.getByRole("button", { name: "Start now" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByText("Loading the faces…")).toBeNull();
+  expect(console.error).toHaveBeenCalledWith("Could not read the faces", expect.anything());
 });

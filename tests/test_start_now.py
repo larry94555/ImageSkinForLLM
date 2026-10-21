@@ -492,6 +492,14 @@ def test_the_page_is_told_every_face(client: TestClient) -> None:
         "face": 2,
         "name": "animated_female_professor_2",
     } in faces
+    # In the order the page shows them: by role, then face.
+    women = [f["name"] for f in faces if (f["gender"], f["realism"]) == ("female", "photoreal")]
+    assert women[:3] == [
+        "photoreal_female_professor",
+        "photoreal_female_professor_2",
+        "photoreal_female_teaching_assistant",
+    ]
+    assert len(women) == 15 and women[-1] == "photoreal_female_business_consultant"
 
 
 def test_a_default_person_opens_the_chat_without_consent(client: TestClient) -> None:

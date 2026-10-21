@@ -5220,17 +5220,6 @@ function NotFoundPage() {
 }
 //#endregion
 //#region src/start-now.tsx
-var ROLES = [
-	"Professor",
-	"Teaching Assistant",
-	"Student",
-	"Parent",
-	"Teenager",
-	"Boss",
-	"Office Manager",
-	"High School Teacher",
-	"Business Consultant"
-];
 var OPTIONS = {
 	gender: [{
 		value: "female",
@@ -5291,18 +5280,18 @@ function useSeconds(on) {
 	return seconds;
 }
 function facesOf(faces, choice) {
-	const order = (f) => ROLES.indexOf(f.role);
-	return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism).sort((a, b) => order(a) - order(b) || a.face - b.face);
+	return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism);
 }
 function StartNowPage() {
 	const [choice, setChoice] = d(FIRST);
-	const [faces, setFaces] = d([]);
+	const [faces, setFaces] = d(null);
+	const [facesFailed, setFacesFailed] = d(false);
 	const change = (changes) => {
 		const next = {
 			...choice,
 			...changes
 		};
-		const first = facesOf(faces, next)[0];
+		const first = facesOf(faces ?? [], next)[0];
 		const sameFaces = next.gender === choice.gender && next.realism === choice.realism;
 		setChoice(sameFaces || !first ? next : {
 			...next,
@@ -5318,7 +5307,10 @@ function StartNowPage() {
 		getFaces().then((f) => {
 			setFaces(f);
 			console.info(`${f.length} faces to pick from (${Math.round(performance.now() - asked)} ms)`);
-		}).catch((e) => console.error("Could not read the faces", e));
+		}).catch((e) => {
+			console.error("Could not read the faces", e);
+			setFacesFailed(true);
+		});
 		getStartNow().then((s) => {
 			if (s.chosen) setChoice(s.chosen);
 			if (WORKING.includes(s.state) || finishing(s)) setStatus(s);
@@ -5360,7 +5352,8 @@ function StartNowPage() {
 			setRefused(e.message);
 		}
 	}
-	const shown = facesOf(faces, choice);
+	const shown = facesOf(faces ?? [], choice);
+	const locked = working || faces === null;
 	const face = choice.face ?? 1;
 	return /* @__PURE__ */ u("section", {
 		className: "start-now panel",
@@ -5381,7 +5374,7 @@ function StartNowPage() {
 						"accent",
 						"realism"
 					].map((key) => /* @__PURE__ */ u("fieldset", {
-						disabled: working,
+						disabled: locked,
 						children: [/* @__PURE__ */ u("legend", { children: LEGENDS[key] }), OPTIONS[key].map(({ value, label }) => /* @__PURE__ */ u("label", { children: [
 							/* @__PURE__ */ u("input", {
 								type: "radio",
@@ -5394,6 +5387,15 @@ function StartNowPage() {
 							label
 						] }, value))]
 					}, key)),
+					faces === null && !facesFailed && /* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Loading the faces…"
+					}),
+					facesFailed && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: "Couldn't load the faces to pick from. Reload the page to try again."
+					}),
 					shown.length > 0 && /* @__PURE__ */ u("fieldset", {
 						className: "faces",
 						disabled: working,
@@ -5424,7 +5426,7 @@ function StartNowPage() {
 					}),
 					/* @__PURE__ */ u("button", {
 						type: "submit",
-						disabled: working,
+						disabled: locked,
 						className: working ? "busy" : void 0,
 						children: status?.state === "failed" ? "Try again" : "Start now"
 					})
