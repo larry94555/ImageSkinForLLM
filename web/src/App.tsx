@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { getConsent, type View } from "./api";
+import { getConsent, getStartNow, type View } from "./api";
 import { AvatarVoicePage } from "./avatar-voice";
 import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
-import { HomePage } from "./home";
+import { HomePage, setupLink } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { StartNowPage } from "./start-now";
 import { type Page, pageFor, resolve, setupTarget, useHash, wikiTarget } from "./router";
@@ -65,6 +65,10 @@ function Shell() {
         setConsented(false);
       });
   }, []);
+
+  // Whether a ready-made avatar is in use, so the top bar's Setup goes where the home page's does.
+  // Read again on each page change, as Start now can choose an avatar or drop it.
+  const defaultPerson = useDefaultPerson(hash, host);
 
   const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, participant);
   useEffect(() => {
@@ -126,7 +130,7 @@ function Shell() {
           {NAV.filter((item) => settingsLoaded && item.views.includes(view)).map((item) => (
             <a
               key={item.page}
-              href={item.href}
+              href={item.page === "setup" ? setupLink(consented === true, defaultPerson) : item.href}
               className={current(route?.page, view) === item.page ? "current" : undefined}
             >
               {item.label}
@@ -139,6 +143,31 @@ function Shell() {
       <footer>Photos and recordings stay on the computer that runs this app.</footer>
     </>
   );
+}
+
+// Whether a ready-made avatar (R24c) is in use, read from the server whenever the page changes.
+// Only the host's top bar has Setup, so a participant's makes no read.
+export function useDefaultPerson(hash: string, host: boolean): boolean {
+  const [chosen, setChosen] = useState(false);
+  useEffect(() => {
+    if (!host) return;
+    let active = true;
+    const started = performance.now();
+    getStartNow()
+      .then((s) => {
+        if (!active) return;
+        const yes = Boolean(s.chosen);
+        console.info(
+          `Top bar Setup link: ${yes ? "Start now (a ready-made avatar is in use)" : "setup"} (read in ${Math.round(performance.now() - started)} ms)`,
+        );
+        setChosen(yes);
+      })
+      .catch((e: unknown) => console.error("Could not read the default person for the top bar", e));
+    return () => {
+      active = false;
+    };
+  }, [hash, host]);
+  return chosen;
 }
 
 // The top bar's height as --header-h on the page (review on PR #83), so what sticks under it
