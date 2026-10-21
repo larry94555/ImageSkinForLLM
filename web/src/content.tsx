@@ -296,10 +296,10 @@ export function wikiText(b: WikiBuild, metrics = false): string {
   if (b.state === "waiting") {
     if (b.error) return `Waiting for the AI to be ready to build the wiki…${sofar}`;
     if (b.stopping) {
-      // A removed PDF's build stops once the AI gives the answer it is giving now (Larry's test
-      // of PR #123); the AI can't be interrupted mid-answer.
+      // A removed PDF's build is stopping: the local AI is cut off mid-answer, so this is brief
+      // (a cloud AI's answer is still waited out).
       const after = b.ahead && b.ahead > 1 ? `, then ${plural(b.ahead - 1, "PDF")} ahead` : "";
-      return `Waiting to build the wiki: the AI is finishing its answer for a removed PDF${after}…${sofar}`;
+      return `Waiting to build the wiki: stopping the removed PDF's build${after}…${sofar}`;
     }
     if (b.ahead) {
       const now = b.building_name ? `, building “${b.building_name}” now` : "";

@@ -26,7 +26,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
-from imageskin.chat import LlmError
+from imageskin.chat import LlmCancelled, LlmError, ask_stop
 from imageskin.content import ContentStore
 from imageskin.reading_job import ReadingJob, version
 from imageskin.wiki import Progress, WaitForLlm, Wiki, WikiError, WikiPage
@@ -137,6 +137,7 @@ class WikiJob:
         self._status: dict[str, WikiStatus] = {}
         self._worker: threading.Thread | None = None
         self._building: tuple[str, str] | None = None  # the PDF and version being built now
+        self._stop = threading.Event()  # set to cut the LLM off while _building is built
         # Seconds a part took in the last build, so the first part of the next one has a time
         # left too (Larry's test of PR #123), not only once a part is done.
         self._part_s: float | None = self._load_pace()
@@ -165,6 +166,7 @@ class WikiJob:
         with self._lock:
             if pdf is not None and self._building == (pdf_id, version(pdf)):
                 return  # this very version is being built now
+            self._stop_if_building(pdf_id)  # an older version: its answers are not wanted
             if pdf_id not in self._waiting:
                 self._waiting.append(pdf_id)
             self._status[pdf_id] = WikiStatus("waiting")
@@ -180,6 +182,15 @@ class WikiJob:
             self._status.pop(pdf_id, None)
             if pdf_id in self._waiting:
                 self._waiting.remove(pdf_id)
+            self._stop_if_building(pdf_id)
+
+    def _stop_if_building(self, pdf_id: str) -> None:
+        """Cut off the LLM's answer for the PDF being built, if it is this one (under the
+        lock): it is removed or replaced, so the next PDF starts now, not once the LLM is
+        done (Larry's test of PR #123)."""
+        if self._building is not None and self._building[0] == pdf_id and not self._stop.is_set():
+            logger.info("Stopping the wiki build", extra={"id": pdf_id})
+            self._stop.set()
 
     def forget(self, pdf_id: str) -> None:
         """After a PDF is removed: its pages go too, and the user's edits to them."""
@@ -534,12 +545,16 @@ class WikiJob:
                 pdf_id = self._waiting.pop(0)
                 pdf = self.store.get(pdf_id)
                 self._building = (pdf_id, version(pdf)) if pdf else None
+                self._stop = threading.Event()
+                stop = self._stop
+            token = ask_stop.set(stop)  # the LLM's answers for this PDF can be cut off
             try:
                 built = self._build(pdf_id) or built
             except Exception as e:  # never let one PDF stop the PDFs queued after it
                 logger.exception("Could not build the wiki", extra={"id": pdf_id, "error": repr(e)})
                 self._set(pdf_id, WikiStatus("failed", error="Something went wrong building it."))
             finally:
+                ask_stop.reset(token)
                 with self._lock:
                     self._building = None
                     self._started.pop(pdf_id, None)
@@ -630,7 +645,7 @@ class WikiJob:
                     "Could not build the wiki outline", extra={"id": pdf_id, "error": str(e)}
                 )
                 outline = plain_outline(wiki.pages)
-        except Superseded:
+        except (Superseded, LlmCancelled):
             logger.info(
                 "Wiki build stopped: the PDF was removed or replaced",
                 extra={"id": pdf_id, "duration_s": round(time.perf_counter() - start, 1)},

@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from imageskin.app import create_app
-from imageskin.chat import LlmError, Message
+from imageskin.chat import LlmCancelled, LlmError, Message, ask_stop
 from imageskin.content import ContentStore
 from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.reading_job import ReadingJob
@@ -653,6 +653,43 @@ def test_a_pdf_removed_while_it_is_built_stops_after_the_answer_being_given(
         answer.set()
         wiki.wait()
     assert [part for pdf_id, part in asked if pdf_id == first.id] == [1]  # no part after it
+    assert "Wiki build stopped: the PDF was removed or replaced" in caplog.messages
+    assert wiki.statuses()[second.id].state == "done"
+    assert first.id not in wiki.statuses()
+
+
+def test_a_pdf_removed_while_it_is_built_hangs_up_on_the_answer_at_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry: removing a PDF should cancel its processing quickly. The removal now cuts off
+    the LLM request in flight, so the next PDF starts without waiting for the answer."""
+    asking = threading.Event()
+
+    def slow(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: Any) -> Wiki:
+        progress(0, 5)
+        if pdf_id == first.id:
+            stop = ask_stop.get()
+            assert stop is not None
+            asking.set()
+            if stop.wait(30):  # the LLM client hangs up when this is set
+                raise LlmCancelled("cut off")
+        return Wiki(5, [])
+
+    store, readings, wiki = jobs(tmp_path, slow)
+    first = store.add("a.pdf", io.BytesIO(PDF))
+    second = store.add("b.pdf", io.BytesIO(PDF))
+    readings.queue(first)
+    assert asking.wait(5)
+    readings.queue(second)
+    readings.wait()
+
+    started = time.monotonic()
+    with caplog.at_level(logging.INFO):
+        store.remove(first.id)
+        wiki.forget(first.id)
+        wiki.wait()
+    assert time.monotonic() - started < 2
+    assert "Stopping the wiki build" in " ".join(caplog.messages)
     assert "Wiki build stopped: the PDF was removed or replaced" in caplog.messages
     assert wiki.statuses()[second.id].state == "done"
     assert first.id not in wiki.statuses()
