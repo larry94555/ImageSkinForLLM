@@ -1,6 +1,6 @@
-// Start now with a default person (roadmap R24c, features.md items 56 to 58): pick a gender, an
-// accent, photoreal or animated, and a face, and chat at once with a made-up person in a
-// ready-made voice. Only that person is downloaded, the first time they are chosen.
+// Start now with a default person (roadmap R24c, features.md items 56 to 58): pick an accent,
+// photoreal or animated, and a face, and chat at once with a made-up person in a ready-made
+// voice. Only that person is downloaded, the first time they are chosen.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -15,10 +15,6 @@ import {
 } from "./api";
 
 const OPTIONS = {
-  gender: [
-    { value: "female", label: "Female" },
-    { value: "male", label: "Male" },
-  ],
   accent: [
     { value: "American", label: "American" },
     { value: "British", label: "British" },
@@ -28,7 +24,7 @@ const OPTIONS = {
     { value: "animated", label: "Animated" },
   ],
 } as const;
-const LEGENDS = { gender: "Gender", accent: "Accent", realism: "Look" };
+const LEGENDS = { accent: "Accent", realism: "Look" };
 
 const FIRST: PersonChoice = {
   gender: "female",
@@ -71,27 +67,31 @@ function useSeconds(on: boolean): number {
   return seconds;
 }
 
-// The faces to pick from (R24c2): all 15 people of the chosen gender and look, with the range of
-// heritages, ages, glasses and wheelchairs R24b2 made, in the server's order, which stays the
-// same. Each person was made for a role, but the page doesn't offer roles: each role has only
-// one or two people, so a role would tie it to a look (Larry's test of PR #124).
+// The faces to pick from (R24c2): every person of the chosen look, with the range of heritages,
+// ages, glasses and wheelchairs R24b2 made, in the server's order, which stays the same. Each
+// person was made for a role and a gender, but the page offers neither: a role would tie it to a
+// look (Larry's test of PR #124), and the face says enough without a gender (Larry, 2026-10-21).
+// The face picked carries both to the server, and its gender picks the voice.
 export function facesOf(faces: Face[], choice: PersonChoice): Face[] {
-  return faces.filter((f) => f.gender === choice.gender && f.realism === choice.realism);
+  return faces.filter((f) => f.realism === choice.realism);
+}
+
+// The choice with a face picked: the face's gender, role and number name the person.
+function withFace(choice: PersonChoice, face: Face): PersonChoice {
+  return { ...choice, gender: face.gender, role: face.role, face: face.face };
 }
 
 export function StartNowPage() {
   const [choice, setChoice] = useState<PersonChoice>(FIRST);
-  // null until the faces are read; the choices wait for them, since changing gender or look
-  // picks the new group's first face (Codex's review of PR #124).
+  // null until the faces are read; the choices wait for them, since changing the look picks its
+  // first face (Codex's review of PR #124).
   const [faces, setFaces] = useState<Face[] | null>(null);
   const [facesFailed, setFacesFailed] = useState(false);
-  // Changing gender or look starts at its first face; the accent keeps the face. The person
-  // picked goes to the server as their role and face number, which name them.
+  // Changing the look starts at its first face; the accent keeps the face.
   const change = (changes: Partial<PersonChoice>) => {
     const next = { ...choice, ...changes };
     const first = facesOf(faces ?? [], next)[0];
-    const sameFaces = next.gender === choice.gender && next.realism === choice.realism;
-    setChoice(sameFaces || !first ? next : { ...next, role: first.role, face: first.face });
+    setChoice(next.realism === choice.realism || !first ? next : withFace(next, first));
   };
   const [status, setStatus] = useState<StartNowStatus | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
@@ -169,7 +169,7 @@ export function StartNowPage() {
           void start();
         }}
       >
-        {(["gender", "accent", "realism"] as const).map((key) => (
+        {(["accent", "realism"] as const).map((key) => (
           <fieldset key={key} disabled={locked}>
             <legend>{LEGENDS[key]}</legend>
             {OPTIONS[key].map(({ value, label }) => (
@@ -196,7 +196,7 @@ export function StartNowPage() {
           <fieldset className="faces" disabled={working}>
             <legend>Face</legend>
             {shown.map((f, i) => {
-              const picked = f.role === choice.role && f.face === face;
+              const picked = f.gender === choice.gender && f.role === choice.role && f.face === face;
               const name = `Face ${i + 1} of ${shown.length}`;
               return (
                 <label key={f.name} className={picked ? "face picked" : "face"}>
@@ -207,7 +207,7 @@ export function StartNowPage() {
                     checked={picked}
                     onChange={() => {
                       console.info(`${name} picked: ${f.name}`);
-                      setChoice({ ...choice, role: f.role, face: f.face });
+                      setChoice(withFace(choice, f));
                     }}
                   />
                   <img src={faceUrl(f.name)} alt={name} />

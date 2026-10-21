@@ -1,14 +1,15 @@
 """Start now with a default person (roadmap R24c, features.md items 56 to 58).
 
-The user picks a gender, an accent, photoreal or animated, and one of that gender and look's 15
-faces (R24c2), and chats at once with that made-up person: no consent, uploads, prepare or
+The user picks an accent, photoreal or animated, and one of that look's faces (R24c2), and
+chats at once with that made-up person: no consent, uploads, prepare or
 review. Only the chosen person's pack is downloaded, the first time they are chosen, from the
 hosted site that holds the 60 packs (R32a); it is unpacked into the app's home and kept, so
 choosing them again starts at once. Goodbye and Welcome back are then rendered in the person's
 ready-made Kokoro voice.
 
-The page offers no role (Larry's test of PR #124), but a person is still named by the role they
-were made for and their face number, which the choice carries. The choice is saved as
+The page offers no role (Larry's test of PR #124) and no gender (Larry, 2026-10-21), but a
+person is still named by the gender and role they were made for and their face number, which the
+choice carries; the gender picks the voice. The choice is saved as
 default-person.json in the home. While it is there, the chat uses the default person's picture
 and voice instead of the person's own (see `PresetVoice`).
 """
