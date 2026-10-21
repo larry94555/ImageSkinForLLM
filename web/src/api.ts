@@ -324,6 +324,28 @@ export interface Review {
   default_person?: boolean; // a ready-made avatar is in use (R24c)
   // With a ready-made avatar in use: whether the sample of the user's own is accepted too.
   own_sample_accepted?: boolean;
+  // With a ready-made avatar in use (R24d): whether it is to speak in the user's own voice, and
+  // whether its sample in that voice is accepted, so it does.
+  own_voice?: boolean;
+  voice_accepted?: boolean;
+}
+
+// The ready-made avatar is to speak in the user's own voice (R24d), with consent for the person
+// in the recordings; or in its ready-made voice again. Throw an Error saying why when refused.
+export async function useAvatarOwnVoice(): Promise<Review> {
+  const response = await fetch("/api/start-now/own-voice", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agreed: true }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as Review;
+}
+
+export async function useAvatarReadyVoice(): Promise<Review> {
+  const response = await fetch("/api/start-now/own-voice", { method: "DELETE" });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as Review;
 }
 
 // Back to the user's own photo and voice from a ready-made avatar, when their sample is already

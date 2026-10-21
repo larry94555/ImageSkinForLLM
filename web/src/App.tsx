@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { getConsent, type View } from "./api";
+import { AvatarVoicePage } from "./avatar-voice";
 import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
 import { HomePage } from "./home";
@@ -32,7 +33,7 @@ const NAV: { page: Page; href: string; label: string; views: View[] }[] = [
 // The top bar link to highlight: the recording guide and Start now are part of setup, and the
 // wiki's pages are part of Manage Content for the host, and of Wiki for a participant.
 function current(page: Page | undefined, view: View): Page | undefined {
-  if (page === "guide" || page === "start-now") return "setup";
+  if (page === "guide" || page === "start-now" || page === "avatar-voice") return "setup";
   if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
   return page;
 }
@@ -97,6 +98,7 @@ function Shell() {
       ),
       setup: <SetupPage change={setupTarget(hash)} />,
       "start-now": <StartNowPage />,
+      "avatar-voice": <AvatarVoicePage />,
       chat: <ChatPage />,
       content: <ContentPage />,
       guide: <GuidePage />,

@@ -41,6 +41,11 @@ export function ChangeSetup() {
   const [accepted, setAccepted] = useState<boolean | null>(null);
   const [inUse, setInUse] = useState<InUse | null>(null);
   const [ownAccepted, setOwnAccepted] = useState(false); // their own sample, with an avatar in use
+  // The avatar is to speak in the user's voice (R24d), and does once its sample is accepted.
+  const [avatarVoice, setAvatarVoice] = useState<{ chosen: boolean; accepted: boolean }>({
+    chosen: false,
+    accepted: false,
+  });
   const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,6 +56,7 @@ export function ChangeSetup() {
         setAccepted(r.accepted);
         setInUse(avatar);
         setOwnAccepted(r.own_sample_accepted === true);
+        setAvatarVoice({ chosen: r.own_voice === true, accepted: r.voice_accepted === true });
         const took = Math.round(performance.now() - started);
         console.info(`Sample accepted: ${r.accepted}, avatar in use: ${avatar} (${took} ms)`);
       })
@@ -137,6 +143,24 @@ export function ChangeSetup() {
               {inUse === "ready-made" ? "Choose another avatar" : "Use a ready-made avatar"}
             </a>
           </div>
+          {inUse === "ready-made" && (
+            <div className="switch">
+              <a
+                className="button secondary"
+                href="#/avatar-voice"
+                onClick={() => console.info("Giving the avatar your own voice from Settings")}
+              >
+                {avatarVoice.chosen ? "Change your voice for the avatar" : "Use my own voice"}
+              </a>
+              <p className="muted">
+                {avatarVoice.accepted
+                  ? "The avatar speaks in your voice, made from your recordings."
+                  : avatarVoice.chosen
+                    ? "The avatar speaks in its ready-made voice until you accept the sample video in your voice."
+                    : "Keep the avatar's picture and replace its voice with one made from your recordings."}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </section>

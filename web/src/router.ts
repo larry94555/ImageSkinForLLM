@@ -7,6 +7,7 @@ export type Page =
   | "consent"
   | "setup"
   | "start-now"
+  | "avatar-voice"
   | "chat"
   | "content"
   | "guide"
@@ -20,6 +21,7 @@ const PAGES: Record<string, Page> = {
   "/consent": "consent",
   "/setup": "setup",
   "/start-now": "start-now",
+  "/avatar-voice": "avatar-voice", // R24d: a ready-made avatar in the user's own voice
   "/chat": "chat",
   "/content": "content",
   "/guide": "guide",
@@ -81,7 +83,15 @@ export function pageFor(hash: string): Page {
 }
 
 // The pages the participant view hides (R41b): it has only the chat and the wiki.
-const HOST_PAGES: Page[] = ["home", "consent", "setup", "start-now", "guide", "content"];
+const HOST_PAGES: Page[] = [
+  "home",
+  "consent",
+  "setup",
+  "start-now",
+  "avatar-voice",
+  "guide",
+  "content",
+];
 
 // Setup is blocked until the user confirms consent (feature item 22). In the participant view a
 // host's page, opened by its address, shows the chat instead.

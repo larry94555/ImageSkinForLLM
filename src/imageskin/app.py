@@ -178,6 +178,10 @@ class StartNowRequest(BaseModel):
 # A request that waited for Delete my data (roadmap R31) and would write the person's data again.
 DELETED_MEANWHILE = "Your data was deleted while this was waiting. Start setup again."
 OWN_NOT_ACCEPTED = "Accept the sample video of your own photo and voice at the end of setup first."
+# R24d: a ready-made avatar in the user's own voice.
+VOICE_CONSENT_NEEDED = "Tick the box to confirm the person in the recordings agreed."
+NO_AVATAR = "Choose a ready-made avatar first."
+WAIT_FOR_PREPARE_AVATAR = "Wait until Prepare finishes, then try again."
 WAIT_FOR_AVATAR = "Wait until the ready-made avatar is ready, then switch to your own photo."
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # The conversation is saved in the data folder, so it is still there after a restart (R30).
@@ -848,7 +852,7 @@ def create_app(
     # Prepare's clips are always the person's own, except the default person's own lines, which
     # Start now renders with Prepare's engines while no Prepare runs (review on PR #113).
     kokoro_voices = KokoroVoices()
-    voice_engine = PresetVoice(own_engine, lambda: start_now.voice() or no_sample(), kokoro_voices)
+    voice_engine = PresetVoice(own_engine, lambda: reply_preset(), kokoro_voices)
     prepare_engine = PresetVoice(
         own_engine, lambda: start_now.rendering_voice() or no_sample(), kokoro_voices
     )
@@ -860,6 +864,23 @@ def create_app(
             return None
         return ready_preset(load_ready_voice(data_home))
 
+    def avatar_in_own_voice() -> bool:
+        """Whether the ready-made avatar speaks in the user's own voice now (R24d): it was asked
+        to, and its sample in that voice is accepted."""
+        return start_now.own_voice() and load_review(data_home, job.status()).accepted
+
+    def reply_preset() -> tuple[str, str] | None:
+        """The ready-made voice the replies speak in, or None for the user's own."""
+        if avatar_in_own_voice():
+            return None
+        return start_now.voice() or no_sample()
+
+    def kept_voice() -> str | None:
+        """The ready-made voice Prepare keeps (item 59), but never for an avatar that is to speak
+        in the user's voice (R24d): that needs recordings."""
+        kept = None if start_now.own_voice() else no_sample()
+        return None if kept is None else kept[1]
+
     def prepare_own_voice() -> None:
         (prepare_voice or voice_step)()
 
@@ -867,7 +888,7 @@ def create_app(
     voice_ready = VoiceReady(
         prepare_own_voice,
         lambda: job.voice_id(),
-        lambda: start_now.chosen() is not None or no_sample() is not None,
+        lambda: reply_preset() is not None,
     )
     # The sample keeps the photo's own size and reply clips are scaled down (roadmap R22c).
     # Each has its own engine, so a prepare and a reply never share one.
@@ -885,7 +906,8 @@ def create_app(
         render,
         voice_kind,
         accent,
-        kept_voice=lambda: None if (kept := no_sample()) is None else kept[1],
+        kept_voice=kept_voice,
+        avatar=lambda: start_now.picture() if start_now.own_voice() else None,
     )
     app.state.prepare_job = job
 
@@ -986,7 +1008,8 @@ def create_app(
 
     @app.get("/api/start-now/lines/{name}")
     def get_start_now_line(name: Literal["goodbye", "welcome-back"]) -> FileResponse:
-        path = start_now.clip(name)
+        # In the user's own voice, the avatar's lines are Prepare's (R24d).
+        path = job.clip(name) if avatar_in_own_voice() else start_now.clip(name)
         if path is None:
             raise HTTPException(status_code=404, detail="Not ready yet.")
         logger.info("Serving a fixed line", extra={"clip": name, "default_person": True})
@@ -1045,12 +1068,16 @@ def create_app(
     def get_review() -> dict[str, object]:
         if start_now.chosen() is not None:
             # Whether the user's own sample is accepted too, so setup can switch to it at once.
-            own = load_review(data_home, job.status()).accepted
+            # While the avatar is to speak in the user's voice (R24d), the sample is the avatar's.
+            sample = load_review(data_home, job.status()).accepted
+            own_voice = start_now.own_voice()
             return {
                 "accepted": True,
                 "accepted_at": None,
                 "default_person": True,
-                "own_sample_accepted": own,
+                "own_sample_accepted": sample and not own_voice,
+                "own_voice": own_voice,
+                "voice_accepted": sample and own_voice,
             }
         return asdict(load_review(data_home, job.status()))
 
@@ -1060,7 +1087,8 @@ def create_app(
         already accepted: the avatar is no longer chosen, and nothing needs preparing again."""
         start = time.perf_counter()
         with personal_write(seen):
-            if not load_review(data_home, job.status()).accepted:
+            # While the avatar is to speak in the user's voice, the sample is the avatar's (R24d).
+            if start_now.own_voice() or not load_review(data_home, job.status()).accepted:
                 logger.warning("Own photo and voice asked for before their sample is accepted")
                 raise HTTPException(status_code=409, detail=OWN_NOT_ACCEPTED)
             # A reply being rendered keeps its face and voice.
@@ -1069,6 +1097,31 @@ def create_app(
         start_reply_warm_up()  # the chat now shows the person's own: ready their idle video
         logger.info("Switched to your own photo and voice", extra={"duration_ms": ms_since(start)})
         return asdict(load_review(data_home, job.status()))
+
+    @app.put("/api/start-now/own-voice")
+    def use_own_voice(body: ConsentRequest, seen: DeletesSeen) -> dict[str, object]:
+        """The ready-made avatar is to speak in the user's own recorded voice (R24d): consent for
+        the person in the recordings, then the recordings, Prepare and review as in setup. Until
+        the sample is accepted, the avatar keeps its ready-made voice."""
+        if not body.agreed:
+            raise HTTPException(status_code=400, detail=VOICE_CONSENT_NEEDED)
+        with data_lock:
+            not_deleted_since(seen)
+            if start_now.chosen() is None:
+                raise HTTPException(status_code=409, detail=NO_AVATAR)
+            if job.status().state == "running":  # it would finish for what was prepared before
+                raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE_AVATAR)
+            save_consent(data_home)  # opens the recordings, Prepare and review
+            start_now.set_own_voice(True)
+        return get_review()
+
+    @app.delete("/api/start-now/own-voice", dependencies=needs_consent)
+    def use_ready_voice(seen: DeletesSeen) -> dict[str, object]:
+        """The ready-made avatar speaks in its ready-made voice again (R24d)."""
+        with personal_write(seen):
+            if start_now.chosen() is not None:
+                start_now.set_own_voice(False)
+        return get_review()
 
     @app.post("/api/review", dependencies=needs_consent)
     def post_review(body: ReviewRequest, seen: DeletesSeen) -> dict[str, object]:
@@ -1079,7 +1132,10 @@ def create_app(
                 review = accept(data_home, job.status())
             except ValueError as e:
                 raise HTTPException(status_code=409, detail=str(e)) from e
-            start_now.forget()  # the person is the user's own now
+            if start_now.own_voice():
+                logger.info("The avatar speaks in your own voice now")  # R24d
+            else:
+                start_now.forget()  # the person is the user's own now
         start_reply_warm_up()  # the chat opens now: ready the LLM and the engines (R22a)
         return asdict(review)
 
