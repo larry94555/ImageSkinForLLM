@@ -182,6 +182,9 @@ class PrepareJob:
         render_clip: RenderClip,
         voice_kind: str = "kokoro",  # what speaks the clips: "pocket", "clone" or "kokoro"
         accent: Callable[[], Accent] = lambda: OWN,  # the accent chosen in setup
+        # The ready-made Kokoro voice kept while the user's own photo replaces a default
+        # person's picture (R24d), or None: then no recordings are needed or prepared.
+        kept_voice: Callable[[], str | None] = lambda: None,
     ) -> None:
         self._file = home / "prepare.json"
         self.clips_folder = home / "clips"
@@ -191,6 +194,7 @@ class PrepareJob:
         self._render_clip = render_clip
         self._voice_kind = voice_kind
         self._accent = accent
+        self._kept_voice = kept_voice
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         # The sample is being rendered again (roadmap R27b): no prepare runs meanwhile, as it
@@ -239,16 +243,17 @@ class PrepareJob:
         if status.state in ("done", "failed"):
             if status.photo_id != self._store.photo_choice().id:
                 return PrepareStatus("idle")
-            if self._store.voice_sample().problem:
+            if self._voice_problem():
                 return PrepareStatus("idle")
             if status.voice_id != self.voice_id():
                 return PrepareStatus("idle")
         return status
 
-    def change_accent(self, change: Callable[[], None]) -> bool:
-        """Change the accent with `change`, unless a job is running: it would finish in the voice
-        from before. While the sample is made again, PrepareError. When the clips were ready,
-        prepare again at once (the face is kept, so only the voice and the clips are redone).
+    def change_voice(self, change: Callable[[], object]) -> bool:
+        """Change the accent, or the ready-made voice used without recordings (item 59), with
+        `change`, unless a job is running: it would finish in the voice from before. While the
+        sample is made again, PrepareError. When the clips were ready, prepare again at once
+        (the face is kept, so only the voice and the clips are redone).
         Whether it was changed.
 
         Done under the job's lock, so a Prepare started at the same time either runs with the
@@ -260,7 +265,7 @@ class PrepareJob:
             prepared = self._current(self._status).state == "done"
             change()
             if prepared and self._current(self._status).state == "idle":
-                logger.info("Accent changed; preparing the sample again")
+                logger.info("Voice changed; preparing the sample again")
                 try:
                     self._start()
                 except PrepareError as e:  # the uploads changed meanwhile; Prepare says what to do
@@ -354,7 +359,7 @@ class PrepareJob:
         photo_id = self._store.photo_choice().id
         if photo_id is None:
             raise PrepareError(NO_PHOTO)
-        problem = self._store.voice_sample().problem
+        problem = self._voice_problem()
         if problem:
             raise PrepareError(problem)
         # Clips from before were made from other uploads; the face's frames are kept per
@@ -365,11 +370,20 @@ class PrepareJob:
         self._run_in_background()
         return self._status
 
+    def _voice_problem(self) -> str | None:
+        """Why the recordings can't make the voice, unless a ready-made one is kept (R24d)."""
+        if self._kept_voice():
+            return None
+        return self._store.voice_sample().problem
+
     def voice_id(self) -> str | None:
         """The voice clips are spoken in now: who speaks them, with which accent, and the sample
         they learned from. Installing Chatterbox after a Kokoro prepare changes it too, and so does
         installing or removing Pocket TTS. Kokoro speaks with its own accent, whichever is
-        chosen."""
+        chosen. A ready-made voice kept for the user's own photo (R24d) is "preset:<voice>"."""
+        kept = self._kept_voice()
+        if kept:
+            return f"preset:{kept}"
         fingerprint = voice_fingerprint(self._store.voice_sample_file)
         if not fingerprint:
             return None
@@ -449,7 +463,10 @@ class PrepareJob:
             if photo is None:
                 raise PrepareError("The photo to prepare was removed. Choose another one.")
             self._progress("voice", 0, 1)
-            self._prepare_voice()
+            if self._kept_voice():
+                logger.info("Keeping the ready-made voice", extra={"voice": self._kept_voice()})
+            else:
+                self._prepare_voice()
             self._progress("voice", 1, 1)
             self._prepare_face(photo, self._progress)
             self._render_clips(photo)

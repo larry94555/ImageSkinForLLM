@@ -37,6 +37,7 @@ from imageskin.default_people import (
 )
 from imageskin.download import DownloadError, download, sha256_of
 from imageskin.photoreal_library import library_key
+from imageskin.ready_voice import save_ready_voice
 from imageskin.voice import Speech, VoiceEngine
 
 logger = logging.getLogger(__name__)
@@ -236,6 +237,8 @@ class StartNow:
         data = {**asdict(choice), "chosen_at": datetime.now(UTC).isoformat(timespec="seconds")}
         tmp.write_text(json.dumps(data), encoding="utf-8")
         os.replace(tmp, path)
+        # The user's own photo speaks in it until they add recordings (item 59).
+        save_ready_voice(self._home, choice.voice[1])
 
     # Getting the person ready
 

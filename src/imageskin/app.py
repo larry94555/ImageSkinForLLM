@@ -80,6 +80,9 @@ from imageskin.prepare_job import (
 )
 from imageskin.quiz import QUESTIONS, Judge, Quiz, Quizzer, Said
 from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
+from imageskin.ready_voice import LANGS as READY_VOICES
+from imageskin.ready_voice import load_ready_voice, save_ready_voice
+from imageskin.ready_voice import preset as ready_preset
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
@@ -92,6 +95,7 @@ from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
 from imageskin.uploads import (
     MEDIA_TYPE,
+    NO_VOICE,
     Kind,
     PhotoCheck,
     PhotoChoice,
@@ -135,6 +139,10 @@ class ChatGptAccount(BaseModel):
 
 class ConsentRequest(BaseModel):
     agreed: bool
+
+
+class ReadyVoiceRequest(BaseModel):
+    voice: str  # one of Kokoro's ready-made voices (item 59)
 
 
 class PhotoChoiceRequest(BaseModel):
@@ -261,6 +269,7 @@ class ReviewRequest(BaseModel):
 
 NEEDS_CLONE = "Another accent needs the voice add-on, which isn't installed on this computer yet."
 WAIT_FOR_PREPARE = "Wait until Prepare finishes, then choose the accent."
+WAIT_FOR_PREPARE_VOICE = "Wait until Prepare finishes, then choose the voice."
 
 
 class AccentChoice(BaseModel):
@@ -832,15 +841,26 @@ def create_app(
     # Prepare's clips are always the person's own, except the default person's own lines, which
     # Start now renders with Prepare's engines while no Prepare runs (review on PR #113).
     kokoro_voices = KokoroVoices()
-    voice_engine = PresetVoice(own_engine, lambda: start_now.voice(), kokoro_voices)
-    prepare_engine = PresetVoice(own_engine, lambda: start_now.rendering_voice(), kokoro_voices)
+    voice_engine = PresetVoice(own_engine, lambda: start_now.voice() or no_sample(), kokoro_voices)
+    prepare_engine = PresetVoice(
+        own_engine, lambda: start_now.rendering_voice() or no_sample(), kokoro_voices
+    )
+
+    def no_sample() -> tuple[str, str] | None:
+        """The ready-made voice the user's own photo speaks in while no recording has passed the
+        checks (item 59): none were added, or they were all rejected or removed."""
+        if store.voice_sample().problem != NO_VOICE:
+            return None
+        return ready_preset(load_ready_voice(data_home))
 
     def prepare_own_voice() -> None:
         (prepare_voice or voice_step)()
 
     # The voice is prepared again for replies after the server restarts (roadmap R17).
     voice_ready = VoiceReady(
-        prepare_own_voice, lambda: job.voice_id(), lambda: start_now.chosen() is not None
+        prepare_own_voice,
+        lambda: job.voice_id(),
+        lambda: start_now.chosen() is not None or no_sample() is not None,
     )
     # The sample keeps the photo's own size and reply clips are scaled down (roadmap R22c).
     # Each has its own engine, so a prepare and a reply never share one.
@@ -858,8 +878,32 @@ def create_app(
         render,
         voice_kind,
         accent,
+        kept_voice=lambda: None if (kept := no_sample()) is None else kept[1],
     )
     app.state.prepare_job = job
+
+    @app.get("/api/ready-voice", dependencies=needs_consent)
+    def get_ready_voice() -> dict[str, object]:
+        """The ready-made voice used while there are no recordings, and whether it is in use."""
+        return {"voice": load_ready_voice(data_home), "in_use": no_sample() is not None}
+
+    @app.put("/api/ready-voice", dependencies=needs_consent)
+    def put_ready_voice(body: ReadyVoiceRequest, seen: DeletesSeen) -> dict[str, object]:
+        if body.voice not in READY_VOICES:
+            raise HTTPException(
+                status_code=400, detail=f"{body.voice!r} is not a ready-made voice."
+            )
+        # Guarded as the accent is: refused while Prepare runs, and the sample is made again in
+        # the new voice when one was ready (Codex's review of PR #128).
+        try:
+            with personal_write(seen):
+                changed = job.change_voice(lambda: save_ready_voice(data_home, body.voice))
+        except PrepareError as e:  # the sample is being made again (R27b)
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        if not changed:
+            raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE_VOICE)
+        return get_ready_voice()
+
     job.resume()  # a job the server was stopped in the middle of carries on
 
     def with_replies_paused(choose: Callable[[], None]) -> None:
@@ -965,7 +1009,7 @@ def create_app(
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
         try:
             with personal_write(seen):
-                changed = job.change_accent(lambda: save_accent(data_home, body.accent))
+                changed = job.change_voice(lambda: save_accent(data_home, body.accent))
         except PrepareError as e:  # the sample is being made again (R27b)
             raise HTTPException(status_code=409, detail=str(e)) from e
         if not changed:

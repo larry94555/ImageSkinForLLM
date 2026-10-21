@@ -288,6 +288,27 @@ export async function startNow(choice: PersonChoice): Promise<StartNowStatus> {
 
 export const DEFAULT_PICTURE = "/api/start-now/picture";
 
+// The ready-made voice the person speaks in while no recording has passed the checks (item 59):
+// the last ready-made avatar's, or the one chosen in setup.
+export interface ReadyVoice {
+  voice: string;
+  in_use: boolean; // no recording has passed the checks, so it is the one used
+}
+
+export async function getReadyVoice(): Promise<ReadyVoice> {
+  return json<ReadyVoice>(await fetch("/api/ready-voice"));
+}
+
+export async function chooseReadyVoice(voice: string): Promise<ReadyVoice> {
+  const response = await fetch("/api/ready-voice", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ voice }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as ReadyVoice;
+}
+
 // Starts the job, or reports on it while it runs. Throws an Error saying what is missing.
 export async function startPrepare(): Promise<PrepareStatus> {
   const response = await fetch("/api/prepare", { method: "POST" });

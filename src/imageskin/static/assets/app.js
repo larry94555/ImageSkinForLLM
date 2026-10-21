@@ -136,6 +136,18 @@ async function startNow(choice) {
 	return await response.json();
 }
 var DEFAULT_PICTURE = "/api/start-now/picture";
+async function getReadyVoice() {
+	return json(await fetch("/api/ready-voice"));
+}
+async function chooseReadyVoice(voice) {
+	const response = await fetch("/api/ready-voice", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ voice })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 async function startPrepare() {
 	const response = await fetch("/api/prepare", { method: "POST" });
 	if (!response.ok) throw new Error(await refusal(response));
@@ -3306,7 +3318,7 @@ function SetupPage({ change }) {
 			/* @__PURE__ */ u("h1", { children: "Setup" }),
 			/* @__PURE__ */ u("p", {
 				className: "lead",
-				children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it."
+				children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it. Without recordings, the person speaks in a ready-made voice."
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "avatar-instead",
@@ -3352,6 +3364,10 @@ function SetupPage({ change }) {
 				notice: notice("sounds"),
 				onChange: changed
 			}),
+			/* @__PURE__ */ u(ReadyVoiceChoice, {
+				changes,
+				onChange: changed
+			}),
 			/* @__PURE__ */ u(AccentSection, {
 				onChange: changed,
 				preparing,
@@ -3361,6 +3377,81 @@ function SetupPage({ change }) {
 				changes,
 				onRunning: setPreparing,
 				onBack: goBack
+			})
+		]
+	});
+}
+var READY_VOICES = [
+	{
+		voice: "af_heart",
+		label: "American woman"
+	},
+	{
+		voice: "am_michael",
+		label: "American man"
+	},
+	{
+		voice: "bf_emma",
+		label: "British woman"
+	},
+	{
+		voice: "bm_george",
+		label: "British man"
+	}
+];
+function ReadyVoiceChoice(props) {
+	const [ready, setReady] = d(null);
+	const [failed, setFailed] = d(null);
+	h(() => {
+		getReadyVoice().then((r) => {
+			setReady(r);
+			console.info(`Ready-made voice: ${r.voice}, in use: ${r.in_use}`);
+		}).catch((e) => console.error("Could not read the ready-made voice", e));
+	}, [props.changes]);
+	if (ready === null) return null;
+	async function choose(voice) {
+		const started = performance.now();
+		setFailed(null);
+		try {
+			setReady(await chooseReadyVoice(voice));
+			console.info(`Ready-made voice chosen: ${voice} (${Math.round(performance.now() - started)} ms)`);
+			props.onChange();
+		} catch (e) {
+			console.error("Could not choose the ready-made voice", e);
+			setFailed(e.message);
+		}
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel ready-voice",
+		"aria-labelledby": "ready-voice",
+		children: [
+			/* @__PURE__ */ u("h3", {
+				id: "ready-voice",
+				children: "No recordings?"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Recordings are optional. Until one passes the checks, or if they are all removed, the person speaks in a ready-made voice instead of their own."
+			}),
+			/* @__PURE__ */ u("label", { children: [
+				"Ready-made voice",
+				" ",
+				/* @__PURE__ */ u("select", {
+					value: ready.voice,
+					onChange: (e) => void choose(e.currentTarget.value),
+					children: READY_VOICES.map(({ voice, label }) => /* @__PURE__ */ u("option", {
+						value: voice,
+						children: label
+					}, voice))
+				})
+			] }),
+			/* @__PURE__ */ u("p", {
+				className: ready.in_use ? "notice" : "muted",
+				children: ready.in_use ? "In use now: no recording has passed the checks." : "Not in use: the voice is made from your recordings."
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: failed
 			})
 		]
 	});
