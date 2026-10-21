@@ -30,6 +30,7 @@ from imageskin.chat import (
     LlmSettings,
     LlmStarting,
     Message,
+    PromptStop,
     StoppableResponse,
     Turn,
     ask_stop,
@@ -1067,3 +1068,10 @@ def test_a_prompt_stopped_while_it_was_answered_is_not_kept() -> None:
         ask_stop.reset(token)
     assert conversation.turns() == []
     assert conversation.send("Hello")[0].content == "Hi there."
+
+
+def test_a_prompt_stop_comes_before_the_reply_is_kept_or_not_at_all() -> None:
+    stop = PromptStop()
+    assert stop.keep() and not stop.stop() and not stop.is_set()  # kept first
+    stop = PromptStop()
+    assert stop.stop() and not stop.keep() and stop.is_set()  # stopped first

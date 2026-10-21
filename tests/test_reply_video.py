@@ -1529,6 +1529,44 @@ def test_stop_cuts_off_the_llm_while_it_is_thinking(
     assert log.duration_ms >= 0  # type: ignore[attr-defined]
 
 
+def test_a_stop_after_the_reply_is_kept_stops_only_its_clips(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #130: a Stop while the reply was being saved said it had stopped the prompt,
+    which was kept. Once the reply is kept, Stop stops only its clips, and says so."""
+    saving, go = threading.Event(), threading.Event()
+    save = Conversation._save
+
+    def held(self: Conversation) -> None:
+        saving.set()
+        go.wait(5)
+        save(self)
+
+    caplog.set_level(logging.INFO, logger="imageskin.app")
+    client = video_app(tmp_path, write_text, lambda messages: iter(["One. Two."]))
+    answers: dict[str, Any] = {}
+
+    def post() -> None:
+        sent = client.post("/api/chat", json={"prompt": "Count", "reply_id": REPLY_ID})
+        answers["status"], answers["content"] = sent.status_code, sent.json().get("content")
+
+    with (
+        patch("imageskin.app.load_review", return_value=Review(accepted=True)),
+        patch.object(Conversation, "_save", held),
+    ):
+        asking = threading.Thread(target=post)
+        asking.start()
+        assert saving.wait(5)  # kept, and being saved
+        assert client.post(f"/api/chat/clips/{REPLY_ID}/stop").json() == {"stopped": True}
+        go.set()
+        asking.join(5)
+        turns = client.get("/api/chat").json()["turns"]
+    assert answers == {"status": 200, "content": "One. Two."}
+    assert [t["content"] for t in turns] == ["Count", "One. Two."]
+    [log] = [r for r in caplog.records if r.message == "Reply stopped"]
+    assert log.answering is False and log.clips is not None  # type: ignore[attr-defined]
+
+
 def test_a_prompt_stopped_while_it_waits_for_another_is_not_answered(tmp_path: Path) -> None:
     """Stop reaches a prompt waiting for the one before it to be answered."""
     thinking, go = threading.Event(), threading.Event()

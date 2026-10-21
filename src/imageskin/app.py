@@ -39,6 +39,7 @@ from imageskin.chat import (
     LlmError,
     LlmSettings,
     Message,
+    PromptStop,
     StreamLlm,
     ask_stop,
     estimate,
@@ -1386,7 +1387,7 @@ def create_app(
     whole_videos: dict[str, threading.Event] = {}
     # Prompts being answered, each with the event Stop sets to cut the LLM off (Larry's test of
     # PR #129: Stop left it thinking). Guarded by clips_lock.
-    prompts: dict[str, threading.Event] = {}
+    prompts: dict[str, PromptStop] = {}
     # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
     # prompt waiting on another always drops that one's clips.
     chat_lock = threading.Lock()
@@ -1438,7 +1439,7 @@ def create_app(
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
         # Listed before it waits for the warm-up or another prompt, so Stop reaches it there.
-        stop = threading.Event()
+        stop = PromptStop()
         if body.reply_id is not None:
             with clips_lock:
                 prompts[body.reply_id] = stop
@@ -1478,13 +1479,13 @@ def create_app(
         """How many parts the lesson's topic has, its summary not counted."""
         return len(lesson_topics(wiki.contents()).get(lesson.topic, []))
 
-    def chat(body: ChatRequest, stop: threading.Event) -> dict[str, Any]:
+    def chat(body: ChatRequest, stop: PromptStop) -> dict[str, Any]:
         with clips_lock:
             unasked = list(sentence_clips.values())  # only the latest reply is played
             sentence_clips.clear()
             if body.reply_id in stopped_early:  # stopped before it came: it isn't answered
                 stopped_early.discard(body.reply_id)
-                stop.set()
+                stop.stop()
         for old in unasked:
             old.cancel()
         if stop.is_set():
@@ -1603,11 +1604,11 @@ def create_app(
             clips = sentence_clips.pop(reply_id, None)
             video = whole_videos.get(reply_id)
             prompt = prompts.get(reply_id)
-            if prompt is not None:
-                prompt.set()
+            # Not once its reply is kept: then only its clips or video are stopped.
+            answering = prompt is not None and prompt.stop()
             if video is not None:
                 video.set()  # its render stops before its next step
-            elif clips is None and prompt is None:
+            elif clips is None and not answering:
                 if len(stopped_early) >= STOPPED_EARLY_MAX:  # ids that never came: forget them
                     stopped_early.clear()
                 stopped_early.add(reply_id)
@@ -1617,12 +1618,12 @@ def create_app(
                 "reply_id": reply_id,
                 "clips": None if clips is None else len(clips.clips),
                 "whole_video": video is not None,
-                "answering": prompt is not None,
+                "answering": answering,
             },
         )
         if clips is not None:
             threading.Thread(target=cancel_clips, args=(clips,), name="stop-clips").start()
-        return {"stopped": clips is not None or video is not None or prompt is not None}
+        return {"stopped": clips is not None or video is not None or answering}
 
     def cancel_clips(clips: SentenceClips) -> None:
         start = time.perf_counter()
