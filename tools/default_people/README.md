@@ -79,7 +79,7 @@ script moved on by itself, and for three wheelchair people quick drafts of other
 looked at first, since seed 1 left the wheelchair out or drew the face too small; their seed is
 set in `SECOND_FACES`. Every one of the 60 pictures was looked at and `looks_shown.json` records what it
 shows; every group of 15 meets every count. The 60 thumbnails are 456 KB in all and ship in
-`web/public/default-people/`.
+`web/public/faces/` (not under `/default-people/`, which the hosted site keeps for the packs).
 
 **Where the packs are hosted:** on the hosted site (R32a), at `https://<site>/default-people/<name>.zip`,
 served by Caddy without the site's password, since they are made-up people and Start now on any

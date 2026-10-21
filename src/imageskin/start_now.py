@@ -1,13 +1,16 @@
 """Start now with a default person (roadmap R24c, features.md items 56 to 58).
 
-The user picks a gender, an accent, photoreal or animated, and a role, and chats at once with that
-made-up person: no consent, uploads, prepare or review. Only the chosen person's pack is
-downloaded, the first time they are chosen, from the hosted site that holds the 60 packs (R32a); it
-is unpacked into the app's home and kept, so choosing them again starts at once. Goodbye and
-Welcome back are then rendered in the person's ready-made Kokoro voice.
+The user picks a gender, an accent, photoreal or animated, and one of that gender and look's 15
+faces (R24c2), and chats at once with that made-up person: no consent, uploads, prepare or
+review. Only the chosen person's pack is downloaded, the first time they are chosen, from the
+hosted site that holds the 60 packs (R32a); it is unpacked into the app's home and kept, so
+choosing them again starts at once. Goodbye and Welcome back are then rendered in the person's
+ready-made Kokoro voice.
 
-The choice is saved as default-person.json in the home. While it is there, the chat uses the
-default person's picture and voice instead of the person's own (see `PresetVoice`).
+The page offers no role (Larry's test of PR #124), but a person is still named by the role they
+were made for and their face number, which the choice carries. The choice is saved as
+default-person.json in the home. While it is there, the chat uses the default person's picture
+and voice instead of the person's own (see `PresetVoice`).
 """
 
 import json
@@ -77,6 +80,7 @@ class Choice:
     accent: str
     realism: str
     role: str
+    face: int = 1  # R24c2: 2 picks the choice's second face, where it has one
 
     def problem(self) -> str | None:
         """What is wrong with the choice, or None."""
@@ -88,18 +92,14 @@ class Choice:
         ):
             if value not in allowed:
                 return f"{value!r} is not one of {', '.join(allowed)}."
+        if self.face not in faces(self.gender, self.realism, self.role):
+            return f"There is no face {self.face} for that choice."
         return None
 
     @property
     def name(self) -> str:
-        """The person's name, such as animated_female_professor (the first face; R24c2 adds
-        picking the second)."""
-        return next(
-            p.name
-            for p in people()
-            if p.face == 1
-            and (p.gender, p.realism, p.role) == (self.gender, self.realism, self.role)
-        )
+        """The person's name, such as animated_female_professor, with _2 for a second face."""
+        return faces(self.gender, self.realism, self.role)[self.face]
 
     @property
     def voice(self) -> tuple[str, str]:
@@ -113,6 +113,13 @@ class StartStatus:
     person: str | None = None
     percent: int = 0  # of the download
     error: str | None = None  # in plain words, for the user
+
+
+def faces(gender: str, realism: str, role: str) -> dict[int, str]:
+    """The faces a choice has (R24c2), by number: each person's name."""
+    return {
+        p.face: p.name for p in people() if (p.gender, p.realism, p.role) == (gender, realism, role)
+    }
 
 
 def packs_url() -> str:
@@ -170,7 +177,9 @@ class StartNow:
         path = self._home / CHOICE_FILE
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            choice = Choice(data["gender"], data["accent"], data["realism"], data["role"])
+            choice = Choice(
+                data["gender"], data["accent"], data["realism"], data["role"], data.get("face", 1)
+            )
         except FileNotFoundError:
             return None
         except (OSError, ValueError, KeyError, TypeError) as e:

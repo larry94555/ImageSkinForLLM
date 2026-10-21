@@ -87,6 +87,42 @@ def test_a_choice_names_the_person_and_the_voice() -> None:
     assert sn.Choice("male", "Irish", "animated", "Boss").problem()
 
 
+def test_a_choice_can_pick_its_second_face() -> None:
+    """R24c2: 24 of the 36 choices have a second face, which names its own person."""
+    second = sn.Choice("female", "British", "animated", "Professor", face=2)
+    assert second.problem() is None and second.name == "animated_female_professor_2"
+    assert sn.faces("female", "animated", "Professor") == {
+        1: "animated_female_professor",
+        2: "animated_female_professor_2",
+    }
+    assert sn.faces("female", "animated", "Boss") == {1: "animated_female_boss"}
+    one_face = sn.Choice("female", "British", "animated", "Boss", face=2)
+    assert one_face.problem() == "There is no face 2 for that choice."
+    assert sn.Choice("female", "British", "animated", "Professor", face=3).problem()
+    assert sum(len(sn.faces(*c)) == 2 for c in combinations()) == 24
+
+
+def combinations() -> list[tuple[str, str, str]]:
+    return [(g, r, role) for g in dp.GENDERS for r in dp.REALISMS for role in dp.ROLES]
+
+
+def test_every_face_has_a_thumbnail_that_ships_with_the_app() -> None:
+    faces = Path(__file__).parents[1] / "web" / "public" / "faces"
+    assert {f.stem for f in faces.glob("*.jpg")} == {p.name for p in dp.people()}
+
+
+def test_the_face_picked_is_kept_and_an_older_choice_has_the_first(
+    tmp_path: Path, pack: Path
+) -> None:
+    person = started(tmp_path, pack)
+    person._save(sn.Choice("female", "British", "animated", "Professor", face=2))
+    assert person.chosen() == sn.Choice("female", "British", "animated", "Professor", 2)
+    (tmp_path / sn.CHOICE_FILE).write_text(
+        json.dumps({"gender": "female", "accent": "British", "realism": "animated", "role": "Boss"})
+    )
+    assert person.chosen() == sn.Choice("female", "British", "animated", "Boss", 1)
+
+
 def test_every_person_has_a_pack_of_at_most_50_mb() -> None:
     packs = sn.load_packs()
     assert set(packs) == {p.name for p in dp.people()}
@@ -442,6 +478,28 @@ def test_the_chat_is_locked_until_a_person_is_chosen(client: TestClient) -> None
 def test_a_bad_choice_is_refused(client: TestClient) -> None:
     refused = client.post("/api/start-now", json={**vars(CHOICE), "role": "Duke"})
     assert refused.status_code == 400 and "Duke" in refused.json()["detail"]
+    no_face = client.post("/api/start-now", json={**vars(CHOICE), "face": 3})
+    assert no_face.status_code == 400 and "no face 3" in no_face.json()["detail"]
+
+
+def test_the_page_is_told_every_face(client: TestClient) -> None:
+    faces = client.get("/api/start-now/faces").json()
+    assert len(faces) == 60 and len({f["name"] for f in faces}) == 60
+    assert {
+        "gender": "female",
+        "realism": "animated",
+        "role": "Professor",
+        "face": 2,
+        "name": "animated_female_professor_2",
+    } in faces
+    # In the order the page shows them: by role, then face.
+    women = [f["name"] for f in faces if (f["gender"], f["realism"]) == ("female", "photoreal")]
+    assert women[:3] == [
+        "photoreal_female_professor",
+        "photoreal_female_professor_2",
+        "photoreal_female_teaching_assistant",
+    ]
+    assert len(women) == 15 and women[-1] == "photoreal_female_business_consultant"
 
 
 def test_a_default_person_opens_the_chat_without_consent(client: TestClient) -> None:
