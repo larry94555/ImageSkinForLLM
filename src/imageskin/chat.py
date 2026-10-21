@@ -977,7 +977,11 @@ class Conversation:
         """Keep the prompt and its reply, and return the reply's place. With `turns` (the ones
         sent with this prompt), they are also sent with later prompts, and the older ones are
         summarized once the history passes the budget, whether the LLM wrote the reply or it
-        was made here (review on PR #85)."""
+        was made here (review on PR #85). A prompt stopped meanwhile (`ask_stop`) is not kept:
+        LlmCancelled, as when it was cut off, since a provider's answer can't be."""
+        stop = ask_stop.get()
+        if stop is not None and stop.is_set():
+            raise LlmCancelled("Stopped before the reply was kept.")
         said = [Turn("user", prompt), reply]
         with self._lock:
             if turns is not None:
@@ -1118,7 +1122,10 @@ class Conversation:
                 if on_sentence is not None:
                     on_sentence(sentence)
 
+        stop = ask_stop.get()
         for piece in self._stream(messages):
+            if stop is not None and stop.is_set():  # a provider's stream, which isn't cut off
+                raise LlmCancelled("Cut off while the LLM was answering.")
             if not pieces:
                 logger.info("Reply started", extra={"since_prompt_ms": ms_since(start)})
                 if on_sentence is not None:

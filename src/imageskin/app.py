@@ -35,10 +35,12 @@ from imageskin.chat import (
     ClearFailed,
     Conversation,
     Count,
+    LlmCancelled,
     LlmError,
     LlmSettings,
     Message,
     StreamLlm,
+    ask_stop,
     estimate,
 )
 from imageskin.chatgpt_signin import CALLBACK_PATH, ChatGptSignIn, SignInError
@@ -177,6 +179,8 @@ DELETED_MEANWHILE = "Your data was deleted while this was waiting. Start setup a
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # The conversation is saved in the data folder, so it is still there after a restart (R30).
 CONVERSATION_FILE = "conversation.json"
+# A prompt stopped while it was answered: it is dropped, with the reply it would have had.
+PROMPT_STOPPED = "Stopped."
 # At most this many replies stopped before their prompt came are remembered (roadmap R19).
 STOPPED_EARLY_MAX = 64
 
@@ -1355,6 +1359,9 @@ def create_app(
     # Replies spoken in one video (not streamed) being made now, each with the event Stop sets
     # (roadmap R19). Guarded by clips_lock.
     whole_videos: dict[str, threading.Event] = {}
+    # Prompts being answered, each with the event Stop sets to cut the LLM off (Larry's test of
+    # PR #129: Stop left it thinking). Guarded by clips_lock.
+    prompts: dict[str, threading.Event] = {}
     # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
     # prompt waiting on another always drops that one's clips.
     chat_lock = threading.Lock()
@@ -1405,11 +1412,27 @@ def create_app(
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
-        wait_for_warm_up()
-        # One LLM answers the whole prompt, even if it is changed meanwhile (review on PR #115).
-        with chat_lock, pinned(client), llm_busy():
-            not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
-            return chat(body)
+        # Listed before it waits for the warm-up or another prompt, so Stop reaches it there.
+        stop = threading.Event()
+        if body.reply_id is not None:
+            with clips_lock:
+                prompts[body.reply_id] = stop
+        try:
+            wait_for_warm_up()
+            # One LLM answers the whole prompt, even if it is changed meanwhile (review on
+            # PR #115).
+            with chat_lock, pinned(client), llm_busy():
+                not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
+                token = ask_stop.set(stop)  # the LLM is cut off on Stop
+                try:
+                    return chat(body, stop)
+                finally:
+                    ask_stop.reset(token)
+        finally:
+            if body.reply_id is not None:
+                with clips_lock:
+                    if prompts.get(body.reply_id) is stop:
+                        del prompts[body.reply_id]
 
     def wait_for_warm_up(what: str = "Prompt") -> None:
         """A prompt sent right after the sample was accepted waits for the warm-up to finish,
@@ -1430,22 +1453,28 @@ def create_app(
         """How many parts the lesson's topic has, its summary not counted."""
         return len(lesson_topics(wiki.contents()).get(lesson.topic, []))
 
-    def chat(body: ChatRequest) -> dict[str, Any]:
+    def chat(body: ChatRequest, stop: threading.Event) -> dict[str, Any]:
         with clips_lock:
             unasked = list(sentence_clips.values())  # only the latest reply is played
             sentence_clips.clear()
+            if body.reply_id in stopped_early:  # stopped before it came: it isn't answered
+                stopped_early.discard(body.reply_id)
+                stop.set()
         for old in unasked:
             old.cancel()
+        if stop.is_set():
+            logger.info("Prompt stopped before it was answered", extra={"reply_id": body.reply_id})
+            raise HTTPException(status_code=409, detail=PROMPT_STOPPED)
         photo = chosen_photo()
         clips = None
         if photo is not None and body.reply_id is not None:
             clips = replies.sentence_clips(photo, body.reply_id)
             with clips_lock:
-                if body.reply_id in stopped_early:  # stopped before it started: no clips
-                    stopped_early.discard(body.reply_id)
+                if stop.is_set():  # stopped meanwhile: no clips
                     clips = None
                 else:
                     sentence_clips[body.reply_id] = clips  # asked for while the LLM writes
+        start = time.perf_counter()
         try:
             if body.spoken:
                 # Checked and the summary waited for before the correction asks the LLM, as
@@ -1502,11 +1531,17 @@ def create_app(
                     choices = [Choice(f"Quiz me on {topic}", f"Quiz me on {topic}")]
             else:
                 reply, turn = conversation.send(body.prompt, clips)
-        except (ValueError, LlmError) as e:
+        except (ValueError, LlmError, LlmCancelled) as e:
             if clips is not None:
                 with clips_lock:
                     sentence_clips.pop(body.reply_id or "", None)
                 clips.cancel()
+            if isinstance(e, LlmCancelled):
+                logger.info(
+                    "Prompt stopped",
+                    extra={"reply_id": body.reply_id, "duration_ms": ms_since(start)},
+                )
+                raise HTTPException(status_code=409, detail=PROMPT_STOPPED) from e
             status = 400 if isinstance(e, ValueError) else 502
             raise HTTPException(status_code=status, detail=str(e)) from e
         if clips is not None:
@@ -1534,16 +1569,20 @@ def create_app(
 
     @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_person)
     def stop_clips(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, bool]:
-        """Stop a reply's clips (roadmap R19): no more are made, the one being made is dropped
-        after the step under way, and the files are removed. The reply's text still comes.
-        A reply whose prompt hasn't reached the LLM yet gets no clips at all. Answers at once;
-        the step under way finishes on a thread of its own."""
+        """Stop a reply (roadmap R19): no more clips are made, the one being made is dropped
+        after the step under way, and the files are removed. A prompt still being answered is
+        stopped too: the LLM is cut off and the prompt dropped (Larry's test of PR #129); one
+        that hasn't come yet is dropped when it does. Answers at once; the step under way
+        finishes on a thread of its own."""
         with clips_lock:
             clips = sentence_clips.pop(reply_id, None)
             video = whole_videos.get(reply_id)
+            prompt = prompts.get(reply_id)
+            if prompt is not None:
+                prompt.set()
             if video is not None:
                 video.set()  # its render stops before its next step
-            elif clips is None:
+            elif clips is None and prompt is None:
                 if len(stopped_early) >= STOPPED_EARLY_MAX:  # ids that never came: forget them
                     stopped_early.clear()
                 stopped_early.add(reply_id)
@@ -1553,11 +1592,12 @@ def create_app(
                 "reply_id": reply_id,
                 "clips": None if clips is None else len(clips.clips),
                 "whole_video": video is not None,
+                "answering": prompt is not None,
             },
         )
         if clips is not None:
             threading.Thread(target=cancel_clips, args=(clips,), name="stop-clips").start()
-        return {"stopped": clips is not None or video is not None}
+        return {"stopped": clips is not None or video is not None or prompt is not None}
 
     def cancel_clips(clips: SentenceClips) -> None:
         start = time.perf_counter()

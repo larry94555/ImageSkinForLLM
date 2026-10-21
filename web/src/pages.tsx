@@ -1359,13 +1359,17 @@ function Chat(props: {
         { role, content },
       ]);
     } catch (e) {
-      console.error("Could not get a reply", e);
+      // Stopped while it was answered: the server cut the LLM off and dropped the prompt
+      // (Larry's test of PR #129), so it goes back in the box, with nothing to apologize for.
+      const halt = e instanceof ServerRefusal && e.status === 409 && stopped.current === replyId;
+      if (halt) console.info("Prompt stopped while it was answered");
+      else console.error("Could not get a reply", e);
       // The server forgets a prompt that got no reply, so it goes back in the box.
       setTurns((t) => (t ?? []).slice(0, -1));
-      setPrompt(text);
+      setPrompt((typed) => (halt && typed ? typed : text));
       // A prompt the server can't use (empty, too long) says why in plain words; any other
       // trouble gets the same short apology (R41d).
-      setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
+      if (!halt) setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
       replied = true;
       await Promise.race([following, stopping]);
       setClips([]); // with any clip made before the LLM failed, and its timing row
@@ -1409,7 +1413,8 @@ function Chat(props: {
   }
 
   // Stop (roadmap R19): the person stops speaking at once, and the server stops making the
-  // reply's clips. The reply's text still comes.
+  // reply's clips. A prompt still being answered is stopped too: the LLM is cut off and the
+  // prompt goes back in the box (Larry's test of PR #129); a reply already written still shows.
   function stop() {
     const replyId = replying.current;
     if (replyId === null) return;
@@ -1465,7 +1470,14 @@ function Chat(props: {
       </div>
     );
   // One line saying what is happening, until the person starts to speak (R41d).
-  const status = sending ? "Thinking…" : waiting ? "Getting ready to say it…" : null;
+  // Stopped while thinking: the server is cutting the LLM off.
+  const status = sending
+    ? halted
+      ? "Stopping…"
+      : "Thinking…"
+    : waiting
+      ? "Getting ready to say it…"
+      : null;
   return (
     <div className="chat">
       <div className="person">
