@@ -185,6 +185,19 @@ class EmptyReply(LlmError):
     """The LLM answered, but with no words: its output, not the request, was at fault."""
 
 
+class LlmStarting(LlmError):
+    """llama-server is up but still loading its model (it answers 503 meanwhile): the AI isn't
+    ready yet, as when it can't be reached, so a wiki build waits for it."""
+
+
+# How long a request that can be cut off (ask_stop) may take to be answered. A wiki part on the
+# hosted machine's 2 cores can take minutes, longer than the chat's timeout, and a timed-out part
+# was taken as the AI being down: "Waiting for the AI to be ready to build the wiki…", then the
+# part asked again from the start (Larry, 2026-10-21). Such a request is cut off at once when its
+# answer stops being wanted, so it can wait this long.
+ANSWER_LIMIT_S = 30 * 60.0
+
+
 class LlmCancelled(Exception):
     """The request was cut off, as `ask_stop` asked: its answer is no longer wanted. Not an
     LlmError, so nothing waits for the LLM and tries again."""
@@ -455,6 +468,8 @@ class LlmClient:
             return urllib.request.urlopen(request, timeout=self.settings.timeout_s)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:300]
+            if self.settings.local and e.code == 503:
+                raise LlmStarting(f"The LLM at {url} is still starting: {detail}") from e
             if not self.settings.local:
                 # The detail stays in the log; the chat gets a plain, stable message (R33).
                 name = PROVIDER_NAMES.get(self.settings.provider, self.settings.provider)
@@ -494,6 +509,7 @@ class LlmClient:
 
         try:
             connection.connect()
+            connection.sock.settimeout(ANSWER_LIMIT_S)  # connecting keeps the usual timeout
             # The socket itself: the connection lets go of it once the answer's headers are in
             # when the server closes after answering, while the answer is still being read.
             threading.Thread(
@@ -514,6 +530,8 @@ class LlmClient:
             detail = response.read().decode(errors="replace")[:300]
             done.set()
             connection.close()
+            if response.status == 503:
+                raise LlmStarting(f"The LLM at {url} is still starting: {detail}")
             raise LlmError(f"The LLM at {url} refused the prompt ({response.status}): {detail}")
         return StoppableResponse(response, connection, stop, done)
 

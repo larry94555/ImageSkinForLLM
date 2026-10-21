@@ -64,8 +64,9 @@ BuildOutline = Callable[
 # What saved pages look like; pages saved in an older form are built again. 4: detail pages
 # show the PDF's own words.
 WIKI_FORMAT = 4
-# How long to wait before trying again when the LLM can't be reached.
-RETRY_S = 30.0
+# How long to wait before trying again when the LLM can't be reached or is still loading its
+# model: short, so the build goes on soon after llama-server is ready.
+RETRY_S = 5.0
 # Why a wiki wasn't built, when the LLM refused to build it.
 AI_REFUSED = "The AI couldn't build a wiki from this PDF. Rebuild the wiki to try again."
 

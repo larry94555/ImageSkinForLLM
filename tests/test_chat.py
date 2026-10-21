@@ -28,6 +28,7 @@ from imageskin.chat import (
     LlmClient,
     LlmError,
     LlmSettings,
+    LlmStarting,
     Message,
     StoppableResponse,
     Turn,
@@ -1019,5 +1020,32 @@ def test_a_request_that_can_be_cut_off_says_when_the_llm_cannot_be_reached() -> 
             LlmClient(LlmSettings(url=f"http://127.0.0.1:{port}/v1")).ask(
                 [{"role": "user", "content": "Hi"}]
             )
+    finally:
+        ask_stop.reset(token)
+
+
+def test_a_request_that_can_be_cut_off_waits_for_a_slow_answer(slow_llm: str) -> None:
+    """Larry kept seeing "Waiting for the AI to be ready to build the wiki…": on the hosted
+    machine's 2 cores, a wiki part can take longer than the chat's timeout to be answered, and
+    the timeout was taken as the AI being down. A wiki request now waits for its answer; it can
+    still be cut off at once (ask_stop)."""
+    client = LlmClient(LlmSettings(url=slow_llm, timeout_s=0.3))
+    threading.Timer(1.0, SlowLlm.go.set).start()
+    token = ask_stop.set(threading.Event())
+    try:
+        assert client.ask([{"role": "user", "content": "Hi"}]) == "Rain falls."
+    finally:
+        ask_stop.reset(token)
+
+
+@pytest.mark.parametrize("cut_off", [False, True])
+def test_llama_server_loading_its_model_is_not_ready_yet(fake_llm: str, cut_off: bool) -> None:
+    """llama-server answers 503 while it loads the model: the AI isn't ready yet, which is
+    waited for, not a refusal."""
+    FakeLlm.answer = (503, b'{"error": {"code": 503, "message": "Loading model"}}')
+    token = ask_stop.set(threading.Event() if cut_off else None)
+    try:
+        with pytest.raises(LlmStarting, match="still starting"):
+            LlmClient(LlmSettings(url=fake_llm)).ask([{"role": "user", "content": "Hi"}])
     finally:
         ask_stop.reset(token)
