@@ -3286,7 +3286,7 @@ function ConsentPage({ onConfirmed }) {
 	}
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("h1", { children: "Before you start" }),
-		/* @__PURE__ */ u("p", { children: "Only use photos and recordings of someone who has agreed to this, or of yourself." }),
+		/* @__PURE__ */ u("p", { children: "Only use images you have the right to use. Ideally, use your own picture." }),
 		/* @__PURE__ */ u("form", {
 			onSubmit: submit,
 			children: [

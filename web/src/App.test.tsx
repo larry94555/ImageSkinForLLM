@@ -96,6 +96,17 @@ test("setup without consent goes to the consent page", async () => {
   );
 });
 
+test("the consent page shows Larry's short image disclaimer", async () => {
+  serverWithConsent(false);
+  await openAt("#/consent");
+  expect(
+    await screen.findByText(
+      "Only use images you have the right to use. Ideally, use your own picture.",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText(/Only use photos and recordings of someone/)).toBeNull();
+});
+
 test("ticking the box and continuing saves consent and opens setup", async () => {
   const fetchMock = serverWithConsent(false);
   await openAt("#/consent");

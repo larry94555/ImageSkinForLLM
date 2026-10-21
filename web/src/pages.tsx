@@ -83,7 +83,7 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   return (
     <>
       <h1>Before you start</h1>
-      <p>Only use photos and recordings of someone who has agreed to this, or of yourself.</p>
+      <p>Only use images you have the right to use. Ideally, use your own picture.</p>
       <form onSubmit={submit}>
         <label className="check">
           <input
