@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AvatarVoicePage } from "./avatar-voice";
 import { LEAVE_CANCEL, LEAVE_PROCEED, LEAVE_TITLE } from "./leave-guard";
 import { SetupPage } from "./pages";
+import { useHash } from "./router";
 
 const DONE = {
   state: "done",
@@ -52,16 +53,46 @@ function server({ accepted = false, avatar = false } = {}) {
   );
 }
 
+// To `hash`, once its hashchange has landed, as in the app, where a page opens only after it.
+async function go(hash: string) {
+  if (window.location.hash === hash) return;
+  const landed = new Promise<void>((resolve) => {
+    const done = (e: HashChangeEvent) => {
+      if (!e.newURL.endsWith(hash)) return;
+      window.removeEventListener("hashchange", done);
+      resolve();
+    };
+    window.addEventListener("hashchange", done);
+  });
+  window.location.hash = hash;
+  await landed;
+}
+
+// The address the app's router routes by.
+function Routed() {
+  return <output aria-label="Routed">{useHash()}</output>;
+}
+
 // The page, with a top-bar link to the chat beside it.
-function page(which: "setup" | "avatar") {
-  window.location.hash = which === "setup" ? "#/setup" : "#/avatar-voice";
+async function page(which: "setup" | "avatar") {
+  await go(which === "setup" ? "#/setup" : "#/avatar-voice");
   render(
     <>
+      <Routed />
       <a href="#/chat">Chat</a>
       <a href="#/setup/photos">Change photos</a>
       {which === "setup" ? <SetupPage /> : <AvatarVoicePage />}
     </>,
   );
+}
+
+// Until the page knows its sample is waiting: the review it asks for can come after its buttons.
+async function waiting() {
+  await waitFor(() => {
+    const leave = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(true);
+  });
 }
 
 // Until every request the page made has been answered.
@@ -94,9 +125,8 @@ afterEach(() => {
 
 test("leaving with the avatar's sample not accepted asks first; Cancel stays", async () => {
   server({ avatar: true });
-  page("avatar");
-  await screen.findByRole("button", { name: "Accept" });
-  await settled();
+  await page("avatar");
+  await waiting();
   await click("Chat");
   expect(await screen.findByRole("alertdialog", { name: LEAVE_TITLE })).toBeTruthy();
   expect(screen.getByText(/The avatar keeps the voice it has now/)).toBeTruthy();
@@ -112,36 +142,88 @@ test("leaving with the avatar's sample not accepted asks first; Cancel stays", a
 
 test("Proceed leaves with nothing changed", async () => {
   server({ avatar: true });
-  page("avatar");
-  await screen.findByRole("button", { name: "Accept" });
-  await settled();
+  await page("avatar");
+  await waiting();
   await click("Chat");
   await click(LEAVE_PROCEED, "button");
   await waitFor(() => expect(window.location.hash).toBe("#/chat"));
   expect(fetch).not.toHaveBeenCalledWith("/api/review", expect.objectContaining({ method: "POST" }));
 });
 
+// The browser's Back, with no link clicked (Codex's review of PR #131). Returns the address the
+// app's router then routes by.
+async function back() {
+  // jsdom goes back a little later; its hashchange says when.
+  const went = new Promise((resolve) => window.addEventListener("hashchange", resolve, { once: true }));
+  await act(async () => {
+    history.back();
+    await went;
+  });
+  return screen.getByRole("status", { name: "Routed" }).textContent;
+}
+
+test("Back with the sample not accepted asks first; Cancel stays on the page", async () => {
+  server({ avatar: true });
+  await go("#/chat");
+  await page("avatar");
+  await waiting();
+  const routed = await back();
+  expect(await screen.findByRole("alertdialog", { name: LEAVE_TITLE })).toBeTruthy();
+  expect(routed).toBe("#/avatar-voice"); // the app never routed away
+  expect(window.location.hash).toBe("#/avatar-voice");
+  await click(LEAVE_CANCEL, "button");
+  expect(window.location.hash).toBe("#/avatar-voice");
+  expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
+  // Back still works, and asks again.
+  expect(await back()).toBe("#/avatar-voice");
+  expect(await screen.findByRole("alertdialog", { name: LEAVE_TITLE })).toBeTruthy();
+  expect(console.info).toHaveBeenCalledWith(
+    "Leaving setup for #/chat with the sample neither accepted nor rejected",
+  );
+});
+
+test("Back, then Proceed, goes where Back was going, asking once", async () => {
+  server({ avatar: true });
+  await go("#/chat");
+  await page("avatar");
+  await waiting();
+  await back();
+  await click(LEAVE_PROCEED, "button");
+  await waitFor(() => expect(screen.getByRole("status", { name: "Routed" }).textContent).toBe("#/chat"));
+  expect(window.location.hash).toBe("#/chat");
+  await settled();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+test("Back with nothing waiting doesn't ask", async () => {
+  server({ accepted: true, avatar: true });
+  await go("#/chat");
+  await page("avatar");
+  await screen.findByText(/You accepted this sample/);
+  const routed = await back();
+  expect(routed).toBe("#/chat");
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
 test("setup for your own photo asks too", async () => {
   server();
-  page("setup");
-  await screen.findByRole("button", { name: "Accept" });
-  await settled();
+  await page("setup");
+  await waiting();
   await click("Chat");
   expect(await screen.findByText(/The chat keeps the person and voice it has now/)).toBeTruthy();
 });
 
 test("a link within setup doesn't ask", async () => {
   server();
-  page("setup");
-  await screen.findByRole("button", { name: "Accept" });
-  await settled();
+  await page("setup");
+  await waiting();
   await click("Change photos");
   expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
 test("an accepted sample doesn't ask", async () => {
   server({ accepted: true, avatar: true });
-  page("avatar");
+  await page("avatar");
   await screen.findByText(/You accepted this sample/);
   await click("Chat");
   expect(screen.queryByRole("alertdialog")).toBeNull();
@@ -149,7 +231,7 @@ test("an accepted sample doesn't ask", async () => {
 
 test("a rejected sample doesn't ask", async () => {
   server();
-  page("setup");
+  await page("setup");
   await click("Reject voice", "button");
   await screen.findByText(/You rejected the voice/);
   await click("Chat");
@@ -158,12 +240,9 @@ test("a rejected sample doesn't ask", async () => {
 
 test("closing the tab gets the browser's warning only while a sample is waiting", async () => {
   server();
-  page("setup");
+  await page("setup");
   await screen.findByRole("button", { name: "Accept" });
-  await settled();
-  const waiting = new Event("beforeunload", { cancelable: true });
-  window.dispatchEvent(waiting);
-  expect(waiting.defaultPrevented).toBe(true);
+  await waiting(); // the browser's warning is on
   await click("Accept", "button");
   await waitFor(() => expect(window.location.hash).toBe("#/chat"));
   await settled();

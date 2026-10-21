@@ -111,11 +111,22 @@ export function resolve(hash: string, consented: boolean, participant = false): 
   return { page };
 }
 
-// The current URL hash, updated when it changes.
+// A page can hold on to the address while the user confirms leaving it (leave-guard.tsx, after
+// Codex's review of PR #131): it returns true to stay, and the page shown doesn't change.
+type Blocker = (from: string, to: string) => boolean;
+let blocker: Blocker | null = null;
+export function blockLeaving(fn: Blocker | null) {
+  blocker = fn;
+}
+
+// The current URL hash, updated when it changes, unless a page holds on to it.
 export function useHash(): string {
   const [hash, setHash] = useState(window.location.hash);
   useEffect(() => {
-    const update = () => setHash(window.location.hash);
+    const update = (e: HashChangeEvent) => {
+      if (blocker?.(new URL(e.oldURL).hash, new URL(e.newURL).hash)) return;
+      setHash(window.location.hash);
+    };
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
   }, []);

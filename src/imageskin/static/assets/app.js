@@ -584,10 +584,17 @@ function resolve(hash, consented, participant = false) {
 	};
 	return { page };
 }
+var blocker = null;
+function blockLeaving(fn) {
+	blocker = fn;
+}
 function useHash() {
 	const [hash, setHash] = d(window.location.hash);
 	h(() => {
-		const update = () => setHash(window.location.hash);
+		const update = (e) => {
+			if (blocker?.(new URL(e.oldURL).hash, new URL(e.newURL).hash)) return;
+			setHash(window.location.hash);
+		};
 		window.addEventListener("hashchange", update);
 		return () => window.removeEventListener("hashchange", update);
 	}, []);
@@ -608,13 +615,9 @@ function useLeaveGuard(pending, unchanged) {
 		pending,
 		unchanged
 	};
+	const allowed = A(null);
 	h(() => {
-		const onClick = (e) => {
-			if (!now.current.pending || !(e.target instanceof Element)) return;
-			const href = e.target.closest("a[href^='#/']")?.getAttribute("href");
-			if (!href || pageFor(href) === pageFor(window.location.hash)) return;
-			e.preventDefault();
-			e.stopPropagation();
+		const confirmLeave = (href) => {
 			console.info(`Leaving setup for ${href} with the sample neither accepted nor rejected`);
 			ask({
 				title: LEAVE_TITLE,
@@ -625,9 +628,29 @@ function useLeaveGuard(pending, unchanged) {
 					children: "Choose Cancel to stay and accept or reject the sample video."
 				})] })
 			}).then((proceed) => {
-				if (proceed) window.location.hash = href;
+				if (!proceed) return;
+				allowed.current = href;
+				window.location.hash = href;
 			});
 		};
+		const leaving = (from, to) => now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
+		const onClick = (e) => {
+			if (!(e.target instanceof Element)) return;
+			const href = e.target.closest("a[href^='#/']")?.getAttribute("href");
+			if (!href || !leaving(window.location.hash, href)) return;
+			e.preventDefault();
+			e.stopPropagation();
+			confirmLeave(href);
+		};
+		blockLeaving((from, to) => {
+			if (!leaving(from, to)) {
+				if (allowed.current === to) allowed.current = null;
+				return false;
+			}
+			history.pushState(history.state, "", from);
+			confirmLeave(to);
+			return true;
+		});
 		const onUnload = (e) => {
 			if (now.current.pending) e.preventDefault();
 		};
@@ -635,6 +658,7 @@ function useLeaveGuard(pending, unchanged) {
 		window.addEventListener("beforeunload", onUnload);
 		return () => {
 			document.removeEventListener("click", onClick, true);
+			blockLeaving(null);
 			window.removeEventListener("beforeunload", onUnload);
 		};
 	}, []);
