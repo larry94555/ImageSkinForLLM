@@ -3,6 +3,7 @@
 export interface Consent {
   agreed: boolean;
   agreed_at: string | null;
+  photo_only?: boolean; // for the photos only, with a ready-made avatar's voice (R24d)
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -16,12 +17,13 @@ export async function getConsent(): Promise<Consent> {
   return json<Consent>(await fetch("/api/consent"));
 }
 
-export async function confirmConsent(): Promise<Consent> {
+// Consent for the photos and recordings, or with photoOnly for the photos only (R24d).
+export async function confirmConsent(photoOnly = false): Promise<Consent> {
   return json<Consent>(
     await fetch("/api/consent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agreed: true }),
+      body: JSON.stringify({ agreed: true, photo_only: photoOnly }),
     }),
   );
 }
@@ -224,7 +226,9 @@ export async function lineUrl(name: "goodbye" | "welcome-back"): Promise<string 
   const start = await getStartNow();
   if (start.chosen) {
     const { gender, accent, realism, role } = start.chosen;
-    const who = encodeURIComponent([gender, accent, realism, role].join("-"));
+    // The user's own photo says them in the avatar's voice once its sample is accepted (R24d).
+    const parts = [gender, accent, realism, role, ...(start.own_photo_in_use ? ["own"] : [])];
+    const who = encodeURIComponent(parts.join("-"));
     return `/api/start-now/lines/${name}?v=${who}`;
   }
   const status = await getPrepare();
@@ -269,6 +273,10 @@ export interface StartNowStatus {
   chosen?: PersonChoice | null; // the person the chat uses now, if a default one
   // Ready, and the chat would show this person: their idle video is made, or can't be.
   chat_ready?: boolean;
+  // Use my own photo (R24d): the user's own photo replaces the avatar's picture, keeping its
+  // voice, and is in use once its sample is accepted.
+  own_photo?: boolean;
+  own_photo_in_use?: boolean;
 }
 
 export async function getStartNow(): Promise<StartNowStatus> {
@@ -288,6 +296,17 @@ export async function startNow(choice: PersonChoice): Promise<StartNowStatus> {
 
 export const DEFAULT_PICTURE = "/api/start-now/picture";
 
+// Use my own photo with the ready-made avatar's voice (R24d), or the avatar's picture again.
+export async function setOwnPhoto(own: boolean): Promise<StartNowStatus> {
+  const response = await fetch("/api/start-now/own-photo", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ own }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as StartNowStatus;
+}
+
 // Starts the job, or reports on it while it runs. Throws an Error saying what is missing.
 export async function startPrepare(): Promise<PrepareStatus> {
   const response = await fetch("/api/prepare", { method: "POST" });
@@ -301,6 +320,9 @@ export interface Review {
   accepted: boolean;
   accepted_at: string | null;
   default_person?: boolean; // a ready-made avatar is in use (R24c)
+  // With the user's own photo and the avatar's voice (R24d): whether that sample is accepted.
+  own_photo?: boolean;
+  sample_accepted?: boolean;
 }
 
 export type Decision = "accept" | "reject-image" | "reject-voice" | "change-accent";

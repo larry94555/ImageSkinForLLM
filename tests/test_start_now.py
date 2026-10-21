@@ -469,6 +469,8 @@ def test_the_chat_is_locked_until_a_person_is_chosen(client: TestClient) -> None
         "error": None,
         "chosen": None,
         "chat_ready": False,
+        "own_photo": False,
+        "own_photo_in_use": False,
     }
     assert client.get("/api/review").status_code == 403  # no consent and no default person
     assert client.get("/api/start-now/picture").status_code == 404

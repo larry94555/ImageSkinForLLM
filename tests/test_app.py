@@ -44,7 +44,11 @@ def test_failed_requests_are_logged(tmp_path: Path, caplog: pytest.LogCaptureFix
 
 def test_consent_starts_unconfirmed_and_is_saved(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
-    assert client.get("/api/consent").json() == {"agreed": False, "agreed_at": None}
+    assert client.get("/api/consent").json() == {
+        "agreed": False,
+        "agreed_at": None,
+        "photo_only": False,
+    }
 
     saved = client.post("/api/consent", json={"agreed": True})
     assert saved.status_code == 200

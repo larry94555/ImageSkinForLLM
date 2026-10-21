@@ -26,6 +26,8 @@ import {
   clipUrl,
   getPrepare,
   getReview,
+  getStartNow,
+  getConsent,
   lineUrl,
   getVoiceSample,
   type Kind,
@@ -35,6 +37,7 @@ import {
   type PrepareStep,
   type Reply,
   removeUpload,
+  setOwnPhoto,
   type Review,
   review,
   ServerRefusal,
@@ -49,6 +52,7 @@ import {
   type VoiceSample,
   voiceSampleAudioUrl,
 } from "./api";
+import { chooseOwnPhoto, ownPhotoAndVoice } from "./change-setup";
 import { Checks, minutes } from "./checks";
 import { useConfirm } from "./confirm-dialog";
 import { ExitScreen } from "./exit";
@@ -57,18 +61,30 @@ import type { SetupPart } from "./router";
 import { useSettings } from "./settings";
 import { TalkButton } from "./talk";
 
-export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
+// Consent (feature item 22). With Use my own photo (R24d, item 59) only the photos are the
+// user's, so only they are asked about; the avatar's voice is a licensed preset.
+export function ConsentPage({ onConfirmed }: { onConfirmed: (photoOnly: boolean) => void }) {
   const [checked, setChecked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
+  const [photoOnly, setPhotoOnly] = useState(false);
+
+  useEffect(() => {
+    getStartNow()
+      .then((s) => {
+        setPhotoOnly(s.own_photo === true);
+        if (s.own_photo) console.info("Consent asked for the photos only");
+      })
+      .catch((e: unknown) => console.error("Could not read the ready-made avatar", e));
+  }, []);
 
   async function submit(event: Event) {
     event.preventDefault();
     setSaving(true);
     setError(false);
     try {
-      await confirmConsent();
-      onConfirmed();
+      await confirmConsent(photoOnly);
+      onConfirmed(photoOnly);
     } catch (e) {
       console.error("Could not save consent", e);
       setError(true);
@@ -79,7 +95,14 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   return (
     <>
       <h1>Before you start</h1>
-      <p>Only use photos and recordings of someone who has agreed to this, or of yourself.</p>
+      {photoOnly ? (
+        <p>
+          Only use photos of someone who has agreed to this, or of yourself. The voice stays the
+          ready-made avatar's.
+        </p>
+      ) : (
+        <p>Only use photos and recordings of someone who has agreed to this, or of yourself.</p>
+      )}
       <form onSubmit={submit}>
         <label className="check">
           <input
@@ -87,8 +110,9 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
             checked={checked}
             onChange={(e) => setChecked(e.currentTarget.checked)}
           />{" "}
-          The person in the photos and recordings I will upload agreed to have their face and voice
-          copied by this app.
+          {photoOnly
+            ? "The person in the photos I will upload agreed to have their picture animated by this app."
+            : "The person in the photos and recordings I will upload agreed to have their face and voice copied by this app."}
         </label>
         <button type="submit" disabled={!checked || saving}>
           Continue
@@ -123,7 +147,51 @@ export const CHANGE_NOTICE: Record<Back, string> = {
 // Setup: upload photos and recordings, see them and play them back (roadmap R7), choose the
 // accent (R26), prepare the voice and the face (R12), then review the sample video (R14).
 // `change` is the part Settings opened it at (R28).
+// With Use my own photo (R24d), the avatar's voice is kept: setup asks only for photos, and the
+// sample is made in that voice.
+const OWN_PHOTO_NOTICE =
+  "Add photos of yourself, or of someone who agreed to this, and choose one. Then Prepare: the" +
+  " sample video is made with the avatar's voice. Accept it to see your photo in the chat.";
+
 export function SetupPage({ change }: { change?: SetupPart }) {
+  // Use my own photo (R24d), and consent for the photos only: null until the server has said.
+  const [mode, setMode] = useState<{ ownPhoto: boolean; photoConsentOnly: boolean } | null>(
+    null,
+  );
+  useEffect(() => {
+    Promise.all([getStartNow(), getConsent()])
+      .then(([s, c]) => {
+        setMode({ ownPhoto: s.own_photo === true, photoConsentOnly: c.photo_only === true });
+        if (s.own_photo) console.info("Setup for your own photo with the avatar's voice");
+      })
+      .catch((e: unknown) => {
+        console.error("Could not read the setup mode", e);
+        setMode({ ownPhoto: false, photoConsentOnly: false });
+      });
+  }, []);
+  if (mode === null) return <p className="muted busy">Loading…</p>;
+  if (mode.ownPhoto) {
+    return <OwnPhotoSetup change={change} onOwnVoice={() => setMode({ ...mode, ownPhoto: false })} />;
+  }
+  if (mode.photoConsentOnly) {
+    // Consent was given for a photo with the avatar's voice: the recordings need their own.
+    return (
+      <div className="host-page">
+        <h1>Setup</h1>
+        <p className="notice">
+          You confirmed consent for your photos only. Before adding recordings, confirm that the
+          person in them agreed to have their voice cloned.
+        </p>
+        <a className="button" href="#/consent">
+          Confirm consent
+        </a>
+      </div>
+    );
+  }
+  return <FullSetup change={change} />;
+}
+
+function FullSetup({ change }: { change?: SetupPart }) {
   // Counts changes to the photos, the chosen photo and the recordings, so Prepare asks again
   // whether what it prepared is still current.
   const [changes, setChanges] = useState(0);
@@ -192,19 +260,76 @@ export function SetupPage({ change }: { change?: SetupPart }) {
   );
 }
 
+// Use my own photo (R24d, item 59): the photos, then Prepare and review, with the ready-made
+// avatar's voice kept. The chat stays open with the avatar meanwhile.
+function OwnPhotoSetup({ change, onOwnVoice }: { change?: SetupPart; onOwnVoice: () => void }) {
+  const [changes, setChanges] = useState(0);
+  const [notice, setNotice] = useState<string | null>(change ? OWN_PHOTO_NOTICE : null);
+  const [leaving, setLeaving] = useState(false);
+  function goBack(to: Back) {
+    if (to !== "photos") return; // the voice and accent are the avatar's
+    setNotice(BACK_NOTICE.photos);
+    window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
+  }
+  async function ownVoiceToo() {
+    setLeaving(true);
+    try {
+      await setOwnPhoto(false);
+      console.info("Switching to your own photo and voice from Setup");
+      onOwnVoice();
+    } catch (e) {
+      console.error("Could not switch to your own photo and voice", e);
+      setLeaving(false);
+    }
+  }
+  return (
+    <div className="host-page">
+      <h1>Setup: your own photo</h1>
+      <p className="lead">
+        Replace the ready-made avatar's picture with your own photo in two steps: add photos, then
+        prepare a sample video and check it. The voice stays the avatar's.
+      </p>
+      <p className="avatar-instead">
+        Want your own voice too?{" "}
+        <button type="button" className="link" disabled={leaving} onClick={() => void ownVoiceToo()}>
+          Use your own photo and voice instead
+        </button>
+        . Your photos and recordings are kept.
+      </p>
+      <UploadSection
+        kind="photos"
+        step={1}
+        of={2}
+        title="Photos"
+        button="Add photos"
+        hint="Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best."
+        accept="image/jpeg,image/png,image/heic,.heic"
+        notice={notice}
+        onChange={() => setChanges((n) => n + 1)}
+      />
+      <PrepareSection changes={changes} onRunning={() => {}} onBack={goBack} step={2} of={2} ownPhoto />
+    </div>
+  );
+}
+
 interface Refused {
   name: string;
   reason: string;
 }
 
 // "Step 2 of 4" over a Setup section's heading.
-function StepOf({ n }: { n: number }) {
-  return <p className="step-of">Step {n} of 4</p>;
+function StepOf({ n, of = 4 }: { n: number; of?: number }) {
+  return (
+    <p className="step-of">
+      Step {n} of {of}
+    </p>
+  );
 }
 
 function UploadSection(props: {
   kind: Kind;
   step: number;
+  of?: number; // how many steps setup has: 4, or 2 for your own photo (R24d)
   title: string;
   button: string; // the add button's words
   hint: string;
@@ -355,7 +480,7 @@ function UploadSection(props: {
 
   return (
     <section id={kind} className="panel">
-      <StepOf n={props.step} />
+      <StepOf n={props.step} of={props.of} />
       <h2>{props.title}</h2>
       {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">{props.hint}</p>
@@ -557,6 +682,9 @@ function PrepareSection(props: {
   changes: number;
   onRunning: (running: boolean) => void;
   onBack: (to: Back) => void;
+  step?: number;
+  of?: number;
+  ownPhoto?: boolean; // your own photo with the avatar's voice (R24d)
 }) {
   const { changes, onRunning } = props;
   // null until the server has answered.
@@ -616,7 +744,7 @@ function PrepareSection(props: {
   };
   return (
     <section className="prepare panel">
-      <StepOf n={4} />
+      <StepOf n={props.step ?? 4} of={props.of} />
       <h2>Prepare the video</h2>
       <p className="muted">
         Gets the voice and the face ready for the video, then makes a short sample video of the
@@ -665,7 +793,11 @@ function PrepareSection(props: {
             src={clipUrl("sample", status)}
             aria-label="Sample video"
           />
-          <ReviewChoices sample={status.finished_at} onBack={props.onBack} />
+          <ReviewChoices
+            sample={status.finished_at}
+            onBack={props.onBack}
+            ownPhoto={props.ownPhoto}
+          />
         </div>
       )}
       {status?.state === "failed" && <p className="error">{status.error}</p>}
@@ -681,7 +813,13 @@ const REJECTS: { decision: Decision; label: string; back: Back }[] = [
 
 // Under the sample video (roadmap R14): accept it and go to the chat, or go back to the photos,
 // the recordings or the accent. sample tells samples apart, so a new one is read afresh.
-function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => void }) {
+// With your own photo and the avatar's voice (R24d), the photo is all there is to reject, and the
+// chat is open whatever the review: it shows the photo once its sample is accepted.
+function ReviewChoices(props: {
+  sample: string | null;
+  onBack: (to: Back) => void;
+  ownPhoto?: boolean;
+}) {
   // null until the server has answered.
   const [current, setCurrent] = useState<Review | null>(null);
   const [saving, setSaving] = useState<Decision | null>(null);
@@ -707,18 +845,24 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
     setSaving(null);
   }
 
+  const accepted = props.ownPhoto ? current?.sample_accepted : current?.accepted;
+  const rejects = props.ownPhoto ? REJECTS.filter((r) => r.back === "photos") : REJECTS;
   return (
     <div className="review">
       <h3>Is this right?</h3>
-      {current?.accepted ? (
+      {accepted ? (
         <p className="done">
           You accepted this sample. <a href="#/chat">Go to the chat</a>
         </p>
       ) : (
-        <p className="muted">Accept it to unlock the chat, or go back and change what is wrong.</p>
+        <p className="muted">
+          {props.ownPhoto
+            ? "Accept it to see your photo in the chat, or go back and change the photo."
+            : "Accept it to unlock the chat, or go back and change what is wrong."}
+        </p>
       )}
       <div className="choices">
-        {!current?.accepted && (
+        {!accepted && (
           <button
             type="button"
             className={saving === "accept" ? "busy" : undefined}
@@ -728,7 +872,7 @@ function ReviewChoices(props: { sample: string | null; onBack: (to: Back) => voi
             Accept
           </button>
         )}
-        {REJECTS.map(({ decision, label, back }) => (
+        {rejects.map(({ decision, label, back }) => (
           <button
             key={decision}
             type="button"
@@ -751,11 +895,16 @@ export function ChatPage() {
   // null until the server has answered.
   const [accepted, setAccepted] = useState<boolean | null>(null);
   const [readyMade, setReadyMade] = useState(false); // a ready-made avatar, not their own
+  // The avatar's own picture, which Use my own photo can replace (R24d).
+  const [avatarPicture, setAvatarPicture] = useState(false);
+  const [ownPhotoMode, setOwnPhotoMode] = useState(false);
   useEffect(() => {
     getReview()
       .then((r) => {
         setAccepted(r.accepted);
         setReadyMade(r.default_person === true);
+        setAvatarPicture(r.default_person === true && !(r.own_photo && r.sample_accepted));
+        setOwnPhotoMode(r.own_photo === true);
       })
       .catch((e: unknown) => {
         console.error("Could not get the review", e);
@@ -803,7 +952,7 @@ export function ChatPage() {
   return (
     <div className="chat-page">
       <h1 className="sr-only">Chat</h1>
-      {!participant && <AvatarLinks readyMade={readyMade} />}
+      {!participant && <AvatarLinks readyMade={readyMade} avatarPicture={avatarPicture} ownPhotoMode={ownPhotoMode} />}
       <Chat
         welcome={returned}
         after={asked.current}
@@ -818,7 +967,9 @@ export function ChatPage() {
 
 // Avatar Choice from the chat (Larry's test of R32a): another ready-made avatar, or the host's own
 // photo and voice, without going through Settings. The participant view has neither (R41b).
-function AvatarLinks({ readyMade }: { readyMade: boolean }) {
+function AvatarLinks(props: { readyMade: boolean; avatarPicture: boolean; ownPhotoMode: boolean }) {
+  const { readyMade, avatarPicture, ownPhotoMode } = props;
+  const [failed, setFailed] = useState<string | null>(null);
   const links: [string, string, string][] = readyMade
     ? [
         ["#/start-now", "Choose another avatar", "another ready-made avatar"],
@@ -832,10 +983,37 @@ function AvatarLinks({ readyMade }: { readyMade: boolean }) {
     <p className="avatar-links">
       <span className="muted">Avatar Choice:</span>
       {links.map(([href, label, what]) => (
-        <a key={href} href={href} onClick={() => console.info(`Choosing ${what} from the chat`)}>
+        <a
+          key={href}
+          href={href}
+          onClick={(e) => {
+            console.info(`Choosing ${what} from the chat`);
+            if (href !== "#/setup" || !ownPhotoMode) return;
+            e.preventDefault(); // setup would otherwise ask for the photo only (R24d)
+            ownPhotoAndVoice().catch((err: unknown) => {
+              console.error("Could not switch to your own photo and voice", err);
+              setFailed((err as Error).message);
+            });
+          }}
+        >
           {label}
         </a>
       ))}
+      {avatarPicture && (
+        <button
+          type="button"
+          className="link"
+          onClick={() =>
+            chooseOwnPhoto("the chat").catch((e: unknown) => {
+              console.error("Could not use your own photo", e);
+              setFailed((e as Error).message);
+            })
+          }
+        >
+          Use my own photo
+        </button>
+      )}
+      {failed && <span className="error">{failed}</span>}
     </p>
   );
 }

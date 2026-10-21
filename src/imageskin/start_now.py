@@ -11,6 +11,11 @@ The page offers no role (Larry's test of PR #124), but a person is still named b
 were made for and their face number, which the choice carries. The choice is saved as
 default-person.json in the home. While it is there, the chat uses the default person's picture
 and voice instead of the person's own (see `PresetVoice`).
+
+**Use my own photo** (R24d, item 59) keeps the default person's voice and replaces their picture:
+the choice is saved with `own_photo`, setup asks only for photos, and Prepare speaks the sample
+and the lines in the default voice (`kept_voice`). Once that sample is accepted, the chat shows
+the user's own photo with the default voice; until then it shows the default picture.
 """
 
 import json
@@ -72,6 +77,7 @@ NOT_PUBLISHED = (
     "This person isn't available to download yet. Pick another, or use your own photos and voice."
 )
 NOT_READY = "Something went wrong getting the person ready. Click Try again."
+NOT_CHOSEN = "No ready-made avatar is chosen."
 
 
 @dataclass(frozen=True)
@@ -174,18 +180,52 @@ class StartNow:
 
     def chosen(self) -> Choice | None:
         """The default person chosen now, or None when the person is the user's own."""
-        path = self._home / CHOICE_FILE
+        data = self._read()
+        if data is None:
+            return None
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
             choice = Choice(
                 data["gender"], data["accent"], data["realism"], data["role"], data.get("face", 1)
             )
-        except FileNotFoundError:
-            return None
-        except (OSError, ValueError, KeyError, TypeError) as e:
+        except (KeyError, TypeError) as e:
             logger.error("Could not read the default person", extra={"error": str(e)})
             return None
         return None if choice.problem() else choice
+
+    def own_photo(self) -> bool:
+        """Whether the user is replacing, or has replaced, the default person's picture with
+        their own photo, keeping the default voice (R24d)."""
+        data = self._read()
+        return self.chosen() is not None and data is not None and data.get("own_photo") is True
+
+    def set_own_photo(self, own: bool) -> None:
+        """Use my own photo (R24d) with `own`, or back to the default picture without. Only
+        while a default person is chosen; ValueError otherwise."""
+        choice = self.chosen()
+        if choice is None:
+            raise ValueError(NOT_CHOSEN)
+        self._save(choice, own_photo=own)
+        logger.info("Own photo with the default voice", extra={"person": choice.name, "own": own})
+
+    def kept_voice(self) -> tuple[str, str] | None:
+        """The default person's voice while the user's own photo replaces their picture: Prepare
+        speaks the sample and the lines in it (R24d)."""
+        choice = self.chosen()
+        return choice.voice if choice is not None and self.own_photo() else None
+
+    def _read(self) -> dict[str, Any] | None:
+        path = self._home / CHOICE_FILE
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as e:
+            logger.error("Could not read the default person", extra={"error": str(e)})
+            return None
+        if not isinstance(data, dict):
+            logger.error("Could not read the default person", extra={"error": "not an object"})
+            return None
+        return data
 
     def picture(self) -> Path | None:
         """The chosen default person's picture, the photo the videos are made from."""
@@ -202,9 +242,10 @@ class StartNow:
 
     def rendering_voice(self) -> tuple[str, str] | None:
         """Kokoro's language code and voice while the chosen person's lines are rendered, with
-        the prepare job's engines; otherwise None, so Prepare speaks in the person's own voice
-        even while a default person is chosen."""
-        return self._rendering
+        the prepare job's engines, or while the user's own photo is prepared with the default
+        voice (R24d); otherwise None, so Prepare speaks in the person's own voice even while a
+        default person is chosen."""
+        return self._rendering or self.kept_voice()
 
     def clip(self, name: str) -> Path | None:
         """Goodbye or Welcome back, said by the chosen default person, once rendered."""
@@ -229,11 +270,15 @@ class StartNow:
     def _lines(self, choice: Choice) -> Path:
         return self._folder / "lines" / f"{choice.name}_{choice.accent.lower()}"
 
-    def _save(self, choice: Choice) -> None:
+    def _save(self, choice: Choice, own_photo: bool = False) -> None:
         self._home.mkdir(parents=True, exist_ok=True)
         path = self._home / CHOICE_FILE
         tmp = self._home / CHOICE_SAVING_FILE
-        data = {**asdict(choice), "chosen_at": datetime.now(UTC).isoformat(timespec="seconds")}
+        data = {
+            **asdict(choice),
+            "own_photo": own_photo,
+            "chosen_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
         tmp.write_text(json.dumps(data), encoding="utf-8")
         os.replace(tmp, path)
 

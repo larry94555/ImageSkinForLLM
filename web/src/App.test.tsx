@@ -3714,19 +3714,55 @@ test("after a partial delete, setup stays at consent and the progress is gone (R
 
 // --- Avatar Choice from the chat (Larry's test of R32a) ---
 
-function avatarServer(readyMade: boolean, view: "host" | "participant" = "host") {
+// ownPhoto: Use my own photo was chosen (R24d), and its sample accepted when "in use".
+function avatarServer(
+  readyMade: boolean,
+  view: "host" | "participant" = "host",
+  ownPhoto: false | "pending" | "in use" = false,
+) {
   const chat = chatServer([], () => Response.json({}));
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/settings") return Response.json({ show_metrics: false, view });
-      if (url === "/api/review") {
-        return Response.json({ accepted: true, accepted_at: null, default_person: readyMade });
-      }
-      return chat(url, init);
-    }),
-  );
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/settings") return Response.json({ show_metrics: false, view });
+    if (url === "/api/review") {
+      const own = ownPhoto ? { own_photo: true, sample_accepted: ownPhoto === "in use" } : {};
+      return Response.json({ accepted: true, accepted_at: null, default_person: readyMade, ...own });
+    }
+    if (url === "/api/start-now/own-photo") return Response.json({ state: "ready" });
+    return chat(url, init);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
+
+test("the chat offers Use my own photo while the avatar's own picture is in use (R24d)", async () => {
+  const fetchMock = avatarServer(true);
+  await openAt("#/chat");
+  const button = await screen.findByRole("button", { name: "Use my own photo" });
+  await act(async () => {
+    fireEvent.click(button);
+  });
+  await waitFor(() => expect(window.location.hash).toBe("#/setup/photos"));
+  expect(fetchMock).toHaveBeenCalledWith("/api/start-now/own-photo", expect.objectContaining({ method: "PUT" }));
+});
+
+test("with your own photo in use, the chat no longer offers it (R24d)", async () => {
+  avatarServer(true, "host", "in use");
+  await openAt("#/chat");
+  expect(await screen.findByRole("link", { name: "Choose another avatar" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Use my own photo" })).toBeNull();
+});
+
+test("from Use my own photo, the chat's own photo and voice leaves the photo-only setup (R24d)", async () => {
+  const fetchMock = avatarServer(true, "host", "pending");
+  await openAt("#/chat");
+  const own = await screen.findByRole("link", { name: "Use your own photo and voice" });
+  await act(async () => {
+    fireEvent.click(own);
+  });
+  await waitFor(() => expect(window.location.hash).toBe("#/setup"));
+  const put = fetchMock.mock.calls.find(([url]) => url === "/api/start-now/own-photo");
+  expect(JSON.parse(String(put?.[1]?.body))).toEqual({ own: false });
+});
 
 test("the chat links to a ready-made avatar or a new photo while the host's own is in use", async () => {
   avatarServer(false);

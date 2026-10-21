@@ -89,9 +89,10 @@ function Shell() {
       home: <HomePage consented={consented === true} landing={landing.current} />,
       consent: (
         <ConsentPage
-          onConfirmed={() => {
+          onConfirmed={(photoOnly) => {
             setConsented(true);
-            window.location.hash = "#/setup";
+            // Use my own photo (R24d) needs only the photos.
+            window.location.hash = photoOnly ? "#/setup/photos" : "#/setup";
           }}
         />
       ),

@@ -8,11 +8,14 @@ async function json(response) {
 async function getConsent() {
 	return json(await fetch("/api/consent"));
 }
-async function confirmConsent() {
+async function confirmConsent(photoOnly = false) {
 	return json(await fetch("/api/consent", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ agreed: true })
+		body: JSON.stringify({
+			agreed: true,
+			photo_only: photoOnly
+		})
 	}));
 }
 var ServerRefusal = class extends Error {
@@ -107,12 +110,14 @@ async function lineUrl(name) {
 	const start = await getStartNow();
 	if (start.chosen) {
 		const { gender, accent, realism, role } = start.chosen;
-		return `/api/start-now/lines/${name}?v=${encodeURIComponent([
+		const parts = [
 			gender,
 			accent,
 			realism,
-			role
-		].join("-"))}`;
+			role,
+			...start.own_photo_in_use ? ["own"] : []
+		];
+		return `/api/start-now/lines/${name}?v=${encodeURIComponent(parts.join("-"))}`;
 	}
 	const status = await getPrepare();
 	return status.state === "done" ? clipUrl(name, status) : null;
@@ -136,6 +141,15 @@ async function startNow(choice) {
 	return await response.json();
 }
 var DEFAULT_PICTURE = "/api/start-now/picture";
+async function setOwnPhoto(own) {
+	const response = await fetch("/api/start-now/own-photo", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ own })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 async function startPrepare() {
 	const response = await fetch("/api/prepare", { method: "POST" });
 	if (!response.ok) throw new Error(await refusal(response));
@@ -503,6 +517,22 @@ var CHANGES = [
 		about: "Keep the person's own accent or choose another one."
 	}
 ];
+async function chooseOwnPhoto(from) {
+	const started = performance.now();
+	await setOwnPhoto(true);
+	const consent = await getConsent();
+	const took = Math.round(performance.now() - started);
+	console.info(`Using your own photo with the avatar's voice, from ${from} (${took} ms)`);
+	window.location.hash = consent.agreed ? "#/setup/photos" : "#/consent";
+}
+async function ownPhotoAndVoice() {
+	await setOwnPhoto(false);
+	window.location.hash = "#/setup";
+}
+async function useAvatarPicture() {
+	await setOwnPhoto(false);
+	console.info("Using the avatar's picture again from Settings");
+}
 function InUseMark({ shown }) {
 	return shown ? /* @__PURE__ */ u("span", {
 		className: "in-use",
@@ -512,16 +542,37 @@ function InUseMark({ shown }) {
 function ChangeSetup() {
 	const [accepted, setAccepted] = d(null);
 	const [inUse, setInUse] = d(null);
+	const [ownPhotoPending, setOwnPhotoPending] = d(false);
+	const [ownPhotoMode, setOwnPhotoMode] = d(false);
+	const [busy, setBusy] = d(false);
+	const [failed, setFailed] = d(null);
+	const [reads, setReads] = d(0);
 	h(() => {
 		const started = performance.now();
 		getReview().then((r) => {
-			const avatar = r.default_person ? "ready-made" : "own";
+			const ownPhoto = r.own_photo === true && r.sample_accepted === true;
+			const avatar = !r.default_person ? "own" : ownPhoto ? "own-photo" : "ready-made";
 			setAccepted(r.accepted);
 			setInUse(avatar);
+			setOwnPhotoPending(r.own_photo === true && !ownPhoto);
+			setOwnPhotoMode(r.own_photo === true);
 			const took = Math.round(performance.now() - started);
 			console.info(`Sample accepted: ${r.accepted}, avatar in use: ${avatar} (${took} ms)`);
 		}).catch((e) => console.error("Could not get the review", e));
-	}, []);
+	}, [reads]);
+	async function run(action) {
+		setBusy(true);
+		setFailed(null);
+		try {
+			await action();
+			setReads((n) => n + 1);
+		} catch (e) {
+			console.error("Could not change the avatar", e);
+			setFailed(e.message);
+		}
+		setBusy(false);
+	}
+	const readyMade = inUse === "ready-made" || inUse === "own-photo";
 	return /* @__PURE__ */ u("section", {
 		className: "panel",
 		"aria-labelledby": "settings-change",
@@ -538,12 +589,17 @@ function ChangeSetup() {
 				className: "avatar-options",
 				children: [/* @__PURE__ */ u("div", {
 					className: inUse === "own" ? "avatar-option chosen" : "avatar-option",
-					children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), inUse === "ready-made" ? /* @__PURE__ */ u("div", {
+					children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), readyMade ? /* @__PURE__ */ u("div", {
 						className: "switch",
 						children: [/* @__PURE__ */ u("a", {
 							className: "button secondary",
 							href: "#/setup",
-							onClick: () => console.info("Switching to your own photo and voice from Settings"),
+							onClick: (e) => {
+								console.info("Switching to your own photo and voice from Settings");
+								if (!ownPhotoMode) return;
+								e.preventDefault();
+								run(ownPhotoAndVoice);
+							},
 							children: "Use your own photo and voice"
 						}), /* @__PURE__ */ u("p", {
 							className: "muted",
@@ -583,12 +639,12 @@ function ChangeSetup() {
 						}, part))
 					] })]
 				}), /* @__PURE__ */ u("div", {
-					className: inUse === "ready-made" ? "avatar-option chosen" : "avatar-option",
+					className: readyMade ? "avatar-option chosen" : "avatar-option",
 					children: [
-						/* @__PURE__ */ u("h3", { children: ["Ready-made avatar ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "ready-made" })] }),
+						/* @__PURE__ */ u("h3", { children: ["Ready-made avatar ", /* @__PURE__ */ u(InUseMark, { shown: readyMade })] }),
 						/* @__PURE__ */ u("p", {
 							className: "muted",
-							children: "A made-up person in a ready-made voice, chosen by gender, accent, look and role. Your own photos and recordings are kept."
+							children: inUse === "own-photo" ? "Your own photo, speaking in the ready-made avatar's voice." : "A made-up person in a ready-made voice, chosen by gender, accent and look. Your own photos and recordings are kept."
 						}),
 						/* @__PURE__ */ u("div", {
 							className: "switch",
@@ -596,8 +652,43 @@ function ChangeSetup() {
 								className: "button secondary",
 								href: "#/start-now",
 								onClick: () => console.info("Choosing a ready-made avatar from Settings"),
-								children: inUse === "ready-made" ? "Choose another avatar" : "Use a ready-made avatar"
+								children: readyMade ? "Choose another avatar" : "Use a ready-made avatar"
 							})
+						}),
+						inUse === "ready-made" && /* @__PURE__ */ u("div", {
+							className: "switch",
+							children: [/* @__PURE__ */ u("button", {
+								type: "button",
+								className: "secondary",
+								disabled: busy,
+								onClick: () => void run(() => chooseOwnPhoto("Settings")),
+								children: "Use my own photo"
+							}), /* @__PURE__ */ u("p", {
+								className: "muted",
+								children: ownPhotoPending ? "Your photo's sample video isn't accepted yet. Accept it at the end of setup to see your photo in the chat." : "Keep this voice and replace the picture with your own photo."
+							})]
+						}),
+						inUse === "own-photo" && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("div", {
+							className: "switch",
+							children: /* @__PURE__ */ u("a", {
+								className: "button secondary",
+								href: "#/setup/photos",
+								onClick: () => console.info("Changing your own photo from Settings"),
+								children: "Change your photo"
+							})
+						}), /* @__PURE__ */ u("div", {
+							className: "switch",
+							children: /* @__PURE__ */ u("button", {
+								type: "button",
+								className: "secondary",
+								disabled: busy,
+								onClick: () => void run(useAvatarPicture),
+								children: "Use the avatar's picture again"
+							})
+						})] }),
+						failed && /* @__PURE__ */ u("p", {
+							className: "error",
+							children: failed
 						})
 					]
 				})]
@@ -3227,13 +3318,20 @@ function ConsentPage({ onConfirmed }) {
 	const [checked, setChecked] = d(false);
 	const [saving, setSaving] = d(false);
 	const [error, setError] = d(false);
+	const [photoOnly, setPhotoOnly] = d(false);
+	h(() => {
+		getStartNow().then((s) => {
+			setPhotoOnly(s.own_photo === true);
+			if (s.own_photo) console.info("Consent asked for the photos only");
+		}).catch((e) => console.error("Could not read the ready-made avatar", e));
+	}, []);
 	async function submit(event) {
 		event.preventDefault();
 		setSaving(true);
 		setError(false);
 		try {
-			await confirmConsent();
-			onConfirmed();
+			await confirmConsent(photoOnly);
+			onConfirmed(photoOnly);
 		} catch (e) {
 			console.error("Could not save consent", e);
 			setError(true);
@@ -3242,7 +3340,7 @@ function ConsentPage({ onConfirmed }) {
 	}
 	return /* @__PURE__ */ u(S, { children: [
 		/* @__PURE__ */ u("h1", { children: "Before you start" }),
-		/* @__PURE__ */ u("p", { children: "Only use photos and recordings of someone who has agreed to this, or of yourself." }),
+		photoOnly ? /* @__PURE__ */ u("p", { children: "Only use photos of someone who has agreed to this, or of yourself. The voice stays the ready-made avatar's." }) : /* @__PURE__ */ u("p", { children: "Only use photos and recordings of someone who has agreed to this, or of yourself." }),
 		/* @__PURE__ */ u("form", {
 			onSubmit: submit,
 			children: [
@@ -3255,7 +3353,7 @@ function ConsentPage({ onConfirmed }) {
 							onChange: (e) => setChecked(e.currentTarget.checked)
 						}),
 						" ",
-						"The person in the photos and recordings I will upload agreed to have their face and voice copied by this app."
+						photoOnly ? "The person in the photos I will upload agreed to have their picture animated by this app." : "The person in the photos and recordings I will upload agreed to have their face and voice copied by this app."
 					]
 				}),
 				/* @__PURE__ */ u("button", {
@@ -3282,7 +3380,53 @@ var CHANGE_NOTICE = {
 	sounds: "Add new recordings and remove the ones you don't want. Then Prepare again." + AFTER_CHANGE,
 	accent: "Choose another accent. The sample video is then made again." + AFTER_CHANGE
 };
+var OWN_PHOTO_NOTICE = "Add photos of yourself, or of someone who agreed to this, and choose one. Then Prepare: the sample video is made with the avatar's voice. Accept it to see your photo in the chat.";
 function SetupPage({ change }) {
+	const [mode, setMode] = d(null);
+	h(() => {
+		Promise.all([getStartNow(), getConsent()]).then(([s, c]) => {
+			setMode({
+				ownPhoto: s.own_photo === true,
+				photoConsentOnly: c.photo_only === true
+			});
+			if (s.own_photo) console.info("Setup for your own photo with the avatar's voice");
+		}).catch((e) => {
+			console.error("Could not read the setup mode", e);
+			setMode({
+				ownPhoto: false,
+				photoConsentOnly: false
+			});
+		});
+	}, []);
+	if (mode === null) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Loading…"
+	});
+	if (mode.ownPhoto) return /* @__PURE__ */ u(OwnPhotoSetup, {
+		change,
+		onOwnVoice: () => setMode({
+			...mode,
+			ownPhoto: false
+		})
+	});
+	if (mode.photoConsentOnly) return /* @__PURE__ */ u("div", {
+		className: "host-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Setup" }),
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: "You confirmed consent for your photos only. Before adding recordings, confirm that the person in them agreed to have their voice cloned."
+			}),
+			/* @__PURE__ */ u("a", {
+				className: "button",
+				href: "#/consent",
+				children: "Confirm consent"
+			})
+		]
+	});
+	return /* @__PURE__ */ u(FullSetup, { change });
+}
+function FullSetup({ change }) {
 	const [changes, setChanges] = d(0);
 	const changed = () => setChanges((n) => n + 1);
 	const [preparing, setPreparing] = d(false);
@@ -3365,13 +3509,79 @@ function SetupPage({ change }) {
 		]
 	});
 }
-function StepOf({ n }) {
+function OwnPhotoSetup({ change, onOwnVoice }) {
+	const [changes, setChanges] = d(0);
+	const [notice, setNotice] = d(change ? OWN_PHOTO_NOTICE : null);
+	const [leaving, setLeaving] = d(false);
+	function goBack(to) {
+		if (to !== "photos") return;
+		setNotice(BACK_NOTICE.photos);
+		window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
+	}
+	async function ownVoiceToo() {
+		setLeaving(true);
+		try {
+			await setOwnPhoto(false);
+			console.info("Switching to your own photo and voice from Setup");
+			onOwnVoice();
+		} catch (e) {
+			console.error("Could not switch to your own photo and voice", e);
+			setLeaving(false);
+		}
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "host-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Setup: your own photo" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Replace the ready-made avatar's picture with your own photo in two steps: add photos, then prepare a sample video and check it. The voice stays the avatar's."
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "avatar-instead",
+				children: [
+					"Want your own voice too?",
+					" ",
+					/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "link",
+						disabled: leaving,
+						onClick: () => void ownVoiceToo(),
+						children: "Use your own photo and voice instead"
+					}),
+					". Your photos and recordings are kept."
+				]
+			}),
+			/* @__PURE__ */ u(UploadSection, {
+				kind: "photos",
+				step: 1,
+				of: 2,
+				title: "Photos",
+				button: "Add photos",
+				hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
+				accept: "image/jpeg,image/png,image/heic,.heic",
+				notice,
+				onChange: () => setChanges((n) => n + 1)
+			}),
+			/* @__PURE__ */ u(PrepareSection, {
+				changes,
+				onRunning: () => {},
+				onBack: goBack,
+				step: 2,
+				of: 2,
+				ownPhoto: true
+			})
+		]
+	});
+}
+function StepOf({ n, of = 4 }) {
 	return /* @__PURE__ */ u("p", {
 		className: "step-of",
 		children: [
 			"Step ",
 			n,
-			" of 4"
+			" of ",
+			of
 		]
 	});
 }
@@ -3501,7 +3711,10 @@ function UploadSection(props) {
 		id: kind,
 		className: "panel",
 		children: [
-			/* @__PURE__ */ u(StepOf, { n: props.step }),
+			/* @__PURE__ */ u(StepOf, {
+				n: props.step,
+				of: props.of
+			}),
 			/* @__PURE__ */ u("h2", { children: props.title }),
 			props.notice && /* @__PURE__ */ u("p", {
 				className: "notice",
@@ -3764,7 +3977,10 @@ function PrepareSection(props) {
 	return /* @__PURE__ */ u("section", {
 		className: "prepare panel",
 		children: [
-			/* @__PURE__ */ u(StepOf, { n: 4 }),
+			/* @__PURE__ */ u(StepOf, {
+				n: props.step ?? 4,
+				of: props.of
+			}),
 			/* @__PURE__ */ u("h2", { children: "Prepare the video" }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
@@ -3834,7 +4050,8 @@ function PrepareSection(props) {
 					}),
 					/* @__PURE__ */ u(ReviewChoices, {
 						sample: status.finished_at,
-						onBack: props.onBack
+						onBack: props.onBack,
+						ownPhoto: props.ownPhoto
 					})
 				]
 			}),
@@ -3882,11 +4099,13 @@ function ReviewChoices(props) {
 		}
 		setSaving(null);
 	}
+	const accepted = props.ownPhoto ? current?.sample_accepted : current?.accepted;
+	const rejects = props.ownPhoto ? REJECTS.filter((r) => r.back === "photos") : REJECTS;
 	return /* @__PURE__ */ u("div", {
 		className: "review",
 		children: [
 			/* @__PURE__ */ u("h3", { children: "Is this right?" }),
-			current?.accepted ? /* @__PURE__ */ u("p", {
+			accepted ? /* @__PURE__ */ u("p", {
 				className: "done",
 				children: ["You accepted this sample. ", /* @__PURE__ */ u("a", {
 					href: "#/chat",
@@ -3894,17 +4113,17 @@ function ReviewChoices(props) {
 				})]
 			}) : /* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Accept it to unlock the chat, or go back and change what is wrong."
+				children: props.ownPhoto ? "Accept it to see your photo in the chat, or go back and change the photo." : "Accept it to unlock the chat, or go back and change what is wrong."
 			}),
 			/* @__PURE__ */ u("div", {
 				className: "choices",
-				children: [!current?.accepted && /* @__PURE__ */ u("button", {
+				children: [!accepted && /* @__PURE__ */ u("button", {
 					type: "button",
 					className: saving === "accept" ? "busy" : void 0,
 					disabled: saving !== null,
 					onClick: () => void decide("accept"),
 					children: "Accept"
-				}), REJECTS.map(({ decision, label, back }) => /* @__PURE__ */ u("button", {
+				}), rejects.map(({ decision, label, back }) => /* @__PURE__ */ u("button", {
 					type: "button",
 					className: saving === decision ? "secondary busy" : "secondary",
 					disabled: saving !== null,
@@ -3923,10 +4142,14 @@ function ChatPage() {
 	const participant = useSettings().view === "participant";
 	const [accepted, setAccepted] = d(null);
 	const [readyMade, setReadyMade] = d(false);
+	const [avatarPicture, setAvatarPicture] = d(false);
+	const [ownPhotoMode, setOwnPhotoMode] = d(false);
 	h(() => {
 		getReview().then((r) => {
 			setAccepted(r.accepted);
 			setReadyMade(r.default_person === true);
+			setAvatarPicture(r.default_person === true && !(r.own_photo && r.sample_accepted));
+			setOwnPhotoMode(r.own_photo === true);
 		}).catch((e) => {
 			console.error("Could not get the review", e);
 			setAccepted(false);
@@ -3962,7 +4185,11 @@ function ChatPage() {
 				className: "sr-only",
 				children: "Chat"
 			}),
-			!participant && /* @__PURE__ */ u(AvatarLinks, { readyMade }),
+			!participant && /* @__PURE__ */ u(AvatarLinks, {
+				readyMade,
+				avatarPicture,
+				ownPhotoMode
+			}),
 			/* @__PURE__ */ u(Chat, {
 				welcome: returned,
 				after: asked.current,
@@ -3974,33 +4201,59 @@ function ChatPage() {
 		]
 	});
 }
-function AvatarLinks({ readyMade }) {
+function AvatarLinks(props) {
+	const { readyMade, avatarPicture, ownPhotoMode } = props;
+	const [failed, setFailed] = d(null);
 	return /* @__PURE__ */ u("p", {
 		className: "avatar-links",
-		children: [/* @__PURE__ */ u("span", {
-			className: "muted",
-			children: "Avatar Choice:"
-		}), (readyMade ? [[
-			"#/start-now",
-			"Choose another avatar",
-			"another ready-made avatar"
-		], [
-			"#/setup",
-			"Use your own photo and voice",
-			"their own photo and voice"
-		]] : [[
-			"#/start-now",
-			"Use a ready-made avatar",
-			"a ready-made avatar"
-		], [
-			"#/setup/photos",
-			"Change your photo",
-			"their own photo"
-		]]).map(([href, label, what]) => /* @__PURE__ */ u("a", {
-			href,
-			onClick: () => console.info(`Choosing ${what} from the chat`),
-			children: label
-		}, href))]
+		children: [
+			/* @__PURE__ */ u("span", {
+				className: "muted",
+				children: "Avatar Choice:"
+			}),
+			(readyMade ? [[
+				"#/start-now",
+				"Choose another avatar",
+				"another ready-made avatar"
+			], [
+				"#/setup",
+				"Use your own photo and voice",
+				"their own photo and voice"
+			]] : [[
+				"#/start-now",
+				"Use a ready-made avatar",
+				"a ready-made avatar"
+			], [
+				"#/setup/photos",
+				"Change your photo",
+				"their own photo"
+			]]).map(([href, label, what]) => /* @__PURE__ */ u("a", {
+				href,
+				onClick: (e) => {
+					console.info(`Choosing ${what} from the chat`);
+					if (href !== "#/setup" || !ownPhotoMode) return;
+					e.preventDefault();
+					ownPhotoAndVoice().catch((err) => {
+						console.error("Could not switch to your own photo and voice", err);
+						setFailed(err.message);
+					});
+				},
+				children: label
+			}, href)),
+			avatarPicture && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "link",
+				onClick: () => chooseOwnPhoto("the chat").catch((e) => {
+					console.error("Could not use your own photo", e);
+					setFailed(e.message);
+				}),
+				children: "Use my own photo"
+			}),
+			failed && /* @__PURE__ */ u("span", {
+				className: "error",
+				children: failed
+			})
+		]
 	});
 }
 var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
@@ -6500,9 +6753,9 @@ function Shell() {
 			consented: consented === true,
 			landing: landing.current
 		}),
-		consent: /* @__PURE__ */ u(ConsentPage, { onConfirmed: () => {
+		consent: /* @__PURE__ */ u(ConsentPage, { onConfirmed: (photoOnly) => {
 			setConsented(true);
-			window.location.hash = "#/setup";
+			window.location.hash = photoOnly ? "#/setup/photos" : "#/setup";
 		} }),
 		setup: /* @__PURE__ */ u(SetupPage, { change: setupTarget(hash) }),
 		"start-now": /* @__PURE__ */ u(StartNowPage, {}),

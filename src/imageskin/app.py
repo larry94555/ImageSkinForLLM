@@ -135,6 +135,11 @@ class ChatGptAccount(BaseModel):
 
 class ConsentRequest(BaseModel):
     agreed: bool
+    photo_only: bool = False  # Use my own photo (R24d): for the photos only
+
+
+class OwnPhotoRequest(BaseModel):
+    own: bool  # Use my own photo with a default person's voice (R24d), or not
 
 
 class PhotoChoiceRequest(BaseModel):
@@ -166,6 +171,11 @@ class StartNowRequest(BaseModel):
 
 # A request that waited for Delete my data (roadmap R31) and would write the person's data again.
 DELETED_MEANWHILE = "Your data was deleted while this was waiting. Start setup again."
+# Consent for a photo with a default person's voice (R24d) doesn't cover cloning a voice.
+NEEDS_VOICE_CONSENT = (
+    "Consent was given for your photos only. Confirm that the person in the recordings agreed to"
+    " have their voice cloned (/#/consent), then try again."
+)
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # The conversation is saved in the data folder, so it is still there after a restart (R30).
 CONVERSATION_FILE = "conversation.json"
@@ -480,7 +490,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="Tick the box to confirm consent.")
         with data_lock:
             not_deleted_since(seen)
-            return asdict(save_consent(data_home))
+            return asdict(save_consent(data_home, body.photo_only))
 
     # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
     # question scope follows the config file until it is changed there.
@@ -541,6 +551,10 @@ def create_app(
 
     @app.post(uploads_api, dependencies=needs_consent)
     def upload(kind: Kind, file: UploadFile, seen: DeletesSeen) -> Upload:
+        if kind == "sounds" and load_consent(data_home).photo_only:
+            # Consent was given for a photo with a default person's voice only (R24d).
+            logger.warning("Recording uploaded with consent for photos only")
+            raise HTTPException(status_code=403, detail=NEEDS_VOICE_CONSENT)
         try:
             with personal_write(seen):
                 return store.save(kind, file.filename, file.file)
@@ -858,8 +872,14 @@ def create_app(
         render,
         voice_kind,
         accent,
+        kept_voice=lambda: kept_voice_name(),
     )
     app.state.prepare_job = job
+
+    def kept_voice_name() -> str | None:
+        kept = start_now.kept_voice()
+        return None if kept is None else kept[1]
+
     job.resume()  # a job the server was stopped in the middle of carries on
 
     def with_replies_paused(choose: Callable[[], None]) -> None:
@@ -885,7 +905,32 @@ def create_app(
             **asdict(status),
             "chosen": None if chosen is None else asdict(chosen),
             "chat_ready": status.state == "ready" and chat_shows_person(),
+            "own_photo": start_now.own_photo(),
+            "own_photo_in_use": own_photo_in_use(),
         }
+
+    def own_photo_in_use() -> bool:
+        """Whether the chat shows the user's own photo with a default person's voice (R24d):
+        its sample, made in that voice, is accepted."""
+        return start_now.own_photo() and load_review(data_home, job.status()).accepted
+
+    @app.put("/api/start-now/own-photo")
+    def put_own_photo(body: OwnPhotoRequest, seen: DeletesSeen) -> dict[str, object]:
+        """Use my own photo (R24d): keep the default person's voice and replace their picture,
+        through the photo checks, Prepare and review; or go back to the default picture."""
+        start = time.perf_counter()
+        with data_lock:
+            not_deleted_since(seen)
+            try:
+                with replies.paused():  # a reply being rendered keeps its face
+                    start_now.set_own_photo(body.own)
+            except ValueError as e:
+                raise HTTPException(status_code=409, detail=str(e)) from e
+        logger.info(
+            "Own photo chosen" if body.own else "Default picture chosen again",
+            extra={"duration_ms": ms_since(start)},
+        )
+        return get_start_now()
 
     def chat_shows_person() -> bool:
         """Whether the chat would show the person chosen now: their idle video is made, or the
@@ -935,7 +980,8 @@ def create_app(
 
     @app.get("/api/start-now/lines/{name}")
     def get_start_now_line(name: Literal["goodbye", "welcome-back"]) -> FileResponse:
-        path = start_now.clip(name)
+        # The user's own photo says them in the default voice, as Prepare made them (R24d).
+        path = job.clip(name) if own_photo_in_use() else start_now.clip(name)
         if path is None:
             raise HTTPException(status_code=404, detail="Not ready yet.")
         logger.info("Serving a fixed line", extra={"clip": name, "default_person": True})
@@ -993,7 +1039,12 @@ def create_app(
     @app.get("/api/review", dependencies=needs_person)
     def get_review() -> dict[str, object]:
         if start_now.chosen() is not None:
-            return {"accepted": True, "accepted_at": None, "default_person": True}
+            ready_made: dict[str, object] = {"accepted": True, "accepted_at": None}
+            if start_now.own_photo():
+                # The own photo's sample, under review in setup (R24d); the chat stays open.
+                sample = load_review(data_home, job.status())
+                ready_made["sample_accepted"] = sample.accepted
+            return {**ready_made, "default_person": True, "own_photo": start_now.own_photo()}
         return asdict(load_review(data_home, job.status()))
 
     @app.post("/api/review", dependencies=needs_consent)
@@ -1005,7 +1056,10 @@ def create_app(
                 review = accept(data_home, job.status())
             except ValueError as e:
                 raise HTTPException(status_code=409, detail=str(e)) from e
-            start_now.forget()  # the person is the user's own now
+            if start_now.own_photo():
+                logger.info("Own photo in use with the default voice")
+            else:
+                start_now.forget()  # the person is the user's own now
         start_reply_warm_up()  # the chat opens now: ready the LLM and the engines (R22a)
         return asdict(review)
 
@@ -1316,7 +1370,7 @@ def create_app(
     chat_lock = threading.Lock()
 
     def chosen_photo() -> Path | None:
-        if start_now.chosen() is not None:
+        if start_now.chosen() is not None and not own_photo_in_use():
             return start_now.picture()
         return store.path("photos", job.status().photo_id or "")
 
@@ -1343,7 +1397,7 @@ def create_app(
         size = None if photo is None else shown_size(photo)
         url = f"/api/uploads/photos/{photo_id}"
         chosen = start_now.chosen()
-        if chosen is not None:
+        if chosen is not None and not own_photo_in_use():
             # Each person gets an address of their own: a browser keeps an image it has shown
             # for the page's life, so one address for all would show the person before.
             url = f"/api/start-now/picture?person={chosen.name}"
