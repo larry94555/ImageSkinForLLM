@@ -83,7 +83,7 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   return (
     <>
       <h1>Before you start</h1>
-      <p>Only use photos and recordings of someone who has agreed to this, or of yourself.</p>
+      <p>Only use images you have the right to use. Ideally, use your own picture.</p>
       <form onSubmit={submit}>
         <label className="check">
           <input
@@ -91,8 +91,7 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
             checked={checked}
             onChange={(e) => setChecked(e.currentTarget.checked)}
           />{" "}
-          The person in the photos and recordings I will upload agreed to have their face and voice
-          copied by this app.
+          I have the right to use the photos and recording that will be used by the app.
         </label>
         <button type="submit" disabled={!checked || saving}>
           Continue
