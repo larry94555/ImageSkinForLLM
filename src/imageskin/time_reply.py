@@ -107,7 +107,9 @@ def download(base: str, clip: ClipSeen, folder: Path) -> None:
     try:
         with urllib.request.urlopen(base + clip.server["url"], timeout=REPLY_LIMIT_S) as response:
             with path.open("wb") as f:
-                while chunk := response.read(64 * 1024):
+                # read1: whatever has arrived, up to 64 KB, so the first bytes are timed when
+                # they come rather than once 64 KB have (review on PR #138).
+                while chunk := response.read1(64 * 1024):
                     if clip.first_byte_at is None:
                         clip.first_byte_at = time.perf_counter()
                     f.write(chunk)
@@ -315,7 +317,8 @@ def summarize(m: Measured) -> dict[str, Any]:
         "first_word_heard_ms": ms(first_play, zero),
         "first_sentence_to_heard_ms": ms(first_play, times.get("first_sentence_at")),
         "stop_answered_ms": ms(m.stop_answered_at, m.stopped_at),
-        "next_prompt_taken_after_stop_ms": ms(m.answered_at, m.stopped_at),
+        # When the stopped prompt's request ended, which frees the chat for the next prompt.
+        "stopped_request_finished_after_stop_ms": ms(m.answered_at, m.stopped_at),
         # Larry's timing 3: the clips, with each one's gap.
         "clips": rows,
     }
@@ -392,8 +395,8 @@ def markdown(results: list[dict[str, Any]], llm_name: str) -> str:
             out += [f"Error: {r['error']}", ""]
         if r["stop_answered_ms"] is not None:
             out += [
-                f"Stop answered in {r['stop_answered_ms']} ms; the next prompt could be taken "
-                f"{r['next_prompt_taken_after_stop_ms']} ms after Stop.",
+                f"Stop answered in {r['stop_answered_ms']} ms; the stopped request finished "
+                f"{r['stopped_request_finished_after_stop_ms']} ms after Stop.",
                 "",
             ]
         out.append(
@@ -492,4 +495,4 @@ def run(
             "duration_ms": round((time.perf_counter() - start) * 1000, 1),
         },
     )
-    return 1 if failed and failed == len(results) else 0
+    return 1 if failed else 0  # a report missing a reply isn't a full measurement

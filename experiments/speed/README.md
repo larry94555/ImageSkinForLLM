@@ -62,7 +62,7 @@ first clip.
 | 2 | 1.5 s | 2.7 s | 1.5 s | 4.3 s | 1.9 s |
 | 3, spoken | 2.1 s | 4.1 s | 2.6 s | 6.8 s | 3.0 s, 0.7 s |
 
-Stop answered in 25 ms, and the next prompt could be taken 0.7 s after Stop.
+Stop answered in 25 ms, and the stopped request finished 0.7 s after Stop.
 
 The largest costs:
 
@@ -100,7 +100,7 @@ tests use llama.cpp alone for now (2026-10-22).
 | 2 | 3.5 s | 4.6 s | 3.9 s | 8.4 s | 0.2 s, 2.1 s |
 | 3, spoken | 36.2 s | 37.4 s | 3.9 s | 41.3 s | 1.8 s, 1.9 s, 2.1 s, 1.4 s |
 
-Stop answered in 33 ms, and the next prompt could be taken 1.0 s after Stop.
+Stop answered in 33 ms, and the stopped request finished 1.0 s after Stop.
 
 The largest costs, against the cloud session:
 

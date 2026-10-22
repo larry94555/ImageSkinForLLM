@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -95,7 +96,7 @@ def test_the_tables_name_every_timing() -> None:
     assert "| 2 | spoken |" in report
     clip_two = "| 2 | 2000 | 1500 | 900 | 600 | 4400 | 4450 | 4500 | 5100 | 1.5 | 4500 | 400 | yes"
     assert clip_two in report
-    assert "Stop answered in 20 ms; the next prompt could be taken 500 ms after Stop." in report
+    assert "Stop answered in 20 ms; the stopped request finished 500 ms after Stop." in report
     assert "Error: Couldn't" in report
 
 
@@ -202,7 +203,7 @@ def test_stop_is_timed_at_the_first_clip(tmp_path: Path) -> None:
     counted, stopped = json.loads(written.read_text())["results"]
     assert counted["error"] is None and len(counted["clips"]) == 3
     assert stopped["error"] is None and stopped["stop_answered_ms"] is not None
-    assert stopped["next_prompt_taken_after_stop_ms"] is not None
+    assert stopped["stopped_request_finished_after_stop_ms"] is not None
 
 
 def test_a_spoken_prompt_is_sent_as_one(tmp_path: Path) -> None:
@@ -264,3 +265,54 @@ def test_a_clip_gone_before_its_download_is_noted_not_failed(
     assert gone.error is not None and "404" in gone.error and gone.seconds is None
     assert "Clip gone before it was downloaded" in caplog.messages
     assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
+def test_any_failed_prompt_fails_the_run(tmp_path: Path) -> None:
+    """Review on PR #138: a report missing a reply isn't a full measurement."""
+    refused = Measured("Two", spoken=False, sent_at=0.0, status=403, error="Locked")
+    with (
+        patch("imageskin.time_reply.ask", return_value={}),
+        patch("imageskin.time_reply.measure", side_effect=[measured(), refused]),
+    ):
+        assert time_reply.run("http://app", ["One", "Two"], tmp_path / "speed") == 1
+    [written] = list((tmp_path / "speed").glob("reply-*.json"))
+    ok, failed = json.loads(written.read_text())["results"]
+    assert ok["error"] is None and failed["error"] == "Locked"
+    with (
+        patch("imageskin.time_reply.ask", return_value={}),
+        patch("imageskin.time_reply.measure", side_effect=[measured()]),
+    ):
+        assert time_reply.run("http://app", ["One"], tmp_path / "speed") == 0
+
+
+class SlowClip(BaseHTTPRequestHandler):
+    """A clip whose first bytes come at once and the rest a while later, as one being written."""
+
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "video/mp4")
+        self.end_headers()
+        self.wfile.write(b"ftyp" * 4)
+        self.wfile.flush()
+        time.sleep(0.6)
+        self.wfile.write(b"x" * 200_000)
+
+    def log_message(self, *args: Any) -> None:
+        pass
+
+
+def test_the_first_bytes_are_timed_when_they_arrive(tmp_path: Path) -> None:
+    """Review on PR #138: a read that waits for 64 KB timed the first bytes too late."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), SlowClip)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    clip = ClipSeen(1, {"url": "/clip"}, seen_at=0.0)
+    start = time.perf_counter()
+    try:
+        with patch("imageskin.time_reply.clip_seconds", return_value=1.0):
+            time_reply.download(f"http://127.0.0.1:{server.server_address[1]}", clip, tmp_path)
+    finally:
+        server.shutdown()
+    assert clip.first_byte_at is not None and clip.downloaded_at is not None
+    assert clip.first_byte_at - start < 0.4  # not after the 0.6 s wait for the rest
+    assert clip.downloaded_at - start >= 0.6
+    assert (tmp_path / "1.mp4").stat().st_size == 16 + 200_000
