@@ -1,7 +1,10 @@
 """Spoken questions heard in context (roadmap R24, Larry's test on PR #91): the browser's speech
 recognition doesn't know the content's names and terms, and hears "Euler" as "Oiler" or
-"Boiler". Before a spoken question is answered, the LLM is given the content's own words and
-puts back any it misheard; a change is kept only when every word it adds is one of them."""
+"Boiler". Before a spoken question is answered, the content's words spelled like a word heard
+are picked here, and the LLM is asked only about those, saying which to put back; a change is
+kept only when every word it adds is one of them. A question with no such word doesn't ask the
+LLM at all. Asking about all of the content's words took 32 s on Larry's hosted machine, which
+reads prompts at 14 tokens a second (R96)."""
 
 import logging
 import re
@@ -16,7 +19,21 @@ from imageskin.chat import LlmError
 logger = logging.getLogger(__name__)
 
 ALIKE = 0.5  # how alike a misheard word and the word put in its place are spelled, at least
-MOST_WORDS = 100  # the content's words given to the LLM, the most used first
+MOST_WORDS = 100  # the content's words looked at, the most used first
+# How alike a heard word and a content word are spelled for the LLM to be asked about them, at
+# least, and how many of them it is asked about at most. A first sound is often misheard, so
+# the words are also compared without their first letters ("Boiler" and "Euler" are 0.67
+# alike that way, "Oiler" and "Euler" 0.75).
+SUSPECT = 0.65
+MOST_SUSPECTS = 8
+# The instruction's start never changes, so llama-server reuses it from its cache (R96).
+INSTRUCTION = (
+    "Speech recognition may have misheard a name or term in a question. Using only the names"
+    " and terms given, answer each word misheard as: misheard -> name, one per line, or NONE."
+    "\nNames and terms: Euler, Gauss\nQuestion: What did Oiler prove?\nAnswer: Oiler -> Euler"
+)
+_CHANGE = re.compile(r"^(.+?)->(.+)$")
+_QUOTES = "\"'.“”‘’ "
 _WORD = re.compile(r"[^\W\d_][\w'’-]*")
 _POSSESSIVE = re.compile(r"['’]s$")
 # Capitalised at the start of a sentence, not because they are names or terms.
@@ -91,28 +108,72 @@ def kept(heard: str, said: str, terms: list[str]) -> bool:
     )
 
 
+def suspects(heard: str, terms: list[str]) -> list[str]:
+    """The content's words spelled like a word heard, or like two heard words run together
+    ("fun shun" for "function"), the most alike first: the only ones it could have misheard.
+    A content word heard as it is isn't one."""
+    words = [w for w in words_of(heard) if len(w) >= 3 and w not in _COMMON]
+    heard_as_is = set(words_of(heard))
+    tried = [*words, *("".join(pair) for pair in zip(words, words[1:], strict=False))]
+    alike: dict[str, float] = {}
+    for term in terms:
+        key = term.lower()
+        if key in heard_as_is:
+            continue
+        best = max((alike_as_heard(w, key) for w in tried), default=0.0)
+        if best >= SUSPECT:
+            alike[term] = best
+    return sorted(alike, key=lambda t: -alike[t])[:MOST_SUSPECTS]
+
+
+def alike_as_heard(word: str, term: str) -> float:
+    """How alike the two are spelled, with or without their first letters."""
+    alike = SequenceMatcher(None, word, term).ratio()
+    if len(word) >= 4 and len(term) >= 4:
+        alike = max(alike, SequenceMatcher(None, word[1:], term[1:]).ratio())
+    return alike
+
+
+def put_back(heard: str, answer: str) -> str:
+    """The question with the LLM's "heard -> meant" changes made, as whole words."""
+    said = heard
+    for line in answer.splitlines():
+        change = _CHANGE.match(line)
+        if change is None:
+            continue
+        was, meant = change.group(1).strip(_QUOTES), change.group(2).strip(_QUOTES)
+        if was and meant and meant.upper() != "NONE":
+            whole = re.compile(rf"(?<!\w){re.escape(was)}(?!\w)", flags=re.I)
+            said = whole.sub(meant.replace("\\", r"\\"), said, count=1)
+    return said
+
+
 def corrected(heard: str, terms: list[str], write: Callable[[str, list[str]], str]) -> str:
     """The spoken question with any misheard names or terms put back, or as it was heard."""
-    if not terms:
+    start = time.monotonic()
+    asked_about = suspects(heard, terms)
+    if not asked_about:
+        logger.info(
+            "Spoken question kept without asking the LLM",
+            extra={"heard": heard, "terms": len(terms), "duration_ms": ms_since(start)},
+        )
         return heard
     instruction = (
-        f"A participant asked a question out loud, and speech recognition wrote it down as:"
-        f' "{heard}" Speech recognition often mishears names and terms, such as "Oiler" or "Boiler"'
-        ' for "Euler". The names and terms of the subject are in the reference text. If a word'
-        " in the question sounds like one of them and the question makes more sense with it,"
-        " put that name or term in its place. Change nothing else. Say only the question."
+        f"{INSTRUCTION}\nNames and terms: {', '.join(asked_about)}\nQuestion: {heard}\nAnswer:"
     )
-    start = time.monotonic()
     try:
-        said = write(instruction, [", ".join(terms)]).strip().strip('"').strip()
+        answer = write(instruction, [])
     except LlmError as e:
         logger.error("Could not check a spoken question", extra={"error": str(e)})
         return heard
-    ms = round((time.monotonic() - start) * 1000)
-    if said != heard and kept(heard, said, terms):
-        logger.info(
-            "Spoken question corrected", extra={"heard": heard, "meant": said, "duration_ms": ms}
-        )
+    said = put_back(heard, answer)
+    timing = {"suspects": len(asked_about), "duration_ms": ms_since(start)}
+    if said != heard and kept(heard, said, asked_about):
+        logger.info("Spoken question corrected", extra={"heard": heard, "meant": said, **timing})
         return said
-    logger.info("Spoken question kept", extra={"heard": heard, "duration_ms": ms})
+    logger.info("Spoken question kept", extra={"heard": heard, **timing})
     return heard
+
+
+def ms_since(start: float) -> float:
+    return round((time.monotonic() - start) * 1000, 1)

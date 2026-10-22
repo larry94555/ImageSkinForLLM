@@ -12,7 +12,16 @@ from test_teach import entry
 from test_topics import riemann_app
 
 from imageskin.chat import SUMMARY_PROMPT, LlmError, Message
-from imageskin.spoken import MOST_WORDS, corrected, kept, vocabulary
+from imageskin.spoken import (
+    INSTRUCTION,
+    MOST_SUSPECTS,
+    MOST_WORDS,
+    corrected,
+    kept,
+    put_back,
+    suspects,
+    vocabulary,
+)
 
 CONTENTS = [
     {
@@ -65,21 +74,63 @@ def test_larrys_oiler_is_taken_as_euler(caplog: pytest.LogCaptureFixture) -> Non
 
     def write(instruction: str, material: list[str]) -> str:
         asked.append((instruction, material))
-        return '"What did Euler multiply over?"'
+        return "Oiler -> Euler"
 
     with caplog.at_level(logging.INFO, logger="imageskin.spoken"):
         meant = corrected("What did Oiler multiply over?", TERMS, write)
     assert meant == "What did Euler multiply over?"
     instruction, material = asked[0]
-    assert '"What did Oiler multiply over?"' in instruction
-    assert "Euler" in material[0] and "Riemann" in material[0]
+    # The instruction's start never changes, so llama-server reuses it (R96); only the words
+    # spelled like one heard are named, not all of the content's.
+    assert instruction.startswith(INSTRUCTION) and material == []
+    asked_about = "\nNames and terms: Euler\nQuestion: What did Oiler multiply over?\nAnswer:"
+    assert instruction.endswith(asked_about)
     record = next(r for r in caplog.records if r.message == "Spoken question corrected")
     assert record.heard == "What did Oiler multiply over?"  # type: ignore[attr-defined]
+    assert record.suspects == 1  # type: ignore[attr-defined]
+
+
+def test_only_the_content_s_words_spelled_like_one_heard_are_asked_about() -> None:
+    assert suspects("What did Oiler multiply over?", TERMS) == ["Euler"]
+    assert suspects("Tell me about the boiler product", TERMS) == ["Euler"]  # "product" as is
+    assert suspects("What did Rie man find?", TERMS) == ["Riemann"]  # two words, one term
+    assert suspects("Who are you?", TERMS) == []
+    assert suspects("Tell me about Euler and Riemann", TERMS) == []  # heard right
+    many = [f"Term{n:02d}" for n in range(20)]
+    assert len(suspects("What is term?", many)) == MOST_SUSPECTS
+
+
+@pytest.mark.parametrize(
+    ("answer", "said"),
+    [
+        ("Oiler -> Euler", "What did Euler say to Riemann?"),
+        ('"oiler" -> "Euler".', "What did Euler say to Riemann?"),  # quoted, any case
+        ("NONE", "What did Oiler say to Riemann?"),
+        ("Oiler -> Euler\nRiemann -> Riemann", "What did Euler say to Riemann?"),
+        ("Oil -> Euler", "What did Oiler say to Riemann?"),  # whole words only
+        ("Oiler -> NONE", "What did Oiler say to Riemann?"),
+        ("Oiler ->", "What did Oiler say to Riemann?"),
+        ("Oiler -> \\1", "What did \\1 say to Riemann?"),  # taken as written
+    ],
+)
+def test_the_llm_s_changes_are_made_as_whole_words(answer: str, said: str) -> None:
+    assert put_back("What did Oiler say to Riemann?", answer) == said
+
+
+def test_a_question_with_nothing_misheard_doesnt_ask_the_llm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def write(instruction: str, material: list[str]) -> str:
+        raise AssertionError("asked the LLM")
+
+    with caplog.at_level(logging.INFO, logger="imageskin.spoken"):
+        assert corrected("Who are you?", TERMS, write) == "Who are you?"
+    assert "Spoken question kept without asking the LLM" in caplog.messages
 
 
 def test_a_rewritten_question_is_not_taken(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO, logger="imageskin.spoken"):
-        heard = corrected("What did Oiler do?", TERMS, lambda i, m: "Who was a mathematician?")
+        heard = corrected("What did Oiler do?", TERMS, lambda i, m: "Oiler -> Riemann")
     assert heard == "What did Oiler do?"
     assert "Spoken question kept" in caplog.text
 
@@ -99,8 +150,8 @@ class Hearing(Llm):
 
     def __call__(self, messages: list[Message]) -> str:
         self.sent.append(messages)
-        if "speech recognition wrote it down" in messages[-1]["content"]:
-            return "What are Prime Number Basics?"
+        if messages[-1]["content"].startswith(INSTRUCTION):
+            return "Crime -> Prime"
         return "Two moons."
 
 
@@ -119,7 +170,7 @@ def test_a_typed_prompt_is_not_checked(tmp_path: Path) -> None:
     client = riemann_app(tmp_path, llm)
     reply = chat(client, "What are Crime Number Basics?")
     assert "prompt" not in reply
-    assert not any("speech recognition" in m[-1]["content"] for m in llm.sent)
+    assert not any(m[-1]["content"].startswith(INSTRUCTION) for m in llm.sent)
 
 
 def test_a_spoken_prompt_waits_for_the_summary_before_it_is_corrected(tmp_path: Path) -> None:
@@ -133,7 +184,7 @@ def test_a_spoken_prompt_waits_for_the_summary_before_it_is_corrected(tmp_path: 
                 asked.append("summary")
                 assert release.wait(5)
                 return "SUMMARY"
-            if "speech recognition wrote it down" in messages[-1]["content"]:
+            if messages[-1]["content"].startswith(INSTRUCTION):
                 asked.append("correction")
             return super().__call__(messages)
 

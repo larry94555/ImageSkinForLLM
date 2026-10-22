@@ -680,6 +680,11 @@ Bullets marked **Added (from the code)** are further waits found in the code tha
 - **Added (from the code):** Stop: from pressing Stop to silence, and to the next prompt being taken.
 - **Can show:** a table of where the time goes in three replies, one of them spoken with push-to-talk, with Larry's timings 1 to 3 and the added ones, and the largest costs named; these decide R99 and R100.
 
+### R101. A spoken question checked sooner (Simple) · items 9, 12
+- Added by Larry on 2026-10-22, right after R96, whose run on his hosted machine found a spoken question reached the LLM 32.4 s after it was sent: before it is answered, the LLM was asked to put back misheard names with all 100 of the content's words, about 400 tokens read at 14 tokens a second.
+- Only the content's words spelled like a word heard, or like two heard words run together, are named, at most 8 (compared with and without their first letters, as a first sound is often misheard: "Boiler" for "Euler"), and the LLM answers with just the changes ("Oiler -> Euler", or NONE), which are made here and kept only as `kept` already allows. The instruction's fixed start comes first, so llama-server can reuse it once R97 lets it.
+- **Can show:** the check before and after against Gemma 3 4B on 2 threads, with its time and result for a few questions, and the log's `Spoken question corrected` or `Spoken question kept` with `suspects` and `duration_ms`.
+
 ### R96a. Where the time goes: the wiki and answers from it (Medium) · Speed
 - The same experiment for the content, on the same machines: a sample PDF of about 20 pages and five questions about it. `imageskin time-pdf <file>` gives the PDF's numbers without the browser; the sample PDF and the results are kept in `experiments/speed/`.
 - **Larry's timing 4:** processing the PDF to make the wiki: uploading it, reading it (text, slides, tables and math), then each wiki part and outline step, with llama-server's own timings for each request, and the total.
