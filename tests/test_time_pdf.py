@@ -218,6 +218,19 @@ def test_a_failure_after_the_wiki_still_writes_the_report(tmp_path: Path) -> Non
     remove.assert_not_called()  # process was replaced, so nothing was added
 
 
+def test_a_question_that_failed_during_the_build_fails_the_run(tmp_path: Path) -> None:
+    failed = {"prompt": "Q", "error": "No clips came."}
+    with (
+        patch("imageskin.time_pdf.ask", return_value={}),
+        patch("imageskin.time_pdf.time_reply.llm_name", return_value="Local"),
+        patch("imageskin.time_pdf.process", return_value=pdf_result(asked_during_build=failed)),
+        patch("imageskin.time_pdf.time_reply.measure"),
+        patch("imageskin.time_pdf.time_reply.summarize", return_value={"error": None}),
+        patch("imageskin.time_pdf.markdown", return_value=""),
+    ):
+        assert time_pdf.run("http://app", Path("x.pdf"), ["Q"], tmp_path / "speed") == 1
+
+
 def test_a_wiki_that_fails_is_an_error(tmp_path: Path) -> None:
     statuses = iter(
         [

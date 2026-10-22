@@ -294,7 +294,9 @@ def run(
     (out / f"pdf-{stamp}.md").write_text(report, encoding="utf-8")
     print(report)
     print(f"Wrote {(out / f'pdf-{stamp}.md').resolve()} and the .json beside it")
+    during = results["pdf"]["asked_during_build"]
     failed = sum(1 for r in results["answers"] if r["error"]) + bool(results.get("error"))
+    failed += bool(during and during["error"])
     logger.info(
         "PDF timed",
         extra={
