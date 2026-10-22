@@ -44,7 +44,7 @@ function server({ accepted = false, avatar = false } = {}) {
       if (url === "/api/review") return Response.json(review());
       if (url === "/api/prepare") return Response.json(DONE);
       if (url === "/api/accent") return Response.json({ accent: "own", available: true });
-      if (url === "/api/ready-voice") return Response.json({ voice: "af_heart", in_use: false });
+      if (url === "/api/ready-voice") return Response.json({ voice: "af_heart", in_use: false, voices: [] });
       if (url === "/api/voice-sample") return Response.json({ recordings: 1, seconds: 30, speech: 30 });
       if (url === "/api/uploads/photos/chosen") return Response.json({ id: "p1", automatic: true });
       if (url.startsWith("/api/uploads/")) return Response.json([]);

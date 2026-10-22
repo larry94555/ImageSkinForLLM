@@ -164,7 +164,7 @@ def test_video_pass_renders_checks_and_packs(tmp_path: Path, picked: Result) -> 
     assert r.passed and r.pack == f"packs/{PERSON.name}.zip" and r.pack_bytes == 30_000_000
     assert r.mouth_ratio == 4.0 and r.idle_seconds == 8.0
     # The check line is spoken in the person's first voice.
-    _, lang, voice = dp.voices_for(PERSON.gender)[0]
+    _, lang, voice = dp.voices_for(PERSON)[0]
     assert (tmp_path / r.video).read_text() == f"{lang} {voice}"
 
 

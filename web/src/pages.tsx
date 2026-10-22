@@ -246,17 +246,6 @@ export function SetupPage({ change }: { change?: SetupPart }) {
   );
 }
 
-// Kokoro's ready-made voices (item 58), as the user sees them. A nonbinary avatar's voice is an
-// even blend of the accent's woman's and man's (R24b3).
-const READY_VOICES: { voice: string; label: string }[] = [
-  { voice: "af_heart", label: "American woman" },
-  { voice: "am_michael", label: "American man" },
-  { voice: "af_heart,am_michael", label: "American nonbinary" },
-  { voice: "bf_emma", label: "British woman" },
-  { voice: "bm_george", label: "British man" },
-  { voice: "bf_emma,bm_george", label: "British nonbinary" },
-];
-
 // Under the recordings (item 59): without any that pass the checks (none added, or all rejected
 // or removed), the person speaks in a ready-made voice, which can be chosen here.
 function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
@@ -270,7 +259,7 @@ function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
       })
       .catch((e: unknown) => console.error("Could not read the ready-made voice", e));
   }, [props.changes]);
-  if (ready === null) return null;
+  if (ready === null || !Array.isArray(ready.voices)) return null; // not answered, or not understood
 
   async function choose(voice: string) {
     const started = performance.now();
@@ -295,7 +284,7 @@ function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
       <label>
         Ready-made voice{" "}
         <select value={ready.voice} onChange={(e) => void choose(e.currentTarget.value)}>
-          {READY_VOICES.map(({ voice, label }) => (
+          {ready.voices.map(({ voice, label }) => (
             <option key={voice} value={voice}>
               {label}
             </option>

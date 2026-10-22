@@ -293,6 +293,7 @@ export const DEFAULT_PICTURE = "/api/start-now/picture";
 export interface ReadyVoice {
   voice: string;
   in_use: boolean; // no recording has passed the checks, so it is the one used
+  voices: { voice: string; label: string }[]; // every default person's voice (R24e)
 }
 
 export async function getReadyVoice(): Promise<ReadyVoice> {

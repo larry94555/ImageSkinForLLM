@@ -32,11 +32,11 @@ from imageskin.default_people import (
     GENDERS,
     REALISMS,
     ROLES,
-    VOICES,
     PackError,
     check_pack,
     people,
     unpack,
+    voice_of,
 )
 from imageskin.download import DownloadError, download, sha256_of
 from imageskin.photoreal_library import library_key
@@ -109,8 +109,8 @@ class Choice:
 
     @property
     def voice(self) -> tuple[str, str]:
-        """Kokoro's language code and voice for the gender and accent."""
-        return VOICES[(self.gender, self.accent)]
+        """Kokoro's language code and the person's own voice for the accent (R24e)."""
+        return voice_of(self.name, self.accent)
 
 
 @dataclass(frozen=True)
@@ -266,10 +266,14 @@ class StartNow:
         return self._folder / f"{name}.png"
 
     def _lines(self, choice: Choice) -> Path:
-        return self._folder / "lines" / f"{choice.name}_{choice.accent.lower()}"
+        """Where the person's lines are, named for the voice too, so a person whose voice has
+        changed (R24e) has them rendered again in the new one."""
+        voice = choice.voice[1].replace(",", "+")
+        return self._folder / "lines" / f"{choice.name}_{choice.accent.lower()}_{voice}"
 
     def _save(self, choice: Choice) -> None:
         self._write(choice)  # in its ready-made voice, even if chosen before in the user's own
+        logger.info("Default voice chosen", extra={"person": choice.name, "voice": choice.voice[1]})
         # The user's own photo speaks in it until they add recordings (item 59).
         save_ready_voice(self._home, choice.voice[1])
 
@@ -313,6 +317,20 @@ class StartNow:
             )
             self._thread.start()
             return self._status
+
+    def refresh(self) -> bool:
+        """At start-up: the chosen person, unpacked before, whose lines aren't there in their
+        voice, since it changed (R24e), gets them rendered again, as if chosen again. Whether
+        that started. Raises as `start` does while Prepare runs."""
+        choice = self.chosen()
+        if choice is None or not self._unpacked(choice.name) or self._ready(choice):
+            return False
+        logger.info(
+            "Default person's lines rendered again in their voice",
+            extra={"person": choice.name, "voice": choice.voice[1]},
+        )
+        self.start(choice)
+        return True
 
     def wait(self, timeout: float | None = None) -> None:
         """For tests: wait for the background thread to finish."""

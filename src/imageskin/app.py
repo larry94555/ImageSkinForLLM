@@ -49,8 +49,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
-from imageskin.default_people import GENDERS as DEFAULT_GENDERS
-from imageskin.default_people import ROLES as DEFAULT_ROLES
+from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.llm_choice import (
@@ -85,7 +84,7 @@ from imageskin.prepare_job import (
 from imageskin.quiz import QUESTIONS, Judge, Quiz, Quizzer, Said
 from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.ready_voice import LANGS as READY_VOICES
-from imageskin.ready_voice import load_ready_voice, save_ready_voice
+from imageskin.ready_voice import load_ready_voice, ready_voices, save_ready_voice
 from imageskin.ready_voice import preset as ready_preset
 from imageskin.reply_times import ReplyTimes
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
@@ -916,7 +915,11 @@ def create_app(
     @app.get("/api/ready-voice", dependencies=needs_consent)
     def get_ready_voice() -> dict[str, object]:
         """The ready-made voice used while there are no recordings, and whether it is in use."""
-        return {"voice": load_ready_voice(data_home), "in_use": no_sample() is not None}
+        return {
+            "voice": load_ready_voice(data_home),
+            "in_use": no_sample() is not None,
+            "voices": ready_voices(),  # every default person's voice (R24e)
+        }
 
     @app.put("/api/ready-voice", dependencies=needs_consent)
     def put_ready_voice(body: ReadyVoiceRequest, seen: DeletesSeen) -> dict[str, object]:
@@ -998,14 +1001,7 @@ def create_app(
                 "face": p.face,
                 "name": p.name,
             }
-            for p in sorted(
-                default_people(),
-                key=lambda p: (
-                    DEFAULT_ROLES.index(p.role),
-                    p.face,
-                    DEFAULT_GENDERS.index(p.gender),
-                ),
-            )
+            for p in page_order(default_people())
         ]
 
     @app.get("/api/start-now/picture")
@@ -1870,6 +1866,11 @@ def create_app(
 
     start_reply_warm_up()
     app.state.loading.append(app.state.reply_warm_up)
+    # A chosen default person whose voice changed (R24e) says Goodbye and Welcome back in it.
+    try:
+        start_now.refresh()
+    except PrepareError as e:  # Prepare carried on from before: they come when chosen again
+        logger.warning("Default person's lines not rendered again", extra={"error": str(e)})
 
     @app.post("/api/chat/video", dependencies=[*needs_person, Depends(require_accepted)])
     def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:

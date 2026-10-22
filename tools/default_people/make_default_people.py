@@ -257,7 +257,7 @@ def run_video(person: Person, result: Result, out: Path, steps: VideoSteps) -> R
         result.prepare_ms = _ms(start)
 
         step = "render the check line"
-        _, lang, voice = voices_for(person.gender)[0]
+        _, lang, voice = voices_for(person)[0]
         video = out / f"{person.name}.mp4"
         steps.render(lib, lang, voice, video)
         result.video = video.name
@@ -572,7 +572,7 @@ def mouth_motion(lib: Any, video: Path) -> float:  # pragma: no cover - decodes 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs the real models
     os.environ.setdefault("HF_HUB_DISABLE_XET", "1")  # see experiments/voice/run_test.py
     from imageskin.config import default_home
-    from imageskin.default_people import VOICES
+    from imageskin.default_people import ACCENT_LANGS
     from imageskin.face_checks import FaceChecker
     from imageskin.kokoro_engine import kokoro_for
     from imageskin.logging_setup import setup_logging
@@ -611,7 +611,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - runs t
     release()
 
     engine = PhotorealEngine()
-    kokoro = {lang: kokoro_for(lang) for lang, _ in VOICES.values()}
+    kokoro = {lang: kokoro_for(lang) for lang in ACCENT_LANGS.values()}
 
     def render(lib: Any, lang: str, voice: str, output: Path) -> None:
         speak_and_render(lib, LINE, output, kokoro[lang], engine, voice)
