@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, Literal
 
-from imageskin import sound_checks
+from imageskin import server_timing, sound_checks
 from imageskin.audio import AudioError, join_wavs, to_wav
 from imageskin.sound_checks import MIN_SAMPLE_SPEECH_S, SoundResult
 
@@ -240,7 +240,8 @@ class UploadStore:
             },
         )
         if kind == "sounds" and upload.problems == []:
-            self._update_voice_sample()
+            with server_timing.step("voice-sample"):
+                self._update_voice_sample()
         return upload
 
     def _save(self, kind: Kind, name: str, data: BinaryIO) -> Upload:
@@ -251,7 +252,8 @@ class UploadStore:
         received = tmp_dir / f"{upload_id}.upload"
         converted = tmp_dir / f"{upload_id}.converted"
         try:
-            size = copy_limited(data, received, MAX_BYTES[kind])
+            with server_timing.step("receive"):
+                size = copy_limited(data, received, MAX_BYTES[kind])
             if size == 0:
                 raise UploadError("The file is empty.")
             with received.open("rb") as f:
@@ -262,7 +264,8 @@ class UploadStore:
                     " not its name.",
                     status=415,
                 )
-            seconds = self._convert(fmt, received, converted)
+            with server_timing.step("convert"):
+                seconds = self._convert(fmt, received, converted)
             # Checked on the converted file: that is what is stored, and a compressed
             # recording grows when it becomes WAV.
             if self._total_bytes() + converted.stat().st_size > MAX_TOTAL_BYTES:

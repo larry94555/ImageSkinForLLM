@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from imageskin import __version__, time_reply
+from imageskin import __version__, time_reply, time_setup
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
@@ -194,6 +194,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--stop",
         action="store_true",
         help="then send the last prompt again and press Stop at its first clip",
+    )
+    setup_timed = commands.add_parser(
+        "time-setup",
+        help="go through setup on the running app and show where the time goes (changes its setup)",
+    )
+    setup_timed.add_argument(
+        "--url", default=time_reply.DEFAULT_URL, help="the running app's address"
+    )
+    setup_timed.add_argument(
+        "--photo",
+        type=Path,
+        action="append",
+        help="a photo to upload; a second one is the change of photo (default: two ready ones)",
+    )
+    setup_timed.add_argument(
+        "--recording",
+        type=Path,
+        action="append",
+        help="a recording to upload, once for each (default: one ready one three times)",
+    )
+    setup_timed.add_argument(
+        "--out",
+        type=Path,
+        help="folder for the results (default: speed in the data folder)",
+    )
+    setup_timed.add_argument(
+        "--anyway",
+        action="store_true",
+        help="go on even though the app is already set up, changing its setup",
     )
     return parser
 
@@ -473,6 +502,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.out or default_home() / "speed",
             args.spoken,
             args.stop,
+        )
+    if args.command == "time-setup":
+        return time_setup.run(
+            args.url,
+            args.photo or list(time_setup.DEFAULT_PHOTOS),
+            args.recording or list(time_setup.DEFAULT_RECORDINGS),
+            args.out or default_home() / "speed",
+            args.anyway,
         )
     if args.command == "prepare":
         try:

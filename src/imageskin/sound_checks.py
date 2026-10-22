@@ -17,6 +17,8 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
+from imageskin import server_timing
+
 logger = logging.getLogger(__name__)
 
 # Speech is counted in frames that stand out from the background noise, so pauses don't count.
@@ -146,11 +148,13 @@ VoiceCheck = Callable[[NDArray[np.float64], int], list[str]]
 def check(path: Path, voices: VoiceCheck | None = None) -> SoundResult:
     """Run the sound checks on a stored recording, and the voice check when given."""
     start = time.perf_counter()
-    samples, rate = read_wav(path)
-    m = measure(samples, rate)
-    found = problems(m)
+    with server_timing.step("sound"):  # R10
+        samples, rate = read_wav(path)
+        m = measure(samples, rate)
+        found = problems(m)
     if voices is not None:
-        found += voices(samples, rate)
+        with server_timing.step("speakers"):  # R11
+            found += voices(samples, rate)
     logger.info(
         "Sound checked",
         extra={

@@ -1,3 +1,4 @@
+import functools
 import io
 import logging
 from pathlib import Path
@@ -7,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sound_fakes import speechlike, wav_of
 
-from imageskin import __version__
+from imageskin import __version__, server_timing, sound_checks
 from imageskin.app import STATIC_DIR, create_app, face_checker, wait_until_loaded
 from imageskin.speaker_checks import TWO_VOICES
 from imageskin.uploads import SOUND_CHECKS, PhotoResult, UploadStore
@@ -296,3 +297,21 @@ def test_a_recording_with_a_second_voice_is_flagged(tmp_path: Path) -> None:
     prepare.assert_called_once()  # the model is fetched in the background at startup
     assert sent["problems"] == [TWO_VOICES] and sent["checks"] == SOUND_CHECKS
     assert client.get("/api/voice-sample").json()["recordings"] == 0
+
+
+def test_an_upload_says_where_its_time_went(tmp_path: Path) -> None:
+    check_sound = functools.partial(sound_checks.check, voices=lambda samples, rate: [])
+    client = TestClient(create_app(tmp_path, check_photo=no_problems, check_sound=check_sound))
+    client.post("/api/consent", json={"agreed": True})
+    sent = client.post("/api/uploads/sounds", files={"file": ("me.wav", SPEECH)})
+    steps = server_timing.parse(sent.headers["server-timing"])  # R96b
+    assert list(steps) == ["receive", "convert", "sound", "speakers", "voice-sample", "total"]
+    assert steps["total"] >= steps["sound"] >= 0
+    photo = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    assert list(server_timing.parse(photo.headers["server-timing"])) == [
+        "receive",
+        "convert",
+        "total",
+    ]
+    refused = client.post("/api/uploads/photos", files={"file": ("me.jpg", b"not a photo")})
+    assert refused.status_code == 415 and "server-timing" not in refused.headers

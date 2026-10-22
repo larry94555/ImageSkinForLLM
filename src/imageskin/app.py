@@ -26,7 +26,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from imageskin import __version__, pdf_reading, reply_times
+from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
@@ -561,12 +561,16 @@ def create_app(
     needs_person = [Depends(require_person)]
 
     @app.post(uploads_api, dependencies=needs_consent)
-    def upload(kind: Kind, file: UploadFile, seen: DeletesSeen) -> Upload:
+    def upload(kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response) -> Upload:
         try:
-            with personal_write(seen):
-                return store.save(kind, file.filename, file.file)
+            # Each step's time goes back in the Server-Timing header (R96b).
+            with server_timing.collecting() as steps, server_timing.step("total"):
+                with personal_write(seen):
+                    saved = store.save(kind, file.filename, file.file)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
+        response.headers["Server-Timing"] = server_timing.header(steps)
+        return saved
 
     @app.get(uploads_api, dependencies=needs_consent)
     def list_uploads(kind: Kind) -> list[Upload]:

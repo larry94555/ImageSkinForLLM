@@ -120,3 +120,76 @@ The largest costs, against the cloud session:
    1 token again (as in the cloud: llama-server's slots, for R97).
 4. **First sentence to heard, 3.5 to 3.9 s**, against 1.5 to 2.6 s in the cloud: the voice
    again (3.1 to 3.3 s of it for a short first clause).
+
+## R96b: setup
+
+`imageskin time-setup` goes through setup on the running app, as a new user would in the
+browser, and writes the tables to `speed` in the data folder. It changes the app's setup, so it
+runs only on an app with nothing set up yet: start the app with an empty data folder for it (on
+the hosted machine, a second container with its own `/data`, or `--anyway` on a copy).
+
+```
+IMAGESKIN_HOME=/tmp/setup-test imageskin serve      # a fresh data folder
+imageskin time-setup                                # a ready photo and recording
+imageskin time-setup --photo me.jpg --photo me2.jpg --recording a.m4a --recording b.m4a
+```
+
+In turn it: uploads a photo and three recordings (Larry's timings 8 and 9), prepares the video
+and voice (timing 6), uploads a second photo, chooses it and prepares again, changes the accent
+and prepares again (only with a voice engine that has accents), picks a default person with
+Start now and then another, each to the chat opening and its first prompt's first word heard,
+and prepares the avatar in your own voice (R24d).
+
+Each upload's answer now carries a `Server-Timing` header with its steps in milliseconds, so the
+browser's developer tools show them too: `receive`, `convert` (HEIC to JPG, or a recording to
+WAV), `wait` (for another photo's checks), `read`, `faces` and `covered` (the face checks, R8),
+`quality` (light and sharpness, R9), `sound` (R10), `speakers` (the one-speaker check, R11),
+`voice-sample` (joining the recordings that passed) and `total`. Prepare's steps come from its
+own status, as the Prepare page shows them.
+
+### Cloud session, 2026-10-22
+
+[setup-cloud-2026-10-22.md](setup-cloud-2026-10-22.md), with the JSON beside it. The same 4-core
+Xeon as R96, with llama-server (Gemma 3 4B Q4_K_M, 2 threads) running, Kokoro's ready-made voice
+(Chatterbox and Pocket TTS aren't installed, so there is no accent to change) and the photoreal
+engine, with the models already downloaded (their download is start-up's, R96c).
+
+| Step | Time |
+|---|---|
+| A photo, until checked | 0.96 s and 1.18 s |
+| A recording (40 s), until checked | 0.69 s to 1.05 s |
+| Prepare, until the sample can be watched | 373.6 s (6.2 min) |
+| Prepare again after another photo | 362.9 s (6.0 min) |
+| Start now | not timed: the session can't reach app.me0.ai to download the person |
+
+Prepare's steps, the first time and after another photo:
+
+| Step | First | Again |
+|---|---|---|
+| Get the voice ready | 8.6 s | 0.5 s |
+| Get ready to animate the face | 2.4 s | 2.7 s |
+| Make the mouth shapes and the blinking eyes | 69.1 s | 75.5 s |
+| Make the video of the person listening | 252.0 s | 245.0 s |
+| Line up the mouth with the head | 12.1 s | 11.7 s |
+| Make the sample video and the greetings | 25.0 s | 23.4 s |
+
+The largest costs:
+
+1. **The video of the person listening, about 250 s**, two thirds of Prepare. It is the idle
+   video shown between replies (R23), made frame by frame by the photoreal engine like any
+   other video, though nothing in it speaks. A shorter loop, fewer frames played back and forth,
+   or making it after the sample is shown, are for the PRs that speed up setup.
+2. **The mouth shapes and blinking eyes, about 70 s**, a fifth of Prepare.
+3. **Prepare again after another photo redoes everything but the voice**: a new face needs new
+   shapes and a new listening video, so it is as slow as the first time.
+4. **The photo and recording checks are already quick**, about a second each. In a photo the
+   face checks take most of it (`faces` 0.3 to 0.5 s and `covered` 0.5 to 0.6 s), as each
+   photo opens and closes both MediaPipe models; in a recording the one-speaker check does
+   (0.55 to 0.86 s).
+5. **The browser's polling** adds up to 1 s to Prepare (every 1 s) and up to 0.5 s to Start
+   now (every 500 ms), small against the steps themselves. The sample could be fetched 10 ms
+   after Prepare finished.
+
+Start now, the switch to another person and the avatar in your own voice still need a run on
+Larry's hosted machine, which can download the people, and the accent change one with the
+person's own voice (Pocket TTS or Chatterbox).
