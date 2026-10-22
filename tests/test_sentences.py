@@ -273,3 +273,51 @@ def test_a_dollar_in_code_or_a_url_does_not_hold_back_the_sentence(step: int) ->
     assert split("See https://a.io/$x here. Next.", step) == ["See https://a.io/$x here.", "Next."]
     code = "Run this:\n\n```\necho $$\n```\n\nThen go. Done."
     assert split(code, step)[-2:] == ["Then go.", "Done."]
+
+
+class Voice:
+    """Whether the voice is waiting, set by the test as the clips would be."""
+
+    def __init__(self) -> None:
+        self.waiting = False
+
+    def __call__(self) -> bool:
+        return self.waiting
+
+
+def test_an_unfinished_sentence_is_cut_at_its_clause_while_the_voice_waits() -> None:
+    voice = Voice()
+    splitter = SentenceSplitter(first_clause=True, voice_waiting=voice)
+    assert splitter.feed("Hello there Larry, it is") == ["Hello there Larry,"]
+    # The voice is busy with the first clause: the rest waits for its full stop.
+    assert splitter.feed(" a fine day, and the sun") == []
+    voice.waiting = True  # the first clip is made and the LLM is still writing
+    assert splitter.feed(" is") == ["it is a fine day,"]
+    assert splitter.waiting_cuts == {2}
+    voice.waiting = False
+    assert splitter.feed(" out. Next") == ["and the sun is out."]
+    assert splitter.flush() == ["Next"]
+    assert splitter.waiting_cuts == {2}
+
+
+def test_a_finished_sentence_is_handed_over_whole_even_while_the_voice_waits() -> None:
+    voice = Voice()
+    splitter = SentenceSplitter(first_clause=True, voice_waiting=voice)
+    assert splitter.feed("Hello there Larry, it") == ["Hello there Larry,"]
+    voice.waiting = True
+    assert splitter.feed(" is a fine day, and the sun is out. Then") == [
+        "it is a fine day, and the sun is out."
+    ]
+    assert splitter.waiting_cuts == set()
+
+
+def test_a_clause_too_short_or_none_waits_for_more() -> None:
+    splitter = SentenceSplitter(first_clause=True, voice_waiting=lambda: True)
+    assert splitter.feed("Hello there Larry, how") == ["Hello there Larry,"]
+    assert splitter.feed(" are you") == []  # too few words for a clause
+    assert splitter.feed("?") == []
+    assert splitter.feed(" Fine") == ["how are you?"]
+    assert splitter.waiting_cuts == set()
+    # Without `voice_waiting`, a sentence after the first clause waits for its full stop.
+    plain = SentenceSplitter(first_clause=True)
+    assert plain.feed("Hello there Larry, it is a fine day, and the sun") == ["Hello there Larry,"]

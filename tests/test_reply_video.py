@@ -579,6 +579,27 @@ def test_a_cancelled_reply_stops_and_leaves_no_clips(tmp_path: Path) -> None:
     assert said == [] and not clips.folder.exists()
 
 
+def test_the_voice_waits_once_every_sentence_given_is_made(tmp_path: Path) -> None:
+    """R100: the reply's text is cut at a clause only while every clip so far is made."""
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    assert clips.voice_waiting()  # nothing given yet
+    with videos._voice_lock:  # the engines are busy, so the sentence waits
+        clips("One.")
+        assert not clips.voice_waiting()
+    for _ in range(200):
+        if clips.voice_waiting():
+            break
+        time.sleep(0.01)
+    assert clips.voice_waiting() and clips.rendered == 1
+    clips("🎉")  # nothing to say aloud still counts as made
+    clips.close()
+    clips.wait(10)
+    assert clips.voice_waiting()
+    clips.cancel()
+    assert not clips.voice_waiting()  # a stopped reply isn't cut any more
+
+
 def test_a_reply_cancelled_while_it_is_spoken_renders_no_video(tmp_path: Path) -> None:
     """The regression for a review finding: a reply cancelled while its sentence was being
     spoken went on to render that sentence's video before the newer prompt could start."""
