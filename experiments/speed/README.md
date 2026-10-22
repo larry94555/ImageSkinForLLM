@@ -108,8 +108,8 @@ The largest costs, against the cloud session:
    the LLM to put back misheard names, giving it up to 100 of the content's words (up to about
    300 tokens) and an instruction, with nothing for llama-server to reuse. At 14 tokens a second
    that is about 30 s of reading, then the corrected question written at 5 tokens a second. The
-   reply's own prompt then read in under 4 s. (To be confirmed with the JSON's
-   `prompt_sent_ms`, now the "Reached LLM" column.)
+   reply's own prompt then read in under 4 s. Confirmed by the JSON: the spoken prompt reached
+   the LLM 32,426 ms after it was sent, against 26 to 33 ms for the typed ones.
 2. **The voice, 3.1 to 4.2 s a clip**, against 0.6 to 3.2 s in the cloud: Kokoro on this CPU,
    on half the cores while the LLM writes. With the video (0.6 to 1.5 s) a clip takes about
    4.5 s to make, longer than most clips play (2 to 5 s), so after the first clip every clip
