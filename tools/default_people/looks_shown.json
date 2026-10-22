@@ -219,5 +219,34 @@
  "animated_male_teaching_assistant_2": {
   "heritage": "Black",
   "glasses": true
+ },
+ "photoreal_nonbinary_professor": {
+  "heritage": "Black",
+  "glasses": true,
+  "older": true
+ },
+ "photoreal_nonbinary_teaching_assistant": {
+  "heritage": "East Asian"
+ },
+ "photoreal_nonbinary_student": {
+  "heritage": "South Asian"
+ },
+ "photoreal_nonbinary_teenager": {
+  "heritage": "white",
+  "hair": "red"
+ },
+ "animated_nonbinary_boss": {
+  "heritage": "Indigenous",
+  "older": true
+ },
+ "animated_nonbinary_parent": {
+  "heritage": "Southeast Asian",
+  "glasses": true
+ },
+ "animated_nonbinary_teenager": {
+  "heritage": "Latino"
+ },
+ "animated_nonbinary_business_consultant": {
+  "heritage": "Middle Eastern"
  }
 }

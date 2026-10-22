@@ -1,8 +1,8 @@
-# The default people (R24b and R24b2)
+# The default people (R24b, R24b2 and R24b3)
 
-`make_default_people.py` makes, checks and packs the 60 ready-made people that **Start now with
-a default person** offers (features.md items 56 to 58 and 60): one for each gender, realism
-(photoreal or animated) and role, and a second face for 24 of them (R24b2). Who they are is in `src/imageskin/default_people.py`
+`make_default_people.py` makes, checks and packs the 68 ready-made people that **Start now with
+a default person** offers (features.md items 56 to 58 and 60): one for each binary gender, realism
+(photoreal or animated) and role, a second face for 24 of them (R24b2), and 8 nonbinary people (R24b3). Who they are is in `src/imageskin/default_people.py`
 (`people()`), so the app and this script share one list; the prompts are here (`prompt`).
 
 ## What it does, for each person
@@ -55,6 +55,17 @@ SSD-1B can leave part of a prompt out, so the counts go by what the pictures sho
 asked: `looks_shown.json` records, for each of the 60, the heritage, red or blond hair, glasses,
 age and disability seen by looking at the picture, and the report's table counts them for each
 group. A unit test fails if any group falls short.
+
+## The nonbinary people (R24b3)
+
+Larry asked for nonbinary people of a range of heritages (2026-10-21), 6 to 8 of them:
+`NONBINARY_PEOPLE` in `default_people.py` has 8, four for each realism, each of the eight
+heritages once, and in each realism one older person and one with glasses (no wheelchair, which
+Larry said isn't needed). The prompt asks for an "androgynous person" and keeps feminine,
+masculine, makeup, lipstick, earrings, jewelry, beard and moustache out (`GENDERED`); quick drafts
+at 640 by 640 and 12 steps tried four wordings first, since the first full picture read as a
+woman. Their voice is an even blend of the accent's woman's and man's Kokoro voice (`VOICES`).
+`looks_shown.json` counts them as one group, `nonbinary`, over both realisms.
 
 ## The pack
 

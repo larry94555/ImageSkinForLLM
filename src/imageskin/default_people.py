@@ -41,7 +41,10 @@ logger = logging.getLogger(__name__)
 MAX_PACK_BYTES = 50 * 1000 * 1000
 PACK_VERSION = 1
 
-GENDERS = ("female", "male")
+# The first 60 people are women and men; R24b3 adds nonbinary people (Larry, 2026-10-21).
+BINARY = ("female", "male")
+NONBINARY = "nonbinary"
+GENDERS = (*BINARY, NONBINARY)
 REALISMS = ("photoreal", "animated")
 ROLES = (
     "Professor",
@@ -62,6 +65,12 @@ VOICES: dict[tuple[str, str], tuple[str, str]] = {
     ("male", "American"): ("a", "am_michael"),
     ("female", "British"): ("b", "bf_emma"),
     ("male", "British"): ("b", "bm_george"),
+    # R24b3: an even blend of the accent's woman's and man's voice, which Kokoro makes by
+    # averaging the two voices' style vectors. Its pitch sits between theirs (a median of about
+    # 167 Hz American and 171 Hz British, against 207 and 123, and 190 and 149), in the range
+    # heard as neither clearly a woman's nor a man's.
+    ("nonbinary", "American"): ("a", "af_heart,am_michael"),
+    ("nonbinary", "British"): ("b", "bf_emma,bm_george"),
 }
 
 # A range of skin tones, heritages and hair, spread over the people so that every role and
@@ -82,7 +91,7 @@ LOOKS = (
 
 @dataclass(frozen=True)
 class Person:
-    gender: str  # "female" or "male"
+    gender: str  # "female", "male" or "nonbinary"
     realism: str  # "photoreal" or "animated"
     role: str
     look: str
@@ -98,15 +107,16 @@ class Person:
 
 
 def people() -> list[Person]:
-    """The 60 people: one per gender, realism and role, then R24b2's second faces. Within each
+    """The 68 people: one per binary gender, realism and role, then R24b2's second faces, then
+    R24b3's nonbinary people. Within each
     gender and realism the nine roles take the nine looks, each group starting two looks further
     on, so a role's four people all look different."""
     found = []
-    for g, (gender, realism) in enumerate((g, r) for r in REALISMS for g in GENDERS):
+    for g, (gender, realism) in enumerate((g, r) for r in REALISMS for g in BINARY):
         for r, role in enumerate(ROLES):
             look = LOOKS[(r + 2 * g) % len(LOOKS)]
             found.append(Person(gender, realism, role, look))
-    return found + list(SECOND_FACES)
+    return found + list(SECOND_FACES) + list(NONBINARY_PEOPLE)
 
 
 # R24b2's 24 second faces, six for each gender and realism, filling what the first 36 lack so that
@@ -275,6 +285,38 @@ SECOND_FACES = (
         "animated",
         "Teaching Assistant",
         f"Black, with deep brown skin and short black hair, {GLASSES}",
+    ),
+)
+
+
+# R24b3's 8 nonbinary people (Larry, 2026-10-21: 6 to 8 is enough, and no wheelchair is
+# needed), four for each realism. Each of the eight heritages appears once across the 8, and each
+# realism has one older person and one with glasses.
+def _nonbinary(realism: str, role: str, look: str, age: str = "", seed: int = 1) -> Person:
+    return Person(NONBINARY, realism, role, look, age=age, seed=seed)
+
+
+NONBINARY_PEOPLE = (
+    _nonbinary(
+        "photoreal",
+        "Professor",
+        f"Black, with deep brown skin and short cropped grey hair, {GLASSES}",
+        SIXTIES,
+    ),
+    _nonbinary(
+        "photoreal", "Teaching Assistant", "East Asian, with light skin and short black hair"
+    ),
+    _nonbinary("photoreal", "Student", "South Asian, with brown skin and short dark hair"),
+    _nonbinary("photoreal", "Teenager", "white, with fair freckled skin and short red hair"),
+    _nonbinary("animated", "Boss", "Indigenous, with brown skin and a long grey braid", SIXTIES),
+    _nonbinary(
+        "animated", "Parent", f"Southeast Asian, with tan skin and short black hair, {GLASSES}"
+    ),
+    _nonbinary("animated", "Teenager", "Latino, with olive skin and short curly dark hair"),
+    _nonbinary(
+        "animated",
+        "Business Consultant",
+        "Middle Eastern, with light brown skin and dark curly hair",
     ),
 )
 

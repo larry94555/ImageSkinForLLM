@@ -2314,12 +2314,20 @@ var READY_VOICES = [
 		label: "American man"
 	},
 	{
+		voice: "af_heart,am_michael",
+		label: "American nonbinary"
+	},
+	{
 		voice: "bf_emma",
 		label: "British woman"
 	},
 	{
 		voice: "bm_george",
 		label: "British man"
+	},
+	{
+		voice: "bf_emma,bm_george",
+		label: "British nonbinary"
 	}
 ];
 function ReadyVoiceChoice(props) {

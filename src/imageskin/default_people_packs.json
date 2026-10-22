@@ -29,6 +29,10 @@
   "animated_male_teaching_assistant_2": {"bytes": 26143297, "sha256": "d10b44424d3c544a64e6aa288aa5bd3597d7981a78eb0be6f7c8b0bcc158ed48"},
   "animated_male_teenager": {"bytes": 24792771, "sha256": "e7dbec20417a378963245315926f1557233f21851a251f90c135d73b7b6243aa"},
   "animated_male_teenager_2": {"bytes": 27374698, "sha256": "c08f964322e06b8e0fc27931b7a4d92facdef48e7b92ea690146df84e99d68c0"},
+  "animated_nonbinary_boss": {"bytes": 23198806, "sha256": "aa616497a466e1ed3a89d0f8d9f1b743c31a6c422b7bb344276c4997821f82b7"},
+  "animated_nonbinary_business_consultant": {"bytes": 28609940, "sha256": "36a29a3836a71113a30dc5c765b258f857a8ab2d7fea4ffdf4da2564002d616a"},
+  "animated_nonbinary_parent": {"bytes": 25844665, "sha256": "770718d0666a987963165450d3b335d999aee451345ba63c48030fbc5bbc399d"},
+  "animated_nonbinary_teenager": {"bytes": 27157549, "sha256": "79a91c2340b405dc3b86d6a10b7f153a773e8fe6b42304ac51fb68ce410c00b3"},
   "photoreal_female_boss": {"bytes": 30703374, "sha256": "3af480cfbb1e8668c308d6c46fd45e8856f60794db973d023622e0ac2a8fd0cc"},
   "photoreal_female_boss_2": {"bytes": 28255560, "sha256": "35b2a019a5b54440d06c562099e1b00d8f08e3c1a13a862e7d30cd528b2e61d4"},
   "photoreal_female_business_consultant": {"bytes": 29984873, "sha256": "993dc863ec158f22c882e6fa1f3d6b9ab97e89b9830431e73e70aa03c0db1694"},
@@ -58,5 +62,9 @@
   "photoreal_male_teaching_assistant": {"bytes": 25492235, "sha256": "b5d2fec168be05666721ed96cfdf245cc00af2e2019c71c78f49b060f2247d2f"},
   "photoreal_male_teaching_assistant_2": {"bytes": 23552699, "sha256": "23917f4001dfc50a168cf38ca0b1912125a2b3ca8107be5531aa508a176ddbdf"},
   "photoreal_male_teenager": {"bytes": 23496589, "sha256": "892eaa2b4561d6575effaaf37e336c0eb5ec22a35184e6dc6c1157a28c0ee2e2"},
-  "photoreal_male_teenager_2": {"bytes": 27054990, "sha256": "094021ffd9543f2ee976b58a03bb70cdf8f222296d884c7c699cfa20401c7a77"}
+  "photoreal_male_teenager_2": {"bytes": 27054990, "sha256": "094021ffd9543f2ee976b58a03bb70cdf8f222296d884c7c699cfa20401c7a77"},
+  "photoreal_nonbinary_professor": {"bytes": 29927283, "sha256": "4ef6c2a0179298e1633b162a1284c6bd2e423c6eb4c16d29a1407d8357d41486"},
+  "photoreal_nonbinary_student": {"bytes": 27956482, "sha256": "8025f71eb00a25f0abb3ff9b2b9c0e4c158766104ef09d8ad726e18b4da20690"},
+  "photoreal_nonbinary_teaching_assistant": {"bytes": 23631905, "sha256": "4ea863631fcecff786c0ea40a3a7f02f06a6dac40e3ca093b405b5a19600a6ca"},
+  "photoreal_nonbinary_teenager": {"bytes": 24855388, "sha256": "2a0fb3e3eb84f877ac08177038e217b45e0f0c766bb3253a339c6037067b9054"}
 }

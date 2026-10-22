@@ -246,12 +246,15 @@ export function SetupPage({ change }: { change?: SetupPart }) {
   );
 }
 
-// Kokoro's ready-made voices (item 58), as the user sees them.
+// Kokoro's ready-made voices (item 58), as the user sees them. A nonbinary avatar's voice is an
+// even blend of the accent's woman's and man's (R24b3).
 const READY_VOICES: { voice: string; label: string }[] = [
   { voice: "af_heart", label: "American woman" },
   { voice: "am_michael", label: "American man" },
+  { voice: "af_heart,am_michael", label: "American nonbinary" },
   { voice: "bf_emma", label: "British woman" },
   { voice: "bm_george", label: "British man" },
+  { voice: "bf_emma,bm_george", label: "British nonbinary" },
 ];
 
 // Under the recordings (item 59): without any that pass the checks (none added, or all rejected
