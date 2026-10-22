@@ -95,7 +95,14 @@ The user validates on a Windows 11 laptop, so manual test steps must work there,
 - Expected output and log lines stay the same on every platform. Note any that differ.
 - The same rule applies to setup steps in the README and other user-facing guides.
 
-## 8. Checklist before reporting done
+## 8. The roadmap
+When a PR builds an item in `docs/requirements/roadmap.md` (an `### R...` entry), its branch also updates the roadmap. The PR number is only known once the PR is open, so push one more commit right after opening it:
+- Add ` · Done in [PR #N](https://github.com/larry94555/ImageSkinForLLM/pull/N)` to the item's heading.
+- In the Milestones table, raise the milestone's Done (`k of n`) and the Total row's done count and percentage.
+
+When a PR adds a new roadmap item, add it to its milestone's PRs and Count in the table, the Total, the Sizes line, and recompute every row's % of PRs.
+
+## 9. Checklist before reporting done
 - [ ] On a non-main branch, pushed, PR open
 - [ ] Size rated, and not Very large
 - [ ] Code changes: unit tests added, coverage reported, ideally 80% or more
@@ -104,4 +111,5 @@ The user validates on a Windows 11 laptop, so manual test steps must work there,
 - [ ] Code changes: proof included (test summary as text or CI link; screenshots for UI)
 - [ ] Code changes: manual test steps include what to look for in the UI or logs
 - [ ] Code changes: manual test steps cover macOS/Linux, Windows 11 Command Prompt and Windows 11 PowerShell
+- [ ] Roadmap item: heading links the PR, and the Milestones table counts it
 - [ ] PR link given to the user
