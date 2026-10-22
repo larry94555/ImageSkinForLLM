@@ -117,6 +117,13 @@ def test_the_llm_s_changes_are_made_as_whole_words(answer: str, said: str) -> No
     assert put_back("What did Oiler say to Riemann?", answer) == said
 
 
+def test_a_name_heard_right_once_is_still_put_back_where_it_was_misheard() -> None:
+    """Review on PR #140: "Euler" heard right once mustn't stop "Oiler" being asked about."""
+    assert suspects("What did Euler say about Oiler?", TERMS) == ["Euler"]
+    meant = corrected("What did Euler say about Oiler?", TERMS, lambda i, m: "Oiler -> Euler")
+    assert meant == "What did Euler say about Euler?"
+
+
 def test_a_question_with_nothing_misheard_doesnt_ask_the_llm(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

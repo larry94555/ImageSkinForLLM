@@ -111,16 +111,15 @@ def kept(heard: str, said: str, terms: list[str]) -> bool:
 def suspects(heard: str, terms: list[str]) -> list[str]:
     """The content's words spelled like a word heard, or like two heard words run together
     ("fun shun" for "function"), the most alike first: the only ones it could have misheard.
-    A content word heard as it is isn't one."""
+    A word heard as the content's word isn't compared with it, alone or run together with
+    another, but the same word misheard elsewhere in the question still is ("What did Euler say
+    about Oiler?", review on PR #140)."""
     words = [w for w in words_of(heard) if len(w) >= 3 and w not in _COMMON]
-    heard_as_is = set(words_of(heard))
-    tried = [*words, *("".join(pair) for pair in zip(words, words[1:], strict=False))]
+    tried = [(w,) for w in words] + list(zip(words, words[1:], strict=False))
     alike: dict[str, float] = {}
     for term in terms:
         key = term.lower()
-        if key in heard_as_is:
-            continue
-        best = max((alike_as_heard(w, key) for w in tried), default=0.0)
+        best = max((alike_as_heard("".join(ws), key) for ws in tried if key not in ws), default=0.0)
         if best >= SUSPECT:
             alike[term] = best
     return sorted(alike, key=lambda t: -alike[t])[:MOST_SUSPECTS]
