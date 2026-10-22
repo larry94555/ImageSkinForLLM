@@ -751,6 +751,21 @@ def test_tokens_are_estimated_while_the_server_is_down() -> None:
     assert client._can_count  # asked again once it is up
 
 
+def test_tokens_are_counted_once_the_server_has_loaded_its_model(fake_llm: str) -> None:
+    """llama-server answers 503 while it loads the model; the app started with it on the hosted
+    machine, and estimating for good from then on made its wiki parts a third of the size."""
+    FakeLlm.tokenize = (503, b'{"error": {"message": "Loading model", "code": 503}}')
+    FakeLlm.props = (503, b'{"error": {"message": "Loading model", "code": 503}}')
+    client = LlmClient(LlmSettings(url=fake_llm, context_tokens=4096))
+    assert client.count("Hello there") == estimate("Hello there")
+    assert client.context_tokens() == 4096
+    assert client._can_count and client._window is None  # asked again once it is up
+    FakeLlm.tokenize = (200, b'{"tokens": [1, 2]}')
+    FakeLlm.props = (200, b'{"n_ctx": 8192}')
+    assert client.count("Hello there") == 2
+    assert client.context_tokens() == 8192
+
+
 def test_tokens_are_counted_by_the_server(fake_llm: str) -> None:
     FakeLlm.tokenize = (200, b'{"tokens": [1, 2, 3, 4, 5]}')
     client = LlmClient(LlmSettings(url=fake_llm))
