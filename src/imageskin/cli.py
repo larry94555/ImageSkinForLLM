@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from imageskin import __version__
+from imageskin import __version__, time_reply
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
@@ -170,6 +170,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lookup.add_argument(
         "--pdf", type=count, default=PDF_LIMIT, help=f"PDF passages to show (default {PDF_LIMIT})"
+    )
+    timed = commands.add_parser(
+        "time-reply",
+        help="send prompts to the running app and show where the time goes in each reply",
+    )
+    timed.add_argument(
+        "prompts", nargs="*", help="prompts to send, each in quotes (default: three ready ones)"
+    )
+    timed.add_argument("--url", default=time_reply.DEFAULT_URL, help="the running app's address")
+    timed.add_argument(
+        "--out",
+        type=Path,
+        help="folder for the results (default: speed in the data folder)",
+    )
+    timed.add_argument(
+        "--spoken",
+        type=count,
+        default=None,
+        help="send this prompt (from 1) as if said with Hold to talk",
+    )
+    timed.add_argument(
+        "--stop",
+        action="store_true",
+        help="then send the last prompt again and press Stop at its first clip",
     )
     return parser
 
@@ -442,6 +466,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return print_pack_checks(args.url)
     if args.command == "lookup":
         return print_lookups(args.questions, args.wiki, args.pdf)
+    if args.command == "time-reply":
+        return time_reply.run(
+            args.url,
+            args.prompts or list(time_reply.DEFAULT_PROMPTS),
+            args.out or default_home() / "speed",
+            args.spoken,
+            args.stop,
+        )
     if args.command == "prepare":
         try:
             folder, seconds = prepare(args.photo, args.output)

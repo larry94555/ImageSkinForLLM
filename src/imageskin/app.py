@@ -26,7 +26,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from imageskin import __version__, pdf_reading
+from imageskin import __version__, pdf_reading, reply_times
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
@@ -87,6 +87,7 @@ from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.ready_voice import LANGS as READY_VOICES
 from imageskin.ready_voice import load_ready_voice, save_ready_voice
 from imageskin.ready_voice import preset as ready_preset
+from imageskin.reply_times import ReplyTimes
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
@@ -1522,33 +1523,66 @@ def create_app(
         if body.reply_id is not None:
             with clips_lock:
                 prompts[body.reply_id] = stop
+        # Where the time goes, returned with the reply for `imageskin time-reply` (R96).
+        times = ReplyTimes(received_at=time.perf_counter())
+        timing = reply_times.current.set(times)
         try:
-            wait_for_warm_up()
+            times.waited_warm_up_ms = wait_for_warm_up()
+            asked = time.perf_counter()
             # One LLM answers the whole prompt, even if it is changed meanwhile (review on
             # PR #115).
             with chat_lock, pinned(client), llm_busy():
+                times.waited_turn_ms = ms_since(asked)
                 not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
                 token = ask_stop.set(stop)  # the LLM is cut off on Stop
                 try:
-                    return chat(body, stop)
+                    answer = chat(body, stop)
                 finally:
                     ask_stop.reset(token)
+            times.answered_at = time.perf_counter()
+            log_reply_times(times)
+            return {**answer, "timings": times.as_dict()}
         finally:
+            reply_times.current.reset(timing)
             if body.reply_id is not None:
                 with clips_lock:
                     if prompts.get(body.reply_id) is stop:
                         del prompts[body.reply_id]
 
-    def wait_for_warm_up(what: str = "Prompt") -> None:
+    def wait_for_warm_up(what: str = "Prompt") -> float:
         """A prompt sent right after the sample was accepted waits for the warm-up to finish,
         so it doesn't reach the LLM while the LLM is still reading the system prompt, or the
         engines while they render their first word (a review finding on R22a). The wait has
-        no cap of its own: the LLM's timeout and ffmpeg's bound the warm-up's steps."""
+        no cap of its own: the LLM's timeout and ffmpeg's bound the warm-up's steps. Returns
+        how long it waited, in milliseconds."""
         thread = app.state.reply_warm_up
-        if thread.is_alive():
-            start = time.perf_counter()
-            thread.join()
-            logger.info(f"{what} waited for the warm-up", extra={"wait_ms": ms_since(start)})
+        if not thread.is_alive():
+            return 0.0
+        start = time.perf_counter()
+        thread.join()
+        waited = ms_since(start)
+        logger.info(f"{what} waited for the warm-up", extra={"wait_ms": waited})
+        return waited
+
+    def log_reply_times(times: ReplyTimes) -> None:
+        """The reply's times in the log, in milliseconds from the prompt's arrival (R96)."""
+
+        def since(at: float | None) -> float | None:
+            return None if at is None else round((at - times.received_at) * 1000, 1)
+
+        logger.info(
+            "Reply timings",
+            extra={
+                "waited_warm_up_ms": times.waited_warm_up_ms,
+                "waited_turn_ms": times.waited_turn_ms,
+                "history_tokens": times.history_tokens,
+                "first_token_ms": since(times.first_token_at),
+                "first_sentence_ms": since(times.first_sentence_at),
+                "last_token_ms": since(times.last_token_at),
+                "duration_ms": since(times.answered_at),
+                **{f"llm_{k}": v for k, v in (times.llm or {}).items()},
+            },
+        )
 
     tutor = Tutor(wiki.contents, find_content, topics_complete)
     quizzer = Quizzer(wiki.contents, find_content, conversation.write, topics_complete)
@@ -1740,6 +1774,9 @@ def create_app(
                 "url": f"/api/chat/clips/{reply_id}/{n}",
                 "sentence_at": t.sentence_at,
                 "ready_at": t.ready_at,
+                # When its voice step began and when its video was whole (R96).
+                "started_at": t.started_at,
+                "whole_at": clips.whole_at[n - 1] if n <= len(clips.whole_at) else None,
             }
             for n, t in enumerate(clips.times[: len(clips.clips)], 1)
         ]
