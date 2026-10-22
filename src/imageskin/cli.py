@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from imageskin import __version__, time_reply
+from imageskin import __version__, time_pdf, time_reply
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
@@ -194,6 +194,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--stop",
         action="store_true",
         help="then send the last prompt again and press Stop at its first clip",
+    )
+    pdf_timed = commands.add_parser(
+        "time-pdf",
+        help="add a PDF to the running app and show where the time goes in its wiki and in "
+        "answers from it",
+    )
+    pdf_timed.add_argument("pdf", type=Path, help="the PDF to add, such as the sample PDF")
+    pdf_timed.add_argument(
+        "questions",
+        nargs="*",
+        help="questions about the PDF, each in quotes (default: five about the sample PDF)",
+    )
+    pdf_timed.add_argument(
+        "--url", default=time_reply.DEFAULT_URL, help="the running app's address"
+    )
+    pdf_timed.add_argument(
+        "--out", type=Path, help="folder for the results (default: speed in the data folder)"
+    )
+    pdf_timed.add_argument(
+        "--spoken",
+        type=count,
+        default=None,
+        help="send this question (from 1) as if said with Hold to talk",
+    )
+    pdf_timed.add_argument(
+        "--replace", action="store_true", help="then replace the PDF with itself and time that"
+    )
+    pdf_timed.add_argument(
+        "--keep", action="store_true", help="keep the PDF and its wiki afterwards"
     )
     return parser
 
@@ -473,6 +502,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.out or default_home() / "speed",
             args.spoken,
             args.stop,
+        )
+    if args.command == "time-pdf":
+        if not args.pdf.is_file():
+            logger.error("No such PDF", extra={"path": str(args.pdf)})
+            return 1
+        return time_pdf.run(
+            args.url,
+            args.pdf,
+            args.questions or list(time_pdf.DEFAULT_QUESTIONS),
+            args.out or default_home() / "speed",
+            args.spoken,
+            args.replace,
+            args.keep,
         )
     if args.command == "prepare":
         try:

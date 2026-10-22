@@ -48,6 +48,8 @@ def measured() -> Measured:
             "waited_warm_up_ms": 0.0,
             "waited_turn_ms": 5.0,
             "history_tokens": 120,
+            "looked_up_ms": 7.5,
+            "asked_tokens": 260,
             "prompt_sent_at": 110.02,
             "first_token_at": 110.5,
             "first_sentence_at": 111.0,
@@ -73,6 +75,7 @@ def test_the_reply_is_played_back_on_paper() -> None:
     assert r["reached_server_ms"] == 10 and r["waited_turn_ms"] == 5.0
     assert (r["first_token_ms"], r["first_sentence_ms"], r["last_token_ms"]) == (500, 1000, 3000)
     assert r["answered_ms"] == 4000 and r["history_tokens"] == 120
+    assert (r["looked_up_ms"], r["asked_tokens"]) == (7.5, 260)
     # Larry's timing 2: clip 1's first bytes came at 2.1 s, 1.1 s after the first sentence.
     assert r["first_word_heard_ms"] == 2100 and r["first_sentence_to_heard_ms"] == 1100
     one, two, three = r["clips"]
@@ -92,7 +95,8 @@ def test_the_tables_name_every_timing() -> None:
     stopped.stopped_at, stopped.stop_answered_at, stopped.answered_at = 1.0, 1.02, 1.5
     report = markdown([summarize(m), summarize(stopped)], "Local LLM")
     assert report.startswith("# Where the time goes: a reply (Local LLM)")
-    assert "| 1 | typed | 0.0 | 5.0 | 120 | 20 | 40 | 300 | 51.2 | 500 | 1000 | 3000 |" in report
+    row = "| 1 | typed | 0.0 | 5.0 | 120 | 7.5 | 260 | 20 | 40 | 300 | 51.2 | 500 | 1000 | 3000 |"
+    assert row in report
     assert "| 2 | spoken |" in report
     clip_two = "| 2 | 2000 | 1500 | 900 | 600 | 4400 | 4450 | 4500 | 5100 | 1.5 | 4500 | 400 | yes"
     assert clip_two in report

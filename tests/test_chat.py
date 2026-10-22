@@ -397,6 +397,23 @@ def test_the_client_asks_the_chat_api(fake_llm: str) -> None:
     ]
 
 
+def test_the_clients_answers_keep_llama_servers_timings(fake_llm: str) -> None:
+    """R96a: the wiki's requests keep llama-server's timings, sent with a non-streamed answer."""
+    timings = {"prompt_n": 120, "cache_n": 40, "prompt_ms": 800.0, "predicted_n": 9}
+    answer = json.loads(reply("Fine."))
+    FakeLlm.answer = (200, json.dumps({**answer, "timings": timings}).encode())
+    client = LlmClient(LlmSettings(url=fake_llm))
+    kept: list[dict[str, object]] = []
+    token = reply_times.requests.set(kept)
+    try:
+        assert client.ask([{"role": "user", "content": "Hi"}]) == "Fine."
+    finally:
+        reply_times.requests.reset(token)
+    [request] = kept
+    assert isinstance(request.pop("duration_ms"), float)
+    assert request == timings
+
+
 def test_the_client_can_ask_for_json_of_a_given_form(fake_llm: str) -> None:
     FakeLlm.answer = (200, reply('{"topics": []}'))
     client = LlmClient(LlmSettings(url=fake_llm))

@@ -306,6 +306,10 @@ def summarize(m: Measured) -> dict[str, Any]:
         "waited_warm_up_ms": times.get("waited_warm_up_ms"),
         "waited_turn_ms": times.get("waited_turn_ms"),
         "history_tokens": times.get("history_tokens"),
+        # Looking the prompt up in the wiki and PDFs, and the prompt sent with what was found
+        # (R96a).
+        "looked_up_ms": times.get("looked_up_ms"),
+        "asked_tokens": times.get("asked_tokens"),
         # Larry's timing 1: the LLM.
         "prompt_sent_ms": at("prompt_sent_at"),
         "first_token_ms": at("first_token_at"),
@@ -343,6 +347,12 @@ def markdown(results: list[dict[str, Any]], llm_name: str) -> str:
     out = [f"# Where the time goes: a reply ({llm_name})", ""]
     out.append("All times in milliseconds from the prompt being sent.")
     out.append("")
+    return "\n".join(out + replies_markdown(results)) + "\n"
+
+
+def replies_markdown(results: list[dict[str, Any]], heading: str = "##") -> list[str]:
+    """The table of replies, then one table of clips a reply, as Markdown lines."""
+    out = []
     reply_rows = []
     for i, r in enumerate(results, 1):
         llm = r["llm"]
@@ -353,6 +363,8 @@ def markdown(results: list[dict[str, Any]], llm_name: str) -> str:
                 r["waited_warm_up_ms"],
                 r["waited_turn_ms"],
                 r["history_tokens"],
+                r.get("looked_up_ms"),
+                r.get("asked_tokens"),
                 r["prompt_sent_ms"],
                 llm.get("prompt_n"),
                 llm.get("cache_n"),
@@ -374,6 +386,8 @@ def markdown(results: list[dict[str, Any]], llm_name: str) -> str:
                 "Warm-up wait",
                 "Turn wait",
                 "History tokens",
+                "Looked up",
+                "Asked tokens",
                 "Reached LLM",
                 "Prompt tokens read",
                 "Reused from cache",
@@ -390,7 +404,7 @@ def markdown(results: list[dict[str, Any]], llm_name: str) -> str:
         )
     )
     for i, r in enumerate(results, 1):
-        out += ["", f"## Reply {i}: {r['prompt']}", ""]
+        out += ["", f"{heading} Reply {i}: {r['prompt']}", ""]
         if r["error"]:
             out += [f"Error: {r['error']}", ""]
         if r["stop_answered_ms"] is not None:
@@ -436,7 +450,7 @@ def markdown(results: list[dict[str, Any]], llm_name: str) -> str:
                 ],
             )
         )
-    return "\n".join(out) + "\n"
+    return out
 
 
 def llm_name(base: str) -> str:
