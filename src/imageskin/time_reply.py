@@ -112,6 +112,13 @@ def download(base: str, clip: ClipSeen, folder: Path) -> None:
                         clip.first_byte_at = time.perf_counter()
                     f.write(chunk)
         clip.downloaded_at = time.perf_counter()
+    except urllib.error.HTTPError as e:
+        clip.error = str(e)
+        if e.code == 404:  # removed by Stop or a newer prompt, as the browser would find too
+            logger.info("Clip gone before it was downloaded", extra={"clip": clip.n})
+        else:
+            logger.error("Could not download a clip", extra={"clip": clip.n, "error": str(e)})
+        return
     except (OSError, urllib.error.URLError) as e:
         clip.error = str(e)
         logger.error("Could not download a clip", extra={"clip": clip.n, "error": str(e)})
@@ -343,6 +350,7 @@ def markdown(results: list[dict[str, Any]], llm_name: str) -> str:
                 r["waited_warm_up_ms"],
                 r["waited_turn_ms"],
                 r["history_tokens"],
+                r["prompt_sent_ms"],
                 llm.get("prompt_n"),
                 llm.get("cache_n"),
                 llm.get("prompt_per_second") and round(llm["prompt_per_second"], 1),
@@ -363,6 +371,7 @@ def markdown(results: list[dict[str, Any]], llm_name: str) -> str:
                 "Warm-up wait",
                 "Turn wait",
                 "History tokens",
+                "Reached LLM",
                 "Prompt tokens read",
                 "Reused from cache",
                 "Read tokens/s",

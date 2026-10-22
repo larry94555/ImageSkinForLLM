@@ -22,7 +22,8 @@ All times are milliseconds from the prompt being sent. The first table has one r
 | Warm-up wait | the prompt waited for the replies' warm-up (a sample just accepted, or a restart) |
 | Turn wait | the prompt waited behind the one before, or the wiki's LLM request |
 | History tokens | the conversation sent with the prompt |
-| Prompt tokens read, Reused from cache, Read tokens/s | llama-server's own timings (none with a cloud LLM) |
+| Reached LLM | the reply's prompt was sent to the LLM (after any correction of a spoken prompt) |
+| Prompt tokens read, Reused from cache, Read tokens/s | llama-server's own timings |
 | First token, First sentence, Last token | Larry's timing 1 |
 | Tokens written, Written tokens/s | llama-server's own timings |
 | First sentence to heard | Larry's timing 2: from the first sentence to the first word heard |
@@ -86,6 +87,36 @@ The largest costs:
    fragment being written. Hearing of the clip took 10 to 30 ms, so the browser's wait for the
    clip list costs nothing now.
 
-### Larry's hosted machine
+### Larry's hosted machine, 2026-10-22
 
-To be added from Larry's run (the PR's test steps).
+[reply-host-2026-10-22.md](reply-host-2026-10-22.md), as Larry pasted it (before the "Reached
+LLM" column was added). app.me0.ai: 4 Ampere cores, llama-server with Gemma 3 4B on 2 threads,
+Kokoro's ready-made voice and the photoreal engine, with PDFs loaded. Larry decided the speed
+tests use llama.cpp alone for now (2026-10-22).
+
+| Reply | First token | First sentence | First sentence to heard | First word heard | Gaps heard |
+|---|---|---|---|---|---|
+| 1 | 7.1 s | 9.0 s | 3.5 s | 12.5 s | none |
+| 2 | 3.5 s | 4.6 s | 3.9 s | 8.4 s | 0.2 s, 2.1 s |
+| 3, spoken | 36.2 s | 37.4 s | 3.9 s | 41.3 s | 1.8 s, 1.9 s, 2.1 s, 1.4 s |
+
+Stop answered in 33 ms, and the next prompt could be taken 1.0 s after Stop.
+
+The largest costs, against the cloud session:
+
+1. **A spoken prompt's correction, about 32 s.** With PDFs loaded, a spoken prompt first asks
+   the LLM to put back misheard names, giving it up to 100 of the content's words (up to about
+   300 tokens) and an instruction, with nothing for llama-server to reuse. At 14 tokens a second
+   that is about 30 s of reading, then the corrected question written at 5 tokens a second. The
+   reply's own prompt then read in under 4 s. (To be confirmed with the JSON's
+   `prompt_sent_ms`, now the "Reached LLM" column.)
+2. **The voice, 3.1 to 4.2 s a clip**, against 0.6 to 3.2 s in the cloud: Kokoro on this CPU,
+   on half the cores while the LLM writes. With the video (0.6 to 1.5 s) a clip takes about
+   4.5 s to make, longer than most clips play (2 to 5 s), so after the first clip every clip
+   waits behind the one before (Waited grows to 12.8 s) and a gap of about 2 s is heard before
+   most of them. Making a clip faster than it plays is what removes the gaps (R100).
+3. **Reading the prompt, 14 tokens a second** (39 in the cloud), so the first token comes 3.5 s
+   after Send even with most of the prompt reused, and 7.1 s for the first prompt, which reused
+   1 token again (as in the cloud: llama-server's slots, for R97).
+4. **First sentence to heard, 3.5 to 3.9 s**, against 1.5 to 2.6 s in the cloud: the voice
+   again (3.1 to 3.3 s of it for a short first clause).

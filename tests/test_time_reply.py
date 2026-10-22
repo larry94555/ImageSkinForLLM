@@ -1,4 +1,5 @@
 import json
+import logging
 import socket
 import threading
 import time
@@ -90,7 +91,7 @@ def test_the_tables_name_every_timing() -> None:
     stopped.stopped_at, stopped.stop_answered_at, stopped.answered_at = 1.0, 1.02, 1.5
     report = markdown([summarize(m), summarize(stopped)], "Local LLM")
     assert report.startswith("# Where the time goes: a reply (Local LLM)")
-    assert "| 1 | typed | 0.0 | 5.0 | 120 | 40 | 300 | 51.2 | 500 | 1000 | 3000 |" in report
+    assert "| 1 | typed | 0.0 | 5.0 | 120 | 20 | 40 | 300 | 51.2 | 500 | 1000 | 3000 |" in report
     assert "| 2 | spoken |" in report
     clip_two = "| 2 | 2000 | 1500 | 900 | 600 | 4400 | 4450 | 4500 | 5100 | 1.5 | 4500 | 400 | yes"
     assert clip_two in report
@@ -247,3 +248,19 @@ def test_a_refused_prompt_is_reported(tmp_path: Path) -> None:
     [written] = list((tmp_path / "speed").glob("reply-*.json"))
     [result] = json.loads(written.read_text())["results"]
     assert result["status"] == 403 and "locked" in result["error"].lower()
+
+
+def test_a_clip_gone_before_its_download_is_noted_not_failed(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """After Stop the browser finds the clip gone too: that is noted, not logged as an error."""
+    app = running_app(tmp_path / "home", lambda p, t, o: None, None)
+    gone = ClipSeen(1, {"url": f"/api/chat/clips/{'a' * 32}/1"}, seen_at=0.0)
+    caplog.set_level(logging.INFO)
+    try:
+        time_reply.download(app.url, gone, tmp_path)
+    finally:
+        app.close()
+    assert gone.error is not None and "404" in gone.error and gone.seconds is None
+    assert "Clip gone before it was downloaded" in caplog.messages
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
