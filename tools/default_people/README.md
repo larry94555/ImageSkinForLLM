@@ -67,6 +67,44 @@ at 640 by 640 and 12 steps tried four wordings first, since the first full pictu
 woman. Their voice is an even blend of the accent's woman's and man's Kokoro voice (`VOICES`).
 `looks_shown.json` counts them as one group, `nonbinary`, over both realisms.
 
+## The voices (R24e)
+
+Larry found the voices didn't fit the faces (2026-10-22): a voice was picked only by gender and
+accent, so a sixteen-year-old, a Student and a woman in her seventies all spoke in `af_heart`.
+Each person now has a voice of their own for each accent (`VOICE_CHOICES` and `person_voices()`
+in `default_people.py`): the teenagers take a younger voice, the people `looks_shown.json` marks
+as in their sixties or seventies an older one, and the adults take turns over several. The turns
+go in the avatar page's order within each look, so no face has the same voice as either of the
+two faces before it, which are a different gender or the same role's other face.
+
+Kokoro has no teenage or older voices, so the choice is by measured median pitch (the voice's
+pitch while saying one line, by autocorrelation, in `hear_voices.py`), with blends of two voices
+where no single voice is high or low enough, and Kokoro's own grades in its VOICES.md to avoid
+its weakest voices (`af_nicole` whispers, `am_santa` and `am_adam` are graded lowest). No speed
+change was needed. Pitches in Hz, saying "Hello, it's good to meet you. Ask me anything you like
+about the course." on 2026-10-22:
+
+| Voices | Younger | Adult | Older |
+|---|---|---|---|
+| American woman | `af_bella` 200, `af_bella,af_jessica` 205 | `af_heart` 203, `af_sarah` 202, `af_aoede` 185, `af_nova` 168, `af_sky` 168 | `af_kore` 160, `af_kore,af_alloy` 156 |
+| American man | `am_fenrir` 154, `am_fenrir,am_eric` 159 | `am_michael` 124, `am_puck` 121, `am_liam` 133, `am_echo` 115 | `am_onyx,am_michael` 105, `am_onyx,am_echo` 100 |
+| American nonbinary | `af_bella,am_fenrir` 181 | `af_heart,am_michael` 167, `af_sarah,am_puck` 158 | `af_kore,am_michael` 148 |
+| British woman | `bf_alice` 235, `bf_alice,bf_isabella` 233 | `bf_emma` 189, `bf_isabella` 209, `bf_lily` 200 | `bf_emma,af_kore` 175, `bf_emma,af_alloy` 175 |
+| British man | `bm_george,am_fenrir` 153, `bm_fable,am_fenrir` 139 | `bm_george` 149, `bm_fable` 128, `bm_daniel` 131 | `bm_lewis` 103, `bm_lewis,bm_daniel` 120 |
+| British nonbinary | `bf_alice,bm_george` 191 | `bf_emma,bm_george` 171, `bf_isabella,bm_fable` 174 | `bf_emma,bm_lewis` 154 |
+
+Kokoro has only four British women's and four British men's voices, so the British older women
+blend `bf_emma` with an American woman's lower voice, and the British teenage boys blend a
+British man's voice with `am_fenrir`, the highest well-graded man's voice; the accent is the
+British pronunciation, which the language code sets, not the voice. The first adult voice of each
+kind is R24a's or R24b3's, so a ready-made voice saved before R24e is still offered. Pitch only
+suggests age; these were not picked by listening, so `hear_voices.py` makes a page to listen to
+every face in both accents:
+
+```
+python tools/default_people/hear_voices.py -o default-people/voices
+```
+
 ## The pack
 
 A prepared library is about 165 MB, mostly the 200 frames of the idle loop. The model renders

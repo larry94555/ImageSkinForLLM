@@ -3,7 +3,7 @@
 Each of the 36 choices (gender, realism and role) is one made-up person, and 24 of them have a
 second face (R24b2, item 60), 60 people in all: a picture made ahead of time by
 `tools/default_people/make_default_people.py`, and the photoreal frame library prepared from it.
-Accent doesn't change the picture; it picks one of Kokoro's ready-made voices.
+Accent doesn't change the picture; it picks the person's Kokoro voice for it (R24e).
 
 A person's pack is one zip holding the picture and the library, so a person is downloaded only
 when first chosen (item 57). The idle loop is packed as its rendered key frames only, as PNGs;
@@ -11,6 +11,7 @@ when first chosen (item 57). The idle loop is packed as its rendered key frames 
 same as one prepared on the user's own machine, at a fraction of the download.
 """
 
+import functools
 import io
 import json
 import logging
@@ -58,19 +59,37 @@ ROLES = (
     "Business Consultant",
 )
 
-# Kokoro-82M's ready-made voices (Apache 2.0, hexgrad), picked in R24a: by gender and accent,
-# the Kokoro language code and the voice.
-VOICES: dict[tuple[str, str], tuple[str, str]] = {
-    ("female", "American"): ("a", "af_heart"),
-    ("male", "American"): ("a", "am_michael"),
-    ("female", "British"): ("b", "bf_emma"),
-    ("male", "British"): ("b", "bm_george"),
-    # R24b3: an even blend of the accent's woman's and man's voice, which Kokoro makes by
-    # averaging the two voices' style vectors. Its pitch sits between theirs (a median of about
-    # 167 Hz American and 171 Hz British, against 207 and 123, and 190 and 149), in the range
-    # heard as neither clearly a woman's nor a man's.
-    ("nonbinary", "American"): ("a", "af_heart,am_michael"),
-    ("nonbinary", "British"): ("b", "bf_emma,bm_george"),
+# Kokoro-82M's ready-made voices (Apache 2.0, hexgrad), first picked in R24a. Each accent's
+# Kokoro language code sets its pronunciation; a voice from the other accent can be blended in.
+ACCENT_LANGS = {"American": "a", "British": "b"}
+
+# R24e: a voice for each person that fits their face, instead of one for each gender and accent
+# (Larry, 2026-10-22). Kokoro has no teenage or older voices, so the teenagers take the accent's
+# highest voices and the people in their sixties and seventies its lowest, by measured median
+# pitch, and the adults take turns over the rest so that faces next to each other on the avatar
+# page don't sound alike. A blend ("a,b") averages two voices' style vectors. Each nonbinary voice
+# stays an even blend of a woman's and a man's, of voices that fit the age. The pitches and
+# reasons are in tools/default_people/README.md. The first adult voices are R24a's and R24b3's, so
+# a ready-made voice saved before R24e still works.
+VOICE_CHOICES: dict[tuple[str, str, str], tuple[str, ...]] = {
+    ("female", "American", "adult"): ("af_heart", "af_sarah", "af_aoede", "af_nova", "af_sky"),
+    ("female", "American", "younger"): ("af_bella", "af_bella,af_jessica"),
+    ("female", "American", "older"): ("af_kore", "af_kore,af_alloy"),
+    ("male", "American", "adult"): ("am_michael", "am_puck", "am_liam", "am_echo"),
+    ("male", "American", "younger"): ("am_fenrir", "am_fenrir,am_eric"),
+    ("male", "American", "older"): ("am_onyx,am_michael", "am_onyx,am_echo"),
+    ("nonbinary", "American", "adult"): ("af_heart,am_michael", "af_sarah,am_puck"),
+    ("nonbinary", "American", "younger"): ("af_bella,am_fenrir",),
+    ("nonbinary", "American", "older"): ("af_kore,am_michael",),
+    ("female", "British", "adult"): ("bf_emma", "bf_isabella", "bf_lily"),
+    ("female", "British", "younger"): ("bf_alice", "bf_alice,bf_isabella"),
+    ("female", "British", "older"): ("bf_emma,af_kore", "bf_emma,af_alloy"),
+    ("male", "British", "adult"): ("bm_george", "bm_fable", "bm_daniel"),
+    ("male", "British", "younger"): ("bm_george,am_fenrir", "bm_fable,am_fenrir"),
+    ("male", "British", "older"): ("bm_lewis", "bm_lewis,bm_daniel"),
+    ("nonbinary", "British", "adult"): ("bf_emma,bm_george", "bf_isabella,bm_fable"),
+    ("nonbinary", "British", "younger"): ("bf_alice,bm_george",),
+    ("nonbinary", "British", "older"): ("bf_emma,bm_lewis",),
 }
 
 # A range of skin tones, heritages and hair, spread over the people so that every role and
@@ -321,9 +340,55 @@ NONBINARY_PEOPLE = (
 )
 
 
-def voices_for(gender: str) -> list[tuple[str, str, str]]:
-    """The accent, Kokoro language code and voice of each voice for a gender."""
-    return [(a, lang, v) for (g, a), (lang, v) in VOICES.items() if g == gender]
+def age(person: Person) -> str:
+    """Whether the person's voice is to sound younger, adult or older (R24e)."""
+    if person.role == "Teenager":
+        return "younger"
+    return "older" if person.age else "adult"
+
+
+def page_order(found: list[Person]) -> list[Person]:
+    """People in the order the avatar page shows them, which stays the same: by role, then face,
+    then gender, so women and men take turns (R24c2)."""
+    return sorted(found, key=lambda p: (ROLES.index(p.role), p.face, GENDERS.index(p.gender)))
+
+
+@functools.cache
+def person_voices() -> dict[str, dict[str, str]]:
+    """Each person's voice for each accent, by name (R24e). Within each look, in the avatar
+    page's order, the people of a gender and age take the voices for it in turn."""
+    found: dict[str, dict[str, str]] = {}
+    for realism in REALISMS:
+        turns: dict[tuple[str, str, str], int] = {}
+        for person in page_order([p for p in people() if p.realism == realism]):
+            voices = found[person.name] = {}
+            for accent in ACCENT_LANGS:
+                key = (person.gender, accent, age(person))
+                n = turns.get(key, 0)
+                turns[key] = n + 1
+                choices = VOICE_CHOICES[key]
+                voices[accent] = choices[n % len(choices)]
+    return found
+
+
+def voices_for(person: Person) -> list[tuple[str, str, str]]:
+    """The accent, Kokoro language code and voice of each of the person's voices."""
+    return [(a, ACCENT_LANGS[a], v) for a, v in person_voices()[person.name].items()]
+
+
+def voice_of(name: str, accent: str) -> tuple[str, str]:
+    """Kokoro's language code and voice for the named person in an accent."""
+    return ACCENT_LANGS[accent], person_voices()[name][accent]
+
+
+def voice_label(voice: str) -> str:
+    """How the voice is shown in setup, such as "American woman, older 2" (R24e)."""
+    for (gender, accent, years), choices in VOICE_CHOICES.items():
+        if voice in choices:
+            noun = {"female": "woman", "male": "man"}.get(gender, gender)
+            label = f"{accent} {noun}" + ("" if years == "adult" else f", {years}")
+            return label if len(choices) == 1 else f"{label} {choices.index(voice) + 1}"
+    raise ValueError(f"{voice!r} is not a default person's voice")
 
 
 class PackError(Exception):

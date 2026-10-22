@@ -1,23 +1,28 @@
 """The ready-made voice the user's own photo speaks in while there are no recordings (item 59).
 
 Until recordings pass the checks, or once they are all rejected or removed, the person speaks in
-one of the ready-made Kokoro voices the default people use (item 58), instead of setup waiting
-for recordings. The one used is the last ready-made avatar's voice, or the one chosen in setup,
-saved as ready-voice.json in the app's home folder.
+one of the default people's Kokoro voices (item 58, one for each person since R24e), instead of
+setup waiting for recordings. The one used is the last ready-made avatar's voice, or the one
+chosen in setup, saved as ready-voice.json in the app's home folder.
 """
 
 import json
 import logging
 from pathlib import Path
 
-from imageskin.default_people import VOICES
+from imageskin.default_people import ACCENT_LANGS, VOICE_CHOICES, voice_label
 
 logger = logging.getLogger(__name__)
 
 FILENAME = "ready-voice.json"
-# Kokoro's voices by name, with their language codes.
-LANGS = {voice: lang for lang, voice in VOICES.values()}
+# Kokoro's voices by name, with their language codes: every default person's voice (R24e).
+LANGS = {v: ACCENT_LANGS[accent] for (_, accent, _), vs in VOICE_CHOICES.items() for v in vs}
 DEFAULT = "af_heart"  # the first in the list, until an avatar or setup picks one
+
+
+def ready_voices() -> list[dict[str, str]]:
+    """The voices setup offers, as it shows them (R24e)."""
+    return [{"voice": v, "label": voice_label(v)} for v in LANGS]
 
 
 def load_ready_voice(home: Path) -> str:

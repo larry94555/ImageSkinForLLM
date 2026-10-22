@@ -5,6 +5,18 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { SetupPage } from "./pages";
 
+// Some of the server's voices, as it labels them (R24e).
+const VOICES = [
+  { voice: "af_heart", label: "American woman 1" },
+  { voice: "am_michael", label: "American man 1" },
+  { voice: "af_heart,am_michael", label: "American nonbinary 1" },
+  { voice: "bf_emma", label: "British woman 1" },
+  { voice: "bf_emma,af_kore", label: "British woman, older 1" },
+  { voice: "bm_george", label: "British man 1" },
+  { voice: "bm_george,am_fenrir", label: "British man, younger 1" },
+  { voice: "bf_emma,bm_george", label: "British nonbinary 1" },
+];
+
 // A server in setup with no recordings; `inUse` says whether the ready-made voice is used.
 function server(inUse: boolean, putOk = true) {
   const state = { voice: "bf_emma" };
@@ -14,7 +26,7 @@ function server(inUse: boolean, putOk = true) {
         if (!putOk) return Response.json({ detail: "Not saved." }, { status: 500 });
         state.voice = JSON.parse(init.body as string).voice;
       }
-      return Response.json({ voice: state.voice, in_use: inUse });
+      return Response.json({ voice: state.voice, in_use: inUse, voices: VOICES });
     }
     if (url === "/api/prepare") return Response.json({ state: "idle", steps: null, percent: 0 });
     if (url === "/api/accent") return Response.json({ accent: "own", available: false });
@@ -84,12 +96,21 @@ test("a nonbinary avatar's blended voice can be chosen too (R24b3)", async () =>
   render(<SetupPage />);
   const select = (await screen.findByRole("combobox", { name: "Ready-made voice" })) as HTMLSelectElement;
   const labels = Array.from(select.options).map((o) => o.textContent);
-  expect(labels).toContain("American nonbinary");
-  expect(labels).toContain("British nonbinary");
+  expect(labels).toContain("American nonbinary 1");
+  expect(labels).toContain("British nonbinary 1");
   await act(async () => {
     fireEvent.change(select, { target: { value: "bf_emma,bm_george" } });
   });
   await waitFor(() => expect(select.value).toBe("bf_emma,bm_george"));
   const put = fetchMock.mock.calls.find(([url, init]) => url === "/api/ready-voice" && init?.method === "PUT");
   expect(JSON.parse(String(put?.[1]?.body))).toEqual({ voice: "bf_emma,bm_george" });
+});
+
+test("the voices offered are the server's, younger and older ones too (R24e)", async () => {
+  server(true);
+  render(<SetupPage />);
+  const select = (await screen.findByRole("combobox", { name: "Ready-made voice" })) as HTMLSelectElement;
+  expect(Array.from(select.options).map((o) => [o.value, o.textContent])).toEqual(
+    VOICES.map(({ voice, label }) => [voice, label]),
+  );
 });

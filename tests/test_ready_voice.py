@@ -11,7 +11,14 @@ from fastapi.testclient import TestClient
 from test_start_now import CHOICE, started
 
 from imageskin.app import WAIT_FOR_PREPARE_VOICE, create_app
-from imageskin.ready_voice import DEFAULT, FILENAME, load_ready_voice, preset, save_ready_voice
+from imageskin.ready_voice import (
+    DEFAULT,
+    FILENAME,
+    LANGS,
+    load_ready_voice,
+    preset,
+    save_ready_voice,
+)
 from imageskin.uploads import PhotoResult
 
 pack = test_start_now.pack  # the fixture: a real, small pack of the person CHOICE names
@@ -78,7 +85,11 @@ def test_without_recordings_your_photo_speaks_in_the_ready_voice(
 ) -> None:
     assert client.get("/api/ready-voice").status_code == 403  # consent first
     client.post("/api/consent", json={"agreed": True})
-    assert client.get("/api/ready-voice").json() == {"voice": "af_heart", "in_use": True}
+    got = client.get("/api/ready-voice").json()
+    assert {"voice": got["voice"], "in_use": got["in_use"]} == {"voice": "af_heart", "in_use": True}
+    # Every default person's voice is offered, with how setup shows it (R24e).
+    assert got["voices"][0] == {"voice": "af_heart", "label": "American woman 1"}
+    assert len(got["voices"]) == len(LANGS)
     client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
 
     # Prepare no longer waits for recordings: it keeps the ready-made voice.
@@ -93,7 +104,7 @@ def test_without_recordings_your_photo_speaks_in_the_ready_voice(
 
     # Another ready-made voice makes the sample again, in it.
     chosen = client.put("/api/ready-voice", json={"voice": "bm_george"})
-    assert chosen.json() == {"voice": "bm_george", "in_use": True}
+    assert chosen.json()["voice"] == "bm_george" and chosen.json()["in_use"] is True
     client.app.state.prepare_job.wait(10)  # type: ignore[attr-defined]
     again = client.get("/api/prepare").json()
     assert again["state"] == "done" and again["voice_id"] == "preset:bm_george"

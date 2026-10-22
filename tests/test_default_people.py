@@ -95,15 +95,88 @@ def test_names() -> None:
     assert dp.Person("nonbinary", "animated", "Boss", "x").name == "animated_nonbinary_boss"
 
 
-def test_every_gender_has_an_american_and_a_british_voice() -> None:
-    for gender in dp.GENDERS:
-        accents = {a for a, _, _ in dp.voices_for(gender)}
-        assert accents == {"American", "British"}
-        for _, lang, voice in dp.voices_for(gender):
-            # A nonbinary voice blends the accent's woman's and man's voices (R24b3).
+# Kokoro-82M's American and British voices (hexgrad/Kokoro-82M, voices/, 2026-10-22).
+KOKORO = {
+    *(f"af_{v}" for v in "alloy aoede bella heart jessica kore nicole nova river".split()),
+    "af_sarah",
+    "af_sky",
+    *(f"am_{v}" for v in "adam echo eric fenrir liam michael onyx puck santa".split()),
+    *(f"bf_{v}" for v in "alice emma isabella lily".split()),
+    *(f"bm_{v}" for v in "daniel fable george lewis".split()),
+}
+
+
+def test_every_person_has_a_voice_for_each_accent_that_kokoro_has() -> None:
+    for person in dp.people():
+        found = dp.voices_for(person)
+        assert [(a, lang) for a, lang, _ in found] == [("American", "a"), ("British", "b")]
+        for _, _, voice in found:
             parts = voice.split(",")
-            assert all(v[0] == lang for v in parts)
-            assert [v[1] for v in parts] == (["f", "m"] if gender == dp.NONBINARY else [gender[0]])
+            assert set(parts) <= KOKORO, voice
+            # A nonbinary voice blends a woman's and a man's (R24b3); the others are all of the
+            # person's gender, though a British voice may blend in an American one (R24e).
+            kinds = sorted(v[1] for v in parts)
+            if person.gender == dp.NONBINARY:
+                assert kinds == ["f", "m"]
+            else:
+                assert set(kinds) == {person.gender[0]}
+
+
+def test_teenagers_sound_younger_and_older_people_older() -> None:
+    for person in dp.people():
+        for accent, _, voice in dp.voices_for(person):
+            older = "older" if person.age else "adult"
+            expected = "younger" if person.role == "Teenager" else older
+            assert voice in dp.VOICE_CHOICES[(person.gender, accent, expected)]
+    assert dp.age(dp.Person("female", "animated", "Teenager", "x")) == "younger"
+    assert dp.age(dp.Person("male", "animated", "Boss", "x", age=dp.SIXTIES)) == "older"
+    assert dp.age(dp.Person("male", "animated", "Boss", "x")) == "adult"
+
+
+def test_faces_near_each_other_on_the_avatar_page_sound_different() -> None:
+    # The page shows one look at a time, women, men and nonbinary people taking turns.
+    for realism in dp.REALISMS:
+        shown = dp.page_order([p for p in dp.people() if p.realism == realism])
+        for accent in dp.ACCENT_LANGS:
+            voices = [dp.voice_of(p.name, accent)[1] for p in shown]
+            for i in range(len(voices)):
+                assert voices[i] not in voices[i + 1 : i + 3], (shown[i].name, accent)
+
+
+def test_the_adults_of_a_gender_and_accent_dont_all_share_a_voice() -> None:
+    for gender in dp.BINARY:
+        for accent in dp.ACCENT_LANGS:
+            used = {
+                dp.voice_of(p.name, accent)[1]
+                for p in dp.people()
+                if p.gender == gender and dp.age(p) == "adult"
+            }
+            assert used == set(dp.VOICE_CHOICES[(gender, accent, "adult")])
+
+
+def test_each_voice_belongs_to_one_kind_and_has_a_label() -> None:
+    every = [v for vs in dp.VOICE_CHOICES.values() for v in vs]
+    assert len(every) == len(set(every))
+    assert dp.voice_label("af_heart") == "American woman 1"
+    assert dp.voice_label("bf_emma,af_kore") == "British woman, older 1"
+    assert dp.voice_label("af_bella,am_fenrir") == "American nonbinary, younger"
+    assert len({dp.voice_label(v) for v in every}) == len(every)
+    with pytest.raises(ValueError):
+        dp.voice_label("af_nobody")
+
+
+def test_the_voices_from_before_r24e_are_still_offered() -> None:
+    every = {v for vs in dp.VOICE_CHOICES.values() for v in vs}
+    old = {"af_heart", "am_michael", "bf_emma", "bm_george"}
+    assert old | {"af_heart,am_michael", "bf_emma,bm_george"} <= every
+
+
+def test_the_page_order_goes_by_role_then_face_then_gender() -> None:
+    a = dp.Person("male", "animated", "Professor", "x")
+    b = dp.Person("female", "animated", "Professor", "x", face=2)
+    c = dp.Person("female", "animated", "Professor", "x")
+    d = dp.Person("nonbinary", "animated", "Student", "x")
+    assert dp.page_order([d, b, a, c]) == [c, a, b, d]
 
 
 N_LOOP = 12  # a short loop: key frames 0, 4 and 8

@@ -32,11 +32,11 @@ from imageskin.default_people import (
     GENDERS,
     REALISMS,
     ROLES,
-    VOICES,
     PackError,
     check_pack,
     people,
     unpack,
+    voice_of,
 )
 from imageskin.download import DownloadError, download, sha256_of
 from imageskin.photoreal_library import library_key
@@ -109,8 +109,8 @@ class Choice:
 
     @property
     def voice(self) -> tuple[str, str]:
-        """Kokoro's language code and voice for the gender and accent."""
-        return VOICES[(self.gender, self.accent)]
+        """Kokoro's language code and the person's own voice for the accent (R24e)."""
+        return voice_of(self.name, self.accent)
 
 
 @dataclass(frozen=True)
@@ -266,10 +266,14 @@ class StartNow:
         return self._folder / f"{name}.png"
 
     def _lines(self, choice: Choice) -> Path:
-        return self._folder / "lines" / f"{choice.name}_{choice.accent.lower()}"
+        """Where the person's lines are, named for the voice too, so a person whose voice has
+        changed (R24e) has them rendered again in the new one."""
+        voice = choice.voice[1].replace(",", "+")
+        return self._folder / "lines" / f"{choice.name}_{choice.accent.lower()}_{voice}"
 
     def _save(self, choice: Choice) -> None:
         self._write(choice)  # in its ready-made voice, even if chosen before in the user's own
+        logger.info("Default voice chosen", extra={"person": choice.name, "voice": choice.voice[1]})
         # The user's own photo speaks in it until they add recordings (item 59).
         save_ready_voice(self._home, choice.voice[1])
 
@@ -313,6 +317,46 @@ class StartNow:
             )
             self._thread.start()
             return self._status
+
+    def refresh(self) -> bool:
+        """At start-up: the chosen person, unpacked before, whose lines aren't there in their
+        voice, since it changed (R24e), gets them rendered again on the background thread. Only
+        the lines: the choice, and whether the avatar speaks in the user's own voice (R24d), stay
+        as they were (Codex's review of PR #142). Whether that started. Raises as `start` does
+        while Prepare runs."""
+        with self._lock:
+            choice = self.chosen()
+            if choice is None or self._status.state in BUSY:
+                return False
+            if not self._unpacked(choice.name) or self._ready(choice):
+                return False
+            logger.info(
+                "Default person's lines rendered again in their voice",
+                extra={"person": choice.name, "voice": choice.voice[1]},
+            )
+            self._claim()  # refused while Prepare runs
+            self._status = StartStatus("getting-ready", choice.name, 100)
+            self._thread = threading.Thread(
+                target=self._run_refresh, args=(choice,), name="start-now-lines", daemon=True
+            )
+            self._thread.start()
+            return True
+
+    def _run_refresh(self, choice: Choice) -> None:
+        start = time.perf_counter()
+        try:
+            self._render_lines(choice)
+        except Exception:
+            logger.exception("Could not render the lines again", extra={"person": choice.name})
+            self._set("failed", error=NOT_READY)
+            return
+        finally:
+            self._release()
+        self._set("ready", 100)
+        logger.info(
+            "Default person's lines ready in their voice",
+            extra={"person": choice.name, "duration_s": round(time.perf_counter() - start, 1)},
+        )
 
     def wait(self, timeout: float | None = None) -> None:
         """For tests: wait for the background thread to finish."""

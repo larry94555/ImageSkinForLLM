@@ -2304,32 +2304,6 @@ function SetupPage({ change }) {
 		]
 	});
 }
-var READY_VOICES = [
-	{
-		voice: "af_heart",
-		label: "American woman"
-	},
-	{
-		voice: "am_michael",
-		label: "American man"
-	},
-	{
-		voice: "af_heart,am_michael",
-		label: "American nonbinary"
-	},
-	{
-		voice: "bf_emma",
-		label: "British woman"
-	},
-	{
-		voice: "bm_george",
-		label: "British man"
-	},
-	{
-		voice: "bf_emma,bm_george",
-		label: "British nonbinary"
-	}
-];
 function ReadyVoiceChoice(props) {
 	const [ready, setReady] = d(null);
 	const [failed, setFailed] = d(null);
@@ -2339,7 +2313,7 @@ function ReadyVoiceChoice(props) {
 			console.info(`Ready-made voice: ${r.voice}, in use: ${r.in_use}`);
 		}).catch((e) => console.error("Could not read the ready-made voice", e));
 	}, [props.changes]);
-	if (ready === null) return null;
+	if (ready === null || !Array.isArray(ready.voices)) return null;
 	async function choose(voice) {
 		const started = performance.now();
 		setFailed(null);
@@ -2370,7 +2344,7 @@ function ReadyVoiceChoice(props) {
 				/* @__PURE__ */ u("select", {
 					value: ready.voice,
 					onChange: (e) => void choose(e.currentTarget.value),
-					children: READY_VOICES.map(({ voice, label }) => /* @__PURE__ */ u("option", {
+					children: ready.voices.map(({ voice, label }) => /* @__PURE__ */ u("option", {
 						value: voice,
 						children: label
 					}, voice))

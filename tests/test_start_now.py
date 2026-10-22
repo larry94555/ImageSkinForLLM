@@ -185,6 +185,75 @@ def test_the_other_accent_needs_only_its_lines(tmp_path: Path, pack: Path) -> No
     assert said == ["Goodbye.", "Welcome back."] and again.voice() == ("a", "af_heart")
 
 
+def test_a_changed_voice_says_the_lines_again_at_start_up(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    first = started(tmp_path, pack)
+    with caplog.at_level(logging.INFO):
+        first.start(CHOICE)
+        first.wait(10)
+    chosen = next(r for r in caplog.records if r.getMessage() == "Default voice chosen")
+    assert vars(chosen)["person"] == CHOICE.name and vars(chosen)["voice"] == "bf_emma"
+    # Nothing to do while the lines are there in the person's voice, or nobody is chosen.
+    assert first.refresh() is False
+    assert started(tmp_path / "nobody", pack).refresh() is False
+
+    # A new version of the app gives the person another voice (R24e).
+    monkeypatch.setattr(sn, "voice_of", lambda name, accent: ("b", "bf_emma,af_kore"))
+    fetch, said = Fetcher(pack), list[str]()
+    again = started(tmp_path, pack, fetch=fetch, render_clip=renderer(said))
+    assert again.clip("goodbye") is None  # not yet in the new voice
+    assert again.refresh() is True
+    again.wait(10)
+    assert again.status().state == "ready" and fetch.urls == []
+    assert said == ["Goodbye.", "Welcome back."] and again.voice() == ("b", "bf_emma,af_kore")
+    goodbye = again.clip("goodbye")
+    assert goodbye is not None and goodbye.parent.name.endswith("_british_bf_emma+af_kore")
+
+
+def test_refreshing_the_lines_keeps_the_avatar_in_the_users_own_voice(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = started(tmp_path, pack)
+    first.start(CHOICE)
+    first.wait(10)
+    first.set_own_voice(True)  # R24d
+    monkeypatch.setattr(sn, "voice_of", lambda name, accent: ("b", "bf_emma,af_kore"))
+    claims: list[str] = []
+    again = started(
+        tmp_path,
+        pack,
+        claim=lambda: claims.append("claim"),
+        release=lambda: claims.append("release"),
+    )
+    assert again.refresh() is True
+    again.wait(10)
+    assert again.status().state == "ready" and claims == ["claim", "release"]
+    assert again.own_voice() is True and again.chosen() == CHOICE
+    assert again.clip("goodbye") is not None
+
+
+def test_lines_that_cant_be_rendered_again_say_so(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    first = started(tmp_path, pack)
+    first.start(CHOICE)
+    first.wait(10)
+    monkeypatch.setattr(sn, "voice_of", lambda name, accent: ("b", "bf_emma,af_kore"))
+
+    def broken(picture: Path, text: str, output: Path) -> None:
+        raise RuntimeError("no engine")
+
+    released: list[bool] = []
+    again = started(tmp_path, pack, render_clip=broken, release=lambda: released.append(True))
+    with caplog.at_level(logging.ERROR):
+        assert again.refresh() is True
+        again.wait(10)
+    assert again.status().state == "failed" and again.status().error == sn.NOT_READY
+    assert released == [True] and again.chosen() == CHOICE
+    assert any(r.getMessage() == "Could not render the lines again" for r in caplog.records)
+
+
 @pytest.mark.parametrize(
     ("error", "message"),
     [(DownloadError("offline"), sn.DOWNLOAD_FAILED), (dp.PackError("bad"), sn.DAMAGED)],
@@ -479,8 +548,9 @@ def test_a_nonbinary_person_is_a_choice_with_a_blended_voice() -> None:
     choice = sn.Choice("nonbinary", "British", "animated", "Boss")
     assert choice.problem() is None
     assert choice.name == "animated_nonbinary_boss"
-    assert choice.voice == ("b", "bf_emma,bm_george")
-    assert sn.Choice("nonbinary", "American", "photoreal", "Parent").voice == (
+    # Older (R24e): a blend of the accent's woman's voice and its lowest man's.
+    assert choice.voice == ("b", "bf_emma,bm_lewis")
+    assert sn.Choice("nonbinary", "American", "animated", "Parent").voice == (
         "a",
         "af_heart,am_michael",
     )
@@ -723,3 +793,38 @@ def test_choosing_the_same_person_after_delete_needs_no_download(
 def test_the_packs_come_from_the_hosted_site_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(sn.URL_VARIABLE, raising=False)
     assert sn.packs_url() == "https://app.me0.ai/default-people"
+
+
+def test_the_app_says_the_lines_again_at_start_up_in_a_changed_voice(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def app() -> TestClient:
+        monkeypatch.setattr(
+            "imageskin.app.StartNow",
+            functools.partial(sn.StartNow, packs=packs_of(pack), fetch=Fetcher(pack)),
+        )
+        return TestClient(
+            create_app(
+                tmp_path / "home",
+                prepare_voice=lambda: None,
+                prepare_face=lambda photo, progress: None,
+                render_clip=renderer([]),
+                ask_llm=lambda messages: "Hello there",
+            )
+        )
+
+    choose(app())
+    monkeypatch.setattr(sn, "voice_of", lambda name, accent: ("b", "bf_emma,af_kore"))
+    restarted = app()
+    restarted.app.state.start_now.wait(10)  # type: ignore[attr-defined]
+    assert restarted.get("/api/start-now/lines/goodbye").status_code == 200
+
+    # Refused while Prepare runs: logged, and the app still starts.
+    def refuse(self: sn.StartNow) -> bool:
+        raise PrepareError("Prepare is running.")
+
+    monkeypatch.setattr(sn.StartNow, "refresh", refuse)
+    with caplog.at_level(logging.WARNING):
+        assert app().get("/api/start-now").status_code == 200
+    logged = [r.getMessage() for r in caplog.records]
+    assert "Default person's lines not rendered again" in logged
