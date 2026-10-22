@@ -36,3 +36,16 @@ def test_only_llama_servers_timings_are_kept() -> None:
     assert times.llm == {"prompt_n": 30, "cache_n": 100, "predicted_per_second": 6.2}
     assert times.as_dict()["llm"] == times.llm
     assert times.as_dict()["received_at"] == 0.0
+
+
+def test_llm_requests_are_kept_only_while_a_list_is_set() -> None:
+    """R96a: the wiki's build keeps each request's time and llama-server's timings."""
+    reply_times.note_request({"prompt_n": 3}, 10.0)  # nothing set: nothing kept, no error
+    kept: list[dict[str, object]] = []
+    token = reply_times.requests.set(kept)
+    try:
+        reply_times.note_request({"prompt_n": 30, "cache_n": 5, "n_ctx": 4096}, 120.5)
+        reply_times.note_request("not a dict", 3.0)
+    finally:
+        reply_times.requests.reset(token)
+    assert kept == [{"duration_ms": 120.5, "prompt_n": 30, "cache_n": 5}, {"duration_ms": 3.0}]

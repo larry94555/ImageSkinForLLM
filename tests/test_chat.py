@@ -425,6 +425,23 @@ def test_the_client_asks_the_chat_api(fake_llm: str) -> None:
     ]
 
 
+def test_the_clients_answers_keep_llama_servers_timings(fake_llm: str) -> None:
+    """R96a: the wiki's requests keep llama-server's timings, sent with a non-streamed answer."""
+    timings = {"prompt_n": 120, "cache_n": 40, "prompt_ms": 800.0, "predicted_n": 9}
+    answer = json.loads(reply("Fine."))
+    FakeLlm.answer = (200, json.dumps({**answer, "timings": timings}).encode())
+    client = LlmClient(LlmSettings(url=fake_llm))
+    kept: list[dict[str, object]] = []
+    token = reply_times.requests.set(kept)
+    try:
+        assert client.ask([{"role": "user", "content": "Hi"}]) == "Fine."
+    finally:
+        reply_times.requests.reset(token)
+    [request] = kept
+    assert isinstance(request.pop("duration_ms"), float)
+    assert request == timings
+
+
 def test_the_client_can_ask_for_json_of_a_given_form(fake_llm: str) -> None:
     FakeLlm.answer = (200, reply('{"topics": []}'))
     client = LlmClient(LlmSettings(url=fake_llm))
@@ -760,6 +777,21 @@ def test_tokens_are_estimated_while_the_server_is_down() -> None:
     client = LlmClient(LlmSettings(url="http://127.0.0.1:1/v1", timeout_s=5))
     assert client.count("Hello") == estimate("Hello")
     assert client._can_count  # asked again once it is up
+
+
+def test_tokens_are_counted_once_the_server_has_loaded_its_model(fake_llm: str) -> None:
+    """llama-server answers 503 while it loads the model; the app started with it on the hosted
+    machine, and estimating for good from then on made its wiki parts a third of the size."""
+    FakeLlm.tokenize = (503, b'{"error": {"message": "Loading model", "code": 503}}')
+    FakeLlm.props = (503, b'{"error": {"message": "Loading model", "code": 503}}')
+    client = LlmClient(LlmSettings(url=fake_llm, context_tokens=4096))
+    assert client.count("Hello there") == estimate("Hello there")
+    assert client.context_tokens() == 4096
+    assert client._can_count and client._window is None  # asked again once it is up
+    FakeLlm.tokenize = (200, b'{"tokens": [1, 2]}')
+    FakeLlm.props = (200, b'{"n_ctx": 8192}')
+    assert client.count("Hello there") == 2
+    assert client.context_tokens() == 8192
 
 
 def test_tokens_are_counted_by_the_server(fake_llm: str) -> None:

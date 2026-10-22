@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from imageskin import reply_times
 from imageskin.app import create_app
 from imageskin.chat import (
     CONTENT_TOKENS,
@@ -19,6 +20,7 @@ from imageskin.chat import (
 )
 from imageskin.lookup import Found, Lookup, Passage, as_passages
 from imageskin.pdf_reading import Piece, Progress, Reading
+from imageskin.reply_times import ReplyTimes
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult
 from imageskin.wiki import Progress as WikiProgress
@@ -165,3 +167,31 @@ def test_the_chat_answers_from_the_wiki_and_pdfs(tmp_path: Path) -> None:
     assert "Moons of Mars (space.pdf, page 1): Mars has two moons." in asked
     assert client.get("/api/chat").json()["turns"][0]["content"] == "Which moons circle Mars?"
     assert pdf["name"] == "space.pdf"
+
+
+def test_the_lookup_and_the_prompt_sent_with_it_are_timed() -> None:
+    """R96a: how long the lookup took, and the tokens of the prompt with what was found."""
+    times = ReplyTimes(received_at=0.0)
+    token = reply_times.current.set(times)
+    try:
+        Conversation(Llm(), lambda: 4096, find=lambda prompt: ["Mars has two moons."]).send(
+            "How many moons has Mars?"
+        )
+    finally:
+        reply_times.current.reset(token)
+    assert times.looked_up_ms is not None and times.looked_up_ms >= 0
+    asked = len(f"{FOUND_START}\n<<<\n- Mars has two moons.\n>>>\n{FOUND_END}\n".encode())
+    assert times.asked_tokens is not None and times.asked_tokens > asked
+
+
+def test_a_failed_lookup_is_not_timed() -> None:
+    def broken(prompt: str) -> list[str]:
+        raise RuntimeError("index gone")
+
+    times = ReplyTimes(received_at=0.0)
+    token = reply_times.current.set(times)
+    try:
+        Conversation(Llm(), lambda: 4096, find=broken).send("Hi")
+    finally:
+        reply_times.current.reset(token)
+    assert times.looked_up_ms is None and times.asked_tokens is not None

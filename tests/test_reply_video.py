@@ -748,8 +748,13 @@ JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
 
 
 def video_app(
-    tmp_path: Path, render: object, stream: object = None, steps: ClipSteps | None = None
+    tmp_path: Path,
+    render: object,
+    stream: object = None,
+    steps: ClipSteps | None = None,
+    **kw: Any,  # more of create_app's, such as another ask_llm (R96a)
 ) -> TestClient:
+    kw.setdefault("ask_llm", lambda messages: f"You said **{messages[-1]['content']}**")
     client = TestClient(
         create_app(
             tmp_path,
@@ -757,9 +762,9 @@ def video_app(
             prepare_voice=lambda: None,
             prepare_face=lambda photo, progress: None,
             render_clip=render,  # type: ignore[arg-type]
-            ask_llm=lambda messages: f"You said **{messages[-1]['content']}**",
             stream_llm=stream,  # type: ignore[arg-type]
             clip_steps=steps,
+            **kw,
         )
     )
     client.app.state.reply_warm_up.join(5)  # type: ignore[attr-defined]

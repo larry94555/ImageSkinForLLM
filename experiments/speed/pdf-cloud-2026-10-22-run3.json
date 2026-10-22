@@ -1,0 +1,1001 @@
+{
+  "llm": "Local (llama.cpp)",
+  "pdf": {
+    "pdf_id": "855a0a4e05974379a776dcb5d7d4a22b",
+    "name": "sample.pdf",
+    "bytes": 26022,
+    "upload_ms": 6,
+    "read_ms": 701,
+    "pages": 19,
+    "kind": "text",
+    "counts": {
+      "paragraph": 366,
+      "slide": 0,
+      "table": 0
+    },
+    "wiki_ms": 3631470,
+    "total_ms": 3632177,
+    "wiki_built_s": 3631.5,
+    "parts": 3,
+    "wiki_pages": 17,
+    "topic": "Prime Numbers",
+    "steps": [
+      {
+        "stage": "topics",
+        "step": 1,
+        "ended_ms": 253157.9,
+        "duration_ms": 253157.9,
+        "requests": [
+          {
+            "duration_ms": 253156.1,
+            "cache_n": 0,
+            "prompt_n": 2827,
+            "prompt_ms": 67231.746,
+            "prompt_per_second": 42.0485881773768,
+            "predicted_n": 660,
+            "predicted_ms": 185909.129,
+            "predicted_per_second": 3.5447425500014043
+          }
+        ]
+      },
+      {
+        "stage": "topics",
+        "step": 2,
+        "ended_ms": 456070.6,
+        "duration_ms": 202912.6,
+        "requests": [
+          {
+            "duration_ms": 202908.5,
+            "cache_n": 0,
+            "prompt_n": 2870,
+            "prompt_ms": 67848.789,
+            "prompt_per_second": 42.29994436599303,
+            "predicted_n": 485,
+            "predicted_ms": 132922.189,
+            "predicted_per_second": 3.6412280270226365
+          }
+        ]
+      },
+      {
+        "stage": "topics",
+        "step": 3,
+        "ended_ms": 647569.8,
+        "duration_ms": 191499.2,
+        "requests": [
+          {
+            "duration_ms": 191494.3,
+            "cache_n": 0,
+            "prompt_n": 2285,
+            "prompt_ms": 49461.023,
+            "prompt_per_second": 46.19799311469963,
+            "predicted_n": 529,
+            "predicted_ms": 140058.143,
+            "predicted_per_second": 3.7698629204301244
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 1,
+        "ended_ms": 714245.6,
+        "duration_ms": 66675.8,
+        "requests": [
+          {
+            "duration_ms": 66250.1,
+            "cache_n": 0,
+            "prompt_n": 527,
+            "prompt_ms": 9952.224,
+            "prompt_per_second": 52.95298819640715,
+            "predicted_n": 238,
+            "predicted_ms": 55064.414,
+            "predicted_per_second": 4.30405016205203
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 2,
+        "ended_ms": 833749.1,
+        "duration_ms": 119503.5,
+        "requests": [
+          {
+            "duration_ms": 119463.1,
+            "cache_n": 10,
+            "prompt_n": 819,
+            "prompt_ms": 16294.661,
+            "prompt_per_second": 50.261861845422864,
+            "predicted_n": 424,
+            "predicted_ms": 103018.987,
+            "predicted_per_second": 4.106039210034166
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 3,
+        "ended_ms": 889389.0,
+        "duration_ms": 55639.9,
+        "requests": [
+          {
+            "duration_ms": 55631.4,
+            "cache_n": 10,
+            "prompt_n": 278,
+            "prompt_ms": 5527.308,
+            "prompt_per_second": 50.29573166539661,
+            "predicted_n": 207,
+            "predicted_ms": 48949.904,
+            "predicted_per_second": 4.2083841471885215
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 4,
+        "ended_ms": 1021469.4,
+        "duration_ms": 132080.4,
+        "requests": [
+          {
+            "duration_ms": 132045.6,
+            "cache_n": 9,
+            "prompt_n": 849,
+            "prompt_ms": 18340.682,
+            "prompt_per_second": 46.29053597897832,
+            "predicted_n": 468,
+            "predicted_ms": 113364.517,
+            "predicted_per_second": 4.119454767314891
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 5,
+        "ended_ms": 1091930.6,
+        "duration_ms": 70461.2,
+        "requests": [
+          {
+            "duration_ms": 70446.8,
+            "cache_n": 9,
+            "prompt_n": 377,
+            "prompt_ms": 8529.427,
+            "prompt_per_second": 44.199921049796195,
+            "predicted_n": 254,
+            "predicted_ms": 60653.905,
+            "predicted_per_second": 4.17120711354034
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 6,
+        "ended_ms": 1147295.7,
+        "duration_ms": 55365.1,
+        "requests": [
+          {
+            "duration_ms": 55344.5,
+            "cache_n": 8,
+            "prompt_n": 330,
+            "prompt_ms": 6794.265,
+            "prompt_per_second": 48.57037516199324,
+            "predicted_n": 206,
+            "predicted_ms": 48113.136,
+            "predicted_per_second": 4.260790649771821
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 7,
+        "ended_ms": 1263121.4,
+        "duration_ms": 115825.7,
+        "requests": [
+          {
+            "duration_ms": 115790.5,
+            "cache_n": 7,
+            "prompt_n": 844,
+            "prompt_ms": 17409.272,
+            "prompt_per_second": 48.47991346220565,
+            "predicted_n": 410,
+            "predicted_ms": 98189.742,
+            "predicted_per_second": 4.16540456945085
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 8,
+        "ended_ms": 1305263.3,
+        "duration_ms": 42141.9,
+        "requests": [
+          {
+            "duration_ms": 42139.7,
+            "cache_n": 7,
+            "prompt_n": 235,
+            "prompt_ms": 5094.141,
+            "prompt_per_second": 46.13142824275968,
+            "predicted_n": 161,
+            "predicted_ms": 36656.376,
+            "predicted_per_second": 4.364861381823451
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 9,
+        "ended_ms": 1353715.5,
+        "duration_ms": 48452.2,
+        "requests": [
+          {
+            "duration_ms": 48444.5,
+            "cache_n": 6,
+            "prompt_n": 275,
+            "prompt_ms": 5369.612,
+            "prompt_per_second": 51.21412869309738,
+            "predicted_n": 193,
+            "predicted_ms": 43007.208,
+            "predicted_per_second": 4.464367926418288
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 10,
+        "ended_ms": 1482100.7,
+        "duration_ms": 128385.2,
+        "requests": [
+          {
+            "duration_ms": 128354.3,
+            "cache_n": 5,
+            "prompt_n": 923,
+            "prompt_ms": 19554.908,
+            "prompt_per_second": 47.20042661412675,
+            "predicted_n": 433,
+            "predicted_ms": 108701.693,
+            "predicted_per_second": 3.974179132610198
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 11,
+        "ended_ms": 1528890.1,
+        "duration_ms": 46789.5,
+        "requests": [
+          {
+            "duration_ms": 46788.8,
+            "cache_n": 6,
+            "prompt_n": 257,
+            "prompt_ms": 5688.127,
+            "prompt_per_second": 45.18183226218402,
+            "predicted_n": 163,
+            "predicted_ms": 40667.65,
+            "predicted_per_second": 3.9835102347935027
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 12,
+        "ended_ms": 1591878.5,
+        "duration_ms": 62988.3,
+        "requests": [
+          {
+            "duration_ms": 62980.0,
+            "cache_n": 5,
+            "prompt_n": 274,
+            "prompt_ms": 6450.609,
+            "prompt_per_second": 42.47660957283258,
+            "predicted_n": 229,
+            "predicted_ms": 56456.627,
+            "predicted_per_second": 4.0384984388103815
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 13,
+        "ended_ms": 1779325.0,
+        "duration_ms": 187446.6,
+        "requests": [
+          {
+            "duration_ms": 187424.6,
+            "cache_n": 4,
+            "prompt_n": 1290,
+            "prompt_ms": 29321.612,
+            "prompt_per_second": 43.99485267044663,
+            "predicted_n": 600,
+            "predicted_ms": 158012.629,
+            "predicted_per_second": 3.790836237526306
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 14,
+        "ended_ms": 1866994.3,
+        "duration_ms": 87669.2,
+        "requests": [
+          {
+            "duration_ms": 87666.9,
+            "cache_n": 4,
+            "prompt_n": 493,
+            "prompt_ms": 9888.567,
+            "prompt_per_second": 49.855555410607025,
+            "predicted_n": 321,
+            "predicted_ms": 77456.366,
+            "predicted_per_second": 4.131358292745105
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 15,
+        "ended_ms": 2007400.2,
+        "duration_ms": 140405.9,
+        "requests": [
+          {
+            "duration_ms": 140405.0,
+            "cache_n": 3,
+            "prompt_n": 822,
+            "prompt_ms": 16262.293,
+            "prompt_per_second": 50.546377438901146,
+            "predicted_n": 509,
+            "predicted_ms": 123999.358,
+            "predicted_per_second": 4.0967954043762065
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 16,
+        "ended_ms": 2068432.0,
+        "duration_ms": 61031.9,
+        "requests": [
+          {
+            "duration_ms": 61029.6,
+            "cache_n": 3,
+            "prompt_n": 299,
+            "prompt_ms": 6102.112,
+            "prompt_per_second": 48.999428394627955,
+            "predicted_n": 235,
+            "predicted_ms": 54690.859,
+            "predicted_per_second": 4.278594344257786
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 17,
+        "ended_ms": 2115555.8,
+        "duration_ms": 47123.8,
+        "requests": [
+          {
+            "duration_ms": 47117.7,
+            "cache_n": 2,
+            "prompt_n": 258,
+            "prompt_ms": 5263.923,
+            "prompt_per_second": 49.01287499836149,
+            "predicted_n": 184,
+            "predicted_ms": 41773.402,
+            "predicted_per_second": 4.380777988826479
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 18,
+        "ended_ms": 2195468.8,
+        "duration_ms": 79912.9,
+        "requests": [
+          {
+            "duration_ms": 79912.1,
+            "cache_n": 1,
+            "prompt_n": 473,
+            "prompt_ms": 8672.809,
+            "prompt_per_second": 54.538270126783615,
+            "predicted_n": 301,
+            "predicted_ms": 71163.077,
+            "predicted_per_second": 4.215669314017998
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 19,
+        "ended_ms": 2323689.2,
+        "duration_ms": 128220.5,
+        "requests": [
+          {
+            "duration_ms": 128219.4,
+            "cache_n": 1,
+            "prompt_n": 842,
+            "prompt_ms": 17671.562,
+            "prompt_per_second": 47.647174596110965,
+            "predicted_n": 438,
+            "predicted_ms": 110348.888,
+            "predicted_per_second": 3.960166775763069
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 20,
+        "ended_ms": 2371756.2,
+        "duration_ms": 48066.9,
+        "requests": [
+          {
+            "duration_ms": 48058.0,
+            "cache_n": 1,
+            "prompt_n": 285,
+            "prompt_ms": 6263.218,
+            "prompt_per_second": 45.50376499748213,
+            "predicted_n": 179,
+            "predicted_ms": 41406.495,
+            "predicted_per_second": 4.298842488358408
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 21,
+        "ended_ms": 2433409.1,
+        "duration_ms": 61653.0,
+        "requests": [
+          {
+            "duration_ms": 61636.0,
+            "cache_n": 1,
+            "prompt_n": 418,
+            "prompt_ms": 8893.754,
+            "prompt_per_second": 46.999276121196964,
+            "predicted_n": 236,
+            "predicted_ms": 52664.489,
+            "predicted_per_second": 4.4622098203592175
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 22,
+        "ended_ms": 2565619.8,
+        "duration_ms": 132210.6,
+        "requests": [
+          {
+            "duration_ms": 132209.7,
+            "cache_n": 1,
+            "prompt_n": 846,
+            "prompt_ms": 16371.789,
+            "prompt_per_second": 51.674255024909,
+            "predicted_n": 481,
+            "predicted_ms": 115617.351,
+            "predicted_per_second": 4.151625995997781
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 23,
+        "ended_ms": 2605903.0,
+        "duration_ms": 40283.3,
+        "requests": [
+          {
+            "duration_ms": 40275.7,
+            "cache_n": 5,
+            "prompt_n": 234,
+            "prompt_ms": 4618.06,
+            "prompt_per_second": 50.67062792601222,
+            "predicted_n": 159,
+            "predicted_ms": 35324.712,
+            "predicted_per_second": 4.472789473839164
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 24,
+        "ended_ms": 2677278.1,
+        "duration_ms": 71375.1,
+        "requests": [
+          {
+            "duration_ms": 71363.2,
+            "cache_n": 4,
+            "prompt_n": 376,
+            "prompt_ms": 7091.25,
+            "prompt_per_second": 53.023091838533404,
+            "predicted_n": 277,
+            "predicted_ms": 64198.621,
+            "predicted_per_second": 4.299157765398108
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 25,
+        "ended_ms": 2755938.5,
+        "duration_ms": 78660.5,
+        "requests": [
+          {
+            "duration_ms": 78659.6,
+            "cache_n": 3,
+            "prompt_n": 436,
+            "prompt_ms": 8642.481,
+            "prompt_per_second": 50.448476542789045,
+            "predicted_n": 294,
+            "predicted_ms": 69902.694,
+            "predicted_per_second": 4.191540886821901
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 26,
+        "ended_ms": 2838924.1,
+        "duration_ms": 82985.6,
+        "requests": [
+          {
+            "duration_ms": 82984.7,
+            "cache_n": 2,
+            "prompt_n": 521,
+            "prompt_ms": 11422.458,
+            "prompt_per_second": 45.61189894504317,
+            "predicted_n": 292,
+            "predicted_ms": 71410.533,
+            "predicted_per_second": 4.07502909969878
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 27,
+        "ended_ms": 2903127.6,
+        "duration_ms": 64203.5,
+        "requests": [
+          {
+            "duration_ms": 64192.3,
+            "cache_n": 6,
+            "prompt_n": 275,
+            "prompt_ms": 6264.609,
+            "prompt_per_second": 43.89739247892406,
+            "predicted_n": 228,
+            "predicted_ms": 57764.462,
+            "predicted_per_second": 3.9297518256120862
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 28,
+        "ended_ms": 2988782.6,
+        "duration_ms": 85655.0,
+        "requests": [
+          {
+            "duration_ms": 85654.0,
+            "cache_n": 5,
+            "prompt_n": 482,
+            "prompt_ms": 11847.616,
+            "prompt_per_second": 40.683290207920315,
+            "predicted_n": 300,
+            "predicted_ms": 73684.501,
+            "predicted_per_second": 4.057841146267653
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 29,
+        "ended_ms": 3081746.7,
+        "duration_ms": 92964.1,
+        "requests": [
+          {
+            "duration_ms": 92963.3,
+            "cache_n": 4,
+            "prompt_n": 476,
+            "prompt_ms": 10394.162,
+            "prompt_per_second": 45.794937581307664,
+            "predicted_n": 341,
+            "predicted_ms": 82314.579,
+            "predicted_per_second": 4.1304955225489275
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 30,
+        "ended_ms": 3156381.2,
+        "duration_ms": 74634.5,
+        "requests": [
+          {
+            "duration_ms": 74633.7,
+            "cache_n": 1,
+            "prompt_n": 462,
+            "prompt_ms": 9229.933,
+            "prompt_per_second": 50.05453452370672,
+            "predicted_n": 282,
+            "predicted_ms": 65226.261,
+            "predicted_per_second": 4.308080759067272
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 31,
+        "ended_ms": 3238028.3,
+        "duration_ms": 81647.1,
+        "requests": [
+          {
+            "duration_ms": 81646.2,
+            "cache_n": 5,
+            "prompt_n": 453,
+            "prompt_ms": 8948.07,
+            "prompt_per_second": 50.6254421344491,
+            "predicted_n": 306,
+            "predicted_ms": 72528.223,
+            "predicted_per_second": 4.205259516698762
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 32,
+        "ended_ms": 3324426.5,
+        "duration_ms": 86398.2,
+        "requests": [
+          {
+            "duration_ms": 86397.1,
+            "cache_n": 4,
+            "prompt_n": 485,
+            "prompt_ms": 11533.263,
+            "prompt_per_second": 42.05227956736961,
+            "predicted_n": 298,
+            "predicted_ms": 74675.09,
+            "predicted_per_second": 3.9772298901815857
+          }
+        ]
+      },
+      {
+        "stage": "outline",
+        "step": 33,
+        "ended_ms": 3631494.7,
+        "duration_ms": 307068.2,
+        "requests": [
+          {
+            "duration_ms": 161241.1,
+            "cache_n": 0,
+            "prompt_n": 735,
+            "prompt_ms": 15682.508,
+            "prompt_per_second": 46.867503590624665,
+            "predicted_n": 600,
+            "predicted_ms": 145416.556,
+            "predicted_per_second": 4.119200842578063
+          },
+          {
+            "duration_ms": 145825.4,
+            "cache_n": 730,
+            "prompt_n": 5,
+            "prompt_ms": 675.081,
+            "prompt_per_second": 7.406518625172387,
+            "predicted_n": 600,
+            "predicted_ms": 145141.553,
+            "predicted_per_second": 4.127005586057082
+          }
+        ]
+      }
+    ],
+    "asked_during_build": null
+  },
+  "answers": [
+    {
+      "prompt": "What is a prime number?",
+      "spoken": false,
+      "status": 200,
+      "error": null,
+      "streamed": true,
+      "reached_server_ms": 16,
+      "waited_warm_up_ms": 0.0,
+      "waited_turn_ms": 0.2,
+      "history_tokens": 374,
+      "looked_up_ms": 36.2,
+      "asked_tokens": 380,
+      "prompt_sent_ms": 86,
+      "first_token_ms": 20954,
+      "first_sentence_ms": 22205,
+      "last_token_ms": 25331,
+      "answered_ms": 25339,
+      "llm": {
+        "cache_n": 0,
+        "prompt_n": 811,
+        "prompt_ms": 20655.285,
+        "prompt_per_second": 39.263558939031824,
+        "predicted_n": 20,
+        "predicted_ms": 4375.116,
+        "predicted_per_second": 4.34274199815502
+      },
+      "first_word_heard_ms": 23261,
+      "first_sentence_to_heard_ms": 1056,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": [
+        {
+          "clip": 1,
+          "sentence_ms": 22205,
+          "waited_ms": 1,
+          "voice_ms": 836,
+          "video_ms": 643,
+          "listed_ms": 23042,
+          "seen_ms": 23052,
+          "first_byte_ms": 23261,
+          "downloaded_ms": 23717,
+          "seconds": 1.64,
+          "plays_ms": 23261,
+          "gap_ms": null,
+          "late": false,
+          "error": null
+        },
+        {
+          "clip": 2,
+          "sentence_ms": 25332,
+          "waited_ms": 0,
+          "voice_ms": 2230,
+          "video_ms": 1557,
+          "listed_ms": 27562,
+          "seen_ms": 27579,
+          "first_byte_ms": 27709,
+          "downloaded_ms": 29132,
+          "seconds": 5.24,
+          "plays_ms": 27709,
+          "gap_ms": 2805,
+          "late": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "prompt": "What did Euler find about the primes and the zeta function?",
+      "spoken": true,
+      "status": 200,
+      "error": null,
+      "streamed": true,
+      "reached_server_ms": 8,
+      "waited_warm_up_ms": 0.0,
+      "waited_turn_ms": 0.1,
+      "history_tokens": 415,
+      "looked_up_ms": 19.8,
+      "asked_tokens": 391,
+      "prompt_sent_ms": 4156,
+      "first_token_ms": 23035,
+      "first_sentence_ms": 24709,
+      "last_token_ms": 31080,
+      "answered_ms": 31087,
+      "llm": {
+        "cache_n": 1,
+        "prompt_n": 856,
+        "prompt_ms": 18858.025,
+        "prompt_per_second": 45.391815951034104,
+        "predicted_n": 33,
+        "predicted_ms": 8045.283,
+        "predicted_per_second": 3.9774859380335035
+      },
+      "first_word_heard_ms": 26154,
+      "first_sentence_to_heard_ms": 1445,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": [
+        {
+          "clip": 1,
+          "sentence_ms": 24709,
+          "waited_ms": 0,
+          "voice_ms": 1210,
+          "video_ms": 777,
+          "listed_ms": 25919,
+          "seen_ms": 25944,
+          "first_byte_ms": 26154,
+          "downloaded_ms": 26717,
+          "seconds": 2.0,
+          "plays_ms": 26154,
+          "gap_ms": null,
+          "late": false,
+          "error": null
+        },
+        {
+          "clip": 2,
+          "sentence_ms": 25550,
+          "waited_ms": 1146,
+          "voice_ms": 1050,
+          "video_ms": 754,
+          "listed_ms": 27746,
+          "seen_ms": 27762,
+          "first_byte_ms": 27924,
+          "downloaded_ms": 28536,
+          "seconds": 2.16,
+          "plays_ms": 28157,
+          "gap_ms": 0,
+          "late": false,
+          "error": null
+        },
+        {
+          "clip": 3,
+          "sentence_ms": 31081,
+          "waited_ms": 1,
+          "voice_ms": 4126,
+          "video_ms": 2191,
+          "listed_ms": 35208,
+          "seen_ms": 35230,
+          "first_byte_ms": 35520,
+          "downloaded_ms": 37405,
+          "seconds": 7.28,
+          "plays_ms": 35520,
+          "gap_ms": 5201,
+          "late": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "prompt": "How many primes are there below one million?",
+      "spoken": false,
+      "status": null,
+      "error": "Remote end closed connection without response",
+      "streamed": null,
+      "reached_server_ms": null,
+      "waited_warm_up_ms": null,
+      "waited_turn_ms": null,
+      "history_tokens": null,
+      "looked_up_ms": null,
+      "asked_tokens": null,
+      "prompt_sent_ms": null,
+      "first_token_ms": null,
+      "first_sentence_ms": null,
+      "last_token_ms": null,
+      "answered_ms": 15457,
+      "llm": {},
+      "first_word_heard_ms": null,
+      "first_sentence_to_heard_ms": null,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": []
+    },
+    {
+      "prompt": "What does the Riemann hypothesis say?",
+      "spoken": false,
+      "status": null,
+      "error": "Could not reach the app for the clips (<urlopen error [Errno 111] Connection refused>).",
+      "streamed": null,
+      "reached_server_ms": null,
+      "waited_warm_up_ms": null,
+      "waited_turn_ms": null,
+      "history_tokens": null,
+      "looked_up_ms": null,
+      "asked_tokens": null,
+      "prompt_sent_ms": null,
+      "first_token_ms": null,
+      "first_sentence_ms": null,
+      "last_token_ms": null,
+      "answered_ms": 2,
+      "llm": {},
+      "first_word_heard_ms": null,
+      "first_sentence_to_heard_ms": null,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": []
+    },
+    {
+      "prompt": "How is the zeta function used in physics?",
+      "spoken": false,
+      "status": null,
+      "error": "Could not reach the app for the clips (<urlopen error [Errno 111] Connection refused>).",
+      "streamed": null,
+      "reached_server_ms": null,
+      "waited_warm_up_ms": null,
+      "waited_turn_ms": null,
+      "history_tokens": null,
+      "looked_up_ms": null,
+      "asked_tokens": null,
+      "prompt_sent_ms": null,
+      "first_token_ms": null,
+      "first_sentence_ms": null,
+      "last_token_ms": null,
+      "answered_ms": 1,
+      "llm": {},
+      "first_word_heard_ms": null,
+      "first_sentence_to_heard_ms": null,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": []
+    },
+    {
+      "prompt": "What can you talk about?",
+      "spoken": false,
+      "status": null,
+      "error": "Could not reach the app for the clips (<urlopen error [Errno 111] Connection refused>).",
+      "streamed": null,
+      "reached_server_ms": null,
+      "waited_warm_up_ms": null,
+      "waited_turn_ms": null,
+      "history_tokens": null,
+      "looked_up_ms": null,
+      "asked_tokens": null,
+      "prompt_sent_ms": null,
+      "first_token_ms": null,
+      "first_sentence_ms": null,
+      "last_token_ms": null,
+      "answered_ms": 1,
+      "llm": {},
+      "first_word_heard_ms": null,
+      "first_sentence_to_heard_ms": null,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": []
+    },
+    {
+      "prompt": "Teach me about Prime Numbers",
+      "spoken": false,
+      "status": null,
+      "error": "Could not reach the app for the clips (<urlopen error [Errno 111] Connection refused>).",
+      "streamed": null,
+      "reached_server_ms": null,
+      "waited_warm_up_ms": null,
+      "waited_turn_ms": null,
+      "history_tokens": null,
+      "looked_up_ms": null,
+      "asked_tokens": null,
+      "prompt_sent_ms": null,
+      "first_token_ms": null,
+      "first_sentence_ms": null,
+      "last_token_ms": null,
+      "answered_ms": 1,
+      "llm": {},
+      "first_word_heard_ms": null,
+      "first_sentence_to_heard_ms": null,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": []
+    },
+    {
+      "prompt": "Quiz me on Prime Numbers",
+      "spoken": false,
+      "status": null,
+      "error": "Could not reach the app for the clips (<urlopen error [Errno 111] Connection refused>).",
+      "streamed": null,
+      "reached_server_ms": null,
+      "waited_warm_up_ms": null,
+      "waited_turn_ms": null,
+      "history_tokens": null,
+      "looked_up_ms": null,
+      "asked_tokens": null,
+      "prompt_sent_ms": null,
+      "first_token_ms": null,
+      "first_sentence_ms": null,
+      "last_token_ms": null,
+      "answered_ms": 1,
+      "llm": {},
+      "first_word_heard_ms": null,
+      "first_sentence_to_heard_ms": null,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": []
+    },
+    {
+      "prompt": "Assess me",
+      "spoken": false,
+      "status": null,
+      "error": "Could not reach the app for the clips (<urlopen error [Errno 111] Connection refused>).",
+      "streamed": null,
+      "reached_server_ms": null,
+      "waited_warm_up_ms": null,
+      "waited_turn_ms": null,
+      "history_tokens": null,
+      "looked_up_ms": null,
+      "asked_tokens": null,
+      "prompt_sent_ms": null,
+      "first_token_ms": null,
+      "first_sentence_ms": null,
+      "last_token_ms": null,
+      "answered_ms": 1,
+      "llm": {},
+      "first_word_heard_ms": null,
+      "first_sentence_to_heard_ms": null,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": []
+    }
+  ],
+  "replaced": null
+}

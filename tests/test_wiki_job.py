@@ -16,6 +16,7 @@ from imageskin.chat import LlmCancelled, LlmError, Message, ask_stop
 from imageskin.content import ContentStore
 from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.reading_job import ReadingJob
+from imageskin.reply_times import note_request
 from imageskin.wiki import WIKI_PROMPT, WaitForLlm, Wiki, WikiError, WikiPage, build_wiki
 from imageskin.wiki import Progress as WikiProgress
 from imageskin.wiki_job import AI_REFUSED, BuildWiki, WikiJob, WikiStatus, remaining
@@ -693,3 +694,49 @@ def test_a_pdf_removed_while_it_is_built_hangs_up_on_the_answer_at_once(
     assert "Wiki build stopped: the PDF was removed or replaced" in caplog.messages
     assert wiki.statuses()[second.id].state == "done"
     assert first.id not in wiki.statuses()
+
+
+def test_each_part_and_outline_step_is_timed_with_the_llms_timings(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R96a: each part's and outline step's time, with llama-server's timings for its
+    requests, are saved with the pages, and the build's totals are logged."""
+
+    def build(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: Any) -> Wiki:
+        progress(0, 2)
+        note_request({"prompt_n": 300, "cache_n": 10, "predicted_n": 50, "other": 1}, 900.0)
+        progress(1, 2)
+        note_request({"prompt_n": 200, "cache_n": 120, "predicted_n": 40}, 700.0)
+        note_request(None, 5.0)  # asked again: a provider sends no timings
+        progress(2, 2)
+        return Wiki(2, [WikiPage(f"{pdf_id}-rain", "Rain", "Rain.", [1])])
+
+    def outline(
+        pdf_id: str, topics: list[WikiPage], pieces: Any, progress: OutlineProgress, wait: Any
+    ) -> list[Entry]:
+        note_request({"prompt_n": 80, "cache_n": 0, "predicted_n": 20}, 300.0)
+        progress(1, 1)
+        return [Entry(t.id, t.title, t.text, t.pages) for t in topics]
+
+    store, readings, wiki = jobs(tmp_path, build, outline=outline)
+    pdf = store.add("weather.pdf", io.BytesIO(PDF))
+    with caplog.at_level(logging.INFO):
+        readings.queue(pdf)
+        settle(readings, wiki)
+    timings = wiki.built(pdf.id)["timings"]  # type: ignore[index]
+    assert [(t["stage"], t["step"], len(t["requests"])) for t in timings] == [
+        ("topics", 1, 1),
+        ("topics", 2, 2),
+        ("outline", 1, 1),
+    ]
+    assert timings[0]["requests"] == [
+        {"duration_ms": 900.0, "prompt_n": 300, "cache_n": 10, "predicted_n": 50}
+    ]
+    assert timings[1]["requests"][1] == {"duration_ms": 5.0}
+    ended = [t["ended_ms"] for t in timings]
+    assert ended == sorted(ended) and all(t["duration_ms"] >= 0 for t in timings)
+    [built] = [r for r in caplog.records if r.message == "Wiki pages built"]
+    assert (built.llm_requests, built.llm_prompt_n, built.llm_cache_n) == (4, 580, 130)  # type: ignore[attr-defined]
+    assert built.llm_predicted_n == 110  # type: ignore[attr-defined]
+    # Requests made outside a build are not kept.
+    note_request({"prompt_n": 1}, 1.0)
