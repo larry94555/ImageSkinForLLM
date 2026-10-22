@@ -26,6 +26,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 
+from imageskin import reply_times
 from imageskin.chat import LlmCancelled, LlmError, ask_stop
 from imageskin.content import ContentStore
 from imageskin.reading_job import ReadingJob, version
@@ -575,6 +576,27 @@ class WikiJob:
             self._started[pdf_id] = self._stage_started[pdf_id] = time.monotonic()
         logger.info("Building wiki pages", extra={"id": pdf_id, "upload_name": pdf.name})
         self._set(pdf_id, WikiStatus("building"))
+        # Each part's and outline step's time, with llama-server's timings for its requests,
+        # saved with the pages for `imageskin time-pdf` (R96a).
+        timings: list[dict[str, Any]] = []
+        requests: list[dict[str, Any]] = []
+        kept = reply_times.requests.set(requests)
+        last = start
+
+        def timed(stage: Stage, step: int) -> None:
+            nonlocal last
+            now = time.perf_counter()
+            timings.append(
+                {
+                    "stage": stage,
+                    "step": step,
+                    "ended_ms": round((now - start) * 1000, 1),
+                    "duration_ms": round((now - last) * 1000, 1),
+                    "requests": requests[:],
+                }
+            )
+            requests.clear()
+            last = now
 
         def still_wanted() -> None:
             """Stops the build, by Superseded, once the PDF is removed or replaced: after the
@@ -591,6 +613,7 @@ class WikiJob:
             still_wanted()
             if part:  # 0: the parts are known, none is done yet
                 self._stepped(pdf_id)
+                timed("topics", part)
             self._set(pdf_id, WikiStatus("building", part, parts))
 
         def pause(error: LlmError, building: WikiStatus, step: int) -> None:
@@ -624,6 +647,8 @@ class WikiJob:
             def outline_progress(steps: int, steps_planned: int) -> None:
                 still_wanted()
                 self._stepped(pdf_id)
+                if steps:
+                    timed("outline", steps)
                 nonlocal planned
                 planned = steps_planned
                 status = WikiStatus("building", parts, parts, stage="outline", steps=steps)
@@ -659,6 +684,8 @@ class WikiJob:
             said = str(e) if isinstance(e, WikiError) else AI_REFUSED
             self._set(pdf_id, WikiStatus("failed", error=said))
             return True
+        finally:
+            reply_times.requests.reset(kept)
         saved = {
             "format": WIKI_FORMAT,
             "id": pdf_id,
@@ -669,6 +696,7 @@ class WikiJob:
             "pages": [asdict(page) for page in wiki.pages],
             "outline": [asdict(entry) for entry in outline],
             "duration_s": round(time.perf_counter() - start, 1),
+            "timings": timings,
         }
         with self._lock:
             if self.store.get(pdf_id) != pdf:
@@ -693,6 +721,7 @@ class WikiJob:
                 "detail_pages": sum(count_detail(e) for e in outline),
                 "skipped_parts": wiki.skipped_parts,
                 "flagged_edits": flagged,
+                **llm_totals(timings),
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
@@ -769,6 +798,16 @@ def remaining(
     if done < 1 or total < done:
         return None
     return round(max(0.0, steps_s / done * (total - done) - since_s), 1)
+
+
+def llm_totals(timings: list[dict[str, Any]]) -> dict[str, int]:
+    """The LLM requests a build made, and llama-server's tokens read, reused from its cache and
+    written across them (R96a); a provider sends no timings, so its tokens count 0."""
+    requests = [r for step in timings for r in step["requests"]]
+    totals = {"llm_requests": len(requests)}
+    for key in ("prompt_n", "cache_n", "predicted_n"):
+        totals[f"llm_{key}"] = sum(r.get(key, 0) for r in requests)
+    return totals
 
 
 def summary(saved: dict[str, Any]) -> dict[str, Any]:

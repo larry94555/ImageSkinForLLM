@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
-from imageskin.reply_times import note, note_llm, note_now
+from imageskin.reply_times import note, note_llm, note_now, note_request
 from imageskin.sentences import SentenceSplitter
 from imageskin.topics import (
     asks_for_topics,
@@ -586,6 +586,7 @@ class LlmClient:
         schema: dict[str, Any] | None = None,
     ) -> str:
         url, request = self._post(messages, stream=False, max_tokens=max_tokens, schema=schema)
+        start = time.perf_counter()
         try:
             with self._open(url, request) as response:
                 data = json.loads(response.read())
@@ -593,6 +594,8 @@ class LlmClient:
             raise LlmError(f"Could not reach the LLM at {url} ({e}).{self._hint}") from e
         except ValueError as e:
             raise LlmError(f"The LLM at {url} sent an answer that is not JSON.") from e
+        # llama-server's own timings, kept for the wiki's build (R96a).
+        note_request(data.get("timings") if isinstance(data, dict) else None, ms_since(start))
         try:
             message = data["choices"][0]["message"]
             content = message["content"]
@@ -947,7 +950,10 @@ class Conversation:
             *map(as_message, turns),
             {"role": "user", "content": asked},
         ]
-        note(history_tokens=history_tokens(self._summary, turns, count))
+        note(
+            history_tokens=history_tokens(self._summary, turns, count),
+            asked_tokens=tokens({"role": "user", "content": asked}, count),
+        )
         logger.info(
             "Chat prompt sent",
             extra={
@@ -1033,11 +1039,14 @@ class Conversation:
         lookup or it failed (then the prompt is answered, never declined)."""
         if self._find is None:
             return None
+        start = time.perf_counter()
         try:
-            return self._find(prompt)
+            found = self._find(prompt)
         except Exception:
             logger.exception("Could not look the prompt up in the content; sending it alone")
             return None
+        note(looked_up_ms=ms_since(start))  # R96a
+        return found
 
     def _list_topics(self) -> list[str]:
         """The content's topics, or none when they can't be read (then nothing is named)."""

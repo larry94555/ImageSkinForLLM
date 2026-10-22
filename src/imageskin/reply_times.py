@@ -32,6 +32,8 @@ class ReplyTimes:
     waited_warm_up_ms: float = 0.0  # for the replies' warm-up after a sample was accepted
     waited_turn_ms: float = 0.0  # behind the prompt before, or the wiki's LLM request
     history_tokens: int | None = None  # the conversation sent with the prompt
+    looked_up_ms: float | None = None  # looking the prompt up in the wiki and PDFs (R96a)
+    asked_tokens: int | None = None  # the prompt as sent, with what was found in the content
     prompt_sent_at: float | None = None
     first_token_at: float | None = None
     first_sentence_at: float | None = None
@@ -67,3 +69,21 @@ def note_llm(timings: object) -> None:
     """Keep llama-server's timings for the prompt being answered, when it sent them."""
     if isinstance(timings, dict):
         note(llm={k: timings[k] for k in LLM_TIMING_KEYS if k in timings})
+
+
+# The LLM requests made on this thread, while a list is set here: the wiki's build keeps each
+# part's and outline step's llama-server timings this way (R96a).
+requests: ContextVar[list[dict[str, Any]] | None] = ContextVar("llm_requests", default=None)
+
+
+def note_request(timings: object, duration_ms: float) -> None:
+    """Keep one LLM request's time and llama-server's timings, if requests are being kept."""
+    kept = requests.get()
+    if kept is None:
+        return
+    llm = (
+        {k: timings[k] for k in LLM_TIMING_KEYS if k in timings}
+        if isinstance(timings, dict)
+        else {}
+    )
+    kept.append({"duration_ms": duration_ms, **llm})

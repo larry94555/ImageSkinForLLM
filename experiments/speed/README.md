@@ -120,3 +120,94 @@ The largest costs, against the cloud session:
    1 token again (as in the cloud: llama-server's slots, for R97).
 4. **First sentence to heard, 3.5 to 3.9 s**, against 1.5 to 2.6 s in the cloud: the voice
    again (3.1 to 3.3 s of it for a short first clause).
+
+## R96a: the wiki and answers from it
+
+`imageskin time-pdf` adds a PDF to the running app, as the Manage Content page does, and
+writes the tables to `speed` in the data folder:
+
+```
+imageskin time-pdf experiments/speed/sample.pdf              # five ready questions
+imageskin time-pdf experiments/speed/sample.pdf --spoken 2   # the second as if said with Hold to talk
+imageskin time-pdf my.pdf "A question" "Another" --replace --keep
+```
+
+It waits for the PDF to be read and its wiki built, asks the first question while the wiki is
+being built, then times each question and the requests built on the wiki ("What can you talk
+about?", "Teach me about", "Quiz me on" the first topic, and "Assess me") as `time-reply` times
+a reply. The PDF is removed again unless `--keep`; `--replace` replaces it with itself and
+times the rebuild. The sample PDF, [sample.pdf](sample.pdf), is 19 pages on prime numbers and
+the zeta function (about 3,900 words, with formulas and a table), made by
+[make_sample_pdf.py](make_sample_pdf.py).
+
+The first table is the PDF: the upload, the reading, the wiki, and the build's own time by the
+server's clock. Then each stage's steps and tokens, then one row a wiki part (Topics) or
+outline step (Outline), with llama-server's own timings summed over its requests (a step whose
+answer couldn't be used is asked twice). The answers' tables are `time-reply`'s, with two more
+columns: **Looked up** (the lookup in the wiki and PDFs, R39) and **Asked tokens** (the prompt
+with what was found).
+
+### Cloud session, 2026-10-22
+
+[pdf-cloud-2026-10-22.md](pdf-cloud-2026-10-22.md), with the JSON beside it. The same machine
+and settings as R96's cloud run: a 4-core Xeon, llama-server (built from llama.cpp's source)
+with Gemma 3 4B Q4_K_M on 2 threads and a 4096-token context, as `deploy/compose.yaml` starts
+it, Kokoro's ready-made voice and the photoreal engine with a prepared face.
+
+| Step | Time |
+|---|---|
+| Upload | 5 ms |
+| Reading (19 pages) | 0.6 s |
+| Wiki: topics (3 parts) | 10.5 min |
+| Wiki: outline (37 steps, 36 detail pages) | 56.0 min |
+| **PDF to wiki** | **66.4 min** |
+
+| Answer | Looked up | Prompt tokens read | Reused | First token | First word heard |
+|---|---|---|---|---|---|
+| Asked while the wiki was built | 9 ms | 287 | 1 | 6.8 s | 69.6 s |
+| 1 | 23 ms | 536 | 0 | 14.5 s | 17.2 s |
+| 2, spoken | 29 ms | 579 | 1 | 17.2 s | 20.1 s |
+| 3 | 19 ms | 467 | 185 | 11.4 s | 16.8 s |
+| "What can you talk about?" | - | no LLM | - | - | 10.3 s |
+| "Assess me" | 27 ms | no LLM | - | - | 2.1 s |
+
+Questions 4 and 5, Teach me and Quiz me weren't answered: llama-server was killed for running
+out of memory partway through (see 5 below); a third run times them.
+
+The largest costs:
+
+1. **Writing, not reading, takes the wiki's time.** The build read 27,099 prompt tokens at
+   about 46 a second (about 10 minutes) and wrote 13,822 tokens at about 4.1 a second (about
+   56 minutes). The outline writes most of it: 37 requests, each a detail page of 170 to 500
+   tokens, are 84% of the build. Fewer and shorter answers (R98), and a faster decode (R97:
+   threads, quantization, Gemma 3 1B for the wiki), are what will shorten it.
+2. **Almost nothing is reused from llama-server's cache in the wiki:** 840 of 27,939 tokens
+   (3%). Each part and outline step starts with different text, so every prompt is read whole.
+   As reading is only a sixth of the time, reuse (R98's shared start) can save at most about
+   10 minutes on this PDF.
+3. **A question asked while the wiki is built doesn't wait for it: they share the LLM.**
+   llama-server has 4 slots, so the question and the wiki's first part ran at once on the same
+   2 threads. The question's first token came at 6.8 s, but it was then written at 0.6 tokens a
+   second, so its first sentence came at 68 s and its first word was heard at 70 s. The wiki's
+   first part was slowed too. The 4 slots also share one 4096-token context (`kv_unified`), so
+   requests running at once take room from each other: in two later runs, other requests sent
+   to the same llama-server at the same time (by the test suite, by mistake) left the wiki's
+   first part without room, llama-server refused it with "Context size has been exceeded"
+   (500), and the build failed with "The AI couldn't build a wiki from this PDF". A reply
+   during a build could do the same. R99 decides how replies and the wiki share the LLM, and
+   R97 the slots and the context.
+4. **An answer from the wiki reads its whole prompt again:** 470 to 580 tokens at 38 to 46 a
+   second, with 0 to 185 reused, so the first token comes 11 to 17 s after Send, against 1.5 s
+   for a reply without content in R96. The passages found change the prompt from the first
+   message on, and the system prompt the warm-up read wasn't reused (the slots again, as in
+   R96; for R97). The lookup itself takes 19 to 29 ms, and a spoken question's correction
+   (R96d) 4.5 s.
+5. **llama-server's memory grew to 11 GB**, and it was killed when the session's memory ran
+   out. A second run logged it: 5.5 GB once the model was loaded (2.5 GB of it the model, mapped
+   from its file), and 6.8 GB ten minutes into the wiki. The hosted machine gives it 6 GB
+   (`mem_limit` in `deploy/compose.yaml`), so a long wiki build may get it restarted there. The
+   likely cause is the prompt cache llama-server now keeps in memory for its slots; R97 checks
+   it and caps it.
+6. **"What can you talk about?" is heard 10.3 s after Send** without the LLM: its first
+   sentence, the list of topics, is 17 s of speech, and its voice takes 10 s. A long first
+   sentence isn't cut as the LLM's first clause is (R22b, R22e); for R100.
