@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from imageskin import time_setup
+from imageskin import time_reply, time_setup
 from imageskin.cli import main
 from imageskin.time_reply import Measured
 
@@ -127,8 +127,8 @@ def quick() -> Iterator[None]:
     reply = {"waited_warm_up_ms": 4000, "first_word_heard_ms": 9000, "error": None}
     with (
         patch.object(time_setup, "POLL_S", 0),
-        patch.object(time_setup.time_reply, "measure", return_value=Measured("Hi", False)),
-        patch.object(time_setup.time_reply, "summarize", return_value=reply),
+        patch.object(time_reply, "measure", return_value=Measured("Hi", False)),
+        patch.object(time_reply, "summarize", return_value=reply),
     ):
         yield
 
@@ -224,7 +224,7 @@ def test_a_prepare_that_fails_or_cant_start_is_reported(app: tuple[str, FakeApp]
     url, fake = app
     with patch.object(fake, "prepare_status", return_value={"state": "failed", "error": "No."}):
         assert time_setup.prepare(url, "Prepare")["error"] == "No."
-    refused = time_setup.prepare(url, "Prepare", lambda: time_setup.ask(url + "/api/nothing"))
+    refused = time_setup.prepare(url, "Prepare", lambda: time_reply.ask(url + "/api/nothing"))
     assert refused["error"].startswith("404")
     with patch.object(time_setup, "PREPARE_LIMIT_S", 0.0):
         assert "didn't finish" in time_setup.prepare(url, "Prepare")["error"]
