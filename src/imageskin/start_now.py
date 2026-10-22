@@ -320,17 +320,43 @@ class StartNow:
 
     def refresh(self) -> bool:
         """At start-up: the chosen person, unpacked before, whose lines aren't there in their
-        voice, since it changed (R24e), gets them rendered again, as if chosen again. Whether
-        that started. Raises as `start` does while Prepare runs."""
-        choice = self.chosen()
-        if choice is None or not self._unpacked(choice.name) or self._ready(choice):
-            return False
+        voice, since it changed (R24e), gets them rendered again on the background thread. Only
+        the lines: the choice, and whether the avatar speaks in the user's own voice (R24d), stay
+        as they were (Codex's review of PR #142). Whether that started. Raises as `start` does
+        while Prepare runs."""
+        with self._lock:
+            choice = self.chosen()
+            if choice is None or self._status.state in BUSY:
+                return False
+            if not self._unpacked(choice.name) or self._ready(choice):
+                return False
+            logger.info(
+                "Default person's lines rendered again in their voice",
+                extra={"person": choice.name, "voice": choice.voice[1]},
+            )
+            self._claim()  # refused while Prepare runs
+            self._status = StartStatus("getting-ready", choice.name, 100)
+            self._thread = threading.Thread(
+                target=self._run_refresh, args=(choice,), name="start-now-lines", daemon=True
+            )
+            self._thread.start()
+            return True
+
+    def _run_refresh(self, choice: Choice) -> None:
+        start = time.perf_counter()
+        try:
+            self._render_lines(choice)
+        except Exception:
+            logger.exception("Could not render the lines again", extra={"person": choice.name})
+            self._set("failed", error=NOT_READY)
+            return
+        finally:
+            self._release()
+        self._set("ready", 100)
         logger.info(
-            "Default person's lines rendered again in their voice",
-            extra={"person": choice.name, "voice": choice.voice[1]},
+            "Default person's lines ready in their voice",
+            extra={"person": choice.name, "duration_s": round(time.perf_counter() - start, 1)},
         )
-        self.start(choice)
-        return True
 
     def wait(self, timeout: float | None = None) -> None:
         """For tests: wait for the background thread to finish."""

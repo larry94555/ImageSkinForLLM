@@ -211,6 +211,49 @@ def test_a_changed_voice_says_the_lines_again_at_start_up(
     assert goodbye is not None and goodbye.parent.name.endswith("_british_bf_emma+af_kore")
 
 
+def test_refreshing_the_lines_keeps_the_avatar_in_the_users_own_voice(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = started(tmp_path, pack)
+    first.start(CHOICE)
+    first.wait(10)
+    first.set_own_voice(True)  # R24d
+    monkeypatch.setattr(sn, "voice_of", lambda name, accent: ("b", "bf_emma,af_kore"))
+    claims: list[str] = []
+    again = started(
+        tmp_path,
+        pack,
+        claim=lambda: claims.append("claim"),
+        release=lambda: claims.append("release"),
+    )
+    assert again.refresh() is True
+    again.wait(10)
+    assert again.status().state == "ready" and claims == ["claim", "release"]
+    assert again.own_voice() is True and again.chosen() == CHOICE
+    assert again.clip("goodbye") is not None
+
+
+def test_lines_that_cant_be_rendered_again_say_so(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    first = started(tmp_path, pack)
+    first.start(CHOICE)
+    first.wait(10)
+    monkeypatch.setattr(sn, "voice_of", lambda name, accent: ("b", "bf_emma,af_kore"))
+
+    def broken(picture: Path, text: str, output: Path) -> None:
+        raise RuntimeError("no engine")
+
+    released: list[bool] = []
+    again = started(tmp_path, pack, render_clip=broken, release=lambda: released.append(True))
+    with caplog.at_level(logging.ERROR):
+        assert again.refresh() is True
+        again.wait(10)
+    assert again.status().state == "failed" and again.status().error == sn.NOT_READY
+    assert released == [True] and again.chosen() == CHOICE
+    assert any(r.getMessage() == "Could not render the lines again" for r in caplog.records)
+
+
 @pytest.mark.parametrize(
     ("error", "message"),
     [(DownloadError("offline"), sn.DOWNLOAD_FAILED), (dp.PackError("bad"), sn.DAMAGED)],
