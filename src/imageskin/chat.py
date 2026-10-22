@@ -313,6 +313,12 @@ def unreachable(e: BaseException) -> bool:
     return isinstance(e, urllib.error.URLError | TimeoutError | ConnectionError)
 
 
+def loading(e: BaseException) -> bool:
+    """llama-server is up but still loading its model: it answers 503 to everything meanwhile,
+    /tokenize and /props included, and answers properly once the model is loaded."""
+    return isinstance(e, urllib.error.HTTPError) and e.code == 503
+
+
 class ChatLlm(Protocol):
     """What the chat and the wiki ask of an LLM: `LlmClient`'s calls, or Claude's (R33)."""
 
@@ -402,8 +408,11 @@ class LlmClient:
             with urllib.request.urlopen(request, timeout=self.settings.timeout_s) as response:
                 n = len(json.loads(response.read())["tokens"])
         except (OSError, ValueError, KeyError, TypeError) as e:
-            if unreachable(e):
-                return estimate(text)  # the reply will say the server is down
+            if unreachable(e) or loading(e):
+                # The reply will say the server is down; counted by the server once it is up.
+                # Estimating for good here made the hosted machine's wiki parts a third of the
+                # size, as its app started with llama-server (R96a).
+                return estimate(text)
             self._can_count = False
             logger.warning(
                 "The LLM server can't count tokens; estimating them instead",
@@ -436,7 +445,7 @@ class LlmClient:
                 "LLM context window from the config",
                 extra={"context_tokens": self.settings.context_tokens, "props_error": str(e)},
             )
-            if not unreachable(e):
+            if not unreachable(e) and not loading(e):
                 self._window = self.settings.context_tokens
             return self.settings.context_tokens
         logger.info("LLM context window from the server", extra={"context_tokens": n_ctx})
