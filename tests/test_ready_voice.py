@@ -25,6 +25,10 @@ def test_the_ready_voice_is_saved_and_has_a_default(tmp_path: Path) -> None:
     assert preset("bm_george") == ("b", "bm_george")
     with pytest.raises(ValueError, match="'nobody' is not one of"):
         save_ready_voice(tmp_path, "nobody")
+    # A nonbinary avatar's blended voice (R24b3) is a ready-made voice like the others.
+    assert save_ready_voice(tmp_path, "bf_emma,bm_george") == "bf_emma,bm_george"
+    assert load_ready_voice(tmp_path) == "bf_emma,bm_george"
+    assert preset("af_heart,am_michael") == ("a", "af_heart,am_michael")
 
 
 def test_a_broken_or_unknown_ready_voice_is_the_default(

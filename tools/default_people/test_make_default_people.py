@@ -19,6 +19,7 @@ from make_default_people import (
     by_group,
     contact_sheet,
     exit_status,
+    group_of,
     load_results,
     load_shown,
     look_counts,
@@ -215,7 +216,7 @@ def test_no_results_yet(tmp_path: Path) -> None:
     assert load_results(tmp_path) == {}
 
 
-def test_exit_status_needs_all_60_packed(tmp_path: Path) -> None:
+def test_exit_status_needs_all_68_packed(tmp_path: Path) -> None:
     ok = []
     for p in people():
         write_pack(tmp_path / f"{p.name}.zip", p.name)
@@ -329,7 +330,7 @@ def every_look() -> dict[str, dict[str, Any]]:
     shown: dict[str, dict[str, Any]] = {}
     groups: dict[str, list[Person]] = {}
     for p in people():
-        groups.setdefault(f"{p.realism} {p.gender}", []).append(p)
+        groups.setdefault(group_of(p), []).append(p)
     for members in groups.values():
         for i, p in enumerate(members):
             shown[p.name] = {"heritage": HERITAGES[i % len(HERITAGES)]}
@@ -348,8 +349,12 @@ def test_looks_counts_met() -> None:
         "photoreal male",
         "animated female",
         "animated male",
+        "nonbinary",
     }
-    assert all(g["people"] == 15 for g in counts.values())
+    # 15 women or men in each look, and the 8 nonbinary people (R24b3) as one group.
+    assert {name: g["people"] for name, g in counts.items()} == {
+        name: 8 if name == "nonbinary" else 15 for name in counts
+    }
     assert looks_missing(counts) == []
 
 
@@ -385,11 +390,12 @@ def test_contact_sheet_rows_are_groups() -> None:
         r.person.rsplit("_", 1)[0] if r.person.endswith("_2") else r.person for r in ordered[:15]
     }
     assert all(name.startswith("photoreal_female") for name in first_row)
-    assert all(r.person.startswith("animated_male") for r in ordered[45:])
+    assert all(r.person.startswith("photoreal_nonbinary") for r in ordered[30:34])
+    assert all(r.person.startswith("animated_nonbinary") for r in ordered[64:])
 
 
 def test_the_pictures_show_every_look_larry_asked_for() -> None:
-    """The record of what each of the 60 pictures was seen to show meets every count."""
+    """The record of what each of the 68 pictures was seen to show meets every count."""
     shown = load_shown()
     assert sorted(shown) == sorted(p.name for p in people())
     assert looks_missing(look_counts(shown)) == []
@@ -400,3 +406,13 @@ def test_a_wheelchair_gets_a_wider_picture() -> None:
     text = prompt(sitting)
     assert "wheelchair" in text and "headshot" not in text and "head and shoulders" not in text
     assert "headshot" in prompt(PERSON) and "head and shoulders" in prompt(PERSON)
+
+
+def test_a_nonbinary_person_is_asked_for_as_androgynous_without_gendered_looks() -> None:
+    person = Person("nonbinary", "photoreal", "Boss", f"Latino, with short dark hair, {dp.GLASSES}")
+    assert prompt(person).startswith("one androgynous person in their late forties, Latino")
+    teen = Person("nonbinary", "animated", "Teenager", "white, with short red hair")
+    assert prompt(teen).startswith("one androgynous teenager aged sixteen")
+    avoid = negative(person)
+    assert avoid.startswith("feminine, masculine, makeup") and "tinted glasses" in avoid
+    assert "feminine" not in negative(Person("female", "photoreal", "Boss", "x"))

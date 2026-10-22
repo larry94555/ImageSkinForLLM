@@ -475,6 +475,18 @@ def test_the_chat_is_locked_until_a_person_is_chosen(client: TestClient) -> None
     assert client.get("/api/start-now/lines/goodbye").status_code == 404
 
 
+def test_a_nonbinary_person_is_a_choice_with_a_blended_voice() -> None:
+    choice = sn.Choice("nonbinary", "British", "animated", "Boss")
+    assert choice.problem() is None
+    assert choice.name == "animated_nonbinary_boss"
+    assert choice.voice == ("b", "bf_emma,bm_george")
+    assert sn.Choice("nonbinary", "American", "photoreal", "Parent").voice == (
+        "a",
+        "af_heart,am_michael",
+    )
+    assert "no face 2" in (sn.Choice("nonbinary", "British", "animated", "Boss", 2).problem() or "")
+
+
 def test_a_bad_choice_is_refused(client: TestClient) -> None:
     refused = client.post("/api/start-now", json={**vars(CHOICE), "role": "Duke"})
     assert refused.status_code == 400 and "Duke" in refused.json()["detail"]
@@ -484,7 +496,7 @@ def test_a_bad_choice_is_refused(client: TestClient) -> None:
 
 def test_the_page_is_told_every_face(client: TestClient) -> None:
     faces = client.get("/api/start-now/faces").json()
-    assert len(faces) == 60 and len({f["name"] for f in faces}) == 60
+    assert len(faces) == 68 and len({f["name"] for f in faces}) == 68
     assert {
         "gender": "female",
         "realism": "animated",
@@ -500,16 +512,17 @@ def test_the_page_is_told_every_face(client: TestClient) -> None:
         "photoreal_female_teaching_assistant",
     ]
     assert len(women) == 15 and women[-1] == "photoreal_female_business_consultant"
-    # The page shows a look's women and men together (no gender to pick): by role, then face,
-    # then gender, so they take turns.
+    # The page shows a look's women, men and nonbinary people together (no gender to pick): by
+    # role, then face, then gender, so they take turns.
     photoreal = [f["name"] for f in faces if f["realism"] == "photoreal"]
-    assert photoreal[:4] == [
+    assert photoreal[:5] == [
         "photoreal_female_professor",
         "photoreal_male_professor",
+        "photoreal_nonbinary_professor",
         "photoreal_female_professor_2",
         "photoreal_female_teaching_assistant",
     ]
-    assert len(photoreal) == 30
+    assert len(photoreal) == 34
 
 
 def test_a_default_person_opens_the_chat_without_consent(client: TestClient) -> None:

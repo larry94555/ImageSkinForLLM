@@ -11,23 +11,24 @@ import pytest
 from imageskin import default_people as dp
 from imageskin.photoreal_library import LIBRARY_VERSION, key_frames, library_key, mouth_key
 
-FIRST = [p for p in dp.people() if p.face == 1]
+FIRST = [p for p in dp.people() if p.face == 1 and p.gender in dp.BINARY]
 SECOND = [p for p in dp.people() if p.face == 2]
+NONBINARY = [p for p in dp.people() if p.gender == dp.NONBINARY]
 
 
 def test_there_is_one_person_for_each_gender_realism_and_role() -> None:
     assert len(FIRST) == 36
     assert {(p.gender, p.realism, p.role) for p in FIRST} == {
-        (g, r, role) for g in dp.GENDERS for r in dp.REALISMS for role in dp.ROLES
+        (g, r, role) for g in dp.BINARY for r in dp.REALISMS for role in dp.ROLES
     }
-    assert len({p.name for p in dp.people()}) == 60
+    assert len({p.name for p in dp.people()}) == 68
 
 
 def test_looks_are_spread_over_roles_and_realisms() -> None:
     for role in dp.ROLES:
         # A role's four people all look different.
         assert len({p.look for p in FIRST if p.role == role}) == 4
-    for g in dp.GENDERS:
+    for g in dp.BINARY:
         for r in dp.REALISMS:
             # Each gender and realism shows every look once.
             group = [p.look for p in FIRST if p.gender == g and p.realism == r]
@@ -41,11 +42,11 @@ OLDER_ROLES |= {"Business Consultant"}
 def test_second_faces_are_six_for_each_gender_and_realism() -> None:
     assert len(SECOND) == 24
     assert Counter((p.gender, p.realism) for p in SECOND) == {
-        (g, r): 6 for g in dp.GENDERS for r in dp.REALISMS
+        (g, r): 6 for g in dp.BINARY for r in dp.REALISMS
     }
     # Each is a second face for a different one of the 36 choices.
     assert len({(p.gender, p.realism, p.role) for p in SECOND}) == 24
-    for g in dp.GENDERS:
+    for g in dp.BINARY:
         for r in dp.REALISMS:
             group = [p for p in SECOND if p.gender == g and p.realism == r]
             # What the prompts ask for in each group; the pictures are checked by
@@ -57,11 +58,41 @@ def test_second_faces_are_six_for_each_gender_and_realism() -> None:
             assert len(older) >= 3 and all(p.role in OLDER_ROLES for p in older)
 
 
+HERITAGES = (
+    "white",
+    "Black",
+    "East Asian",
+    "South Asian",
+    "Latino",
+    "Middle Eastern",
+    "Southeast Asian",
+    "Indigenous",
+)
+
+
+def test_nonbinary_people_are_four_for_each_realism_with_a_range() -> None:
+    assert len(NONBINARY) == 8
+    assert Counter(p.realism for p in NONBINARY) == {"photoreal": 4, "animated": 4}
+    assert all(p.face == 1 for p in NONBINARY)
+    assert len({p.name for p in NONBINARY}) == 8
+    # Each heritage once across the 8 (Larry, 2026-10-21); the pictures are checked by
+    # tools/default_people/looks_shown.json.
+    assert all(
+        sum(p.look.startswith(h) or f", {h}," in p.look for p in NONBINARY) == 1 for h in HERITAGES
+    )
+    for r in dp.REALISMS:
+        group = [p for p in NONBINARY if p.realism == r]
+        assert sum("glasses" in p.look for p in group) == 1
+        older = [p for p in group if p.age]
+        assert len(older) == 1 and older[0].role in OLDER_ROLES
+
+
 def test_names() -> None:
     assert dp.Person("female", "animated", "Teaching Assistant", "x").name == (
         "animated_female_teaching_assistant"
     )
     assert dp.Person("male", "photoreal", "Boss", "x", face=2).name == "photoreal_male_boss_2"
+    assert dp.Person("nonbinary", "animated", "Boss", "x").name == "animated_nonbinary_boss"
 
 
 def test_every_gender_has_an_american_and_a_british_voice() -> None:
@@ -69,7 +100,10 @@ def test_every_gender_has_an_american_and_a_british_voice() -> None:
         accents = {a for a, _, _ in dp.voices_for(gender)}
         assert accents == {"American", "British"}
         for _, lang, voice in dp.voices_for(gender):
-            assert voice[:2] == lang + gender[0]
+            # A nonbinary voice blends the accent's woman's and man's voices (R24b3).
+            parts = voice.split(",")
+            assert all(v[0] == lang for v in parts)
+            assert [v[1] for v in parts] == (["f", "m"] if gender == dp.NONBINARY else [gender[0]])
 
 
 N_LOOP = 12  # a short loop: key frames 0, 4 and 8

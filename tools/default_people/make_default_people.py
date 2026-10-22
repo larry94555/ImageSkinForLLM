@@ -1,4 +1,4 @@
-"""R24b: make, check and pack the 36 default people.
+"""R24b, R24b2 and R24b3: make, check and pack the 68 default people.
 
     python tools/default_people/make_default_people.py [-o default-people]
 
@@ -28,7 +28,10 @@ from typing import Any
 import numpy as np
 
 from imageskin.default_people import (
+    GENDERS,
     MAX_PACK_BYTES,
+    NONBINARY,
+    REALISMS,
     PackError,
     Person,
     check_pack,
@@ -95,11 +98,24 @@ NEGATIVE = (
 )
 
 
+# Kept out of a nonbinary person's picture, as quick drafts showed they push the face towards a
+# woman or a man (R24b3).
+GENDERED = "feminine, masculine, makeup, lipstick, earrings, jewelry, beard, moustache, "
+
+
 def negative(person: Person) -> str:
     """What the picture must not show. Glasses are left out of it for people who wear them."""
+    avoid = GENDERED + NEGATIVE if person.gender == NONBINARY else NEGATIVE
     if "glasses" not in person.look:
-        return NEGATIVE
-    return NEGATIVE.replace(" glasses,", " tinted glasses, glare on glasses,")
+        return avoid
+    return avoid.replace(" glasses,", " tinted glasses, glare on glasses,")
+
+
+# How each gender is named in the prompt. For a nonbinary person, "androgynous" is the word an
+# image model follows (R24b3): adding "nonbinary" made no difference in quick drafts and takes two
+# more of the 77 tokens.
+WHO = {"female": "woman", "male": "man", "nonbinary": "androgynous person"}
+TEEN = {"female": "girl", "male": "boy", "nonbinary": "androgynous teenager"}
 
 
 def prompt(person: Person) -> str:
@@ -112,9 +128,9 @@ def prompt(person: Person) -> str:
     style = REALISM[person.realism]
     if wheelchair:  # "headshot" crops the wheelchair out
         style = style.replace("headshot photograph", "photograph")
-    who = "woman" if person.gender == "female" else "man"
+    who = WHO[person.gender]
     if person.role == "Teenager":
-        who = "girl" if person.gender == "female" else "boy"
+        who = TEEN[person.gender]
     elif person.role == "Student":
         who = f"young {who}"
     return (
@@ -291,9 +307,10 @@ def load_results(out: Path) -> dict[str, Result]:
 
 def by_group(results: list[Result]) -> list[Result]:
     """The results with each gender and realism's people together, first faces before second,
-    so a contact sheet of 15 columns has a row for each group."""
+    so a contact sheet of 15 columns has a row for each group of women or men; the nonbinary
+    people have 4 in each realism."""
     group = {p.name: (p.realism, p.gender) for p in people()}
-    order = [(r, g) for r in ("photoreal", "animated") for g in ("female", "male")]
+    order = [(r, g) for r in REALISMS for g in GENDERS]
     return sorted(results, key=lambda r: order.index(group[r.person]))
 
 
@@ -348,6 +365,21 @@ HERITAGES = (
 )
 # The least each group of gender and realism must show (Larry, 2026-10-17).
 LEAST = {"red hair": 1, "blond hair": 1, "glasses": 3, "older": 3, "disability": 2}
+# The 8 nonbinary people (R24b3) are counted as one group over both realisms: every heritage
+# once, and in each realism one older person and one with glasses (Larry, 2026-10-21).
+LEAST_NONBINARY = {"red hair": 1, "blond hair": 0, "glasses": 2, "older": 2, "disability": 0}
+
+
+def least(group: str) -> dict[str, int]:
+    """The least the named group must show."""
+    return LEAST_NONBINARY if group == NONBINARY else LEAST
+
+
+def group_of(person: Person) -> str:
+    """The group a person is counted in: their realism and gender, or nonbinary."""
+    return NONBINARY if person.gender == NONBINARY else f"{person.realism} {person.gender}"
+
+
 OLDER_ROLES = {
     "Professor",
     "Parent",
@@ -359,13 +391,13 @@ OLDER_ROLES = {
 
 
 def look_counts(shown: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """For each gender and realism, how many of its people show each look, and the heritages
+    """For each group (`group_of`), how many of its people show each look, and the heritages
     seen. Older people count only in roles that suit it."""
     counts: dict[str, dict[str, Any]] = {}
     for person in people():
         seen = shown.get(person.name, {})
         group = counts.setdefault(
-            f"{person.realism} {person.gender}",
+            group_of(person),
             {"people": 0, "heritages": set(), **dict.fromkeys(LEAST, 0)},
         )
         group["people"] += 1
@@ -386,9 +418,9 @@ def looks_missing(counts: dict[str, dict[str, Any]]) -> list[str]:
         for heritage in HERITAGES:
             if heritage not in group["heritages"]:
                 missing.append(f"{name}: no {heritage} person")
-        for look, least in LEAST.items():
-            if group[look] < least:
-                missing.append(f"{name}: {group[look]} with {look}, needs {least}")
+        for look, needs in least(name).items():
+            if group[look] < needs:
+                missing.append(f"{name}: {group[look]} with {look}, needs {needs}")
     return missing
 
 
@@ -397,7 +429,7 @@ def looks_table(counts: dict[str, dict[str, Any]]) -> str:
     rows = "".join(
         f"<tr><td>{escape(name)}</td><td>{g['people']}</td>"
         f"<td>{len(set(HERITAGES) & g['heritages'])} of {len(HERITAGES)}</td>"
-        + "".join(f"<td>{g[look]} (needs {least})</td>" for look, least in LEAST.items())
+        + "".join(f"<td>{g[look]} (needs {n})</td>" for look, n in least(name).items())
         + "</tr>"
         for name, g in counts.items()
     )
@@ -454,7 +486,7 @@ def write_results(out: Path, results: list[Result]) -> None:
 
 
 def exit_status(results: list[Result], out: Path) -> int:
-    """0 only if all 60 passed and their packs are there, so a script or a shell can tell a
+    """0 only if all 68 passed and their packs are there, so a script or a shell can tell a
     failed run."""
     expected = sorted(p.name for p in people())
     ok = sorted(r.person for r in results) == expected and all(packed(r, out) for r in results)

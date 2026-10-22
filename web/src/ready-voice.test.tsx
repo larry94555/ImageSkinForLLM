@@ -78,3 +78,18 @@ test("a voice that can't be saved says why", async () => {
   });
   expect(await screen.findByText("Not saved.")).toBeTruthy();
 });
+
+test("a nonbinary avatar's blended voice can be chosen too (R24b3)", async () => {
+  const fetchMock = server(true);
+  render(<SetupPage />);
+  const select = (await screen.findByRole("combobox", { name: "Ready-made voice" })) as HTMLSelectElement;
+  const labels = Array.from(select.options).map((o) => o.textContent);
+  expect(labels).toContain("American nonbinary");
+  expect(labels).toContain("British nonbinary");
+  await act(async () => {
+    fireEvent.change(select, { target: { value: "bf_emma,bm_george" } });
+  });
+  await waitFor(() => expect(select.value).toBe("bf_emma,bm_george"));
+  const put = fetchMock.mock.calls.find(([url, init]) => url === "/api/ready-voice" && init?.method === "PUT");
+  expect(JSON.parse(String(put?.[1]?.body))).toEqual({ voice: "bf_emma,bm_george" });
+});
