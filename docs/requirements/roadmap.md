@@ -25,7 +25,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key, or a ChatGPT subscription. | R33, R42 to R43a | 4 | 2.3% | 4 of 4 |
 | 10 | **Hosted.** Runs on a hosted HTTPS site. | R32 | 1 | 0.6% | 1 of 1 |
 | 10a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice, downloaded from the hosted site; replace the voice with your own later. | R24c, R32a, R24c2, R24c4, R24b3, R24c3, R24d | 7 | 4.1% | 7 of 7 |
-| 10b | **Speed up and simplify.** A PDF is processed faster, the local LLM answers sooner, and the video says the reply sooner after it is written, each measured against where the time went before: in a reply, in the wiki, in setup and at start-up. | R96, R96d, R24e, R96a to R96c, R97 to R100 | 10 | 5.8% | 3 of 10 |
+| 10b | **Speed up and simplify.** A PDF is processed faster, the local LLM answers sooner, and the video says the reply sooner after it is written, each measured against where the time went before: in a reply, in the wiki, in setup and at start-up. | R96, R96d, R24e, R96a to R96c, R97 to R100 | 10 | 5.8% | 4 of 10 |
 | 20 | **Many customers on me0.ai.** A customer signs up for a membership (and can reset a forgotten password), starts a free one-week trial at a path of random characters, picks their own subdomain of me0.ai when they first pay $1 (and can change it), signs in to manage settings that change only their site, pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, visitors and history are separate from every other site. | R61, R62, R62a, R44, R65 to R67, R63, R64, R68 to R71 | 13 | 7.6% | 0 |
 | 12 | **Sign-on and accounts.** On each customer's site: question and answer only without signing in, participant sign-up and login, and a setting to require sign-up. | R45 to R47 | 3 | 1.7% | 0 |
 | 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 4.1% | 0 |
@@ -42,7 +42,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 24 | **Phones in the browser.** The hosted app works in Safari on an iPhone and Chrome on an Android phone: a phone-sized screen, video and sound that play there, photos and recordings taken on the phone, hold to talk, and an icon on the home screen. | R109 to R113 | 5 | 2.9% | 0 |
 | 25 | **iOS and Android apps.** One app for each, built from the same web code, that signs in to a site on me0.ai and talks with its person, with the phone's microphone, camera and speech recognition, and built by CI on every change. | R114 to R119 | 6 | 3.5% | 0 |
 | 26 | **In the App Store and Google Play.** The privacy details, deleting data and disputes the stores require, signed builds sent to TestFlight and Google Play testing, then the store listings sent for review. | R120 to R122 | 3 | 1.7% | 0 |
-| | **Total** | | **172** | **52.3% done** | **90 of 172** |
+| | **Total** | | **172** | **52.9% done** | **91 of 172** |
 
 Sizes: 46 Simple, 126 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -712,7 +712,7 @@ Bullets marked **Added (from the code)** are further waits found in the code tha
 - **Added (from the code):** the Manage Content and wiki pages ask for progress every 1 and 2 seconds (`READING_POLL_MS`, `WIKI_POLL_MS`), so the progress shown can lag by that much; and replacing a PDF, which rebuilds only its pages.
 - **Can show:** a table of where the time goes for the sample PDF and the five questions, with Larry's timings 4 and 5 and the added ones, and the largest costs named; these decide R97 and R98.
 
-### R96b. Where the time goes: setup (Medium) · Speed
+### R96b. Where the time goes: setup (Medium) · Speed · Done in [PR #147](https://github.com/larry94555/ImageSkinForLLM/pull/147)
 - The same experiment for setup, on the same machines, with a sample photo and three sample recordings; the results are kept in `experiments/speed/`.
 - **Larry's timing 8:** processing a photo when it is added: the upload, HEIC conversion if needed, the face checks (R8) and the quality checks and best photo (R9), until the photo shows as checked.
 - **Larry's timing 9:** processing each recording when it is added: the upload, conversion to WAV (R2), the sound checks (R10) and the one-speaker check (R11), for each recording, until it shows as checked.
