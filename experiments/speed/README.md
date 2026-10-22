@@ -209,8 +209,7 @@ The largest costs:
    tokens of the question and what was found, and llama-server reads 360 to 940 tokens of it
    again at 38 to 46 a second, so the first token comes 9.5 to 21 s after Send, against 1.5 s
    for a reply without content in R96. The first question after the wiki or a restart reuses
-   nothing, as the passages found change the prompt from the first message on. The passages found change the prompt from the first
-   message on, and the system prompt the warm-up read wasn't reused (the slots again, as in
+   nothing: the passages found change the prompt from the first message on, and the system prompt the warm-up read wasn't reused (the slots again, as in
    R96; for R97). The lookup itself takes 19 to 29 ms, and a spoken question's correction
    (R96d) 4.5 s.
 5. **llama-server's memory grows to about 10.5 GB**, and it was killed twice when the
@@ -224,3 +223,62 @@ The largest costs:
 6. **"What can you talk about?" is heard 8.7 to 10.3 s after Send** without the LLM: its first
    sentence, the list of topics, is 14 to 17 s of speech, and its voice takes 8.4 to 10 s. A long first
    sentence isn't cut as the LLM's first clause is (R22b, R22e); for R100.
+
+### Larry's hosted machine, 2026-10-22
+
+[pdf-host-2026-10-22.md](pdf-host-2026-10-22.md), with the JSON beside it, run by Larry on
+app.me0.ai (4 Ampere cores, llama-server from `ghcr.io/ggml-org/llama.cpp:server` with Gemma 3
+4B on 2 threads, as `deploy/compose.yaml` starts it) with the same sample PDF and
+`--spoken 2`. Nothing failed and llama-server wasn't killed.
+
+| | Cloud (run 1) | Hosted machine |
+|---|---|---|
+| Reading (19 pages) | 0.6 s | 0.8 s |
+| Wiki parts, topics | 3, 18 | 11, 47 |
+| Outline steps | 37 | 96 |
+| Prompt tokens read | 27,099, at 46 a second (10 min) | 54,910, at 14.7 a second (62 min) |
+| Tokens written | 13,822, at 4.1 a second (56 min) | 35,525, at 5.1 a second (117 min) |
+| **PDF to wiki** | **66.4 min** | **180.3 min** |
+
+| Answer | Prompt tokens read | Reused | Reached LLM | First token | First word heard |
+|---|---|---|---|---|---|
+| Asked while the wiki was built | 213 | 405 | 16 ms | 69.3 s | 73.8 s |
+| 1, the first after the wiki | 664 | 0 | 0.4 s | 52.1 s | 55.7 s |
+| 2, spoken | 690 | 1 | 10.0 s | 57.0 s | 61.2 s |
+| 3 | 204 | 512 | 52 ms | 14.9 s | 18.9 s |
+| 4 | 203 | 557 | 52 ms | 14.8 s | 18.4 s |
+| 5 | 477 | 0 | 48.7 s | 81.4 s | 85.5 s |
+| "What can you talk about?" (no LLM) | - | - | - | - | 11.9 s |
+| "Teach me about Prime Number Definition" | 296 | 305 | 52 ms | 20.4 s | 24.0 s |
+| "Quiz me on Prime Number Definition" | 206 | 432 | 52 ms | 14.7 s | 18.6 s |
+| "Assess me" | 47 | 469 | 51 ms | 3.8 s | 7.5 s |
+
+The largest costs, against the cloud session:
+
+1. **The app split the PDF into parts a third of the size, so the wiki did 2.7 times the
+   work.** Each part was 770 to 990 tokens with its instructions, against 2,300 to 2,900 in the
+   cloud, from the same PDF and the same 4096-token window. That is what the app does when it
+   counts tokens by bytes (about 4 bytes a token in English) instead of asking llama-server:
+   the asked tokens and the history are about twice the cloud's for the same prompts too (654
+   to 686 asked tokens, against 195 to 394). llama-server answers `/tokenize` with 503
+   ("Loading model") while it loads the model, and the app takes any answer that isn't a
+   success as "this server can't count" and estimates from then on, until it is restarted
+   (`LlmClient.count` in `src/imageskin/chat.py`). On the hosted machine the app starts with
+   llama-server, so its first count is likely asked while the model is loading. Checked in the
+   cloud: a starting llama-server answered `/tokenize` with 503 for its first seconds. More
+   parts gave more topics (47) and so more outline pages (96 steps), so the build read twice
+   the tokens and wrote 2.6 times as many. Counting again once the model is loaded would
+   likely bring the build to about an hour, as in the cloud.
+2. **Reading is 3 times slower than in the cloud (14.7 tokens a second against 46)**, so on
+   this machine reading is a third of the build (62 min), not a sixth, and a prompt's reuse
+   from llama-server's cache matters more here: answers 3 and 4 reused 512 and 557 tokens and
+   were heard after 18 to 19 s; 1, 2 and 5 reused none and were heard after 56 to 86 s.
+   Writing is a little faster than in the cloud (5.1 against 4.1).
+3. **Answer 5 waited 48.7 s before reaching the LLM**: the conversation's older turns were
+   summarized first (its history went from 1,914 to 1,049 tokens), as the history may take
+   half the window. With tokens counted by bytes the history fills that half about twice as
+   soon, so this too comes from 1.
+4. **A spoken question's correction took 9.9 s** (answer 2 reached the LLM after 10.0 s),
+   against 32 s in R96's hosted run and 4.5 s in the cloud.
+5. **The question asked while the wiki was built read its prompt at 3.1 tokens a second**, as
+   it shared the 2 threads with the wiki, and was heard after 74 s, as in the cloud (70 s).
