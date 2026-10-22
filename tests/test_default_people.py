@@ -58,8 +58,16 @@ def test_second_faces_are_six_for_each_gender_and_realism() -> None:
             assert len(older) >= 3 and all(p.role in OLDER_ROLES for p in older)
 
 
-HERITAGES = ("white", "Black", "East Asian", "South Asian", "Latino", "Middle Eastern")
-HERITAGES += ("Southeast Asian", "Indigenous")
+HERITAGES = (
+    "white",
+    "Black",
+    "East Asian",
+    "South Asian",
+    "Latino",
+    "Middle Eastern",
+    "Southeast Asian",
+    "Indigenous",
+)
 
 
 def test_nonbinary_people_are_four_for_each_realism_with_a_range() -> None:
