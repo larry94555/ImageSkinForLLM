@@ -1,4 +1,4 @@
-# A spoken question checked sooner (R101)
+# A spoken question checked sooner (R96d)
 
 Larry's hosted run of R96 (2026-10-22) found a spoken question reached the LLM 32.4 s after it
 was sent, against 26 to 33 ms for a typed one: before it is answered, the LLM was asked to put

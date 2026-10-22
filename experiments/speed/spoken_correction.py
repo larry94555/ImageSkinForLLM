@@ -1,4 +1,4 @@
-"""The spoken question's check before and after R101, timed against llama-server (R96).
+"""The spoken question's check before and after R96d, timed against llama-server (R96).
 
 Run from the repository with llama-server on http://127.0.0.1:8080 and the old spoken.py:
     git show main:src/imageskin/spoken.py > /tmp/spoken_old.py
