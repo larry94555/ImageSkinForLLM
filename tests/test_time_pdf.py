@@ -11,11 +11,16 @@ from pdf_samples import text_pdf
 from test_reply_video import tone_clip, video_app
 from test_time_reply import Running
 
-from imageskin import time_pdf
+from imageskin import time_pdf, time_reply
 from imageskin.chat import Message
 from imageskin.cli import main
 from imageskin.review import Review
 from imageskin.time_reply import TimingError
+
+
+def pdfs_left(url: str) -> Any:
+    """The PDFs the app still has."""
+    return time_reply.ask(url + "/api/content")
 
 
 @pytest.fixture(autouse=True)
@@ -145,7 +150,7 @@ def test_the_command_times_a_pdf_and_answers_from_it(
             ["time-pdf", str(pdf), "How do I clean the lens?", "--url", app.url]
             + ["--out", str(out), "--spoken", "1", "--replace"]
         )
-        left = time_pdf.ask(app.url + "/api/content")
+        left = pdfs_left(app.url)
     finally:
         app.close()
     assert code == 0
@@ -177,10 +182,10 @@ def test_keep_leaves_the_pdf(tmp_path: Path) -> None:
         code = time_pdf.run(
             app.url, text_pdf(tmp_path / "guide.pdf"), [], tmp_path / "speed", keep=True
         )
-        left = time_pdf.ask(app.url + "/api/content")
+        left = pdfs_left(app.url)
     finally:
         app.close()
-    assert code == 0 and [p["name"] for p in left] == ["guide.pdf"]  # type: ignore[index]
+    assert code == 0 and [p["name"] for p in left] == ["guide.pdf"]
 
 
 def test_a_pdf_that_cant_be_read_fails_the_run_and_is_removed(
@@ -191,7 +196,7 @@ def test_a_pdf_that_cant_be_read_fails_the_run_and_is_removed(
     broken.write_bytes(b"%PDF-1.7\nnot really\n%%EOF\n")
     try:
         code = time_pdf.run(app.url, broken, ["Hi"], tmp_path / "speed")
-        left = time_pdf.ask(app.url + "/api/content")
+        left = pdfs_left(app.url)
     finally:
         app.close()
     assert code == 1 and left == []
