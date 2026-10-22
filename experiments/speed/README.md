@@ -154,25 +154,34 @@ and settings as R96's cloud run: a 4-core Xeon, llama-server (built from llama.c
 with Gemma 3 4B Q4_K_M on 2 threads and a 4096-token context, as `deploy/compose.yaml` starts
 it, Kokoro's ready-made voice and the photoreal engine with a prepared face.
 
-| Step | Time |
-|---|---|
-| Upload | 5 ms |
-| Reading (19 pages) | 0.6 s |
-| Wiki: topics (3 parts) | 10.5 min |
-| Wiki: outline (37 steps, 36 detail pages) | 56.0 min |
-| **PDF to wiki** | **66.4 min** |
+| Step | Run 1 | Run 3 |
+|---|---|---|
+| Upload | 5 ms | 6 ms |
+| Reading (19 pages) | 0.6 s | 0.7 s |
+| Wiki: topics (3 parts) | 10.5 min | see the run 3 report |
+| Wiki: outline | 56.0 min (37 steps, 36 detail pages) | see the run 3 report (32 detail pages) |
+| **PDF to wiki** | **66.4 min** | **60.5 min** |
+
+Run 1 asked its first question while the wiki was built; run 3
+([pdf-cloud-2026-10-22-run3.md](pdf-cloud-2026-10-22-run3.md)) didn't. In both runs llama-server
+then ran out of memory while the questions were asked (see 5 below), so the rest were asked
+with `time-reply` after restarting it, against run 3's wiki
+([pdf-answers-cloud-2026-10-22.md](pdf-answers-cloud-2026-10-22.md)).
 
 | Answer | Looked up | Prompt tokens read | Reused | First token | First word heard |
 |---|---|---|---|---|---|
-| Asked while the wiki was built | 9 ms | 287 | 1 | 6.8 s | 69.6 s |
-| 1 | 23 ms | 536 | 0 | 14.5 s | 17.2 s |
-| 2, spoken | 29 ms | 579 | 1 | 17.2 s | 20.1 s |
-| 3 | 19 ms | 467 | 185 | 11.4 s | 16.8 s |
-| "What can you talk about?" | - | no LLM | - | - | 10.3 s |
-| "Assess me" | 27 ms | no LLM | - | - | 2.1 s |
-
-Questions 4 and 5, Teach me and Quiz me weren't answered: llama-server was killed for running
-out of memory partway through (see 5 below); a third run times them.
+| Asked while the wiki was built (run 1) | 9 ms | 287 | 1 | 6.8 s | 69.6 s |
+| 1, the first after the wiki (run 1) | 23 ms | 536 | 0 | 14.5 s | 17.2 s |
+| 1, the first after the wiki (run 3) | 36 ms | 811 | 0 | 21.0 s | 23.3 s |
+| 2, spoken (run 1) | 29 ms | 579 | 1 | 17.2 s | 20.1 s |
+| 3 (run 1) | 19 ms | 467 | 185 | 11.4 s | 16.8 s |
+| 3, the first after a restart | 29 ms | 941 | 0 | 21.2 s | 24.5 s |
+| 4 | 26 ms | 420 | 549 | 10.5 s | 13.6 s |
+| 5 | 19 ms | 361 | 579 | 9.5 s | 12.7 s |
+| "What can you talk about?" (no LLM) | - | - | - | - | 8.7 s and 10.3 s |
+| "Teach me about Prime Numbers" | 16 ms | 548 | 619 | 13.1 s | 15.4 s |
+| "Quiz me on Prime Numbers" | 29 ms | 445 | 787 | 10.9 s | 15.7 s |
+| "Assess me" (no LLM: it offers the topics first) | 16 to 27 ms | - | - | - | 1.9 s and 2.1 s |
 
 The largest costs:
 
@@ -196,18 +205,22 @@ The largest costs:
    (500), and the build failed with "The AI couldn't build a wiki from this PDF". A reply
    during a build could do the same. R99 decides how replies and the wiki share the LLM, and
    R97 the slots and the context.
-4. **An answer from the wiki reads its whole prompt again:** 470 to 580 tokens at 38 to 46 a
-   second, with 0 to 185 reused, so the first token comes 11 to 17 s after Send, against 1.5 s
-   for a reply without content in R96. The passages found change the prompt from the first
+4. **An answer from the wiki is heard 13 to 24 s after Send.** Its prompt has about 390
+   tokens of the question and what was found, and llama-server reads 360 to 940 tokens of it
+   again at 38 to 46 a second, so the first token comes 9.5 to 21 s after Send, against 1.5 s
+   for a reply without content in R96. The first question after the wiki or a restart reuses
+   nothing, as the passages found change the prompt from the first message on. The passages found change the prompt from the first
    message on, and the system prompt the warm-up read wasn't reused (the slots again, as in
    R96; for R97). The lookup itself takes 19 to 29 ms, and a spoken question's correction
    (R96d) 4.5 s.
-5. **llama-server's memory grew to 11 GB**, and it was killed when the session's memory ran
-   out. A second run logged it: 5.5 GB once the model was loaded (2.5 GB of it the model, mapped
-   from its file), and 6.8 GB ten minutes into the wiki. The hosted machine gives it 6 GB
-   (`mem_limit` in `deploy/compose.yaml`), so a long wiki build may get it restarted there. The
-   likely cause is the prompt cache llama-server now keeps in memory for its slots; R97 checks
-   it and caps it.
-6. **"What can you talk about?" is heard 10.3 s after Send** without the LLM: its first
-   sentence, the list of topics, is 17 s of speech, and its voice takes 10 s. A long first
+5. **llama-server's memory grows to about 10.5 GB**, and it was killed twice when the
+   session's memory ran out (once the app with it). Logged in the second and third runs: 5.5 GB
+   once the model was loaded (2.5 GB of it the model, mapped from its file), 6.8 GB ten minutes
+   into the wiki, and 10.4 GB at the end. That is llama-server's prompt cache in memory, which
+   it keeps for up to 8 GB unless `--cache-ram` says otherwise (`--help`: "default: 8192"). The
+   hosted machine gives it 6 GB (`mem_limit` in `deploy/compose.yaml`), so a wiki build will get
+   it killed and restarted there, and every request after a restart reads its whole prompt
+   again. R97 sets `--cache-ram` to fit.
+6. **"What can you talk about?" is heard 8.7 to 10.3 s after Send** without the LLM: its first
+   sentence, the list of topics, is 14 to 17 s of speech, and its voice takes 8.4 to 10 s. A long first
    sentence isn't cut as the LLM's first clause is (R22b, R22e); for R100.
