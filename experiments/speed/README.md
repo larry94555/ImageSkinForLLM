@@ -283,6 +283,136 @@ The largest costs, against the cloud session:
 5. **The question asked while the wiki was built read its prompt at 3.1 tokens a second**, as
    it shared the 2 threads with the wiki, and was heard after 74 s, as in the cloud (70 s).
 
+## R96b: setup
+
+`imageskin time-setup` goes through setup on the running app, as a new user would in the
+browser, and writes the tables to `speed` in the data folder. It changes the app's setup, so it
+runs only on an app with nothing set up yet: start the app with an empty data folder for it (on
+the hosted machine, a second container with its own `/data`, or `--anyway` on a copy).
+
+```
+IMAGESKIN_HOME=/tmp/setup-test imageskin serve      # a fresh data folder
+imageskin time-setup                                # a ready photo and recording
+imageskin time-setup --photo me.jpg --photo me2.jpg --recording a.m4a --recording b.m4a
+```
+
+In turn it: uploads a photo and three recordings (Larry's timings 8 and 9), prepares the video
+and voice (timing 6), uploads a second photo, chooses it and prepares again, changes the accent
+and prepares again (only with a voice engine that has accents), picks a default person with
+Start now and then another, each to the chat opening and its first prompt's first word heard,
+and prepares the avatar in your own voice (R24d).
+
+Each upload's answer now carries a `Server-Timing` header with its steps in milliseconds, so the
+browser's developer tools show them too: `save` (copying the parsed file into the uploads
+folder), `convert` (HEIC to JPG, or a recording to WAV), `wait` (for another photo's checks),
+`read`, `faces` and `covered` (the face checks, R8), `quality` (light and sharpness, R9),
+`sound` (R10), `speakers` (the one-speaker check, R11), `voice-sample` (joining the recordings
+that passed) and `endpoint` (the whole endpoint). FastAPI receives and parses the upload before
+the endpoint runs, so none of these include that; the time until checked, seen by
+`time-setup`, does, and `Before endpoint` is that part of it. The two results files below were
+made when `save` was called `receive` and `endpoint` was called `total`, with the same
+meanings. Prepare's steps come from its own status, as the Prepare page shows them.
+
+### Cloud session, 2026-10-22
+
+[setup-cloud-2026-10-22.md](setup-cloud-2026-10-22.md), with the JSON beside it. The same 4-core
+Xeon as R96, with llama-server (Gemma 3 4B Q4_K_M, 2 threads) running, Kokoro's ready-made voice
+(Chatterbox and Pocket TTS aren't installed, so there is no accent to change) and the photoreal
+engine, with the models already downloaded (their download is start-up's, R96c).
+
+| Step | Time |
+|---|---|
+| A photo, until checked | 0.96 s and 1.18 s |
+| A recording (40 s), until checked | 0.69 s to 1.05 s |
+| Prepare, until the sample can be watched | 373.6 s (6.2 min) |
+| Prepare again after another photo | 362.9 s (6.0 min) |
+| Start now | not timed: the session can't reach app.me0.ai to download the person |
+
+Prepare's steps, the first time and after another photo:
+
+| Step | First | Again |
+|---|---|---|
+| Get the voice ready | 8.6 s | 0.5 s |
+| Get ready to animate the face | 2.4 s | 2.7 s |
+| Make the mouth shapes and the blinking eyes | 69.1 s | 75.5 s |
+| Make the video of the person listening | 252.0 s | 245.0 s |
+| Line up the mouth with the head | 12.1 s | 11.7 s |
+| Make the sample video and the greetings | 25.0 s | 23.4 s |
+
+The largest costs:
+
+1. **The video of the person listening, about 250 s**, two thirds of Prepare. It is the idle
+   video shown between replies (R23), made frame by frame by the photoreal engine like any
+   other video, though nothing in it speaks. A shorter loop, fewer frames played back and forth,
+   or making it after the sample is shown, are for the PRs that speed up setup.
+2. **The mouth shapes and blinking eyes, about 70 s**, a fifth of Prepare.
+3. **Prepare again after another photo redoes everything but the voice**: a new face needs new
+   shapes and a new listening video, so it is as slow as the first time.
+4. **The photo and recording checks are already quick**, about a second each. In a photo the
+   face checks take most of it (`faces` 0.3 to 0.5 s and `covered` 0.5 to 0.6 s), as each
+   photo opens and closes both MediaPipe models; in a recording the one-speaker check does
+   (0.55 to 0.86 s).
+5. **The browser's polling** adds up to 1 s to Prepare (every 1 s) and up to 0.5 s to Start
+   now (every 500 ms), small against the steps themselves. The sample could be fetched 10 ms
+   after Prepare finished.
+
+### Larry's hosted machine, 2026-10-23
+
+[setup-hosted-2026-10-23.md](setup-hosted-2026-10-23.md), with the JSON beside it. app.me0.ai:
+4 Ampere cores (the app container gets 3), llama-server with Gemma 3 4B on 2 threads,
+Chatterbox Turbo speaking in the person's own voice, and the photoreal engine, run against a
+second copy of the app with an empty data folder and the real one's models. Every step passed;
+the whole run took about 1 h 50 min, started in the background (`docker compose exec -d`) and
+followed with `setup-progress.txt`.
+
+| Step | Time |
+|---|---|
+| A photo, until checked | 0.60 s and 0.71 s |
+| A recording (40 s), until checked | 1.35 s to 1.39 s |
+| Prepare, until the sample can be watched | 3104 s (51.7 min) |
+| Prepare again after another photo | 3148 s (52.5 min) |
+| Prepare again after another accent | 155 s (2.6 min) |
+| Prepare the avatar in your own voice | 152 s (2.5 min) |
+| Start now, to the chat opening | 22.0 s, then 5.9 s to the first prompt's first word heard |
+| Switch person, to the chat opening | 18.3 s, then 8.2 s to the first word heard |
+
+Prepare's steps, in seconds, and how many times as long as in the cloud:
+
+| Step | First | Another photo | Another accent | Own voice | First, against the cloud |
+|---|---|---|---|---|---|
+| Get the voice ready | 50.6 | 1.9 | 89.6 | 88.1 | 5.9 times (Chatterbox here, Kokoro there) |
+| Get ready to animate the face | 7.5 | 5.1 | - | - | 3.1 times |
+| Make the mouth shapes and the blinking eyes | 639.4 | 652.5 | - | - | 9.3 times |
+| Make the video of the person listening | 2271.8 | 2338.3 | - | - | 9.0 times |
+| Line up the mouth with the head | 16.1 | 16.5 | - | - | 1.3 times |
+| Make the sample video and the greetings | 113.1 | 127.5 | 65.5 | 63.6 | 4.5 times |
+
+Start now's states, in seconds from the click: downloading at once, unpacking at 0.25 s, getting
+ready at 6.1 s (3.3 s for the second person), ready at 14.6 s (11.4 s) and the chat open at
+22.0 s (18.3 s).
+
+The largest costs on the hosted machine:
+
+1. **The video of the person listening, about 38 minutes**, 73% of Prepare, and 9 times as long
+   as in the cloud, as the photoreal engine's frames are on 3 Ampere cores instead of 4 Xeon
+   ones. It is the largest cost in all of setup by far, and the first thing for the PRs that
+   speed up setup: a shorter loop, fewer frames played back and forth, or making it after the
+   sample is shown.
+2. **The mouth shapes and blinking eyes, about 11 minutes**, 21% of Prepare, also 9 times the
+   cloud's.
+3. **Another photo costs a whole Prepare again, 52 minutes**: everything but the voice is redone
+   for a new face. The voice is kept (1.9 s).
+4. **Another accent or the avatar in your own voice costs about 2.5 minutes**, the voice made
+   again (about 90 s, the Chatterbox clone loading and the accent's sample) and the clips spoken
+   again (about 65 s). The face is kept.
+5. **Start now opens the chat in 18 to 22 s**, most of it after the download: 8 s getting the
+   person ready and 7 s from ready to the chat opening (the replies' warm-up, R96c), after
+   which the first reply waited for nothing (warm-up wait 0) and its first word was heard in
+   6 to 8 s.
+6. **The photo and recording checks stay quick**: 0.6 to 0.7 s for a photo, with `covered` (the
+   segmenter) the largest part at 0.39 to 0.54 s; 1.4 s for a recording, 92% of it the
+   one-speaker check (1.24 to 1.28 s).
+
 ## R100: the pause after the first clip
 
 The gaps after the first clip in the cloud run of 2026-10-21 (1.9 s and 3.0 s) were the LLM, not

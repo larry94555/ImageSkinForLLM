@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from imageskin import server_timing
 from imageskin.download import DownloadError, download
 from imageskin.liveportrait import FACE_MODEL_SHA256, FACE_MODEL_SIZE, FACE_MODEL_URL, MAX_SIDE
 from imageskin.uploads import PhotoResult
@@ -285,7 +286,9 @@ class FaceChecker:
             )
 
     def measure(self, photo: Path) -> FaceMeasure:
-        return self.measure_rgb(read_rgb(photo))
+        with server_timing.step("read"):
+            rgb = read_rgb(photo)
+        return self.measure_rgb(rgb)
 
     def measure_rgb(self, rgb: NDArray[np.uint8]) -> FaceMeasure:
         import mediapipe as mp
@@ -299,7 +302,10 @@ class FaceChecker:
             num_faces=3,
             output_facial_transformation_matrixes=True,
         )
-        with vision.FaceLandmarker.create_from_options(face_options) as landmarker:
+        with (
+            server_timing.step("faces"),
+            vision.FaceLandmarker.create_from_options(face_options) as landmarker,
+        ):
             found = landmarker.detect(image)
         faces = len(found.face_landmarks)
         if faces != 1:
@@ -308,10 +314,15 @@ class FaceChecker:
             base_options=BaseOptions(model_asset_path=str(segment_model)),
             output_category_mask=True,
         )
-        with vision.ImageSegmenter.create_from_options(segment_options) as segmenter:
+        with (
+            server_timing.step("covered"),
+            vision.ImageSegmenter.create_from_options(segment_options) as segmenter,
+        ):
             categories = segmenter.segment(image).category_mask.numpy_view().copy()
         points = np.array([[p.x * w, p.y * h] for p in found.face_landmarks[0]], np.float32)
         yaw, pitch = head_angles(found.facial_transformation_matrixes[0])
+        with server_timing.step("quality"):  # R9: the light and sharpness
+            quality = light_and_sharpness(rgb, points)
         return FaceMeasure(
             faces=1,
             height_px=float(points[:, 1].max() - points[:, 1].min())
@@ -319,14 +330,18 @@ class FaceChecker:
             yaw_deg=yaw,
             pitch_deg=pitch,
             covered=covered_share(categories, points),
-            **light_and_sharpness(rgb, points),
+            **quality,
         )
 
     def check(self, photo: Path) -> PhotoResult:
         """The problems found in the photo, and its score when there are none."""
         start = time.perf_counter()
-        with self._lock:  # one photo at a time keeps memory and CPU use down
+        with server_timing.step("wait"):
+            self._lock.acquire()  # one photo at a time keeps memory and CPU use down
+        try:
             m = self.measure(photo)
+        finally:
+            self._lock.release()
         found = problems(m)
         result = PhotoResult(found, None if found else score(m))
         logger.info(

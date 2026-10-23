@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import pytest
 
-from imageskin import face_checks
+from imageskin import face_checks, server_timing
 from imageskin.download import DownloadError
 from imageskin.face_checks import (
     BLURRY,
@@ -372,3 +372,10 @@ def test_a_big_photo_is_measured_as_the_engine_will_shrink_it(tmp_path: Path) ->
     with patch.dict(sys.modules, fake_mediapipe()):
         measure = checker(tmp_path).measure(photo(tmp_path, 2 * MAX_SIDE))
     assert measure.height_px == pytest.approx(MAX_SIDE * 0.9, rel=0.02)
+
+
+def test_each_check_is_timed_for_the_upload(tmp_path: Path) -> None:
+    with patch.dict(sys.modules, fake_mediapipe()), server_timing.collecting() as steps:
+        checker(tmp_path).check(photo(tmp_path, 600))
+    assert list(steps) == ["wait", "read", "faces", "covered", "quality"]  # R96b
+    assert all(ms >= 0 for ms in steps.values())

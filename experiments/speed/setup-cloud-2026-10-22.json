@@ -1,0 +1,170 @@
+{
+  "photos": [
+    {
+      "file": "photoreal_male_professor.png",
+      "bytes": 1401458,
+      "id": "9154d36e85124b259e20fb51d5aadd33",
+      "total_ms": 959,
+      "steps": {
+        "receive": 1,
+        "convert": 1,
+        "wait": 0,
+        "read": 44,
+        "faces": 318,
+        "covered": 466,
+        "quality": 106,
+        "total": 946
+      },
+      "problems": [],
+      "error": null
+    },
+    {
+      "file": "photoreal_male_professor_2.png",
+      "bytes": 1661304,
+      "id": "6eab4ff6684c457582068f6156489f00",
+      "total_ms": 1180,
+      "steps": {
+        "receive": 1,
+        "convert": 1,
+        "wait": 0,
+        "read": 31,
+        "faces": 523,
+        "covered": 601,
+        "quality": 3,
+        "total": 1169
+      },
+      "problems": [],
+      "error": null
+    }
+  ],
+  "recordings": [
+    {
+      "file": "setup-recording.wav",
+      "bytes": 1920226,
+      "id": "29a4c45dcc4a4b20b7c1a0f856b8e8c1",
+      "total_ms": 1048,
+      "steps": {
+        "receive": 1,
+        "convert": 90,
+        "sound": 82,
+        "speakers": 855,
+        "voice-sample": 2,
+        "total": 1032
+      },
+      "problems": [],
+      "error": null
+    },
+    {
+      "file": "setup-recording.wav",
+      "bytes": 1920226,
+      "id": "b8e70f37f4cb412f9d2e4665419436cd",
+      "total_ms": 908,
+      "steps": {
+        "receive": 1,
+        "convert": 99,
+        "sound": 8,
+        "speakers": 780,
+        "voice-sample": 3,
+        "total": 894
+      },
+      "problems": [],
+      "error": null
+    },
+    {
+      "file": "setup-recording.wav",
+      "bytes": 1920226,
+      "id": "c1e788704cfb43e689b7c8cf68c6f828",
+      "total_ms": 691,
+      "steps": {
+        "receive": 1,
+        "convert": 113,
+        "sound": 9,
+        "speakers": 551,
+        "voice-sample": 7,
+        "total": 682
+      },
+      "problems": [],
+      "error": null
+    }
+  ],
+  "prepare": [
+    {
+      "what": "Prepare",
+      "ms": 373613,
+      "sample_plays_ms": 373624,
+      "steps": {
+        "voice": 8.6,
+        "models": 2.4,
+        "shapes": 69.1,
+        "loop": 252.0,
+        "align": 12.1,
+        "clips": 25.0
+      },
+      "states": [
+        [
+          "running",
+          8
+        ],
+        [
+          "done",
+          373600
+        ]
+      ],
+      "error": null
+    },
+    {
+      "what": "Prepare again, another photo",
+      "ms": 362889,
+      "sample_plays_ms": 362899,
+      "steps": {
+        "voice": 0.5,
+        "models": 2.7,
+        "shapes": 75.5,
+        "loop": 245.0,
+        "align": 11.7,
+        "clips": 23.4
+      },
+      "states": [
+        [
+          "running",
+          10
+        ],
+        [
+          "done",
+          362877
+        ]
+      ],
+      "error": null
+    }
+  ],
+  "people": [
+    {
+      "what": "Start now",
+      "error": "The person couldn't be downloaded. Check the internet connection and click Try again.",
+      "states": [
+        [
+          "downloading",
+          2
+        ],
+        [
+          "failed",
+          2653
+        ]
+      ]
+    },
+    {
+      "what": "Switch person",
+      "error": "The person couldn't be downloaded. Check the internet connection and click Try again.",
+      "states": [
+        [
+          "downloading",
+          3
+        ],
+        [
+          "failed",
+          2585
+        ]
+      ]
+    }
+  ]
+}
