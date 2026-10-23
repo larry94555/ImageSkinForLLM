@@ -44,7 +44,7 @@ PROMPT = "Hello! Who are you?"
 # How often the browser asks, so what it shows can lag by up to this much.
 PREPARE_POLL_MS = 1000  # web/src/pages.tsx
 START_NOW_POLL_MS = 500  # web/src/start-now.tsx
-POLL_S = 0.05  # how often this asks: close enough to when each state changed
+POLL_S = 0.25  # how often this asks: often enough for each state, not so often it floods the log
 PREPARE_LIMIT_S = 3600
 START_NOW_LIMIT_S = 1800
 UPLOAD_TIMEOUT_S = 600
