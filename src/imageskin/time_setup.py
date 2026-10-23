@@ -45,7 +45,7 @@ PROMPT = "Hello! Who are you?"
 PREPARE_POLL_MS = 1000  # web/src/pages.tsx
 START_NOW_POLL_MS = 500  # web/src/start-now.tsx
 POLL_S = 0.25  # how often this asks: often enough for each state, not so often it floods the log
-PREPARE_LIMIT_S = 3600
+PREPARE_LIMIT_S = 3 * 3600  # Prepare took about an hour on the hosted machine
 START_NOW_LIMIT_S = 1800
 UPLOAD_TIMEOUT_S = 600
 
