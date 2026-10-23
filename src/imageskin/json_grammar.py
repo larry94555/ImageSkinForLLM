@@ -31,7 +31,7 @@ def compact_grammar(schema: dict[str, Any]) -> str:
 
 def rule(schema: dict[str, Any], rules: dict[str, str]) -> str:
     """The name of the rule for a value of the schema, adding the rules it needs."""
-    kind = schema.get("type")
+    kind: str = schema.get("type", "")
     if kind in ("string", "integer"):
         return kind
     if kind == "array":
