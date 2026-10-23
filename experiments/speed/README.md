@@ -352,9 +352,62 @@ The largest costs:
    now (every 500 ms), small against the steps themselves. The sample could be fetched 10 ms
    after Prepare finished.
 
-Start now, the switch to another person and the avatar in your own voice still need a run on
-Larry's hosted machine, which can download the people, and the accent change one with the
-person's own voice (Pocket TTS or Chatterbox).
+### Larry's hosted machine, 2026-10-23
+
+[setup-hosted-2026-10-23.md](setup-hosted-2026-10-23.md), with the JSON beside it. app.me0.ai:
+4 Ampere cores (the app container gets 3), llama-server with Gemma 3 4B on 2 threads,
+Chatterbox Turbo speaking in the person's own voice, and the photoreal engine, run against a
+second copy of the app with an empty data folder and the real one's models. Every step passed;
+the whole run took about 1 h 50 min, started in the background (`docker compose exec -d`) and
+followed with `setup-progress.txt`.
+
+| Step | Time |
+|---|---|
+| A photo, until checked | 0.60 s and 0.71 s |
+| A recording (40 s), until checked | 1.35 s to 1.39 s |
+| Prepare, until the sample can be watched | 3104 s (51.7 min) |
+| Prepare again after another photo | 3148 s (52.5 min) |
+| Prepare again after another accent | 155 s (2.6 min) |
+| Prepare the avatar in your own voice | 152 s (2.5 min) |
+| Start now, to the chat opening | 22.0 s, then 5.9 s to the first prompt's first word heard |
+| Switch person, to the chat opening | 18.3 s, then 8.2 s to the first word heard |
+
+Prepare's steps, in seconds, and how many times as long as in the cloud:
+
+| Step | First | Another photo | Another accent | Own voice | First, against the cloud |
+|---|---|---|---|---|---|
+| Get the voice ready | 50.6 | 1.9 | 89.6 | 88.1 | 5.9 times |
+| Get ready to animate the face | 7.5 | 5.1 | - | - | 3.1 times |
+| Make the mouth shapes and the blinking eyes | 639.4 | 652.5 | - | - | 9.3 times |
+| Make the video of the person listening | 2271.8 | 2338.3 | - | - | 9.0 times |
+| Line up the mouth with the head | 16.1 | 16.5 | - | - | 1.3 times |
+| Make the sample video and the greetings | 113.1 | 127.5 | 65.5 | 63.6 | 4.5 times |
+
+Start now's states, in seconds from the click: downloading at once, unpacking at 0.25 s, getting
+ready at 6.1 s (3.3 s for the second person), ready at 14.6 s (11.4 s) and the chat open at
+22.0 s (18.3 s).
+
+The largest costs on the hosted machine:
+
+1. **The video of the person listening, about 38 minutes**, 73% of Prepare, and 9 times as long
+   as in the cloud, as the photoreal engine's frames are on 3 Ampere cores instead of 4 Xeon
+   ones. It is the largest cost in all of setup by far, and the first thing for the PRs that
+   speed up setup: a shorter loop, fewer frames played back and forth, or making it after the
+   sample is shown.
+2. **The mouth shapes and blinking eyes, about 11 minutes**, 21% of Prepare, also 9 times the
+   cloud's.
+3. **Another photo costs a whole Prepare again, 52 minutes**: everything but the voice is redone
+   for a new face. The voice is kept (1.9 s).
+4. **Another accent or the avatar in your own voice costs about 2.5 minutes**, the voice made
+   again (about 90 s, the Chatterbox clone loading and the accent's sample) and the clips spoken
+   again (about 65 s). The face is kept.
+5. **Start now opens the chat in 18 to 22 s**, most of it after the download: 8 s getting the
+   person ready and 7 s from ready to the chat opening (the replies' warm-up, R96c), after
+   which the first reply waited for nothing (warm-up wait 0) and its first word was heard in
+   6 to 8 s.
+6. **The photo and recording checks stay quick**: 0.6 to 0.7 s for a photo, with `covered` (the
+   segmenter) the largest part at 0.39 to 0.54 s; 1.4 s for a recording, 92% of it the
+   one-speaker check (1.24 to 1.28 s).
 
 ## R100: the pause after the first clip
 

@@ -1,0 +1,250 @@
+{
+  "photos": [
+    {
+      "file": "photoreal_male_professor.jpg",
+      "bytes": 173029,
+      "id": "20c47d2166734a389efc5b4296f87e62",
+      "total_ms": 603,
+      "steps": {
+        "receive": 0,
+        "convert": 0,
+        "wait": 0,
+        "read": 11,
+        "faces": 152,
+        "covered": 390,
+        "quality": 37,
+        "total": 599
+      },
+      "problems": [],
+      "error": null
+    },
+    {
+      "file": "photoreal_male_professor_2.jpg",
+      "bytes": 247933,
+      "id": "3f983902e9e843d4b1597becded80b58",
+      "total_ms": 711,
+      "steps": {
+        "receive": 0,
+        "convert": 0,
+        "wait": 0,
+        "read": 6,
+        "faces": 152,
+        "covered": 538,
+        "quality": 3,
+        "total": 707
+      },
+      "problems": [],
+      "error": null
+    }
+  ],
+  "recordings": [
+    {
+      "file": "recording.m4a",
+      "bytes": 352625,
+      "id": "5c637ceec3ed40da9519751406662093",
+      "total_ms": 1390,
+      "steps": {
+        "receive": 0,
+        "convert": 98,
+        "sound": 8,
+        "speakers": 1275,
+        "voice-sample": 2,
+        "total": 1385
+      },
+      "problems": [],
+      "error": null
+    },
+    {
+      "file": "recording.m4a",
+      "bytes": 352625,
+      "id": "80cab53a3ed84315bd5169296fd35581",
+      "total_ms": 1387,
+      "steps": {
+        "receive": 0,
+        "convert": 97,
+        "sound": 6,
+        "speakers": 1275,
+        "voice-sample": 4,
+        "total": 1383
+      },
+      "problems": [],
+      "error": null
+    },
+    {
+      "file": "recording.m4a",
+      "bytes": 352625,
+      "id": "913a98602d1b458da7069794104391e1",
+      "total_ms": 1353,
+      "steps": {
+        "receive": 0,
+        "convert": 96,
+        "sound": 6,
+        "speakers": 1238,
+        "voice-sample": 6,
+        "total": 1349
+      },
+      "problems": [],
+      "error": null
+    }
+  ],
+  "prepare": [
+    {
+      "what": "Prepare",
+      "ms": 3104489,
+      "sample_plays_ms": 3104497,
+      "steps": {
+        "voice": 50.6,
+        "models": 7.5,
+        "shapes": 639.4,
+        "loop": 2271.8,
+        "align": 16.1,
+        "clips": 113.1
+      },
+      "states": [
+        [
+          "running",
+          4
+        ],
+        [
+          "done",
+          3104482
+        ]
+      ],
+      "error": null
+    },
+    {
+      "what": "Prepare again, another photo",
+      "ms": 3147850,
+      "sample_plays_ms": 3147858,
+      "steps": {
+        "voice": 1.9,
+        "models": 5.1,
+        "shapes": 652.5,
+        "loop": 2338.3,
+        "align": 16.5,
+        "clips": 127.5
+      },
+      "states": [
+        [
+          "running",
+          7
+        ],
+        [
+          "done",
+          3147843
+        ]
+      ],
+      "error": null
+    },
+    {
+      "what": "Prepare again, another accent",
+      "ms": 155387,
+      "sample_plays_ms": 155395,
+      "steps": {
+        "voice": 89.6,
+        "models": null,
+        "shapes": null,
+        "loop": null,
+        "align": null,
+        "clips": 65.5
+      },
+      "states": [
+        [
+          "running",
+          7
+        ],
+        [
+          "done",
+          155371
+        ]
+      ],
+      "error": null
+    },
+    {
+      "what": "Prepare, avatar in your own voice",
+      "ms": 152217,
+      "sample_plays_ms": 152225,
+      "steps": {
+        "voice": 88.1,
+        "models": null,
+        "shapes": null,
+        "loop": null,
+        "align": null,
+        "clips": 63.6
+      },
+      "states": [
+        [
+          "running",
+          6
+        ],
+        [
+          "done",
+          152203
+        ]
+      ],
+      "error": null
+    }
+  ],
+  "people": [
+    {
+      "what": "Start now",
+      "person": "photoreal_male_professor",
+      "ms": 22044,
+      "states": [
+        [
+          "downloading",
+          1
+        ],
+        [
+          "unpacking",
+          254
+        ],
+        [
+          "getting-ready",
+          6061
+        ],
+        [
+          "ready",
+          14613
+        ],
+        [
+          "chat open",
+          22040
+        ]
+      ],
+      "reply_warm_up_wait_ms": 0.0,
+      "first_word_heard_ms": 5937,
+      "error": null
+    },
+    {
+      "what": "Switch person",
+      "person": "animated_female_boss",
+      "ms": 18325,
+      "states": [
+        [
+          "downloading",
+          3
+        ],
+        [
+          "unpacking",
+          256
+        ],
+        [
+          "getting-ready",
+          3312
+        ],
+        [
+          "ready",
+          11398
+        ],
+        [
+          "chat open",
+          18321
+        ]
+      ],
+      "reply_warm_up_wait_ms": 0.0,
+      "first_word_heard_ms": 8222,
+      "error": null
+    }
+  ]
+}
