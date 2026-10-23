@@ -487,6 +487,38 @@ The largest costs and what they mean:
 5. **Opening the chat again after a restart is quick**: its 8 requests take 54 ms together,
    and Welcome back's video (92 KB) arrives in 10 ms.
 
+### Larry's hosted machine, 2026-10-23
+
+[startup-hosted-2026-10-23.md](startup-hosted-2026-10-23.md), with the JSON beside it.
+app.me0.ai after `docker compose restart app llama`, with Larry's person and a 924-token
+conversation saved; time-startup began 25.6 s after the app's process, after the ready line.
+
+| Part | From the process starting |
+|---|---|
+| App made | 1.9 to 2.1 s |
+| Server listening | 2.6 s |
+| Face models, speaker model | done at 3.5 s and 2.9 s |
+| LLM warm-up | 2.1 to 2.2 s: refused, as llama-server was still loading |
+| Voice and video warm-up | 2.1 to 14.7 s (12.6 s) |
+| Ready line | 14.7 s |
+| llama-server answering /health | not timed: the watch ended without a time (fixed since) |
+
+1. **The first reply after the restart took 65.6 s to its first token**, against 4.0 s for the
+   next. It read all 953 prompt tokens again at 14.5 a second, reusing none. Two causes: the
+   warm-up was refused while llama-server loaded its model, and even a warm-up that ran only
+   reads the system prompt, while the saved conversation adds 924 tokens of history to the
+   first prompt. The second reply reused 948. This is start-up's largest cost by far.
+2. **The voice and video warm-up took 12.6 s**, much less than in the cloud (44 s), as the
+   models were already in the disk cache.
+3. **The browser's first load (0.2 s) and opening the chat again (47 ms)** are small, measured
+   inside the container; through Caddy and the internet they will be longer.
+4. **Saving the LLM again in Settings** cost the next prompt little here (first token 11.3 s,
+   986 tokens reused): the history was already in llama-server's cache.
+
+The fix for the first: warm the LLM up once llama-server answers `/health`, with the saved
+conversation's prompt rather than the system prompt alone, so the first reply after a restart
+reuses what the next one does.
+
 ## R100: the pause after the first clip
 
 The gaps after the first clip in the cloud run of 2026-10-21 (1.9 s and 3.0 s) were the LLM, not

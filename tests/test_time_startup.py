@@ -259,3 +259,44 @@ def test_the_command_times_the_start(app: tuple[str, FakeApp], tmp_path: Path) -
     out = tmp_path / "speed"
     assert main(["time-startup", "--url", url, "--llm-url", url + "/v1", "--out", str(out)]) == 0
     assert list(out.glob("startup-*.md"))
+
+
+def test_a_watch_that_fails_oddly_keeps_watching(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The hosted run of PR #150 had no time for llama-server: the watch had ended."""
+    import http.client
+
+    answers: list[Exception | None] = [http.client.BadStatusLine("x"), None]
+
+    class Ok:
+        status = 200
+
+        def __enter__(self) -> "Ok":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    def urlopen(*_: object, **__: object) -> Ok:
+        failure = answers.pop(0)
+        if failure:
+            raise failure
+        return Ok()
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    seen: dict[str, Any] = {}
+    time_startup.watch_llm("http://llama/health", seen, threading.Event())
+    assert "wall" in seen and seen["already"] is False
+    assert seen["error"].startswith("BadStatusLine")
+
+
+def test_an_llm_never_seen_is_reported(tmp_path: Path) -> None:
+    results = {
+        "startup": {"started_wall": 0, "now_ms": 1, "parts": []},
+        "llm": {"loaded_ms": None, "already_loaded": False, "began_ms": 5, "error": "refused"},
+        "prompts": [],
+        "first_load": {},
+        "chat_opening": {"opening": {"rows": [], "ms": 1}, "welcome_back": None},
+        "llm_change": {"error": "Not timed"},
+    }
+    report = time_startup.markdown(results)
+    assert "| llama-server answering /health | - | not seen | - | refused |" in report

@@ -117,7 +117,9 @@ def llm_health_url(llm_url: str) -> str:
 
 def watch_llm(url: str, seen: dict[str, Any], stop: threading.Event) -> None:
     """Note in `seen` when llama-server first answers /health with 200 (it answers 503 while
-    it loads its model), and whether it already did the first time it was asked."""
+    it loads its model), and whether it already did the first time it was asked. Any failure
+    to ask is kept in `seen` and asked again: the hosted run of PR #150 lost the watch, with
+    no time for llama-server, when one wasn't an OSError."""
     first = True
     while not stop.is_set():
         try:
@@ -126,8 +128,9 @@ def watch_llm(url: str, seen: dict[str, Any], stop: threading.Event) -> None:
                     seen["wall"] = time.time()
                     seen["already"] = first
                     return
-        except (OSError, ValueError):
-            pass
+                seen["error"] = f"answered {response.status}"
+        except Exception as e:  # 503 while loading, refused while starting, or anything else
+            seen["error"] = f"{type(e).__name__}: {e}"
         first = False
         stop.wait(POLL_S)
 
@@ -243,6 +246,7 @@ def measure_all(base: str, llm_url: str, began_wall: float) -> dict[str, Any]:
     llm = {
         "loaded_ms": at_ms(seen.get("wall"), started),
         "already_loaded": seen.get("already", False),
+        "error": None if "wall" in seen else seen.get("error"),
         "began_ms": at_ms(began_wall, started),
     }
     logger.info("App ready; timing the first prompts", extra={"llm_loaded_ms": llm["loaded_ms"]})
@@ -274,6 +278,8 @@ def markdown(results: dict[str, Any]) -> str:
     if loaded is not None:
         when = f"before {loaded}" if llm["already_loaded"] else loaded
         rows.append(["llama-server answering /health", "-", when, "-", None])
+    else:
+        rows.append(["llama-server answering /health", "-", "not seen", "-", llm.get("error")])
     rows.append(["time-startup began", llm["began_ms"], llm["began_ms"], 0, None])
     rows.sort(key=lambda r: r[1] if isinstance(r[1], (int, float)) else -1)
     out += [table(["Part", "Began", "Ended", "Took", "Error"], rows), ""]
