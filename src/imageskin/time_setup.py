@@ -25,14 +25,16 @@ from imageskin.time_reply import ask, ms, table
 
 logger = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parents[2]
+# Inside the package, so they are there when it is installed, as in the Docker image.
+SAMPLES = Path(__file__).with_name("setup_samples")
 DEFAULT_PHOTOS = (
-    ROOT / "resources" / "default-people" / "photoreal_male_professor.png",
-    ROOT / "resources" / "default-people" / "photoreal_male_professor_2.png",  # the change
+    SAMPLES / "photoreal_male_professor.jpg",
+    SAMPLES / "photoreal_male_professor_2.jpg",  # the change of photo
 )
 # One man's recording three times: three recordings of one person, as setup asks for. It is
-# the American donor's 20 s twice over, so it has the 15 s of speech a recording needs.
-DEFAULT_RECORDINGS = (ROOT / "experiments" / "speed" / "setup-recording.wav",) * 3
+# the American donor's 20 s twice over (experiments/voice/donors), so it has the 15 s of speech
+# a recording needs, as an M4A, as a phone records it.
+DEFAULT_RECORDINGS = (SAMPLES / "recording.m4a",) * 3
 # Start now's two people, then the switch to the second.
 PEOPLE = (
     {"gender": "male", "accent": "American", "realism": "photoreal", "role": "Professor"},

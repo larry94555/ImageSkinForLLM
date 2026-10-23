@@ -253,3 +253,6 @@ def test_the_command_times_setup(app: tuple[str, FakeApp], tmp_path: Path) -> No
         False,
     )
     assert all(p.is_file() for p in [*time_setup.DEFAULT_PHOTOS, *time_setup.DEFAULT_RECORDINGS])
+    # Shipped in the package, so an installed copy (the Docker image) has them too.
+    package = Path(time_setup.__file__).parent
+    assert all(package in p.parents for p in time_setup.DEFAULT_PHOTOS)
