@@ -240,10 +240,10 @@ The app talks to [llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-ser
 Then start it in its own terminal and leave it running. The first time, it downloads the model (Gemma 3 4B, about 2.5 GB):
 
 ```
-llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 4096 --threads 2
+llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 4096 --threads 2 --threads-batch 4 --swa-full
 ```
 
-`--threads` gives the LLM half of the cores (2 of 4 here) and leaves the other half to the voice and the video while it writes (roadmap R22a). Without it, on a 4-core CPU, the two fight for the cores and both crawl: speaking a 3-second sentence took 14.5 s instead of 1.3 s, and the LLM fell from 8 to 0.3 tokens a second. On a graphics card, leave `--threads` out.
+`--threads` gives the LLM half of the cores (2 of 4 here) and leaves the other half to the voice and the video while it writes (roadmap R22a). `--threads-batch` lets it read a prompt on all 4, which it does before the voice starts, so the first word is written sooner; and `--swa-full` lets it reuse what it has already read (R97). Without `--swa-full`, Gemma 3's sliding-window cache can't be cut back to a shared start, so every prompt is read again from its first token, even right after the warm-up: in a cloud session the first reply's first token came after 5.1 s without it and 0.35 s with both, for about 0.35 GB more memory. Without it, on a 4-core CPU, the two fight for the cores and both crawl: speaking a 3-second sentence took 14.5 s instead of 1.3 s, and the LLM fell from 8 to 0.3 tokens a second. On a graphics card, leave `--threads` out.
 
 Use a model of about 4B parameters or more: Gemma 3 1B is given the earlier turns but often ignores them (asked "What is my name?" right after "Hi, my name is Larry", it answers "Sarah").
 

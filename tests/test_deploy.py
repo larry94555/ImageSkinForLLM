@@ -84,6 +84,17 @@ def test_the_app_asks_the_llama_container_with_the_laptops_model() -> None:
     assert "ports:" not in llama
 
 
+def test_llama_server_reuses_what_it_has_read_as_on_the_laptop() -> None:
+    # Without --swa-full Gemma 3 reads every prompt again from its start, even after the
+    # replies' warm-up (R97); the hosted machine runs what the README says to run.
+    llama = text(DEPLOY / "compose.yaml").split("\n  llama:")[1].split("\n  caddy:")[0]
+    options = "--ctx-size 4096 --threads 2 --threads-batch 4 --swa-full"
+    assert options in llama
+    assert options in text(ROOT / "README.md")
+    # Reading on all 4 threads needs the cores' quota for them.
+    assert "cpus: 4" in llama
+
+
 def test_the_containers_leave_room_for_the_machine() -> None:
     # Without caps, Prepare and the LLM together froze a 24 GB machine with no swap.
     limits = re.findall(r"mem_limit: (\d+)([gm])", text(DEPLOY / "compose.yaml"))

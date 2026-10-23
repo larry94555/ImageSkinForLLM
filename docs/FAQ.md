@@ -69,11 +69,12 @@ These change only the current terminal. If the setting comes back in every new t
 **Start it in its own terminal and leave that terminal open.** The command is the same on macOS, Linux, Windows Command Prompt and Windows PowerShell:
 
 ```
-llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 4096 --threads 2
+llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 4096 --threads 2 --threads-batch 4 --swa-full
 ```
 
 - `-hf` downloads the model from Hugging Face the first time, about 2.5 GB, and keeps it, so later starts take seconds. This model is public, so no Hugging Face account or token is needed.
 - `--threads 2` gives the AI 2 of the 4 cores and leaves the other 2 for the voice and the video. Without it they fight over the cores and both become very slow.
+- `--threads-batch 4` lets the AI read your question on all 4 cores, before the voice starts, and `--swa-full` lets it reuse what it has already read, so its first words come seconds sooner.
 - `--no-mmproj` skips the model's image part, which the app doesn't use. `--ctx-size 4096` is how much of the conversation and content it can read at once.
 
 **Check:** it is ready when its terminal shows a line ending `listening on http://127.0.0.1:8080`. Opening http://127.0.0.1:8080/health in a browser then shows `{"status":"ok"}`.
