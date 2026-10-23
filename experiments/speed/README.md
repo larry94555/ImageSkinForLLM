@@ -303,11 +303,15 @@ Start now and then another, each to the chat opening and its first prompt's firs
 and prepares the avatar in your own voice (R24d).
 
 Each upload's answer now carries a `Server-Timing` header with its steps in milliseconds, so the
-browser's developer tools show them too: `receive`, `convert` (HEIC to JPG, or a recording to
-WAV), `wait` (for another photo's checks), `read`, `faces` and `covered` (the face checks, R8),
-`quality` (light and sharpness, R9), `sound` (R10), `speakers` (the one-speaker check, R11),
-`voice-sample` (joining the recordings that passed) and `total`. Prepare's steps come from its
-own status, as the Prepare page shows them.
+browser's developer tools show them too: `save` (copying the parsed file into the uploads
+folder), `convert` (HEIC to JPG, or a recording to WAV), `wait` (for another photo's checks),
+`read`, `faces` and `covered` (the face checks, R8), `quality` (light and sharpness, R9),
+`sound` (R10), `speakers` (the one-speaker check, R11), `voice-sample` (joining the recordings
+that passed) and `endpoint` (the whole endpoint). FastAPI receives and parses the upload before
+the endpoint runs, so none of these include that; the time until checked, seen by
+`time-setup`, does, and `Before endpoint` is that part of it. The two results files below were
+made when `save` was called `receive` and `endpoint` was called `total`, with the same
+meanings. Prepare's steps come from its own status, as the Prepare page shows them.
 
 ### Cloud session, 2026-10-22
 

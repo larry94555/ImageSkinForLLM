@@ -111,9 +111,15 @@ def upload(base: str, kind: str, path: Path) -> dict[str, Any]:
         row.update(error=str(e))
         logger.error("Could not upload", extra={"kind": kind, "file": path.name, "error": str(e)})
         return row
+    total_ms = ms(time.perf_counter(), start)
+    endpoint = steps.get("endpoint")
     row.update(
         id=answer.get("id"),
-        total_ms=ms(time.perf_counter(), start),
+        total_ms=total_ms,
+        # Sending the file and the server receiving and parsing it, before the endpoint runs.
+        before_endpoint_ms=(
+            None if endpoint is None or total_ms is None else max(0, round(total_ms - endpoint))
+        ),
         steps={k: round(v) for k, v in steps.items()},
         problems=answer.get("problems"),
         error=None,
@@ -306,11 +312,12 @@ def measure_all(
 
 def upload_table(rows: list[dict[str, Any]], steps: list[str]) -> str:
     return table(
-        ["File", "Until checked", *steps, "Problems", "Error"],
+        ["File", "Until checked", "Before endpoint", *steps, "Problems", "Error"],
         [
             [
                 r["file"],
                 r.get("total_ms"),
+                r.get("before_endpoint_ms"),
                 *[(r.get("steps") or {}).get(s) for s in steps],
                 None if r.get("problems") is None else len(r["problems"]),
                 r.get("error") or "",
@@ -325,14 +332,17 @@ def markdown(results: dict[str, Any]) -> str:
     out += [
         "## Photos (Larry's timing 8)",
         "",
-        "Milliseconds, from the upload's Server-Timing: `receive` the file arriving, `convert`"
-        " HEIC to JPG, `wait` for another photo's checks, `read` the photo, `faces` and"
-        " `covered` the face checks (R8), `quality` the light and sharpness (R9), `total` the"
-        " server's whole request.",
+        "Milliseconds. `Until checked` is the whole upload as the browser sees it, from sending"
+        " the file to the answer; `Before endpoint` is the part before the upload endpoint runs:"
+        " sending the file, and the server receiving and parsing it. The rest come from the"
+        " upload's Server-Timing: `save` copying the parsed file into the uploads folder,"
+        " `convert` HEIC to JPG, `wait` for another photo's checks, `read` the photo, `faces` and"
+        " `covered` the face checks (R8), `quality` the light and sharpness (R9), `endpoint` the"
+        " whole endpoint.",
         "",
         upload_table(
             results["photos"],
-            ["receive", "convert", "wait", "read", "faces", "covered", "quality", "total"],
+            ["save", "convert", "wait", "read", "faces", "covered", "quality", "endpoint"],
         ),
         "",
         "## Recordings (Larry's timing 9)",
@@ -342,7 +352,7 @@ def markdown(results: dict[str, Any]) -> str:
         "",
         upload_table(
             results["recordings"],
-            ["receive", "convert", "sound", "speakers", "voice-sample", "total"],
+            ["save", "convert", "sound", "speakers", "voice-sample", "endpoint"],
         ),
         "",
         "## Prepare (Larry's timing 6)",
@@ -411,6 +421,11 @@ def run(
     print the Markdown."""
     base = base.rstrip("/")
     start = time.perf_counter()
+    # Before anything changes the app's setup: a file that isn't there stops the run cleanly.
+    missing = [str(p) for p in [*photos, *recordings] if not p.is_file()]
+    if missing or not photos:
+        logger.error("No such photo or recording", extra={"paths": missing or ["no photo"]})
+        return 1
     try:
         ask(base + "/health", timeout=10)
         fresh = nothing_set_up(base)

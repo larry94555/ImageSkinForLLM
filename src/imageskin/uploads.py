@@ -252,7 +252,8 @@ class UploadStore:
         received = tmp_dir / f"{upload_id}.upload"
         converted = tmp_dir / f"{upload_id}.converted"
         try:
-            with server_timing.step("receive"):
+            # The body has arrived and been parsed by the time this runs; this is the copy of it.
+            with server_timing.step("save"):
                 size = copy_limited(data, received, MAX_BYTES[kind])
             if size == 0:
                 raise UploadError("The file is empty.")

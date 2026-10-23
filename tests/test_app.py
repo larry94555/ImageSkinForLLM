@@ -305,13 +305,13 @@ def test_an_upload_says_where_its_time_went(tmp_path: Path) -> None:
     client.post("/api/consent", json={"agreed": True})
     sent = client.post("/api/uploads/sounds", files={"file": ("me.wav", SPEECH)})
     steps = server_timing.parse(sent.headers["server-timing"])  # R96b
-    assert list(steps) == ["receive", "convert", "sound", "speakers", "voice-sample", "total"]
-    assert steps["total"] >= steps["sound"] >= 0
+    assert list(steps) == ["save", "convert", "sound", "speakers", "voice-sample", "endpoint"]
+    assert steps["endpoint"] >= steps["sound"] >= 0
     photo = client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
     assert list(server_timing.parse(photo.headers["server-timing"])) == [
-        "receive",
+        "save",
         "convert",
-        "total",
+        "endpoint",
     ]
     refused = client.post("/api/uploads/photos", files={"file": ("me.jpg", b"not a photo")})
     assert refused.status_code == 415 and "server-timing" not in refused.headers

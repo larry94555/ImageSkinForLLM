@@ -61,7 +61,7 @@ class FakeApp:
                 return 415, {"detail": "This is not a photo."}, {}
             item = {"id": f"{kind}{len(items)}", "problems": []}
             items.append(item)
-            return 200, item, {"Server-Timing": "receive;dur=2.0, faces;dur=300.4, total;dur=310"}
+            return 200, item, {"Server-Timing": "save;dur=2.0, faces;dur=300.4, endpoint;dur=310"}
         if path == "/api/uploads/photos/chosen":
             return 200, {"id": json.loads(body)["id"]}, {}
         if path == "/api/prepare":
@@ -153,7 +153,8 @@ def test_setup_is_timed_step_by_step(
     assert [r["file"] for r in results["photos"]] == ["me.png", "me2.png"]
     assert len(results["recordings"]) == 3
     first = results["photos"][0]
-    assert first["steps"] == {"receive": 2, "faces": 300, "total": 310}
+    assert first["steps"] == {"save": 2, "faces": 300, "endpoint": 310}
+    assert first["before_endpoint_ms"] == max(0, first["total_ms"] - 310)
     assert first["total_ms"] >= 0 and first["problems"] == []
     whats = [p["what"] for p in results["prepare"]]
     assert whats == [
@@ -271,3 +272,16 @@ def test_a_run_that_stops_says_so_in_its_progress(app: tuple[str, FakeApp], tmp_
         time_setup.run(url, *files(tmp_path), tmp_path / "out")
     progress = (tmp_path / "out" / time_setup.PROGRESS_FILE).read_text()
     assert progress.startswith("time-setup stopped") and "during Uploads" in progress
+
+
+def test_a_missing_file_stops_the_run_before_setup_changes(
+    app: tuple[str, FakeApp], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    url, fake = app
+    photos, recordings = files(tmp_path)
+    assert time_setup.run(url, photos, [tmp_path / "gone.m4a"], tmp_path / "out") == 1
+    assert time_setup.run(url, [tmp_path], recordings, tmp_path / "out") == 1  # a folder
+    assert time_setup.run(url, [], recordings, tmp_path / "out") == 1
+    assert caplog.text.count("No such photo or recording") == 3
+    assert fake.calls == []  # not even consent
+    assert main(["time-setup", "--url", url, "--photo", str(tmp_path / "gone.jpg")]) == 1

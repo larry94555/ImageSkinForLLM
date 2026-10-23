@@ -563,8 +563,10 @@ def create_app(
     @app.post(uploads_api, dependencies=needs_consent)
     def upload(kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response) -> Upload:
         try:
-            # Each step's time goes back in the Server-Timing header (R96b).
-            with server_timing.collecting() as steps, server_timing.step("total"):
+            # Each step's time goes back in the Server-Timing header (R96b). FastAPI has received
+            # and parsed the upload before this runs, so `endpoint` leaves that out; the time
+            # until the answer, seen by the client, has it.
+            with server_timing.collecting() as steps, server_timing.step("endpoint"):
                 with personal_write(seen):
                     saved = store.save(kind, file.filename, file.file)
         except UploadError as e:
