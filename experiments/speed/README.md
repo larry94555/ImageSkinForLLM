@@ -376,7 +376,7 @@ Prepare's steps, in seconds, and how many times as long as in the cloud:
 
 | Step | First | Another photo | Another accent | Own voice | First, against the cloud |
 |---|---|---|---|---|---|
-| Get the voice ready | 50.6 | 1.9 | 89.6 | 88.1 | 5.9 times |
+| Get the voice ready | 50.6 | 1.9 | 89.6 | 88.1 | 5.9 times (Chatterbox here, Kokoro there) |
 | Get ready to animate the face | 7.5 | 5.1 | - | - | 3.1 times |
 | Make the mouth shapes and the blinking eyes | 639.4 | 652.5 | - | - | 9.3 times |
 | Make the video of the person listening | 2271.8 | 2338.3 | - | - | 9.0 times |
