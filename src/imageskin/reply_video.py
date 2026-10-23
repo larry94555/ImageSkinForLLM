@@ -122,6 +122,7 @@ class SentenceClips:
         self.times: list[ClipTime] = []  # one per clip
         self.whole_at: list[float] = []  # when each clip was whole, so far (roadmap R96)
         self.sentences = 0  # given so far
+        self._handled = 0  # of them, made into clips (or let go by)
         self._queue: queue.Queue[tuple[str, float] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._first_words: float | None = None
@@ -204,45 +205,55 @@ class SentenceClips:
         with self._videos._voice_lock, self._videos._video_lock:
             n = 0
             while (item := self._queue.get()) is not None:
-                sentence, sentence_at = item
                 n += 1
-                if self._stopped():
-                    continue  # let the rest go by
-                start = time.perf_counter()
-                try:
-                    spoken = self._speak(n, sentence, sentence_at)
-                except Exception as e:
-                    self._fail(n, "voice", e)
-                    continue
-                if spoken is None:
-                    continue
-                if self._stopped():  # cancelled while it was spoken: no video for it
-                    spoken.wav.unlink(missing_ok=True)
-                    spoken.wav.with_suffix(".json").unlink(missing_ok=True)
-                    continue
-                try:
-                    listed_at = self._render(spoken)
-                except Exception as e:
-                    self._fail(n, "video", e)
-                    continue
-                logger.info(
-                    "Sentence clip ready",
-                    extra={
-                        "sentence": n,
-                        "render_ms": ms_since(start),
-                        # From the sentence arriving from the LLM to its clip being whole.
-                        "since_sentence_ms": ms_since(sentence_at),
-                        # From the sentence to the clip being listed for the browser, as its
-                        # video starts to be written (R22d); it plays once its first fragment
-                        # is out, which the chat page's readout measures.
-                        "listed_since_sentence_ms": round((listed_at - sentence_at) * 1000, 1),
-                        # The roadmap's measure: from the LLM's first words to this clip.
-                        "since_first_words_ms": (
-                            None if self._first_words is None else ms_since(self._first_words)
-                        ),
-                    },
-                )
+                self._make(n, *item)
+                self._handled += 1
         self._finish()
+
+    def voice_waiting(self) -> bool:
+        """Whether every sentence given so far has been made into its clip, so the voice is
+        waiting for the next (roadmap R100): the reply's text is then cut at the next clause
+        rather than the next full stop. Asked on the LLM's thread, which gives the sentences."""
+        return self._handled == self.sentences and not self._stopped()
+
+    def _make(self, n: int, sentence: str, sentence_at: float) -> None:
+        """Speak and render sentence `n`'s clip."""
+        if self._stopped():
+            return  # let the rest go by
+        start = time.perf_counter()
+        try:
+            spoken = self._speak(n, sentence, sentence_at)
+        except Exception as e:
+            self._fail(n, "voice", e)
+            return
+        if spoken is None:
+            return
+        if self._stopped():  # cancelled while it was spoken: no video for it
+            spoken.wav.unlink(missing_ok=True)
+            spoken.wav.with_suffix(".json").unlink(missing_ok=True)
+            return
+        try:
+            listed_at = self._render(spoken)
+        except Exception as e:
+            self._fail(n, "video", e)
+            return
+        logger.info(
+            "Sentence clip ready",
+            extra={
+                "sentence": n,
+                "render_ms": ms_since(start),
+                # From the sentence arriving from the LLM to its clip being whole.
+                "since_sentence_ms": ms_since(sentence_at),
+                # From the sentence to the clip being listed for the browser, as its video
+                # starts to be written (R22d); it plays once its first fragment is out, which
+                # the chat page's readout measures.
+                "listed_since_sentence_ms": round((listed_at - sentence_at) * 1000, 1),
+                # The roadmap's measure: from the LLM's first words to this clip.
+                "since_first_words_ms": (
+                    None if self._first_words is None else ms_since(self._first_words)
+                ),
+            },
+        )
 
     def _speak(self, n: int, sentence: str, sentence_at: float) -> Spoken | None:
         """Speak the sentence to a WAV; None when there is nothing in it to say aloud."""

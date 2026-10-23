@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
-from imageskin.reply_times import note, note_llm, note_now
+from imageskin.reply_times import note, note_llm, note_now, note_request
 from imageskin.sentences import SentenceSplitter
 from imageskin.topics import (
     asks_for_topics,
@@ -313,6 +313,12 @@ def unreachable(e: BaseException) -> bool:
     return isinstance(e, urllib.error.URLError | TimeoutError | ConnectionError)
 
 
+def loading(e: BaseException) -> bool:
+    """llama-server is up but still loading its model: it answers 503 to everything meanwhile,
+    /tokenize and /props included, and answers properly once the model is loaded."""
+    return isinstance(e, urllib.error.HTTPError) and e.code == 503
+
+
 class ChatLlm(Protocol):
     """What the chat and the wiki ask of an LLM: `LlmClient`'s calls, or Claude's (R33)."""
 
@@ -402,8 +408,11 @@ class LlmClient:
             with urllib.request.urlopen(request, timeout=self.settings.timeout_s) as response:
                 n = len(json.loads(response.read())["tokens"])
         except (OSError, ValueError, KeyError, TypeError) as e:
-            if unreachable(e):
-                return estimate(text)  # the reply will say the server is down
+            if unreachable(e) or loading(e):
+                # The reply will say the server is down; counted by the server once it is up.
+                # Estimating for good here made the hosted machine's wiki parts a third of the
+                # size, as its app started with llama-server (R96a).
+                return estimate(text)
             self._can_count = False
             logger.warning(
                 "The LLM server can't count tokens; estimating them instead",
@@ -436,7 +445,7 @@ class LlmClient:
                 "LLM context window from the config",
                 extra={"context_tokens": self.settings.context_tokens, "props_error": str(e)},
             )
-            if not unreachable(e):
+            if not unreachable(e) and not loading(e):
                 self._window = self.settings.context_tokens
             return self.settings.context_tokens
         logger.info("LLM context window from the server", extra={"context_tokens": n_ctx})
@@ -586,6 +595,7 @@ class LlmClient:
         schema: dict[str, Any] | None = None,
     ) -> str:
         url, request = self._post(messages, stream=False, max_tokens=max_tokens, schema=schema)
+        start = time.perf_counter()
         try:
             with self._open(url, request) as response:
                 data = json.loads(response.read())
@@ -593,6 +603,8 @@ class LlmClient:
             raise LlmError(f"Could not reach the LLM at {url} ({e}).{self._hint}") from e
         except ValueError as e:
             raise LlmError(f"The LLM at {url} sent an answer that is not JSON.") from e
+        # llama-server's own timings, kept for the wiki's build (R96a).
+        note_request(data.get("timings") if isinstance(data, dict) else None, ms_since(start))
         try:
             message = data["choices"][0]["message"]
             content = message["content"]
@@ -947,7 +959,10 @@ class Conversation:
             *map(as_message, turns),
             {"role": "user", "content": asked},
         ]
-        note(history_tokens=history_tokens(self._summary, turns, count))
+        note(
+            history_tokens=history_tokens(self._summary, turns, count),
+            asked_tokens=tokens({"role": "user", "content": asked}, count),
+        )
         logger.info(
             "Chat prompt sent",
             extra={
@@ -1033,11 +1048,14 @@ class Conversation:
         lookup or it failed (then the prompt is answered, never declined)."""
         if self._find is None:
             return None
+        start = time.perf_counter()
         try:
-            return self._find(prompt)
+            found = self._find(prompt)
         except Exception:
             logger.exception("Could not look the prompt up in the content; sending it alone")
             return None
+        note(looked_up_ms=ms_since(start))  # R96a
+        return found
 
     def _list_topics(self) -> list[str]:
         """The content's topics, or none when they can't be read (then nothing is named)."""
@@ -1130,11 +1148,16 @@ class Conversation:
     def _stream_reply(self, messages: list[Message], on_sentence: OnSentence | None) -> str:
         """Stream the reply, logging each sentence as soon as it is complete (roadmap R20).
         When the sentences are spoken (`on_sentence`), the first one's first clause is handed
-        over as a sentence of its own, so the first clip is short (roadmap R22b)."""
+        over as a sentence of its own, so the first clip is short (roadmap R22b), and when they
+        tell whether the voice is waiting for more (`voice_waiting`, as SentenceClips does), an
+        unfinished sentence is handed over at its next clause while it is (roadmap R100)."""
         assert self._stream is not None
         start = time.perf_counter()
         note(prompt_sent_at=start)
-        splitter = SentenceSplitter(first_clause=on_sentence is not None)
+        splitter = SentenceSplitter(
+            first_clause=on_sentence is not None,
+            voice_waiting=getattr(on_sentence, "voice_waiting", None),
+        )
         pieces: list[str] = []
         count = 0  # sentences so far
 
@@ -1149,6 +1172,8 @@ class Conversation:
                         "sentence": count,
                         "chars": len(sentence),
                         "since_prompt_ms": ms_since(start),
+                        # Cut at a clause because the voice was waiting for it (R100).
+                        "cut_for_waiting_voice": count in splitter.waiting_cuts,
                     },
                 )
                 if on_sentence is not None:

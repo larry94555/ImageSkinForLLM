@@ -207,6 +207,34 @@ def test_a_spoken_replys_first_clause_is_handed_over_on_its_own(
     assert [r.chars for r in ready] == [len("Well now Larry, how are you today?"), 10]  # type: ignore[attr-defined]
 
 
+def test_an_unfinished_sentence_is_handed_over_at_a_clause_while_the_voice_waits(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """R100: once the first clip is made, the rest of a long sentence isn't held back until its
+    full stop while the voice has nothing to say."""
+
+    class Clips:
+        def __init__(self) -> None:
+            self.given: list[str | None] = []
+
+        def __call__(self, sentence: str | None) -> None:
+            self.given.append(sentence)
+
+        def voice_waiting(self) -> bool:
+            return True  # each clip is made at once
+
+    def stream(messages: list[Message]) -> Iterator[str]:
+        yield from ["Well now Larry, it is", " a fine day, and", " the sun is out."]
+
+    conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream)
+    clips = Clips()
+    with caplog.at_level(logging.INFO):
+        conversation.send("Hi", clips)
+    assert clips.given == [None, "Well now Larry,", "it is a fine day,", "and the sun is out."]
+    ready = [r for r in caplog.records if r.message == "Reply sentence ready"]
+    assert [r.cut_for_waiting_voice for r in ready] == [False, True, False]  # type: ignore[attr-defined]
+
+
 def test_an_empty_streamed_reply_is_an_error(caplog: pytest.LogCaptureFixture) -> None:
     conversation = Conversation(FakeLlm2(), lambda: 4096, stream=lambda messages: iter([" "]))
     with pytest.raises(LlmError, match="empty reply"):
@@ -395,6 +423,23 @@ def test_the_client_asks_the_chat_api(fake_llm: str) -> None:
             "temperature": TEMPERATURE,
         }
     ]
+
+
+def test_the_clients_answers_keep_llama_servers_timings(fake_llm: str) -> None:
+    """R96a: the wiki's requests keep llama-server's timings, sent with a non-streamed answer."""
+    timings = {"prompt_n": 120, "cache_n": 40, "prompt_ms": 800.0, "predicted_n": 9}
+    answer = json.loads(reply("Fine."))
+    FakeLlm.answer = (200, json.dumps({**answer, "timings": timings}).encode())
+    client = LlmClient(LlmSettings(url=fake_llm))
+    kept: list[dict[str, object]] = []
+    token = reply_times.requests.set(kept)
+    try:
+        assert client.ask([{"role": "user", "content": "Hi"}]) == "Fine."
+    finally:
+        reply_times.requests.reset(token)
+    [request] = kept
+    assert isinstance(request.pop("duration_ms"), float)
+    assert request == timings
 
 
 def test_the_client_can_ask_for_json_of_a_given_form(fake_llm: str) -> None:
@@ -732,6 +777,21 @@ def test_tokens_are_estimated_while_the_server_is_down() -> None:
     client = LlmClient(LlmSettings(url="http://127.0.0.1:1/v1", timeout_s=5))
     assert client.count("Hello") == estimate("Hello")
     assert client._can_count  # asked again once it is up
+
+
+def test_tokens_are_counted_once_the_server_has_loaded_its_model(fake_llm: str) -> None:
+    """llama-server answers 503 while it loads the model; the app started with it on the hosted
+    machine, and estimating for good from then on made its wiki parts a third of the size."""
+    FakeLlm.tokenize = (503, b'{"error": {"message": "Loading model", "code": 503}}')
+    FakeLlm.props = (503, b'{"error": {"message": "Loading model", "code": 503}}')
+    client = LlmClient(LlmSettings(url=fake_llm, context_tokens=4096))
+    assert client.count("Hello there") == estimate("Hello there")
+    assert client.context_tokens() == 4096
+    assert client._can_count and client._window is None  # asked again once it is up
+    FakeLlm.tokenize = (200, b'{"tokens": [1, 2]}')
+    FakeLlm.props = (200, b'{"n_ctx": 8192}')
+    assert client.count("Hello there") == 2
+    assert client.context_tokens() == 8192
 
 
 def test_tokens_are_counted_by_the_server(fake_llm: str) -> None:

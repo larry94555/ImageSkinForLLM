@@ -14,9 +14,18 @@ semicolon, colon or dash after at least FIRST_CLAUSE_MIN words, before a joining
 "and" or "because", or failing those after FIRST_CLAUSE_MAX words: on the last of them that
 doesn't lead into the next (roadmap R22e), or else on the first after that doesn't, up to
 FIRST_CLAUSE_LIMIT words.
+
+With `voice_waiting`, a sentence the LLM is still writing is cut at its next clause by the same
+rule whenever the voice has nothing left to speak (roadmap R100), so a long sentence written
+at the LLM's pace doesn't leave the person silent until its full stop: after the first clause,
+the rest of the first sentence was a clip of its own, spoken only once the LLM had written all
+of it, and a gap of 2 to 3 s was heard before it. A sentence already complete is handed over
+whole, as is every sentence while the voice is busy, so the clips stay as long as before when
+the voice can't keep up anyway.
 """
 
 import re
+from collections.abc import Callable
 
 from imageskin.speech_text import CODE_FENCE, INLINE_CODE, closing_fence, inside_math, inside_whole
 
@@ -127,12 +136,18 @@ def first_clause_cut(text: str) -> int | None:
 
 class SentenceSplitter:
     """Feed it text as it arrives; it hands back each sentence once it is complete. With
-    `first_clause`, the first sentence's first clause is handed back as a sentence of its own."""
+    `first_clause`, the first sentence's first clause is handed back as a sentence of its own;
+    with `voice_waiting`, so is the next clause of an unfinished sentence while it says True."""
 
-    def __init__(self, first_clause: bool = False) -> None:
+    def __init__(
+        self, first_clause: bool = False, voice_waiting: Callable[[], bool] | None = None
+    ) -> None:
         self._text = ""
         self._first_clause = first_clause
+        self._voice_waiting = voice_waiting
         self._count = 0  # sentences handed back so far
+        self.waiting_cuts: set[int] = set()  # the numbers of those cut for the waiting voice
+        self._waiting_cut = False  # whether the cut being made is one
 
     def feed(self, chunk: str) -> list[str]:
         """Add text; return the sentences now complete, in order."""
@@ -143,6 +158,8 @@ class SentenceSplitter:
             if sentence:
                 sentences.append(sentence)
                 self._count += 1
+                if self._waiting_cut:
+                    self.waiting_cuts.add(self._count)
         return sentences
 
     def flush(self) -> list[str]:
@@ -152,12 +169,18 @@ class SentenceSplitter:
 
     def _next_cut(self) -> int | None:
         """Where the first complete sentence ends, or None if none is complete yet."""
+        self._waiting_cut = False
         cut = self._next_sentence_cut()
-        if self._first_clause and self._count == 0:
+        first = self._first_clause and self._count == 0
+        waiting = (
+            not first and cut is None and self._voice_waiting is not None and self._voice_waiting()
+        )
+        if first or waiting:
             text = self._text if cut is None else self._text[:cut]
             fence = CODE_FENCE.search(text)
             clause = first_clause_cut(text[: fence.start()] if fence else text)
             if clause is not None:
+                self._waiting_cut = not first
                 return clause
         return cut
 
