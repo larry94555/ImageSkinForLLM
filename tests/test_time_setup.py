@@ -177,6 +177,9 @@ def test_setup_is_timed_step_by_step(
     assert "Prepare again, another accent" in report and "voice (s)" in report
     assert any(r.message == "Setup timed" and r.failed == 0 for r in caplog.records)  # type: ignore[attr-defined]
     assert "PUT /api/start-now/own-voice" in fake.calls
+    progress = (tmp_path / "out" / time_setup.PROGRESS_FILE).read_text()
+    assert progress.startswith("time-setup finished") and "No errors." in progress
+    assert "Results: " in progress and progress.strip().endswith(".md")
 
 
 def test_an_app_already_set_up_is_left_alone(
@@ -216,6 +219,7 @@ def test_failures_are_reported_and_fail_the_run(app: tuple[str, FakeApp], tmp_pa
     results = json.loads(next((tmp_path / "out").glob("setup-*.json")).read_text())
     assert results["recordings"][0]["error"].startswith("415")
     assert results["people"][0]["error"] == "The download failed."
+    assert "Steps that failed: 5" in (tmp_path / "out" / time_setup.PROGRESS_FILE).read_text()
     # Without a default person, the avatar can't be prepared in your own voice.
     assert "Prepare, avatar in your own voice" not in [p["what"] for p in results["prepare"]]
 
@@ -256,3 +260,14 @@ def test_the_command_times_setup(app: tuple[str, FakeApp], tmp_path: Path) -> No
     # Shipped in the package, so an installed copy (the Docker image) has them too.
     package = Path(time_setup.__file__).parent
     assert all(package in p.parents for p in time_setup.DEFAULT_PHOTOS)
+
+
+def test_a_run_that_stops_says_so_in_its_progress(app: tuple[str, FakeApp], tmp_path: Path) -> None:
+    url, _ = app
+    with (
+        patch.object(time_setup, "upload", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        time_setup.run(url, *files(tmp_path), tmp_path / "out")
+    progress = (tmp_path / "out" / time_setup.PROGRESS_FILE).read_text()
+    assert progress.startswith("time-setup stopped") and "during Uploads" in progress

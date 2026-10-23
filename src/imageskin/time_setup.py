@@ -6,7 +6,9 @@ then Start now picks a default person, then another, each timed to the chat open
 first reply's first word, and last the avatar is prepared in the user's own voice (R24d).
 
 It changes the app's setup, so it runs only on an app with nothing set up yet, unless told to
-go on anyway: start the app with an empty data folder for it."""
+go on anyway: start the app with an empty data folder for it. It can take hours on a slow
+machine, so while it runs it keeps `setup-progress.txt` in the results folder: where it has got
+to and about how long is left."""
 
 import json
 import logging
@@ -21,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from imageskin import server_timing, time_reply
+from imageskin.setup_progress import Kind, Progress
 from imageskin.time_reply import ask, ms, table
 
 logger = logging.getLogger(__name__)
@@ -48,6 +51,7 @@ POLL_S = 0.25  # how often this asks: often enough for each state, not so often 
 PREPARE_LIMIT_S = 3 * 3600  # Prepare took about an hour on the hosted machine
 START_NOW_LIMIT_S = 1800
 UPLOAD_TIMEOUT_S = 600
+PROGRESS_FILE = "setup-progress.txt"  # in the results folder: how far it has got, time left
 
 
 class SetupError(Exception):
@@ -118,14 +122,21 @@ def upload(base: str, kind: str, path: Path) -> dict[str, Any]:
 
 
 def wait_for(
-    url: str, state: Callable[[dict[str, Any]], str], done: set[str], limit_s: float
+    url: str,
+    state: Callable[[dict[str, Any]], str],
+    done: set[str],
+    limit_s: float,
+    on_answer: Callable[[dict[str, Any]], object] | None = None,
 ) -> Changes:
-    """Ask for `url` until `state` of its answer is one of `done`, noting each state's start."""
+    """Ask for `url` until `state` of its answer is one of `done`, noting each state's start;
+    each answer is also given to `on_answer`."""
     start = time.perf_counter()
     states: list[tuple[str, float]] = []
     last: dict[str, Any] = {}
     while time.perf_counter() - start < limit_s:
         last = ask(url)
+        if on_answer:
+            on_answer(last)
         now = state(last)
         if not states or states[-1][0] != now:
             states.append((now, ms(time.perf_counter(), start) or 0))
@@ -148,15 +159,26 @@ def first_byte_ms(url: str) -> float | None:
     return ms(time.perf_counter(), start)
 
 
-def prepare(base: str, label: str, begin: Callable[[], object] | None = None) -> dict[str, Any]:
+def prepare(
+    base: str,
+    label: str,
+    begin: Callable[[], object] | None = None,
+    progress: Progress | None = None,
+) -> dict[str, Any]:
     """Prepare the video and voice, by Prepare or by `begin` (a change that prepares again on
     its own), until the sample can be watched, with each of Prepare's steps."""
     logger.info("Timing Prepare", extra={"label": label})
+    if progress:
+        progress.begin(label)
     start = time.perf_counter()
     try:
         (begin or (lambda: ask(base + "/api/prepare", {})))()
         changes = wait_for(
-            base + "/api/prepare", lambda s: str(s["state"]), {"done", "failed"}, PREPARE_LIMIT_S
+            base + "/api/prepare",
+            lambda s: str(s["state"]),
+            {"done", "failed"},
+            PREPARE_LIMIT_S,
+            progress.prepare if progress else None,
         )
     except (OSError, SetupError) as e:
         return {"what": label, "error": describe(e)}
@@ -175,10 +197,14 @@ def prepare(base: str, label: str, begin: Callable[[], object] | None = None) ->
     }
 
 
-def start_now(base: str, person: dict[str, str], label: str) -> dict[str, Any]:
+def start_now(
+    base: str, person: dict[str, str], label: str, progress: Progress | None = None
+) -> dict[str, Any]:
     """Start now with `person`, timed through each of its states to the chat opening, then
     the first prompt after it (which waits for the replies' warm-up) to its first word heard."""
     logger.info("Timing Start now", extra={"label": label, **person})
+    if progress:
+        progress.begin(label)
     start = time.perf_counter()
     try:
         ask(base + "/api/start-now", person)
@@ -222,12 +248,28 @@ def nothing_set_up(base: str) -> bool:
     return not ask(base + "/api/uploads/photos") and not ask(base + "/api/uploads/sounds")
 
 
-def measure_all(base: str, photos: list[Path], recordings: list[Path]) -> dict[str, Any]:
+def measure_all(
+    base: str, photos: list[Path], recordings: list[Path], progress: Progress | None = None
+) -> dict[str, Any]:
     """Every step of setup in turn, as a new user would go through it."""
     ask(base + "/api/consent", {"agreed": True})
+    accents = bool(ask(base + "/api/accent").get("available"))
+    if progress:
+        phases: list[tuple[str, Kind]] = [("Uploads", "uploads"), ("Prepare", "prepare")]
+        if len(photos) > 1:
+            phases.append(("Prepare again, another photo", "photo"))
+        if accents:
+            phases.append(("Prepare again, another accent", "voice"))
+        phases += [
+            ("Start now", "start"),
+            ("Switch person", "start"),
+            ("Prepare, avatar in your own voice", "voice"),
+        ]
+        progress.phases = phases
+        progress.begin("Uploads")
     photo_rows = [upload(base, "photos", photos[0])]
     sound_rows = [upload(base, "sounds", p) for p in recordings]
-    prepares = [prepare(base, "Prepare")]
+    prepares = [prepare(base, "Prepare", progress=progress)]
     if len(photos) > 1:
         second = upload(base, "photos", photos[1])
         photo_rows.append(second)
@@ -236,25 +278,29 @@ def measure_all(base: str, photos: list[Path], recordings: list[Path]) -> dict[s
             put(base + "/api/uploads/photos/chosen", {"id": second.get("id")})
             ask(base + "/api/prepare", {})
 
-        prepares.append(prepare(base, "Prepare again, another photo", choose))
-    if ask(base + "/api/accent").get("available"):
+        prepares.append(prepare(base, "Prepare again, another photo", choose, progress))
+    if accents:
         prepares.append(
             prepare(
                 base,
                 "Prepare again, another accent",
                 lambda: put(base + "/api/accent", {"accent": "british"}),
+                progress,
             )
         )
     else:
         logger.info("Accent change not timed: the voice engine has no accents")
-    people = [start_now(base, PEOPLE[0], "Start now"), start_now(base, PEOPLE[1], "Switch person")]
+    people = [
+        start_now(base, PEOPLE[0], "Start now", progress),
+        start_now(base, PEOPLE[1], "Switch person", progress),
+    ]
     if not people[-1]["error"]:
 
         def own_voice() -> None:  # the avatar to speak in the user's voice (R24d)
             put(base + "/api/start-now/own-voice", {"agreed": True})
             ask(base + "/api/prepare", {})
 
-        prepares.append(prepare(base, "Prepare, avatar in your own voice", own_voice))
+        prepares.append(prepare(base, "Prepare, avatar in your own voice", own_voice, progress))
     return {"photos": photo_rows, "recordings": sound_rows, "prepare": prepares, "people": people}
 
 
@@ -377,15 +423,23 @@ def run(
             " data folder, or pass --anyway"
         )
         return 1
-    results = measure_all(base, photos, recordings)
+    progress = Progress(out / PROGRESS_FILE, [])
+    logger.info("Progress kept", extra={"path": str(progress.path)})
+    try:
+        results = measure_all(base, photos, recordings, progress)
+    except BaseException as e:  # Ctrl+C too: the progress file shouldn't say it is still going
+        progress.stopped(e)
+        raise
     out.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     report = markdown(results)
+    written = out / f"setup-{stamp}.md"
     (out / f"setup-{stamp}.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
-    (out / f"setup-{stamp}.md").write_text(report, encoding="utf-8")
-    print(report)
-    print(f"Wrote {(out / f'setup-{stamp}.md').resolve()} and the .json beside it")
+    written.write_text(report, encoding="utf-8")
     failed = failures(results)
+    progress.done(written.resolve(), failed)
+    print(report)
+    print(f"Wrote {written.resolve()} and the .json beside it")
     logger.info(
         "Setup timed",
         extra={"failed": failed, "duration_ms": round((time.perf_counter() - start) * 1000, 1)},
