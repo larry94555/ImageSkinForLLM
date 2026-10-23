@@ -9,15 +9,17 @@ from imageskin.startup import StartupTimes, process_age_s
 def test_each_part_is_kept_from_its_first_run(caplog: pytest.LogCaptureFixture) -> None:
     times = StartupTimes(age_s=1.0)
     with caplog.at_level(logging.INFO):
-        times.begin("reply warm-up")
-        times.end("reply warm-up")
+        times.begin("test warm-up")
+        times.end("test warm-up")
         first = times.snapshot()["parts"][0]
-        times.begin("reply warm-up")  # run again after a sample is accepted: not the start
-        times.end("reply warm-up", error="later")
+        times.begin("test warm-up")  # run again after a sample is accepted: not the start
+        times.end("test warm-up", error="later")
     part = times.snapshot()["parts"][0]
     assert part == first and "error" not in part
     assert part["start_ms"] >= 1000 and part["end_ms"] >= part["start_ms"]
-    assert [r.getMessage() for r in caplog.records] == ["Start-up part finished"]
+    # Filtered by part: an earlier test's warm-up thread can still log meanwhile.
+    ours = [r for r in caplog.records if getattr(r, "part", None) == "test warm-up"]
+    assert [r.getMessage() for r in ours] == ["Start-up part finished"]
 
 
 def test_a_part_that_fails_keeps_its_error(caplog: pytest.LogCaptureFixture) -> None:
@@ -28,7 +30,8 @@ def test_a_part_that_fails_keeps_its_error(caplog: pytest.LogCaptureFixture) -> 
 
     with pytest.raises(RuntimeError), caplog.at_level(logging.INFO):
         times.timed("face models", broken)()
-    assert caplog.records[-1].levelno == logging.WARNING
+    failed = [r for r in caplog.records if getattr(r, "part", None) == "face models"]
+    assert [r.levelno for r in failed] == [logging.WARNING]
     assert times.timed("speaker model", lambda: 7)() == 7
     parts = {p["name"]: p for p in times.snapshot()["parts"]}
     assert parts["face models"]["error"] == "no model"

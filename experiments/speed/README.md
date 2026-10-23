@@ -413,6 +413,39 @@ The largest costs on the hosted machine:
    segmenter) the largest part at 0.39 to 0.54 s; 1.4 s for a recording, 92% of it the
    one-speaker check (1.24 to 1.28 s).
 
+## R96c: start-up and the first load
+
+`imageskin time-startup` is run right after the app is started or restarted, and writes the
+tables to `speed` in the data folder:
+
+```
+imageskin time-startup                                      # llm_url from the config
+imageskin time-startup --llm-url http://llama:8080/v1       # llama-server elsewhere
+```
+
+It waits for the ready line, and for llama-server's `/health` to answer 200 (it answers 503
+while it loads its model). The app now keeps when each part of its start began and ended, in
+ms from its process starting, and serves them at `/api/startup`; the log has `Start-up part
+finished` for each. The parts are:
+
+| Part | What it is |
+|---|---|
+| app made | `create_app`: the settings, the stores, the jobs carried on from before |
+| face models, speaker model | the MediaPipe models and the one-speaker check's model, loaded in the background |
+| reply warm-up | the replies' warm-up (R22a), once a sample is accepted |
+| LLM warm-up | llama-server reading the system prompt, inside the reply warm-up |
+| voice and video warm-up | the voice and video engines loaded and a word rendered, and the idle video made if it isn't there |
+| server listening | uvicorn taking requests |
+| ready | the ready line, "Loading has completed. The application is ready for use." |
+
+Before "app made" begins is Python and the app's modules loading (torch among them). Then it
+times the first prompt and the next, so the first can be compared with the usual speed
+(Larry's timing 10); the browser's first load, each group fetched at once over 6 connections,
+compressed (the page, its scripts and styles, the fonts they name, and the face pictures of the
+avatar page; timing 7); the requests the chat makes when it is opened again after a restart,
+with Welcome back's video (which plays after Exit and Start again); and saving the local LLM
+again in Settings, to its next prompt's first word.
+
 ## R100: the pause after the first clip
 
 The gaps after the first clip in the cloud run of 2026-10-21 (1.9 s and 3.0 s) were the LLM, not
