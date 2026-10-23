@@ -19,7 +19,7 @@ PORT=8081
 BENCH=imageskin-llama-bench
 
 # name|model|llama-server options. Each changes one thing from the first, which is what the app
-# ran with before R97; the last is what deploy/compose.yaml runs with since.
+# ran with before R97; the last two are what the README and deploy/compose.yaml run with since.
 SETTINGS=(
   "before: 4B Q4_K_M, 2 threads|4b-q4|--ctx-size 4096 --threads 2"
   "one slot|4b-q4|--ctx-size 4096 --threads 2 --parallel 1"
@@ -36,6 +36,7 @@ SETTINGS=(
   "4B Q8_0|4b-q8|--ctx-size 4096 --threads 2"
   "1B Q4_K_M|1b-q4|--ctx-size 4096 --threads 2"
   "chosen: 2 threads, 4 reading, full SWA cache|4b-q4|--ctx-size 4096 --threads 2 --threads-batch 4 --swa-full"
+  "hosted: Q4_0, 2 threads, 4 reading, full SWA cache|4b-q4_0|--ctx-size 4096 --threads 2 --threads-batch 4 --swa-full"
 )
 
 hf() { # the model, as llama-server's -hf downloads it (into the llama container's volume)

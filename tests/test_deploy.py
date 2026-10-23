@@ -77,9 +77,10 @@ def test_the_app_asks_the_llama_container_with_the_laptops_model() -> None:
     assert settings.llm_url == "http://llama:8080/v1"
     compose = text(DEPLOY / "compose.yaml")
     assert "--port 8080" in compose
-    # The same model as the README's llama-server line, and no port open outside Docker.
+    # Gemma 3 4B as in the README's llama-server line, in the Q4_0 quantization that is faster
+    # on the hosted machine's ARM cores (R97), and no port open outside Docker.
     assert "-hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj" in text(ROOT / "README.md")
-    assert "-hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj" in compose
+    assert "-hf unsloth/gemma-3-4b-it-GGUF:Q4_0 --no-mmproj" in compose
     llama = compose.split("\n  llama:")[1].split("\n  caddy:")[0]
     assert "ports:" not in llama
 

@@ -23,7 +23,9 @@ services:
     # laptop and imported (README.md here, step 8).
 
   # The local LLM, as on the laptop (README, "Chat with the LLM"): llama.cpp's llama-server with
-  # Gemma 3 4B, downloaded into its own volume on first start (about 2.5 GB). It writes on half
+  # Gemma 3 4B, downloaded into its own volume on first start (about 2.4 GB). It is the Q4_0
+  # quantization, which llama.cpp speeds up on ARM: on the hosted machine's Ampere cores it
+  # wrote the wiki in a quarter less time than Q4_K_M, the laptop's (R97). It writes on half
   # the cores, so the voice and video keep the other half (roadmap R22a), and reads a prompt on
   # all four, which is over before the voice starts (R97). --swa-full lets it reuse what it has
   # read, such as the replies' warm-up (R97). Only the app reaches it.
@@ -37,7 +39,7 @@ services:
     volumes:
       - llama-models:/models
     command: >-
-      -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --host 0.0.0.0 --port 8080
+      -hf unsloth/gemma-3-4b-it-GGUF:Q4_0 --no-mmproj --host 0.0.0.0 --port 8080
       --ctx-size 4096 --threads 2 --threads-batch 4 --swa-full
 
   caddy:
