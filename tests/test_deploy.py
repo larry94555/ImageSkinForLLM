@@ -77,11 +77,23 @@ def test_the_app_asks_the_llama_container_with_the_laptops_model() -> None:
     assert settings.llm_url == "http://llama:8080/v1"
     compose = text(DEPLOY / "compose.yaml")
     assert "--port 8080" in compose
-    # The same model as the README's llama-server line, and no port open outside Docker.
+    # Gemma 3 4B as in the README's llama-server line, in the Q4_0 quantization that is faster
+    # on the hosted machine's ARM cores (R97), and no port open outside Docker.
     assert "-hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj" in text(ROOT / "README.md")
-    assert "-hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj" in compose
+    assert "-hf unsloth/gemma-3-4b-it-GGUF:Q4_0 --no-mmproj" in compose
     llama = compose.split("\n  llama:")[1].split("\n  caddy:")[0]
     assert "ports:" not in llama
+
+
+def test_llama_server_reuses_what_it_has_read_as_on_the_laptop() -> None:
+    # Without --swa-full Gemma 3 reads every prompt again from its start, even after the
+    # replies' warm-up (R97); the hosted machine runs what the README says to run.
+    llama = text(DEPLOY / "compose.yaml").split("\n  llama:")[1].split("\n  caddy:")[0]
+    options = "--ctx-size 4096 --threads 2 --threads-batch 4 --swa-full"
+    assert options in llama
+    assert options in text(ROOT / "README.md")
+    # Reading on all 4 threads needs the cores' quota for them.
+    assert "cpus: 4" in llama
 
 
 def test_the_containers_leave_room_for_the_machine() -> None:

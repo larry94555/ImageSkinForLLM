@@ -162,7 +162,7 @@ The chat answers with the same open model as on the laptop: llama.cpp's `llama-s
 docker compose logs -f llama
 ```
 
-It is ready when the log says `server is listening on http://0.0.0.0:8080` (Ctrl+C stops watching). It uses 2 of the 4 cores (`--threads 2`) and leaves the other 2 to the voice and the video, as on the laptop. To try another model, change the `-hf` name under `llama` in `compose.yaml` and run `docker compose up -d`.
+It is ready when the log says `server is listening on http://0.0.0.0:8080` (Ctrl+C stops watching). It writes on 2 of the 4 cores (`--threads 2`) and leaves the other 2 to the voice and the video, as on the laptop; it reads a prompt on all 4 (`--threads-batch 4`) and reuses what it has read (`--swa-full`, R97). It runs Gemma 3 4B in the Q4_0 quantization, which llama.cpp speeds up on ARM cores such as this machine's (R97). To try another model, change the `-hf` name under `llama` in `compose.yaml` and run `docker compose up -d`.
 
 To use a cloud LLM instead, go to the Settings page (host view), under **LLM** pick **Claude**, **OpenAI**, **Grok** or **OpenRouter**, and paste your API key. It is saved on the server only, in the data volume. **Local (llama.cpp)** on the same page goes back to llama-server.
 

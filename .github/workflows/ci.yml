@@ -8,13 +8,19 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The whole job takes about 4 minutes; a hung step fails it instead of running on for hours.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install ffmpeg
-        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+        # An apt mirror that stops answering once held this step for over 14 minutes.
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update -q
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y -q ffmpeg
       - run: pip install -e ".[dev,video,heic]"
       - name: Lint
         run: ruff check .
@@ -23,12 +29,14 @@ jobs:
       - name: Type check
         run: mypy
       - name: Unit tests
+        timeout-minutes: 8
         run: pytest
       - name: Build
         run: pip wheel --no-deps -w dist .
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: web
