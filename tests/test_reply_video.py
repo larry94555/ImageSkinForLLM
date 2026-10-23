@@ -1056,6 +1056,9 @@ def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) 
     prompt.join(5)
     assert answers == [200]
     assert order == ["rendered Hello.", "LLM warmed up", "asked"]  # and warmed up once
+    # Each part of the warm-up is timed for time-startup (R96c).
+    parts = {p["name"] for p in client.get("/api/startup").json()["parts"]}
+    assert {"app made", "reply warm-up", "LLM warm-up", "voice and video warm-up"} <= parts
 
 
 REPLY_ID = "0123456789abcdef0123456789abcdef"
