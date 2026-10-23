@@ -190,12 +190,29 @@ def test_the_table_shows_missing_numbers_as_dashes() -> None:
     assert "- **odd:** none" in report
 
 
-def test_unreadable_saved_rows_are_started_again(tmp_path: Path) -> None:
+def test_a_missing_table_starts_empty_and_an_unreadable_one_is_an_error(tmp_path: Path) -> None:
     (tmp_path / "bad.json").write_text("{")
     (tmp_path / "obj.json").write_text("{}")
-    assert time_llm.saved_rows(tmp_path / "bad.json") == []
-    assert time_llm.saved_rows(tmp_path / "obj.json") == []
     assert time_llm.saved_rows(tmp_path / "missing.json") == []
+    with pytest.raises(LlmTimingError, match="Could not read"):
+        time_llm.saved_rows(tmp_path / "bad.json")
+    with pytest.raises(LlmTimingError, match="list of rows"):
+        time_llm.saved_rows(tmp_path / "obj.json")
+
+
+def test_an_unreadable_table_is_kept_and_nothing_is_measured(llama: str, tmp_path: Path) -> None:
+    pdf = text_pdf(tmp_path / "a.pdf")
+    (tmp_path / "llm-settings.json").write_text('[{"label": "before"')
+    assert time_llm.run(llama, "now", pdf, tmp_path, ["Hi"]) == 1
+    assert (tmp_path / "llm-settings.json").read_text() == '[{"label": "before"'
+    assert FakeLlama.asked == []
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_a_stream_cut_off_before_it_is_done_is_an_error() -> None:
+    cut = [b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n', b"\n"]
+    with pytest.raises(LlmTimingError, match="ended before"):
+        list(time_llm.events(iter(cut)))
 
 
 def test_the_command_times_the_server_named(tmp_path: Path) -> None:

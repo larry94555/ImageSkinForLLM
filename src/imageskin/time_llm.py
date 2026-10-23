@@ -100,7 +100,8 @@ def server_props(root: str) -> dict[str, Any]:
 
 
 def events(response: Any) -> Iterator[dict[str, Any]]:
-    """The server-sent events of a streamed answer, as the chat reads them."""
+    """The server-sent events of a streamed answer, as the chat reads them. An answer that
+    ends before llama-server says it is done is an error, as the chat takes it to be."""
     for raw in response:
         line = raw.decode(errors="replace").strip()
         if not line.startswith("data:"):
@@ -109,6 +110,7 @@ def events(response: Any) -> Iterator[dict[str, Any]]:
         if data == "[DONE]":
             return
         yield json.loads(data)
+    raise LlmTimingError("llama-server's streamed reply ended before it was finished")
 
 
 def warm_up(root: str) -> float:
@@ -345,11 +347,24 @@ def average(values: Iterator[object]) -> float | None:
 
 
 def saved_rows(path: Path) -> list[dict[str, Any]]:
+    """The rows of the settings timed so far; none if there is no table yet. A table that
+    can't be read is an error, so the rows of a long run are never written over."""
+    if not path.exists():
+        return []
     try:
         rows = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    return rows if isinstance(rows, list) else []
+    except (OSError, ValueError) as e:
+        raise LlmTimingError(f"Could not read the rows timed so far in {path}: {e}") from e
+    if not isinstance(rows, list):
+        raise LlmTimingError(f"{path} doesn't hold a list of rows")
+    return rows
+
+
+def write_atomically(path: Path, text: str) -> None:
+    """Write the file whole or not at all, so a run stopped while saving keeps the old one."""
+    part = path.with_name(path.name + ".part")
+    part.write_text(text, encoding="utf-8")
+    part.replace(path)
 
 
 def run(url: str, label: str, pdf: Path, out: Path, prompts: list[str] | None = None) -> int:
@@ -357,7 +372,9 @@ def run(url: str, label: str, pdf: Path, out: Path, prompts: list[str] | None = 
     (a row of the same label is replaced); write the table as JSON and Markdown and print it."""
     start = time.perf_counter()
     logger.info("Timing llama-server", extra={"url": url, "label": label})
+    path = out / f"{RESULTS}.json"
     try:
+        saved = saved_rows(path)  # before measuring, so a bad table costs no measurement
         row = measure(url, label, pdf, list(prompts or DEFAULT_PROMPTS))
     except (OSError, ValueError, LlmTimingError) as e:
         logger.error(
@@ -365,11 +382,10 @@ def run(url: str, label: str, pdf: Path, out: Path, prompts: list[str] | None = 
         )
         return 1
     out.mkdir(parents=True, exist_ok=True)
-    path = out / f"{RESULTS}.json"
-    rows = [r for r in saved_rows(path) if r.get("label") != label] + [row]
-    path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    rows = [r for r in saved if r.get("label") != label] + [row]
+    write_atomically(path, json.dumps(rows, indent=2))
     report = markdown(rows)
-    (out / f"{RESULTS}.md").write_text(report, encoding="utf-8")
+    write_atomically(out / f"{RESULTS}.md", report)
     print(report)
     print(f"Wrote {(out / f'{RESULTS}.md').resolve()} and the .json beside it")
     logger.info(

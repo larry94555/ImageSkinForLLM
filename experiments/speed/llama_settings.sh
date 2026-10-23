@@ -67,7 +67,8 @@ cores() { # as many cores for the container as the setting's threads, so each is
 if [[ $MODE == docker ]]; then
   docker compose cp "$HERE/sample.pdf" app:/tmp/sample.pdf
   docker compose stop llama
-  trap 'docker rm -f $BENCH >/dev/null 2>&1; docker compose start llama' EXIT
+  # Every exit, with or without a bench container left: the app's llama-server is started again.
+  trap 'docker rm -f $BENCH >/dev/null 2>&1 || true; docker compose start llama' EXIT
 fi
 
 for setting in "${SETTINGS[@]}"; do
