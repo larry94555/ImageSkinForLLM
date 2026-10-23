@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from imageskin import __version__, time_pdf, time_reply, time_setup, time_startup
+from imageskin import __version__, time_llm, time_pdf, time_reply, time_setup, time_startup
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
@@ -252,6 +252,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--anyway",
         action="store_true",
         help="go on even though the app is already set up, changing its setup",
+    )
+    llm_timed = commands.add_parser(
+        "time-llm",
+        help="time llama-server as it was started, for comparing its settings (adds a row)",
+    )
+    llm_timed.add_argument("label", help="the setting's name in the table, such as '3 threads'")
+    llm_timed.add_argument(
+        "--llm-url",
+        default=time_llm.DEFAULT_LLM_URL,
+        help=f"llama-server's address (default {time_llm.DEFAULT_LLM_URL})",
+    )
+    llm_timed.add_argument(
+        "--pdf",
+        type=Path,
+        default=time_llm.SAMPLE_PDF,
+        help=f"the PDF whose first wiki part is asked for (default {time_llm.SAMPLE_PDF})",
+    )
+    llm_timed.add_argument(
+        "--out", type=Path, help="folder for the results (default: speed in the data folder)"
     )
     startup_timed = commands.add_parser(
         "time-startup",
@@ -560,6 +579,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.spoken,
             args.replace,
             args.keep,
+        )
+    if args.command == "time-llm":
+        if not args.pdf.is_file():
+            logger.error("No such PDF", extra={"path": str(args.pdf)})
+            return 1
+        return time_llm.run(
+            args.llm_url, args.label, args.pdf, args.out or default_home() / "speed"
         )
     if args.command == "time-setup":
         return time_setup.run(

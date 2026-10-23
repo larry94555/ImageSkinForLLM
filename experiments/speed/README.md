@@ -538,6 +538,96 @@ found: [voice_video_overlap.py](voice_video_overlap.py), with the LLM writing on
 took 5.3 s for the video of a 3-second clause and then the voice of the next sentence, one after
 the other, and 6.0 to 7.4 s for both at once (1 or 2 threads each).
 
+## R97: llama-server's settings
+
+`imageskin time-llm` asks a running llama-server what the app asks it, without the app: the
+replies' warm-up and three prompts of a conversation, streamed, then the sample PDF's first
+wiki part (cut for a 4096-token window, so every setting gets the same request). Each run adds
+a row, under its name, to `llm-settings.md` and `.json` in the results folder, and the whole
+sample PDF's wiki is estimated from the part's reading and writing speeds and R96a's tokens.
+[llama_settings.sh](llama_settings.sh) starts llama-server with each setting in turn and runs it:
+
+```
+bash ../experiments/speed/llama_settings.sh docker             # on the hosted machine, from deploy
+LLAMA_SERVER=llama-server MODELS=~/models bash experiments/speed/llama_settings.sh local
+bash ../experiments/speed/llama_settings.sh docker threads     # only the settings named so
+```
+
+### Cloud session, 2026-10-23
+
+[llm-settings-cloud-2026-10-23.md](llm-settings-cloud-2026-10-23.md), with the JSON beside it.
+A 4-core Intel Xeon at 2.8 GHz, llama-server built from llama.cpp's source that day, nothing
+else running. Each setting changes one thing from what the app ran with (Gemma 3 4B Q4_K_M,
+2 threads, 4096 tokens):
+
+| Setting | First token, 3 replies | First sentence, 3 replies | Sample PDF's wiki |
+|---|---|---|---|
+| Before: 2 threads | 5.1 / 2.9 / 3.7 s | 7.4 / 4.4 / 4.9 s | 73 min |
+| `--swa-full` | 0.9 / 1.2 / 1.5 s | 3.2 / 2.6 / 2.8 s | 73 min |
+| `--threads-batch 4` (reading on 4) | 2.6 / 1.8 / 2.1 s | 5.0 / 3.3 / 3.4 s | 67 min |
+| **Both, now in compose.yaml** | **0.35 / 0.7 / 0.7 s** | **2.4 / 1.9 / 2.7 s** | **64 min** |
+| 3 threads | 3.2 / 2.2 / 2.6 s | 4.8 / 3.4 / 3.5 s | 56 min |
+| 4 threads | 2.4 / 1.8 / 2.1 s | 3.6 / 2.8 / 2.9 s | 43 min |
+| Gemma 3 1B Q4_K_M | 1.4 / 0.8 / 0.8 s | 1.7 / 1.3 / 1.6 s | 24 min |
+| 4B Q8_0 | 6.2 / 4.1 / 4.7 s | 9.5 / 6.0 / 7.5 s | 103 min |
+| 4B Q4_0, one slot, flash attention on or off, batch 128 or 1024, context 8192 | within 15% of before | within 15% | 69 to 73 min |
+
+What it found:
+
+1. **llama-server read every prompt again from its first token.** Gemma 3 keeps a
+   sliding-window cache, which llama-server can't cut back to the start two prompts share, so
+   the replies' warm-up (R22a) was never reused ("Reused after warm-up" 1 token, with 4 slots or
+   one) and each reply read the whole conversation again. This was the 1 token reused that R96
+   found, and it wasn't the slots. `--swa-full` keeps the whole cache (about 0.35 GB more for 4096
+   tokens), and the warm-up's 97 tokens are reused: the first token came 5.1 s sooner. It is also
+   what lets R96d's and R98's shared prompt starts be reused.
+2. **Reading on 4 threads** (`--threads-batch 4`) reads a prompt as fast as 4 threads do (44
+   tokens a second against 24) while writing stays on 2, so the voice and video keep their half
+   of the cores while the LLM writes. Reading is over before the reply's voice starts. With
+   `--swa-full`, a reply reads only its new tokens, so this mostly speeds up the wiki (73 to 64
+   minutes) and a question with content quoted before it.
+3. **Writing scales with threads** (3.7, 4.8 and 6.2 tokens a second on 2, 3 and 4), and most
+   of the wiki is writing. But 4 threads for the LLM would take the voice's cores during a
+   reply, which R22a measured as both crawling, so it stays at 2. A wiki written on every core
+   while nobody chats is for R99.
+4. **Gemma 3 1B is 3 times as fast** (24 minutes for the wiki), but its topics are the PDF's
+   numbered headings copied ("1. What a prime number is") with the PDF's title as a topic, where
+   4B found its own titles, and the README already notes it ignores the conversation. It isn't
+   used for now.
+5. **Nothing else helped here:** Q8_0 is a third slower, and Q4_0, one slot, flash attention,
+   the batch sizes and an 8192-token context are within the run-to-run noise. On the hosted
+   machine's Ampere cores Q4_0 may be faster, as llama.cpp repacks it for ARM, so the hosted run
+   decides it.
+
+### Larry's hosted machine, 2026-10-23
+
+[llm-settings-hosted-2026-10-23.md](llm-settings-hosted-2026-10-23.md), as Larry pasted it.
+app.me0.ai: 4 Ampere cores, each setting in its own llama-server container with as many cores
+as its threads, the app idle. The first sentence of the three replies, and the sample PDF's wiki
+estimated as above:
+
+| Setting | First sentence, 3 replies | Sample PDF's wiki |
+|---|---|---|
+| Before: 4B Q4_K_M, 2 threads | 8.9 / 4.6 / 4.9 s | 78 min |
+| Both flags, 4B Q4_K_M (also the app's own llama-server, PR step 4) | 2.2 / 2.0 / 2.0 s | 63 min |
+| `--swa-full` | 2.6 / 3.0 / 2.9 s | 77 min |
+| `--threads-batch 4` (reading on 4) | 5.4 / 2.9 / 3.5 s | 63 min |
+| 3 threads | 6.0 / 3.1 / 3.5 s | 55 min |
+| 4 threads | 4.6 / 2.4 / 2.5 s | 41 min |
+| **4B Q4_0** | **5.5 / 3.0 / 3.5 s** | **59 min** |
+| 4B Q8_0 | 6.3 / 3.6 / 4.5 s | 67 min |
+| Gemma 3 1B Q4_K_M | 3.5 / 1.6 / 2.4 s | 27 min |
+| One slot, flash attention on or off, batch 128 or 1024, context 8192 | within 10% of before | 74 to 84 min |
+
+The same as in the cloud: with both flags the warm-up's 97 tokens were reused (1 before), and
+the first token came after 0.4 s instead of 7.1 s. One difference: **Q4_0 is a quarter faster here** (59 minutes
+against 78, and the first sentence sooner), where in the cloud it was no faster, as llama.cpp
+repacks Q4_0 for ARM's instructions; even Q8_0 beat Q4_K_M here. So `deploy/compose.yaml` runs
+Q4_0 (`unsloth/gemma-3-4b-it-GGUF:Q4_0`, about 2.4 GB) with `--threads-batch 4 --swa-full`;
+its topics for the first part were the same as Q4_K_M's in the cloud. The laptop's README line
+keeps Q4_K_M, which was as fast on the cloud's Intel cores. The last setting of
+[llama_settings.sh](llama_settings.sh), "hosted", is that combination, to confirm it.
+
 ## R98: fewer, shorter wiki requests
 
 [wiki_requests.py](wiki_requests.py) builds a PDF's wiki against a running llama-server as the
