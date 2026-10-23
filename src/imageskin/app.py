@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -86,6 +86,7 @@ from imageskin.reading_job import ReadingJob, ReadingStatus, ReadPdf
 from imageskin.ready_voice import LANGS as READY_VOICES
 from imageskin.ready_voice import load_ready_voice, ready_voices, save_ready_voice
 from imageskin.ready_voice import preset as ready_preset
+from imageskin.replies_first import RepliesFirst
 from imageskin.reply_times import ReplyTimes
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
@@ -350,8 +351,14 @@ def wiki_file_name(saved: dict[str, Any]) -> str:
     return f"{safe}-wiki.json"
 
 
-def wiki_builder(llm: LlmSettings, client: ChatLlm | None, ask_llm: AskLlm | None) -> BuildWiki:
-    """Builds wiki pages with the chat's LLM: llama-server's, or `ask_llm` (tests)."""
+def wiki_builder(
+    llm: LlmSettings,
+    client: ChatLlm | None,
+    ask_llm: AskLlm | None,
+    replies_first: RepliesFirst | None = None,
+) -> BuildWiki:
+    """Builds wiki pages with the chat's LLM: llama-server's, or `ask_llm` (tests). With
+    `replies_first`, its requests wait while a chat reply is written (R99)."""
     ask: AskForTopics
     count: Count
     if client is not None:
@@ -360,6 +367,8 @@ def wiki_builder(llm: LlmSettings, client: ChatLlm | None, ask_llm: AskLlm | Non
     else:
         assert ask_llm is not None
         ask, count, window = ask_llm, estimate, lambda: llm.context_tokens
+    if replies_first is not None:
+        ask = replies_first.wiki(ask)
 
     def build(
         pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, wait: WaitForLlm
@@ -371,9 +380,13 @@ def wiki_builder(llm: LlmSettings, client: ChatLlm | None, ask_llm: AskLlm | Non
 
 
 def outline_builder(
-    llm: LlmSettings, client: ChatLlm | None, ask_llm: AskLlm | None
+    llm: LlmSettings,
+    client: ChatLlm | None,
+    ask_llm: AskLlm | None,
+    replies_first: RepliesFirst | None = None,
 ) -> BuildOutline:
-    """Builds the wiki's outline with the chat's LLM: llama-server's, or `ask_llm` (tests)."""
+    """Builds the wiki's outline with the chat's LLM: llama-server's, or `ask_llm` (tests). With
+    `replies_first`, its requests wait while a chat reply is written (R99)."""
     ask: AskForJson
     count: Count
     if client is not None:
@@ -391,6 +404,8 @@ def outline_builder(
             return test_ask(messages)
 
         count, window = estimate, lambda: llm.context_tokens
+    if replies_first is not None:
+        ask = replies_first.wiki(ask)
 
     def build(
         pdf_id: str,
@@ -685,9 +700,11 @@ def create_app(
     signin = chatgpt or ChatGptSignIn(data_home)
     switchable = SwitchableLlm(llm, load_choice(data_home), signin.plan_session)
     client = switchable if ask_llm is None else None
+    # A chat reply goes before the wiki's requests to the LLM (R99).
+    replies_first = RepliesFirst()
     if build_wiki is None:
-        build_wiki = wiki_builder(llm, client, ask_llm)
-        build_outline = build_outline or outline_builder(llm, client, ask_llm)
+        build_wiki = wiki_builder(llm, client, ask_llm, replies_first)
+        build_outline = build_outline or outline_builder(llm, client, ask_llm, replies_first)
     wiki = WikiJob(content, readings, build_wiki, build_outline)
     readings.on_read = wiki.read
     readings.catch_up()
@@ -1200,8 +1217,14 @@ def create_app(
 
     # Claude and the other providers run elsewhere, so the engines keep every core while they
     # write (review on PR #111). Asked at each request, as the LLM can be changed (R42).
-    def llm_busy() -> AbstractContextManager[object]:
-        return core_share.llm() if switchable.local else nullcontext()
+    # The local LLM also writes the reply before the wiki's request (R99).
+    @contextmanager
+    def llm_busy() -> Iterator[None]:
+        if not switchable.local:
+            yield
+            return
+        with core_share.llm(), replies_first.reply():
+            yield
 
     # Each prompt is looked up in the wiki and PDFs, and the LLM answers from what is found (R40).
     content_lookup = ContentLookup(wiki, readings)
