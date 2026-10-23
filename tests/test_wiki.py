@@ -8,6 +8,7 @@ from imageskin.chat import EmptyReply, LlmError, LlmStarting, Message, estimate
 from imageskin.wiki import (
     KNOWN_PROMPT,
     TITLES_TOKENS,
+    WIKI_PROMPT,
     WIKI_REPLY_TOKENS,
     Part,
     WikiError,
@@ -94,8 +95,10 @@ def test_a_part_is_asked_again_when_the_first_answer_cannot_be_used(
     with caplog.at_level(logging.WARNING):
         assert ask_part(Part("[page 1] x", [1]), ["Earlier"], ask) == [("Topic", [1], "Text.")]
     assert len(asked) == 2
-    assert asked[0][0]["content"].endswith(f"{KNOWN_PROMPT} Earlier")
-    assert asked[0][1] == {"role": "user", "content": "[page 1] x"}
+    # The instructions come first and alone, the same for every part, so llama-server reuses
+    # them; the titles found so far follow the part (R98).
+    assert asked[0][0] == {"role": "system", "content": WIKI_PROMPT}
+    assert asked[0][1] == {"role": "user", "content": f"[page 1] x\n\n{KNOWN_PROMPT} Earlier"}
     assert "The LLM's wiki answer could not be used" in caplog.text
 
 
@@ -178,7 +181,8 @@ def test_the_wiki_has_one_page_per_topic_merged_across_parts(
         (f"{PDF_ID}-clouds", "Clouds", [2, 3], "They form.\n\nRain clouds."),
     ]
     assert progress == [(0, 2), (1, 2), (2, 2)]  # the count first, before any part is asked
-    assert asked[1][0]["content"].endswith(f"{KNOWN_PROMPT} The Water Cycle; Clouds")
+    assert asked[1][0]["content"] == WIKI_PROMPT
+    assert asked[1][1]["content"].endswith(f"{KNOWN_PROMPT} The Water Cycle; Clouds")
     done = [r for r in caplog.records if r.message == "Wiki part done"]
     assert [r.__dict__["topics"] for r in done] == [2, 2]
     assert all(r.__dict__["duration_ms"] >= 0 for r in done)

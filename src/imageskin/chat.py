@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
+from imageskin.json_grammar import compact_grammar
 from imageskin.reply_times import note, note_llm, note_now, note_request
 from imageskin.sentences import SentenceSplitter
 from imageskin.topics import (
@@ -477,9 +478,10 @@ class LlmClient:
         if stream:
             body["stream"] = True
         if schema is not None and local:
-            # The answer must be JSON of this form (the wiki, roadmap R37). This is the form
-            # both llama-server and llama-cpp-python's server take.
-            body["response_format"] = {"type": "json_object", "schema": schema}
+            # The answer must be JSON of this form (the wiki, roadmap R37), without the line
+            # breaks and indents the LLM otherwise spends a fifth to two fifths of the wiki's
+            # answers on (R98). llama-server takes the grammar in place of the schema.
+            body["grammar"] = compact_grammar(schema)
         elif schema is not None:
             body["response_format"] = {
                 "type": "json_schema",

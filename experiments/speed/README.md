@@ -537,3 +537,44 @@ Speaking the next sentence while the clip before is rendered doesn't help either
 found: [voice_video_overlap.py](voice_video_overlap.py), with the LLM writing on 2 threads,
 took 5.3 s for the video of a 3-second clause and then the voice of the next sentence, one after
 the other, and 6.0 to 7.4 s for both at once (1 or 2 threads each).
+
+## R98: fewer, shorter wiki requests
+
+[wiki_requests.py](wiki_requests.py) builds a PDF's wiki against a running llama-server as the
+app does, without the app, and keeps every request's prompt, answer and llama-server timings:
+
+```
+python experiments/speed/wiki_requests.py experiments/speed/sample.pdf out.json --label "R98"
+```
+
+### Cloud session, 2026-10-23
+
+The sample PDF, on 4 cores with R97's llama-server settings, on main and on this branch
+([wiki-r98-cloud-2026-10-23.md](wiki-r98-cloud-2026-10-23.md)):
+
+| | Wiki | Tokens written | Answers cut off | Topics | Detail pages |
+|---|---|---|---|---|---|
+| Before | 53.8 min | 11,854 | 3 | 18 (one of them twice) | 30 |
+| After | **35.4 min** | **7,148** | 0 | 17 | 30 |
+
+1. **The LLM set its JSON out over many lines.** Gemma put each paragraph number of a part on a
+   line of its own, indented, so the spaces and line breaks were a fifth of what it wrote for the
+   topics and two fifths for the outline. Asking in words for one line changed nothing, so
+   llama-server is now held to compact JSON by a grammar (`json_grammar.py`). Held to one line
+   everywhere, it ended a list of topics after the first one (8 topics in all, not 18), so a line
+   break is still allowed between the objects of a list.
+2. **Each topic's detail request wrote a summary that was thrown away**, as a topic keeps the
+   summary it was found with, and when it took two requests the two summaries were summarized
+   again. A topic's request now asks only for its parts. A part's summary is asked for in 1 or 2
+   sentences rather than 2 or 3.
+3. **Shared starts.** A part's prompt now starts with the instructions alone, with the titles
+   found so far after the part, and the two outline prompts start with the same 70 words. Reuse
+   stayed small (11% of the tokens read, against 18% before): llama-server has 4 slots, and with
+   a short shared start against a long prompt it doesn't always pick the slot that holds it.
+   Reading is a fifth of the time, so this matters little.
+4. **Not done: joining small outline steps.** Since R97 a step's instructions are reused rather
+   than read again, so joining steps would save almost nothing while making each answer longer
+   and harder for the LLM to get right.
+
+The topics are the same apart from the LLM's wording and how it splits the zeta function's
+pages: both runs vary this much from run to run (see R97's results).

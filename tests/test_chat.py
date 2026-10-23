@@ -41,11 +41,12 @@ from imageskin.chat import (
     system_message,
     tokens,
 )
+from imageskin.json_grammar import compact_grammar
 from imageskin.llm_choice import save_choice
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult
 from imageskin.wiki import TOPICS_SCHEMA
-from imageskin.wiki_outline import DETAIL_SCHEMA, SECTIONS_SCHEMA, SUMMARY_SCHEMA
+from imageskin.wiki_outline import DETAIL_SCHEMA, PARTS_SCHEMA, SECTIONS_SCHEMA, SUMMARY_SCHEMA
 
 # --- Which turns are sent ---
 
@@ -445,11 +446,12 @@ def test_the_clients_answers_keep_llama_servers_timings(fake_llm: str) -> None:
 def test_the_client_can_ask_for_json_of_a_given_form(fake_llm: str) -> None:
     FakeLlm.answer = (200, reply('{"topics": []}'))
     client = LlmClient(LlmSettings(url=fake_llm))
-    schema = {"type": "object"}
+    schema = {"type": "object", "properties": {"t": {"type": "string"}}, "required": ["t"]}
     assert client.ask([{"role": "user", "content": "Hi"}], 900, schema) == '{"topics": []}'
     sent = FakeLlm.received[0]
     assert sent["max_tokens"] == 900
-    assert sent["response_format"] == {"type": "json_object", "schema": schema}
+    # llama-server is held to the form, compact, by a grammar (R98).
+    assert sent["grammar"] == compact_grammar(schema) and "response_format" not in sent
 
 
 def openai(url: str) -> LlmSettings:
@@ -915,8 +917,8 @@ def test_the_api_says_when_the_llm_fails(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "schema",
-    [TOPICS_SCHEMA, SECTIONS_SCHEMA, SUMMARY_SCHEMA, DETAIL_SCHEMA],
-    ids=["topics", "sections", "summary", "detail"],
+    [TOPICS_SCHEMA, SECTIONS_SCHEMA, SUMMARY_SCHEMA, DETAIL_SCHEMA, PARTS_SCHEMA],
+    ids=["topics", "sections", "summary", "detail", "parts"],
 )
 def test_every_schema_suits_strict_structured_outputs(schema: dict[str, object]) -> None:
     """OpenAI's strict mode and Claude's structured outputs need every object closed and every
