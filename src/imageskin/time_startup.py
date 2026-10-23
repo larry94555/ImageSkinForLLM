@@ -277,6 +277,16 @@ def markdown(results: dict[str, Any]) -> str:
     rows.append(["time-startup began", llm["began_ms"], llm["began_ms"], 0, None])
     rows.sort(key=lambda r: r[1] if isinstance(r[1], (int, float)) else -1)
     out += [table(["Part", "Began", "Ended", "Took", "Error"], rows), ""]
+    warm_up = next((p for p in startup["parts"] if p["name"] == "LLM warm-up"), None)
+    ended = None if warm_up is None else warm_up["end_ms"]
+    if ended is not None and loaded is not None and not llm["already_loaded"]:
+        if ended < loaded:
+            out += [
+                "The LLM's warm-up ended before llama-server had loaded its model, so llama-server "
+                "refused it (503, logged as `Could not warm up the LLM`) and the first prompt read "
+                "the system prompt again.",
+                "",
+            ]
     out += [
         "## The first prompt and the next",
         "",

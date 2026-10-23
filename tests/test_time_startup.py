@@ -180,6 +180,8 @@ def test_the_start_is_timed(
     ):
         assert heading in report
     assert "llama-server answering /health" in report and "| face models | 1000.0 |" in report
+    # The fake's LLM warm-up ends 1.3 s after the start, before llama-server is seen loaded.
+    assert "The LLM's warm-up ended before llama-server had loaded its model" in report
     assert any(r.message == "Start timed" and r.failed == 0 for r in caplog.records)  # type: ignore[attr-defined]
 
 
@@ -198,6 +200,7 @@ def test_an_llm_loaded_before_the_timing_began_is_shown_as_before(
     assert "not llama.cpp" in results["llm_change"]["error"]
     report = next(tmp_path.glob("startup-*.md")).read_text()
     assert "| before " in report and "not llama.cpp" in report
+    assert "warm-up ended before" not in report  # loaded already: nothing to say
 
 
 def test_an_app_that_never_gets_ready_is_an_error(

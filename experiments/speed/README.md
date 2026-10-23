@@ -446,6 +446,47 @@ avatar page; timing 7); the requests the chat makes when it is opened again afte
 with Welcome back's video (which plays after Exit and Start again); and saving the local LLM
 again in Settings, to its next prompt's first word.
 
+### Cloud session, 2026-10-23
+
+[startup-cloud-2026-10-23.md](startup-cloud-2026-10-23.md), with the JSON beside it. The same
+4-core Xeon at 2.1 GHz: llama-server (built from llama.cpp's source) with Gemma 3 4B Q4_K_M on
+2 threads and a 4096-token context, Chatterbox Turbo speaking in the person's own voice, and
+the photoreal engine, with a person prepared and accepted. llama-server and the app were
+started together, as after a reboot, with the models already downloaded; time-startup began
+0.4 s after the app's process.
+
+| Part | From the process starting |
+|---|---|
+| Python and the app's modules loaded | 0 to 2.5 s |
+| App made | 2.5 to 2.9 s |
+| Server listening | 3.0 s |
+| Speaker model, face models | done at 3.7 s and 5.5 s |
+| LLM warm-up | 2.9 to 3.0 s, refused: llama-server was still loading |
+| llama-server answering /health | 5.5 s (5.3 s to load the model, from a disk cache) |
+| Voice and video warm-up | 2.9 to 46.6 s (43.7 s) |
+| Ready line | 46.6 s |
+
+The largest costs and what they mean:
+
+1. **The voice and video warm-up, 44 s**, almost all of the start. It loads Chatterbox and the
+   photoreal engine and renders a word; the ready line waits for it. The LLM is ready 41 s
+   before it.
+2. **The LLM's warm-up is wasted after a restart.** It runs as soon as the app is made, while
+   llama-server is still loading its model, so llama-server answers 503 (`Could not warm up
+   the LLM`) and nothing tries again. The first prompt then read the system prompt again (107
+   tokens, none reused) and its first token came after 3.2 s, against 1.4 s for the next
+   prompt, which reused 102. On the hosted machine llama-server took 164 s to load (PR #148),
+   so the warm-up is always refused there. Warming it up once llama-server answers `/health`
+   would make the first prompt as quick as the next.
+3. **Saving the LLM again in Settings** made the next prompt reuse nothing either (182 tokens
+   read, first token 7.7 s): the warm-up the save starts and the prompt reach llama-server
+   together.
+4. **The browser's first load is small**: 74 files and 0.5 MB (the face pictures 0.3 MB of
+   it), 0.3 s on this machine. Over the internet through Caddy it will be longer, but it is
+   not where start-up's time goes.
+5. **Opening the chat again after a restart is quick**: its 8 requests take 54 ms together,
+   and Welcome back's video (92 KB) arrives in 10 ms.
+
 ## R100: the pause after the first clip
 
 The gaps after the first clip in the cloud run of 2026-10-21 (1.9 s and 3.0 s) were the LLM, not

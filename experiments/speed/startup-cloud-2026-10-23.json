@@ -1,0 +1,994 @@
+{
+  "startup": {
+    "started_wall": 1792749443.708056,
+    "now_ms": 46642.4,
+    "parts": [
+      {
+        "name": "app made",
+        "start_ms": 2510.0,
+        "end_ms": 2856.8
+      },
+      {
+        "name": "face models",
+        "start_ms": 2537.8,
+        "end_ms": 5467.4
+      },
+      {
+        "name": "speaker model",
+        "start_ms": 2544.4,
+        "end_ms": 3668.5
+      },
+      {
+        "name": "reply warm-up",
+        "start_ms": 2853.2,
+        "end_ms": 46580.8
+      },
+      {
+        "name": "LLM warm-up",
+        "start_ms": 2911.5,
+        "end_ms": 2999.2
+      },
+      {
+        "name": "voice and video warm-up",
+        "start_ms": 2924.4,
+        "end_ms": 46580.7
+      },
+      {
+        "name": "server listening",
+        "start_ms": 2958.0,
+        "end_ms": 2958.0
+      },
+      {
+        "name": "ready",
+        "start_ms": 46581.2,
+        "end_ms": 46581.2
+      }
+    ]
+  },
+  "llm": {
+    "loaded_ms": 5508,
+    "already_loaded": false,
+    "began_ms": 409
+  },
+  "prompts": [
+    {
+      "prompt": "Hello! Who are you?",
+      "spoken": false,
+      "status": 200,
+      "error": null,
+      "streamed": true,
+      "reached_server_ms": 28,
+      "waited_warm_up_ms": 0.0,
+      "waited_turn_ms": 0.2,
+      "history_tokens": 0,
+      "looked_up_ms": 0.3,
+      "asked_tokens": 14,
+      "prompt_sent_ms": 44,
+      "first_token_ms": 3202,
+      "first_sentence_ms": 5880,
+      "last_token_ms": 8012,
+      "answered_ms": 8017,
+      "llm": {
+        "cache_n": 0,
+        "prompt_n": 107,
+        "prompt_ms": 3151.786,
+        "prompt_per_second": 33.949005421053336,
+        "predicted_n": 19,
+        "predicted_ms": 4810.28,
+        "predicted_per_second": 3.741985913501917
+      },
+      "first_word_heard_ms": 15967,
+      "first_sentence_to_heard_ms": 10087,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": [
+        {
+          "clip": 1,
+          "sentence_ms": 5880,
+          "waited_ms": 0,
+          "voice_ms": 9898,
+          "video_ms": 803,
+          "listed_ms": 15778,
+          "seen_ms": 15807,
+          "first_byte_ms": 15967,
+          "downloaded_ms": 16583,
+          "seconds": 2.8,
+          "plays_ms": 15967,
+          "gap_ms": null,
+          "late": false,
+          "error": null
+        },
+        {
+          "clip": 2,
+          "sentence_ms": 8013,
+          "waited_ms": 8569,
+          "voice_ms": 3862,
+          "video_ms": 397,
+          "listed_ms": 20444,
+          "seen_ms": 20456,
+          "first_byte_ms": 20565,
+          "downloaded_ms": 20870,
+          "seconds": 1.48,
+          "plays_ms": 20565,
+          "gap_ms": 1795,
+          "late": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "prompt": "What is the tallest mountain in the world?",
+      "spoken": false,
+      "status": 200,
+      "error": null,
+      "streamed": true,
+      "reached_server_ms": 18,
+      "waited_warm_up_ms": 0.0,
+      "waited_turn_ms": 0.2,
+      "history_tokens": 40,
+      "looked_up_ms": 0.2,
+      "asked_tokens": 17,
+      "prompt_sent_ms": 27,
+      "first_token_ms": 1400,
+      "first_sentence_ms": 2899,
+      "last_token_ms": 6096,
+      "answered_ms": 6101,
+      "llm": {
+        "cache_n": 102,
+        "prompt_n": 42,
+        "prompt_ms": 1366.838,
+        "prompt_per_second": 30.72785509328831,
+        "predicted_n": 20,
+        "predicted_ms": 4695.684,
+        "predicted_per_second": 4.046268871585055
+      },
+      "first_word_heard_ms": 9185,
+      "first_sentence_to_heard_ms": 6287,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": [
+        {
+          "clip": 1,
+          "sentence_ms": 2899,
+          "waited_ms": 0,
+          "voice_ms": 6168,
+          "video_ms": 491,
+          "listed_ms": 9067,
+          "seen_ms": 9078,
+          "first_byte_ms": 9185,
+          "downloaded_ms": 9600,
+          "seconds": 1.52,
+          "plays_ms": 9185,
+          "gap_ms": null,
+          "late": false,
+          "error": null
+        },
+        {
+          "clip": 2,
+          "sentence_ms": 3647,
+          "waited_ms": 5912,
+          "voice_ms": 3394,
+          "video_ms": 325,
+          "listed_ms": 12953,
+          "seen_ms": 12960,
+          "first_byte_ms": 13068,
+          "downloaded_ms": 13333,
+          "seconds": 1.0,
+          "plays_ms": 13068,
+          "gap_ms": 2360,
+          "late": true,
+          "error": null
+        },
+        {
+          "clip": 3,
+          "sentence_ms": 6096,
+          "waited_ms": 7182,
+          "voice_ms": 6744,
+          "video_ms": 707,
+          "listed_ms": 20023,
+          "seen_ms": 20038,
+          "first_byte_ms": 20148,
+          "downloaded_ms": 20761,
+          "seconds": 2.84,
+          "plays_ms": 20148,
+          "gap_ms": 6077,
+          "late": true,
+          "error": null
+        }
+      ]
+    }
+  ],
+  "first_load": {
+    "page": {
+      "files": 1,
+      "bytes": 446,
+      "ms": 11,
+      "failed": [],
+      "rows": [
+        {
+          "url": "http://127.0.0.1:8000/",
+          "status": 200,
+          "bytes": 446,
+          "error": null,
+          "first_byte_ms": 11,
+          "ms": 11
+        }
+      ]
+    },
+    "scripts and styles": {
+      "files": 3,
+      "bytes": 74025,
+      "ms": 41,
+      "failed": [],
+      "rows": [
+        {
+          "url": "http://127.0.0.1:8000/assets/app.js",
+          "status": 200,
+          "bytes": 57279,
+          "error": null,
+          "first_byte_ms": 18,
+          "ms": 40
+        },
+        {
+          "url": "http://127.0.0.1:8000/assets/index.css",
+          "status": 200,
+          "bytes": 9995,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/assets/preact.js",
+          "status": 200,
+          "bytes": 6751,
+          "error": null,
+          "first_byte_ms": 15,
+          "ms": 15
+        }
+      ]
+    },
+    "fonts": {
+      "files": 2,
+      "bytes": 122772,
+      "ms": 7,
+      "failed": [],
+      "rows": [
+        {
+          "url": "http://127.0.0.1:8000/assets/inter-latin-ext-wght-normal.woff2",
+          "status": 200,
+          "bytes": 74328,
+          "error": null,
+          "first_byte_ms": 6,
+          "ms": 7
+        },
+        {
+          "url": "http://127.0.0.1:8000/assets/inter-latin-wght-normal.woff2",
+          "status": 200,
+          "bytes": 48444,
+          "error": null,
+          "first_byte_ms": 5,
+          "ms": 5
+        }
+      ]
+    },
+    "face pictures": {
+      "files": 68,
+      "bytes": 318909,
+      "ms": 235,
+      "failed": [],
+      "rows": [
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_professor.jpg",
+          "status": 200,
+          "bytes": 4898,
+          "error": null,
+          "first_byte_ms": 6,
+          "ms": 6
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_professor.jpg",
+          "status": 200,
+          "bytes": 4972,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_professor.jpg",
+          "status": 200,
+          "bytes": 5150,
+          "error": null,
+          "first_byte_ms": 17,
+          "ms": 17
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_professor.jpg",
+          "status": 200,
+          "bytes": 4683,
+          "error": null,
+          "first_byte_ms": 27,
+          "ms": 27
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_nonbinary_professor.jpg",
+          "status": 200,
+          "bytes": 4663,
+          "error": null,
+          "first_byte_ms": 18,
+          "ms": 18
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_professor_2.jpg",
+          "status": 200,
+          "bytes": 4846,
+          "error": null,
+          "first_byte_ms": 24,
+          "ms": 24
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_professor_2.jpg",
+          "status": 200,
+          "bytes": 4617,
+          "error": null,
+          "first_byte_ms": 26,
+          "ms": 26
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_teaching_assistant.jpg",
+          "status": 200,
+          "bytes": 4071,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_teaching_assistant.jpg",
+          "status": 200,
+          "bytes": 4885,
+          "error": null,
+          "first_byte_ms": 16,
+          "ms": 16
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_teaching_assistant.jpg",
+          "status": 200,
+          "bytes": 4063,
+          "error": null,
+          "first_byte_ms": 14,
+          "ms": 14
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_teaching_assistant.jpg",
+          "status": 200,
+          "bytes": 4320,
+          "error": null,
+          "first_byte_ms": 17,
+          "ms": 17
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_nonbinary_teaching_assistant.jpg",
+          "status": 200,
+          "bytes": 3774,
+          "error": null,
+          "first_byte_ms": 16,
+          "ms": 16
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_teaching_assistant_2.jpg",
+          "status": 200,
+          "bytes": 4354,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_teaching_assistant_2.jpg",
+          "status": 200,
+          "bytes": 4616,
+          "error": null,
+          "first_byte_ms": 20,
+          "ms": 20
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_teaching_assistant_2.jpg",
+          "status": 200,
+          "bytes": 4523,
+          "error": null,
+          "first_byte_ms": 16,
+          "ms": 16
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_student.jpg",
+          "status": 200,
+          "bytes": 5010,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_student.jpg",
+          "status": 200,
+          "bytes": 4982,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_student.jpg",
+          "status": 200,
+          "bytes": 5022,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_student.jpg",
+          "status": 200,
+          "bytes": 5707,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_nonbinary_student.jpg",
+          "status": 200,
+          "bytes": 4762,
+          "error": null,
+          "first_byte_ms": 18,
+          "ms": 18
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_student_2.jpg",
+          "status": 200,
+          "bytes": 5431,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_student_2.jpg",
+          "status": 200,
+          "bytes": 5551,
+          "error": null,
+          "first_byte_ms": 23,
+          "ms": 23
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_student_2.jpg",
+          "status": 200,
+          "bytes": 5167,
+          "error": null,
+          "first_byte_ms": 23,
+          "ms": 23
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_parent.jpg",
+          "status": 200,
+          "bytes": 4784,
+          "error": null,
+          "first_byte_ms": 27,
+          "ms": 27
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_parent.jpg",
+          "status": 200,
+          "bytes": 4660,
+          "error": null,
+          "first_byte_ms": 21,
+          "ms": 21
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_parent.jpg",
+          "status": 200,
+          "bytes": 5354,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_parent.jpg",
+          "status": 200,
+          "bytes": 4697,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_nonbinary_parent.jpg",
+          "status": 200,
+          "bytes": 4861,
+          "error": null,
+          "first_byte_ms": 23,
+          "ms": 23
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_parent_2.jpg",
+          "status": 200,
+          "bytes": 4319,
+          "error": null,
+          "first_byte_ms": 20,
+          "ms": 20
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_parent_2.jpg",
+          "status": 200,
+          "bytes": 5470,
+          "error": null,
+          "first_byte_ms": 20,
+          "ms": 20
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_parent_2.jpg",
+          "status": 200,
+          "bytes": 4745,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_teenager.jpg",
+          "status": 200,
+          "bytes": 4243,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_teenager.jpg",
+          "status": 200,
+          "bytes": 4734,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_teenager.jpg",
+          "status": 200,
+          "bytes": 4102,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_teenager.jpg",
+          "status": 200,
+          "bytes": 4624,
+          "error": null,
+          "first_byte_ms": 21,
+          "ms": 21
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_nonbinary_teenager.jpg",
+          "status": 200,
+          "bytes": 4119,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_nonbinary_teenager.jpg",
+          "status": 200,
+          "bytes": 5084,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_teenager_2.jpg",
+          "status": 200,
+          "bytes": 4570,
+          "error": null,
+          "first_byte_ms": 23,
+          "ms": 23
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_teenager_2.jpg",
+          "status": 200,
+          "bytes": 5945,
+          "error": null,
+          "first_byte_ms": 21,
+          "ms": 21
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_teenager_2.jpg",
+          "status": 200,
+          "bytes": 4415,
+          "error": null,
+          "first_byte_ms": 17,
+          "ms": 17
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_teenager_2.jpg",
+          "status": 200,
+          "bytes": 5019,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_boss.jpg",
+          "status": 200,
+          "bytes": 4992,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_boss.jpg",
+          "status": 200,
+          "bytes": 4718,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_boss.jpg",
+          "status": 200,
+          "bytes": 4572,
+          "error": null,
+          "first_byte_ms": 24,
+          "ms": 24
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_boss.jpg",
+          "status": 200,
+          "bytes": 4953,
+          "error": null,
+          "first_byte_ms": 26,
+          "ms": 26
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_nonbinary_boss.jpg",
+          "status": 200,
+          "bytes": 4668,
+          "error": null,
+          "first_byte_ms": 21,
+          "ms": 21
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_boss_2.jpg",
+          "status": 200,
+          "bytes": 4496,
+          "error": null,
+          "first_byte_ms": 21,
+          "ms": 21
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_boss_2.jpg",
+          "status": 200,
+          "bytes": 4618,
+          "error": null,
+          "first_byte_ms": 23,
+          "ms": 23
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_office_manager.jpg",
+          "status": 200,
+          "bytes": 3985,
+          "error": null,
+          "first_byte_ms": 20,
+          "ms": 20
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_office_manager.jpg",
+          "status": 200,
+          "bytes": 4376,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_office_manager.jpg",
+          "status": 200,
+          "bytes": 5085,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_office_manager.jpg",
+          "status": 200,
+          "bytes": 4005,
+          "error": null,
+          "first_byte_ms": 24,
+          "ms": 24
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_office_manager_2.jpg",
+          "status": 200,
+          "bytes": 4651,
+          "error": null,
+          "first_byte_ms": 20,
+          "ms": 20
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_office_manager_2.jpg",
+          "status": 200,
+          "bytes": 4848,
+          "error": null,
+          "first_byte_ms": 21,
+          "ms": 21
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_office_manager_2.jpg",
+          "status": 200,
+          "bytes": 3911,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_high_school_teacher.jpg",
+          "status": 200,
+          "bytes": 4202,
+          "error": null,
+          "first_byte_ms": 21,
+          "ms": 21
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_high_school_teacher.jpg",
+          "status": 200,
+          "bytes": 5435,
+          "error": null,
+          "first_byte_ms": 18,
+          "ms": 18
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_high_school_teacher.jpg",
+          "status": 200,
+          "bytes": 3819,
+          "error": null,
+          "first_byte_ms": 20,
+          "ms": 20
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_high_school_teacher.jpg",
+          "status": 200,
+          "bytes": 4407,
+          "error": null,
+          "first_byte_ms": 20,
+          "ms": 20
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_high_school_teacher_2.jpg",
+          "status": 200,
+          "bytes": 5227,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_high_school_teacher_2.jpg",
+          "status": 200,
+          "bytes": 4453,
+          "error": null,
+          "first_byte_ms": 16,
+          "ms": 16
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_female_business_consultant.jpg",
+          "status": 200,
+          "bytes": 4904,
+          "error": null,
+          "first_byte_ms": 25,
+          "ms": 25
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_business_consultant.jpg",
+          "status": 200,
+          "bytes": 4580,
+          "error": null,
+          "first_byte_ms": 25,
+          "ms": 25
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_business_consultant.jpg",
+          "status": 200,
+          "bytes": 3920,
+          "error": null,
+          "first_byte_ms": 20,
+          "ms": 20
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_male_business_consultant.jpg",
+          "status": 200,
+          "bytes": 4786,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 22
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_nonbinary_business_consultant.jpg",
+          "status": 200,
+          "bytes": 5003,
+          "error": null,
+          "first_byte_ms": 19,
+          "ms": 19
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/animated_female_business_consultant_2.jpg",
+          "status": 200,
+          "bytes": 4362,
+          "error": null,
+          "first_byte_ms": 14,
+          "ms": 14
+        },
+        {
+          "url": "http://127.0.0.1:8000/faces/photoreal_male_business_consultant_2.jpg",
+          "status": 200,
+          "bytes": 4121,
+          "error": null,
+          "first_byte_ms": 7,
+          "ms": 7
+        }
+      ]
+    }
+  },
+  "chat_opening": {
+    "opening": {
+      "files": 8,
+      "bytes": 468205,
+      "ms": 54,
+      "failed": [],
+      "rows": [
+        {
+          "url": "http://127.0.0.1:8000/api/consent",
+          "status": 200,
+          "bytes": 55,
+          "error": null,
+          "first_byte_ms": 10,
+          "ms": 10
+        },
+        {
+          "url": "http://127.0.0.1:8000/api/settings",
+          "status": 200,
+          "bytes": 126,
+          "error": null,
+          "first_byte_ms": 13,
+          "ms": 13
+        },
+        {
+          "url": "http://127.0.0.1:8000/api/review",
+          "status": 200,
+          "bytes": 59,
+          "error": null,
+          "first_byte_ms": 31,
+          "ms": 31
+        },
+        {
+          "url": "http://127.0.0.1:8000/api/start-now",
+          "status": 200,
+          "bytes": 88,
+          "error": null,
+          "first_byte_ms": 12,
+          "ms": 12
+        },
+        {
+          "url": "http://127.0.0.1:8000/api/chat",
+          "status": 200,
+          "bytes": 336,
+          "error": null,
+          "first_byte_ms": 17,
+          "ms": 17
+        },
+        {
+          "url": "http://127.0.0.1:8000/api/chat/hints",
+          "status": 200,
+          "bytes": 27,
+          "error": null,
+          "first_byte_ms": 18,
+          "ms": 18
+        },
+        {
+          "url": "http://127.0.0.1:8000/api/chat/photo",
+          "status": 200,
+          "bytes": 152,
+          "error": null,
+          "first_byte_ms": 44,
+          "ms": 44
+        },
+        {
+          "url": "http://127.0.0.1:8000/api/chat/idle",
+          "status": 200,
+          "bytes": 467362,
+          "error": null,
+          "first_byte_ms": 22,
+          "ms": 25
+        }
+      ]
+    },
+    "welcome_back": {
+      "url": "http://127.0.0.1:8000/api/prepare/clips/welcome-back",
+      "status": 200,
+      "bytes": 91857,
+      "error": null,
+      "first_byte_ms": 10,
+      "ms": 10
+    }
+  },
+  "llm_change": {
+    "error": null,
+    "saved_ms": 4,
+    "reply": {
+      "prompt": "What is the tallest mountain in the world?",
+      "spoken": false,
+      "status": 200,
+      "error": null,
+      "streamed": true,
+      "reached_server_ms": 14,
+      "waited_warm_up_ms": 0.0,
+      "waited_turn_ms": 0.2,
+      "history_tokens": 84,
+      "looked_up_ms": 0.3,
+      "asked_tokens": 17,
+      "prompt_sent_ms": 33,
+      "first_token_ms": 7734,
+      "first_sentence_ms": 9800,
+      "last_token_ms": 13073,
+      "answered_ms": 13081,
+      "llm": {
+        "cache_n": 0,
+        "prompt_n": 182,
+        "prompt_ms": 5266.776,
+        "prompt_per_second": 34.55624465517425,
+        "predicted_n": 21,
+        "predicted_ms": 5339.298,
+        "predicted_per_second": 3.7458107788701813
+      },
+      "first_word_heard_ms": 17556,
+      "first_sentence_to_heard_ms": 7756,
+      "stop_answered_ms": null,
+      "stopped_request_finished_after_stop_ms": null,
+      "clips": [
+        {
+          "clip": 1,
+          "sentence_ms": 9801,
+          "waited_ms": 0,
+          "voice_ms": 7633,
+          "video_ms": 513,
+          "listed_ms": 17434,
+          "seen_ms": 17448,
+          "first_byte_ms": 17556,
+          "downloaded_ms": 17969,
+          "seconds": 1.92,
+          "plays_ms": 17556,
+          "gap_ms": null,
+          "late": false,
+          "error": null
+        },
+        {
+          "clip": 2,
+          "sentence_ms": 10412,
+          "waited_ms": 7536,
+          "voice_ms": 4103,
+          "video_ms": 409,
+          "listed_ms": 22051,
+          "seen_ms": 22051,
+          "first_byte_ms": 22216,
+          "downloaded_ms": 22473,
+          "seconds": 1.36,
+          "plays_ms": 22216,
+          "gap_ms": 2737,
+          "late": true,
+          "error": null
+        },
+        {
+          "clip": 3,
+          "sentence_ms": 13073,
+          "waited_ms": 9386,
+          "voice_ms": 4685,
+          "video_ms": 512,
+          "listed_ms": 27145,
+          "seen_ms": 27158,
+          "first_byte_ms": 27270,
+          "downloaded_ms": 27675,
+          "seconds": 1.76,
+          "plays_ms": 27270,
+          "gap_ms": 3691,
+          "late": true,
+          "error": null
+        }
+      ]
+    }
+  }
+}
