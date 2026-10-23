@@ -601,13 +601,15 @@ What it found:
 
 ### Larry's hosted machine, 2026-10-23
 
+[llm-settings-hosted-2026-10-23.md](llm-settings-hosted-2026-10-23.md), as Larry pasted it.
 app.me0.ai: 4 Ampere cores, each setting in its own llama-server container with as many cores
-as its threads, the app idle. From the run's log (first sentence of the three replies, and the
-sample PDF's wiki estimated as above):
+as its threads, the app idle. The first sentence of the three replies, and the sample PDF's wiki
+estimated as above:
 
 | Setting | First sentence, 3 replies | Sample PDF's wiki |
 |---|---|---|
 | Before: 4B Q4_K_M, 2 threads | 8.9 / 4.6 / 4.9 s | 78 min |
+| Both flags, 4B Q4_K_M (also the app's own llama-server, PR step 4) | 2.2 / 2.0 / 2.0 s | 63 min |
 | `--swa-full` | 2.6 / 3.0 / 2.9 s | 77 min |
 | `--threads-batch 4` (reading on 4) | 5.4 / 2.9 / 3.5 s | 63 min |
 | 3 threads | 6.0 / 3.1 / 3.5 s | 55 min |
@@ -617,7 +619,8 @@ sample PDF's wiki estimated as above):
 | Gemma 3 1B Q4_K_M | 3.5 / 1.6 / 2.4 s | 27 min |
 | One slot, flash attention on or off, batch 128 or 1024, context 8192 | within 10% of before | 74 to 84 min |
 
-The same as in the cloud, with one difference: **Q4_0 is a quarter faster here** (59 minutes
+The same as in the cloud: with both flags the warm-up's 97 tokens were reused (1 before), and
+the first token came after 0.4 s instead of 7.1 s. One difference: **Q4_0 is a quarter faster here** (59 minutes
 against 78, and the first sentence sooner), where in the cloud it was no faster, as llama.cpp
 repacks Q4_0 for ARM's instructions; even Q8_0 beat Q4_K_M here. So `deploy/compose.yaml` runs
 Q4_0 (`unsloth/gemma-3-4b-it-GGUF:Q4_0`, about 2.4 GB) with `--threads-batch 4 --swa-full`;
