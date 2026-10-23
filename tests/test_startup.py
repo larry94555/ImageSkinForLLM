@@ -20,14 +20,15 @@ def test_each_part_is_kept_from_its_first_run(caplog: pytest.LogCaptureFixture) 
     assert [r.getMessage() for r in caplog.records] == ["Start-up part finished"]
 
 
-def test_a_part_that_fails_keeps_its_error() -> None:
+def test_a_part_that_fails_keeps_its_error(caplog: pytest.LogCaptureFixture) -> None:
     times = StartupTimes(age_s=0)
 
     def broken() -> None:
         raise RuntimeError("no model")
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError), caplog.at_level(logging.INFO):
         times.timed("face models", broken)()
+    assert caplog.records[-1].levelno == logging.WARNING
     assert times.timed("speaker model", lambda: 7)() == 7
     parts = {p["name"]: p for p in times.snapshot()["parts"]}
     assert parts["face models"]["error"] == "no model"

@@ -58,7 +58,8 @@ class StartupTimes:
             part["end_ms"] = self.now_ms()
             if error:
                 part["error"] = error
-        logger.info(
+        logger.log(
+            logging.WARNING if error else logging.INFO,
             "Start-up part finished",
             extra={"part": name, "at_ms": part["end_ms"], "error": error},
         )
