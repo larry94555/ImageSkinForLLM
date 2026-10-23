@@ -83,14 +83,15 @@ CLIPS: tuple[tuple[ClipName, str], ...] = (
 )
 
 # The steps in order: key, what the browser shows, and roughly how many seconds each takes on a
-# 4-core CPU, which weights it in the overall percentage. The idle loop is most of the work. The
-# voice and clips weights are for the cloned voice, which loads for about 30 seconds and takes
+# 4-core CPU, which weights it in the overall percentage. The clips, the mouth shapes and the idle
+# loop are most of the work (the loop renders a quarter as many frames since R96e). The voice and
+# clips weights are for the cloned voice, which loads for about 30 seconds and takes
 # about 2.5 seconds per second of speech; Kokoro is quicker.
 STEPS = (
     ("voice", "Get the voice ready", 40),
     ("models", "Get ready to animate the face", 30),
     ("shapes", "Make the mouth shapes and the blinking eyes", 70),
-    ("loop", "Make the video of the person listening", 250),
+    ("loop", "Make the video of the person listening", 70),
     ("align", "Line up the mouth with the head", 20),
     ("clips", "Make the sample video and the greetings", 100),
 )

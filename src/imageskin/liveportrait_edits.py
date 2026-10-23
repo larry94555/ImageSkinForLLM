@@ -192,9 +192,11 @@ def idle_motion(frame: int, n_frames: int) -> tuple[float, float, float]:
 
     The head drifts by a degree or two: a slow turn with a faster, smaller one on top, a
     slight nod and tilt, all in whole cycles so the last frame flows back into the first.
+    Each is a cosine, so the second half of the loop goes back the way the first half came
+    (frame n - i has frame i's pose) and only the first half is rendered (roadmap R96e).
     """
     phase = 2 * math.pi * frame / n_frames
-    pitch = 0.8 * math.sin(2 * phase + 0.5)
-    yaw = 1.5 * math.sin(phase) + 0.5 * math.sin(3 * phase + 1.0)
-    roll = 0.6 * math.sin(phase + 2.0)
+    pitch = 0.8 * math.cos(2 * phase)
+    yaw = 1.5 * math.cos(phase) - 0.5 * math.cos(3 * phase)
+    roll = 0.6 * math.cos(3 * phase)
     return pitch, yaw, roll
