@@ -413,6 +413,112 @@ The largest costs on the hosted machine:
    segmenter) the largest part at 0.39 to 0.54 s; 1.4 s for a recording, 92% of it the
    one-speaker check (1.24 to 1.28 s).
 
+## R96c: start-up and the first load
+
+`imageskin time-startup` is run right after the app is started or restarted, and writes the
+tables to `speed` in the data folder:
+
+```
+imageskin time-startup                                      # llm_url from the config
+imageskin time-startup --llm-url http://llama:8080/v1       # llama-server elsewhere
+```
+
+It waits for the ready line, and for llama-server's `/health` to answer 200 (it answers 503
+while it loads its model). The app now keeps when each part of its start began and ended, in
+ms from its process starting, and serves them at `/api/startup`; the log has `Start-up part
+finished` for each. The parts are:
+
+| Part | What it is |
+|---|---|
+| app made | `create_app`: the settings, the stores, the jobs carried on from before |
+| face models, speaker model | the MediaPipe models and the one-speaker check's model, loaded in the background |
+| reply warm-up | the replies' warm-up (R22a), once a sample is accepted |
+| LLM warm-up | llama-server reading the system prompt, inside the reply warm-up |
+| voice and video warm-up | the voice and video engines loaded and a word rendered, and the idle video made if it isn't there |
+| server listening | uvicorn taking requests |
+| ready | the ready line, "Loading has completed. The application is ready for use." |
+
+Before "app made" begins is Python and the app's modules loading (torch among them). Then it
+times the first prompt and the next, so the first can be compared with the usual speed
+(Larry's timing 10); the browser's first load, each group fetched at once over 6 connections,
+compressed (the page, its scripts and styles, the fonts they name, and the face pictures of the
+avatar page; timing 7); the requests the chat makes when it is opened again after a restart,
+with Welcome back's video (which plays after Exit and Start again); and saving the local LLM
+again in Settings, to its next prompt's first word.
+
+### Cloud session, 2026-10-23
+
+[startup-cloud-2026-10-23.md](startup-cloud-2026-10-23.md), with the JSON beside it. The same
+4-core Xeon at 2.1 GHz: llama-server (built from llama.cpp's source) with Gemma 3 4B Q4_K_M on
+2 threads and a 4096-token context, Chatterbox Turbo speaking in the person's own voice, and
+the photoreal engine, with a person prepared and accepted. llama-server and the app were
+started together, as after a reboot, with the models already downloaded; time-startup began
+0.4 s after the app's process.
+
+| Part | From the process starting |
+|---|---|
+| Python and the app's modules loaded | 0 to 2.5 s |
+| App made | 2.5 to 2.9 s |
+| Server listening | 3.0 s |
+| Speaker model, face models | done at 3.7 s and 5.5 s |
+| LLM warm-up | 2.9 to 3.0 s, refused: llama-server was still loading |
+| llama-server answering /health | 5.5 s (5.3 s to load the model, from a disk cache) |
+| Voice and video warm-up | 2.9 to 46.6 s (43.7 s) |
+| Ready line | 46.6 s |
+
+The largest costs and what they mean:
+
+1. **The voice and video warm-up, 44 s**, almost all of the start. It loads Chatterbox and the
+   photoreal engine and renders a word; the ready line waits for it. The LLM is ready 41 s
+   before it.
+2. **The LLM's warm-up is wasted after a restart.** It runs as soon as the app is made, while
+   llama-server is still loading its model, so llama-server answers 503 (`Could not warm up
+   the LLM`) and nothing tries again. The first prompt then read the system prompt again (107
+   tokens, none reused) and its first token came after 3.2 s, against 1.4 s for the next
+   prompt, which reused 102. On the hosted machine llama-server took 164 s to load (PR #148),
+   so the warm-up is always refused there. Warming it up once llama-server answers `/health`
+   would make the first prompt as quick as the next.
+3. **Saving the LLM again in Settings** made the next prompt reuse nothing either (182 tokens
+   read, first token 7.7 s): the warm-up the save starts and the prompt reach llama-server
+   together.
+4. **The browser's first load is small**: 74 files and 0.5 MB (the face pictures 0.3 MB of
+   it), 0.3 s on this machine. Over the internet through Caddy it will be longer, but it is
+   not where start-up's time goes.
+5. **Opening the chat again after a restart is quick**: its 8 requests take 54 ms together,
+   and Welcome back's video (92 KB) arrives in 10 ms.
+
+### Larry's hosted machine, 2026-10-23
+
+[startup-hosted-2026-10-23.md](startup-hosted-2026-10-23.md), with the JSON beside it.
+app.me0.ai after `docker compose restart app llama`, with Larry's person and a 924-token
+conversation saved; time-startup began 25.6 s after the app's process, after the ready line.
+
+| Part | From the process starting |
+|---|---|
+| App made | 1.9 to 2.1 s |
+| Server listening | 2.6 s |
+| Face models, speaker model | done at 3.5 s and 2.9 s |
+| LLM warm-up | 2.1 to 2.2 s: refused, as llama-server was still loading |
+| Voice and video warm-up | 2.1 to 14.7 s (12.6 s) |
+| Ready line | 14.7 s |
+| llama-server answering /health | not timed: the watch ended without a time (fixed since) |
+
+1. **The first reply after the restart took 65.6 s to its first token**, against 4.0 s for the
+   next. It read all 953 prompt tokens again at 14.5 a second, reusing none. Two causes: the
+   warm-up was refused while llama-server loaded its model, and even a warm-up that ran only
+   reads the system prompt, while the saved conversation adds 924 tokens of history to the
+   first prompt. The second reply reused 948. This is start-up's largest cost by far.
+2. **The voice and video warm-up took 12.6 s**, much less than in the cloud (44 s), as the
+   models were already in the disk cache.
+3. **The browser's first load (0.2 s) and opening the chat again (47 ms)** are small, measured
+   inside the container; through Caddy and the internet they will be longer.
+4. **Saving the LLM again in Settings** cost the next prompt little here (first token 11.3 s,
+   986 tokens reused): the history was already in llama-server's cache.
+
+The fix for the first: warm the LLM up once llama-server answers `/health`, with the saved
+conversation's prompt rather than the system prompt alone, so the first reply after a restart
+reuses what the next one does.
+
 ## R100: the pause after the first clip
 
 The gaps after the first clip in the cloud run of 2026-10-21 (1.9 s and 3.0 s) were the LLM, not
