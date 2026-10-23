@@ -1,6 +1,6 @@
 import pytest
 
-from imageskin.sentences import SentenceSplitter
+from imageskin.sentences import LONG_CLIP_WORDS, SentenceSplitter, clips
 from imageskin.speech_text import TABLE, spoken_text
 
 
@@ -321,3 +321,44 @@ def test_a_clause_too_short_or_none_waits_for_more() -> None:
     # Without `voice_waiting`, a sentence after the first clause waits for its full stop.
     plain = SentenceSplitter(first_clause=True)
     assert plain.feed("Hello there Larry, it is a fine day, and the sun") == ["Hello there Larry,"]
+
+
+def test_a_known_reply_s_first_clause_and_long_sentences_are_clips_of_their_own() -> None:
+    topics = (
+        "I can talk about Prime Number Definition, The Sieve of Eratosthenes, The Zeta"
+        " Function, Euler's Product Formula and 4 more on the Wiki page."
+    )
+    assert clips([topics, "You could start by asking me about The Zeta Function."]) == [
+        "I can talk about Prime Number Definition,",
+        "The Sieve of Eratosthenes, The Zeta Function,",
+        "Euler's Product Formula and 4 more on the Wiki page.",
+        "You could start by asking me about The Zeta Function.",
+    ]
+
+
+def test_short_known_sentences_are_spoken_whole() -> None:
+    assert clips(["I can talk about Rain.", "Ask me anything about it."]) == [
+        "I can talk about Rain.",
+        "Ask me anything about it.",
+    ]
+    assert clips([]) == []
+    assert clips(["  ", "Hi."]) == ["Hi."]
+
+
+def test_a_known_sentence_is_never_cut_but_at_punctuation() -> None:
+    # Not inside a title, though long: there is nowhere to cut it.
+    sentence = "Sorry I can only answer questions about the material I was given just now today."
+    assert clips([sentence, sentence]) == [sentence, sentence]
+    # A first clause too short is joined to the next.
+    assert clips(["Yes, it is, and the rest follows."]) == ["Yes, it is,", "and the rest follows."]
+    # Later clauses are joined up to LONG_CLIP_WORDS words.
+    long = ", ".join(["one two three"] * 6) + "."
+    pieces = clips(["Hi.", long])
+    four = ", ".join(["one two three"] * 4) + ","
+    assert pieces == ["Hi.", four, "one two three, one two three."]
+    assert all(len(p.split()) <= LONG_CLIP_WORDS for p in pieces)
+
+
+def test_a_known_reply_with_a_code_block_is_left_whole() -> None:
+    code = "Here is some code, which prints a number:\n```\nprint(1)\n```"
+    assert clips([code]) == [code]

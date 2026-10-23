@@ -538,6 +538,31 @@ found: [voice_video_overlap.py](voice_video_overlap.py), with the LLM writing on
 took 5.3 s for the video of a 3-second clause and then the voice of the next sentence, one after
 the other, and 6.0 to 7.4 s for both at once (1 or 2 threads each).
 
+### Replies made without the LLM
+
+"What can you talk about?" is answered from the topics without the LLM (R41f), and its first
+sentence, the list, was spoken as one clip: 15.1 s of speech whose voice took 11.6 s on Larry's
+hosted machine, so the first word was heard 11.9 s after Send (R96a; 8.7 to 10.3 s in the
+cloud). Such a reply's sentences are all known at once, so they are now cut before they are
+spoken (`clips` in `sentences.py`, the log's `Made reply cut into clips`): the first sentence
+after its first clause, and any sentence longer than 12 words in clauses joined up to 12 words,
+cut only after a comma, semicolon or colon, so a topic's title is never split. The decline and
+a lesson's choices (R41h) go the same way, though their sentences are mostly short enough to
+stay whole.
+
+[made_reply_clips.py](made_reply_clips.py) speaks nine topics like the sample PDF's with Kokoro,
+whole and cut, and plays them on paper
+([made-reply-clips-cloud-2026-10-23.md](made-reply-clips-cloud-2026-10-23.md), the voice alone):
+
+| Kokoro, cloud session | First word, whole | First word, cut | Gaps, cut |
+|---|---|---|---|
+| 4 threads | 9.5 s | 1.1 s | none |
+| 2 threads | 13.0 s | 1.8 s | none |
+
+Each next clip was spoken before the one before had ended. The video adds about a third of the
+voice's time to each clip, so on the hosted machine short gaps may still be heard after the first
+clip; `imageskin time-reply "What can you talk about?"` there, with a PDF's wiki built, shows them.
+
 ## R97: llama-server's settings
 
 `imageskin time-llm` asks a running llama-server what the app asks it, without the app: the

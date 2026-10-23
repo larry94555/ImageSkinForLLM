@@ -174,6 +174,29 @@ def test_the_topics_are_answered_without_the_llm_and_kept_for_later(
     ]
 
 
+def test_a_long_list_of_topics_is_spoken_a_clause_at_a_time(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    topics = ["Prime Number Definition", "The Sieve of Eratosthenes", "The Zeta Function"]
+    said: list[str | None] = []
+    conversation = Conversation(
+        Llm(), lambda: 4096, stream=Stream(), find=lambda prompt: [], topics=lambda: topics
+    )
+    with caplog.at_level(logging.INFO):
+        reply, _ = conversation.send("What can you talk about?", said.append)
+    # The first clip is short, so the first word is heard sooner (R100); the reply is kept whole.
+    assert said[:3] == [
+        None,
+        "I can talk about Prime Number Definition,",
+        "The Sieve of Eratosthenes and The Zeta Function.",
+    ]
+    assert reply.content == (
+        "I can talk about Prime Number Definition, The Sieve of Eratosthenes and The Zeta"
+        f" Function. {said[3]}"
+    )
+    assert "Made reply cut into clips" in caplog.text
+
+
 def test_while_the_pdfs_are_read_it_says_to_ask_again() -> None:
     conversation = Conversation(
         Llm(), lambda: 4096, content_only=lambda: True, topics_complete=lambda: False

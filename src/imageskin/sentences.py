@@ -22,6 +22,13 @@ the rest of the first sentence was a clip of its own, spoken only once the LLM h
 of it, and a gap of 2 to 3 s was heard before it. A sentence already complete is handed over
 whole, as is every sentence while the voice is busy, so the clips stay as long as before when
 the voice can't keep up anyway.
+
+`clips` cuts a reply made without the LLM, whose sentences are all known at once, such as the
+answer to "What can you talk about?" (roadmap R100): its first sentence at the first clause, as
+above but only at punctuation, and any longer than LONG_CLIP_WORDS at its clauses too. Its first
+sentence, the list of topics, was 14 to 17 s of speech spoken as one clip, so the first word
+was heard 8.7 to 10.3 s after Send in a cloud session and 11.9 s on Larry's hosted machine, all
+of it the voice (R96a).
 """
 
 import re
@@ -39,6 +46,7 @@ _WORD = re.compile(r"\S+")
 FIRST_CLAUSE_MIN = 3  # words a first clause must have
 FIRST_CLAUSE_MAX = 5  # words after which the first clause is cut without a clause boundary...
 FIRST_CLAUSE_LIMIT = 8  # ...unless that would end it on a leading word, up to this many words
+LONG_CLIP_WORDS = 12  # a known sentence longer than this is cut at its clauses (`clips`)
 # Words that start a clause of their own, so the cut comes before them.
 JOINING = frozenset(
     "and but or nor so yet because which who whom whose while when where if although though as"
@@ -52,6 +60,7 @@ LEADING = frozenset(
     " must".split()
 )
 _DASHES = ("-", "—", "–")
+_CLAUSE_END = re.compile(r"(?<=[,;:])\s+")  # where `clips` may cut a known sentence
 # A blank line, or a line break before a list item or heading.
 _BREAK = re.compile(r"\n[ \t]*\n\s*|\n(?=[ \t]*(?:\d+[.)]|[-*+]|#{1,6})[ \t])")
 _HEADING = re.compile(r"^[ \t]*#{1,6}[ \t].*\n", re.M)  # a heading line is a sentence
@@ -132,6 +141,34 @@ def first_clause_cut(text: str) -> int | None:
         if cut is not None and not inside_whole(text, cut):
             return cut
     return None
+
+
+def clips(sentences: list[str]) -> list[str]:
+    """A reply's known sentences as the clips to speak, cut only after a comma, semicolon or
+    colon, so a topic's title is never cut: the first sentence's first clause of at least
+    FIRST_CLAUSE_MIN words on its own, and the rest of a sentence longer than LONG_CLIP_WORDS in
+    clips of its clauses joined up to that many words. Text with a code block is left whole."""
+    pieces: list[str] = []
+    for i, sentence in enumerate(sentences):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if CODE_FENCE.search(sentence) or (i > 0 and len(sentence.split()) <= LONG_CLIP_WORDS):
+            pieces.append(sentence)
+            continue
+        first = i == 0
+        clip = ""
+        for clause in _CLAUSE_END.split(sentence):
+            joined = f"{clip} {clause}".strip()
+            if len(clip.split()) >= FIRST_CLAUSE_MIN and (
+                first or len(joined.split()) > LONG_CLIP_WORDS
+            ):
+                pieces.append(clip)
+                clip, first = clause, False
+            else:
+                clip = joined
+        pieces.append(clip)
+    return pieces
 
 
 class SentenceSplitter:
