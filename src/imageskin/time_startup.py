@@ -246,7 +246,7 @@ def measure_all(base: str, llm_url: str, began_wall: float) -> dict[str, Any]:
     llm = {
         "loaded_ms": at_ms(seen.get("wall"), started),
         "already_loaded": seen.get("already", False),
-        "error": None if "wall" in seen else seen.get("error"),
+        "error": None if "wall" in seen else seen.get("error", "never answered"),
         "began_ms": at_ms(began_wall, started),
     }
     logger.info("App ready; timing the first prompts", extra={"llm_loaded_ms": llm["loaded_ms"]})
@@ -372,9 +372,15 @@ def ms_between(part: dict[str, Any]) -> float | None:
 
 
 def failures(results: dict[str, Any]) -> int:
+    """What failed of what the command waits for and times, so a run with any exits 1."""
     failed = sum(1 for r in results["prompts"] if r["error"])
     failed += sum(len(g["failed"]) for g in results["first_load"].values())
     failed += sum(1 for p in results["startup"]["parts"] if p.get("error"))
+    opening = results["chat_opening"]
+    failed += len(opening["opening"]["failed"])
+    welcome = opening["welcome_back"]  # None when nothing is prepared: not a failure
+    failed += 1 if welcome and welcome["error"] else 0
+    failed += 1 if results["llm"].get("error") else 0
     return failed + (1 if results["llm_change"].get("error") else 0)
 
 

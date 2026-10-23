@@ -249,6 +249,35 @@ def test_the_llm_change_reports_what_went_wrong(app: tuple[str, FakeApp]) -> Non
         assert "wasn't saved" in time_startup.change_llm(url)["error"]
 
 
+def test_a_failed_chat_opening_request_fails_the_command(
+    app: tuple[str, FakeApp], tmp_path: Path
+) -> None:
+    url, fake = app
+    real = fake.answer
+
+    def refuse(method: str, path: str, gzipped: bool) -> tuple[int, Any, dict[str, str]]:
+        if path in ("/api/chat/hints", "/api/start-now/lines/welcome-back"):
+            return 500, {"detail": "broken"}, {}
+        return real(method, path, gzipped)
+
+    with patch.object(fake, "answer", side_effect=refuse):
+        assert time_startup.run(url, url, tmp_path) == 1
+    results = json.loads(next(tmp_path.glob("startup-*.json")).read_text())
+    assert results["chat_opening"]["opening"]["failed"] == [url + "/api/chat/hints"]
+    assert results["chat_opening"]["welcome_back"]["error"] == "refused (500)"
+    assert time_startup.failures(results) == 2
+
+
+def test_a_never_healthy_llm_fails_the_command(app: tuple[str, FakeApp], tmp_path: Path) -> None:
+    url, fake = app
+    fake.loaded_after = 10**6  # llama-server answers 503 throughout
+    with patch.object(time_startup, "READY_LIMIT_S", 0.5):
+        assert time_startup.run(url, url, tmp_path) == 1
+    results = json.loads(next(tmp_path.glob("startup-*.json")).read_text())
+    assert results["llm"]["loaded_ms"] is None and "503" in results["llm"]["error"]
+    assert time_startup.failures(results) == 1
+
+
 def test_llama_servers_health_is_beside_its_v1() -> None:
     assert time_startup.llm_health_url("http://llama:8080/v1/") == "http://llama:8080/health"
     assert time_startup.llm_health_url("http://llama:8080") == "http://llama:8080/health"
@@ -295,8 +324,9 @@ def test_an_llm_never_seen_is_reported(tmp_path: Path) -> None:
         "llm": {"loaded_ms": None, "already_loaded": False, "began_ms": 5, "error": "refused"},
         "prompts": [],
         "first_load": {},
-        "chat_opening": {"opening": {"rows": [], "ms": 1}, "welcome_back": None},
+        "chat_opening": {"opening": {"rows": [], "ms": 1, "failed": []}, "welcome_back": None},
         "llm_change": {"error": "Not timed"},
     }
     report = time_startup.markdown(results)
     assert "| llama-server answering /health | - | not seen | - | refused |" in report
+    assert time_startup.failures(results) == 2  # llama-server never answered, and the change
