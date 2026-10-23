@@ -11,6 +11,7 @@ from imageskin import __version__
 from imageskin.app import READY_MESSAGE
 from imageskin.cli import announce_ready, llm_settings, main
 from imageskin.config import Settings
+from imageskin.startup import StartupTimes
 
 
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -86,7 +87,7 @@ def test_the_ready_line_waits_for_the_server_and_the_loading(
     loaded = threading.Event()
     loading = threading.Thread(target=loaded.wait, args=(5,))
     loading.start()
-    app = SimpleNamespace(state=SimpleNamespace(loading=[loading]))
+    app = SimpleNamespace(state=SimpleNamespace(loading=[loading], startup=StartupTimes(0)))
     with caplog.at_level(logging.INFO, logger="imageskin.cli"):
         ready = threading.Thread(target=announce_ready, args=(server, app, "http://h:1", 0.0))
         ready.start()
@@ -100,6 +101,8 @@ def test_the_ready_line_waits_for_the_server_and_the_loading(
     record = next(r for r in caplog.records if r.getMessage() == READY_MESSAGE)
     assert vars(record)["url"] == "http://h:1" and vars(record)["duration_ms"] > 0
     assert vars(record)["background_jobs"] == []
+    parts = [p["name"] for p in app.state.startup.snapshot()["parts"]]
+    assert parts == ["server listening", "ready"]  # timed for time-startup (R96c)
 
 
 def test_no_ready_line_when_the_server_stops_while_loading(
@@ -110,7 +113,7 @@ def test_no_ready_line_when_the_server_stops_while_loading(
     loaded = threading.Event()
     loading = threading.Thread(target=loaded.wait, args=(5,))
     loading.start()
-    app = SimpleNamespace(state=SimpleNamespace(loading=[loading]))
+    app = SimpleNamespace(state=SimpleNamespace(loading=[loading], startup=StartupTimes(0)))
     with caplog.at_level(logging.INFO, logger="imageskin.cli"):
         ready = threading.Thread(target=announce_ready, args=(server, app, "http://h:1", 0.0))
         ready.start()
@@ -126,7 +129,7 @@ def test_the_ready_line_names_jobs_carried_on_from_before(
     """A resumed Prepare (or a PDF reading, or a wiki build waiting on the LLM) doesn't hold the
     ready line back: it is named, as its lines come after (a review finding on PR #92)."""
     server = SimpleNamespace(started=True, should_exit=False)
-    app = SimpleNamespace(state=SimpleNamespace(loading=[]))
+    app = SimpleNamespace(state=SimpleNamespace(loading=[], startup=StartupTimes(0)))
     done = threading.Event()
     prepare = threading.Thread(target=done.wait, args=(5,), name="prepare")
     prepare.start()
@@ -152,7 +155,7 @@ def test_ctrl_c_stops_serve_quietly(tmp_path: Path) -> None:
 
 def test_no_ready_line_when_the_server_stops_first(caplog: pytest.LogCaptureFixture) -> None:
     server = SimpleNamespace(started=False, should_exit=True)
-    app = SimpleNamespace(state=SimpleNamespace(loading=[]))
+    app = SimpleNamespace(state=SimpleNamespace(loading=[], startup=StartupTimes(0)))
     with caplog.at_level(logging.INFO, logger="imageskin.cli"):
         announce_ready(server, app, "http://h:1", 0.0)
     assert READY_MESSAGE not in caplog.text

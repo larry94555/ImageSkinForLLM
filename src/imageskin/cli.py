@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from imageskin import __version__, time_pdf, time_reply, time_setup
+from imageskin import __version__, time_pdf, time_reply, time_setup, time_startup
 from imageskin.audio import DEFAULT_TIMEOUT_S, AudioError, make_voice_sample
 from imageskin.config import ConfigError, Settings, default_home, load_settings
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
@@ -253,6 +253,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="go on even though the app is already set up, changing its setup",
     )
+    startup_timed = commands.add_parser(
+        "time-startup",
+        help="right after starting the app, show where the time goes until it is ready, in the "
+        "first prompt and in the browser's first load",
+    )
+    startup_timed.add_argument(
+        "--url", default=time_reply.DEFAULT_URL, help="the running app's address"
+    )
+    startup_timed.add_argument(
+        "--llm-url", help="llama-server's address (default: llm_url from the config)"
+    )
+    startup_timed.add_argument(
+        "--out", type=Path, help="folder for the results (default: speed in the data folder)"
+    )
     return parser
 
 
@@ -412,9 +426,11 @@ def announce_ready(server: Any, app: Any, url: str, start: float) -> None:
         if server.should_exit:
             return
         time.sleep(READY_POLL_S)
+    app.state.startup.mark("server listening")
     wait_until_loaded(app)
     if server.should_exit:  # stopped while the loading finished
         return
+    app.state.startup.mark("ready")
     running = sorted({t.name for t in threading.enumerate()} & BACKGROUND_JOBS)
     logger.info(
         READY_MESSAGE,
@@ -552,6 +568,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.recording or list(time_setup.DEFAULT_RECORDINGS),
             args.out or default_home() / "speed",
             args.anyway,
+        )
+    if args.command == "time-startup":
+        return time_startup.run(
+            args.url, args.llm_url or settings.llm_url, args.out or default_home() / "speed"
         )
     if args.command == "prepare":
         try:

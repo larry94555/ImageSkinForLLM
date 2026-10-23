@@ -94,6 +94,7 @@ from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
 from imageskin.start_now import Choice as PersonChoice
 from imageskin.start_now import KokoroVoices, PresetVoice, StartNow, StartStatus
+from imageskin.startup import StartupTimes
 from imageskin.teach import Choice, Explain, Lesson, Say, Tutor, lesson_topics
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
@@ -295,9 +296,13 @@ class AccentChoice(BaseModel):
 READY_MESSAGE = "Loading has completed. The application is ready for use."
 
 
-def face_checker(home: Path, loading: list[threading.Thread] | None = None) -> PhotoCheck | None:
+def face_checker(
+    home: Path,
+    loading: list[threading.Thread] | None = None,
+    startup: StartupTimes | None = None,
+) -> PhotoCheck | None:
     """The face checks when MediaPipe is installed; photos are then checked as they arrive.
-    The thread loading their models is added to `loading`."""
+    The thread loading their models is added to `loading`, and timed in `startup`."""
     if importlib.util.find_spec("mediapipe") is None:
         logger.warning(
             'Face checks are off: MediaPipe is not installed. Run: pip install -e ".[faces]"'
@@ -308,7 +313,8 @@ def face_checker(home: Path, loading: list[threading.Thread] | None = None) -> P
     logger.info("Face checks are on")
     checker = FaceChecker(home / "models" / "faces")
     # Download the models now, so the first photo isn't held up by it.
-    thread = threading.Thread(target=checker.prepare, name="face-models", daemon=True)
+    load = checker.prepare if startup is None else startup.timed("face models", checker.prepare)
+    thread = threading.Thread(target=load, name="face-models", daemon=True)
     thread.start()
     if loading is not None:
         loading.append(thread)
@@ -316,14 +322,17 @@ def face_checker(home: Path, loading: list[threading.Thread] | None = None) -> P
 
 
 def sound_checker(
-    speakers: SpeakerChecker, loading: list[threading.Thread] | None = None
+    speakers: SpeakerChecker,
+    loading: list[threading.Thread] | None = None,
+    startup: StartupTimes | None = None,
 ) -> SoundCheck:
     """The sound checks, with the check for a second voice (roadmap R11). The thread loading
-    the speaker model is added to `loading`."""
+    the speaker model is added to `loading`, and timed in `startup`."""
     from imageskin import sound_checks
 
     # Download the model now, so the first recording isn't held up by it.
-    thread = threading.Thread(target=speakers.prepare, name="speaker-model", daemon=True)
+    load = speakers.prepare if startup is None else startup.timed("speaker model", speakers.prepare)
+    thread = threading.Thread(target=load, name="speaker-model", daemon=True)
     thread.start()
     if loading is not None:
         loading.append(thread)
@@ -433,8 +442,13 @@ def create_app(
     general_prompts: bool = False,
     # Sign in with ChatGPT (R43); one that asks auth.openai.com when left out.
     chatgpt: ChatGptSignIn | None = None,
+    # When each part of the start began and ended (R96c); `imageskin serve` passes its own.
+    startup: StartupTimes | None = None,
 ) -> FastAPI:
+    startup = startup or StartupTimes()
+    startup.begin("app made")
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
+    app.state.startup = startup
     data_home = home or default_home()
     # First, before any thread starts, so every later thread inherits the pin (R22g).
     performance_cores = use_performance_cores()
@@ -475,6 +489,11 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/api/startup")
+    def get_startup() -> dict[str, Any]:
+        """When each part of the start began and ended, for `imageskin time-startup` (R96c)."""
+        return startup.snapshot()
 
     @app.get("/api/consent")
     def get_consent() -> dict[str, object]:
@@ -546,8 +565,8 @@ def create_app(
     app.state.loading = []
     store = UploadStore(
         data_home,
-        check_photo or face_checker(data_home, app.state.loading),
-        check_sound or sound_checker(speakers, app.state.loading),
+        check_photo or face_checker(data_home, app.state.loading, startup),
+        check_sound or sound_checker(speakers, app.state.loading, startup),
     )
     uploads_api = "/api/uploads/{kind}"
     needs_consent = [Depends(require_consent)]
@@ -1817,9 +1836,10 @@ def create_app(
             logger.info("Warming up replies")
             # On its own thread: an LLM that accepts the request but doesn't answer would
             # otherwise hold the engines' warm-up back for its whole timeout.
-            llm = threading.Thread(target=conversation.warm_up, name="llm-warm-up", daemon=True)
+            warm_llm = startup.timed("LLM warm-up", conversation.warm_up)
+            llm = threading.Thread(target=warm_llm, name="llm-warm-up", daemon=True)
             llm.start()
-            replies.warm_up(photo)
+            startup.timed("voice and video warm-up", lambda: replies.warm_up(photo))()
             llm.join()
         return photo
 
@@ -1833,6 +1853,7 @@ def create_app(
     app.state.warm_up = warm_up
 
     def warm_up_until_current() -> None:
+        startup.begin("reply warm-up")
         while True:
             try:
                 photo = warm_up_replies()
@@ -1847,6 +1868,7 @@ def create_app(
                     warm_up["running"] = False
                     break
             logger.info("Warming up replies again for the person chosen meanwhile")
+        startup.end("reply warm-up")
         logger.info("Reply warm-up done")
 
     def warming_up() -> bool:
@@ -2037,4 +2059,5 @@ def create_app(
 
     # Last, so /health and /api routes win over the static files.
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    startup.end("app made")
     return app
