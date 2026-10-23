@@ -207,6 +207,34 @@ def test_a_spoken_replys_first_clause_is_handed_over_on_its_own(
     assert [r.chars for r in ready] == [len("Well now Larry, how are you today?"), 10]  # type: ignore[attr-defined]
 
 
+def test_an_unfinished_sentence_is_handed_over_at_a_clause_while_the_voice_waits(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """R100: once the first clip is made, the rest of a long sentence isn't held back until its
+    full stop while the voice has nothing to say."""
+
+    class Clips:
+        def __init__(self) -> None:
+            self.given: list[str | None] = []
+
+        def __call__(self, sentence: str | None) -> None:
+            self.given.append(sentence)
+
+        def voice_waiting(self) -> bool:
+            return True  # each clip is made at once
+
+    def stream(messages: list[Message]) -> Iterator[str]:
+        yield from ["Well now Larry, it is", " a fine day, and", " the sun is out."]
+
+    conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream)
+    clips = Clips()
+    with caplog.at_level(logging.INFO):
+        conversation.send("Hi", clips)
+    assert clips.given == [None, "Well now Larry,", "it is a fine day,", "and the sun is out."]
+    ready = [r for r in caplog.records if r.message == "Reply sentence ready"]
+    assert [r.cut_for_waiting_voice for r in ready] == [False, True, False]  # type: ignore[attr-defined]
+
+
 def test_an_empty_streamed_reply_is_an_error(caplog: pytest.LogCaptureFixture) -> None:
     conversation = Conversation(FakeLlm2(), lambda: 4096, stream=lambda messages: iter([" "]))
     with pytest.raises(LlmError, match="empty reply"):

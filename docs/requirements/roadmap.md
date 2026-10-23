@@ -746,6 +746,7 @@ Bullets marked **Added (from the code)** are further waits found in the code tha
 ### R100. From the reply to the spoken word sooner (Medium) · item 12
 - From R96's results, cut the largest wait between the LLM's first sentence and the video saying it (for example, starting the voice on a shorter first clause, keeping the voice and video engines warm, or sending the first frames sooner), measured with the timing readout.
 - **Can show:** three replies, each with the first word heard sooner after the first sentence is written than R96 measured.
+- **Built (first part):** while every clip so far is made and the LLM is still writing a sentence, the sentence is handed over at its next clause, by the first clause's rule, rather than at its full stop: the gaps after the first clip in R96's cloud run were the voice waiting for the rest of a long first sentence. Where the voice can't keep up (Larry's hosted machine, and a 2.8 GHz cloud session), it is never waiting, so nothing changes there; speaking the next sentence while the clip before is rendered was measured again and is slower. The results are in `experiments/speed/`.
 
 ## Milestone 20: Many customers on me0.ai
 

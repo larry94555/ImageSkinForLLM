@@ -282,3 +282,22 @@ The largest costs, against the cloud session:
    against 32 s in R96's hosted run and 4.5 s in the cloud.
 5. **The question asked while the wiki was built read its prompt at 3.1 tokens a second**, as
    it shared the 2 threads with the wiki, and was heard after 74 s, as in the cloud (70 s).
+
+## R100: the pause after the first clip
+
+The gaps after the first clip in the cloud run of 2026-10-21 (1.9 s and 3.0 s) were the LLM, not
+the voice: the voice had made the first clip and sat waiting (Waited 0) while the LLM wrote the
+rest of a long first sentence, which was only handed over at its full stop. Since R100, while
+every clip so far is made and the LLM is still writing a sentence, that sentence is handed over
+at its next clause (`cut_for_waiting_voice` in the log's `Reply sentence ready`).
+
+On Larry's hosted machine, and in this cloud session of 2026-10-22 (a 4-core Xeon at 2.8 GHz,
+the same setup as above, [reply-cloud-2026-10-22-r100.md](reply-cloud-2026-10-22-r100.md)), the
+voice is never waiting: each clip waits 2 to 9 s for the one before, so no sentence was cut for
+it and the replies are as before. There, a clip takes longer to make than to play while the LLM
+writes (the voice alone takes 1.1 to 1.3 s a second of speech), so the gaps come from the CPU.
+
+Speaking the next sentence while the clip before is rendered doesn't help either, as R22b
+found: [voice_video_overlap.py](voice_video_overlap.py), with the LLM writing on 2 threads,
+took 5.3 s for the video of a 3-second clause and then the voice of the next sentence, one after
+the other, and 6.0 to 7.4 s for both at once (1 or 2 threads each).

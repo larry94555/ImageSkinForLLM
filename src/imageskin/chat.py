@@ -1148,11 +1148,16 @@ class Conversation:
     def _stream_reply(self, messages: list[Message], on_sentence: OnSentence | None) -> str:
         """Stream the reply, logging each sentence as soon as it is complete (roadmap R20).
         When the sentences are spoken (`on_sentence`), the first one's first clause is handed
-        over as a sentence of its own, so the first clip is short (roadmap R22b)."""
+        over as a sentence of its own, so the first clip is short (roadmap R22b), and when they
+        tell whether the voice is waiting for more (`voice_waiting`, as SentenceClips does), an
+        unfinished sentence is handed over at its next clause while it is (roadmap R100)."""
         assert self._stream is not None
         start = time.perf_counter()
         note(prompt_sent_at=start)
-        splitter = SentenceSplitter(first_clause=on_sentence is not None)
+        splitter = SentenceSplitter(
+            first_clause=on_sentence is not None,
+            voice_waiting=getattr(on_sentence, "voice_waiting", None),
+        )
         pieces: list[str] = []
         count = 0  # sentences so far
 
@@ -1167,6 +1172,8 @@ class Conversation:
                         "sentence": count,
                         "chars": len(sentence),
                         "since_prompt_ms": ms_since(start),
+                        # Cut at a clause because the voice was waiting for it (R100).
+                        "cut_for_waiting_voice": count in splitter.waiting_cuts,
                     },
                 )
                 if on_sentence is not None:
