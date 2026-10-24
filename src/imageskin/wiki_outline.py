@@ -8,6 +8,9 @@ summarizes them, and each part is again either simple enough to show in the PDF'
 detail page of its own, down to MAX_DEPTH levels. The LLM writes only titles and summaries, not
 the PDF's text again, which keeps the build fast (most of an LLM request's time is spent writing
 its answer). If the LLM can't group or split something, it stays as it is.
+
+Once built, each paragraph of the PDF that is in no entry (the LLM left it out of a topic's parts,
+or no topic names its page) is put back, at its place in the PDF's order (R98b).
 """
 
 import logging
@@ -160,6 +163,11 @@ class Outliner:
     requests: int = 0
     planned: int = 0
     used: set[str] = field(default_factory=set)
+    # The PDF's paragraphs (its units) in its order, those in an entry so far, and where in that
+    # order each entry starts (R98b).
+    order: dict[Unit, int] = field(default_factory=dict)
+    kept: set[Unit] = field(default_factory=set)
+    starts: dict[str, int] = field(default_factory=dict)
 
     def outline(
         self, topics: list[WikiPage], pieces: list[dict[str, Any]] | None = None
@@ -170,6 +178,9 @@ class Outliner:
         start = time.perf_counter()
         logger.info("Building wiki outline", extra={"id": self.pdf_id, "topics": len(topics)})
         self.used.update(t.id for t in topics)  # a topic's entry keeps its page's id
+        for p in pieces or []:
+            for u in units(p["page"], p["text"]):
+                self.order.setdefault(u, len(self.order))
         sources = [self.source(t, pieces or []) for t in topics]
         for t, source in zip(topics, sources, strict=True):
             if opens(source, 2):
@@ -182,6 +193,7 @@ class Outliner:
             for t, source in zip(topics, sources, strict=True)
         ]
         contents = self.sections(topics, entries) if len(topics) > FEW_TOPICS else entries
+        contents = self.put_back(topics, entries, contents)
         logger.info(
             "Wiki outline built",
             extra={
@@ -216,10 +228,16 @@ class Outliner:
         entry_id = entry_id or unique(f"{self.pdf_id}-{slug(title)}", self.used)
         text = " ".join(t for _, t in source)
         entry = Entry(entry_id, title, text if summary is None else summary, pages)
+        here = [self.order[u] for u in source if u in self.order]
+        if here:
+            self.starts[entry_id] = min(here)
         if not opens(source, depth):
+            self.kept.update(source)  # shown as it is, or simple enough for the topic's own text
             return entry
         found = self.split(title, source, planned, summarize=summary is None)
         if found is None:
+            if summary is None:
+                self.kept.update(source)  # a part that can't be split shows its own words
             return entry
         if summary is None:
             entry.summary = found[0]
@@ -259,6 +277,56 @@ class Outliner:
                 contents.append((n, entries[n - 1]))
                 placed.add(n)
         return [entry for _, entry in sorted(contents, key=lambda c: c[0])]
+
+    def put_back(
+        self, topics: list[WikiPage], entries: list[Entry], contents: list[Entry]
+    ) -> list[Entry]:
+        """The contents with each paragraph of the PDF that is in no entry put back, in the PDF's
+        own words, at its place in the PDF's order: in the first topic that has its page, or in
+        an entry of its own titled from its page when no topic has it. Paragraphs next to each
+        other on the same page go back together."""
+        groups: list[tuple[int, list[Unit]]] = []  # by where the first is in the PDF's order
+        for u, n in self.order.items():
+            if u in self.kept:
+                continue
+            last = groups[-1] if groups else None
+            if last and last[0] + len(last[1]) == n and last[1][-1][0] == u[0]:
+                last[1].append(u)
+            else:
+                groups.append((n, [u]))
+        for start, group in groups:
+            page = group[0][0]
+            owner = next((e for t, e in zip(topics, entries, strict=True) if page in t.pages), None)
+            title = f"More from page {page}" if owner else f"Page {page}"
+            entry_id = unique(f"{self.pdf_id}-{slug(title)}", self.used)
+            self.starts[entry_id] = start
+            entry = Entry(entry_id, title, " ".join(t for _, t in group), [page])
+            if owner:
+                owner.detail = True
+                self.insert(owner.entries, entry)
+            else:
+                self.insert(contents, entry)
+        logger.info(
+            "Wiki paragraphs put back",
+            extra={
+                "id": self.pdf_id,
+                "paragraphs": sum(len(g) for _, g in groups),
+                "pages": sorted({g[0][0] for _, g in groups}),
+            },
+        )
+        return contents
+
+    def insert(self, entries: list[Entry], entry: Entry) -> None:
+        """Puts an entry among others before the first that starts later in the PDF."""
+        start = self.start(entry)
+        at = next((i for i, e in enumerate(entries) if self.start(e) > start), len(entries))
+        entries.insert(at, entry)
+
+    def start(self, entry: Entry) -> float:
+        """Where an entry starts in the PDF's order: its own, or its first part's (a section's)."""
+        if entry.id in self.starts:
+            return self.starts[entry.id]
+        return min((self.start(e) for e in entry.entries), default=float("inf"))
 
     def contents_lines(self, topics: list[WikiPage]) -> list[str]:
         return [f"{n}. {t.title}: {first_sentence(t.text)}" for n, t in enumerate(topics, 1)]
