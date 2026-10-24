@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +20,7 @@ from photoreal_fakes import (
 from imageskin.liveportrait_edits import EYE_STAGES
 from imageskin.photoreal_library import (
     CROP,
+    LOOP_PLAN,
     Library,
     Paster,
     align_loop,
@@ -30,6 +32,7 @@ from imageskin.photoreal_library import (
     morph,
     mouth_mask,
     optical_flow,
+    own_key_frames,
     pixel_grid,
     prepare_library,
     scaled,
@@ -80,19 +83,19 @@ def test_align_loop_finds_the_head_shift() -> None:
 
 def test_build_load_and_resume(tmp_path: Path, short_loop: object) -> None:
     folder = tmp_path / "lib"
-    first = FakePortrait(fail_after=len(SHAPES) + len(EYE_STAGES) + 2)
+    first = FakePortrait(fail_after=len(SHAPES) + len(EYE_STAGES) + 1)
     with pytest.raises(KeyboardInterrupt):
         build_library(tmp_path / "me.png", folder, lambda _: first)
-    assert sorted(p.name for p in (folder / "loop").glob("*.npy")) == ["0000.npy", "0004.npy"]
+    assert sorted(p.name for p in (folder / "loop").glob("*.npy")) == ["0000.npy"]
     assert not (folder / "library.json").exists()
 
     second = FakePortrait()
     steps: list[tuple[str, int, int]] = []
     build_library(tmp_path / "me.png", folder, lambda _: second, lambda *s: steps.append(s))
-    assert second.renders == 1  # shapes and the first frames are kept; only frame 8 is left
+    assert second.renders == 1  # shapes and the first frame are kept; only frame 5 is left
     # Progress starts from the frames already there and ends with every step complete.
     assert steps[:3] == [("models", 0, 1), ("models", 1, 1), ("shapes", 14, 14)]
-    assert ("loop", 2, 3) in steps and ("loop", 3, 3) in steps  # frames 0, 4 and 8
+    assert ("loop", 1, 2) in steps and ("loop", 2, 2) in steps  # frames 0 and 5, the middle
     assert steps[-1] == ("align", 1, 1)
     lib = load_library(folder)
     assert len(lib.loop) == 10 and set(lib.shapes) == set(SHAPES)
@@ -278,12 +281,55 @@ def test_a_library_from_an_older_version_is_rendered_again(
     fresh = FakePortrait()
     lib = prepare_library(photo, tmp_path, lambda _: fresh)
     assert lib.folder != old.folder  # the version is part of the folder name
-    assert fresh.renders == len(SHAPES) + len(EYE_STAGES) + 3  # loop key frames 0, 4 and 8 too
+    assert fresh.renders == len(SHAPES) + len(EYE_STAGES) + 2  # loop key frames 0 and 5 too
     assert json.loads((lib.folder / "library.json").read_text())["version"] == 2
 
 
 def test_key_frames_are_every_fourth() -> None:
     assert key_frames(200) == list(range(0, 200, 4))  # no blinks in the loop to render
+
+
+def test_a_photo_renders_every_eighth_frame_of_the_first_half_and_the_middle() -> None:
+    keys = own_key_frames(200)
+    assert keys == [*range(0, 100, 8), 100]
+    assert len(keys) == 14  # against 50 before R96e
+
+
+def test_the_second_half_plays_the_first_backwards(tmp_path: Path, short_loop: object) -> None:
+    lib = prepare_library(photo_file(tmp_path), tmp_path / "home", lambda _: FakePortrait())
+    assert len(lib.loop) == 10
+    for i in range(6, 10):
+        assert np.array_equal(lib.loop[i], lib.loop[10 - i])
+    assert not np.array_equal(lib.loop[0], lib.loop[5])  # the head moved by the middle
+
+
+def test_frames_from_an_older_plan_are_rendered_again(
+    tmp_path: Path, short_loop: object, caplog: pytest.LogCaptureFixture
+) -> None:
+    folder = tmp_path / "lib"
+    (folder / "loop").mkdir(parents=True)
+    old = np.zeros((CROP, CROP, 3), np.uint8)
+    for i in (0, 4, 8):  # an older version stopped mid-way, with its own motion
+        np.save(folder / "loop" / f"{i:04d}.npy", old)
+    portrait = FakePortrait()
+    with caplog.at_level(logging.INFO):
+        build_library(tmp_path / "me.png", folder, lambda _: portrait)
+    assert "Idle loop frames from another plan removed" in caplog.text
+    assert portrait.renders == len(SHAPES) + len(EYE_STAGES) + 2
+    assert json.loads((folder / "loop" / "plan.json").read_text()) == LOOP_PLAN
+    assert "Filled in idle loop frames" in caplog.text
+
+
+def test_a_finished_loop_is_kept_when_only_the_mouth_changes(
+    tmp_path: Path, short_loop: object
+) -> None:
+    folder = tmp_path / "lib"
+    build_library(tmp_path / "me.png", folder, lambda _: FakePortrait())
+    (folder / "loop" / "plan.json").unlink()  # as a loop made before R96e has no plan
+    again = FakePortrait()
+    build_library(tmp_path / "me.png", folder, lambda _: again)
+    assert again.renders == 0  # the loop is neither removed nor rendered again
+    assert len(list((folder / "loop").glob("*.npy"))) == 10
 
 
 def test_morph_follows_the_motion() -> None:

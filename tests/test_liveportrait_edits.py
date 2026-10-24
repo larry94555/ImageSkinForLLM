@@ -128,6 +128,12 @@ def test_idle_motion_is_subtle_and_seamless() -> None:
     assert all(abs(angle) <= 2.0 for f in frames for angle in f)
 
 
+def test_idle_motion_goes_back_the_way_it_came() -> None:
+    n = 200
+    for i in range(1, n // 2):
+        assert idle_motion(n - i, n) == pytest.approx(idle_motion(i, n), abs=1e-9)
+
+
 def test_rounding_does_not_push_the_lips_forward() -> None:
     delta = expression_delta({"purse": MOUTH_SHAPES["OO"].controls["purse"]})
     assert all(row[2] == 0.0 for row in delta)  # no depth: no kiss-like pucker
