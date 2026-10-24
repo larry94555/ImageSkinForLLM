@@ -48,7 +48,10 @@ test("the confirmation asks if you are sure and says what is deleted", async () 
     name: "Are you sure you want to delete all your data?",
   });
   for (const item of DELETED) expect(dialog.textContent).toContain(item);
-  expect(dialog.textContent).toContain("Your PDFs and settings are kept.");
+  expect(dialog.textContent).toContain("Your settings are kept.");
+  // The PDFs go too (R31a).
+  expect(dialog.textContent).toContain("Every PDF, with its wiki");
+  expect(dialog.textContent).not.toContain("PDFs and settings are kept");
   expect(dialog.textContent).toContain("This can't be undone.");
   // Backing out is the default: it has the focus.
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "No, keep my data" }));

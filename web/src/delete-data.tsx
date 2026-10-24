@@ -1,6 +1,6 @@
 // Delete my data, on the Settings page (roadmap R31): removes the photos, recordings, prepared
-// face and voice, videos and conversation, then opens setup at its start. The PDFs and the
-// settings are kept.
+// face and voice, videos and conversation, and the PDFs with all made from them (R31a), then
+// opens setup at its start. The settings are kept.
 
 import { useState } from "preact/hooks";
 
@@ -15,6 +15,8 @@ export const DELETED = [
   "The prepared face and voice",
   "The sample video, Goodbye, Welcome back and the reply videos",
   "The whole conversation",
+  // R31a (Larry, 2026-10-24: deleting all my data should include the PDFs).
+  "Every PDF, with its wiki, edits, saved versions and lessons",
 ];
 
 // onDeleted is told once everything is deleted, as the consent is then gone too.
@@ -76,8 +78,8 @@ export function DeleteData({ onDeleted }: { onDeleted?: () => void }) {
           Delete my data
         </button>
         <p className="muted">
-          Deletes the photos, recordings, prepared face and voice, videos and conversation, then
-          starts setup again. The PDFs and these settings are kept. It asks first.
+          Deletes the photos, recordings, prepared face and voice, videos, conversation and PDFs
+          with their wiki, then starts setup again. These settings are kept. It asks first.
         </p>
         {deleting && <p className="muted busy">Deleting…</p>}
         {failed && <p className="error">{failed}</p>}
@@ -96,7 +98,7 @@ export function DeleteData({ onDeleted }: { onDeleted?: () => void }) {
               <li key={item}>{item}</li>
             ))}
           </ul>
-          <p>Setup then starts again from the beginning. Your PDFs and settings are kept.</p>
+          <p>Setup then starts again from the beginning. Your settings are kept.</p>
           <p className="warning">This can't be undone.</p>
         </ConfirmDialog>
       )}

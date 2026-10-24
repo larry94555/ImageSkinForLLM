@@ -280,3 +280,37 @@ def test_an_unexpected_error_fails_that_pdf_and_the_next_is_still_read(
     assert statuses[first.id] == ReadingStatus("failed", error="Something went wrong reading it.")
     assert statuses[second.id].state == "done"
     assert any(r.message == "Could not read the PDF" and r.exc_info for r in caplog.records)
+
+
+def test_a_removed_pdf_stops_being_read_at_its_next_page(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Delete my data (R31a) waits for a reading to let its private copy go, so forgetting a
+    PDF stops its reading at the next page, as read_pdf reports it: wrapped in a
+    ReadingError (Codex's review)."""
+    store = ContentStore(tmp_path)
+    started = threading.Event()
+    pages: list[int] = []
+
+    def long(path: Path, progress: Progress) -> Reading:
+        try:
+            for page in range(1, 501):
+                progress(page, 500)
+                pages.append(page)
+                started.set()
+                threading.Event().wait(0.02)
+        except Exception as e:
+            raise ReadingError("This PDF could not be read.") from e
+        return one_paragraph(path, progress)
+
+    job = ReadingJob(store, long)
+    pdf = store.add("long.pdf", io.BytesIO(PDF))
+    job.queue(pdf)
+    assert started.wait(5)
+    store.remove(pdf.id)
+    with caplog.at_level(logging.INFO):
+        job.forget(pdf.id)
+        job.wait(5)
+    assert job._worker is None and len(pages) < 500
+    assert "PDF reading stopped" in caplog.text and "Could not read the PDF" not in caplog.text
+    assert job.statuses() == {} and not list((tmp_path / "content" / "tmp").iterdir())

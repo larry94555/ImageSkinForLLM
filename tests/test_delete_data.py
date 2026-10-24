@@ -1,4 +1,5 @@
-"""Delete my data (roadmap R31): the person's files are removed and setup starts again."""
+"""Delete my data (roadmap R31): the person's files are removed and setup starts again; the PDFs
+and all made from them go too (R31a)."""
 
 import logging
 import os
@@ -11,12 +12,17 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from test_chat import chat_app
+from test_lessons_ahead import TopicLlm
 from test_prepare_job import make_job
+from test_topics import riemann_app
 from test_uploads import PNG
+from test_wiki_job import PDF, one_page_per_piece, settle, two_pages
 
-from imageskin.app import DELETED_MEANWHILE
+from imageskin.app import DELETED_MEANWHILE, create_app
 from imageskin.chat import CLEAR_FAILED, ClearFailed
 from imageskin.delete_data import PERSONAL, Deleted, delete_my_data
+from imageskin.lessons_ahead import LESSONS_FILE
+from imageskin.pdf_reading import Progress, Reading
 from imageskin.prepare_job import (
     SAMPLE_BEING_MADE,
     WAIT_TO_DELETE,
@@ -29,8 +35,6 @@ from imageskin.review import Review
 # What isn't the person's, and is kept.
 KEPT = (
     "models/faces/face.task",
-    "content/notes.pdf",
-    "content/notes-wiki.json",
     "ui-settings.json",
     "default-people/animated_female_professor.png",  # made up, not the person's (R24c)
     "default-people/downloads/animated_female_professor.zip",
@@ -52,6 +56,12 @@ PERSONS = (
     "consent.json",
     "default-person.json",
     "default-person.saving.json",  # left by a save cut short
+    "content/pdfs/a.pdf",  # the PDFs and all made from them (R31a)
+    "content/read/a.json",
+    "content/wiki/a.json",
+    "content/wiki/a.edits.json",
+    "content/wiki/a.history/1.json",
+    "content/wiki/lessons.json",
 )
 
 
@@ -355,3 +365,203 @@ def test_the_engines_forget_the_person_too(tmp_path: Path) -> None:
     assert forgot == []
     assert client.delete("/api/data").json()["left"] == []
     assert sorted(forgot) == ["reply face", "sample face", "voice"]
+
+
+def pdf_app(tmp_path: Path) -> tuple[Any, TestClient, str]:
+    """An app with one PDF read, its wiki built and edited, and a lesson written ahead."""
+    app = create_app(tmp_path, read_pdf=two_pages, build_wiki=one_page_per_piece)
+    client = TestClient(app)
+    pdf = client.post("/api/content", files={"file": ("w.pdf", PDF, "application/pdf")}).json()
+    settle(app.state.readings, app.state.wiki)
+    client.put(f"/api/wiki/{pdf['id']}-p1", json={"title": "Rain", "summary": "Rain falls."})
+    (app.state.wiki.folder / LESSONS_FILE).write_text('{"format": 1, "lessons": {"Rain": {}}}')
+    return app, client, pdf["id"]
+
+
+def test_the_api_deletes_the_pdfs_and_all_made_from_them(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app, client, pdf_id = pdf_app(tmp_path)
+    assert client.get("/api/wiki").json() and (tmp_path / "content" / "read").is_dir()
+    assert (app.state.wiki.folder / f"{pdf_id}.edits.json").is_file()
+    assert (app.state.wiki.folder / f"{pdf_id}.history").is_dir()
+    with caplog.at_level(logging.INFO):
+        answer = client.delete("/api/data")
+    assert answer.status_code == 200 and answer.json()["left"] == []
+    assert "PDFs forgotten" in caplog.text and "PDF removed" in caplog.text
+    # Nothing of the PDF is left, on disk or in what the app shows.
+    assert not (tmp_path / "content").exists()
+    assert client.get("/api/content").json() == []
+    assert client.get("/api/wiki").json() == []
+    assert client.get("/api/wiki/builds").json() == {}
+    assert client.get(f"/api/wiki/{pdf_id}-p1").status_code == 404
+    # A PDF added afterwards is read and built as before.
+    client.post("/api/content", files={"file": ("x.pdf", PDF, "application/pdf")})
+    settle(app.state.readings, app.state.wiki)
+    assert len(client.get("/api/content").json()) == 1 and client.get("/api/wiki").json()
+
+
+def test_a_pdf_that_cant_be_removed_is_listed_as_left(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, client, pdf_id = pdf_app(tmp_path)
+    stuck = tmp_path / "content" / "pdfs" / f"{pdf_id}.pdf"
+    unlink = Path.unlink
+
+    def open_elsewhere(self: Path, missing_ok: bool = False) -> None:
+        if self == stuck:
+            raise PermissionError("in use by another program")
+        unlink(self, missing_ok)
+
+    with patch.object(Path, "unlink", open_elsewhere), caplog.at_level(logging.WARNING):
+        answer = client.delete("/api/data")
+    assert answer.status_code == 200
+    assert answer.json()["left"] == [f"content/pdfs/{pdf_id}.pdf"]
+    assert "Could not remove the PDF" in caplog.text
+    # Its wiki is gone already; clicking again, once it is closed, removes the PDF too.
+    assert client.get("/api/wiki").json() == []
+    assert client.delete("/api/data").json()["left"] == []
+    assert not (tmp_path / "content").exists() and client.get("/api/content").json() == []
+
+
+def test_a_prepare_refusing_the_delete_keeps_the_pdfs(tmp_path: Path) -> None:
+    app, client, pdf_id = pdf_app(tmp_path)
+    job = app.state.prepare_job
+    with job._lock:
+        job._rendering_again = True
+    assert client.delete("/api/data").status_code == 409
+    assert [p["id"] for p in client.get("/api/content").json()] == [pdf_id]
+    assert client.get("/api/wiki").json()
+
+
+def test_a_lesson_being_written_during_the_delete_saves_nothing_after_it(tmp_path: Path) -> None:
+    """With Teach me on, a lesson part the LLM is writing when the data is deleted is not saved
+    once it is done, so no content folder comes back (Codex's review)."""
+    writing, release = threading.Event(), threading.Event()
+
+    class SlowLlm(TopicLlm):
+        def __call__(self, messages: list[Any]) -> str:
+            if "main ideas of" in messages[-1]["content"]:
+                writing.set()
+                release.wait(5)
+            return super().__call__(messages)
+
+    client = riemann_app(tmp_path, SlowLlm(), lessons_ahead=True)
+    lessons = client.app.state.lessons
+    assert client.patch("/api/settings", json={"teach_me": True}).status_code == 200
+    assert writing.wait(5)
+    answer = client.delete("/api/data")
+    release.set()
+    lessons.wait()
+    assert answer.status_code == 200 and answer.json()["left"] == []
+    assert not (tmp_path / "content").exists()
+    assert client.get("/api/lessons").json()["saved"] == []
+
+
+def test_a_pdf_being_read_during_the_delete_stops_and_leaves_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A reading under way stops at its next page and lets its private copy go before the
+    content folder is removed. The copy is kept open as Windows would, refusing to delete it
+    while it is read (Codex's review)."""
+    reading = threading.Event()
+    open_copies: set[Path] = set()
+
+    def slow_reader(path: Path, progress: Progress) -> Reading:
+        open_copies.add(path)
+        try:
+            for page in range(1, 501):  # 10 s in all, unless stopped
+                progress(page, 500)
+                reading.set()
+                threading.Event().wait(0.02)
+            return two_pages(path, progress)
+        finally:
+            open_copies.discard(path)
+
+    unlink = Path.unlink
+
+    def as_on_windows(self: Path, missing_ok: bool = False) -> None:
+        if self in open_copies:
+            raise PermissionError("in use by another program")
+        unlink(self, missing_ok)
+
+    client = TestClient(create_app(tmp_path, read_pdf=slow_reader, build_wiki=one_page_per_piece))
+    client.post("/api/content", files={"file": ("w.pdf", PDF, "application/pdf")})
+    assert reading.wait(5)
+    with patch.object(Path, "unlink", as_on_windows), caplog.at_level(logging.INFO):
+        answer = client.delete("/api/data")
+    assert answer.status_code == 200 and answer.json()["left"] == []
+    assert not (tmp_path / "content").exists()
+    assert "PDF reading stopped" in caplog.text
+    assert client.get("/api/content/readings").json() == {}
+
+
+def test_content_writes_and_the_delete_wait_for_each_other(tmp_path: Path) -> None:
+    """A PDF upload under way when the data is deleted finishes first and is deleted with the
+    rest; one that arrives during the delete waits for it and is refused, so nothing comes back;
+    one sent afterwards is stored as usual (Codex's review)."""
+    client = TestClient(create_app(tmp_path, read_pdf=two_pages, build_wiki=one_page_per_piece))
+    store = client.app.state.readings.store  # type: ignore[attr-defined]
+    adding, release_add = threading.Event(), threading.Event()
+    real_add = store.add
+
+    def slow_add(name: Any, data: Any) -> Any:
+        adding.set()
+        release_add.wait(5)
+        return real_add(name, data)
+
+    answers: dict[str, Any] = {}
+
+    def send(name: str, call: Callable[[], Any]) -> threading.Thread:
+        thread = threading.Thread(target=lambda: answers.__setitem__(name, call()))
+        thread.start()
+        return thread
+
+    def upload(name: str) -> Any:
+        return client.post("/api/content", files={"file": (name, PDF, "application/pdf")})
+
+    # An upload already being stored: the delete waits for it, then deletes it.
+    with patch.object(store, "add", slow_add):
+        before = send("before", lambda: upload("before.pdf"))
+        assert adding.wait(5)
+        delete = send("delete", lambda: client.delete("/api/data"))
+        delete.join(0.3)
+        assert delete.is_alive()
+        release_add.set()
+        before.join(5)
+        delete.join(5)
+    assert answers["before"].status_code == 200 and answers["delete"].status_code == 200
+    assert answers["delete"].json()["left"] == [] and not (tmp_path / "content").exists()
+
+    # An upload, an edit and a rebuild sent while the files are deleted are refused after it.
+    deleting, release = threading.Event(), threading.Event()
+    real_delete = delete_my_data
+
+    def slow_delete(home: Path) -> Deleted:
+        deleting.set()
+        release.wait(5)
+        return real_delete(home)
+
+    with patch("imageskin.app.delete_my_data", slow_delete):
+        delete = send("delete", lambda: client.delete("/api/data"))
+        assert deleting.wait(5)
+        waiting = [
+            send("during", lambda: upload("during.pdf")),
+            send("edit", lambda: client.put("/api/wiki/x-p1", json={"title": "T", "summary": "S"})),
+            send("rebuild", lambda: client.post(f"/api/content/{'f' * 32}/wiki/rebuild")),
+        ]
+        waiting[0].join(0.3)
+        assert all(thread.is_alive() for thread in waiting)
+        release.set()
+        for thread in [delete, *waiting]:
+            thread.join(5)
+    for name in ("during", "edit", "rebuild"):
+        assert answers[name].status_code == 409
+        assert answers[name].json()["detail"] == DELETED_MEANWHILE
+    assert not (tmp_path / "content" / "pdfs").exists() and client.get("/api/content").json() == []
+
+    # Sent afterwards: stored, read and built as usual.
+    assert upload("after.pdf").status_code == 200
+    settle(client.app.state.readings, client.app.state.wiki)  # type: ignore[attr-defined]
+    assert [p["name"] for p in client.get("/api/content").json()] == ["after.pdf"]
+    assert client.get("/api/wiki").json()

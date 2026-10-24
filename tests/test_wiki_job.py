@@ -749,3 +749,15 @@ def test_each_part_and_outline_step_is_timed_with_the_llms_timings(
     assert steps[1].llm_requests == 2 and steps[1].duration_ms >= 0  # type: ignore[attr-defined]
     # Requests made outside a build are not kept.
     note_request({"prompt_n": 1}, 1.0)
+
+
+def test_the_pace_is_not_saved_for_a_pdf_removed_meanwhile(tmp_path: Path) -> None:
+    """So Delete my data never finds the wiki folder made again after it (R31a)."""
+    store, _, wiki = jobs(tmp_path)
+    pdf = store.add("a.pdf", io.BytesIO(PDF))
+    wiki._save_pace(pdf.id, 2.0)
+    assert (wiki.folder / "pace.json").is_file()
+    store.remove(pdf.id)
+    (wiki.folder / "pace.json").unlink()
+    wiki._save_pace(pdf.id, 3.0)
+    assert not (wiki.folder / "pace.json").exists()

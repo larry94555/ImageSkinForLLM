@@ -1108,7 +1108,8 @@ var DELETED = [
 	"Every photo and recording",
 	"The prepared face and voice",
 	"The sample video, Goodbye, Welcome back and the reply videos",
-	"The whole conversation"
+	"The whole conversation",
+	"Every PDF, with its wiki, edits, saved versions and lessons"
 ];
 function DeleteData({ onDeleted }) {
 	const [asking, setAsking] = d(false);
@@ -1164,7 +1165,7 @@ function DeleteData({ onDeleted }) {
 					}),
 					/* @__PURE__ */ u("p", {
 						className: "muted",
-						children: "Deletes the photos, recordings, prepared face and voice, videos and conversation, then starts setup again. The PDFs and these settings are kept. It asks first."
+						children: "Deletes the photos, recordings, prepared face and voice, videos, conversation and PDFs with their wiki, then starts setup again. These settings are kept. It asks first."
 					}),
 					deleting && /* @__PURE__ */ u("p", {
 						className: "muted busy",
@@ -1188,7 +1189,7 @@ function DeleteData({ onDeleted }) {
 						className: "deleted",
 						children: DELETED.map((item) => /* @__PURE__ */ u("li", { children: item }, item))
 					}),
-					/* @__PURE__ */ u("p", { children: "Setup then starts again from the beginning. Your PDFs and settings are kept." }),
+					/* @__PURE__ */ u("p", { children: "Setup then starts again from the beginning. Your settings are kept." }),
 					/* @__PURE__ */ u("p", {
 						className: "warning",
 						children: "This can't be undone."

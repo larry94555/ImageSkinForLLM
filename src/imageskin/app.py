@@ -180,6 +180,8 @@ class StartNowRequest(BaseModel):
     face: int = 1  # R24c2
 
 
+# How long Delete my data waits for a PDF being read to stop at its next page (R31a).
+READING_STOP_S = 10.0
 # A request that waited for Delete my data (roadmap R31) and would write the person's data again.
 DELETED_MEANWHILE = "Your data was deleted while this was waiting. Start setup again."
 OWN_NOT_ACCEPTED = "Accept the sample video of your own photo and voice at the end of setup first."
@@ -584,6 +586,15 @@ def create_app(
             require_consent()
             yield
 
+    @contextmanager
+    def content_write(seen: int) -> Iterator[None]:
+        """Change the PDFs or their wiki, unless Delete my data is running: then once it is
+        done, and only for a request that arrived after it (R31a, Codex's review). No consent
+        is needed: the content is the host's to manage."""
+        with data_lock:
+            not_deleted_since(seen)
+            yield
+
     # One speaker model for the one-speaker check and for picking an accent's base voice.
     speakers = SpeakerChecker(data_home / "models" / "speakers")
     # What loads in the background at the start; wait_until_loaded waits for it.
@@ -727,22 +738,24 @@ def create_app(
         return content.list()
 
     @app.post(content_api)
-    def add_pdf(file: UploadFile) -> Pdf:
-        try:
-            pdf = content.add(file.filename, file.file)
-        except UploadError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
-        readings.queue(pdf)
+    def add_pdf(file: UploadFile, seen: DeletesSeen) -> Pdf:
+        with content_write(seen):
+            try:
+                pdf = content.add(file.filename, file.file)
+            except UploadError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
+            readings.queue(pdf)
         return pdf
 
     @app.put(content_api + "/{pdf_id}")
-    def replace_pdf(pdf_id: str, file: UploadFile) -> Pdf:
-        try:
-            pdf = content.replace(pdf_id, file.filename, file.file)
-        except UploadError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
-        wiki.reset(pdf_id)
-        readings.queue(pdf)
+    def replace_pdf(pdf_id: str, file: UploadFile, seen: DeletesSeen) -> Pdf:
+        with content_write(seen):
+            try:
+                pdf = content.replace(pdf_id, file.filename, file.file)
+            except UploadError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
+            wiki.reset(pdf_id)
+            readings.queue(pdf)
         return pdf
 
     # Before /{pdf_id}, which would take "readings" as an id.
@@ -780,15 +793,16 @@ def create_app(
         )
 
     @app.delete(content_api + "/{pdf_id}")
-    def remove_pdf(pdf_id: str) -> dict[str, bool]:
-        try:
-            removed = content.remove(pdf_id)
-        except UploadError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
-        if not removed:
-            raise HTTPException(status_code=404, detail="No such PDF.")
-        readings.forget(pdf_id)
-        wiki.forget(pdf_id)
+    def remove_pdf(pdf_id: str, seen: DeletesSeen) -> dict[str, bool]:
+        with content_write(seen):
+            try:
+                removed = content.remove(pdf_id)
+            except UploadError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
+            if not removed:
+                raise HTTPException(status_code=404, detail="No such PDF.")
+            readings.forget(pdf_id)
+            wiki.forget(pdf_id)
         return {"removed": True}
 
     @app.get("/api/wiki")
@@ -813,38 +827,42 @@ def create_app(
 
     # The user's edits (roadmap R38).
     @app.put("/api/wiki/{page_id}")
-    def edit_wiki_page(page_id: str, request: WikiEditRequest) -> dict[str, Any]:
-        try:
-            return wiki.edit(page_id, request.title, request.summary)
-        except EditError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
+    def edit_wiki_page(page_id: str, request: WikiEditRequest, seen: DeletesSeen) -> dict[str, Any]:
+        with content_write(seen):
+            try:
+                return wiki.edit(page_id, request.title, request.summary)
+            except EditError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
 
     @app.delete("/api/wiki/{page_id}/edit")
-    def undo_wiki_edit(page_id: str) -> dict[str, bool]:
-        try:
-            undone = wiki.undo_edit(page_id)
-        except EditError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
+    def undo_wiki_edit(page_id: str, seen: DeletesSeen) -> dict[str, bool]:
+        with content_write(seen):
+            try:
+                undone = wiki.undo_edit(page_id)
+            except EditError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
         if not undone:
             raise HTTPException(status_code=404, detail="That wiki entry has no edit.")
         return {"undone": True}
 
     @app.post("/api/wiki/{page_id}/reviewed")
-    def wiki_edit_reviewed(page_id: str) -> dict[str, bool]:
-        try:
-            checked = wiki.reviewed(page_id)
-        except EditError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
+    def wiki_edit_reviewed(page_id: str, seen: DeletesSeen) -> dict[str, bool]:
+        with content_write(seen):
+            try:
+                checked = wiki.reviewed(page_id)
+            except EditError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
         if not checked:
             raise HTTPException(status_code=404, detail="That wiki entry has no edit.")
         return {"reviewed": True}
 
     @app.post(content_api + "/{pdf_id}/wiki/rebuild")
-    def rebuild_wiki(pdf_id: str) -> WikiStatus:
-        if content.get(pdf_id) is None:
-            raise HTTPException(status_code=404, detail="No such PDF.")
-        if not wiki.rebuild(pdf_id):
-            raise HTTPException(status_code=409, detail="The PDF hasn't been read yet.")
+    def rebuild_wiki(pdf_id: str, seen: DeletesSeen) -> WikiStatus:
+        with content_write(seen):
+            if content.get(pdf_id) is None:
+                raise HTTPException(status_code=404, detail="No such PDF.")
+            if not wiki.rebuild(pdf_id):
+                raise HTTPException(status_code=409, detail="The PDF hasn't been read yet.")
         return wiki.statuses()[pdf_id]
 
     # The wiki's history, and saving it to a file and loading it back (roadmap R38a).
@@ -863,11 +881,14 @@ def create_app(
         return found
 
     @app.post(content_api + "/{pdf_id}/wiki/history/{version_id}/restore")
-    def restore_wiki_version(pdf_id: str, version_id: str, force: bool = False) -> dict[str, bool]:
-        try:
-            wiki.restore(pdf_id, version_id, force)
-        except HistoryError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
+    def restore_wiki_version(
+        pdf_id: str, version_id: str, seen: DeletesSeen, force: bool = False
+    ) -> dict[str, bool]:
+        with content_write(seen):
+            try:
+                wiki.restore(pdf_id, version_id, force)
+            except HistoryError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
         return {"restored": True}
 
     @app.get(content_api + "/{pdf_id}/wiki/file")
@@ -881,17 +902,20 @@ def create_app(
         )
 
     @app.post(content_api + "/{pdf_id}/wiki/file")
-    def load_wiki_file(pdf_id: str, file: UploadFile, force: bool = False) -> dict[str, int]:
+    def load_wiki_file(
+        pdf_id: str, file: UploadFile, seen: DeletesSeen, force: bool = False
+    ) -> dict[str, int]:
         data = file.file.read(MAX_WIKI_FILE_BYTES + 1)
         if len(data) > MAX_WIKI_FILE_BYTES:
             raise HTTPException(
                 status_code=413,
                 detail=f"A wiki file can be at most {MAX_WIKI_FILE_BYTES // 2**20} MB.",
             )
-        try:
-            added = wiki.load(pdf_id, data, force)
-        except HistoryError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        with content_write(seen):
+            try:
+                added = wiki.load(pdf_id, data, force)
+            except HistoryError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
         return {"versions_added": added}
 
     # One voice engine for the job, so Prepare loads the voice model once.
@@ -2095,15 +2119,44 @@ def create_app(
             if kept.forget is not None:
                 kept.forget()
 
+    def forget_pdfs() -> None:
+        """Remove each PDF as Manage Content's Remove does (R31a), so a reading or wiki build
+        of it stops and saves nothing more; what is left in the content folder, such as the
+        lessons and the saved versions, goes with the rest of the data."""
+        start = time.perf_counter()
+        pdfs = content.list()
+        for pdf in pdfs:
+            try:
+                content.remove(pdf.id)
+            except UploadError:
+                pass  # logged; delete_my_data lists the PDF as left
+            readings.forget(pdf.id)
+            wiki.forget(pdf.id)
+        # A reading under way stops at its next page and lets its private copy go, which
+        # Windows couldn't delete while it is open (Codex's review).
+        readings.wait(READING_STOP_S)
+        # A round of lessons under way, or the one wiki.forget asked for, saves nothing now.
+        if lessons is not None:
+            lessons.forget()
+        logger.info(
+            "PDFs forgotten",
+            extra={
+                "pdfs": len(pdfs),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+
     @app.delete("/api/data")
     def delete_data() -> dict[str, object]:
         """Delete my data from Settings (roadmap R31), once the browser has asked to confirm:
-        the photos, recordings, prepared face and voice, videos and conversation, so setup
-        starts again. Refused while setup is preparing; nothing is removed then."""
+        the photos, recordings, prepared face and voice, videos and conversation, and the PDFs
+        with all made from them (R31a), so setup starts again. Refused while setup is
+        preparing; nothing is removed then."""
         wait_for_warm_up("Delete my data")
 
         def delete() -> Deleted:
             clear_conversation()
+            forget_pdfs()
             # Once the streamed clips stopped above have let the engines go, nothing writes
             # a video while the files are removed.
             with replies.paused():

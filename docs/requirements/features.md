@@ -78,7 +78,7 @@ Items 1 to 16 match the original feature list. Items 17 to 23 were added after r
 20. **Errors in chat.** If the voice or video step fails, the text reply still shows, with a short friendly note. If the LLM fails, a plain message says so.
 21. **Volume and mute** controls.
 22. **Consent.** Before setup, the user confirms the person in the photos and recordings agreed to be cloned.
-23. **Delete my data.** One action deletes the uploaded files, prepared face and voice, and history.
+23. **Delete my data.** One action deletes the uploaded files, prepared face and voice, and history, and the PDFs with everything made from them (their wiki, edits, saved versions and lessons).
 
 ## Question and answer over PDF content
 

@@ -1,10 +1,11 @@
 """Delete my data (roadmap R31, feature item 23): one action removes from the app's home folder
 everything made from the person: the uploaded photos and recordings, the prepared face and voice
 with the sample, Goodbye and Welcome back, the reply videos, the conversation, the review, the
-accent and the consent, so setup starts again from the beginning.
+accent and the consent, so setup starts again from the beginning. The PDFs go too, with all that
+was made from them (R31a): what was read, the wiki and its outline, the edits and saved versions,
+and the lessons written ahead.
 
-What isn't the person's is kept: the downloaded models, the PDFs and their wiki (the host's
-content) and the Settings page's settings.
+What isn't the person's is kept: the downloaded models and the Settings page's settings.
 """
 
 import logging
@@ -33,6 +34,9 @@ PERSONAL = (
     # The default person chosen (R24c). The downloaded people are kept: they are made up.
     CHOICE_FILE,
     CHOICE_SAVING_FILE,
+    # The PDFs and all made from them (R31a): what was read, the wiki with its outline, edits,
+    # saved versions and build pace, and the lessons written ahead.
+    "content",
 )
 
 
