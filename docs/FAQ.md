@@ -22,6 +22,56 @@ In the terminal it is one JSON line like this (the time, `url` and `duration_ms`
 
 **After it:** open http://127.0.0.1:8000. When `background_jobs` is empty, the lines that follow come from what you do in the app (each request, a reply). If the server was stopped in the middle of reading a PDF, building the wiki or Prepare, that job carries on after a restart and `background_jobs` names it (`pdf-reading`, `wiki`, `prepare`). Its lines, such as `PDF read` or `Prepare job finished`, can then come after the ready line. The ready line doesn't wait for them, because building the wiki waits on the LLM and can take many minutes; the app takes input meanwhile and shows their progress. A step that fails doesn't stop the ready line: it is logged above it as an `ERROR` or `WARNING`, such as `Could not warm up replies` or `Could not warm up the LLM`, so look there if the app misbehaves (for the LLM, see "How do I start the local AI" below).
 
+## How do I start the app on the hosted server with Docker?
+
+**Where:** on the server (Ubuntu), after connecting with SSH as in [deploy/README.md](../deploy/README.md) step 4. The repository is at `~/github/ImageSkinForLLM` (the README clones it to `~/ImageSkinForLLM`; if yours is there, use that folder instead). The first-time setup (Docker, the firewall, `deploy/.env` with the address and password) is in that README, steps 5 and 6; this entry assumes it is done.
+
+**Start it** (or start it again after a `git pull`, which rebuilds the app):
+
+```
+cd ~/github/ImageSkinForLLM/deploy
+docker compose up -d --build
+```
+
+This starts three containers, from `deploy/compose.yaml`: `app` (the app itself), `llama` (the local LLM, llama.cpp's `llama-server` with Gemma 3 4B) and `caddy` (HTTPS and the password, in front of the app). `-d` runs them in the background, so closing the SSH window doesn't stop them, and they start again by themselves after the machine restarts. The first build takes 15 to 30 minutes; later ones reuse most of it. The first start of `llama` also downloads its model, about 2.5 GB.
+
+**Check it is running** (every command here is run in `~/github/ImageSkinForLLM/deploy`):
+
+```
+docker compose ps
+docker compose logs app | grep "Loading has completed"
+docker compose logs llama | grep "server is listening"
+```
+
+- `docker compose ps` shows `app` as **healthy**, and `llama` and `caddy` as **Up**. Just after a start, `app` shows **health: starting** for up to a minute.
+- The app is ready for use once its log has `Loading has completed. The application is ready for use.` (see the entry above). Until then a page opened or a prompt sent waits, so it looks stuck.
+- The LLM is ready once its log has `server is listening on http://0.0.0.0:8080`. Until then the chat says the LLM can't be reached.
+
+Then open `https://<SITE_ADDRESS>` (the address in `deploy/.env`, such as https://app.me0.ai) and sign in with the name and password.
+
+**Watch the logs:**
+
+```
+docker compose logs -f app
+docker compose logs -f llama
+docker compose logs -f caddy
+```
+
+`-f` keeps showing new lines; Ctrl+C stops showing them but leaves the site running. Add `--tail 100` to see only the last 100 lines.
+
+**Restart or stop it:**
+
+| To | Run |
+|---|---|
+| Restart one container, such as after editing `config.toml` | `docker compose restart app` (or `llama`, `caddy`) |
+| Restart everything | `docker compose restart` |
+| Stop the site, keeping the containers | `docker compose stop` (start it again with `docker compose start`) |
+| Stop the site and remove the containers | `docker compose down` (start it again with `docker compose up -d`) |
+
+Both `stop` and `down` keep the data: the uploads, the prepared face, the settings, the API keys and the LLM's model stay in their volumes. `docker compose down -v` would delete them all, so don't use it unless you mean to start over.
+
+**If it doesn't start:** `docker compose ps -a` shows a container that exited or keeps restarting, and `docker compose logs <name> --tail 50` says why. A missing `SITE_ADDRESS`, `LOGIN_NAME` or `LOGIN_PASSWORD_HASH` stops `docker compose up` with `set ... in .env`: fill in `deploy/.env` (README step 6d). For certificate errors, a port already in use, or the machine freezing during Prepare, see "If it doesn't work" in [deploy/README.md](../deploy/README.md#if-it-doesnt-work).
+
 ## Setup shows fewer (or different) photos and recordings than before
 
 **Why:** the app keeps everything (consent, uploads, the prepared voice and face, the accepted sample) in one app data folder. It is `.imageskin` in your home folder unless the environment variable `IMAGESKIN_HOME` names another one. If `IMAGESKIN_HOME` is set in the terminal you start the app from, for example left over from a test, the app reads that folder instead and shows only what was uploaded there. Nothing is deleted: the files are still in the other folder.
