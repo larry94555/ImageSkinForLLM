@@ -627,3 +627,24 @@ Q4_0 (`unsloth/gemma-3-4b-it-GGUF:Q4_0`, about 2.4 GB) with `--threads-batch 4 -
 its topics for the first part were the same as Q4_K_M's in the cloud. The laptop's README line
 keeps Q4_K_M, which was as fast on the cloud's Intel cores. The last setting of
 [llama_settings.sh](llama_settings.sh), "hosted", is that combination, to confirm it.
+
+## R99: replies don't wait behind the wiki
+
+R96a found a question asked while the wiki was built ran beside the wiki's request in another of
+llama-server's 4 slots, on the same threads, and was heard after 70 s in the cloud and 74 s on
+the hosted machine. Since R99, a reply cuts off the wiki's request in progress (as removing its
+PDF does) and the wiki waits until the reply is written, then asks again
+(`src/imageskin/replies_first.py`; the log has `Wiki request cut off for a reply` and
+`Wiki waited for a reply` with its `duration_ms`). Only with the local LLM: a provider answers
+both at once elsewhere.
+
+[reply_during_wiki.py](reply_during_wiki.py) asks a reply 20 s into the sample PDF's first
+wiki part, with and without it. In a cloud session (2026-10-23,
+[reply-during-wiki-cloud-2026-10-23.md](reply-during-wiki-cloud-2026-10-23.md)) the reply's
+first sentence came after 19.6 s before and 5.2 s after, against 6.2 to 6.3 s with the LLM
+idle, and the wiki's first part was done no later (167.7 s against 174.2 s), as llama-server
+kept what it had read of the cut-off request.
+
+R97's other idea, the wiki writing on 4 threads while nobody chats and 2 during a reply, needs
+llama-server restarted to change its threads, which would lose its cache each time, so it isn't
+done.
