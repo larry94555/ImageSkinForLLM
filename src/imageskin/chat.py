@@ -29,7 +29,7 @@ from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.reply_times import note, note_llm, note_now, note_request
-from imageskin.sentences import SentenceSplitter
+from imageskin.sentences import SentenceSplitter, clips
 from imageskin.topics import (
     asks_for_topics,
     decline_reply,
@@ -1106,12 +1106,22 @@ class Conversation:
         turns: list[Turn] | None = None,
         budget: int = 0,
     ) -> tuple[Turn, int]:
-        """A reply made here rather than by the LLM, spoken a sentence at a time like a streamed
-        one. With `turns`, it is also sent to the LLM with later prompts, within `budget`."""
+        """A reply made here rather than by the LLM, spoken a clip at a time like a streamed
+        one, its first clause first and its long sentences cut at their clauses (R100). With
+        `turns`, it is also sent to the LLM with later prompts, within `budget`."""
         if self._stream is not None and on_sentence is not None:
             on_sentence(None)
-            for sentence in sentences:
-                on_sentence(sentence)
+            spoken = clips(sentences)
+            logger.info(
+                "Made reply cut into clips",
+                extra={
+                    "sentences": len(sentences),
+                    "clips": len(spoken),
+                    "first_clip_words": len(spoken[0].split()) if spoken else 0,
+                },
+            )
+            for clip in spoken:
+                on_sentence(clip)
         reply = Turn("assistant", " ".join(sentences))
         return reply, self._record(prompt, reply, turns, budget)
 
