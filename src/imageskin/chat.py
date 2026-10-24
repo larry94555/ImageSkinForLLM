@@ -1221,6 +1221,11 @@ class Conversation:
             raise LlmError("The LLM sent an empty reply. Try asking again.")
         return content
 
+    def summarizing(self) -> bool:
+        """Whether a summary is being made, which the next prompt waits for."""
+        summarizer = self._summarizer
+        return summarizer is not None and summarizer.is_alive()
+
     def wait(self) -> None:
         """Wait for a summary being made, if any."""
         if self._summarizer is not None:

@@ -10,7 +10,7 @@ import pytest
 from test_question_scope import Llm
 from test_topics import riemann_app
 
-from imageskin.chat import LlmError, Message, Teach
+from imageskin.chat import Conversation, LlmError, Message, Teach
 from imageskin.lessons_ahead import LESSONS_FILE, LessonsAhead, key, sentences
 from imageskin.review import Review
 
@@ -347,3 +347,17 @@ def test_with_a_test_s_llm_lessons_are_not_written_ahead(tmp_path: Path) -> None
         "ready": False,
         "saved": [],
     }
+
+
+def test_the_app_says_whether_the_conversation_is_being_summarized(tmp_path: Path) -> None:
+    client = riemann_app(tmp_path, Llm())
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        assert client.get("/api/chat/summary").json() == {"summarizing": False}
+    conversation = Conversation(Llm(), lambda: 4096)
+    hold = threading.Event()
+    conversation._summarizer = threading.Thread(target=hold.wait)
+    conversation._summarizer.start()
+    assert conversation.summarizing() is True
+    hold.set()
+    conversation.wait()
+    assert conversation.summarizing() is False

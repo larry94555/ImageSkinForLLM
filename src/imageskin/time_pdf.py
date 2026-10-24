@@ -117,10 +117,38 @@ def process(
         "wiki_built_s": wiki.get("duration_s"),  # the build alone, by the server's clock
         "parts": wiki["parts"],
         "wiki_pages": len(wiki["pages"]),
-        "topic": wiki["pages"][0]["title"] if wiki["pages"] else None,
+        # The outline's first topic, as Teach me and Quiz me name them (R98a), else the first
+        # page's.
+        "topic": first_topic(wiki),
         "steps": wiki.get("timings") or [],
         "asked_during_build": asked,
     }
+
+
+def first_topic(wiki: dict[str, Any]) -> str | None:
+    """The first of the wiki's topics as a lesson names them: its outline's first entry. The
+    first page's title isn't always one (Larry's run of PR #160)."""
+    for entries in (wiki.get("outline") or [], wiki["pages"]):
+        if entries:
+            return str(entries[0]["title"])
+    return None
+
+
+def wait_for_summary(base: str) -> float:
+    """Wait for the conversation summary being made after the questions, so the longer requests
+    are timed without it (Larry's run of PR #160: Teach me waited 42 s for it). Milliseconds
+    waited."""
+    start = time.perf_counter()
+    while time.perf_counter() < start + LESSONS_LIMIT_S:
+        try:
+            if not ask(base + "/api/chat/summary").get("summarizing"):
+                break
+        except urllib.error.HTTPError:
+            break  # an app from before R98a
+        time.sleep(POLL_S)
+    waited = round((time.perf_counter() - start) * 1000)
+    logger.info("Waited for the conversation summary", extra={"wait_ms": waited})
+    return waited
 
 
 def wait_for_lessons(base: str) -> float | None:
@@ -264,6 +292,12 @@ def markdown(results: dict[str, Any], llm_name: str) -> str:
             f"The longer requests were asked once the lessons written ahead were saved,"
             f" {round(results['lessons_ms'])} ms after the last question was answered.",
         ]
+    if results.get("summary_ms"):
+        out += [
+            "",
+            f"They waited {round(results['summary_ms'])} ms more for the conversation's summary,"
+            " made after the questions, which the next prompt waits for.",
+        ]
     out += [""] + time_reply.replies_markdown(results["answers"], "###")
     if results.get("replaced"):
         out += [""] + pdf_markdown(results["replaced"], "The PDF replaced by itself")
@@ -308,6 +342,7 @@ def run(
         for n, (prompt, said) in enumerate(prompts + longer):
             if n == len(prompts):  # Teach me after its first parts are written (R98a)
                 results["lessons_ms"] = wait_for_lessons(base)
+                results["summary_ms"] = wait_for_summary(base)
             results["answers"].append(time_reply.summarize(time_reply.measure(base, prompt, said)))
         if replace:
             results["replaced"] = process(base, path, None, added, results["pdf"]["pdf_id"])

@@ -1490,6 +1490,12 @@ def create_app(
     def get_chat() -> dict[str, object]:
         return {"turns": [asdict(t) for t in conversation.turns()]}
 
+    @app.get("/api/chat/summary", dependencies=needs_person)
+    def chat_summary() -> dict[str, bool]:
+        """Whether the conversation's older turns are being summarized, which the next prompt
+        waits for (`imageskin time-pdf` waits for it too, R98a)."""
+        return {"summarizing": conversation.summarizing()}
+
     def require_accepted() -> None:
         if not accepted():
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)

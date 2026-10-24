@@ -155,6 +155,37 @@ def test_no_lessons_are_waited_for_when_the_app_writes_none(answer: Any) -> None
         assert time_pdf.wait_for_lessons("http://app") is None
 
 
+def test_the_topic_is_the_outline_s_first_as_lessons_name_it() -> None:
+    """Larry's run of PR #160: the first page, "Prime Numbers", wasn't a lesson topic."""
+    pages = [{"title": "Prime Numbers"}]
+    assert time_pdf.first_topic({"outline": [{"title": "Primes"}], "pages": pages}) == "Primes"
+    assert time_pdf.first_topic({"pages": pages}) == "Prime Numbers"
+    assert time_pdf.first_topic({"outline": [], "pages": []}) is None
+
+
+def test_the_longer_requests_wait_for_the_conversation_summary(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    answers = iter([{"summarizing": True}, {"summarizing": False}])
+    with (
+        caplog.at_level(logging.INFO, logger="imageskin.time_pdf"),
+        patch("imageskin.time_pdf.ask", side_effect=lambda url: next(answers)) as ask,
+        patch("imageskin.time_pdf.POLL_S", 0),
+    ):
+        assert time_pdf.wait_for_summary("http://app") >= 0
+    assert ask.call_args.args == ("http://app/api/chat/summary",)
+    assert "Waited for the conversation summary" in caplog.text
+    old_app = urllib.error.HTTPError("http://app", 404, "Not Found", Headers(), None)
+    with patch("imageskin.time_pdf.ask", side_effect=[old_app]):
+        assert time_pdf.wait_for_summary("http://app") >= 0
+    with (
+        patch("imageskin.time_pdf.ask", return_value={"summarizing": True}),
+        patch("imageskin.time_pdf.POLL_S", 0),
+        patch("imageskin.time_pdf.LESSONS_LIMIT_S", 0.01),
+    ):
+        assert time_pdf.wait_for_summary("http://app") >= 0
+
+
 def test_lessons_not_written_in_time_are_logged(caplog: pytest.LogCaptureFixture) -> None:
     with (
         patch("imageskin.time_pdf.ask", return_value={"wanted": True, "writing": True}),
@@ -166,8 +197,10 @@ def test_lessons_not_written_in_time_are_logged(caplog: pytest.LogCaptureFixture
 
 
 def test_the_report_says_how_long_the_lessons_were_waited_for() -> None:
-    results = {"pdf": pdf_result(), "answers": [], "lessons_ms": 1234.0}
-    assert "lessons written ahead were saved, 1234 ms after" in time_pdf.markdown(results, "Local")
+    results = {"pdf": pdf_result(), "answers": [], "lessons_ms": 1234.0, "summary_ms": 42000}
+    report = time_pdf.markdown(results, "Local")
+    assert "lessons written ahead were saved, 1234 ms after" in report
+    assert "They waited 42000 ms more for the conversation's summary" in report
 
 
 # --- Against the running app ---
