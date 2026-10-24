@@ -38,8 +38,18 @@ Every 12th saves 4 more frames but its worst frames drop further, so 8 was kept.
 | Before | 50 | 256 s | 349 s |
 | R96e | 14 | 74 s | 168 s |
 
-On the hosted machine, at R96b's 45 s a frame, the loop step should drop from 38 minutes to
-about 11, and Prepare from 52 minutes to about 25. The two loops side by side, each played three
+## Larry's hosted machine, 2026-10-23
+
+`imageskin prepare` on the same photo inside the app container (4 Ampere cores, the app capped
+at 3), with the app running:
+
+| | Loop frames rendered | Loop step | Whole photo (shapes, loop, align) |
+|---|---|---|---|
+| Before (R96b, in Prepare) | 50 | 2272 s | 2928 s |
+| R96e | 14 | 666 s | 1358 s |
+
+The loop step took 11 minutes instead of 38, and the photo 23 minutes instead of 49, so Prepare
+should take about 25 minutes instead of 52. The two loops side by side, each played three
 times, are in the project files as `r96e-listening-video/listening_before_after.mp4`.
 
 A default person's pack still holds every 4th frame of its loop as it was made, so the packs
