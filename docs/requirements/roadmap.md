@@ -23,7 +23,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 11 | **Choice of LLM.** Local llama.cpp by default, or Claude, OpenAI, Grok or OpenRouter by API key, or a ChatGPT subscription. | R33, R42 to R43a | 4 | 2.2% | 4 of 4 |
 | 10 | **Hosted.** Runs on a hosted HTTPS site. | R32 | 1 | 0.6% | 1 of 1 |
 | 10a | **Start now with a default person.** Pick a gender, accent, photoreal or animated, and a role, then, for some choices, one of two faces, and chat at once with a made-up person in a ready-made voice, downloaded from the hosted site; replace the voice with your own later. | R24c, R32a, R24c2, R24c4, R24b3, R24c3, R24d | 7 | 3.9% | 7 of 7 |
-| 10b | **Speed up and simplify.** A PDF is processed faster, the local LLM answers sooner, and the video says the reply sooner after it is written, each measured against where the time went before: in a reply, in the wiki, in setup and at start-up. | R96, R96d, R24e, R96a to R96c, R97 to R100, R96e, R98a, R98b | 13 | 7.3% | 11 of 13 |
+| 10b | **Speed up and simplify.** A PDF is processed faster, the local LLM answers sooner, and the video says the reply sooner after it is written, each measured against where the time went before: in a reply, in the wiki, in setup and at start-up. | R96, R96d, R24e, R96a to R96c, R97 to R100, R96e, R98a, R98b | 13 | 7.3% | 12 of 13 |
 | 20 | **Many customers on me0.ai.** A customer signs up for a membership (and can reset a forgotten password), starts a free one-week trial at a path of random characters, picks their own subdomain of me0.ai when they first pay $1 (and can change it), signs in to manage settings that change only their site, pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, visitors and history are separate from every other site. | R61, R62, R62a, R44, R65 to R67, R63, R64, R68 to R71 | 13 | 7.3% | 0 |
 | 12 | **Sign-on and accounts.** On each customer's site: question and answer only without signing in, participant sign-up and login, and a setting to require sign-up. | R45 to R47 | 3 | 1.7% | 0 |
 | 21 | **Support at support.me0.ai.** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 3.9% | 0 |
@@ -41,7 +41,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 24 | **Phones in the browser.** The hosted app works in Safari on an iPhone and Chrome on an Android phone: a phone-sized screen, video and sound that play there, photos and recordings taken on the phone, hold to talk, and an icon on the home screen. | R109 to R113 | 5 | 2.8% | 0 |
 | 25 | **iOS and Android apps.** One app for each, built from the same web code, that signs in to a site on me0.ai and talks with its person, with the phone's microphone, camera and speech recognition, and built by CI on every change. | R114 to R119 | 6 | 3.4% | 0 |
 | 26 | **In the App Store and Google Play.** The privacy details, deleting data and disputes the stores require, signed builds sent to TestFlight and Google Play testing, then the store listings sent for review. | R120 to R122 | 3 | 1.7% | 0 |
-| | **Total** | | **179** | **54.7% done** | **98 of 179** |
+| | **Total** | | **179** | **55.3% done** | **99 of 179** |
 
 Sizes: 48 Simple, 131 Medium, no Large or Very large. Percentages are rounded to one decimal; in the Total row, the percentage is the share of PRs done. A PR counts as done when its pull request is open with everything the pr-rules skill asks for; its entry below links the pull request.
 
@@ -766,10 +766,11 @@ Bullets marked **Added (from the code)** are further waits found in the code tha
 - When a participant picks a topic whose first part is saved, the person starts saying it at once, sentence by sentence, as a streamed reply would be; the next parts are written as now. A topic with nothing saved yet is taught as now.
 - **Can show:** on the hosted machine, the first word of a picked topic heard within a few seconds instead of R96a's time for "Teach me about", measured with `imageskin time-pdf`; the log's `Lesson saved` with the topic and its time, and `Lesson from the saved part` when one is used.
 
-### R98b. Every paragraph of the PDF in the wiki (Simple) · items 25, 26 · Content
+### R98b. Every paragraph of the PDF in the wiki (Simple) · items 25, 26 · Content · Done in [PR #161](https://github.com/larry94555/ImageSkinForLLM/pull/161)
 - Added by Larry on 2026-10-24: he is fine with the wiki's build time as long as no information is lost. The wiki's lowest level is the PDF's own paragraphs, but when the LLM groups a topic's paragraphs into parts it may leave one out as not about the topic (`DETAIL_PROMPT`), and a paragraph on a page no topic names is in no topic at all.
 - After the outline is built, each paragraph of the PDF that is in no entry is put back: in the entry for its page's topic, at its place in the PDF's order, or, if no topic has its page, in an entry of its own titled from its page. No LLM request is needed.
 - **Can show:** the sample PDF's wiki with every paragraph of the PDF in it, checked by a unit test that counts them; the log's `Wiki paragraphs put back` with how many and their pages.
+- **Built:** `Outliner.put_back` in `wiki_outline.py`, run at the end of every outline. Paragraphs next to each other on the same page go back as one entry, "More from page N" in the first topic that has the page, or "Page N" on the first level, placed by where they start in the PDF. A topic the LLM couldn't split gets its paragraphs back the same way; a topic whose pages say little still shows its own few sentences, as R37a made it. Built again from R98's recorded answers, the sample PDF's wiki had 37 of its 366 paragraphs in no entry, all of page 13 ("Open questions about primes") among them; now all 366 are in it, in 8 entries put back (`test_the_sample_pdfs_wiki_keeps_every_paragraph_of_the_pdf`). The log has `Wiki paragraphs put back` with `paragraphs` and `pages`.
 
 ## Milestone 20: Many customers on me0.ai
 
