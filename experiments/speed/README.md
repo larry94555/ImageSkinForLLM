@@ -219,7 +219,8 @@ The largest costs:
    it keeps for up to 8 GB unless `--cache-ram` says otherwise (`--help`: "default: 8192"). The
    hosted machine gives it 6 GB (`mem_limit` in `deploy/compose.yaml`), so a wiki build will get
    it killed and restarted there, and every request after a restart reads its whole prompt
-   again. R97 sets `--cache-ram` to fit.
+   again. `deploy/compose.yaml` and the README now set `--cache-ram 1024`, after it was killed
+   on the hosted machine during a wiki build (2026-10-24).
 6. **"What can you talk about?" is heard 8.7 to 10.3 s after Send** without the LLM: its first
    sentence, the list of topics, is 14 to 17 s of speech, and its voice takes 8.4 to 10 s. A long first
    sentence isn't cut as the LLM's first clause is (R22b, R22e); for R100.
