@@ -546,7 +546,8 @@ hosted machine, so the first word was heard 11.9 s after Send (R96a; 8.7 to 10.3
 cloud). Such a reply's sentences are all known at once, so they are now cut before they are
 spoken (`clips` in `sentences.py`, the log's `Made reply cut into clips`): the first sentence
 after its first clause, and any sentence longer than 12 words in clauses joined up to 12 words,
-cut only after a comma, semicolon or colon, so a topic's title is never split. The decline and
+cut only after a comma, semicolon or colon outside brackets, code, math and markup (a title
+with a comma in it may be cut there). The decline and
 a lesson's choices (R41h) go the same way, though their sentences are mostly short enough to
 stay whole.
 

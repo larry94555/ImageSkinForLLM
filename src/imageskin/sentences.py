@@ -143,11 +143,34 @@ def first_clause_cut(text: str) -> int | None:
     return None
 
 
+def _clauses(sentence: str) -> list[str]:
+    """The sentence split after each comma, semicolon or colon that isn't inside brackets,
+    inline code, math, or a picture, link or HTML tag, which speech_text must get whole: in
+    "f(x, y)" or "[a, b](url)" no cut falls (review on PR #155)."""
+    parts: list[str] = []
+    start = 0
+    for end in _CLAUSE_END.finditer(sentence):
+        at = end.start()
+        before = sentence[:at]
+        if (
+            before.count("(") > before.count(")")
+            or before.count("[") > before.count("]")
+            or _in_code(sentence, at - 1)
+            or inside_whole(sentence, at)
+        ):
+            continue
+        parts.append(sentence[start:at])
+        start = end.end()
+    parts.append(sentence[start:])
+    return parts
+
+
 def clips(sentences: list[str]) -> list[str]:
     """A reply's known sentences as the clips to speak, cut only after a comma, semicolon or
-    colon, so a topic's title is never cut: the first sentence's first clause of at least
-    FIRST_CLAUSE_MIN words on its own, and the rest of a sentence longer than LONG_CLIP_WORDS in
-    clips of its clauses joined up to that many words. Text with a code block is left whole."""
+    colon (`_clauses`): the first sentence's first clause of at least FIRST_CLAUSE_MIN words on
+    its own, and the rest of a sentence longer than LONG_CLIP_WORDS in clips of its clauses
+    joined up to that many words. Text with a code block is left whole. A title with a comma
+    in it, such as "War, Peace and Politics", may be cut at that comma."""
     pieces: list[str] = []
     for i, sentence in enumerate(sentences):
         sentence = sentence.strip()
@@ -158,7 +181,7 @@ def clips(sentences: list[str]) -> list[str]:
             continue
         first = i == 0
         clip = ""
-        for clause in _CLAUSE_END.split(sentence):
+        for clause in _clauses(sentence):
             joined = f"{clip} {clause}".strip()
             if len(clip.split()) >= FIRST_CLAUSE_MIN and (
                 first or len(joined.split()) > LONG_CLIP_WORDS

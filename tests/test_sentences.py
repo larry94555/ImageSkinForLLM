@@ -362,3 +362,27 @@ def test_a_known_sentence_is_never_cut_but_at_punctuation() -> None:
 def test_a_known_reply_with_a_code_block_is_left_whole() -> None:
     code = "Here is some code, which prints a number:\n```\nprint(1)\n```"
     assert clips([code]) == [code]
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        "Is the value of $f(x, y)$, for every pair, the same as before",
+        "Is the value of f(x, y), for every pair, the same as before",
+        "Is the value of `f(x, y)`, for every pair, the same as before",
+        "Is the value of [f, g](https://example.com/a,b), for every pair, the same as before",
+        'Is the value of <span title="f, g">f</span>, for every pair, the same as before',
+    ],
+)
+def test_a_known_sentence_is_not_cut_inside_math_code_brackets_or_markup(first: str) -> None:
+    sentence = f"{first} or not?"
+    head = first.split(", for every pair")[0] + ","
+    assert clips([sentence]) == [head, "for every pair, the same as before or not?"]
+    assert all(spoken_text(p) for p in clips([sentence]))
+
+
+def test_a_title_with_a_comma_may_be_cut_at_it() -> None:
+    assert clips(["I can talk about War, Peace and Politics and Rain."]) == [
+        "I can talk about War,",
+        "Peace and Politics and Rain.",
+    ]
