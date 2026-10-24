@@ -11,8 +11,9 @@ from pdf_samples import text_pdf
 
 from imageskin import time_llm
 from imageskin.cli import main
+from imageskin.json_grammar import compact_grammar
 from imageskin.time_llm import LlmTimingError, markdown, wiki_estimate_s
-from imageskin.wiki import Part
+from imageskin.wiki import TOPICS_SCHEMA, Part
 
 TOPICS = {"topics": [{"title": "Prime numbers", "pages": [1], "text": "Primes have two."}]}
 TIMINGS = {
@@ -68,7 +69,7 @@ class FakeLlama(BaseHTTPRequestHandler):
             return
         FakeLlama.asked.append(body)
         if not body.get("stream"):
-            content = json.dumps(TOPICS) if "response_format" in body else "Hi"
+            content = json.dumps(TOPICS) if "grammar" in body else "Hi"
             self.send(200, {"choices": [{"message": {"content": content}}], "timings": TIMINGS})
             return
         self.send_response(200)
@@ -118,7 +119,8 @@ def test_a_setting_is_timed_as_the_app_asks_and_added_to_the_table(
     assert [m["role"] for m in second["messages"]] == ["system", "user", "assistant", "user"]
     assert second["messages"][2]["content"] == reply["text"]
     assert first["stream"] is True
-    assert wiki["response_format"]["type"] == "json_object"
+    # The wiki part is asked for as the app asks for it, with the same compact grammar (R98).
+    assert wiki["grammar"] == compact_grammar(TOPICS_SCHEMA) and "response_format" not in wiki
     assert wiki["messages"][1]["content"].startswith("[page 1]")
     report = (tmp_path / "speed" / "llm-settings.md").read_text()
     assert "| now | gemma-3-4b-it-Q4_K_M.gguf | 4 | 95 |" in report

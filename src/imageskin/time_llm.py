@@ -20,6 +20,7 @@ from imageskin.chat import (
     LlmClient,
     LlmSettings,
     Message,
+    local_json,
     ms_since,
     system_message,
 )
@@ -213,7 +214,7 @@ def time_wiki_part(root: str, part: Part) -> dict[str, Any]:
         ],
         "max_tokens": WIKI_REPLY_TOKENS,
         "temperature": TEMPERATURE,
-        "response_format": {"type": "json_object", "schema": TOPICS_SCHEMA},
+        **local_json(TOPICS_SCHEMA),  # as the app asks (R98)
     }
     start = time.perf_counter()
     with post(root + "/v1/chat/completions", body) as response:
