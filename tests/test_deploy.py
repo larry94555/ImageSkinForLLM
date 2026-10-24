@@ -96,6 +96,18 @@ def test_llama_server_reuses_what_it_has_read_as_on_the_laptop() -> None:
     assert "cpus: 4" in llama
 
 
+def test_llama_servers_prompt_cache_fits_in_its_memory_cap() -> None:
+    # llama-server keeps up to 8 GB of earlier prompts unless --cache-ram says otherwise; on the
+    # hosted machine that outgrew the 6 GB cap during a wiki build and it was killed (2026-10-24).
+    llama = text(DEPLOY / "compose.yaml").split("\n  llama:")[1].split("\n  caddy:")[0]
+    cache = re.search(r"--cache-ram (\d+)", llama)
+    limit = re.search(r"mem_limit: (\d+)g", llama)
+    assert cache is not None and limit is not None
+    # The model (about 2.5 GB), its context and working memory need the rest.
+    assert int(cache.group(1)) <= (int(limit.group(1)) - 4) * 1024
+    assert f"--cache-ram {cache.group(1)}" in text(ROOT / "README.md")
+
+
 def test_the_containers_leave_room_for_the_machine() -> None:
     # Without caps, Prepare and the LLM together froze a 24 GB machine with no swap.
     limits = re.findall(r"mem_limit: (\d+)([gm])", text(DEPLOY / "compose.yaml"))
