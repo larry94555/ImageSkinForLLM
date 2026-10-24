@@ -1,4 +1,5 @@
-"""Delete my data (roadmap R31): the person's files are removed and setup starts again."""
+"""Delete my data (roadmap R31): the person's files are removed and setup starts again; the PDFs
+and all made from them go too (R31a)."""
 
 import logging
 import os
@@ -13,10 +14,12 @@ from fastapi.testclient import TestClient
 from test_chat import chat_app
 from test_prepare_job import make_job
 from test_uploads import PNG
+from test_wiki_job import PDF, one_page_per_piece, settle, two_pages
 
-from imageskin.app import DELETED_MEANWHILE
+from imageskin.app import DELETED_MEANWHILE, create_app
 from imageskin.chat import CLEAR_FAILED, ClearFailed
 from imageskin.delete_data import PERSONAL, Deleted, delete_my_data
+from imageskin.lessons_ahead import LESSONS_FILE
 from imageskin.prepare_job import (
     SAMPLE_BEING_MADE,
     WAIT_TO_DELETE,
@@ -29,8 +32,6 @@ from imageskin.review import Review
 # What isn't the person's, and is kept.
 KEPT = (
     "models/faces/face.task",
-    "content/notes.pdf",
-    "content/notes-wiki.json",
     "ui-settings.json",
     "default-people/animated_female_professor.png",  # made up, not the person's (R24c)
     "default-people/downloads/animated_female_professor.zip",
@@ -52,6 +53,12 @@ PERSONS = (
     "consent.json",
     "default-person.json",
     "default-person.saving.json",  # left by a save cut short
+    "content/pdfs/a.pdf",  # the PDFs and all made from them (R31a)
+    "content/read/a.json",
+    "content/wiki/a.json",
+    "content/wiki/a.edits.json",
+    "content/wiki/a.history/1.json",
+    "content/wiki/lessons.json",
 )
 
 
@@ -355,3 +362,70 @@ def test_the_engines_forget_the_person_too(tmp_path: Path) -> None:
     assert forgot == []
     assert client.delete("/api/data").json()["left"] == []
     assert sorted(forgot) == ["reply face", "sample face", "voice"]
+
+
+def pdf_app(tmp_path: Path) -> tuple[Any, TestClient, str]:
+    """An app with one PDF read, its wiki built and edited, and a lesson written ahead."""
+    app = create_app(tmp_path, read_pdf=two_pages, build_wiki=one_page_per_piece)
+    client = TestClient(app)
+    pdf = client.post("/api/content", files={"file": ("w.pdf", PDF, "application/pdf")}).json()
+    settle(app.state.readings, app.state.wiki)
+    client.put(f"/api/wiki/{pdf['id']}-p1", json={"title": "Rain", "summary": "Rain falls."})
+    (app.state.wiki.folder / LESSONS_FILE).write_text('{"format": 1, "lessons": {"Rain": {}}}')
+    return app, client, pdf["id"]
+
+
+def test_the_api_deletes_the_pdfs_and_all_made_from_them(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    app, client, pdf_id = pdf_app(tmp_path)
+    assert client.get("/api/wiki").json() and (tmp_path / "content" / "read").is_dir()
+    assert (app.state.wiki.folder / f"{pdf_id}.edits.json").is_file()
+    assert (app.state.wiki.folder / f"{pdf_id}.history").is_dir()
+    with caplog.at_level(logging.INFO):
+        answer = client.delete("/api/data")
+    assert answer.status_code == 200 and answer.json()["left"] == []
+    assert "PDFs forgotten" in caplog.text and "PDF removed" in caplog.text
+    # Nothing of the PDF is left, on disk or in what the app shows.
+    assert not (tmp_path / "content").exists()
+    assert client.get("/api/content").json() == []
+    assert client.get("/api/wiki").json() == []
+    assert client.get("/api/wiki/builds").json() == {}
+    assert client.get(f"/api/wiki/{pdf_id}-p1").status_code == 404
+    # A PDF added afterwards is read and built as before.
+    client.post("/api/content", files={"file": ("x.pdf", PDF, "application/pdf")})
+    settle(app.state.readings, app.state.wiki)
+    assert len(client.get("/api/content").json()) == 1 and client.get("/api/wiki").json()
+
+
+def test_a_pdf_that_cant_be_removed_is_listed_as_left(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, client, pdf_id = pdf_app(tmp_path)
+    stuck = tmp_path / "content" / "pdfs" / f"{pdf_id}.pdf"
+    unlink = Path.unlink
+
+    def open_elsewhere(self: Path, missing_ok: bool = False) -> None:
+        if self == stuck:
+            raise PermissionError("in use by another program")
+        unlink(self, missing_ok)
+
+    with patch.object(Path, "unlink", open_elsewhere), caplog.at_level(logging.WARNING):
+        answer = client.delete("/api/data")
+    assert answer.status_code == 200
+    assert answer.json()["left"] == [f"content/pdfs/{pdf_id}.pdf"]
+    assert "Could not remove the PDF" in caplog.text
+    # Its wiki is gone already; clicking again, once it is closed, removes the PDF too.
+    assert client.get("/api/wiki").json() == []
+    assert client.delete("/api/data").json()["left"] == []
+    assert not (tmp_path / "content").exists() and client.get("/api/content").json() == []
+
+
+def test_a_prepare_refusing_the_delete_keeps_the_pdfs(tmp_path: Path) -> None:
+    app, client, pdf_id = pdf_app(tmp_path)
+    job = app.state.prepare_job
+    with job._lock:
+        job._rendering_again = True
+    assert client.delete("/api/data").status_code == 409
+    assert [p["id"] for p in client.get("/api/content").json()] == [pdf_id]
+    assert client.get("/api/wiki").json()

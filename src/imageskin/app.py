@@ -2095,15 +2095,38 @@ def create_app(
             if kept.forget is not None:
                 kept.forget()
 
+    def forget_pdfs() -> None:
+        """Remove each PDF as Manage Content's Remove does (R31a), so a reading or wiki build
+        of it stops and saves nothing more; what is left in the content folder, such as the
+        lessons and the saved versions, goes with the rest of the data."""
+        start = time.perf_counter()
+        pdfs = content.list()
+        for pdf in pdfs:
+            try:
+                content.remove(pdf.id)
+            except UploadError:
+                pass  # logged; delete_my_data lists the PDF as left
+            readings.forget(pdf.id)
+            wiki.forget(pdf.id)
+        logger.info(
+            "PDFs forgotten",
+            extra={
+                "pdfs": len(pdfs),
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
+        )
+
     @app.delete("/api/data")
     def delete_data() -> dict[str, object]:
         """Delete my data from Settings (roadmap R31), once the browser has asked to confirm:
-        the photos, recordings, prepared face and voice, videos and conversation, so setup
-        starts again. Refused while setup is preparing; nothing is removed then."""
+        the photos, recordings, prepared face and voice, videos and conversation, and the PDFs
+        with all made from them (R31a), so setup starts again. Refused while setup is
+        preparing; nothing is removed then."""
         wait_for_warm_up("Delete my data")
 
         def delete() -> Deleted:
             clear_conversation()
+            forget_pdfs()
             # Once the streamed clips stopped above have let the engines go, nothing writes
             # a video while the files are removed.
             with replies.paused():
