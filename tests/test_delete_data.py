@@ -494,3 +494,74 @@ def test_a_pdf_being_read_during_the_delete_stops_and_leaves_nothing(
     assert not (tmp_path / "content").exists()
     assert "PDF reading stopped" in caplog.text
     assert client.get("/api/content/readings").json() == {}
+
+
+def test_content_writes_and_the_delete_wait_for_each_other(tmp_path: Path) -> None:
+    """A PDF upload under way when the data is deleted finishes first and is deleted with the
+    rest; one that arrives during the delete waits for it and is refused, so nothing comes back;
+    one sent afterwards is stored as usual (Codex's review)."""
+    client = TestClient(create_app(tmp_path, read_pdf=two_pages, build_wiki=one_page_per_piece))
+    store = client.app.state.readings.store  # type: ignore[attr-defined]
+    adding, release_add = threading.Event(), threading.Event()
+    real_add = store.add
+
+    def slow_add(name: Any, data: Any) -> Any:
+        adding.set()
+        release_add.wait(5)
+        return real_add(name, data)
+
+    answers: dict[str, Any] = {}
+
+    def send(name: str, call: Callable[[], Any]) -> threading.Thread:
+        thread = threading.Thread(target=lambda: answers.__setitem__(name, call()))
+        thread.start()
+        return thread
+
+    def upload(name: str) -> Any:
+        return client.post("/api/content", files={"file": (name, PDF, "application/pdf")})
+
+    # An upload already being stored: the delete waits for it, then deletes it.
+    with patch.object(store, "add", slow_add):
+        before = send("before", lambda: upload("before.pdf"))
+        assert adding.wait(5)
+        delete = send("delete", lambda: client.delete("/api/data"))
+        delete.join(0.3)
+        assert delete.is_alive()
+        release_add.set()
+        before.join(5)
+        delete.join(5)
+    assert answers["before"].status_code == 200 and answers["delete"].status_code == 200
+    assert answers["delete"].json()["left"] == [] and not (tmp_path / "content").exists()
+
+    # An upload, an edit and a rebuild sent while the files are deleted are refused after it.
+    deleting, release = threading.Event(), threading.Event()
+    real_delete = delete_my_data
+
+    def slow_delete(home: Path) -> Deleted:
+        deleting.set()
+        release.wait(5)
+        return real_delete(home)
+
+    with patch("imageskin.app.delete_my_data", slow_delete):
+        delete = send("delete", lambda: client.delete("/api/data"))
+        assert deleting.wait(5)
+        waiting = [
+            send("during", lambda: upload("during.pdf")),
+            send("edit", lambda: client.put("/api/wiki/x-p1", json={"title": "T", "summary": "S"})),
+            send("rebuild", lambda: client.post(f"/api/content/{'f' * 32}/wiki/rebuild")),
+        ]
+        waiting[0].join(0.3)
+        assert all(thread.is_alive() for thread in waiting)
+        release.set()
+        for thread in [delete, *waiting]:
+            thread.join(5)
+    for name in ("during", "edit", "rebuild"):
+        assert answers[name].status_code == 409
+        assert answers[name].json()["detail"] == DELETED_MEANWHILE
+    assert not (tmp_path / "content" / "pdfs").exists() and client.get("/api/content").json() == []
+
+    # Sent afterwards: stored, read and built as usual.
+    assert upload("after.pdf").status_code == 200
+    settle(client.app.state.readings, client.app.state.wiki)  # type: ignore[attr-defined]
+    assert [p["name"] for p in client.get("/api/content").json()] == ["after.pdf"]
+    assert client.get("/api/wiki").json()
