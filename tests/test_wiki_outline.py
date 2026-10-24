@@ -1,13 +1,17 @@
 import json
 import logging
 import urllib.error
+from collections import Counter
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from imageskin.chat import TOKENS_PER_MESSAGE, EmptyReply, LlmError, Message, estimate
-from imageskin.wiki import WikiPage
+from imageskin.pdf_reading import read_pdf
+from imageskin.topics import main_entries
+from imageskin.wiki import WikiPage, build_wiki
 from imageskin.wiki_outline import (
     DETAIL_PROMPT,
     DETAIL_SCHEMA,
@@ -20,6 +24,7 @@ from imageskin.wiki_outline import (
     SUMMARY_PROMPT,
     Entry,
     Outliner,
+    Unit,
     ancestors,
     find,
     first_sentence,
@@ -159,6 +164,8 @@ def test_a_topic_the_pdf_says_more_about_gets_a_detail_page_of_the_pdfs_paragrap
         (f"{PDF_ID}-first", "First", first, [1], False),  # in the PDF's own words
         (f"{PDF_ID}-second", "Second", f"{rest} More.", [1, 2], False),
     ]
+    # Page 3 is no topic's, so it is put back in an entry of its own (R98b).
+    assert [(e.title, e.summary, e.pages) for e in found[1:]] == [("Page 3", "Another topic.", [3])]
 
 
 def test_a_topic_the_pdf_says_little_about_is_shown_as_it_is() -> None:
@@ -167,7 +174,7 @@ def test_a_topic_the_pdf_says_little_about_is_shown_as_it_is() -> None:
     assert llm.asked == [] and found[0].summary == "Few." and not found[0].detail
 
 
-def test_paragraphs_are_sent_in_batches_that_fit_and_a_batch_with_no_parts_adds_none() -> None:
+def test_paragraphs_are_sent_in_batches_that_fit_and_a_batch_with_no_parts_is_put_back() -> None:
     pieces = [piece(1, f"{n}" * 100 + ".") for n in range(1, 7)]  # 6 paragraphs, 1 sentence each
     room = estimate(PARTS_PROMPT) + estimate("Topic 1") + 2 * TOKENS_PER_MESSAGE + 230
     llm = Llm(
@@ -193,6 +200,8 @@ def test_paragraphs_are_sent_in_batches_that_fit_and_a_batch_with_no_parts_adds_
     entry = found[0]
     assert entry.summary == "Few." and entry.detail
     assert [(e.title, e.summary) for e in entry.entries] == [
+        # The batch with no usable answer adds no parts, so its paragraphs are put back (R98b).
+        ("More from page 1", f"{pieces[0]['text']} {pieces[1]['text']}"),
         ("A", pieces[2]["text"]),
         ("B", pieces[3]["text"]),
         ("C", f"{pieces[4]['text']} {pieces[5]['text']}"),
@@ -255,11 +264,11 @@ def test_an_unreachable_llm_is_waited_for_and_a_refusal_passed_on() -> None:
 
 def test_a_long_paragraph_is_cut_into_pieces_short_enough_to_show() -> None:
     assert units(3, LONG) == [
-        (3, LONG.split(" Sentence 6")[0]),
-        (3, "Sentence 6" + LONG.split(" Sentence 6")[1]),
+        Unit(3, LONG.split(" Sentence 6")[0]),
+        Unit(3, "Sentence 6" + LONG.split(" Sentence 6")[1]),
     ]
     cut_up = units(1, "word " * 140)  # one sentence of 700 characters
-    assert len(cut_up) == 2 and all(len(t) <= SIMPLE_CHARS for _, t in cut_up)
+    assert len(cut_up) == 2 and all(len(u.text) <= SIMPLE_CHARS for u in cut_up)
     assert units(1, "  ") == []
 
 
@@ -414,3 +423,149 @@ def test_a_single_long_paragraph_gets_a_detail_page() -> None:
     llm = Llm(detail("About it.", ("Start", [1]), ("End", [2])))
     found = outliner(llm).outline([topic(1, "Few.")], [piece(1, "word " * 140)])
     assert found[0].detail and [e.title for e in found[0].entries] == ["Start", "End"]
+
+
+def leaves(entries: list[Entry]) -> list[Entry]:
+    return [leaf for e in entries for leaf in (leaves(e.entries) if e.entries else [e])]
+
+
+def lost(found: list[Entry], topics: list[WikiPage], pieces: list[dict[str, Any]]) -> list[str]:
+    """The PDF's paragraphs in no entry, counted one by one, so a paragraph whose words come twice
+    must be in the entries' own words twice; a paragraph on the pages of a topic shown as it is
+    (the PDF says little there) is in that topic."""
+    ids = {t.id for t in topics}
+    words = "\n".join(e.summary for e in leaves(found) if e.id not in ids)
+    whole = {p for e in leaves(found) if e.id in ids for p in e.pages}
+    every = Counter(
+        u.text for p in pieces for u in units(p["page"], p["text"]) if u.page not in whole
+    )
+    return [text for text, n in every.items() if words.count(text) < n]
+
+
+def test_paragraphs_left_out_are_put_back_at_their_place_in_the_pdf(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    pieces = [piece(1, f"{n}" * 129 + ".") for n in range(1, 7)] + [piece(2, "Page two.")]
+    pieces.append(piece(4, "Nobody's page."))
+    llm = Llm(
+        parts(("A", [1]), ("B", [4, 5])),  # leaves out 2, 3 and 6, and page 2
+        sections(("First", "S.", [1, 2]), ("Second", "S.", [3, 4])),
+    )
+    topics = [WikiPage(f"{PDF_ID}-t1", "Topic 1", "Few.", [1, 2])]
+    topics += [topic(n) for n in (3, 5, 6)]
+    with caplog.at_level(logging.INFO):
+        found = outliner(llm).outline(topics, pieces)
+    assert lost(found, topics, pieces) == []
+    one = found[0].entries[0]
+    assert [(e.title, e.summary) for e in one.entries] == [
+        ("A", pieces[0]["text"]),
+        ("More from page 1", f"{pieces[1]['text']} {pieces[2]['text']}"),
+        ("B", f"{pieces[3]['text']} {pieces[4]['text']}"),
+        ("More from page 1", pieces[5]["text"]),  # a new id: the title is used already
+        ("More from page 2", "Page two."),  # the next page: an entry of its own
+    ]
+    assert len({e.id for e in one.entries}) == 5
+    # Page 4 is no topic's: between the sections of topics 1 to 3 (pages 1 to 3) and 5 and 6.
+    assert [e.title for e in found] == ["First", "Page 4", "Second"]
+    # On the first level it is one of the topics (topics.main_entries).
+    assert main_entries([{"entries": [shown(e) for e in found]}]) == ["First", "Page 4", "Second"]
+    done = [r for r in caplog.records if r.message == "Wiki paragraphs put back"][0]
+    assert done.__dict__["paragraphs"] == 5 and done.__dict__["pages"] == [1, 2, 4]
+
+
+def test_a_topic_that_cannot_be_split_gets_its_pdf_paragraphs_back() -> None:
+    pieces = [piece(1, LONG), piece(1, "Last.")]
+    found = outliner(Llm("no", "no")).outline([topic(1, "Few.")], pieces)
+    entry = found[0]
+    assert entry.summary == "Few." and entry.detail
+    assert [e.summary for e in entry.entries] == [f"{LONG} Last."]  # one page: one entry
+
+
+def test_nothing_is_put_back_when_every_paragraph_is_in_the_wiki(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    llm = Llm(parts(("A", [1]), ("B", [2])))
+    pieces = [piece(1, LONG)]
+    with caplog.at_level(logging.INFO):
+        found = outliner(llm).outline([topic(1, "Few.")], pieces)
+    assert [e.title for e in found[0].entries] == ["A", "B"]
+    done = [r for r in caplog.records if r.message == "Wiki paragraphs put back"][0]
+    assert done.__dict__["paragraphs"] == 0 and done.__dict__["pages"] == []
+
+
+SPEED = Path(__file__).parent.parent / "experiments" / "speed"
+
+
+def test_the_sample_pdfs_wiki_keeps_every_paragraph_of_the_pdf(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """R98's cloud run of the sample PDF, built again from the LLM's recorded answers: it left 37
+    of the PDF's 366 paragraphs in no entry, and now every one of them is in the wiki."""
+    run = json.loads((SPEED / "wiki-r98-cloud-2026-10-23.json").read_text())["after"]
+    answers = [r["answer"] for r in run["requests"]]
+    topic_answers = iter(answers[: run["parts"]])
+    outline_answers = iter(answers[run["parts"] :])
+    pieces = [asdict(p) for p in read_pdf(SPEED / "sample.pdf").pieces]
+
+    # The run counted tokens with llama-server's tokenizer; this estimate's count, scaled down to
+    # it, splits the PDF the same way: the same topics, with every recorded answer used.
+    def count(text: str) -> int:
+        return int(estimate(text) * 0.3)
+
+    wiki = build_wiki(PDF_ID, pieces, lambda m: next(topic_answers), count, 4096)
+    assert [p.title for p in wiki.pages] == run["topics"]
+    with caplog.at_level(logging.INFO):
+        found = Outliner(PDF_ID, lambda m, s: next(outline_answers), count, 4096).outline(
+            wiki.pages, pieces
+        )
+    assert next(outline_answers, None) is None
+
+    every = [u for p in pieces for u in units(p["page"], p["text"])]
+    put_back = [e for e in leaves(found) if e.title.startswith(("More from page", "Page "))]
+    assert len(every) == 366 and lost(found, wiki.pages, pieces) == []
+    done = [r for r in caplog.records if r.message == "Wiki paragraphs put back"][0]
+    assert done.__dict__["paragraphs"] == 37 and len(put_back) == 8
+
+    # Without the paragraphs put back, the outline is the run's own.
+    def lines(entries: list[Entry], depth: int = 0) -> list[str]:
+        return [
+            line
+            for e in entries
+            if e not in put_back
+            for line in ["  " * depth + e.title + " *" * e.detail, *lines(e.entries, depth + 1)]
+        ]
+
+    assert lines(found) == run["outline"]
+
+
+def test_a_part_that_cannot_be_split_keeps_its_own_words_and_nothing_is_put_back() -> None:
+    pieces = [piece(1, f"{n}" * 129 + ".") for n in range(1, 8)]
+    llm = Llm(parts(("Deep", [1, 2, 3, 4, 5, 6]), ("Flat", [7])), "no", "no")
+    found = outliner(llm).outline([topic(1, "Few.")], pieces)
+    assert [e.title for e in found[0].entries] == ["Deep", "Flat"]
+    assert found[0].entries[0].summary == " ".join(p["text"] for p in pieces[:6])
+
+
+def test_the_same_words_twice_on_a_page_are_two_paragraphs_and_both_are_kept() -> None:
+    pieces = [piece(1, "One. Two. Three."), piece(1, "Warning."), piece(1, "Four. Five.")]
+    pieces.append(piece(1, "Warning."))
+    llm = Llm(parts(("Start", [1, 2]), ("Five", [3])))  # only the first "Warning."
+    found = outliner(llm).outline([topic(1, "Few.")], pieces)
+    assert [(e.title, e.summary) for e in found[0].entries] == [
+        ("Start", "One. Two. Three. Warning."),
+        ("Five", "Four. Five."),
+        ("More from page 1", "Warning."),
+    ]
+    assert lost(found, [topic(1)], pieces) == []
+
+
+def test_a_page_with_no_topic_inside_a_section_goes_among_its_topics() -> None:
+    topics = [topic(1, "Short."), topic(3, "Short."), topic(4), topic(5)]
+    pieces = [piece(1, "One."), piece(2, "Two."), piece(3, "Three."), piece(4, "Four.")]
+    llm = Llm(sections(("Both", "S.", [1, 2]), ("Rest", "S.", [3, 4])))
+    found = outliner(llm).outline(topics, pieces)
+    assert [e.title for e in found] == ["Both", "Rest"]
+    assert [e.title for e in found[0].entries] == ["Topic 1", "Page 2", "Topic 3"]
+    assert found[0].pages == [1, 2, 3]
+    # Inside the section it is not one of the topics (topics.main_entries).
+    assert main_entries([{"entries": [shown(e) for e in found]}]) == ["Both", "Rest"]
