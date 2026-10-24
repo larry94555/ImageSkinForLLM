@@ -1,7 +1,9 @@
 import json
 import logging
 import socket
+import urllib.error
 from collections.abc import Iterator
+from email.message import Message as Headers
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -118,6 +120,87 @@ def test_the_longer_requests_take_the_first_topic() -> None:
         "Assess me",
     ]
     assert time_pdf.longer_requests(None) == ["What can you talk about?", "Assess me"]
+
+
+def test_teach_me_waits_for_the_lessons_written_ahead(caplog: pytest.LogCaptureFixture) -> None:
+    """R98a: the longer requests are timed once the first lesson parts are saved."""
+    statuses = iter(
+        [
+            {"wanted": True, "writing": True, "ready": False, "saved": []},
+            # Saved from before, but not every topic: still waited for (Larry's run of #160).
+            {"wanted": True, "writing": False, "ready": False, "saved": ["Old"]},
+            {"wanted": True, "writing": False, "ready": True, "saved": ["Rain"]},
+        ]
+    )
+    with (
+        caplog.at_level(logging.INFO, logger="imageskin.time_pdf"),
+        patch("imageskin.time_pdf.ask", side_effect=lambda url: next(statuses)) as ask,
+        patch("imageskin.time_pdf.POLL_S", 0),
+    ):
+        waited = time_pdf.wait_for_lessons("http://app")
+    assert waited is not None and waited >= 0
+    assert ask.call_args.args == ("http://app/api/lessons",)
+    assert "Lessons written ahead" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"wanted": False, "writing": False, "saved": []},  # Teach me off
+        urllib.error.HTTPError("http://app/api/lessons", 404, "Not Found", Headers(), None),
+    ],
+)
+def test_no_lessons_are_waited_for_when_the_app_writes_none(answer: Any) -> None:
+    with patch("imageskin.time_pdf.ask", side_effect=[answer]):
+        assert time_pdf.wait_for_lessons("http://app") is None
+
+
+def test_the_topic_is_the_outline_s_first_as_lessons_name_it() -> None:
+    """Larry's run of PR #160: the first page, "Prime Numbers", wasn't a lesson topic."""
+    pages = [{"title": "Prime Numbers"}]
+    assert time_pdf.first_topic({"outline": [{"title": "Primes"}], "pages": pages}) == "Primes"
+    assert time_pdf.first_topic({"pages": pages}) == "Prime Numbers"
+    assert time_pdf.first_topic({"outline": [], "pages": []}) is None
+
+
+def test_the_longer_requests_wait_for_the_conversation_summary(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    answers = iter([{"summarizing": True}, {"summarizing": False}])
+    with (
+        caplog.at_level(logging.INFO, logger="imageskin.time_pdf"),
+        patch("imageskin.time_pdf.ask", side_effect=lambda url: next(answers)) as ask,
+        patch("imageskin.time_pdf.POLL_S", 0),
+    ):
+        assert time_pdf.wait_for_summary("http://app") >= 0
+    assert ask.call_args.args == ("http://app/api/chat/summary",)
+    assert "Waited for the conversation summary" in caplog.text
+    old_app = urllib.error.HTTPError("http://app", 404, "Not Found", Headers(), None)
+    with patch("imageskin.time_pdf.ask", side_effect=[old_app]):
+        assert time_pdf.wait_for_summary("http://app") >= 0
+    with (
+        patch("imageskin.time_pdf.ask", return_value={"summarizing": True}),
+        patch("imageskin.time_pdf.POLL_S", 0),
+        patch("imageskin.time_pdf.LESSONS_LIMIT_S", 0.01),
+    ):
+        assert time_pdf.wait_for_summary("http://app") >= 0
+
+
+def test_lessons_not_written_in_time_are_logged(caplog: pytest.LogCaptureFixture) -> None:
+    with (
+        patch("imageskin.time_pdf.ask", return_value={"wanted": True, "writing": True}),
+        patch("imageskin.time_pdf.POLL_S", 0),
+        patch("imageskin.time_pdf.LESSONS_LIMIT_S", 0.01),
+    ):
+        assert time_pdf.wait_for_lessons("http://app") is not None
+    assert "Lessons not written ahead in time" in caplog.text
+
+
+def test_the_report_says_how_long_the_lessons_were_waited_for() -> None:
+    results = {"pdf": pdf_result(), "answers": [], "lessons_ms": 1234.0, "summary_ms": 42000}
+    report = time_pdf.markdown(results, "Local")
+    assert "lessons written ahead were saved, 1234 ms after" in report
+    assert "They waited 42000 ms more for the conversation's summary" in report
 
 
 # --- Against the running app ---

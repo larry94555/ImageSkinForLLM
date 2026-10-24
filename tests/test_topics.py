@@ -254,7 +254,7 @@ def test_the_app_answers_with_the_wikis_topics(tmp_path: Path, general_prompts: 
     assert llm.sent == []
 
 
-def riemann_app(tmp_path: Path, llm: Llm) -> Any:
+def riemann_app(tmp_path: Path, llm: Llm, lessons_ahead: bool | None = None) -> Any:
     """A Riemann-like PDF whose words don't include "tell", as in Larry's test (2026-10-14)."""
 
     def paper(path: Path, progress: Progress) -> Reading:
@@ -287,6 +287,7 @@ def riemann_app(tmp_path: Path, llm: Llm) -> Any:
         ask_llm=llm,
         read_pdf=paper,
         build_wiki=topics,
+        lessons_ahead=lessons_ahead,
     )
     client = TestClient(app)
     client.post("/api/consent", json={"agreed": True})

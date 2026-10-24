@@ -1022,6 +1022,14 @@ class Conversation:
         )
         return content
 
+    def asked_alone(self, teach: Teach) -> list[Message]:
+        """What the LLM is asked for a lesson part written ahead (R98a): the system prompt and
+        the part's instruction with its material, as `send` asks it, but none of the
+        conversation, so the answer can be saved and said whenever the part is taught."""
+        room = self._fit(teach.instruction).room
+        asked = self._with_content(teach.instruction, teach.material, room)
+        return [system_message(None), {"role": "user", "content": asked}]
+
     def _record(self, prompt: str, reply: Turn, turns: list[Turn] | None, budget: int) -> int:
         """Keep the prompt and its reply, and return the reply's place. With `turns` (the ones
         sent with this prompt), they are also sent with later prompts, and the older ones are
@@ -1212,6 +1220,11 @@ class Conversation:
         if not content:
             raise LlmError("The LLM sent an empty reply. Try asking again.")
         return content
+
+    def summarizing(self) -> bool:
+        """Whether a summary is being made, which the next prompt waits for."""
+        summarizer = self._summarizer
+        return summarizer is not None and summarizer.is_alive()
 
     def wait(self) -> None:
         """Wait for a summary being made, if any."""
