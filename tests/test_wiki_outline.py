@@ -10,6 +10,7 @@ import pytest
 
 from imageskin.chat import TOKENS_PER_MESSAGE, EmptyReply, LlmError, Message, estimate
 from imageskin.pdf_reading import read_pdf
+from imageskin.topics import main_entries
 from imageskin.wiki import WikiPage, build_wiki
 from imageskin.wiki_outline import (
     DETAIL_PROMPT,
@@ -466,6 +467,8 @@ def test_paragraphs_left_out_are_put_back_at_their_place_in_the_pdf(
     assert len({e.id for e in one.entries}) == 5
     # Page 4 is no topic's: between the sections of topics 1 to 3 (pages 1 to 3) and 5 and 6.
     assert [e.title for e in found] == ["First", "Page 4", "Second"]
+    # On the first level it is one of the topics (topics.main_entries).
+    assert main_entries([{"entries": [shown(e) for e in found]}]) == ["First", "Page 4", "Second"]
     done = [r for r in caplog.records if r.message == "Wiki paragraphs put back"][0]
     assert done.__dict__["paragraphs"] == 5 and done.__dict__["pages"] == [1, 2, 4]
 
@@ -564,3 +567,5 @@ def test_a_page_with_no_topic_inside_a_section_goes_among_its_topics() -> None:
     assert [e.title for e in found] == ["Both", "Rest"]
     assert [e.title for e in found[0].entries] == ["Topic 1", "Page 2", "Topic 3"]
     assert found[0].pages == [1, 2, 3]
+    # Inside the section it is not one of the topics (topics.main_entries).
+    assert main_entries([{"entries": [shown(e) for e in found]}]) == ["Both", "Rest"]
