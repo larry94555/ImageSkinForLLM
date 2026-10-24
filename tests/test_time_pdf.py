@@ -126,8 +126,10 @@ def test_teach_me_waits_for_the_lessons_written_ahead(caplog: pytest.LogCaptureF
     """R98a: the longer requests are timed once the first lesson parts are saved."""
     statuses = iter(
         [
-            {"wanted": True, "writing": True, "saved": []},
-            {"wanted": True, "writing": False, "saved": ["Rain"]},
+            {"wanted": True, "writing": True, "ready": False, "saved": []},
+            # Saved from before, but not every topic: still waited for (Larry's run of #160).
+            {"wanted": True, "writing": False, "ready": False, "saved": ["Old"]},
+            {"wanted": True, "writing": False, "ready": True, "saved": ["Rain"]},
         ]
     )
     with (

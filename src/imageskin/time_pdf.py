@@ -135,7 +135,7 @@ def wait_for_lessons(base: str) -> float | None:
             return None
         if not status.get("wanted"):
             return None
-        if not status.get("writing") and status.get("saved"):
+        if status.get("ready"):  # every topic's part saved for the wiki as it is now
             waited = time_reply.ms(time.perf_counter(), start)
             logger.info(
                 "Lessons written ahead", extra={"saved": len(status["saved"]), "wait_ms": waited}

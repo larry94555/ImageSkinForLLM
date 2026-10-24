@@ -64,6 +64,7 @@ class LessonsAhead:
         self.retry_s = retry_s
         self._lock = threading.Lock()
         self._again = False  # a round was asked for since the last one began
+        self._ready = False  # the last round saved every topic's part, with none asked since
         self._worker: threading.Thread | None = None
 
     def saved(self, topic: str, teach: Teach) -> list[str] | None:
@@ -74,17 +75,23 @@ class LessonsAhead:
         return sentences(str(lesson.get("text", ""))) or None
 
     def status(self) -> dict[str, Any]:
-        """Whether Teach me is on, whether a round is running, and the topics saved
-        (`imageskin time-pdf` waits on it)."""
+        """Whether Teach me is on, whether a round is running, whether every topic's part is
+        saved, and the topics saved (`imageskin time-pdf` waits for `ready`)."""
         with self._lock:
-            writing = self._worker is not None
-        return {"wanted": self._wanted(), "writing": writing, "saved": sorted(self._load())}
+            writing, ready = self._worker is not None, self._ready
+        return {
+            "wanted": self._wanted(),
+            "writing": writing,
+            "ready": ready and not writing,
+            "saved": sorted(self._load()),
+        }
 
     def refresh(self) -> None:
         """Write the parts missing or out of date, in the background. Answers at once; asked
         for while a round runs, another follows it."""
         with self._lock:
             self._again = True
+            self._ready = False
             if self._worker is None:
                 self._worker = threading.Thread(target=self._run, name="lessons", daemon=True)
                 self._worker.start()
@@ -126,11 +133,14 @@ class LessonsAhead:
             self._save(kept)
             logger.info("Lessons dropped", extra={"topics": sorted(set(saved) - set(kept))})
         written = 0
+        stopped = None  # why the round stopped before the last topic
         for topic, teach in firsts.items():
             with self._lock:
                 changed = self._again
             if changed or self._busy():
-                break  # the wiki changed or is being built: the next round starts again
+                # The wiki changed or is being built: the next round, after it, starts again.
+                stopped = "wiki changed" if changed else "wiki being built"
+                break
             k = key(teach)
             if kept.get(topic, {}).get("key") == k:
                 continue
@@ -145,24 +155,33 @@ class LessonsAhead:
                 retry = threading.Timer(self.retry_s, self.refresh)
                 retry.daemon = True
                 retry.start()
+                stopped = "LLM error"
                 break
             if not text:
                 logger.warning("Lesson not saved: the LLM wrote nothing", extra={"topic": topic})
                 continue
             kept[topic] = {"key": k, "text": text}
             if not self._save(kept):
+                stopped = "not saved"
                 break
             written += 1
             logger.info(
                 "Lesson saved",
                 extra={"topic": topic, "chars": len(text), "duration_ms": ms_since(began)},
             )
+        missing = sum(
+            1 for topic, teach in firsts.items() if kept.get(topic, {}).get("key") != key(teach)
+        )
+        with self._lock:
+            self._ready = stopped is None and missing == 0 and not self._again
         logger.info(
             "Lessons written ahead",
             extra={
                 "topics": len(firsts),
                 "written": written,
                 "saved": len(kept),
+                "missing": missing,
+                "stopped": stopped,
                 "duration_ms": ms_since(start),
             },
         )

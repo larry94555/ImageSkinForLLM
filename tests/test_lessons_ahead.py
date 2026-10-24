@@ -63,7 +63,12 @@ def test_each_topic_s_first_part_is_written_saved_and_said_from(
         "Zeta has two ideas.",
         "Here is the second, about Zeta.",
     ]
-    assert lessons.status() == {"wanted": True, "writing": False, "saved": ["Primes", "Zeta"]}
+    assert lessons.status() == {
+        "wanted": True,
+        "writing": False,
+        "ready": True,
+        "saved": ["Primes", "Zeta"],
+    }
     saved = [r for r in caplog.records if r.message == "Lesson saved"]
     assert [r.topic for r in saved] == ["Zeta", "Primes"]  # type: ignore[attr-defined]
     assert all(r.duration_ms >= 0 for r in saved)  # type: ignore[attr-defined]
@@ -123,7 +128,9 @@ def test_nothing_is_written_while_a_wiki_is_built(
     assert writer.asked == [] and "Lessons wait for the wiki to be built" in caplog.text
 
 
-def test_a_build_starting_partway_stops_the_round(tmp_path: Path) -> None:
+def test_a_build_starting_partway_stops_the_round(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     building = [False]
     writer = Writer()
 
@@ -134,8 +141,17 @@ def test_a_build_starting_partway_stops_the_round(tmp_path: Path) -> None:
     lessons = LessonsAhead(
         tmp_path, lambda: {"Zeta": ZETA, "Primes": PRIMES}, write, lambda: True, lambda: building[0]
     )
-    written(lessons)
+    with caplog.at_level(logging.INFO, logger="imageskin.lessons_ahead"):
+        written(lessons)
     assert writer.asked == [ZETA] and lessons.status()["saved"] == ["Zeta"]
+    # Not ready until a round after the build saves the rest (Larry's run of PR #160).
+    assert lessons.status()["ready"] is False
+    done = next(r for r in caplog.records if r.message == "Lessons written ahead")
+    assert (done.stopped, done.missing) == ("wiki being built", 1)  # type: ignore[attr-defined]
+    building[0] = False
+    writer.answer = "{0}."
+    lessons._write = writer  # type: ignore[method-assign]
+    assert written(lessons).status()["ready"] is True
 
 
 def test_with_the_llm_down_it_is_tried_again_later(
@@ -270,6 +286,7 @@ def test_a_picked_topic_is_said_from_its_saved_part(
     assert client.get("/api/lessons").json() == {
         "wanted": True,
         "writing": False,
+        "ready": True,
         "saved": ["Prime Number Basics", "Zeta Function Integral"],
     }
 
@@ -324,4 +341,9 @@ def test_an_edited_topic_is_taught_as_before_then_written_again(tmp_path: Path) 
 def test_with_a_test_s_llm_lessons_are_not_written_ahead(tmp_path: Path) -> None:
     client = riemann_app(tmp_path, Llm())
     assert client.app.state.lessons is None
-    assert client.get("/api/lessons").json() == {"wanted": False, "writing": False, "saved": []}
+    assert client.get("/api/lessons").json() == {
+        "wanted": False,
+        "writing": False,
+        "ready": False,
+        "saved": [],
+    }

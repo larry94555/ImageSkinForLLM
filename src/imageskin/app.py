@@ -1670,7 +1670,7 @@ def create_app(
     def lessons_status() -> dict[str, Any]:
         """Whether the lessons are being written ahead, and the topics saved (R98a)."""
         if lessons is None:
-            return {"wanted": False, "writing": False, "saved": []}
+            return {"wanted": False, "writing": False, "ready": False, "saved": []}
         return lessons.status()
 
     quizzer = Quizzer(wiki.contents, find_content, conversation.write, topics_complete)
