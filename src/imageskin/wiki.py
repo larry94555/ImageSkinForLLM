@@ -40,15 +40,20 @@ MAX_TITLE_CHARS = 80
 # A piece too long for one part is cut into parts of at most this many characters.
 MIN_CUT_CHARS = 200
 
+# How every wiki request asks for its JSON. llama-server is held to compact JSON
+# (json_grammar, R98).
+JSON_ONLY = "Answer with JSON only, in this form:"
 WIKI_PROMPT = (
     "You are building a wiki from a document. Below is one part of it; each piece starts with its"
     " page number in square brackets. List the main topics this part covers, at most 6. For each"
     " topic give a short title of a few words, the page numbers it comes from, and a summary of 2"
     " or 3 sentences of what the document says about it, in plain words, using only what the"
-    " document says. Answer with JSON only, in this form:"
+    f" document says. {JSON_ONLY}"
     ' {"topics": [{"title": "…", "pages": [1, 2], "text": "…"}]}'
 )
-KNOWN_PROMPT = "Topics found in earlier parts (reuse a title exactly when this part continues it):"
+KNOWN_PROMPT = (
+    "Topics found in earlier parts (reuse a title exactly when the part above continues it):"
+)
 
 # Asks the LLM about one part (the messages) and returns its answer, or raises LlmError.
 AskForTopics = Callable[[list[Message]], str]
@@ -250,8 +255,10 @@ def ask_part(
     """The topics the LLM finds in one part, asked twice if the first answer can't be used; None
     if neither can. LlmError when the request itself fails: the LLM can't be reached, or it
     refused the request, which asking again would not change."""
-    prompt = WIKI_PROMPT if not known else f"{WIKI_PROMPT}\n\n{KNOWN_PROMPT} {'; '.join(known)}"
-    messages = [{"role": "system", "content": prompt}, {"role": "user", "content": part.text}]
+    # The titles found so far come after the part, so every part's prompt starts with the same
+    # instructions, which llama-server reuses instead of reading them again (R98).
+    text = part.text if not known else f"{part.text}\n\n{KNOWN_PROMPT} {'; '.join(known)}"
+    messages = [{"role": "system", "content": WIKI_PROMPT}, {"role": "user", "content": text}]
     for attempt in (1, 2):
         try:
             answer = ask(messages)

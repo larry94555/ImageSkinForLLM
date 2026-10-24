@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
+from imageskin.json_grammar import compact_grammar
 from imageskin.reply_times import note, note_llm, note_now, note_request
 from imageskin.sentences import SentenceSplitter, clips
 from imageskin.topics import (
@@ -381,6 +382,13 @@ class StoppableResponse:
         self._connection.close()
 
 
+def local_json(schema: dict[str, Any]) -> dict[str, str]:
+    """What holds llama-server's answer to JSON of this form (the wiki, roadmap R37): a grammar
+    in place of the schema, without the line breaks and indents the LLM otherwise spends a fifth
+    to two fifths of the wiki's answers on (R98). `imageskin time-llm` asks with it too."""
+    return {"grammar": compact_grammar(schema)}
+
+
 class LlmClient:
     """Asks an OpenAI-compatible chat API, such as llama-server's or OpenAI's, for a reply."""
 
@@ -477,9 +485,7 @@ class LlmClient:
         if stream:
             body["stream"] = True
         if schema is not None and local:
-            # The answer must be JSON of this form (the wiki, roadmap R37). This is the form
-            # both llama-server and llama-cpp-python's server take.
-            body["response_format"] = {"type": "json_object", "schema": schema}
+            body.update(local_json(schema))
         elif schema is not None:
             body["response_format"] = {
                 "type": "json_schema",

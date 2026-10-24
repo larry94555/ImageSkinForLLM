@@ -595,6 +595,11 @@ class WikiJob:
                     "requests": requests[:],
                 }
             )
+            # Each step's time, and how much of its prompts llama-server reused (R98).
+            logger.info(
+                "Wiki step timed",
+                extra={"id": pdf_id, "stage": stage, "step": step, **step_totals(timings[-1])},
+            )
             requests.clear()
             last = now
 
@@ -721,7 +726,8 @@ class WikiJob:
                 "detail_pages": sum(count_detail(e) for e in outline),
                 "skipped_parts": wiki.skipped_parts,
                 "flagged_edits": flagged,
-                **llm_totals(timings),
+                **(totals := llm_totals(timings)),
+                "llm_reused_pct": reused_pct(totals),
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
@@ -808,6 +814,19 @@ def llm_totals(timings: list[dict[str, Any]]) -> dict[str, int]:
     for key in ("prompt_n", "cache_n", "predicted_n"):
         totals[f"llm_{key}"] = sum(r.get(key, 0) for r in requests)
     return totals
+
+
+def step_totals(step: dict[str, Any]) -> dict[str, Any]:
+    """One step's time, its tokens read, reused and written, and the share of its prompts that
+    was reused from llama-server's cache, in percent (R98)."""
+    totals = llm_totals([step])
+    return {"duration_ms": step["duration_ms"], **totals, "reused_pct": reused_pct(totals)}
+
+
+def reused_pct(totals: dict[str, int]) -> float:
+    """The share of the prompts' tokens llama-server reused from its cache, in percent."""
+    prompt = totals["llm_prompt_n"] + totals["llm_cache_n"]
+    return round(100 * totals["llm_cache_n"] / prompt, 1) if prompt else 0.0
 
 
 def summary(saved: dict[str, Any]) -> dict[str, Any]:

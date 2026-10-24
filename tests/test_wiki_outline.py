@@ -13,6 +13,8 @@ from imageskin.wiki_outline import (
     DETAIL_SCHEMA,
     MAX_DEPTH,
     OUTLINE_REPLY_TOKENS,
+    PARTS_PROMPT,
+    PARTS_SCHEMA,
     SECTIONS_SCHEMA,
     SIMPLE_CHARS,
     SUMMARY_PROMPT,
@@ -47,6 +49,10 @@ def sections(*found: tuple[str, str, list[int]]) -> str:
 def detail(summary: str, *parts: tuple[str, list[int]]) -> str:
     found = [{"title": t, "paragraphs": n} for t, n in parts]
     return json.dumps({"summary": summary, "parts": found})
+
+
+def parts(*found: tuple[str, list[int]]) -> str:
+    return json.dumps({"parts": [{"title": t, "paragraphs": n} for t, n in found]})
 
 
 def piece(page: int, text: str) -> dict[str, Any]:
@@ -135,13 +141,14 @@ def test_topics_are_kept_as_they_are_when_no_sections_can_be_found(
 
 
 def test_a_topic_the_pdf_says_more_about_gets_a_detail_page_of_the_pdfs_paragraphs() -> None:
-    llm = Llm(detail("A summary.", ("First", [1]), ("Second", [2, 3, 9])))
+    llm = Llm(parts(("First", [1]), ("Second", [2, 3, 9])))
     page = WikiPage(f"{PDF_ID}-t1", "Topic 1", "The LLM's few sentences.", [1, 2])
     pieces = [piece(1, LONG), piece(2, "More."), piece(3, "Another topic.")]
     found = outliner(llm).outline([page], pieces)
 
+    # A topic keeps the summary it was found with, so only its parts are asked for (R98).
     messages, schema = llm.asked[0]
-    assert schema is DETAIL_SCHEMA
+    assert schema is PARTS_SCHEMA and messages[0]["content"] == PARTS_PROMPT
     first, rest = LONG.split(" Sentence 6")
     rest = "Sentence 6" + rest
     assert messages[1]["content"] == f"Topic 1\n\n1. {first}\n\n2. {rest}\n\n3. More."
@@ -162,18 +169,21 @@ def test_a_topic_the_pdf_says_little_about_is_shown_as_it_is() -> None:
 
 def test_paragraphs_are_sent_in_batches_that_fit_and_a_batch_with_no_parts_adds_none() -> None:
     pieces = [piece(1, f"{n}" * 100 + ".") for n in range(1, 7)]  # 6 paragraphs, 1 sentence each
-    room = estimate(DETAIL_PROMPT) + estimate("Topic 1") + 2 * TOKENS_PER_MESSAGE + 230
+    room = estimate(PARTS_PROMPT) + estimate("Topic 1") + 2 * TOKENS_PER_MESSAGE + 230
     llm = Llm(
         "nothing here",  # paragraphs 1 and 2, asked twice
         "still nothing",
-        detail("S.", ("A", [3, 1]), ("B", [4])),  # 1 is not in this batch
-        detail("S3.", ("C", [6, 5]), ("Again", [5])),  # 5 is in C already
-        json.dumps({"summary": "Unused: a topic keeps its own."}),  # the batches' summaries
+        parts(("A", [3, 1]), ("B", [4])),  # 1 is not in this batch
+        parts(("C", [6, 5]), ("Again", [5])),  # 5 is in C already
     )
-    found = outliner(llm, window=OUTLINE_REPLY_TOKENS + room).outline([topic(1, "Few.")], pieces)
-    assert llm.asked[-1][0][0]["content"] == SUMMARY_PROMPT
-    assert llm.asked[-1][0][1]["content"] == "Topic 1\n\nS.\n\nS3."
-    batches = [m[1]["content"].split("\n\n")[1:] for m, _ in llm.asked[:-1]]
+    progress: list[tuple[int, int]] = []
+    found = outliner(
+        llm, window=OUTLINE_REPLY_TOKENS + room, progress=lambda *p: progress.append(p)
+    ).outline([topic(1, "Few.")], pieces)
+    # A topic keeps its own summary, so the batches' are neither asked for nor summarized (R98).
+    assert {m[0]["content"] for m, _ in llm.asked} == {PARTS_PROMPT}
+    assert progress == [(1, 3), (2, 3), (3, 3)]  # no request planned for a summary
+    batches = [m[1]["content"].split("\n\n")[1:] for m, _ in llm.asked]
     assert [[line.split(".")[0] for line in b] for b in batches] == [
         ["1", "2"],
         ["1", "2"],
@@ -192,7 +202,7 @@ def test_paragraphs_are_sent_in_batches_that_fit_and_a_batch_with_no_parts_adds_
 def test_a_long_part_opens_up_again_down_to_the_last_level() -> None:
     pieces = [piece(1, f"{n}" * 129 + ".") for n in range(1, 8)]  # 7 paragraphs of 130
     llm = Llm(
-        detail("Level 2.", ("Deep", [1, 2, 3, 4, 5, 6]), ("Flat", [7])),
+        parts(("Deep", [1, 2, 3, 4, 5, 6]), ("Flat", [7])),
         detail("Level 3.", ("Deeper", [1, 2, 3, 4, 5]), ("Other", [6])),
     )
     progress: list[tuple[int, int]] = []
@@ -206,6 +216,12 @@ def test_a_long_part_opens_up_again_down_to_the_last_level() -> None:
     assert MAX_DEPTH == 4 and not deeper.detail  # the last level, though not simple
     assert deeper.summary == " ".join(p["text"] for p in pieces[:5])
     assert len(llm.asked) == 2
+    # The topic keeps its summary, so only its parts are asked for; a part has none, so its
+    # summary is asked for with its parts.
+    assert [(m[0]["content"], schema) for m, schema in llm.asked] == [
+        (PARTS_PROMPT, PARTS_SCHEMA),
+        (DETAIL_PROMPT, DETAIL_SCHEMA),
+    ]
 
 
 def test_a_long_topic_that_cannot_be_split_is_kept_whole() -> None:
@@ -287,6 +303,25 @@ def test_unusable_detail_is_none(raw: str) -> None:
 def test_detail_keeps_each_paragraph_once() -> None:
     raw = detail(" S. ", ("T", [1, 1, 2]))
     assert read_detail(raw, {1, 2}) == ("S.", [("T", [1, 2])])
+
+
+def test_parts_alone_need_no_summary_and_give_none() -> None:
+    assert read_detail(parts(("T", [2, 1])), {1, 2}, summarized=False) == ("", [("T", [2, 1])])
+    assert read_detail(parts(), {1}, summarized=False) is None  # still no parts
+
+
+def test_each_outline_step_is_logged_with_what_it_asked_for(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    pieces = [piece(1, f"{n}" * 129 + ".") for n in range(1, 8)]
+    llm = Llm(
+        parts(("Deep", [1, 2, 3, 4, 5, 6]), ("Flat", [7])),
+        detail("Level 3.", ("Deeper", [1, 2, 3, 4, 5]), ("Other", [6])),
+    )
+    with caplog.at_level(logging.INFO):
+        outliner(llm).outline([topic(1, "Few.")], pieces)
+    steps = [r for r in caplog.records if r.message == "Wiki outline step done"]
+    assert [r.__dict__["step"] for r in steps] == ["parts", "detail"]
 
 
 def test_saved_entries_are_read_back_and_shown_down_to_the_next_detail_page() -> None:

@@ -19,7 +19,17 @@ from functools import partial
 from typing import Any, TypeVar
 
 from imageskin.chat import TOKENS_PER_MESSAGE, Count, EmptyReply, LlmError, Message
-from imageskin.wiki import WaitForLlm, WikiPage, clean_title, cut, down, load_json, slug, unique
+from imageskin.wiki import (
+    JSON_ONLY,
+    WaitForLlm,
+    WikiPage,
+    clean_title,
+    cut,
+    down,
+    load_json,
+    slug,
+    unique,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,22 +53,28 @@ SECTIONS_PROMPT = (
     "Below are the topics of a document, numbered, in the document's order, each with how it"
     " starts. Group them into the sections of a table of contents, keeping the document's order:"
     " 2 to 8 sections, each with a short title of a few words, a summary of 1 or 2 sentences, and"
-    " the numbers of its topics. Put every topic in exactly one section. Answer with JSON only,"
-    ' in this form: {"sections": [{"title": "…", "summary": "…", "topics": [1, 2]}]}'
+    " the numbers of its topics. Put every topic in exactly one section."
+    f' {JSON_ONLY} {{"sections": [{{"title": "…", "summary": "…", "topics": [1, 2]}}]}}'
 )
 SUMMARY_PROMPT = (
     "Below are summaries of consecutive parts of a text from a document, in order; the topic is"
-    " in the first line. Write one summary of the whole text in 2 or 3 sentences, using only"
-    ' what they say. Answer with JSON only, in this form: {"summary": "…"}'
+    " in the first line. Write one summary of the whole text in 1 or 2 sentences, using only"
+    f' what they say. {JSON_ONLY} {{"summary": "…"}}'
+)
+# The detail of a topic or part. Both start the same, up to what is asked for besides the parts,
+# so llama-server reuses that start whichever was asked before (R98).
+DETAIL_START = (
+    "Below are numbered paragraphs from a document, in its order; the topic is in the first"
+    " line. Using only what they say about that topic, group the paragraphs about it into 2 to 6"
+    " parts that each cover one point, in order, each with a short title of a few words and the"
+    " numbers of its paragraphs. Leave out paragraphs that are not about the topic."
 )
 DETAIL_PROMPT = (
-    "Below are numbered paragraphs from a document, in its order; the topic is in the first"
-    " line. Using only what they say about that topic, write a summary of it in 2 or 3"
-    " sentences, then group the paragraphs about the topic into 2 to 6 parts that each cover one"
-    " point, in order, each with a short title of a few words and the numbers of its paragraphs."
-    " Leave out paragraphs that are not about the topic. Answer with JSON only, in this form:"
+    f"{DETAIL_START} Also write a summary of the topic in 1 or 2 sentences. {JSON_ONLY}"
     ' {"summary": "…", "parts": [{"title": "…", "paragraphs": [1, 2]}]}'
 )
+# A topic keeps the summary it was found with, so only its parts are asked for (R98).
+PARTS_PROMPT = f'{DETAIL_START} {JSON_ONLY} {{"parts": [{{"title": "…", "paragraphs": [1, 2]}}]}}'
 
 SECTIONS_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -100,6 +116,18 @@ DETAIL_SCHEMA: dict[str, Any] = {
         },
     },
     "required": ["summary", "parts"],
+}
+PARTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"parts": DETAIL_SCHEMA["properties"]["parts"]},
+    "required": ["parts"],
+}
+
+# Each request's step in the log, by its schema.
+STEPS = {
+    id(SECTIONS_SCHEMA): "sections",
+    id(DETAIL_SCHEMA): "detail",
+    id(PARTS_SCHEMA): "parts",
 }
 
 # Asks the LLM for JSON held to a schema, and returns its answer; LlmError when that fails.
@@ -145,7 +173,8 @@ class Outliner:
         sources = [self.source(t, pieces or []) for t in topics]
         for t, source in zip(topics, sources, strict=True):
             if opens(source, 2):
-                self.planned += requests_for(self.batches(numbered(source), DETAIL_PROMPT, t.title))
+                batches = self.batches(numbered(source), PARTS_PROMPT, t.title)
+                self.planned += requests_for(batches, summarized=False)
         if len(topics) > FEW_TOPICS:
             self.planned += len(self.batches(self.contents_lines(topics), SECTIONS_PROMPT))
         entries = [
@@ -189,7 +218,7 @@ class Outliner:
         entry = Entry(entry_id, title, text if summary is None else summary, pages)
         if not opens(source, depth):
             return entry
-        found = self.split(title, source, planned)
+        found = self.split(title, source, planned, summarize=summary is None)
         if found is None:
             return entry
         if summary is None:
@@ -235,24 +264,26 @@ class Outliner:
         return [f"{n}. {t.title}: {first_sentence(t.text)}" for n, t in enumerate(topics, 1)]
 
     def split(
-        self, title: str, source: list[Unit], planned: bool = False
+        self, title: str, source: list[Unit], planned: bool = False, summarize: bool = True
     ) -> tuple[str, list[tuple[str, list[int]]]] | None:
         """A long source's summary and its parts, each with the numbers of its units (from 1);
         None if the LLM couldn't split it. A unit goes to the first part that names it; a batch
         with no usable answer (it may say nothing about the topic) adds no parts. When several
-        batches were summarized, their summaries are summarized as one."""
+        batches were summarized, their summaries are summarized as one. Without `summarize`
+        (the entry has its summary already) only the parts are asked for, and the summary is ""."""
+        prompt, schema = DETAIL_PROMPT, DETAIL_SCHEMA
+        if not summarize:
+            prompt, schema = PARTS_PROMPT, PARTS_SCHEMA
         summaries: list[str] = []
         parts: list[tuple[str, list[int]]] = []
         placed: set[int] = set()
-        batches = self.batches(numbered(source), DETAIL_PROMPT, title)
+        batches = self.batches(numbered(source), prompt, title)
         if not planned:
-            self.planned += requests_for(batches)
+            self.planned += requests_for(batches, summarize)
         for batch in batches:
             numbers = {int(m.group(1)) for line in batch if (m := NUMBERED.match(line))}
-            read = partial(read_detail, numbers=numbers)
-            found = self.request(
-                DETAIL_PROMPT, f"{title}\n\n" + "\n\n".join(batch), DETAIL_SCHEMA, read
-            )
+            read = partial(read_detail, numbers=numbers, summarized=summarize)
+            found = self.request(prompt, f"{title}\n\n" + "\n\n".join(batch), schema, read)
             for part_title, members in found[1] if found else []:
                 members = [n for n in members if n not in placed]
                 if members:
@@ -260,7 +291,7 @@ class Outliner:
                     parts.append((part_title, sorted(members)))
             if found:
                 summaries.append(found[0])
-        if len(batches) > 1:  # planned for, whatever the batches gave
+        if summarize and len(batches) > 1:  # planned for, whatever the batches gave
             summaries = [self.summarize(title, summaries)] if summaries else []
         parts.sort(key=lambda part: part[1][0])
         return (summaries[0], parts) if summaries and len(parts) > 1 else None
@@ -336,7 +367,7 @@ class Outliner:
             "Wiki outline step done",
             extra={
                 "id": self.pdf_id,
-                "step": "sections" if schema is SECTIONS_SCHEMA else "detail",
+                "step": STEPS.get(id(schema), "summary"),
                 "request": self.requests,
                 "used": found is not None,
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
@@ -376,13 +407,16 @@ def read_sections(answer: str, numbers: set[int]) -> list[tuple[str, str, list[i
     return found or None
 
 
-def read_detail(answer: str, numbers: set[int]) -> tuple[str, list[tuple[str, list[int]]]] | None:
+def read_detail(
+    answer: str, numbers: set[int], summarized: bool = True
+) -> tuple[str, list[tuple[str, list[int]]]] | None:
     """The summary and parts in the LLM's answer, each part with only the paragraphs asked
-    about; None if it has no summary or parts."""
+    about; None if it has no summary or parts. Not `summarized`, only parts were asked for, and
+    the summary is ""."""
     data = load_json(answer)
     if not isinstance(data, dict):
         return None
-    summary, parts = data.get("summary"), data.get("parts")
+    summary, parts = data.get("summary") if summarized else "-", data.get("parts")
     found = []
     for part in parts if isinstance(parts, list) else []:
         if not isinstance(part, dict):
@@ -395,12 +429,13 @@ def read_detail(answer: str, numbers: set[int]) -> tuple[str, list[tuple[str, li
             found.append((title, list(dict.fromkeys(members))))
     if not isinstance(summary, str) or not summary.strip() or not found:
         return None
-    return summary.strip(), found
+    return (summary.strip() if summarized else ""), found
 
 
-def requests_for(batches: list[list[str]]) -> int:
-    """The requests a split takes: one a batch, and one to summarize them when there are several."""
-    return len(batches) + (len(batches) > 1)
+def requests_for(batches: list[list[str]], summarized: bool = True) -> int:
+    """The requests a split takes: one a batch, and one to summarize them when there are several
+    and they were summarized."""
+    return len(batches) + (summarized and len(batches) > 1)
 
 
 def read_summary(answer: str) -> str | None:

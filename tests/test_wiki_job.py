@@ -159,7 +159,7 @@ def test_the_build_waits_for_the_llm_and_asks_the_same_part_again(
     asked: list[str] = []
 
     def ask(messages: list[Message]) -> str:
-        part = messages[1]["content"]
+        part = messages[1]["content"].split("\n\n")[0]  # without the titles found so far
         asked.append(part)
         if len(asked) == 2:  # the LLM goes away while part 2 is asked
             raise down()
@@ -738,5 +738,14 @@ def test_each_part_and_outline_step_is_timed_with_the_llms_timings(
     [built] = [r for r in caplog.records if r.message == "Wiki pages built"]
     assert (built.llm_requests, built.llm_prompt_n, built.llm_cache_n) == (4, 580, 130)  # type: ignore[attr-defined]
     assert built.llm_predicted_n == 110  # type: ignore[attr-defined]
+    assert built.llm_reused_pct == 18.3  # type: ignore[attr-defined]  # 130 of 710
+    # R98: each step is logged with its time and the share of its prompts reused.
+    steps = [r for r in caplog.records if r.message == "Wiki step timed"]
+    assert [(r.stage, r.step, r.reused_pct) for r in steps] == [  # type: ignore[attr-defined]
+        ("topics", 1, 3.2),  # 10 of 310
+        ("topics", 2, 37.5),  # 120 of 320
+        ("outline", 1, 0.0),
+    ]
+    assert steps[1].llm_requests == 2 and steps[1].duration_ms >= 0  # type: ignore[attr-defined]
     # Requests made outside a build are not kept.
     note_request({"prompt_n": 1}, 1.0)
