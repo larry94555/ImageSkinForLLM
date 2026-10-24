@@ -5,9 +5,9 @@ saves to a folder:
   - the 10 mouth shapes on the still head, with Larry's accepted softness (R4a), and the eyes
     part-way and fully closed for blinks, which are added when a video is made;
   - an idle loop of the face with a slight head drift and open eyes (LOOP_SECONDS long).
-    Only every KEY_EVERY-th frame is rendered; the head
-    moves less than a tenth of a degree per frame, so the ones between are filled in along
-    the optical flow (45 to 55 dB PSNR against fully rendered frames, about 3x faster);
+    Its second half goes back the way the first came, so only the first half is rendered,
+    and of that only every OWN_KEY_EVERY-th frame (roadmap R96e); the head moves less than
+    a tenth of a degree per frame, so the ones between are filled in along the optical flow;
   - how the lower face and the eyes move in each loop frame, so they follow the head.
 An interrupted run picks up where it stopped; a finished library is reused. Making videos
 from a library needs only NumPy and OpenCV, no model.
@@ -49,7 +49,12 @@ logger = logging.getLogger(__name__)
 # the version: libraries made before stay valid.
 LIBRARY_VERSION = 2  # 2: blinks taken out of the idle loop
 CROP = 512  # LivePortrait's face crop is CROP x CROP pixels
-KEY_EVERY = 4  # idle-loop frames rendered by the model; the rest are filled in between
+KEY_EVERY = 4  # idle-loop frames a default person's pack holds; the rest are filled in between
+# For a photo of the user's own, the model renders every OWN_KEY_EVERY-th frame of the loop's
+# first half and the rest is filled in or mirrored (roadmap R96e). LOOP_PLAN is saved with the
+# loop, so frames rendered before this plan are never mixed with frames rendered after it.
+OWN_KEY_EVERY = 8
+LOOP_PLAN = {"motion": "mirrored", "every": OWN_KEY_EVERY}
 
 Image = NDArray[np.uint8]
 Mask = NDArray[np.float32]
@@ -195,8 +200,41 @@ def align_loop(rest: Image, loop: list[Image], mask: Mask, window: Window) -> ND
 
 
 def key_frames(n_loop: int) -> list[int]:
-    """The idle-loop frames the model renders: every KEY_EVERY-th one."""
+    """The idle-loop frames a default person's pack holds: every KEY_EVERY-th one."""
     return list(range(0, n_loop, KEY_EVERY))
+
+
+def own_key_frames(n_loop: int) -> list[int]:
+    """The idle-loop frames the model renders for a photo: every OWN_KEY_EVERY-th one of the
+    first half, and its last frame, where the head turns back."""
+    half = n_loop // 2
+    return sorted(set(range(0, half, OWN_KEY_EVERY)) | {half})
+
+
+def mirror_loop(loop: Path, n_loop: int) -> int:
+    """Make the loop's second half from its first, played backwards: frame n - i is frame i.
+    Return how many frames were written."""
+    made = 0
+    for i in range(n_loop // 2 + 1, n_loop):
+        target = loop / f"{i:04d}.npy"
+        if not target.exists():
+            _save(target, np.load(loop / f"{n_loop - i:04d}.npy"))
+            made += 1
+    return made
+
+
+def _start_loop(loop: Path) -> None:
+    """Clear frames rendered under another plan (an older version of the app stopped mid-way),
+    then save this plan beside the frames."""
+    plan = loop / "plan.json"
+    old = json.loads(plan.read_text(encoding="utf-8")) if plan.exists() else None
+    if old != LOOP_PLAN:
+        stale = list(loop.glob("*.npy"))
+        if stale:
+            logger.info("Idle loop frames from another plan removed", extra={"frames": len(stale)})
+        for path in stale:
+            path.unlink()
+        plan.write_text(json.dumps(LOOP_PLAN), encoding="utf-8")
 
 
 def pixel_grid(image: Image) -> NDArray[np.float32]:
@@ -235,13 +273,14 @@ def _remap(image: Image, mapping: NDArray[np.float32]) -> Image:
     return np.asarray(out, np.uint8)
 
 
-def fill_loop(loop: Path, n_loop: int, keys: list[int]) -> int:
+def fill_loop(loop: Path, n_loop: int, keys: list[int], wrap: bool = True) -> int:
     """Fill in the idle-loop frames between the rendered ones; return how many were made.
-    The last frames are filled toward frame 0, since the loop wraps around."""
+    With `wrap`, the last frames are filled toward frame 0, since the loop wraps around;
+    without, nothing after the last key is filled (`mirror_loop` makes it)."""
     made = 0
     grid: NDArray[np.float32] | None = None  # all frames are the same size
     for k, a in enumerate(keys):
-        b = keys[k + 1] if k + 1 < len(keys) else n_loop
+        b = keys[k + 1] if k + 1 < len(keys) else (n_loop if wrap else a)
         todo = [i for i in range(a + 1, b) if not (loop / f"{i:04d}.npy").exists()]
         if not todo:
             continue
@@ -311,7 +350,9 @@ def build_library(
             extra={"shapes": len(SHAPES), "eyes": len(EYE_STAGES), "mouth": mouth_key()},
         )
 
-    keys = key_frames(n_loop)
+    if not (folder / "library.json").exists():  # a finished loop is kept as it was made
+        _start_loop(folder / "loop")
+    keys = own_key_frames(n_loop)
     todo = [i for i in keys if not (folder / "loop" / f"{i:04d}.npy").exists()]
     if 0 < len(todo) < len(keys):
         logger.info("Resuming idle loop", extra={"done": len(keys) - len(todo), "of": len(keys)})
@@ -335,11 +376,18 @@ def build_library(
             )
 
     fill_start = time.perf_counter()
-    filled = fill_loop(folder / "loop", n_loop, keys)
-    if filled:
+    filled = fill_loop(folder / "loop", n_loop, keys, wrap=False)
+    mirrored = mirror_loop(folder / "loop", n_loop)
+    if filled or mirrored:
         logger.info(
             "Filled in idle loop frames",
-            extra={"frames": filled, "duration_s": round(time.perf_counter() - fill_start, 1)},
+            extra={
+                "frames": filled,
+                "mirrored": mirrored,
+                "rendered": len(keys),
+                "loop_s": round(time.perf_counter() - loop_start, 1),
+                "duration_s": round(time.perf_counter() - fill_start, 1),
+            },
         )
 
     shapes = np.load(folder / "shapes.npy")

@@ -538,6 +538,32 @@ found: [voice_video_overlap.py](voice_video_overlap.py), with the LLM writing on
 took 5.3 s for the video of a 3-second clause and then the voice of the next sentence, one after
 the other, and 6.0 to 7.4 s for both at once (1 or 2 threads each).
 
+### Replies made without the LLM
+
+"What can you talk about?" is answered from the topics without the LLM (R41f), and its first
+sentence, the list, was spoken as one clip: 15.1 s of speech whose voice took 11.6 s on Larry's
+hosted machine, so the first word was heard 11.9 s after Send (R96a; 8.7 to 10.3 s in the
+cloud). Such a reply's sentences are all known at once, so they are now cut before they are
+spoken (`clips` in `sentences.py`, the log's `Made reply cut into clips`): the first sentence
+after its first clause, and any sentence longer than 12 words in clauses joined up to 12 words,
+cut only after a comma, semicolon or colon outside brackets, code, math and markup (a title
+with a comma in it may be cut there). The decline and
+a lesson's choices (R41h) go the same way, though their sentences are mostly short enough to
+stay whole.
+
+[made_reply_clips.py](made_reply_clips.py) speaks nine topics like the sample PDF's with Kokoro,
+whole and cut, and plays them on paper
+([made-reply-clips-cloud-2026-10-23.md](made-reply-clips-cloud-2026-10-23.md), the voice alone):
+
+| Kokoro, cloud session | First word, whole | First word, cut | Gaps, cut |
+|---|---|---|---|
+| 4 threads | 9.5 s | 1.1 s | none |
+| 2 threads | 13.0 s | 1.8 s | none |
+
+Each next clip was spoken before the one before had ended. The video adds about a third of the
+voice's time to each clip, so on the hosted machine short gaps may still be heard after the first
+clip; `imageskin time-reply "What can you talk about?"` there, with a PDF's wiki built, shows them.
+
 ## R97: llama-server's settings
 
 `imageskin time-llm` asks a running llama-server what the app asks it, without the app: the
@@ -627,6 +653,27 @@ Q4_0 (`unsloth/gemma-3-4b-it-GGUF:Q4_0`, about 2.4 GB) with `--threads-batch 4 -
 its topics for the first part were the same as Q4_K_M's in the cloud. The laptop's README line
 keeps Q4_K_M, which was as fast on the cloud's Intel cores. The last setting of
 [llama_settings.sh](llama_settings.sh), "hosted", is that combination, to confirm it.
+
+## R99: replies don't wait behind the wiki
+
+R96a found a question asked while the wiki was built ran beside the wiki's request in another of
+llama-server's 4 slots, on the same threads, and was heard after 70 s in the cloud and 74 s on
+the hosted machine. Since R99, a reply cuts off the wiki's request in progress (as removing its
+PDF does) and the wiki waits until the reply is written, then asks again
+(`src/imageskin/replies_first.py`; the log has `Wiki request cut off for a reply` and
+`Wiki waited for a reply` with its `duration_ms`). Only with the local LLM: a provider answers
+both at once elsewhere.
+
+[reply_during_wiki.py](reply_during_wiki.py) asks a reply 20 s into the sample PDF's first
+wiki part, with and without it. In a cloud session (2026-10-23,
+[reply-during-wiki-cloud-2026-10-23.md](reply-during-wiki-cloud-2026-10-23.md)) the reply's
+first sentence came after 19.6 s before and 5.2 s after, against 6.2 to 6.3 s with the LLM
+idle, and the wiki's first part was done no later (167.7 s against 174.2 s), as llama-server
+kept what it had read of the cut-off request.
+
+R97's other idea, the wiki writing on 4 threads while nobody chats and 2 during a reply, needs
+llama-server restarted to change its threads, which would lose its cache each time, so it isn't
+done.
 
 ## R98: fewer, shorter wiki requests
 

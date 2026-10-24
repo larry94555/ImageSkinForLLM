@@ -1,0 +1,49 @@
+{
+  "photo": "/tmp/claude-0/r96e/prof.png",
+  "loop_frames": 200,
+  "s_per_render": 6.67,
+  "options": [
+    {
+      "motion": "before",
+      "every": 4,
+      "rendered": 50,
+      "min_psnr_db": 44.6,
+      "mean_psnr_db": 52.1
+    },
+    {
+      "motion": "mirrored",
+      "every": 4,
+      "rendered": 26,
+      "min_psnr_db": 42.0,
+      "mean_psnr_db": 48.1
+    },
+    {
+      "motion": "before",
+      "every": 8,
+      "rendered": 25,
+      "min_psnr_db": 41.1,
+      "mean_psnr_db": 48.6
+    },
+    {
+      "motion": "mirrored",
+      "every": 8,
+      "rendered": 14,
+      "min_psnr_db": 39.4,
+      "mean_psnr_db": 44.8
+    },
+    {
+      "motion": "before",
+      "every": 12,
+      "rendered": 17,
+      "min_psnr_db": 39.8,
+      "mean_psnr_db": 46.4
+    },
+    {
+      "motion": "mirrored",
+      "every": 12,
+      "rendered": 10,
+      "min_psnr_db": 38.6,
+      "mean_psnr_db": 43.0
+    }
+  ]
+}
