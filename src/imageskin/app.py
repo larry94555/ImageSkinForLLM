@@ -554,8 +554,10 @@ def create_app(
     def patch_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, object]:
         try:
             saved = asdict(save_ui_settings(data_home, changes, ui_defaults))
-            if changes.get("teach_me") is True and app.state.lessons is not None:
-                app.state.lessons.refresh()  # Teach me turned on: its lessons are written (R98a)
+            if "teach_me" in changes and app.state.lessons is not None:
+                # Turned on, its lessons are written; turned off, a round writing them stops
+                # after the lesson under way (R98a).
+                app.state.lessons.refresh()
             return saved
         except ValueError as e:
             logger.warning("Settings change refused", extra={"error": str(e)})
@@ -1646,7 +1648,9 @@ def create_app(
     lesson_ask = replies_first.wiki(plain_ask)
 
     def write_lesson(teach: Teach) -> str:
-        with pinned(client):
+        # The engines leave a local LLM its share of the cores, as for a reply (R22a): a
+        # topic said from its saved part is spoken while the next one is written.
+        with pinned(client), llm_busy():
             return lesson_ask(conversation.asked_alone(teach))
 
     lessons = None
@@ -1658,8 +1662,6 @@ def create_app(
             lambda: load_ui_settings(data_home, ui_defaults).teach_me,
             wiki.building,
         )
-        wiki.when_changed = lessons.refresh
-        lessons.refresh()  # those missing since the last start
     app.state.lessons = lessons
 
     def when_wiki_idle() -> None:
@@ -1670,7 +1672,12 @@ def create_app(
         if lessons is not None:
             lessons.refresh()
 
+    # Before the first round, so a build already under way (from catch_up) that ends before
+    # that round's check still starts a round after it.
     wiki.when_idle = when_wiki_idle
+    if lessons is not None:
+        wiki.when_changed = lessons.refresh
+        lessons.refresh()  # those missing since the last start
 
     @app.get("/api/lessons")
     def lessons_status() -> dict[str, Any]:

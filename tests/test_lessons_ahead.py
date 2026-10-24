@@ -10,9 +10,13 @@ import pytest
 from test_question_scope import Llm
 from test_topics import riemann_app
 
+from imageskin.app import create_app
 from imageskin.chat import Conversation, LlmError, Message, Teach
 from imageskin.lessons_ahead import LESSONS_FILE, LessonsAhead, key, sentences
+from imageskin.llm_choice import save_choice
 from imageskin.review import Review
+from imageskin.uploads import PhotoResult
+from imageskin.wiki import Wiki, WikiPage
 
 ZETA = Teach('Teach me the main ideas of "Zeta"', ["Zeta: Zeta sums 1/n^s."])
 PRIMES = Teach('Teach me the main ideas of "Primes"', ["Primes: No divisors."])
@@ -361,3 +365,116 @@ def test_the_app_says_whether_the_conversation_is_being_summarized(tmp_path: Pat
     hold.set()
     conversation.wait()
     assert conversation.summarizing() is False
+
+
+def test_turning_teach_me_off_stops_the_round_after_the_lesson_under_way(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #160: with a paid provider, no more requests once it is off."""
+    wanted = [True]
+    writer = Writer()
+
+    def write(teach: Teach) -> str:
+        wanted[0] = False  # turned off while the first was written
+        return writer(teach)
+
+    lessons = LessonsAhead(
+        tmp_path, lambda: {"Zeta": ZETA, "Primes": PRIMES}, write, lambda: wanted[0], lambda: False
+    )
+    with caplog.at_level(logging.INFO, logger="imageskin.lessons_ahead"):
+        written(lessons)
+    assert writer.asked == [ZETA]
+    done = next(r for r in caplog.records if r.message == "Lessons written ahead")
+    assert done.stopped == "Teach me turned off"  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("on", [True, False])
+def test_turning_teach_me_on_or_off_starts_a_round(tmp_path: Path, on: bool) -> None:
+    client = riemann_app(tmp_path, TopicLlm(), lessons_ahead=True)
+    lessons = client.app.state.lessons
+    lessons.wait()
+    with patch.object(lessons, "refresh") as refresh:
+        assert client.patch("/api/settings", json={"teach_me": on}).status_code == 200
+        assert client.patch("/api/settings", json={"quiz_me": True}).status_code == 200
+    assert refresh.call_count == 1  # only for Teach me
+
+
+@pytest.mark.parametrize(("provider", "shares_cores"), [("local", True), ("claude", False)])
+def test_a_local_llm_writing_a_lesson_takes_its_share_of_the_cores(
+    tmp_path: Path, provider: str, shares_cores: bool
+) -> None:
+    """Review on PR #160: a topic said from its saved part is spoken while the next is written."""
+    save_choice(tmp_path, provider, "k")
+    with patch("imageskin.app.CoreShare") as share:
+        client = riemann_app(tmp_path, TopicLlm(), lessons_ahead=True)
+        assert client.patch("/api/settings", json={"teach_me": True}).status_code == 200
+        client.app.state.lessons.wait()
+    assert client.get("/api/lessons").json()["ready"] is True
+    assert share.return_value.llm.called is shares_cores
+
+
+def test_a_build_under_way_at_the_start_is_followed_by_a_round(tmp_path: Path) -> None:
+    """Review on PR #160: a wiki build begun by catch_up that ends after the first round's
+    check, but before the callbacks were installed, left the lessons unwritten."""
+    first = riemann_app(tmp_path, TopicLlm())
+    assert first.patch("/api/settings", json={"teach_me": True}).status_code == 200
+    wiki_folder = first.app.state.wiki.folder
+    [built] = [p for p in wiki_folder.glob("*.json") if p.stem not in ("pace", "lessons")]
+    built.unlink()  # built again by the next start's catch_up
+    release = threading.Event()
+
+    def held(pdf: str, pieces: list[dict[str, Any]], progress: Any, w: Any) -> Wiki:
+        release.wait(10)
+        return Wiki(2, [WikiPage(f"{pdf}-zeta", "Zeta Function Integral", "Zeta.", [2])])
+
+    class Racing(LessonsAhead):
+        started = False
+
+        def refresh(self) -> None:
+            wiki = self._busy.__self__  # type: ignore[attr-defined]
+            if Racing.started:
+                if wiki._worker is None:  # read without the lock, which a change holds
+                    super().refresh()
+                return  # a round asked for by a change during the build sees it under way
+            Racing.started = True
+            self._round()  # sees the build under way
+            release.set()  # which then ends before refresh returns
+            while self._busy():
+                threading.Event().wait(0.01)
+
+    llm = TopicLlm()
+    with patch("imageskin.app.LessonsAhead", Racing):
+        app = create_app(
+            tmp_path,
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=lambda photo, text, output: None,
+            ask_llm=llm,
+            build_wiki=held,
+            lessons_ahead=True,
+        )
+    app.state.wiki.wait()
+    app.state.lessons.wait()
+    assert app.state.lessons.status()["saved"] == ["Zeta Function Integral"]
+
+
+def test_a_change_during_a_round_starts_it_again(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    writer = Writer()
+    lessons: LessonsAhead
+
+    def write(teach: Teach) -> str:
+        if not writer.asked:
+            lessons.refresh()  # a wiki entry edited while the first was written
+        return writer(teach)
+
+    lessons = LessonsAhead(
+        tmp_path, lambda: {"Zeta": ZETA, "Primes": PRIMES}, write, lambda: True, lambda: False
+    )
+    with caplog.at_level(logging.INFO, logger="imageskin.lessons_ahead"):
+        written(lessons)
+    assert writer.asked == [ZETA, PRIMES] and lessons.status()["ready"] is True
+    first = next(r for r in caplog.records if r.message == "Lessons written ahead")
+    assert first.stopped == "wiki changed"  # type: ignore[attr-defined]

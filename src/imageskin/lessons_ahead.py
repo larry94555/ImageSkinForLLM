@@ -137,9 +137,15 @@ class LessonsAhead:
         for topic, teach in firsts.items():
             with self._lock:
                 changed = self._again
-            if changed or self._busy():
-                # The wiki changed or is being built: the next round, after it, starts again.
-                stopped = "wiki changed" if changed else "wiki being built"
+            # The wiki changed, is being built or Teach me was turned off: the next round,
+            # after it, starts again or says so.
+            if changed:
+                stopped = "wiki changed"
+            elif self._busy():
+                stopped = "wiki being built"
+            elif not self._wanted():
+                stopped = "Teach me turned off"
+            if stopped is not None:
                 break
             k = key(teach)
             if kept.get(topic, {}).get("key") == k:
