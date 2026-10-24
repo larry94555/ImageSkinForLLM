@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, TypeVar
+from typing import Any, NamedTuple, TypeVar
 
 from imageskin.chat import TOKENS_PER_MESSAGE, Count, EmptyReply, LlmError, Message
 from imageskin.wiki import (
@@ -138,8 +138,16 @@ AskForJson = Callable[[list[Message], dict[str, Any]], str]
 # The LLM requests made so far, and those planned in all so far: the topics' and the sections'
 # at first, more as parts are found long enough to open up too.
 OutlineProgress = Callable[[int, int], None]
-# A paragraph of the PDF (or a few sentences of a long one), with its page.
-Unit = tuple[int, str]
+
+
+class Unit(NamedTuple):
+    """A paragraph of the PDF (or a few sentences of a long one), with its page and where it is
+    in the PDF's order (R98b; -1 for text that isn't the PDF's), so two paragraphs with the same
+    words are two units."""
+
+    page: int
+    text: str
+    at: int = -1
 
 
 @dataclass
@@ -163,10 +171,10 @@ class Outliner:
     requests: int = 0
     planned: int = 0
     used: set[str] = field(default_factory=set)
-    # The PDF's paragraphs (its units) in its order, those in an entry so far, and where in that
-    # order each entry starts (R98b).
-    order: dict[Unit, int] = field(default_factory=dict)
-    kept: set[Unit] = field(default_factory=set)
+    # The PDF's paragraphs (its units) in its order, where in that order those in an entry so
+    # far are, and where each entry starts (R98b).
+    paragraphs: list[Unit] = field(default_factory=list)
+    kept: set[int] = field(default_factory=set)
     starts: dict[str, int] = field(default_factory=dict)
 
     def outline(
@@ -178,10 +186,9 @@ class Outliner:
         start = time.perf_counter()
         logger.info("Building wiki outline", extra={"id": self.pdf_id, "topics": len(topics)})
         self.used.update(t.id for t in topics)  # a topic's entry keeps its page's id
-        for p in pieces or []:
-            for u in units(p["page"], p["text"]):
-                self.order.setdefault(u, len(self.order))
-        sources = [self.source(t, pieces or []) for t in topics]
+        every = [u for p in pieces or [] for u in units(p["page"], p["text"])]
+        self.paragraphs = [u._replace(at=n) for n, u in enumerate(every)]
+        sources = [self.source(t) for t in topics]
         for t, source in zip(topics, sources, strict=True):
             if opens(source, 2):
                 batches = self.batches(numbered(source), PARTS_PROMPT, t.title)
@@ -206,10 +213,10 @@ class Outliner:
         )
         return contents
 
-    def source(self, page: WikiPage, pieces: list[dict[str, Any]]) -> list[Unit]:
+    def source(self, page: WikiPage) -> list[Unit]:
         """A topic's detail: what the PDF says on its pages (or the LLM's few sentences on it,
         when nothing was read there)."""
-        source = [u for p in pieces if p["page"] in page.pages for u in units(p["page"], p["text"])]
+        source = [u for u in self.paragraphs if u.page in page.pages]
         return source or units(page.pages[0] if page.pages else 1, page.text)
 
     def entry(
@@ -226,24 +233,24 @@ class Outliner:
         it once opened), and a detail page of its source's parts unless the source is simple
         enough (or the entry is on the last level)."""
         entry_id = entry_id or unique(f"{self.pdf_id}-{slug(title)}", self.used)
-        text = " ".join(t for _, t in source)
+        text = " ".join(u.text for u in source)
         entry = Entry(entry_id, title, text if summary is None else summary, pages)
-        here = [self.order[u] for u in source if u in self.order]
+        here = [u.at for u in source if u.at >= 0]
         if here:
             self.starts[entry_id] = min(here)
         if not opens(source, depth):
-            self.kept.update(source)  # shown as it is, or simple enough for the topic's own text
+            self.kept.update(here)  # shown as it is, or simple enough for the topic's own text
             return entry
         found = self.split(title, source, planned, summarize=summary is None)
         if found is None:
             if summary is None:
-                self.kept.update(source)  # a part that can't be split shows its own words
+                self.kept.update(here)  # a part that can't be split shows its own words
             return entry
         if summary is None:
             entry.summary = found[0]
         for part_title, numbers in found[1]:
             part = [source[n - 1] for n in numbers]
-            part_pages = sorted({p for p, _ in part})
+            part_pages = sorted({u.page for u in part})
             entry.entries.append(self.entry(part_title, None, part, part_pages, depth + 1))
         entry.detail = True
         return entry
@@ -285,22 +292,22 @@ class Outliner:
         own words, at its place in the PDF's order: in the first topic that has its page, or in
         an entry of its own titled from its page when no topic has it. Paragraphs next to each
         other on the same page go back together."""
-        groups: list[tuple[int, list[Unit]]] = []  # by where the first is in the PDF's order
-        for u, n in self.order.items():
-            if u in self.kept:
+        groups: list[list[Unit]] = []
+        for u in self.paragraphs:
+            if u.at in self.kept:
                 continue
-            last = groups[-1] if groups else None
-            if last and last[0] + len(last[1]) == n and last[1][-1][0] == u[0]:
-                last[1].append(u)
+            last = groups[-1][-1] if groups else None
+            if last and last.at + 1 == u.at and last.page == u.page:
+                groups[-1].append(u)
             else:
-                groups.append((n, [u]))
-        for start, group in groups:
-            page = group[0][0]
+                groups.append([u])
+        for group in groups:
+            page = group[0].page
             owner = next((e for t, e in zip(topics, entries, strict=True) if page in t.pages), None)
             title = f"More from page {page}" if owner else f"Page {page}"
             entry_id = unique(f"{self.pdf_id}-{slug(title)}", self.used)
-            self.starts[entry_id] = start
-            entry = Entry(entry_id, title, " ".join(t for _, t in group), [page])
+            self.starts[entry_id] = group[0].at
+            entry = Entry(entry_id, title, " ".join(u.text for u in group), [page])
             if owner:
                 owner.detail = True
                 self.insert(owner.entries, entry)
@@ -310,23 +317,34 @@ class Outliner:
             "Wiki paragraphs put back",
             extra={
                 "id": self.pdf_id,
-                "paragraphs": sum(len(g) for _, g in groups),
-                "pages": sorted({g[0][0] for _, g in groups}),
+                "paragraphs": sum(len(g) for g in groups),
+                "pages": sorted({g[0].page for g in groups}),
             },
         )
         return contents
 
     def insert(self, entries: list[Entry], entry: Entry) -> None:
-        """Puts an entry among others before the first that starts later in the PDF."""
+        """Puts an entry among others before the first that starts later in the PDF; inside a
+        section, among its topics, when the section goes on past it."""
         start = self.start(entry)
         at = next((i for i, e in enumerate(entries) if self.start(e) > start), len(entries))
-        entries.insert(at, entry)
+        before = entries[at - 1] if at else None
+        if before and before.id not in self.starts and self.last(before) > start:
+            before.pages = sorted({*before.pages, *entry.pages})
+            self.insert(before.entries, entry)
+        else:
+            entries.insert(at, entry)
 
     def start(self, entry: Entry) -> float:
         """Where an entry starts in the PDF's order: its own, or its first part's (a section's)."""
         if entry.id in self.starts:
             return self.starts[entry.id]
         return min((self.start(e) for e in entry.entries), default=float("inf"))
+
+    def last(self, entry: Entry) -> float:
+        """Where the last of an entry and its parts starts in the PDF's order."""
+        own = self.starts.get(entry.id, float("-inf"))
+        return max([own, *(self.last(e) for e in entry.entries)])
 
     def contents_lines(self, topics: list[WikiPage]) -> list[str]:
         return [f"{n}. {t.title}: {first_sentence(t.text)}" for n, t in enumerate(topics, 1)]
@@ -514,11 +532,11 @@ def read_summary(answer: str) -> str | None:
 
 def opens(source: list[Unit], depth: int) -> bool:
     """Whether an entry on this level gets a detail page of its source's parts."""
-    return depth < MAX_DEPTH and len(source) > 1 and not simple(" ".join(t for _, t in source))
+    return depth < MAX_DEPTH and len(source) > 1 and not simple(" ".join(u.text for u in source))
 
 
 def numbered(source: list[Unit]) -> list[str]:
-    return [f"{n}. {text}" for n, (_, text) in enumerate(source, 1)]
+    return [f"{n}. {u.text}" for n, u in enumerate(source, 1)]
 
 
 def units(page: int, text: str) -> list[Unit]:
@@ -534,11 +552,11 @@ def units(page: int, text: str) -> list[Unit]:
     group: list[str] = []
     for piece in pieces:
         if group and not simple(" ".join([*group, piece])):
-            found.append((page, " ".join(group)))
+            found.append(Unit(page, " ".join(group)))
             group = []
         group.append(piece)
     if group:
-        found.append((page, " ".join(group)))
+        found.append(Unit(page, " ".join(group)))
     return found
 
 

@@ -1,6 +1,7 @@
 import json
 import logging
 import urllib.error
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -262,11 +263,11 @@ def test_an_unreachable_llm_is_waited_for_and_a_refusal_passed_on() -> None:
 
 def test_a_long_paragraph_is_cut_into_pieces_short_enough_to_show() -> None:
     assert units(3, LONG) == [
-        (3, LONG.split(" Sentence 6")[0]),
-        (3, "Sentence 6" + LONG.split(" Sentence 6")[1]),
+        Unit(3, LONG.split(" Sentence 6")[0]),
+        Unit(3, "Sentence 6" + LONG.split(" Sentence 6")[1]),
     ]
     cut_up = units(1, "word " * 140)  # one sentence of 700 characters
-    assert len(cut_up) == 2 and all(len(t) <= SIMPLE_CHARS for _, t in cut_up)
+    assert len(cut_up) == 2 and all(len(u.text) <= SIMPLE_CHARS for u in cut_up)
     assert units(1, "  ") == []
 
 
@@ -427,14 +428,17 @@ def leaves(entries: list[Entry]) -> list[Entry]:
     return [leaf for e in entries for leaf in (leaves(e.entries) if e.entries else [e])]
 
 
-def lost(found: list[Entry], topics: list[WikiPage], pieces: list[dict[str, Any]]) -> list[Unit]:
-    """The PDF's paragraphs in no entry: neither in an entry's own words nor on the pages of a
-    topic shown as it is (the PDF says little there)."""
+def lost(found: list[Entry], topics: list[WikiPage], pieces: list[dict[str, Any]]) -> list[str]:
+    """The PDF's paragraphs in no entry, counted one by one, so a paragraph whose words come twice
+    must be in the entries' own words twice; a paragraph on the pages of a topic shown as it is
+    (the PDF says little there) is in that topic."""
     ids = {t.id for t in topics}
     words = "\n".join(e.summary for e in leaves(found) if e.id not in ids)
     whole = {p for e in leaves(found) if e.id in ids for p in e.pages}
-    every = [u for p in pieces for u in units(p["page"], p["text"])]
-    return [(page, text) for page, text in every if text not in words and page not in whole]
+    every = Counter(
+        u.text for p in pieces for u in units(p["page"], p["text"]) if u.page not in whole
+    )
+    return [text for text, n in every.items() if words.count(text) < n]
 
 
 def test_paragraphs_left_out_are_put_back_at_their_place_in_the_pdf(
@@ -537,3 +541,26 @@ def test_a_part_that_cannot_be_split_keeps_its_own_words_and_nothing_is_put_back
     found = outliner(llm).outline([topic(1, "Few.")], pieces)
     assert [e.title for e in found[0].entries] == ["Deep", "Flat"]
     assert found[0].entries[0].summary == " ".join(p["text"] for p in pieces[:6])
+
+
+def test_the_same_words_twice_on_a_page_are_two_paragraphs_and_both_are_kept() -> None:
+    pieces = [piece(1, "One. Two. Three."), piece(1, "Warning."), piece(1, "Four. Five.")]
+    pieces.append(piece(1, "Warning."))
+    llm = Llm(parts(("Start", [1, 2]), ("Five", [3])))  # only the first "Warning."
+    found = outliner(llm).outline([topic(1, "Few.")], pieces)
+    assert [(e.title, e.summary) for e in found[0].entries] == [
+        ("Start", "One. Two. Three. Warning."),
+        ("Five", "Four. Five."),
+        ("More from page 1", "Warning."),
+    ]
+    assert lost(found, [topic(1)], pieces) == []
+
+
+def test_a_page_with_no_topic_inside_a_section_goes_among_its_topics() -> None:
+    topics = [topic(1, "Short."), topic(3, "Short."), topic(4), topic(5)]
+    pieces = [piece(1, "One."), piece(2, "Two."), piece(3, "Three."), piece(4, "Four.")]
+    llm = Llm(sections(("Both", "S.", [1, 2]), ("Rest", "S.", [3, 4])))
+    found = outliner(llm).outline(topics, pieces)
+    assert [e.title for e in found] == ["Both", "Rest"]
+    assert [e.title for e in found[0].entries] == ["Topic 1", "Page 2", "Topic 3"]
+    assert found[0].pages == [1, 2, 3]
