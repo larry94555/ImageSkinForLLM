@@ -150,7 +150,7 @@ def test_a_build_starting_partway_stops_the_round(
     assert (done.stopped, done.missing) == ("wiki being built", 1)  # type: ignore[attr-defined]
     building[0] = False
     writer.answer = "{0}."
-    lessons._write = writer  # type: ignore[method-assign]
+    lessons._write = writer
     assert written(lessons).status()["ready"] is True
 
 
