@@ -180,6 +180,8 @@ class StartNowRequest(BaseModel):
     face: int = 1  # R24c2
 
 
+# How long Delete my data waits for a PDF being read to stop at its next page (R31a).
+READING_STOP_S = 10.0
 # A request that waited for Delete my data (roadmap R31) and would write the person's data again.
 DELETED_MEANWHILE = "Your data was deleted while this was waiting. Start setup again."
 OWN_NOT_ACCEPTED = "Accept the sample video of your own photo and voice at the end of setup first."
@@ -2108,6 +2110,12 @@ def create_app(
                 pass  # logged; delete_my_data lists the PDF as left
             readings.forget(pdf.id)
             wiki.forget(pdf.id)
+        # A reading under way stops at its next page and lets its private copy go, which
+        # Windows couldn't delete while it is open (Codex's review).
+        readings.wait(READING_STOP_S)
+        # A round of lessons under way, or the one wiki.forget asked for, saves nothing now.
+        if lessons is not None:
+            lessons.forget()
         logger.info(
             "PDFs forgotten",
             extra={

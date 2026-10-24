@@ -478,3 +478,29 @@ def test_a_change_during_a_round_starts_it_again(
     assert writer.asked == [ZETA, PRIMES] and lessons.status()["ready"] is True
     first = next(r for r in caplog.records if r.message == "Lessons written ahead")
     assert first.stopped == "wiki changed"  # type: ignore[attr-defined]
+
+
+def test_a_round_under_way_saves_nothing_once_forgotten(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Delete my data (R31a) forgets the lessons while a part is being written: the round
+    saves nothing, so the file is not made again (Codex's review)."""
+    writing, release = threading.Event(), threading.Event()
+    writer = Writer()
+
+    def slow(teach: Teach) -> str:
+        writing.set()
+        release.wait(5)
+        return writer(teach)
+
+    lessons = LessonsAhead(tmp_path / "wiki", lambda: {"Zeta": ZETA}, slow, lambda: True, bool)
+    lessons.refresh()
+    assert writing.wait(5)
+    with caplog.at_level(logging.INFO):
+        lessons.forget()
+        release.set()
+        lessons.wait()
+    assert not (tmp_path / "wiki").exists()
+    assert "Lessons forgotten" in caplog.text and "forgotten meanwhile" in caplog.text
+    # A round asked for afterwards writes as before.
+    assert written(lessons).status()["saved"] == ["Zeta"]

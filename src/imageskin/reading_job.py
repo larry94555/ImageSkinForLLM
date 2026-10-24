@@ -43,6 +43,10 @@ class ReadingStatus:
     error: str | None = None  # why it failed
 
 
+class ReadingStopped(Exception):
+    """Raised between pages to stop reading a PDF that was removed."""
+
+
 def version(pdf: Pdf) -> str:
     return pdf.replaced_at or pdf.added_at
 
@@ -76,6 +80,8 @@ class ReadingJob:
         self._waiting: list[str] = []
         self._status: dict[str, ReadingStatus] = {}
         self._worker: threading.Thread | None = None
+        self._reading: str | None = None  # the PDF being read
+        self._cancel = threading.Event()  # set to stop reading it, at its next page
 
     def catch_up(self) -> None:
         """Queue every PDF whose reading is missing or out of date."""
@@ -93,8 +99,11 @@ class ReadingJob:
                 self._worker.start()
 
     def forget(self, pdf_id: str) -> None:
-        """After a PDF is removed: its reading goes too."""
+        """After a PDF is removed: its reading goes too, and one under way stops at its next
+        page, so its private copy is let go (Delete my data, R31a)."""
         with self._lock:
+            if self._reading == pdf_id:
+                self._cancel.set()
             self._status.pop(pdf_id, None)
             if pdf_id in self._waiting:
                 self._waiting.remove(pdf_id)
@@ -119,7 +128,7 @@ class ReadingJob:
         return self._saved(pdf) if pdf else None
 
     def wait(self, timeout: float = 30) -> None:
-        """Until every queued PDF is read (tests and the command line)."""
+        """Until every queued PDF is read (tests, the command line and Delete my data)."""
         worker = self._worker
         if worker is not None:
             worker.join(timeout)
@@ -157,24 +166,38 @@ class ReadingJob:
         tmp = self.store.root / "tmp"
         tmp.mkdir(parents=True, exist_ok=True)
         copy = tmp / f"{uuid.uuid4().hex}.reading"
+        with self._lock:
+            self._reading = pdf_id
+            self._cancel = threading.Event()
         try:
             pdf = self.store.snapshot(pdf_id, copy)
             if pdf is not None:
-                self._read_copy(pdf, copy)
+                self._read_copy(pdf, copy, self._cancel)
         finally:
             copy.unlink(missing_ok=True)
+            with self._lock:
+                self._reading = None
 
-    def _read_copy(self, pdf: Pdf, path: Path) -> None:
+    def _read_copy(self, pdf: Pdf, path: Path, cancel: threading.Event) -> None:
         start = time.perf_counter()
         logger.info("Reading PDF", extra={"id": pdf.id, "upload_name": pdf.name})
 
         def progress(page: int, pages: int) -> None:
+            if cancel.is_set():
+                raise ReadingStopped
             self._set(pdf.id, ReadingStatus("reading", page, pages))
 
         self._set(pdf.id, ReadingStatus("reading"))
         try:
             reading = self.read(path, progress)
+        except ReadingStopped:
+            # read_pdf wraps it in a ReadingError; another reader may not.
+            logger.info("PDF reading stopped: the PDF was removed", extra={"id": pdf.id})
+            return
         except ReadingError as e:
+            if isinstance(e.__cause__, ReadingStopped):
+                logger.info("PDF reading stopped: the PDF was removed", extra={"id": pdf.id})
+                return
             logger.error(
                 "Could not read the PDF",
                 extra={"id": pdf.id, "upload_name": pdf.name, "error": repr(e.__cause__ or e)},

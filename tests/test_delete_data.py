@@ -12,7 +12,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from test_chat import chat_app
+from test_lessons_ahead import TopicLlm
 from test_prepare_job import make_job
+from test_topics import riemann_app
 from test_uploads import PNG
 from test_wiki_job import PDF, one_page_per_piece, settle, two_pages
 
@@ -20,6 +22,7 @@ from imageskin.app import DELETED_MEANWHILE, create_app
 from imageskin.chat import CLEAR_FAILED, ClearFailed
 from imageskin.delete_data import PERSONAL, Deleted, delete_my_data
 from imageskin.lessons_ahead import LESSONS_FILE
+from imageskin.pdf_reading import Progress, Reading
 from imageskin.prepare_job import (
     SAMPLE_BEING_MADE,
     WAIT_TO_DELETE,
@@ -429,3 +432,65 @@ def test_a_prepare_refusing_the_delete_keeps_the_pdfs(tmp_path: Path) -> None:
     assert client.delete("/api/data").status_code == 409
     assert [p["id"] for p in client.get("/api/content").json()] == [pdf_id]
     assert client.get("/api/wiki").json()
+
+
+def test_a_lesson_being_written_during_the_delete_saves_nothing_after_it(tmp_path: Path) -> None:
+    """With Teach me on, a lesson part the LLM is writing when the data is deleted is not saved
+    once it is done, so no content folder comes back (Codex's review)."""
+    writing, release = threading.Event(), threading.Event()
+
+    class SlowLlm(TopicLlm):
+        def __call__(self, messages: list[Any]) -> str:
+            if "main ideas of" in messages[-1]["content"]:
+                writing.set()
+                release.wait(5)
+            return super().__call__(messages)
+
+    client = riemann_app(tmp_path, SlowLlm(), lessons_ahead=True)
+    lessons = client.app.state.lessons
+    assert client.patch("/api/settings", json={"teach_me": True}).status_code == 200
+    assert writing.wait(5)
+    answer = client.delete("/api/data")
+    release.set()
+    lessons.wait()
+    assert answer.status_code == 200 and answer.json()["left"] == []
+    assert not (tmp_path / "content").exists()
+    assert client.get("/api/lessons").json()["saved"] == []
+
+
+def test_a_pdf_being_read_during_the_delete_stops_and_leaves_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A reading under way stops at its next page and lets its private copy go before the
+    content folder is removed. The copy is kept open as Windows would, refusing to delete it
+    while it is read (Codex's review)."""
+    reading = threading.Event()
+    open_copies: set[Path] = set()
+
+    def slow_reader(path: Path, progress: Progress) -> Reading:
+        open_copies.add(path)
+        try:
+            for page in range(1, 501):  # 10 s in all, unless stopped
+                progress(page, 500)
+                reading.set()
+                threading.Event().wait(0.02)
+            return two_pages(path, progress)
+        finally:
+            open_copies.discard(path)
+
+    unlink = Path.unlink
+
+    def as_on_windows(self: Path, missing_ok: bool = False) -> None:
+        if self in open_copies:
+            raise PermissionError("in use by another program")
+        unlink(self, missing_ok)
+
+    client = TestClient(create_app(tmp_path, read_pdf=slow_reader, build_wiki=one_page_per_piece))
+    client.post("/api/content", files={"file": ("w.pdf", PDF, "application/pdf")})
+    assert reading.wait(5)
+    with patch.object(Path, "unlink", as_on_windows), caplog.at_level(logging.INFO):
+        answer = client.delete("/api/data")
+    assert answer.status_code == 200 and answer.json()["left"] == []
+    assert not (tmp_path / "content").exists()
+    assert "PDF reading stopped" in caplog.text
+    assert client.get("/api/content/readings").json() == {}

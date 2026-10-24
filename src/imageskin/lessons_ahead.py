@@ -65,6 +65,7 @@ class LessonsAhead:
         self._lock = threading.Lock()
         self._again = False  # a round was asked for since the last one began
         self._ready = False  # the last round saved every topic's part, with none asked since
+        self._forgotten = 0  # how many times forget() was called: a round from before saves nothing
         self._worker: threading.Thread | None = None
 
     def saved(self, topic: str, teach: Teach) -> list[str] | None:
@@ -96,6 +97,14 @@ class LessonsAhead:
                 self._worker = threading.Thread(target=self._run, name="lessons", daemon=True)
                 self._worker.start()
 
+    def forget(self) -> None:
+        """Delete my data (R31a): the saved parts go, and a round under way, perhaps waiting
+        for the LLM, saves nothing more, so the file is never made again from before."""
+        with self._lock:
+            self._forgotten += 1
+            self.path.unlink(missing_ok=True)
+        logger.info("Lessons forgotten")
+
     def wait(self, timeout: float = 30) -> None:
         """Until the rounds asked for are done (tests)."""
         end = time.monotonic() + timeout
@@ -126,11 +135,13 @@ class LessonsAhead:
             logger.info("Lessons wait for the wiki to be built")  # a round follows the build
             return
         start = time.perf_counter()
+        with self._lock:
+            forgotten = self._forgotten
         firsts = self._first_parts()
         saved = self._load()
         kept = {topic: lesson for topic, lesson in saved.items() if topic in firsts}
         if len(kept) < len(saved):
-            self._save(kept)
+            self._save(kept, forgotten)
             logger.info("Lessons dropped", extra={"topics": sorted(set(saved) - set(kept))})
         written = 0
         stopped = None  # why the round stopped before the last topic
@@ -167,7 +178,7 @@ class LessonsAhead:
                 logger.warning("Lesson not saved: the LLM wrote nothing", extra={"topic": topic})
                 continue
             kept[topic] = {"key": k, "text": text}
-            if not self._save(kept):
+            if not self._save(kept, forgotten):
                 stopped = "not saved"
                 break
             written += 1
@@ -205,7 +216,16 @@ class LessonsAhead:
         lessons = saved.get("lessons")
         return lessons if isinstance(lessons, dict) else {}
 
-    def _save(self, lessons: dict[str, dict[str, Any]]) -> bool:
+    def _save(self, lessons: dict[str, dict[str, Any]], forgotten: int) -> bool:
+        """Whether the parts were saved: not when it failed, or forget() was called since the
+        round began (`forgotten` is the count then)."""
+        with self._lock:
+            if self._forgotten != forgotten:
+                logger.info("Lessons not saved: forgotten meanwhile")
+                return False
+            return self._write_file(lessons)
+
+    def _write_file(self, lessons: dict[str, dict[str, Any]]) -> bool:
         writing = self.path.with_suffix(".writing")
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)

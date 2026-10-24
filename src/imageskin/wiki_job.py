@@ -659,7 +659,7 @@ class WikiJob:
             wiki = self.build(pdf_id, reading["pieces"], progress, wait_for_llm)
             parts = wiki.parts
             if parts:
-                self._save_pace((time.monotonic() - parts_started) / parts)
+                self._save_pace(pdf_id, (time.monotonic() - parts_started) / parts)
 
             planned = 0
 
@@ -776,15 +776,20 @@ class WikiJob:
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
-    def _save_pace(self, part_s: float) -> None:
+    def _save_pace(self, pdf_id: str, part_s: float) -> None:
         self._part_s = part_s
-        try:
-            self.folder.mkdir(parents=True, exist_ok=True)
-            (self.folder / PACE_FILE).write_text(
-                json.dumps({"part_s": round(part_s, 1)}), encoding="utf-8"
-            )
-        except OSError as e:
-            logger.error("Could not save the wiki's pace", extra={"error": str(e)})
+        # Under the lock forget() takes, and not for a PDF removed meanwhile, so Delete my data
+        # never finds the file made again after it (R31a).
+        with self._lock:
+            if self.store.get(pdf_id) is None:
+                return
+            try:
+                self.folder.mkdir(parents=True, exist_ok=True)
+                (self.folder / PACE_FILE).write_text(
+                    json.dumps({"part_s": round(part_s, 1)}), encoding="utf-8"
+                )
+            except OSError as e:
+                logger.error("Could not save the wiki's pace", extra={"error": str(e)})
         logger.info("Wiki pace", extra={"part_s": round(part_s, 1)})
 
     def _stepped(self, pdf_id: str) -> None:
