@@ -715,3 +715,21 @@ The sample PDF, on 4 cores with R97's llama-server settings, on main and on this
 
 The topics are the same apart from the LLM's wording and how it splits the zeta function's
 pages: both runs vary this much from run to run (see R97's results).
+
+### Larry's hosted machine, 2026-10-24
+
+[wiki-r98-host-2026-10-24.md](wiki-r98-host-2026-10-24.md), `imageskin time-pdf` with the sample
+PDF on app.me0.ai (4 Ampere cores, Gemma 3 4B Q4_0 with R97's settings), with this
+branch:
+
+| | R96a (2026-10-22) | R98 |
+|---|---|---|
+| Wiki parts, topics | 11, 47 | 3, 18 |
+| Outline steps | 96 | 23 |
+| Tokens written | 35,525 | 5,039 |
+| **PDF to wiki** | **about 3 hours** | **20.8 min** |
+
+R96a's run predates PR #148, which made the parts three times the size, and R97, which R97's
+own hosted run put at 59 minutes for this PDF. Every answer was usable and none was asked twice.
+The answers after the wiki had their first word heard 12.6 to 14.5 s after the prompt, and
+"What can you talk about?" at 2.3 s.
