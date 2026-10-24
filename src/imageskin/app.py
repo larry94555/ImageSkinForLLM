@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -1217,14 +1217,13 @@ def create_app(
 
     # Claude and the other providers run elsewhere, so the engines keep every core while they
     # write (review on PR #111). Asked at each request, as the LLM can be changed (R42).
-    # The local LLM also writes the reply before the wiki's request (R99).
-    @contextmanager
-    def llm_busy() -> Iterator[None]:
-        if not switchable.local:
-            yield
-            return
-        with core_share.llm(), replies_first.reply():
-            yield
+    def llm_busy() -> AbstractContextManager[object]:
+        return core_share.llm() if switchable.local else nullcontext()
+
+    # The chat's requests to the local LLM go before the wiki's (R99): only the requests
+    # themselves, so a reply made without the LLM, such as the topics, leaves the wiki alone.
+    def local() -> bool:
+        return switchable.local
 
     # Each prompt is looked up in the wiki and PDFs, and the LLM answers from what is found (R40).
     content_lookup = ContentLookup(wiki, readings)
@@ -1270,10 +1269,10 @@ def create_app(
 
     if client is not None:
         conversation = Conversation(
-            client.ask,
+            replies_first.asking(client.ask, local),
             client.context_tokens,
             client.count,
-            client.stream,
+            replies_first.streaming(client.stream, local),
             client.warm_up,
             llm_busy=llm_busy,
             find=find_content,
@@ -1285,9 +1284,9 @@ def create_app(
     else:
         assert ask_llm is not None
         conversation = Conversation(
-            ask_llm,
+            replies_first.asking(ask_llm, local),
             lambda: llm.context_tokens,
-            stream=stream_llm,
+            stream=stream_llm and replies_first.streaming(stream_llm, local),
             warm_up=warm_up_llm,
             llm_busy=llm_busy,
             find=find_content,

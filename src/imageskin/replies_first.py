@@ -16,7 +16,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any, TypeVar
 
 from imageskin.chat import LlmCancelled, ask_stop
@@ -49,7 +49,9 @@ class _CutOff(threading.Event):
 
 
 class RepliesFirst:
-    """Holds the wiki's LLM requests back while a chat reply is being written."""
+    """Holds the wiki's LLM requests back while a chat reply is being written. Only the chat's
+    requests to the LLM count (`asking`, `streaming`): a reply made without it, such as the
+    topics, doesn't cut the wiki off."""
 
     def __init__(self) -> None:
         self._changed = threading.Condition()
@@ -72,6 +74,26 @@ class RepliesFirst:
             with self._changed:
                 self._replies -= 1
                 self._changed.notify_all()
+
+    def asking(self, ask: Callable[..., T], local: Callable[[], bool]) -> Callable[..., T]:
+        """`ask` for the chat: while it waits for the local LLM, the wiki's requests wait."""
+
+        def asked(*args: Any, **kwargs: Any) -> T:
+            with self.reply() if local() else nullcontext():
+                return ask(*args, **kwargs)
+
+        return asked
+
+    def streaming(
+        self, stream: Callable[..., Iterator[str]], local: Callable[[], bool]
+    ) -> Callable[..., Iterator[str]]:
+        """`stream` for the chat: the wiki's requests wait until the reply is written."""
+
+        def streamed(*args: Any, **kwargs: Any) -> Iterator[str]:
+            with self.reply() if local() else nullcontext():
+                yield from stream(*args, **kwargs)
+
+        return streamed
 
     def wiki(self, ask: Callable[..., T]) -> Callable[..., T]:
         """`ask` for the wiki: it waits while a reply is written, and a request cut off by a

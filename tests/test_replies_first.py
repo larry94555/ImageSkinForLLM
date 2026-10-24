@@ -250,3 +250,62 @@ def test_the_app_writes_a_reply_before_the_wiki_asks_the_llm(tmp_path: Path) -> 
     app.state.wiki.wait()
     assert replies == [200]
     assert calls[:2] == ["chat asked", "chat answered"] and "wiki" in calls[2:]
+
+
+def test_only_the_chats_requests_to_the_local_llm_go_first() -> None:
+    replies = RepliesFirst()
+    seen: list[bool] = []
+    local = [True]
+
+    def ask(*args: object, **kwargs: object) -> str:
+        seen.append(bool(replies._replies))
+        return "Rain."
+
+    def stream(*args: object, **kwargs: object) -> Iterator[str]:
+        seen.append(bool(replies._replies))
+        yield "Rain."
+
+    asked = replies.asking(ask, lambda: local[0])
+    streamed = replies.streaming(stream, lambda: local[0])
+    assert asked("Hi") == "Rain." and list(streamed("Hi")) == ["Rain."]
+    local[0] = False  # a provider answers both at once, elsewhere
+    assert asked("Hi") == "Rain." and list(streamed("Hi")) == ["Rain."]
+    assert seen == [True, True, False, False] and replies._replies == 0
+
+
+def test_a_reply_made_without_the_llm_leaves_the_wiki_request_alone(tmp_path: Path) -> None:
+    wiki_asking, wiki_may_answer = threading.Event(), threading.Event()
+    stops: list[bool] = []
+
+    def llm(messages: list[Message]) -> str:
+        if threading.current_thread().name == "wiki":
+            if not wiki_asking.is_set():
+                wiki_asking.set()
+                assert wiki_may_answer.wait(5)
+                stop = ask_stop.get()
+                stops.append(stop is not None and stop.is_set())
+            return '{"topics": []}'
+        return "Two moons."
+
+    def lesson(path: Path, progress: Progress) -> Reading:
+        return Reading("text", 1, [Piece(1, "paragraph", "Phobos and Deimos circle Mars.")], [])
+
+    app = create_app(
+        tmp_path,
+        check_photo=lambda p: PhotoResult([], 80),
+        prepare_voice=lambda: None,
+        prepare_face=lambda photo, progress: None,
+        render_clip=lambda photo, text, output: None,
+        ask_llm=llm,
+        read_pdf=lesson,
+    )
+    client = TestClient(app)
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/content", files={"file": ("space.pdf", io.BytesIO(PDF))})
+    assert wiki_asking.wait(5)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        reply = client.post("/api/chat", json={"prompt": "What can you talk about?"})
+    wiki_may_answer.set()
+    app.state.wiki.wait()
+    assert reply.status_code == 200
+    assert stops == [False]  # answered from the topics, so the wiki's request wasn't cut off
