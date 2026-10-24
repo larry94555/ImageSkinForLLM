@@ -32,6 +32,7 @@ DEFAULT_QUESTIONS = (
 POLL_S = 0.1  # how often the reading and the wiki are asked how far they have got
 BUILD_LIMIT_S = 4 * 60 * 60  # a PDF that takes longer than this to read and build is given up
 UPLOAD_TIMEOUT_S = 120
+LESSONS_LIMIT_S = 30 * 60  # how long the first lesson parts written ahead are waited for
 
 
 def upload(base: str, path: Path, pdf_id: str | None = None) -> dict[str, Any]:
@@ -120,6 +121,29 @@ def process(
         "steps": wiki.get("timings") or [],
         "asked_during_build": asked,
     }
+
+
+def wait_for_lessons(base: str) -> float | None:
+    """Wait for the first lesson parts written ahead once the wiki is built (R98a), so Teach me
+    is timed as a participant who picks a topic later finds it. Milliseconds waited, or None
+    when the app writes none (Teach me off, or an app from before R98a)."""
+    start = time.perf_counter()
+    while time.perf_counter() < start + LESSONS_LIMIT_S:
+        try:
+            status = ask(base + "/api/lessons")
+        except urllib.error.HTTPError:
+            return None
+        if not status.get("wanted"):
+            return None
+        if not status.get("writing") and status.get("saved"):
+            waited = time_reply.ms(time.perf_counter(), start)
+            logger.info(
+                "Lessons written ahead", extra={"saved": len(status["saved"]), "wait_ms": waited}
+            )
+            return waited
+        time.sleep(POLL_S)
+    logger.warning("Lessons not written ahead in time", extra={"limit_s": LESSONS_LIMIT_S})
+    return time_reply.ms(time.perf_counter(), start)
 
 
 def step_rows(steps: list[dict[str, Any]]) -> list[list[object]]:
@@ -234,6 +258,12 @@ def markdown(results: dict[str, Any], llm_name: str) -> str:
         out += time_reply.replies_markdown([during], "###")
         out.append("")
     out += ["## Answers from the wiki", "", "All times in milliseconds from the prompt being sent."]
+    if results.get("lessons_ms") is not None:
+        out += [
+            "",
+            f"The longer requests were asked once the lessons written ahead were saved,"
+            f" {round(results['lessons_ms'])} ms after the last question was answered.",
+        ]
     out += [""] + time_reply.replies_markdown(results["answers"], "###")
     if results.get("replaced"):
         out += [""] + pdf_markdown(results["replaced"], "The PDF replaced by itself")
@@ -274,8 +304,10 @@ def run(
     try:
         results["pdf"] = process(base, path, questions[0] if questions else None, added)
         prompts = [(q, i == spoken) for i, q in enumerate(questions, 1)]
-        prompts += [(q, False) for q in longer_requests(results["pdf"]["topic"])]
-        for prompt, said in prompts:
+        longer = [(q, False) for q in longer_requests(results["pdf"]["topic"])]
+        for n, (prompt, said) in enumerate(prompts + longer):
+            if n == len(prompts):  # Teach me after its first parts are written (R98a)
+                results["lessons_ms"] = wait_for_lessons(base)
             results["answers"].append(time_reply.summarize(time_reply.measure(base, prompt, said)))
         if replace:
             results["replaced"] = process(base, path, None, added, results["pdf"]["pdf_id"])

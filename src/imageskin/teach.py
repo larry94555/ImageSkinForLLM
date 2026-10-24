@@ -252,6 +252,14 @@ class Tutor:
     def _topics(self) -> dict[str, list[Part]]:
         return lesson_topics(self._contents())
 
+    def first_parts(self) -> dict[str, Teach]:
+        """Each topic's first part, its main ideas, as a lesson starting there asks the LLM
+        for it, so it can be written ahead (R98a)."""
+        return {
+            topic: Teach(explain(topic, parts, 0), self.material(topic, parts, 0))
+            for topic, parts in self._topics().items()
+        }
+
     def _start(
         self, asked: re.Match[str], topics: dict[str, list[Part]], lesson: Lesson | None
     ) -> Step:

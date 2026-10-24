@@ -41,6 +41,7 @@ from imageskin.chat import (
     Message,
     PromptStop,
     StreamLlm,
+    Teach,
     ask_stop,
     estimate,
 )
@@ -52,6 +53,7 @@ from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
+from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
     ModelListError,
@@ -459,6 +461,9 @@ def create_app(
     chatgpt: ChatGptSignIn | None = None,
     # When each part of the start began and ended (R96c); `imageskin serve` passes its own.
     startup: StartupTimes | None = None,
+    # Whether each topic's first lesson part is written ahead (R98a); left out, it is with the
+    # app's own LLM and not with a test's `ask_llm`, whose replies the tests count.
+    lessons_ahead: bool | None = None,
 ) -> FastAPI:
     startup = startup or StartupTimes()
     startup.begin("app made")
@@ -548,7 +553,10 @@ def create_app(
     @app.patch("/api/settings")
     def patch_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, object]:
         try:
-            return asdict(save_ui_settings(data_home, changes, ui_defaults))
+            saved = asdict(save_ui_settings(data_home, changes, ui_defaults))
+            if changes.get("teach_me") is True and app.state.lessons is not None:
+                app.state.lessons.refresh()  # Teach me turned on: its lessons are written (R98a)
+            return saved
         except ValueError as e:
             logger.warning("Settings change refused", extra={"error": str(e)})
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1296,10 +1304,6 @@ def create_app(
             saved=data_home / CONVERSATION_FILE,
         )
 
-    # Wiki builds use the LLM too, which can push the chat's system prompt out of llama-server's
-    # memory; it is read again once they are done.
-    wiki.when_idle = conversation.warm_up
-
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.
     @app.get("/api/llm")
     def get_llm() -> dict[str, Any]:
@@ -1628,6 +1632,47 @@ def create_app(
         )
 
     tutor = Tutor(wiki.contents, find_content, topics_complete)
+
+    # Each topic's first lesson part, written ahead once the wiki is built (R98a), after the
+    # chat's requests to the LLM (R99).
+    plain_ask = client.ask if client is not None else ask_llm
+    assert plain_ask is not None
+    lesson_ask = replies_first.wiki(plain_ask)
+
+    def write_lesson(teach: Teach) -> str:
+        with pinned(client):
+            return lesson_ask(conversation.asked_alone(teach))
+
+    lessons = None
+    if lessons_ahead or (lessons_ahead is None and ask_llm is None):
+        lessons = LessonsAhead(
+            wiki.folder,
+            tutor.first_parts,
+            write_lesson,
+            lambda: load_ui_settings(data_home, ui_defaults).teach_me,
+            wiki.building,
+        )
+        wiki.when_changed = lessons.refresh
+        lessons.refresh()  # those missing since the last start
+    app.state.lessons = lessons
+
+    def when_wiki_idle() -> None:
+        # Wiki builds use the LLM too, which can push the chat's system prompt out of
+        # llama-server's memory; it is read again once they are done, then the lessons are
+        # written.
+        conversation.warm_up()
+        if lessons is not None:
+            lessons.refresh()
+
+    wiki.when_idle = when_wiki_idle
+
+    @app.get("/api/lessons")
+    def lessons_status() -> dict[str, Any]:
+        """Whether the lessons are being written ahead, and the topics saved (R98a)."""
+        if lessons is None:
+            return {"wanted": False, "writing": False, "saved": []}
+        return lessons.status()
+
     quizzer = Quizzer(wiki.contents, find_content, conversation.write, topics_complete)
     assessor = Assessor(wiki.contents, find_content, conversation.write, topics_complete)
 
@@ -1706,7 +1751,15 @@ def create_app(
                 reply, turn = conversation.say(body.prompt, step.sentences, clips)
                 lesson, choices = step.lesson, step.choices
             elif isinstance(step, Explain):
-                reply, turn = conversation.send(body.prompt, clips, step.teach)
+                ahead = None if lessons is None else lessons.saved(step.lesson.topic, step.teach)
+                if ahead is not None:  # its first part, written ahead (R98a)
+                    logger.info(
+                        "Lesson from the saved part",
+                        extra={"topic": step.lesson.topic, "sentences": len(ahead)},
+                    )
+                    reply, turn = conversation.say(body.prompt, ahead, clips)
+                else:
+                    reply, turn = conversation.send(body.prompt, clips, step.teach)
                 lesson = step.lesson
                 if step.kind == "summary" and settings.quiz_me:  # a quick quiz on the topic
                     topic = step.lesson.topic

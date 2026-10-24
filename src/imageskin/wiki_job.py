@@ -122,6 +122,8 @@ class WikiJob:
         outline: BuildOutline | None = None,  # None: the topics as they are
         retry_s: float = RETRY_S,
         when_idle: Callable[[], None] | None = None,  # after the last build in the queue
+        # After the wiki changes: built, edited, gone back to, loaded or removed (R98a).
+        when_changed: Callable[[], None] | None = None,
     ) -> None:
         self.store = store
         self.readings = readings
@@ -131,6 +133,7 @@ class WikiJob:
         )
         self.retry_s = retry_s
         self.when_idle = when_idle
+        self.when_changed = when_changed
         self.folder = store.root / "wiki"
         self.edits = WikiEdits(self.folder)
         self.history = WikiHistory(self.folder, WIKI_FORMAT)
@@ -201,6 +204,7 @@ class WikiJob:
             (self.folder / f"{pdf_id}.json").unlink(missing_ok=True)
         self.edits.forget(pdf_id)
         self.history.forget(pdf_id)
+        self._changed()
 
     def rebuild(self, pdf_id: str) -> bool:
         """Builds a PDF's wiki again with the LLM (R38), keeping the user's edits; whether it
@@ -393,6 +397,16 @@ class WikiJob:
         saved = self._stored(pdf_id)
         if saved is not None:
             self._keep_version(pdf_id, saved, kind, **about)
+        self._changed()
+
+    def _changed(self) -> None:
+        if self.when_changed is not None:
+            self.when_changed()
+
+    def building(self) -> bool:
+        """Whether a wiki is being built or waits to be."""
+        with self._lock:
+            return self._worker is not None
 
     def _keep_version(self, pdf_id: str, saved: dict[str, Any], kind: Kind, **about: str) -> None:
         try:
