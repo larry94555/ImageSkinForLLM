@@ -711,8 +711,11 @@ export function PrepareSection(props: {
     void read();
   }, [changes]);
 
-  // While it runs, ask every second how far it has got.
-  const running = status?.state === "running";
+  // While it runs, ask every second how far it has got. A job the app is no longer working on
+  // (R134b) isn't followed: Try again carries it on.
+  const stopped = status?.state === "running" && status.stopped === true;
+  const running = status?.state === "running" && !stopped;
+  const slow = running && status.steps?.find((s) => s.done < s.total)?.slow === true;
   useEffect(() => onRunning(running), [running]);
   useEffect(() => {
     if (!running) return;
@@ -749,11 +752,23 @@ export function PrepareSection(props: {
           onClick={start}
           disabled={starting}
         >
-          {starting ? "Starting…" : label[status.state]}
+          {starting ? "Starting…" : stopped ? "Try again" : label[status.state]}
         </button>
       )}
       {refused && <p className="error">{refused}</p>}
-      {running && <p className="busy">Preparing… {status.percent}% done</p>}
+      {stopped && (
+        <p className="error">
+          Preparing stopped: the app is no longer working on it. Click Try again to carry on where
+          it left off.
+        </p>
+      )}
+      {running && (
+        <p className="busy">
+          Preparing… {status.percent}% done
+          {status.left_s != null && ` · about ${countdown(status.left_s)} left`}
+        </p>
+      )}
+      {slow && <p className="muted">This is taking longer than usual. It&apos;s still working.</p>}
       {status?.steps && status.state !== "idle" && (
         <>
           <progress max={100} value={status.percent} aria-label="Preparing">
@@ -2516,7 +2531,8 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean; earlier?:
   );
 }
 
-// Next to each step: done (and how long it took), how far it has got, or waiting its turn.
+// Next to each step: done (and how long it took), what it is doing and about how long it has left
+// (R134b), or waiting its turn.
 function StepState(props: { step: PrepareStep; status: PrepareStatus; index: number }) {
   const { step, status } = props;
   const metrics = useSettings().show_metrics; // how long a step took (R41a)
@@ -2526,13 +2542,23 @@ function StepState(props: { step: PrepareStep; status: PrepareStatus; index: num
   }
   const current = status.steps?.findIndex((s) => s.done < s.total) === props.index;
   if (!current) return <span className="muted">Waiting</span>;
-  if (status.state === "failed") return <span className="error">Stopped</span>;
+  if (status.state === "failed" || status.stopped) return <span className="error">Stopped</span>;
   return (
     <span className="busy">
-      {step.total > 1 ? `${step.done} of ${step.total}` : "Working…"}
-      {step.left_s !== null && ` · about ${duration(step.left_s)} left`}
+      {step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…")}
+      {step.left_s !== null && ` · about ${countdown(step.left_s)} left`}
     </span>
   );
+}
+
+// The time left while preparing, to the second, so the page changes as it counts down
+// (review on PR #170): 42 -> "42 s", 725 -> "12 min 5 s", 3785 -> "1 h 3 min 5 s".
+export function countdown(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const parts = [h && `${h} h`, (h || m) && `${m} min`, `${s % 60} s`];
+  return parts.filter(Boolean).join(" ");
 }
 
 // 42 -> "42 s", 1034 -> "17 min"

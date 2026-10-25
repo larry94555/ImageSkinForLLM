@@ -194,6 +194,8 @@ export interface PrepareStep {
   total: number;
   seconds: number | null; // how long it took, once finished
   left_s: number | null; // while it runs: about how many seconds are left
+  activity?: string | null; // while it runs: what it is doing now, in plain words (R134b)
+  slow?: boolean; // nothing new for longer than twice its usual time
 }
 
 // Why the prepare job failed (roadmap R134): the step, a plain reason, whether Try again may
@@ -218,6 +220,8 @@ export interface PrepareStatus {
   failure?: PrepareFailure | null; // with the step and the reference for support (R134)
   started_at: string | null;
   finished_at: string | null;
+  left_s?: number | null; // while it runs: about how long the whole prepare has left
+  stopped?: boolean; // running, but the app is no longer working on it: Try again carries on
 }
 
 // A video the prepare job rendered (roadmap R13). The finish time is added so that the browser

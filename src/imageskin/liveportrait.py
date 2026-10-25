@@ -9,6 +9,7 @@ import logging
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -96,26 +97,45 @@ def fetch_code(lp_dir: Path, retries: int = 5) -> None:
     subprocess.run([*git, "checkout", "--quiet", "--force", "FETCH_HEAD"], check=True)
 
 
-def ensure_models(lp_dir: Path) -> None:
+def ensure_models(lp_dir: Path, report: Callable[[str], None] | None = None) -> None:
     """Download LivePortrait's code and weights and MediaPipe's face model, once (~500 MB).
 
-    Files already there are checked and skipped; an interrupted download resumes.
+    Files already there are checked and skipped; an interrupted download resumes. `report`, if
+    given, is told each whole MB downloaded, as "Downloading the face models: 120 of 500 MB".
     """
     start = time.perf_counter()
     weights = lp_dir / "pretrained_weights"
     total = sum(size for _, size, _ in HF_FILES) + FACE_MODEL_SIZE
     logger.info("Checking photoreal models (about %.0f MB) in %s", total / MB, lp_dir)
+    before = 0  # bytes in the files already gone through
+    said = -1  # the last whole MB reported
+
+    def progress(done: int, size: int) -> None:
+        nonlocal said
+        mb = (before + done) // MB
+        if report is not None and mb != said:
+            said = mb
+            report(f"Downloading the face models: {mb} of {total // MB} MB")
+
     try:
+        if report is not None:
+            report("Checking the face models")
         fetch_code(lp_dir)
-        for path, size, sha in HF_FILES:
-            url = f"https://huggingface.co/{HF_REPO}/resolve/{HF_REVISION}/{path}"
-            download(url, weights / path, size, sha)
-        download(
-            FACE_MODEL_URL,
-            weights / "face_landmarker.task",
-            FACE_MODEL_SIZE,
-            FACE_MODEL_SHA256,
+        files = [
+            (
+                f"https://huggingface.co/{HF_REPO}/resolve/{HF_REVISION}/{path}",
+                weights / path,
+                size,
+                sha,
+            )
+            for path, size, sha in HF_FILES
+        ]
+        files.append(
+            (FACE_MODEL_URL, weights / "face_landmarker.task", FACE_MODEL_SIZE, FACE_MODEL_SHA256)
         )
+        for url, dest, size, sha in files:
+            download(url, dest, size, sha, progress=progress)
+            before += size
     except (DownloadError, OSError, subprocess.CalledProcessError) as e:
         raise VideoError(f"could not download the photoreal models: {e}") from e
     logger.info("Photoreal models ready in %.1f s", time.perf_counter() - start)

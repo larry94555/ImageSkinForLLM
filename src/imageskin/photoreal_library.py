@@ -59,11 +59,18 @@ LOOP_PLAN = {"motion": "mirrored", "every": OWN_KEY_EVERY}
 Image = NDArray[np.uint8]
 Mask = NDArray[np.float32]
 Window = tuple[int, int, int, int]  # x0, y0, x1, y1
-# Told how far a step has got: the step ("models", "shapes", "loop" or "align"), done, total.
-Progress = Callable[[str, int, int], None]
 
 
-def no_progress(step: str, done: int, total: int) -> None:
+class Progress(Protocol):
+    """Told how far a step has got: the step ("models", "shapes", "loop" or "align"), done,
+    total, and what it is doing now in plain words (roadmap R134b)."""
+
+    def __call__(
+        self, step: str, done: int, total: int, activity: str | None = None, /
+    ) -> None: ...
+
+
+def no_progress(step: str, done: int, total: int, activity: str | None = None) -> None:
     pass
 
 
@@ -319,7 +326,7 @@ def build_library(
         "Preparing photoreal library",
         extra={"photo": str(photo), "folder": str(folder), "loop_frames": n_loop},
     )
-    progress("models", 0, 1)
+    progress("models", 0, 1, "Checking the face models")
     portrait = make_portrait(photo)
     progress("models", 1, 1)
     _save(folder / "photo.npy", portrait.photo)
@@ -330,15 +337,18 @@ def build_library(
     shapes_meta = folder / "shapes.json"
     old_mouth = json.loads(shapes_meta.read_text()).get("mouth") if shapes_meta.exists() else None
     if old_mouth != mouth_key() or not (folder / "shapes.npy").exists():
-        faces = []
+        faces: list[Image] = []
         total = len(SHAPES) + len(EYE_STAGES)
         progress("shapes", 0, total)
         for name in SHAPES:
+            progress("shapes", len(faces), total, f"Mouth shape {len(faces) + 1} of {len(SHAPES)}")
             controls, ratio = soften(name, STRENGTH, portrait.lip_ratio)
             faces.append(portrait.render(controls, None if name == "rest" else ratio, UPPER_LIP))
             progress("shapes", len(faces), total)
-        eyes = []
+        eyes: list[Image] = []
         for level in EYE_STAGES:
+            blink = f"Blinking eyes {len(eyes) + 1} of {len(EYE_STAGES)}"
+            progress("shapes", len(faces) + len(eyes), total, blink)
             brow = {"brow": BLINK_BROW * (1.0 - level)}
             eyes.append(portrait.render(brow, None, UPPER_LIP, (0.0, 0.0, 0.0), level))
             progress("shapes", len(faces) + len(eyes), total)
@@ -360,6 +370,8 @@ def build_library(
     progress("loop", len(keys) - len(todo), len(keys))
     loop_start = time.perf_counter()
     for k, i in enumerate(todo, 1):
+        frame = len(keys) - len(todo) + k
+        progress("loop", frame - 1, len(keys), f"Frame {frame} of {len(keys)}")
         face = portrait.render({}, None, 1.0, idle_motion(i, n_loop))
         _save(folder / "loop" / f"{i:04d}.npy", face)
         progress("loop", len(keys) - len(todo) + k, len(keys))
@@ -393,7 +405,7 @@ def build_library(
     shapes = np.load(folder / "shapes.npy")
     mask, window = mouth_mask(portrait.crop_landmarks)
     loop = [np.load(folder / "loop" / f"{i:04d}.npy") for i in range(n_loop)]
-    progress("align", 0, 1)
+    progress("align", 0, 1, "Lining up the mouth and the eyes with the head")
     _save(folder / "align.npy", align_loop(shapes[0], loop, mask, window))
     emask, ewindow = eye_mask(portrait.crop_landmarks)
     _save(folder / "eye_align.npy", align_loop(shapes[0], loop, emask, ewindow))
@@ -438,7 +450,12 @@ def load_library(folder: Path) -> Library:
     )
 
 
-def liveportrait_factory(home: Path) -> Callable[[Path], PortraitLike]:
+def liveportrait_factory(
+    home: Path, report: Callable[[str], None] | None = None
+) -> Callable[[Path], PortraitLike]:
+    """Makes the portrait, downloading the models first if needed; `report` is told how the
+    download is going, in plain words."""
+
     def make(photo: Path) -> PortraitLike:
         try:
             from imageskin.liveportrait import Portrait, ensure_models
@@ -449,7 +466,9 @@ def liveportrait_factory(home: Path) -> Callable[[Path], PortraitLike]:
                 raise VideoError(INSTALL_HINT) from e
             raise
         lp_dir = home / "models" / "LivePortrait"
-        ensure_models(lp_dir)
+        ensure_models(lp_dir, report)
+        if report is not None:
+            report("Loading the face models")
         return Portrait(lp_dir, photo)
 
     return make
@@ -470,7 +489,11 @@ def prepare_library(
     if not meta.exists() or json.loads(meta.read_text()).get("mouth") != mouth_key():
         # A new photo, an unfinished one, or new mouth settings (then only the 10 mouth
         # shapes are rendered again, about a minute; the idle loop is kept).
-        build_library(photo, folder, make_portrait or liveportrait_factory(home), progress)
+
+        def report(text: str) -> None:
+            progress("models", 0, 1, text)
+
+        build_library(photo, folder, make_portrait or liveportrait_factory(home, report), progress)
     lib = load_library(folder)
     logger.info(
         "Loaded photoreal library",

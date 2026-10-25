@@ -46,6 +46,22 @@ from imageskin.visemes import SHAPES
 __all__ = ["short_loop"]  # a fixture, used by name
 
 
+def test_each_step_says_what_it_is_doing(tmp_path: Path, short_loop: object) -> None:
+    """Roadmap R134b: the page shows each mouth shape, blink and loop frame as it is made."""
+    lines: list[tuple[str, str]] = []
+
+    def record(step: str, done: int, total: int, activity: str | None = None) -> None:
+        if activity is not None:
+            lines.append((step, activity))
+
+    build_library(tmp_path / "me.png", tmp_path / "lib", lambda _: FakePortrait(), record)
+    assert lines[0] == ("models", "Checking the face models")
+    assert ("shapes", f"Mouth shape 1 of {len(SHAPES)}") in lines
+    assert ("shapes", f"Blinking eyes {len(EYE_STAGES)} of {len(EYE_STAGES)}") in lines
+    assert ("loop", "Frame 1 of 2") in lines and ("loop", "Frame 2 of 2") in lines
+    assert lines[-1] == ("align", "Lining up the mouth and the eyes with the head")
+
+
 def test_library_key_depends_on_the_photo(tmp_path: Path) -> None:
     a, b = tmp_path / "a.jpg", tmp_path / "b.jpg"
     a.write_bytes(b"one")
@@ -91,7 +107,11 @@ def test_build_load_and_resume(tmp_path: Path, short_loop: object) -> None:
 
     second = FakePortrait()
     steps: list[tuple[str, int, int]] = []
-    build_library(tmp_path / "me.png", folder, lambda _: second, lambda *s: steps.append(s))
+
+    def record(step: str, done: int, total: int, activity: str | None = None) -> None:
+        steps.append((step, done, total))
+
+    build_library(tmp_path / "me.png", folder, lambda _: second, record)
     assert second.renders == 1  # shapes and the first frame are kept; only frame 5 is left
     # Progress starts from the frames already there and ends with every step complete.
     assert steps[:3] == [("models", 0, 1), ("models", 1, 1), ("shapes", 14, 14)]

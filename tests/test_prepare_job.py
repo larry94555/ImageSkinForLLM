@@ -425,7 +425,7 @@ def test_clips_speak_in_kokoro_when_chatterbox_is_missing(
 
 
 def test_default_face_step_builds_the_photoreal_library(tmp_path: Path) -> None:
-    def progress(step: str, done: int, total: int) -> None:
+    def progress(step: str, done: int, total: int, activity: str | None = None) -> None:
         pass
 
     with (

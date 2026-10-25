@@ -23,6 +23,7 @@ import {
   clipWaits,
   chatText,
   countMatches,
+  countdown,
   duration,
   latestExchange,
   loadLesson,
@@ -1042,7 +1043,7 @@ test("prepare starts the job and shows each step's progress until it is ready", 
   const bar = screen.getByRole("progressbar", { name: "Preparing" }) as HTMLProgressElement;
   expect(bar.value).toBe(31);
   expect(screen.getByText("Done in 31 s")).toBeTruthy();
-  expect(screen.getByText("52 of 200 · about 12 min left")).toBeTruthy();
+  expect(screen.getByText("52 of 200 · about 12 min 5 s left")).toBeTruthy();
   expect(screen.getByText("Waiting")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Prepare/ })).toBeNull(); // no second start
 
@@ -1065,6 +1066,41 @@ test("a job already running when the page opens is shown and followed", async ()
   await openAt("#/setup");
   expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
   expect(screen.queryByLabelText("Sample video")).toBeNull(); // not until it is done
+});
+
+test("a running step says what it is doing and about how long is left (R134b)", async () => {
+  const steps = STEPS.map((s) => (s.key === "loop" ? { ...s, activity: "Frame 53 of 200" } : s));
+  prepareServer([{ ...RUNNING, steps, left_s: 1500 }]);
+  await openAt("#/setup");
+  expect(await screen.findByText("Preparing… 31% done · about 25 min 0 s left")).toBeTruthy();
+  expect(screen.getByText("Frame 53 of 200 · about 12 min 5 s left")).toBeTruthy();
+  expect(screen.queryByText(/taking longer than usual/)).toBeNull();
+});
+
+test("a slow step says it is still working (R134b)", async () => {
+  const steps = STEPS.map((s) =>
+    s.key === "loop" ? { ...s, activity: "Frame 53 of 200", slow: true } : s,
+  );
+  prepareServer([{ ...RUNNING, steps }]);
+  await openAt("#/setup");
+  expect(
+    await screen.findByText("This is taking longer than usual. It's still working."),
+  ).toBeTruthy();
+});
+
+test("a job the app is no longer working on says so and can be tried again (R134b)", async () => {
+  const fetchMock = prepareServer([{ ...RUNNING, stopped: true }]);
+  await openAt("#/setup");
+  expect(
+    await screen.findByText(
+      "Preparing stopped: the app is no longer working on it. Click Try again to carry on where it left off.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText("Stopped")).toBeTruthy();
+  expect(screen.queryByText(/% done/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
 });
 
 test("prepare says what is missing when it can't start", async () => {
@@ -1148,6 +1184,31 @@ test("if the prepare status can't be read the page says so", async () => {
       "Could not read how far preparing has got. Reload the page to try again.",
     ),
   ).toBeTruthy();
+});
+
+test("the time left counts down to the second while the step and the percentage stay (review on PR #170)", async () => {
+  const at = (left: number) => ({
+    ...RUNNING,
+    left_s: left,
+    steps: STEPS.map((s) => (s.key === "loop" ? { ...s, activity: "Frame 53 of 200", left_s: left } : s)),
+  });
+  prepareServer([at(119), at(118), at(117)]);
+  await openAt("#/setup");
+  expect(await screen.findByText("Preparing… 31% done · about 1 min 59 s left")).toBeTruthy();
+  expect(screen.getByText("Frame 53 of 200 · about 1 min 59 s left")).toBeTruthy();
+  // The next read, a second later: the same step, activity and percentage, yet the page changed.
+  expect(
+    await screen.findByText("Preparing… 31% done · about 1 min 58 s left", {}, { timeout: 3000 }),
+  ).toBeTruthy();
+  expect(screen.getByText("Frame 53 of 200 · about 1 min 58 s left")).toBeTruthy();
+});
+
+test("countdown is to the second", () => {
+  expect(countdown(42)).toBe("42 s");
+  expect(countdown(60)).toBe("1 min 0 s");
+  expect(countdown(725)).toBe("12 min 5 s");
+  expect(countdown(3785)).toBe("1 h 3 min 5 s");
+  expect(countdown(3605)).toBe("1 h 0 min 5 s");
 });
 
 test("duration says seconds or minutes", () => {
@@ -3388,7 +3449,7 @@ test("the timing metrics are hidden until turned on on the Settings page", async
   const saved = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
-  await screen.findByText("52 of 200 · about 12 min left"); // how long is left stays
+  await screen.findByText("52 of 200 · about 12 min 5 s left"); // how long is left stays
   expect(screen.queryByText("Done in 31 s")).toBeNull();
   expect(screen.queryByRole("checkbox", { name: "Show timing metrics" })).toBeNull();
 
@@ -3414,7 +3475,7 @@ test("Teach me is off until turned on on the Settings page (Larry, 2026-10-15)",
   const saved: { show_metrics: boolean; teach_me?: boolean } = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
-  await screen.findByText("52 of 200 · about 12 min left");
+  await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
   const box = screen.getByRole("checkbox", { name: "Teach me" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
@@ -3429,7 +3490,7 @@ test("Quiz me is off until turned on on the Settings page", async () => {
   const saved: { show_metrics: boolean; quiz_me?: boolean } = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
-  await screen.findByText("52 of 200 · about 12 min left");
+  await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
   const box = screen.getByRole("checkbox", { name: "Quiz me" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
@@ -3444,7 +3505,7 @@ test("Assessment is off until turned on on the Settings page", async () => {
   const saved: { show_metrics: boolean; assessment?: boolean } = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
-  await screen.findByText("52 of 200 · about 12 min left");
+  await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
   const box = screen.getByRole("checkbox", { name: "Assessment" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
@@ -3458,7 +3519,7 @@ test("Assessment is off until turned on on the Settings page", async () => {
 test("a setting that can't be saved says so and stays as it was", async () => {
   settingsServer({ show_metrics: false }, false);
   await openAt("#/setup");
-  await screen.findByText("52 of 200 · about 12 min left");
+  await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
   await act(async () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Show timing metrics" }));
@@ -3676,7 +3737,7 @@ test("Debug is off until turned on on the Settings page", async () => {
   const saved: { show_metrics: boolean; debug?: boolean } = { show_metrics: false };
   settingsServer(saved);
   await openAt("#/setup");
-  await screen.findByText("52 of 200 · about 12 min left");
+  await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
   const box = screen.getByRole("checkbox", { name: "Debug" }) as HTMLInputElement;
   expect(box.checked).toBe(false);
