@@ -26,11 +26,13 @@ COPY src ./src
 # so the versions agree, then Chatterbox itself without its old pins, as in the README's "Your
 # own voice". MediaPipe also installs the full OpenCV, which must stay on 4.x as the app's does.
 # Kokoro's English model is installed here too: Kokoro would install it on first use, and the app
-# can't write to the installed packages.
+# can't write to the installed packages. Loading it once here stops the build when a new release of
+# spaCy or what it uses can't, rather than prepare failing later on the site (R134a: preshed).
 RUN pip install --no-cache-dir --retries 10 ".[voice,photoreal,faces,heic]" \
         -r clone-requirements.txt "opencv-contrib-python>=4.8,<5" \
     && pip install --no-cache-dir --no-deps chatterbox-tts==0.1.7 \
-    && python -m spacy download en_core_web_sm
+    && python -m spacy download en_core_web_sm \
+    && python -c "import spacy; spacy.load('en_core_web_sm'); print('spaCy English model loads')"
 
 COPY deploy/config.toml /etc/imageskin/config.toml
 # Ubuntu's image already has a user 1000 (ubuntu); the app runs as it, not as root.
