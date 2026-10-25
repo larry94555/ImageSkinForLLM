@@ -292,22 +292,23 @@ def test_a_remade_pack_has_its_idle_video_made_again_from_the_new_face(
     def idle(photo: Path, output: Path) -> None:
         output.write_bytes(photo.read_bytes())
 
+    picture = tmp_path / "default-people" / f"{CHOICE.name}.png"
     replies = ReplyVideos(
         tmp_path,
-        lambda photo, text, output: output.write_bytes(b"mp4"),
+        renderer([]),
         VoiceReady(lambda: None, lambda: "v"),
         ClipSteps(lambda text, wav: None, lambda photo, wav, output: None, idle),
     )
-    first = started(tmp_path, pack, on_ready=lambda: replies.warm_up(first.picture()))
+    first = started(tmp_path, pack, on_ready=lambda: replies.warm_up(picture))
     first.start(CHOICE)
     first.wait(10)
-    old = replies.idle(tmp_path / "default-people" / f"{CHOICE.name}.png")
+    old = replies.idle(picture)
     assert old is not None and old.read_bytes() == b"picture bytes"
     new = remade(tmp_path)
-    again = started(tmp_path, new, on_ready=lambda: replies.warm_up(again.picture()))
+    again = started(tmp_path, new, on_ready=lambda: replies.warm_up(picture))
     assert again.refresh() is True
     again.wait(10)
-    remade_idle = replies.idle(tmp_path / "default-people" / f"{CHOICE.name}.png")
+    remade_idle = replies.idle(picture)
     assert remade_idle is not None and remade_idle.read_bytes() == b"the new face"
 
 
