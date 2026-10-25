@@ -1127,7 +1127,7 @@ const FAILURE = {
   reference: "P-7K3F9Q",
   step: "Make the video of the person listening",
   reason: "memory",
-  message: "The computer ran out of memory. Close other programs first.",
+  message: "Out of memory.",
   retry: true,
   details: "RuntimeError: out of memory reading <data folder>",
   version: "0.1.0",
@@ -1142,7 +1142,7 @@ test("a failed job shows the step, the reason and the reference for support (R13
   await openAt("#/setup");
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain(
-    "“Make the video of the person listening” failed. The computer ran out of memory.",
+    "“Make the video of the person listening” failed. Out of memory.",
   );
   expect(alert.textContent).toContain(
     "Try again may help. If it keeps failing, please give support the reference P-7K3F9Q.",

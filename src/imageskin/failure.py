@@ -19,12 +19,15 @@ from imageskin.download import DownloadError
 # Letters and digits that can't be read as one another (no 0/O or 1/I).
 _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-# Each reason: what the customer is told, and whether Try again may help as it is.
+# Each reason: what the customer is told, and whether Try again may help as it is. The words
+# say only what went wrong, for support to act on with the reference; they never tell the
+# customer what to do unless it is theirs to do, such as uploading the photo again, and never
+# name "the computer", as the app may run on a hosted cluster (Larry, review of PR #171).
 REASONS: dict[str, tuple[str, bool]] = {
     "missing": ("A program or add-on the app needs is missing.", False),
-    "memory": ("The computer ran out of memory. Close other programs first.", True),
-    "disk": ("There isn't enough disk space left. Free some space first.", False),
-    "download": ("A model couldn't be downloaded. Check the internet connection.", True),
+    "memory": ("Out of memory.", True),
+    "disk": ("Out of disk space.", False),
+    "download": ("A model couldn't be downloaded.", True),
     "unreadable": ("The photo or a recording couldn't be read. Upload it again.", False),
     "timeout": ("A step took too long.", True),
     "unexpected": ("Something unexpected went wrong.", True),
