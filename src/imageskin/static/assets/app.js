@@ -2803,7 +2803,7 @@ function PrepareSection(props) {
 					"Preparing… ",
 					status.percent,
 					"% done",
-					status.left_s != null && ` · about ${duration$1(status.left_s)} left`
+					status.left_s != null && ` · about ${countdown(status.left_s)} left`
 				]
 			}),
 			slow && /* @__PURE__ */ u("p", {
@@ -4275,8 +4275,18 @@ function StepState(props) {
 	});
 	return /* @__PURE__ */ u("span", {
 		className: "busy",
-		children: [step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…"), step.left_s !== null && ` · about ${duration$1(step.left_s)} left`]
+		children: [step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…"), step.left_s !== null && ` · about ${countdown(step.left_s)} left`]
 	});
+}
+function countdown(seconds) {
+	const s = Math.max(0, Math.round(seconds));
+	const h = Math.floor(s / 3600);
+	const m = Math.floor(s % 3600 / 60);
+	return [
+		h && `${h} h`,
+		(h || m) && `${m} min`,
+		`${s % 60} s`
+	].filter(Boolean).join(" ");
 }
 function duration$1(seconds) {
 	return seconds < 90 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`;

@@ -764,7 +764,7 @@ export function PrepareSection(props: {
       {running && (
         <p className="busy">
           Preparing… {status.percent}% done
-          {status.left_s != null && ` · about ${duration(status.left_s)} left`}
+          {status.left_s != null && ` · about ${countdown(status.left_s)} left`}
         </p>
       )}
       {slow && <p className="muted">This is taking longer than usual. It&apos;s still working.</p>}
@@ -2482,9 +2482,19 @@ function StepState(props: { step: PrepareStep; status: PrepareStatus; index: num
   return (
     <span className="busy">
       {step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…")}
-      {step.left_s !== null && ` · about ${duration(step.left_s)} left`}
+      {step.left_s !== null && ` · about ${countdown(step.left_s)} left`}
     </span>
   );
+}
+
+// The time left while preparing, to the second, so the page changes as it counts down
+// (review on PR #170): 42 -> "42 s", 725 -> "12 min 5 s", 3785 -> "1 h 3 min 5 s".
+export function countdown(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const parts = [h && `${h} h`, (h || m) && `${m} min`, `${s % 60} s`];
+  return parts.filter(Boolean).join(" ");
 }
 
 // 42 -> "42 s", 1034 -> "17 min"
