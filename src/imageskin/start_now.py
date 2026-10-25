@@ -42,7 +42,6 @@ from imageskin.default_people import (
 from imageskin.download import DownloadError, download, sha256_of
 from imageskin.photoreal_library import library_key
 from imageskin.ready_voice import save_ready_voice
-from imageskin.reply_video import forget_idle
 from imageskin.voice import Speech, VoiceEngine
 
 logger = logging.getLogger(__name__)
@@ -468,7 +467,6 @@ class StartNow:
                 self._unpacked_from(name).write_text(self._packs[name]["sha256"], encoding="utf-8")
                 if changed:
                     self._forget_lines(name)
-                    forget_idle(self._home, self._picture(name))
                     logger.info("Default person's pack changed", extra={"person": name})
             self._set("getting-ready", 100)
             self._render_lines(choice)

@@ -21,7 +21,7 @@ from imageskin import start_now as sn
 from imageskin.app import create_app
 from imageskin.download import DownloadError, sha256_of
 from imageskin.prepare_job import ClipSteps, PrepareError
-from imageskin.reply_video import ReplyVideos, VoiceReady, forget_idle
+from imageskin.reply_video import ReplyVideos, VoiceReady
 from imageskin.voice import Speech
 
 CHOICE = sn.Choice("female", "British", "animated", "Professor")
@@ -285,10 +285,12 @@ def test_a_remade_pack_is_got_at_start_up_keeping_the_choice(tmp_path: Path, pac
     assert said == ["Goodbye.", "Welcome back."] and again.refresh() is False
 
 
+@pytest.mark.parametrize("held_open", [False, True])
 def test_a_remade_pack_has_its_idle_video_made_again_from_the_new_face(
-    tmp_path: Path, pack: Path
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch, held_open: bool
 ) -> None:
-    # Codex's review of PR #165: the chat's idle video is kept by the picture's name.
+    # Codex's reviews of PR #165: the chat's idle video was kept by the picture's name, so
+    # the old face's stayed, above all while a browser held it open (as on Windows).
     def idle(photo: Path, output: Path) -> None:
         output.write_bytes(photo.read_bytes())
 
@@ -304,23 +306,25 @@ def test_a_remade_pack_has_its_idle_video_made_again_from_the_new_face(
     first.wait(10)
     old = replies.idle(picture)
     assert old is not None and old.read_bytes() == b"picture bytes"
+    real_unlink = Path.unlink
+
+    def unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == old:
+            raise PermissionError("open in the browser")
+        real_unlink(self, missing_ok)
+
+    if held_open:
+        monkeypatch.setattr(Path, "unlink", unlink)
     new = remade(tmp_path)
     again = started(tmp_path, new, on_ready=lambda: replies.warm_up(picture))
     assert again.refresh() is True
     again.wait(10)
     remade_idle = replies.idle(picture)
     assert remade_idle is not None and remade_idle.read_bytes() == b"the new face"
-
-
-def test_an_old_idle_video_that_cant_be_removed_is_logged(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def refuse(self: Path, missing_ok: bool = False) -> None:
-        raise PermissionError("in use")
-
-    monkeypatch.setattr(Path, "unlink", refuse)
-    forget_idle(tmp_path, tmp_path / "me.png")
-    assert "Could not remove an old idle video" in caplog.messages
+    assert old.exists() is held_open
+    monkeypatch.undo()  # the browser lets go: the next warm-up removes the old one
+    replies.warm_up(picture)
+    assert not old.exists() and replies.idle(picture) == remade_idle
 
 
 def test_a_person_unpacked_before_the_pack_was_noted_is_told_by_the_kept_pack(
@@ -737,7 +741,7 @@ def test_start_now_waits_for_the_new_persons_idle_video(client: TestClient, tmp_
     assert client.get("/api/start-now").json()["chat_ready"] is True
     warming["running"] = True
     picture = client.app.state.start_now.picture()  # type: ignore[attr-defined]
-    idle = tmp_path / "home" / "replies" / "idle" / f"{picture.stem}.mp4"
+    idle = tmp_path / "home" / "replies" / "idle" / f"{picture.stem}-{sha256_of(picture)[:12]}.mp4"
     idle.parent.mkdir(parents=True, exist_ok=True)
     idle.write_bytes(b"mp4")
     assert client.get("/api/start-now").json()["chat_ready"] is True  # made, while it runs on

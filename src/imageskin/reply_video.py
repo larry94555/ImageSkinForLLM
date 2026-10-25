@@ -9,6 +9,7 @@ CPU, speaking one sentence while the one before it is rendered made both steps a
 slow, so nothing was gained.
 """
 
+import hashlib
 import logging
 import os
 import queue
@@ -336,18 +337,6 @@ class SentenceClips:
             time.sleep(every)
 
 
-def forget_idle(home: Path, photo: Path) -> None:
-    """Remove the photo's idle video (roadmap R23), so the next warm-up makes it again: the
-    photo has a new face under the same name (Codex's review of PR #165)."""
-    path = home / "replies" / "idle" / f"{photo.stem}.mp4"
-    try:
-        path.unlink(missing_ok=True)
-    except OSError as e:  # open in a browser, as on Windows
-        logger.warning(
-            "Could not remove an old idle video", extra={"video": path.name, "error": str(e)}
-        )
-
-
 class ReplyVideos:
     """Renders one reply at a time, as the voice and video engines are not shared safely."""
 
@@ -380,6 +369,8 @@ class ReplyVideos:
         # only those are served, even when a cleared one's file couldn't be removed.
         self.generation = 0
         self._published: set[int] = set()
+        # Each photo's SHA-256, by its path, change time and size, for its idle video's name.
+        self._digests: dict[tuple[str, int, int], str] = {}
 
     def warm_up(self, photo: Path) -> None:
         """Load the voice and video models and make the voice ready, by rendering a word that is
@@ -420,19 +411,37 @@ class ReplyVideos:
 
     def idle(self, photo: Path) -> Path | None:
         """The idle video for the photo (roadmap R23), once the warm-up has made it."""
-        path = self.folder / "idle" / f"{photo.stem}.mp4"
+        path = self.folder / "idle" / f"{self._idle_name(photo)}.mp4"
         return path if path.is_file() else None
+
+    def _idle_name(self, photo: Path) -> str:
+        """The photo's name and the start of its SHA-256: a photo replaced under the same name,
+        as a default person remade in R24b4, gets an idle video of its new face, even while
+        the old one is open in a browser and can't be removed (Codex's review of PR #165)."""
+        try:
+            stat = photo.stat()
+        except OSError:
+            return photo.stem
+        key = (str(photo), stat.st_mtime_ns, stat.st_size)
+        if key not in self._digests:
+            self._digests[key] = hashlib.sha256(photo.read_bytes()).hexdigest()[:12]
+        return f"{photo.stem}-{self._digests[key]}"
 
     def _make_idle(self, photo: Path) -> None:
         """Make the photo's idle video, unless it is made already, and remove any other
         photo's. Failures are logged only: the chat then holds each reply's last frame."""
         render_idle = self._steps.idle
-        if render_idle is None or self.idle(photo) is not None:
+        if render_idle is None:
+            return
+        made = self.idle(photo)
+        if made is not None:
+            self._remove_other_idles(made)  # one that couldn't be removed before
             return
         start = time.perf_counter()
         folder = self.folder / "idle"
-        path = folder / f"{photo.stem}.mp4"
-        rendering = folder / f"{photo.stem}.rendering.mp4"
+        name = self._idle_name(photo)
+        path = folder / f"{name}.mp4"
+        rendering = folder / f"{name}.rendering.mp4"
         try:
             folder.mkdir(parents=True, exist_ok=True)
             render_idle(photo, rendering)
@@ -441,7 +450,11 @@ class ReplyVideos:
             discard(rendering)
             logger.error("Could not make the idle video", extra={"error": str(e)})
             return
-        for old in folder.glob("*.mp4"):
+        self._remove_other_idles(path)
+        logger.info("Idle video ready", extra={"duration_ms": ms_since(start)})
+
+    def _remove_other_idles(self, path: Path) -> None:
+        for old in path.parent.glob("*.mp4"):
             if old != path:
                 try:
                     old.unlink()
@@ -450,7 +463,6 @@ class ReplyVideos:
                         "Could not remove an old idle video",
                         extra={"video": old.name, "error": str(e)},
                     )
-        logger.info("Idle video ready", extra={"duration_ms": ms_since(start)})
 
     def sentence_clips(self, photo: Path, reply_id: str) -> SentenceClips:
         """Render a streamed reply sentence by sentence into <folder>/clips-<reply_id>."""
