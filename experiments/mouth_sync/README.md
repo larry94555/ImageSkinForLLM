@@ -21,6 +21,18 @@ engine draws each frame from. The tables are written to `mouth-lead/mouth-lead-<
 `.json`, and the log has `Mouth lead experiment started`, `Measured clip` for each clip with its
 lead at the start and the time it took, and `Mouth lead experiment done`.
 
+On the hosted machine the app and everything it needs are in its Docker image, not on the
+machine itself, and the image leaves `experiments/` out. So run it in a one-off app container
+with this folder mounted, from `deploy/`, writing the tables to the data volume:
+
+```
+docker compose run --rm --no-deps -v "$PWD/../experiments/mouth_sync:/exp:ro" app \
+    python /exp/mouth_lead.py --voice af_heart -o /data/mouth-lead
+docker compose run --rm --no-deps app cat /data/mouth-lead/mouth-lead-af_heart.md
+```
+
+The person's own voice there is `--clone /data/uploads/voice-sample.wav`.
+
 For the browser it needs Node and Playwright, which the app doesn't install; on Windows, in
 PowerShell, it can go in a folder of its own:
 
