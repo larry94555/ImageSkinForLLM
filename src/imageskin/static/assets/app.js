@@ -2751,7 +2751,9 @@ function PrepareSection(props) {
 	h(() => {
 		read();
 	}, [changes]);
-	const running = status?.state === "running";
+	const stopped = status?.state === "running" && status.stopped === true;
+	const running = status?.state === "running" && !stopped;
+	const slow = running && status.steps?.find((s) => s.done < s.total)?.slow === true;
 	h(() => onRunning(running), [running]);
 	h(() => {
 		if (!running) return;
@@ -2780,7 +2782,7 @@ function PrepareSection(props) {
 				className: starting ? "busy" : void 0,
 				onClick: start,
 				disabled: starting,
-				children: starting ? "Starting…" : {
+				children: starting ? "Starting…" : stopped ? "Try again" : {
 					idle: "Prepare the video",
 					running: "Preparing…",
 					done: "Prepare again",
@@ -2791,13 +2793,22 @@ function PrepareSection(props) {
 				className: "error",
 				children: refused
 			}),
+			stopped && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "Preparing stopped: the app is no longer working on it. Click Try again to carry on where it left off."
+			}),
 			running && /* @__PURE__ */ u("p", {
 				className: "busy",
 				children: [
 					"Preparing… ",
 					status.percent,
-					"% done"
+					"% done",
+					status.elapsed_s != null && ` · ${duration$1(status.elapsed_s)} so far`
 				]
+			}),
+			slow && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "This is taking longer than usual. It's still working."
 			}),
 			status?.steps && status.state !== "idle" && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("progress", {
 				max: 100,
@@ -4258,13 +4269,17 @@ function StepState(props) {
 		className: "muted",
 		children: "Waiting"
 	});
-	if (status.state === "failed") return /* @__PURE__ */ u("span", {
+	if (status.state === "failed" || status.stopped) return /* @__PURE__ */ u("span", {
 		className: "error",
 		children: "Stopped"
 	});
 	return /* @__PURE__ */ u("span", {
 		className: "busy",
-		children: [step.total > 1 ? `${step.done} of ${step.total}` : "Working…", step.left_s !== null && ` · about ${duration$1(step.left_s)} left`]
+		children: [
+			step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…"),
+			step.elapsed_s != null && ` · ${duration$1(step.elapsed_s)} so far`,
+			step.left_s !== null && ` · about ${duration$1(step.left_s)} left`
+		]
 	});
 }
 function duration$1(seconds) {

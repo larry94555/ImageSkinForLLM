@@ -1067,6 +1067,43 @@ test("a job already running when the page opens is shown and followed", async ()
   expect(screen.queryByLabelText("Sample video")).toBeNull(); // not until it is done
 });
 
+test("a running step says what it is doing and how long it has taken (R134b)", async () => {
+  const steps = STEPS.map((s) =>
+    s.key === "loop" ? { ...s, activity: "Frame 53 of 200", elapsed_s: 95 } : s,
+  );
+  prepareServer([{ ...RUNNING, steps, elapsed_s: 400 }]);
+  await openAt("#/setup");
+  expect(await screen.findByText("Preparing… 31% done · 7 min so far")).toBeTruthy();
+  expect(screen.getByText("Frame 53 of 200 · 2 min so far · about 12 min left")).toBeTruthy();
+  expect(screen.queryByText(/taking longer than usual/)).toBeNull();
+});
+
+test("a slow step says it is still working (R134b)", async () => {
+  const steps = STEPS.map((s) =>
+    s.key === "loop" ? { ...s, activity: "Frame 53 of 200", elapsed_s: 300, slow: true } : s,
+  );
+  prepareServer([{ ...RUNNING, steps }]);
+  await openAt("#/setup");
+  expect(
+    await screen.findByText("This is taking longer than usual. It's still working."),
+  ).toBeTruthy();
+});
+
+test("a job the app is no longer working on says so and can be tried again (R134b)", async () => {
+  const fetchMock = prepareServer([{ ...RUNNING, stopped: true }]);
+  await openAt("#/setup");
+  expect(
+    await screen.findByText(
+      "Preparing stopped: the app is no longer working on it. Click Try again to carry on where it left off.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText("Stopped")).toBeTruthy();
+  expect(screen.queryByText(/% done/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
+});
+
 test("prepare says what is missing when it can't start", async () => {
   prepareServer(
     [IDLE],

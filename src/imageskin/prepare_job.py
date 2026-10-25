@@ -12,6 +12,7 @@ are kept. The clips are saved in <data folder>/clips/<name>.mp4.
 
 import json
 import logging
+import math
 import os
 import tempfile
 import threading
@@ -20,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 from imageskin.accent import OWN, Accent, AccentEngine
 from imageskin.download import sha256_of
@@ -38,7 +39,17 @@ logger = logging.getLogger(__name__)
 
 State = Literal["idle", "running", "done", "failed"]
 T = TypeVar("T")
-Progress = Callable[[str, int, int], None]  # step key, done, total
+
+
+class Progress(Protocol):
+    """Told how far a step has got: the step's key, done, total, and what it is doing now in
+    plain words, such as "Frame 12 of 40" (roadmap R134b)."""
+
+    def __call__(
+        self, step: str, done: int, total: int, activity: str | None = None, /
+    ) -> None: ...
+
+
 PrepareVoice = Callable[[], None]
 PrepareFace = Callable[[Path, Progress], None]
 RenderClip = Callable[[Path, str, Path], None]  # photo, what to say, MP4 to write
@@ -95,6 +106,16 @@ STEPS = (
     ("align", "Line up the mouth with the head", 20),
     ("clips", "Make the sample video and the greetings", 100),
 )
+# How often the job tells the page it is still working, with the time so far (roadmap R134b).
+BEAT_S = 1.0
+# A step with nothing new for longer than this many times its usual time is slow.
+SLOW_FACTOR = 2
+# What each clip's activity line says while it is made.
+CLIP_ACTIVITY: dict[str, str] = {
+    "goodbye": "Making the video of “Goodbye.”",
+    "welcome-back": "Making the video of “Welcome back.”",
+    "sample": "Making the sample video",
+}
 # Shown when the job fails for an unexpected reason; the log has the details.
 SOMETHING_WRONG = "Something went wrong while preparing. Click Try again."
 # Shown when the voice or video engine fails, such as a program or add-on missing on this computer.
@@ -134,6 +155,9 @@ class Step:
     total: int = 1
     seconds: float | None = None  # how long it took, once finished in this run
     left_s: int | None = None  # while it runs: about how many seconds are left
+    activity: str | None = None  # while it runs: what it is doing now, in plain words (R134b)
+    elapsed_s: int | None = None  # while it runs: how long it has taken so far
+    slow: bool = False  # nothing new for longer than twice its usual time
 
 
 @dataclass(frozen=True)
@@ -148,6 +172,9 @@ class PrepareStatus:
     error: str | None = None  # why it failed
     started_at: str | None = None  # ISO 8601, UTC
     finished_at: str | None = None
+    elapsed_s: int | None = None  # while it runs: how long the whole prepare has taken so far
+    # Running, but the app is no longer working on it (its thread has gone): Try again carries on.
+    stopped: bool = False
 
 
 def fresh_steps() -> list[Step]:
@@ -156,8 +183,16 @@ def fresh_steps() -> list[Step]:
 
 def percent(steps: list[Step]) -> int:
     weights = {key: weight for key, _, weight in STEPS}
-    done = sum(weights[s.key] * s.done / s.total for s in steps if s.total)
+    done = sum(weights[s.key] * share(s, weights[s.key]) for s in steps if s.total)
     return int(100 * done / sum(weights.values()))
+
+
+def share(step: Step, usual_s: float) -> float:
+    """How much of the step is done. A step whose work can't be counted (one of one) moves with
+    its time so far against its usual time, slower and slower, never quite reaching its end."""
+    if step.total == 1 and step.done == 0 and step.elapsed_s:
+        return 0.9 * (1 - math.exp(-step.elapsed_s / usual_s))
+    return step.done / step.total
 
 
 def voice_fingerprint(path: Path) -> str | None:
@@ -211,6 +246,8 @@ class PrepareJob:
         self._claimed = False
         # Per running step: when it started and how much was done then, for the time left.
         self._clock: dict[str, tuple[float, int]] = {}
+        # When the running step last reported something new, for the slow notice (R134b).
+        self._changed = 0.0
         self._status = self._load()
 
     def _load(self) -> PrepareStatus:
@@ -241,10 +278,16 @@ class PrepareJob:
     def status(self) -> PrepareStatus:
         """How far the job has got. A finished job shows as idle once what it was made from
         changed: another photo is chosen, the recordings changed (the clips speak in the voice
-        learned from them) or another accent is chosen."""
+        learned from them) or another accent is chosen. A running job no thread is working on
+        shows as stopped."""
         with self._lock:
             status = self._status
+            if status.state == "running" and not self._working():
+                status = replace(status, stopped=True)
         return self._current(status)
+
+    def _working(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
 
     def _current(self, status: PrepareStatus) -> PrepareStatus:
         if status.state in ("done", "failed"):
@@ -367,6 +410,12 @@ class PrepareJob:
 
     def _start(self) -> PrepareStatus:
         if self._status.state == "running":
+            if not self._working():  # stopped (R134b): carry on where it left off
+                logger.warning(
+                    "Prepare job had stopped; carrying on",
+                    extra={"photo_id": self._status.photo_id},
+                )
+                self._run_in_background()
             return self._status
         self._refuse_if_busy()
         photo_id = self._photo_id()
@@ -445,13 +494,26 @@ class PrepareJob:
         if self._thread is not None:
             self._thread.join(timeout)
 
-    def _progress(self, key: str, done: int, total: int) -> None:
+    def _progress(self, key: str, done: int, total: int, activity: str | None = None) -> None:
         now = time.perf_counter()
         with self._lock:
             steps = self._status.steps or []
             old = next(s for s in steps if s.key == key)
             if old.done >= old.total and done >= total:
                 return  # told twice that it is finished
+            self._changed = now
+            if (done, total) == (old.done, old.total) and key in self._clock:
+                # Only what it is doing changed, such as another MB downloaded: kept in memory,
+                # as it may change many times a second.
+                if activity != old.activity:
+                    logger.debug("Prepare activity", extra={"step": key, "activity": activity})
+                new = replace(old, activity=activity, slow=False)
+                self._status = replace(
+                    self._status, steps=[new if s.key == key else s for s in steps]
+                )
+                return
+            if activity is not None:
+                logger.debug("Prepare activity", extra={"step": key, "activity": activity})
             started, done_at_start = self._clock.setdefault(key, (now, done))
             elapsed = now - started
             seconds, left = None, None
@@ -462,15 +524,74 @@ class PrepareJob:
                 logger.info("Prepare step finished", extra={"step": key, "duration_s": seconds})
             elif done > done_at_start:
                 left = round(elapsed / (done - done_at_start) * (total - done))
-            new = replace(old, done=done, total=total, seconds=seconds, left_s=left)
+            new = replace(
+                old,
+                done=done,
+                total=total,
+                seconds=seconds,
+                left_s=left,
+                activity=None if done >= total else activity,
+                elapsed_s=None if done >= total else round(elapsed),
+                slow=False,
+            )
             steps = [new if s.key == key else s for s in steps]
             self._status = replace(self._status, steps=steps, percent=percent(steps))
             self._save()  # a small file, and a frame takes seconds
 
+    def _beat(self, now: float) -> None:
+        """Tell the page the job is still working (roadmap R134b): the running step's time so
+        far, the whole job's, and whether nothing new has come for longer than usual."""
+        usual = {key: weight for key, _, weight in STEPS}
+        with self._lock:
+            if self._status.state != "running":
+                return
+            steps = self._status.steps or []
+            step = next((s for s in steps if s.done < s.total and s.key in self._clock), None)
+            if step is not None:
+                elapsed = now - self._clock[step.key][0]
+                quiet = now - self._changed
+                slow = quiet > SLOW_FACTOR * usual[step.key]
+                if slow and not step.slow:
+                    logger.warning(
+                        "Prepare step slow",
+                        extra={
+                            "step": step.key,
+                            "elapsed_s": round(elapsed),
+                            "quiet_s": round(quiet),
+                        },
+                    )
+                new = replace(step, elapsed_s=round(elapsed), slow=slow)
+                steps = [new if s.key == step.key else s for s in steps]
+            started = self._status.started_at
+            total_s = None
+            if started:
+                total_s = round(
+                    (datetime.now(UTC) - datetime.fromisoformat(started)).total_seconds()
+                )
+            self._status = replace(
+                self._status, steps=steps, percent=percent(steps), elapsed_s=total_s
+            )
+
+    def _beat_until(self, finished: threading.Event) -> None:
+        while not finished.wait(BEAT_S):
+            self._beat(time.perf_counter())
+
     def _run(self) -> None:
+        finished = threading.Event()
+        beats = threading.Thread(
+            target=self._beat_until, args=(finished,), name="prepare-beat", daemon=True
+        )
+        beats.start()
+        try:
+            self._run_steps()
+        finally:
+            finished.set()
+
+    def _run_steps(self) -> None:
         start = time.perf_counter()
         photo_id = self._status.photo_id or ""
         self._clock = {}
+        self._changed = start
         logger.info("Prepare job started", extra={"photo_id": photo_id})
         with self._lock:
             # The voice is learned from the sample as it is now. A job resumed after the
@@ -488,10 +609,17 @@ class PrepareJob:
             photo = self._photo(photo_id)
             if photo is None:
                 raise PrepareError("The photo to prepare was removed. Choose another one.")
-            self._progress("voice", 0, 1)
             if self._kept_voice():
+                self._progress("voice", 0, 1, "Keeping the ready-made voice")
                 logger.info("Keeping the ready-made voice", extra={"voice": self._kept_voice()})
             else:
+                kokoro = self._voice_kind not in CLONES
+                activity = (
+                    "Loading the voice model"
+                    if kokoro
+                    else "Loading the voice models and learning the voice from your recordings"
+                )
+                self._progress("voice", 0, 1, activity)
                 self._prepare_voice()
             self._progress("voice", 1, 1)
             self._prepare_face(photo, self._progress)
@@ -526,6 +654,7 @@ class PrepareJob:
         self._progress("clips", done, total)
         for name, text in todo:
             start = time.perf_counter()
+            self._progress("clips", done, total, CLIP_ACTIVITY[name])
             path = self.clips_folder / f"{name}.mp4"
             # Written aside then moved, so a clip cut short by a restart is never used.
             rendering = path.with_name(f"{name}.rendering.mp4")
@@ -546,6 +675,7 @@ class PrepareJob:
                 steps = [replace(s, done=s.total, left_s=None) for s in steps]
             else:
                 steps = [replace(s, left_s=None) for s in steps]
+            steps = [replace(s, activity=None, elapsed_s=None, slow=False) for s in steps]
             self._status = replace(
                 self._status,
                 state=state,
