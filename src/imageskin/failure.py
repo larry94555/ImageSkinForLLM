@@ -21,7 +21,7 @@ _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 # Each reason: what the customer is told, and whether Try again may help as it is.
 REASONS: dict[str, tuple[str, bool]] = {
-    "missing": ("A program or add-on the app needs is missing on this computer.", False),
+    "missing": ("A program or add-on the app needs is missing.", False),
     "memory": ("The computer ran out of memory. Close other programs first.", True),
     "disk": ("There isn't enough disk space left. Free some space first.", False),
     "download": ("A model couldn't be downloaded. Check the internet connection.", True),
