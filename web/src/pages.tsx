@@ -35,6 +35,7 @@ import {
   type Kind,
   listUploads,
   type PhotoChoice,
+  type PrepareFailure,
   type PrepareStatus,
   type PrepareStep,
   type Reply,
@@ -799,8 +800,71 @@ export function PrepareSection(props: {
           />
         </div>
       )}
-      {status?.state === "failed" && <p className="error">{status.error}</p>}
+      {status?.state === "failed" &&
+        (status.failure ? (
+          <FailureReport failure={status.failure} at={status.finished_at} />
+        ) : (
+          <p className="error">{status.error}</p>
+        ))}
     </section>
+  );
+}
+
+// What a failed prepare tells the customer (roadmap R134): the step, the reason, whether Try
+// again may help and the reference for support, with the details to copy for support. Never
+// "look in the log": a customer can't.
+export function FailureReport(props: { failure: PrepareFailure; at: string | null }) {
+  const { failure } = props;
+  // What the last copy did: copied, or the text to copy by hand when the browser refused.
+  const [copied, setCopied] = useState<{ byHand: string | null }>();
+  const text = [
+    `Reference: ${failure.reference}`,
+    `Step: ${failure.step ?? "Before the first step"}`,
+    `Reason: ${failure.message}`,
+    `Time: ${props.at ?? "unknown"}`,
+    `App version: ${failure.version}`,
+    `Browser: ${navigator.userAgent}`,
+    `Error: ${failure.details}`,
+  ].join("\n");
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      console.info(`Prepare failure copied for support (${failure.reference})`);
+      setCopied({ byHand: null });
+    } catch (e) {
+      console.error("Could not copy the failure's details", e);
+      setCopied({ byHand: text });
+    }
+  }
+
+  return (
+    <div className="failure" role="alert">
+      <p className="error">
+        {failure.step ? `“${failure.step}” failed. ` : "Preparing failed. "}
+        {failure.message}
+      </p>
+      <p className="muted">
+        {failure.retry
+          ? "Try again may help. If it keeps failing, please give support the reference "
+          : "Please give support the reference "}
+        <strong>{failure.reference}</strong>.
+      </p>
+      <button type="button" className="secondary" onClick={copy}>
+        Copy details for support
+      </button>
+      {copied && copied.byHand === null && <span className="done"> Copied.</span>}
+      {copied?.byHand && (
+        <>
+          <p className="error">The browser didn't allow copying. Select the text below and copy it.</p>
+          <textarea readOnly value={copied.byHand} rows={7} aria-label="Details for support" />
+        </>
+      )}
+      <details>
+        <summary>Details</summary>
+        <pre>{failure.details}</pre>
+      </details>
+    </div>
   );
 }
 
