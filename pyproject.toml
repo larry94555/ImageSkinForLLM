@@ -34,6 +34,10 @@ dependencies = [
 # Text to speech on the CPU. Kokoro supports Python up to 3.12.
 voice = [
     "kokoro>=0.9.4,<0.10",
+    # preshed 3.0.14 breaks spaCy 3.8.16 loading en_core_web_sm (OverflowError in the tokenizer),
+    # which Kokoro's English pipeline needs, so prepare failed (roadmap R134a). Lift the pin when a
+    # preshed or spaCy release loads the model again.
+    "preshed<3.0.14",
 ]
 # Video on the CPU. OpenCV 5 no longer bundles the face detector, so stay on 4.x.
 video = [

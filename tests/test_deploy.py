@@ -133,3 +133,11 @@ def test_the_hosted_app_gets_the_packs_from_caddy_inside_docker() -> None:
     caddy = compose.split("\n  caddy:")[1]
     assert "8090" not in caddy  # not published outside Docker
     assert "\n:8090 {" in text(DEPLOY / "Caddyfile")
+
+
+def test_the_image_stops_building_if_kokoros_english_model_cant_load() -> None:
+    # preshed 3.0.14 broke loading it, so prepare failed on the site (roadmap R134a).
+    dockerfile = text(ROOT / "Dockerfile")
+    assert "python -m spacy download en_core_web_sm" in dockerfile
+    assert "spacy.load('en_core_web_sm')" in dockerfile
+    assert '"preshed<3.0.14"' in text(ROOT / "pyproject.toml")
