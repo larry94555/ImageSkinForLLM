@@ -198,6 +198,18 @@ export interface PrepareStep {
   slow?: boolean; // nothing new for longer than twice its usual time
 }
 
+// Why the prepare job failed (roadmap R134): the step, a plain reason, whether Try again may
+// help, and the reference to give support; the server's log has the full error under it.
+export interface PrepareFailure {
+  reference: string; // such as P-7K3F9Q
+  step: string | null;
+  reason: string;
+  message: string;
+  retry: boolean;
+  details: string; // the error, without the server's folders and file names
+  version: string; // the app's
+}
+
 // How far the prepare job has got. It runs on the server, and carries on after a restart.
 export interface PrepareStatus {
   state: "idle" | "running" | "done" | "failed";
@@ -205,6 +217,7 @@ export interface PrepareStatus {
   percent: number;
   steps: PrepareStep[] | null;
   error: string | null; // why it failed
+  failure?: PrepareFailure | null; // with the step and the reference for support (R134)
   started_at: string | null;
   finished_at: string | null;
   left_s?: number | null; // while it runs: about how long the whole prepare has left

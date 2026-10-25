@@ -989,3 +989,10 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .start-now .faces input:focus-visible + img { outline: 2px solid var(--accent); outline-offset: 2px; }
 .start-now .faces img { display: block; width: 96px; height: 96px; border-radius: 7px; object-fit: cover; }
 .start-now progress { width: 100%; max-width: 520px; }
+
+/* A failed prepare (roadmap R134): the reason, the reference and the details for support. */
+.failure { margin-top: 12px; }
+.failure p { margin: 6px 0; }
+.failure details { margin-top: 8px; }
+.failure pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85em; }
+.failure textarea { width: 100%; margin-top: 6px; font-family: inherit; }
