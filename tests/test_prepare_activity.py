@@ -16,7 +16,16 @@ from imageskin import liveportrait
 from imageskin.download import MB
 from imageskin.liveportrait import FACE_MODEL_SIZE, HF_FILES, ensure_models
 from imageskin.photoreal_library import liveportrait_factory
-from imageskin.prepare_job import STEPS, PrepareStatus, Progress, Step, fresh_steps, percent, share
+from imageskin.prepare_job import (
+    STEPS,
+    PrepareJob,
+    PrepareStatus,
+    Progress,
+    Step,
+    fresh_steps,
+    percent,
+    share,
+)
 
 USUAL = {key: weight for key, _, weight in STEPS}
 
@@ -72,7 +81,7 @@ def test_the_cloned_voice_says_it_learns_the_voice(
     assert "Loading the voice models and learning the voice from your recordings" in lines
 
 
-def test_the_beat_gives_the_time_so_far_and_moves_the_percentage(tmp_path: Path) -> None:
+def test_the_beat_gives_the_time_left_and_moves_the_percentage(tmp_path: Path) -> None:
     reached, release = threading.Event(), threading.Event()
 
     def voice() -> None:
@@ -88,11 +97,57 @@ def test_the_beat_gives_the_time_so_far_and_moves_the_percentage(tmp_path: Path)
         early = job.status()
         job._beat(start + 30)
         later = job.status()
+        job._beat(start + USUAL["voice"] + 5)  # past its usual time: no guess for the step
+        past = job.status()
         release.set()
         job.wait(5)
-    assert step(early, "voice").elapsed_s == 10 and early.elapsed_s is not None
+    rest = sum(USUAL.values()) - USUAL["voice"]
+    # Nothing has finished yet, so each step is expected to take its usual time.
+    assert step(early, "voice").left_s == USUAL["voice"] - 10
+    assert early.left_s == USUAL["voice"] - 10 + rest
+    assert step(later, "voice").left_s == USUAL["voice"] - 30
+    assert step(past, "voice").left_s is None and past.left_s == rest
     assert 0 < early.percent < later.percent  # the voice step can't count its work
     assert not step(later, "voice").slow
+    assert job.status().left_s is None  # finished
+
+
+def test_a_counted_step_has_left_what_its_pace_says_at_this_runs_pace(tmp_path: Path) -> None:
+    reached, release = threading.Event(), threading.Event()
+
+    def face(photo: Path, progress: Progress) -> None:
+        progress("models", 0, 1)
+        progress("models", 1, 1)
+        progress("shapes", 0, 10)
+        progress("shapes", 2, 10)
+        reached.set()
+        release.wait(5)
+
+    job, _ = make_job(tmp_path, face)
+    with patch("imageskin.prepare_job.BEAT_S", 60):
+        job.start()
+        assert reached.wait(5)
+        # Counting began at 100 s, and 2 of 10 shapes were done by 110 s: 5 s each.
+        job._clock["shapes"] = (100.0, 0)
+        job._counted["shapes"] = 110.0
+        job._beat(112.0)
+        status = job.status()
+        release.set()
+        job.wait(5)
+    assert step(status, "shapes").left_s == 5 * 8 - 2
+    # The voice and models steps took almost no time: the steps after at the quickest pace.
+    rest = (USUAL["loop"] + USUAL["align"] + USUAL["clips"]) * 0.5
+    assert status.left_s == 38 + rest
+
+
+def test_pace_compares_finished_steps_with_their_usual_times() -> None:
+    steps = fresh_steps()
+    assert PrepareJob._pace(steps) == 1.0  # nothing finished yet
+    voice = Step("voice", "", 1, 1, seconds=2 * USUAL["voice"])
+    models = Step("models", "", 1, 1, seconds=None)  # done before this run: not counted
+    assert PrepareJob._pace([voice, models, *steps[2:]]) == 2.0
+    quick = Step("voice", "", 1, 1, seconds=0.1)
+    assert PrepareJob._pace([quick, *steps[1:]]) == 0.5  # says little about the long steps
 
 
 def test_a_step_with_nothing_new_for_twice_its_usual_time_is_slow(

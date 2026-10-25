@@ -2803,7 +2803,7 @@ function PrepareSection(props) {
 					"Preparing… ",
 					status.percent,
 					"% done",
-					status.elapsed_s != null && ` · ${duration$1(status.elapsed_s)} so far`
+					status.left_s != null && ` · about ${duration$1(status.left_s)} left`
 				]
 			}),
 			slow && /* @__PURE__ */ u("p", {
@@ -4275,11 +4275,7 @@ function StepState(props) {
 	});
 	return /* @__PURE__ */ u("span", {
 		className: "busy",
-		children: [
-			step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…"),
-			step.elapsed_s != null && ` · ${duration$1(step.elapsed_s)} so far`,
-			step.left_s !== null && ` · about ${duration$1(step.left_s)} left`
-		]
+		children: [step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…"), step.left_s !== null && ` · about ${duration$1(step.left_s)} left`]
 	});
 }
 function duration$1(seconds) {

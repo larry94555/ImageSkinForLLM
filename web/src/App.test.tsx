@@ -1067,20 +1067,18 @@ test("a job already running when the page opens is shown and followed", async ()
   expect(screen.queryByLabelText("Sample video")).toBeNull(); // not until it is done
 });
 
-test("a running step says what it is doing and how long it has taken (R134b)", async () => {
-  const steps = STEPS.map((s) =>
-    s.key === "loop" ? { ...s, activity: "Frame 53 of 200", elapsed_s: 95 } : s,
-  );
-  prepareServer([{ ...RUNNING, steps, elapsed_s: 400 }]);
+test("a running step says what it is doing and about how long is left (R134b)", async () => {
+  const steps = STEPS.map((s) => (s.key === "loop" ? { ...s, activity: "Frame 53 of 200" } : s));
+  prepareServer([{ ...RUNNING, steps, left_s: 1500 }]);
   await openAt("#/setup");
-  expect(await screen.findByText("Preparing… 31% done · 7 min so far")).toBeTruthy();
-  expect(screen.getByText("Frame 53 of 200 · 2 min so far · about 12 min left")).toBeTruthy();
+  expect(await screen.findByText("Preparing… 31% done · about 25 min left")).toBeTruthy();
+  expect(screen.getByText("Frame 53 of 200 · about 12 min left")).toBeTruthy();
   expect(screen.queryByText(/taking longer than usual/)).toBeNull();
 });
 
 test("a slow step says it is still working (R134b)", async () => {
   const steps = STEPS.map((s) =>
-    s.key === "loop" ? { ...s, activity: "Frame 53 of 200", elapsed_s: 300, slow: true } : s,
+    s.key === "loop" ? { ...s, activity: "Frame 53 of 200", slow: true } : s,
   );
   prepareServer([{ ...RUNNING, steps }]);
   await openAt("#/setup");

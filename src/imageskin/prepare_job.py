@@ -110,6 +110,8 @@ STEPS = (
 BEAT_S = 1.0
 # A step with nothing new for longer than this many times its usual time is slow.
 SLOW_FACTOR = 2
+# The range this run's pace against the usual times is kept in, for the time left.
+PACE_MIN, PACE_MAX = 0.5, 5.0
 # What each clip's activity line says while it is made.
 CLIP_ACTIVITY: dict[str, str] = {
     "goodbye": "Making the video of “Goodbye.”",
@@ -172,7 +174,7 @@ class PrepareStatus:
     error: str | None = None  # why it failed
     started_at: str | None = None  # ISO 8601, UTC
     finished_at: str | None = None
-    elapsed_s: int | None = None  # while it runs: how long the whole prepare has taken so far
+    left_s: int | None = None  # while it runs: about how many seconds the whole prepare has left
     # Running, but the app is no longer working on it (its thread has gone): Try again carries on.
     stopped: bool = False
 
@@ -248,6 +250,8 @@ class PrepareJob:
         self._clock: dict[str, tuple[float, int]] = {}
         # When the running step last reported something new, for the slow notice (R134b).
         self._changed = 0.0
+        # When each running step's count last went up, for its time left between counts.
+        self._counted: dict[str, float] = {}
         self._status = self._load()
 
     def _load(self) -> PrepareStatus:
@@ -515,6 +519,7 @@ class PrepareJob:
             if activity is not None:
                 logger.debug("Prepare activity", extra={"step": key, "activity": activity})
             started, done_at_start = self._clock.setdefault(key, (now, done))
+            self._counted[key] = now
             elapsed = now - started
             seconds, left = None, None
             if done >= total and done_at_start >= total:
@@ -539,16 +544,20 @@ class PrepareJob:
             self._save()  # a small file, and a frame takes seconds
 
     def _beat(self, now: float) -> None:
-        """Tell the page the job is still working (roadmap R134b): the running step's time so
-        far, the whole job's, and whether nothing new has come for longer than usual."""
+        """Tell the page the job is still working (roadmap R134b): about how long the running
+        step and the whole prepare have left, and whether nothing new has come for longer than
+        usual."""
         usual = {key: weight for key, _, weight in STEPS}
         with self._lock:
             if self._status.state != "running":
                 return
             steps = self._status.steps or []
+            pace = self._pace(steps)
             step = next((s for s in steps if s.done < s.total and s.key in self._clock), None)
+            left = None
             if step is not None:
-                elapsed = now - self._clock[step.key][0]
+                started, done_at_start = self._clock[step.key]
+                elapsed = now - started
                 quiet = now - self._changed
                 slow = quiet > SLOW_FACTOR * usual[step.key]
                 if slow and not step.slow:
@@ -560,17 +569,44 @@ class PrepareJob:
                             "quiet_s": round(quiet),
                         },
                     )
-                new = replace(step, elapsed_s=round(elapsed), slow=slow)
-                steps = [new if s.key == step.key else s for s in steps]
-            started = self._status.started_at
-            total_s = None
-            if started:
-                total_s = round(
-                    (datetime.now(UTC) - datetime.fromisoformat(started)).total_seconds()
+                if step.done > done_at_start:  # from how fast it counts
+                    counted = self._counted[step.key]
+                    per = (counted - started) / (step.done - done_at_start)
+                    left = per * (step.total - step.done) - (now - counted)
+                else:  # from its usual time, at this run's pace
+                    left = usual[step.key] * pace - elapsed
+                left = left if left > 0 else None
+                new = replace(
+                    step,
+                    elapsed_s=round(elapsed),
+                    slow=slow,
+                    left_s=None if left is None else round(left),
                 )
-            self._status = replace(
-                self._status, steps=steps, percent=percent(steps), elapsed_s=total_s
+                steps = [new if s.key == step.key else s for s in steps]
+            rest = sum(
+                usual[s.key] * pace * (1 - s.done / s.total)
+                for s in steps
+                if s.done < s.total and (step is None or s.key != step.key)
             )
+            self._status = replace(
+                self._status,
+                steps=steps,
+                percent=percent(steps),
+                left_s=round((left or 0) + rest),
+            )
+
+    @staticmethod
+    def _pace(steps: list[Step]) -> float:
+        """How long the steps finished in this run took against their usual times: 2.0 on a
+        machine twice as slow as the one the usual times were measured on. 1.0 until one is.
+        Kept between 0.5 and 5, as a quick step (models already downloaded, say) says little
+        about the long ones."""
+        usual = {key: weight for key, _, weight in STEPS}
+        finished = [s for s in steps if s.done >= s.total and s.seconds is not None]
+        expected = sum(usual[s.key] for s in finished)
+        if not expected:
+            return 1.0
+        return min(max(sum(s.seconds or 0 for s in finished) / expected, PACE_MIN), PACE_MAX)
 
     def _beat_until(self, finished: threading.Event) -> None:
         while not finished.wait(BEAT_S):
@@ -591,6 +627,7 @@ class PrepareJob:
         start = time.perf_counter()
         photo_id = self._status.photo_id or ""
         self._clock = {}
+        self._counted = {}
         self._changed = start
         logger.info("Prepare job started", extra={"photo_id": photo_id})
         with self._lock:
@@ -683,6 +720,7 @@ class PrepareJob:
                 percent=100 if state == "done" else percent(steps),
                 error=error,
                 finished_at=now_iso(),
+                left_s=None,
             )
             self._save()
 

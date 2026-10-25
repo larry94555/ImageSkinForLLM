@@ -764,7 +764,7 @@ export function PrepareSection(props: {
       {running && (
         <p className="busy">
           Preparing… {status.percent}% done
-          {status.elapsed_s != null && ` · ${duration(status.elapsed_s)} so far`}
+          {status.left_s != null && ` · about ${duration(status.left_s)} left`}
         </p>
       )}
       {slow && <p className="muted">This is taking longer than usual. It&apos;s still working.</p>}
@@ -2467,7 +2467,7 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean; earlier?:
   );
 }
 
-// Next to each step: done (and how long it took), what it is doing and how long it has taken so far
+// Next to each step: done (and how long it took), what it is doing and about how long it has left
 // (R134b), or waiting its turn.
 function StepState(props: { step: PrepareStep; status: PrepareStatus; index: number }) {
   const { step, status } = props;
@@ -2482,7 +2482,6 @@ function StepState(props: { step: PrepareStep; status: PrepareStatus; index: num
   return (
     <span className="busy">
       {step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…")}
-      {step.elapsed_s != null && ` · ${duration(step.elapsed_s)} so far`}
       {step.left_s !== null && ` · about ${duration(step.left_s)} left`}
     </span>
   );
