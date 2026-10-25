@@ -1,5 +1,6 @@
 import threading
 import time
+import wave
 from array import array
 from pathlib import Path
 from unittest.mock import patch
@@ -76,6 +77,27 @@ def test_prepare_reuses_library_and_render_writes_video(tmp_path: Path, short_lo
     size = (video.get(cv2.CAP_PROP_FRAME_WIDTH), video.get(cv2.CAP_PROP_FRAME_HEIGHT))
     video.release()
     assert frames == 10 and size == (200, 160)
+
+
+def test_render_logs_how_far_the_mouth_opens_before_the_voice(
+    tmp_path: Path, short_loop: object, caplog: pytest.LogCaptureFixture
+) -> None:
+    engine = PhotorealEngine(home=tmp_path / "home", make_portrait=lambda _: FakePortrait())
+    lib = engine.prepare(photo_file(tmp_path))
+    wav = tmp_path / "speech.wav"
+    write_speech(wav)  # "AA" from 0.1 s; the voice is heard from 0.15 s, as Kokoro's can be
+    t = np.arange(int(24000 * 0.4)) / 24000
+    tone = np.where((t >= 0.15) & (t < 0.25), 8000 * np.sin(2 * np.pi * 220 * t), 0)
+    with wave.open(str(wav), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(24000)
+        w.writeframes(tone.astype("<i2").tobytes())
+    with caplog.at_level("INFO"):
+        engine.render(lib, wav, tmp_path / "reply.mp4")
+    assert engine.mouth_lead_ms is not None and -80 <= engine.mouth_lead_ms <= 0
+    rendered = [r for r in caplog.records if r.message == "Rendered video"]
+    assert rendered[-1].mouth_lead_ms == engine.mouth_lead_ms  # type: ignore[attr-defined]
 
 
 def test_frame_shows_the_mouth_shape_in_the_photo(tmp_path: Path, short_loop: object) -> None:

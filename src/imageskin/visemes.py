@@ -7,6 +7,7 @@ Sounds are Kokoro's phonemes: IPA letters plus a few capitals for diphthongs (A 
 I in "my", W in "now", O in "go", Y in "boy").
 """
 
+import bisect
 import math
 from dataclasses import dataclass
 
@@ -30,6 +31,8 @@ SHAPE_OF: dict[str, str] = {ch: name for name, chars in _GROUPS.items() for ch i
 PAUSES = set(",.!?;:—…")
 HOLDS = set(" ˈˌːʰ̃")  # spaces, stress and length marks keep the sound before them
 CONTACT = ("MBP", "FV")  # sounds a lip-reader needs to see the lips touch
+# A rest at least this long before a sound means the mouth opens from rest for it (roadmap R128).
+PAUSE_S = 0.1
 
 
 @dataclass(frozen=True)
@@ -81,20 +84,38 @@ def shape_timings(sounds: list[SoundTiming]) -> list[ShapeTiming]:
     return out
 
 
+def openings(shapes: list[ShapeTiming], pause_s: float = PAUSE_S) -> list[int]:
+    """Which shapes the mouth opens from rest for: the first that isn't rest, and each one after
+    a rest (or a gap in the timings) of at least `pause_s` (roadmap R128)."""
+    out: list[int] = []
+    last_end: float | None = None  # where the sound before ended
+    for i, s in enumerate(shapes):
+        if s.shape == "rest":
+            continue
+        if last_end is None or s.start - last_end >= pause_s:
+            out.append(i)
+        last_end = s.end
+    return out
+
+
 def frame_weights(
     shapes: list[ShapeTiming],
     n_frames: int,
     fps: float,
     smooth_s: float = 0.06,
     lead_s: float = 0.03,
+    opens: list[float] | None = None,
 ) -> list[dict[str, float]]:
     """How much of each mouth shape to show in each video frame (weights add up to 1).
 
     Shapes blend into each other over a Gaussian of `smooth_s` seconds, the way real lips
     start the next sound before the current one ends, and the lips move `lead_s` ahead of
-    the sound. Lip contact sounds (m, b, p, f, v) are often shorter than a frame and would
-    blur away, so the frame nearest the middle of each one shows that shape fully.
-    The defaults are the 60 ms blend and 30 ms lead Larry accepted (2026-10-06).
+    the sound, from when each frame starts to show. After a pause the mouth stays at rest
+    until the first sound starts, so it never opens before the voice (roadmap R128): a frame
+    that starts before it doesn't see it; `opens` are those first sounds' starts, by default
+    the starts of `openings(shapes)`. Lip contact sounds (m, b, p, f, v) are often shorter
+    than a frame and would blur away, so the frame nearest the middle of each one shows that
+    shape fully. The defaults are the 60 ms blend and 30 ms lead Larry accepted (2026-10-06).
     """
     step = 0.005
     n_steps = int(math.ceil(n_frames / fps / step)) + 1
@@ -106,18 +127,24 @@ def frame_weights(
             k += 1
         shape = shapes[k].shape if k < len(shapes) and shapes[k].start <= t else "rest"
         grid[shape][i] = 1.0
+    if opens is None:
+        opens = [shapes[i].start for i in openings(shapes)]
 
     radius = max(1, int(3 * smooth_s / step))
     kernel = [math.exp(-0.5 * (j * step / smooth_s) ** 2) for j in range(-radius, radius + 1)]
     out: list[dict[str, float]] = []
     for f in range(n_frames):
-        centre = round(((f + 0.5) / fps + lead_s) / step)
+        shown = f / fps
+        centre = round((shown + lead_s) / step)
+        # The grid from the next opening on counts as rest until a frame starts after it.
+        nxt = bisect.bisect_right(opens, shown)
+        cut = math.ceil(opens[nxt] / step - 1e-9) if nxt < len(opens) else n_steps
         weights: dict[str, float] = {}
         for name, row in grid.items():
-            acc = sum(
-                kv * row[min(n_steps - 1, max(0, centre + j - radius))]
-                for j, kv in enumerate(kernel)
-            )
+            acc = 0.0
+            for j, kv in enumerate(kernel):
+                i = min(n_steps - 1, max(0, centre + j - radius))
+                acc += kv * (row[i] if i < cut else float(name == "rest"))
             if acc > 1e-6:
                 weights[name] = acc
         total = sum(weights.values())

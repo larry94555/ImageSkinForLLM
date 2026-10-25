@@ -645,9 +645,10 @@ def test_each_clip_is_spoken_and_then_rendered(
         wav.with_suffix(".json").write_text("{}")
         steps_done.append(("voice", text))
 
-    def render(photo: Path, wav: Path, output: Path) -> None:
+    def render(photo: Path, wav: Path, output: Path) -> float | None:
         output.write_bytes(wav.read_bytes())
         steps_done.append(("video", wav.read_text()))
+        return -20.0 if wav.read_text() == "One." else None  # the engine's measured lead
 
     videos = ReplyVideos(
         tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), ClipSteps(speak, render)
@@ -671,6 +672,8 @@ def test_each_clip_is_spoken_and_then_rendered(
     assert [(r.sentence, r.chars) for r in spoken] == [(1, 4), (3, 4)]  # type: ignore[attr-defined]
     ready = [r for r in caplog.records if r.message == "Sentence clip ready"]
     assert [r.sentence for r in ready] == [1, 3]  # type: ignore[attr-defined]
+    # Each clip's lead of the mouth over the voice (roadmap R128).
+    assert [r.mouth_lead_ms for r in ready] == [-20.0, None]  # type: ignore[attr-defined]
 
 
 def test_a_failed_voice_step_stops_the_clips_and_says_why(

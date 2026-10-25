@@ -123,9 +123,9 @@ def test_measure_clip_finds_the_lead_at_the_start(
     assert r.start is not None
     assert r.start.heard == pytest.approx(0.4, abs=0.006)
     assert r.start.sound == 0.4
-    # frame_weights' 30 ms lead and 60 ms blend open the mouth a few frames early.
-    assert r.start.opens is not None and 0.2 <= r.start.opens < 0.4
-    assert r.start.lead_ms is not None and 0 < r.start.lead_ms < 200
+    # Since R128 the mouth opens on the first frame that starts with the voice, not before it.
+    assert r.start.opens == pytest.approx(0.4)
+    assert r.start.lead_ms is not None and -40 < r.start.lead_ms <= 0
     assert "Measured clip" in caplog.text
 
 

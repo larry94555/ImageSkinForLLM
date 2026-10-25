@@ -234,7 +234,7 @@ class SentenceClips:
             spoken.wav.with_suffix(".json").unlink(missing_ok=True)
             return
         try:
-            listed_at = self._render(spoken)
+            listed_at, mouth_lead = self._render(spoken)
         except Exception as e:
             self._fail(n, "video", e)
             return
@@ -243,6 +243,8 @@ class SentenceClips:
             extra={
                 "sentence": n,
                 "render_ms": ms_since(start),
+                # How far the mouth opened before the voice, in ms, at most 80 (roadmap R128).
+                "mouth_lead_ms": mouth_lead,
                 # From the sentence arriving from the LLM to its clip being whole.
                 "since_sentence_ms": ms_since(sentence_at),
                 # From the sentence to the clip being listed for the browser, as its video
@@ -278,10 +280,10 @@ class SentenceClips:
         )
         return Spoken(n, wav, sentence_at, start)
 
-    def _render(self, spoken: Spoken) -> float:
+    def _render(self, spoken: Spoken) -> tuple[float, float | None]:
         """Render the spoken sentence's clip, listed as soon as the video step starts so the
         browser can play it while it is written, and remove the speech once it is in. Returns
-        when the clip was listed."""
+        when the clip was listed and how far its mouth opened before the voice, if measured."""
         path = self.folder / f"{len(self.clips) + 1}.mp4"
         listed_at = time.perf_counter()
         with self._changed:
@@ -289,7 +291,7 @@ class SentenceClips:
             self.clips.append(path)
             self._changed.notify_all()
         try:
-            self._videos._steps.render(self._photo, spoken.wav, path)
+            mouth_lead = self._videos._steps.render(self._photo, spoken.wav, path)
         except Exception:
             with self._changed:  # a clip cut short is never played
                 self.clips.pop()
@@ -303,7 +305,7 @@ class SentenceClips:
             self.rendered += 1
             self.whole_at.append(time.perf_counter())
             self._changed.notify_all()
-        return listed_at
+        return listed_at, mouth_lead
 
     def clip(self, n: int) -> tuple[Path, bool] | None:
         """Clip `n`'s file and whether it is whole, taken together; None when it isn't listed."""

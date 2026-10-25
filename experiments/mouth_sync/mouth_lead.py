@@ -6,7 +6,7 @@
 For each clip the app makes (three reply sentences, "Goodbye.", "Welcome back." and the sample
 video's script) it speaks the text with the app's own voice engine, writes the WAV and timings
 JSON as the app does (`write_speech`), and works out the mouth's weights per frame as the
-photoreal engine does (`frame_weights` on the JSON's shapes). Then, at the start of the clip and
+photoreal engine does (`mouth_weights` on the JSON's shapes). Then, at the start of the clip and
 at each word that starts after a pause:
 
 - the voice is heard at the first 5 ms window no more than HEARD_DB below the clip's loud level
@@ -45,10 +45,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from imageskin.expression import openness
+from imageskin.mouth_sync import mouth_weights
 from imageskin.photoreal import read_shapes
 from imageskin.sample import SAMPLE_SCRIPT
 from imageskin.video import FPS, find_ffmpeg, write_mp4
-from imageskin.visemes import SoundTiming, frame_weights
+from imageskin.visemes import SoundTiming
 from imageskin.voice import Speech, WordTiming, write_speech
 
 logger = logging.getLogger("mouth_lead")
@@ -321,7 +322,9 @@ def measure_clip(
     wav = folder / f"{name.replace(' ', '-')}.wav"
     seconds = write_speech(speech, wav, wav.with_suffix(".json"))
     n_frames = max(1, round(seconds * FPS))
-    weights = frame_weights(read_shapes(wav.with_suffix(".json")), n_frames, FPS)
+    # As the photoreal engine draws them (R128 moved each word after a pause to its voice).
+    shapes = read_shapes(wav.with_suffix(".json"))
+    weights = mouth_weights(shapes, to_float(speech.pcm), speech.sample_rate, n_frames, FPS)
     result = ClipResult(name, text, round(seconds, 2), measure_onsets(speech, weights))
     if mp4:
         result.whole_mp4_ms, result.progressive_mp4_ms = mp4_delays(wav, speech, folder)
