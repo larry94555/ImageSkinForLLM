@@ -364,7 +364,9 @@ def test_lines_that_cant_be_rendered_again_say_so(
     with caplog.at_level(logging.ERROR):
         assert again.refresh() is True
         again.wait(10)
-    assert again.status().state == "failed" and again.status().error == sn.NOT_READY
+    error = again.status().error or ""
+    assert again.status().state == "failed" and error.startswith(sn.NOT_READY)
+    assert "Reference for support: P-" in error
     assert released == [True] and again.chosen() == CHOICE
     assert any(r.getMessage() == "Could not render the lines again" for r in caplog.records)
 
@@ -453,7 +455,10 @@ def test_a_failed_render_says_so(
     with caplog.at_level(logging.ERROR):
         start.start(CHOICE)
         start.wait(10)
-    assert start.status().error == sn.NOT_READY
+    error = start.status().error or ""
+    assert error.startswith(f"{sn.NOT_READY} Something unexpected went wrong. Click Try again.")
+    [logged] = [r for r in caplog.records if r.getMessage().startswith("Could not get")]
+    assert error.endswith(f"Reference for support: {vars(logged)['reference']}.")
     assert any(r.exc_info and "no ffmpeg" in str(r.exc_info[1]) for r in caplog.records)
 
 

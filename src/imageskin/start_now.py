@@ -40,6 +40,7 @@ from imageskin.default_people import (
     voice_of,
 )
 from imageskin.download import DownloadError, download, sha256_of
+from imageskin.failure import report
 from imageskin.photoreal_library import library_key
 from imageskin.ready_voice import save_ready_voice
 from imageskin.voice import Speech, VoiceEngine
@@ -78,7 +79,7 @@ DAMAGED = "The person's download was damaged. Click Try again."
 NOT_PUBLISHED = (
     "This person isn't available to download yet. Pick another, or use your own photos and voice."
 )
-NOT_READY = "Something went wrong getting the person ready. Click Try again."
+NOT_READY = "The person couldn't be got ready."
 
 
 @dataclass(frozen=True)
@@ -360,9 +361,10 @@ class StartNow:
         start = time.perf_counter()
         try:
             self._render_lines(choice)
-        except Exception:
-            logger.exception("Could not render the lines again", extra={"person": choice.name})
-            self._set("failed", error=NOT_READY)
+        except Exception as e:
+            what = "Could not render the lines again"
+            failure = report(e, logger, what, self._home, person=choice.name)
+            self._set("failed", error=f"{NOT_READY} {failure.summary()}")
             return
         finally:
             self._release()
@@ -485,9 +487,11 @@ class StartNow:
                 "Default person's pack is not usable", extra={"person": name, "error": str(e)}
             )
             return DAMAGED
-        except Exception:
-            logger.exception("Could not get the default person ready", extra={"person": name})
-            return NOT_READY
+        except Exception as e:
+            # A reason and a reference for support, the full error in the log (roadmap R134).
+            what = "Could not get the default person ready"
+            failure = report(e, logger, what, self._home, person=name)
+            return f"{NOT_READY} {failure.summary()}"
         return None
 
     def _download(self, name: str) -> Path:

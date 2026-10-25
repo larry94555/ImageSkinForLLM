@@ -12,14 +12,13 @@ from fastapi.testclient import TestClient
 
 from imageskin.accent import Accent, AccentEngine
 from imageskin.app import NEEDS_CLONE, WAIT_FOR_PREPARE, create_app
+from imageskin.failure import REASONS
 from imageskin.prepare_job import (
     CHANGED_MEANWHILE,
     CLIPS,
-    ENGINE_FAILED,
     NO_PHOTO,
     NOT_PREPARED,
     SAMPLE_BEING_MADE,
-    SOMETHING_WRONG,
     PrepareError,
     PrepareJob,
     PrepareStatus,
@@ -169,18 +168,19 @@ def test_needs_a_photo_and_enough_voice(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "error",
+    ("error", "reason"),
     [
-        VideoError("ffmpeg was not found"),
-        VideoError('OpenCV is not installed; run: pip install -e ".[video]"'),
-        VoiceError("could not read the voice sample /home/me/.imageskin/voice.wav: denied"),
+        (VideoError("ffmpeg was not found"), "missing"),
+        (VideoError('OpenCV is not installed; run: pip install -e ".[video]"'), "missing"),
+        (VoiceError("could not read the voice sample /x/voice.wav: denied"), "unreadable"),
     ],
 )
 def test_an_engine_failure_is_told_in_plain_words_and_logged(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, error: Exception
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, error: Exception, reason: str
 ) -> None:
     """Regression for the review of PR #82: an engine's error, naming programs, packages or
-    files, reached the Setup page as it was."""
+    files, reached the Setup page as it was. Since R134 it gets a reason, the step that failed
+    and a reference, and the log has the error under the same reference."""
 
     def failing(photo: Path, progress: Progress) -> None:
         raise error
@@ -190,9 +190,14 @@ def test_an_engine_failure_is_told_in_plain_words_and_logged(
         job.start()
         job.wait(5)
     status = job.status()
-    assert status.state == "failed" and status.error == ENGINE_FAILED
-    # Whoever runs the app can still see why, in the log.
-    assert [vars(r).get("error") for r in caplog.records] == [str(error)]
+    failure = status.failure
+    assert status.state == "failed" and failure is not None
+    assert failure.reason == reason and status.error == REASONS[reason][0]
+    assert failure.step == "Get ready to animate the face"
+    # Whoever runs the app can still see why, in the log, under the reference.
+    [logged] = caplog.records
+    assert vars(logged)["error"] == str(error)
+    assert vars(logged)["reference"] == failure.reference and logged.exc_info
     voice = (status.steps or [])[0]
     assert voice.done == 1  # the voice step had finished
 
@@ -207,8 +212,11 @@ def test_an_unexpected_error_is_reported_and_logged(
     with caplog.at_level(logging.ERROR):
         job.start()
         job.wait(5)
-    error = job.status().error or ""
-    assert error == SOMETHING_WRONG and "boom" not in error  # plain words (R41e); the log has it
+    status = job.status()
+    error = status.error or ""
+    assert error == REASONS["unexpected"][0] and "boom" not in error  # plain words (R41e)
+    assert status.failure and status.failure.step == "Get the voice ready"
+    assert status.failure.details == "RuntimeError: boom" and status.failure.retry
     assert "Traceback" in caplog.text
 
 
@@ -219,6 +227,20 @@ def test_a_removed_photo_fails_the_job(tmp_path: Path) -> None:
     job.start()
     job.wait(5)
     assert job.status().error == "The photo to prepare was removed. Choose another one."
+    failure = job.status().failure
+    assert failure and failure.reason == "setup" and not failure.retry
+
+
+def test_the_failure_is_kept_after_a_restart(tmp_path: Path) -> None:
+    def broken() -> None:
+        raise MemoryError
+
+    job, _ = make_job(tmp_path, voice=broken)
+    job.start()
+    job.wait(5)
+    failed = job.status().failure
+    again, _ = make_job(tmp_path)  # the server started again
+    assert failed and failed.reason == "memory" and again.status().failure == failed
 
 
 def test_a_job_stopped_by_a_restart_carries_on(tmp_path: Path) -> None:
@@ -597,7 +619,9 @@ def test_a_clip_that_fails_fails_the_job_and_is_not_served(tmp_path: Path) -> No
     job, _ = make_job(tmp_path, clip=broken)
     job.start()
     job.wait(5)
-    assert job.status().error == ENGINE_FAILED  # "ffmpeg failed" is only in the log
+    failure = job.status().failure
+    assert failure and failure.reason == "unexpected"
+    assert failure.step == "Make the sample video and the greetings"
     assert job.clip("goodbye") is None
     assert not (tmp_path / "clips" / "goodbye.mp4").exists()
 
@@ -987,9 +1011,11 @@ def test_the_api_runs_the_video_test_again(
     assert ran.json()["video"] == "/api/prepare/clips/sample" and ran.json()["seconds"] >= 0
     assert sample.text.startswith("This is a test.") and sample.text.endswith(" 2")
     assert still["accepted"] is True
-    assert failed.status_code == 502 and failed.json()["detail"] == ENGINE_FAILED
+    detail = failed.json()["detail"]
+    assert failed.status_code == 502 and detail.startswith("The sample video couldn't be made")
     logged = next(r for r in caplog.records if r.message == "Could not run the video test again")
     assert logged.error == "ffmpeg crashed"  # type: ignore[attr-defined]
+    assert f"Reference for support: {logged.reference}." in detail  # type: ignore[attr-defined]
     assert kept.text == sample.text
 
 

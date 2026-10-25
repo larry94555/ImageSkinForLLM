@@ -53,6 +53,7 @@ from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
+from imageskin.failure import report
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -67,7 +68,6 @@ from imageskin.llm_choice import (
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.prepare_job import (
     CLONES,
-    ENGINE_FAILED,
     NOT_PREPARED,
     REPLY_SIDE,
     ClipName,
@@ -2064,8 +2064,10 @@ def create_app(
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         except Exception as e:
-            logger.error("Could not run the video test again", extra={"error": str(e)})
-            raise HTTPException(status_code=502, detail=ENGINE_FAILED) from e
+            # A reason and a reference for support, the full error in the log (roadmap R134).
+            failure = report(e, logger, "Could not run the video test again", data_home)
+            detail = f"The sample video couldn't be made again. {failure.summary()}"
+            raise HTTPException(status_code=502, detail=detail) from e
         return {"video": "/api/prepare/clips/sample", "seconds": seconds}
 
     @app.delete("/api/chat", dependencies=needs_person)

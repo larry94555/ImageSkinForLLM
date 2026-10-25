@@ -1087,6 +1087,59 @@ test("a failed job says why, marks where it stopped and can be tried again", asy
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 });
 
+const FAILURE = {
+  reference: "P-7K3F9Q",
+  step: "Make the video of the person listening",
+  reason: "memory",
+  message: "The computer ran out of memory. Close other programs first.",
+  retry: true,
+  details: "RuntimeError: out of memory reading <data folder>",
+  version: "0.1.0",
+};
+
+test("a failed job shows the step, the reason and the reference for support (R134)", async () => {
+  const steps = STEPS.map((s) => (s.key === "loop" ? { ...s, left_s: null } : s));
+  const failed = { ...RUNNING, state: "failed" as const, steps, error: FAILURE.message };
+  prepareServer([{ ...failed, failure: FAILURE, finished_at: "2026-10-25T19:30:00+00:00" }]);
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  await openAt("#/setup");
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain(
+    "“Make the video of the person listening” failed. The computer ran out of memory.",
+  );
+  expect(alert.textContent).toContain("Try again may help.");
+  expect(alert.textContent).toContain("give support the reference P-7K3F9Q");
+  expect(alert.textContent).not.toContain("log");
+  expect(screen.getByText("Details")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Copy details for support" }));
+  expect(await screen.findByText("Copied.")).toBeTruthy();
+  const copied = (writeText.mock.calls[0] as unknown as [string])[0];
+  expect(copied).toContain("Reference: P-7K3F9Q");
+  expect(copied).toContain("Step: Make the video of the person listening");
+  expect(copied).toContain("Time: 2026-10-25T19:30:00+00:00");
+  expect(copied).toContain("App version: 0.1.0");
+  expect(copied).toContain("Browser: ");
+  expect(copied).toContain("Error: RuntimeError: out of memory reading <data folder>");
+});
+
+test("a failure Try again can't fix says so, and the details can be copied by hand", async () => {
+  const failure = { ...FAILURE, step: null, retry: false, message: "A program is missing." };
+  prepareServer([{ ...RUNNING, state: "failed", error: failure.message, failure }]);
+  const writeText = vi.fn(async () => {
+    throw new Error("denied");
+  });
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  await openAt("#/setup");
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("Preparing failed. A program is missing.");
+  expect(alert.textContent).toContain("Trying again won't help until this is fixed.");
+  fireEvent.click(screen.getByRole("button", { name: "Copy details for support" }));
+  const byHand = (await screen.findByLabelText("Details for support")) as HTMLTextAreaElement;
+  expect(byHand.value).toContain("Step: Before the first step");
+  expect(byHand.value).toContain("Time: unknown");
+});
+
 test("if the prepare status can't be read the page says so", async () => {
   prepareServer([new Response("", { status: 500 })]);
   await openAt("#/setup");

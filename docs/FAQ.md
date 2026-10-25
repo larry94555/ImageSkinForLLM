@@ -135,13 +135,15 @@ llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 
 
 ## Preparing the video failed. How does tech support find out why?
 
-**What the customer sees:** setup stops with a message such as "The video couldn't be prepared on this computer" or "Something went wrong while preparing". The page keeps it short; the app's log has the full reason. Ask the customer roughly when it failed, then check the log as below. Once R134 on the roadmap is built, the page also shows a reference such as `P-7K3F9Q`; ask for it, and the log line with the same reference is the one to read:
+**What the customer sees:** setup stops and says which step failed and why, in plain words, for example "“Make the mouth shapes and the blinking eyes” failed. The computer ran out of memory. Close other programs first.", whether Try again may help, and a reference such as `P-7K3F9Q`. **Copy details for support** copies the reference, the step, the reason, the time, the app's version, the browser and the error (without the server's folders and file names); ask the customer to paste it into the ticket. The same reference is shown, in one line, when making the sample video again from Settings or getting a default person ready fails. The reasons are: a program or add-on missing, out of memory, not enough disk space, a model that couldn't be downloaded, a photo or recording that couldn't be read, a step that took too long, or something unexpected.
+
+**Finding it in the log:** the log line with the same reference holds the full error:
 
 ```
 docker compose logs app --since 24h | grep P-7K3F9Q
 ```
 
-**What to look for:** every failed prepare writes one JSON line with `"message": "Prepare job failed"`. Its `error` field names what broke (a program, package, model file or step), and an unexpected failure also has an `exception` field with the traceback. The `Prepare step finished` lines just above it say which steps got through, and `Prepare job started` marks where the attempt began.
+**What to look for:** every failed prepare writes one JSON line with `"message": "Prepare job failed"`, and its `reference`, `step` and `reason` fields match the page. Its `error` field names what broke (a program, package, model file or step), and its `exception` field has the traceback. The `Prepare step finished` lines just above it say which steps got through, and `Prepare job started` marks where the attempt began. Making the sample again logs `Could not run the video test again`, and a default person `Could not get the default person ready` or `Could not render the lines again`, with the same fields.
 
 **On the hosted server (Docker),** after connecting with SSH as in [deploy/README.md](../deploy/README.md) step 4:
 

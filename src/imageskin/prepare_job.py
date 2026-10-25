@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from imageskin.accent import OWN, Accent, AccentEngine
 from imageskin.download import sha256_of
+from imageskin.failure import Failure, report
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.sample import SAMPLE_SCRIPT
 from imageskin.uploads import UploadStore
@@ -95,13 +96,6 @@ STEPS = (
     ("align", "Line up the mouth with the head", 20),
     ("clips", "Make the sample video and the greetings", 100),
 )
-# Shown when the job fails for an unexpected reason; the log has the details.
-SOMETHING_WRONG = "Something went wrong while preparing. Click Try again."
-# Shown when the voice or video engine fails, such as a program or add-on missing on this computer.
-ENGINE_FAILED = (
-    "The video couldn't be prepared on this computer. Whoever set up the app can find the reason"
-    " in its log."
-)
 NO_PHOTO = "Add a photo that passes the checks first."
 # Run the video test again (roadmap R27b) needs the sample from a finished prepare.
 NOT_PREPARED = "There is no sample video yet. Prepare it in setup first."
@@ -145,7 +139,8 @@ class PrepareStatus:
     voice_id: str | None = None
     percent: int = 0
     steps: list[Step] | None = None
-    error: str | None = None  # why it failed
+    error: str | None = None  # why it failed, in plain words
+    failure: Failure | None = None  # with the step, the reference and the details (R134)
     started_at: str | None = None  # ISO 8601, UTC
     finished_at: str | None = None
 
@@ -217,7 +212,10 @@ class PrepareJob:
         try:
             data = json.loads(self._file.read_text(encoding="utf-8"))
             steps = [Step(**s) for s in data.pop("steps") or []]
-            status = PrepareStatus(**data, steps=steps)
+            failure = data.pop("failure", None)
+            status = PrepareStatus(
+                **data, steps=steps, failure=Failure(**failure) if failure else None
+            )
             if [s.key for s in steps] != [key for key, _, _ in STEPS]:
                 # Saved by a version with other steps: a running job starts its steps afresh
                 # (frames already rendered are still kept); anything else needs preparing again.
@@ -496,25 +494,25 @@ class PrepareJob:
             self._progress("voice", 1, 1)
             self._prepare_face(photo, self._progress)
             self._render_clips(photo)
-        except PrepareError as e:  # says what to do, in plain words
-            logger.error("Prepare job failed", extra={"error": str(e)})
-            self._finish("failed", str(e))
-            return
-        except (VoiceError, VideoError) as e:
-            # These name programs, packages and files, for whoever runs the app: the log keeps
-            # them, and the host is told in plain words (review on PR #82).
-            logger.error("Prepare job failed", extra={"error": str(e)})
-            self._finish("failed", ENGINE_FAILED)
-            return
-        except Exception:
-            logger.exception("Prepare job failed")
-            self._finish("failed", SOMETHING_WRONG)
+        except Exception as e:
+            self._fail(e, photo_id)
             return
         self._finish("done", None)
         logger.info(
             "Prepare job finished",
             extra={"photo_id": photo_id, "duration_s": round(time.perf_counter() - start, 1)},
         )
+
+    def _fail(self, e: Exception, photo_id: str) -> None:
+        """Tell the customer which step failed, why and the reference to give support; the log
+        has the full error under the reference (roadmap R134). A PrepareError already says what
+        to do."""
+        steps = self._status.steps or []
+        step = next((s.label for s in steps if s.done < s.total), None)
+        message = str(e) if isinstance(e, PrepareError) else None
+        home = self._file.parent
+        failure = report(e, logger, "Prepare job failed", home, step, message, photo_id=photo_id)
+        self._finish("failed", failure.message, failure)
 
     def _render_clips(self, photo: Path) -> None:
         """Render each clip not already there. Progress counts words, so the long sample
@@ -538,7 +536,7 @@ class PrepareJob:
             done += len(text.split())
             self._progress("clips", done, total)
 
-    def _finish(self, state: State, error: str | None) -> None:
+    def _finish(self, state: State, error: str | None, failure: Failure | None = None) -> None:
         with self._lock:
             steps = self._status.steps or []
             if state == "done":
@@ -552,6 +550,7 @@ class PrepareJob:
                 steps=steps,
                 percent=100 if state == "done" else percent(steps),
                 error=error,
+                failure=failure,
                 finished_at=now_iso(),
             )
             self._save()

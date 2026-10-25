@@ -2837,10 +2837,76 @@ function PrepareSection(props) {
 					})
 				]
 			}),
-			status?.state === "failed" && /* @__PURE__ */ u("p", {
+			status?.state === "failed" && (status.failure ? /* @__PURE__ */ u(FailureReport, {
+				failure: status.failure,
+				at: status.finished_at
+			}) : /* @__PURE__ */ u("p", {
 				className: "error",
 				children: status.error
-			})
+			}))
+		]
+	});
+}
+function FailureReport(props) {
+	const { failure } = props;
+	const [copied, setCopied] = d();
+	const text = [
+		`Reference: ${failure.reference}`,
+		`Step: ${failure.step ?? "Before the first step"}`,
+		`Reason: ${failure.message}`,
+		`Time: ${props.at ?? "unknown"}`,
+		`App version: ${failure.version}`,
+		`Browser: ${navigator.userAgent}`,
+		`Error: ${failure.details}`
+	].join("\n");
+	async function copy() {
+		try {
+			await navigator.clipboard.writeText(text);
+			console.info(`Prepare failure copied for support (${failure.reference})`);
+			setCopied({ byHand: null });
+		} catch (e) {
+			console.error("Could not copy the failure's details", e);
+			setCopied({ byHand: text });
+		}
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "failure",
+		role: "alert",
+		children: [
+			/* @__PURE__ */ u("p", {
+				className: "error",
+				children: [failure.step ? `“${failure.step}” failed. ` : "Preparing failed. ", failure.message]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					failure.retry ? "Try again may help." : "Trying again won't help until this is fixed.",
+					" ",
+					"If it keeps failing, give support the reference ",
+					/* @__PURE__ */ u("strong", { children: failure.reference }),
+					"."
+				]
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: copy,
+				children: "Copy details for support"
+			}),
+			copied && copied.byHand === null && /* @__PURE__ */ u("span", {
+				className: "done",
+				children: " Copied."
+			}),
+			copied?.byHand && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The browser didn't allow copying. Select the text below and copy it."
+			}), /* @__PURE__ */ u("textarea", {
+				readOnly: true,
+				value: copied.byHand,
+				rows: 7,
+				"aria-label": "Details for support"
+			})] }),
+			/* @__PURE__ */ u("details", { children: [/* @__PURE__ */ u("summary", { children: "Details" }), /* @__PURE__ */ u("pre", { children: failure.details })] })
 		]
 	});
 }
