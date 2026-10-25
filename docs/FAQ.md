@@ -132,3 +132,36 @@ llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 
 **Then** start the app in a second terminal (`imageskin serve`, after activating `.venv` as usual).
 
 **What to expect on 4 CPU cores:** a reply's first words come after a few seconds, and building the wiki takes about 20 to 40 seconds for each part of a PDF, longer with this 4B model. A smaller model is faster but forgets the conversation more often, so use one of about 4B parameters or more (see the README's chat section).
+
+## Preparing the video failed. How does tech support find out why?
+
+**What the customer sees:** setup stops with a message such as "The video couldn't be prepared on this computer" or "Something went wrong while preparing". The page keeps it short; the app's log has the full reason. Ask the customer roughly when it failed, then check the log as below. Once R134 on the roadmap is built, the page also shows a reference such as `P-7K3F9Q`; ask for it, and the log line with the same reference is the one to read:
+
+```
+docker compose logs app --since 24h | grep P-7K3F9Q
+```
+
+**What to look for:** every failed prepare writes one JSON line with `"message": "Prepare job failed"`. Its `error` field names what broke (a program, package, model file or step), and an unexpected failure also has an `exception` field with the traceback. The `Prepare step finished` lines just above it say which steps got through, and `Prepare job started` marks where the attempt began.
+
+**On the hosted server (Docker),** after connecting with SSH as in [deploy/README.md](../deploy/README.md) step 4:
+
+```
+cd ~/github/ImageSkinForLLM/deploy
+docker compose logs app --since 3h | grep -E "Prepare (job|step)"
+docker compose logs app --since 3h | grep "Prepare job failed"
+```
+
+Use `--since 24h` if it failed earlier. If there is no `Prepare job failed` line at all, the app itself stopped part-way, most often for lack of memory. Check:
+
+```
+docker inspect imageskin-app-1 --format 'oom={{.State.OOMKilled}} restarts={{.RestartCount}}'
+docker stats --no-stream
+free -h
+df -h /
+```
+
+`oom=true`, or a restart count that went up, means the container ran out of memory (it is capped at 14 GB in `compose.yaml`); `df -h` near 100% means the disk is full, which stops models from downloading and clips from being written.
+
+**On a laptop (`imageskin serve`),** the log is the terminal the app runs in. Look there for the same `Prepare job failed` line, or save the log while trying again: `imageskin serve 2>&1 | tee imageskin.log` (Windows PowerShell: `imageskin serve 2>&1 | Tee-Object imageskin.log`).
+
+**When reporting it,** copy the whole `Prepare job failed` line, with the `Prepare step finished` lines before it, into the support ticket.
