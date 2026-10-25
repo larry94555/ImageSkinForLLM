@@ -8,7 +8,7 @@ each gender and realism in four roles. Each was made by
 based on a real person or a public figure, and no prompt names one. All eight pass the app's
 photo checks and animate with the photoreal engine.
 
-The eight files ending in `_2` are R24a2's second faces (`default_person.py --varied`), one for each of the first eight, each of a different heritage, made the same way from `VARIED_PEOPLE`. All eight also pass the photo checks and animate. `contact-sheet.png` shows the first eight above the second eight.
+The eight files ending in `_2` are R24a2's second faces (`default_person.py --varied`), one for each of the first eight, each of a different heritage, made the same way from `VARIED_PEOPLE`. All eight also pass the photo checks and animate. `contact-sheet.png` shows the first faces above the second faces. The four Teenager pictures (`*_teenager*.png`) were taken out on 2026-10-24, since every default person is an adult (Larry, R24b4), so six of each are left.
 
 The file name is `<realism>_<gender>_<role>.png`, with `_2` for a second face; the name never says the look. R24b makes all 36 people and packs them for
 download; these are kept as the first reviewed set.

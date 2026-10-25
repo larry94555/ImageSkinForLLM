@@ -12,7 +12,7 @@
   "heritage": "white",
   "hair": "red"
  },
- "photoreal_female_teenager": {
+ "photoreal_female_young_adult": {
   "heritage": "Latino"
  },
  "photoreal_female_boss": {
@@ -41,7 +41,7 @@
  "photoreal_male_parent": {
   "heritage": "Middle Eastern"
  },
- "photoreal_male_teenager": {
+ "photoreal_male_young_adult": {
   "heritage": "white",
   "hair": "blond"
  },
@@ -70,7 +70,7 @@
  "animated_female_parent": {
   "heritage": "Southeast Asian"
  },
- "animated_female_teenager": {
+ "animated_female_young_adult": {
   "heritage": "mixed race"
  },
  "animated_female_boss": {
@@ -99,7 +99,7 @@
  "animated_male_parent": {
   "heritage": "Black"
  },
- "animated_male_teenager": {
+ "animated_male_young_adult": {
   "heritage": "East Asian"
  },
  "animated_male_boss": {
@@ -133,7 +133,7 @@
   "heritage": "South Asian",
   "disability": "wheelchair"
  },
- "photoreal_female_teenager_2": {
+ "photoreal_female_young_adult_2": {
   "heritage": "Latino",
   "glasses": true
  },
@@ -163,7 +163,7 @@
   "heritage": "Middle Eastern",
   "glasses": true
  },
- "photoreal_male_teenager_2": {
+ "photoreal_male_young_adult_2": {
   "heritage": "Southeast Asian",
   "glasses": true
  },
@@ -181,8 +181,8 @@
   "heritage": "Indigenous",
   "older": true
  },
- "animated_female_teenager_2": {
-  "heritage": "Black",
+ "animated_female_young_adult_2": {
+  "heritage": "white",
   "disability": "wheelchair"
  },
  "animated_female_teaching_assistant_2": {
@@ -212,7 +212,7 @@
   "hair": "blond",
   "disability": "wheelchair"
  },
- "animated_male_teenager_2": {
+ "animated_male_young_adult_2": {
   "heritage": "South Asian",
   "glasses": true
  },
@@ -231,7 +231,7 @@
  "photoreal_nonbinary_student": {
   "heritage": "South Asian"
  },
- "photoreal_nonbinary_teenager": {
+ "photoreal_nonbinary_young_adult": {
   "heritage": "white",
   "hair": "red"
  },
@@ -243,7 +243,7 @@
   "heritage": "Southeast Asian",
   "glasses": true
  },
- "animated_nonbinary_teenager": {
+ "animated_nonbinary_young_adult": {
   "heritage": "Latino"
  },
  "animated_nonbinary_business_consultant": {

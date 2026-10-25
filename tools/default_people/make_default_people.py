@@ -28,7 +28,11 @@ from typing import Any
 import numpy as np
 
 from imageskin.default_people import (
+    EARLY_FORTIES,
+    EARLY_THIRTIES,
     GENDERS,
+    LATE_THIRTIES,
+    LATE_TWENTIES,
     MAX_PACK_BYTES,
     NONBINARY,
     REALISMS,
@@ -63,7 +67,9 @@ ROLE_LOOKS = {
     ),
     "Student": ("about twenty years old", "a casual denim jacket", "a university library"),
     "Parent": ("in their early forties", "a casual sweater", "a warm family kitchen"),
-    "Teenager": ("aged sixteen", "a hoodie", "a bright bedroom"),
+    # Every default person is an adult (Larry, 2026-10-24): this role replaced Teenager.
+    # Quick drafts of "young" and "mid twenties" in a hoodie still looked like teenagers.
+    "Young Adult": ("in their late twenties", "a button-up shirt", "an apartment"),
     "Boss": ("in their late forties", "a tailored dark suit", "a modern glass office"),
     "Office Manager": (
         "in their late thirties",
@@ -103,9 +109,22 @@ NEGATIVE = (
 GENDERED = "feminine, masculine, makeup, lipstick, earrings, jewelry, beard, moustache, "
 
 
+# Kept out of an animated or androgynous adult's picture (Larry, 2026-10-24: every default
+# person is an adult). Put first, so it isn't dropped past the 77 tokens.
+CHILDLIKE = "child, teenager, childlike face, "
+
+
+def asked_as_adult(person: Person) -> bool:
+    """Whether the prompt says "adult": a Young Adult, or a person who looked young at the
+    role's age (`LOOKED_YOUNG`)."""
+    return person.role == "Young Adult" or person.age in (LATE_TWENTIES, EARLY_THIRTIES)
+
+
 def negative(person: Person) -> str:
     """What the picture must not show. Glasses are left out of it for people who wear them."""
     avoid = GENDERED + NEGATIVE if person.gender == NONBINARY else NEGATIVE
+    if asked_as_adult(person) and (person.realism == "animated" or person.gender == NONBINARY):
+        avoid = CHILDLIKE + avoid
     if "glasses" not in person.look:
         return avoid
     return avoid.replace(" glasses,", " tinted glasses, glare on glasses,")
@@ -115,7 +134,6 @@ def negative(person: Person) -> str:
 # image model follows (R24b3): adding "nonbinary" made no difference in quick drafts and takes two
 # more of the 77 tokens.
 WHO = {"female": "woman", "male": "man", "nonbinary": "androgynous person"}
-TEEN = {"female": "girl", "male": "boy", "nonbinary": "androgynous teenager"}
 
 
 def prompt(person: Person) -> str:
@@ -129,8 +147,15 @@ def prompt(person: Person) -> str:
     if wheelchair:  # "headshot" crops the wheelchair out
         style = style.replace("headshot photograph", "photograph")
     who = WHO[person.gender]
-    if person.role == "Teenager":
-        who = TEEN[person.gender]
+    if asked_as_adult(person):
+        who = f"adult {who}"
+        # The animated style, and an androgynous face, look younger: asked for at late twenties
+        # or early thirties they still looked eighteen or so, and an animated androgynous face
+        # at late thirties about twenty.
+        if person.gender == NONBINARY:
+            age = EARLY_FORTIES if person.realism == "animated" else LATE_THIRTIES
+        elif person.realism == "animated":
+            age = EARLY_THIRTIES
     elif person.role == "Student":
         who = f"young {who}"
     return (

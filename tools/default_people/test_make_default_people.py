@@ -62,10 +62,17 @@ def test_every_role_has_a_look() -> None:
 
 
 def test_prompt_puts_the_person_first() -> None:
-    text = prompt(Person("female", "animated", "Teenager", "Black, with deep brown skin"))
-    assert text.startswith("one girl aged sixteen, Black, with deep brown skin, wearing a hoodie")
-    assert "3D animated" in text and "mouth closed" in text and "bright bedroom" in text
+    text = prompt(Person("female", "photoreal", "Young Adult", "Black, with deep brown skin"))
+    assert text.startswith(
+        "one adult woman in their late twenties, Black, with deep brown skin, wearing a button-up"
+    )
+    assert "headshot" in text and "mouth closed" in text and "an apartment" in text
+    text = prompt(Person("female", "animated", "Young Adult", "Black, with deep brown skin"))
+    assert text.startswith("one adult woman in their early thirties, Black")
+    assert "3D animated" in text and "mouth closed" in text and "an apartment" in text
     assert prompt(Person("male", "photoreal", "Student", "x")).startswith("one young man about")
+    older = Person("male", "photoreal", "Student", "x", age=dp.LATE_TWENTIES)
+    assert prompt(older).startswith("one adult man in their late twenties")
     assert prompt(Person("male", "photoreal", "Boss", "x")).startswith("one man in their late")
 
 
@@ -360,8 +367,8 @@ def test_looks_counts_met() -> None:
 
 def test_looks_missing_says_what_a_group_lacks() -> None:
     shown = every_look()
-    young = next(p for p in people() if p.role == "Teenager" and p.realism == "animated")
-    shown[young.name] |= {"older": True}  # a Teenager never counts as older
+    young = next(p for p in people() if p.role == "Young Adult" and p.realism == "animated")
+    shown[young.name] |= {"older": True}  # a Young Adult never counts as older
     indigenous = [n for n, s in shown.items() if s["heritage"] == "Indigenous"]
     for name in indigenous:
         if name.startswith("photoreal_male"):
@@ -411,8 +418,15 @@ def test_a_wheelchair_gets_a_wider_picture() -> None:
 def test_a_nonbinary_person_is_asked_for_as_androgynous_without_gendered_looks() -> None:
     person = Person("nonbinary", "photoreal", "Boss", f"Latino, with short dark hair, {dp.GLASSES}")
     assert prompt(person).startswith("one androgynous person in their late forties, Latino")
-    teen = Person("nonbinary", "animated", "Teenager", "white, with short red hair")
-    assert prompt(teen).startswith("one androgynous teenager aged sixteen")
+    young = Person("nonbinary", "animated", "Young Adult", "white, with short red hair")
+    assert prompt(young).startswith("one adult androgynous person in their early forties")
+    assert negative(young).startswith("child, teenager, childlike face, feminine")
+    young = Person("nonbinary", "photoreal", "Student", "x", age=dp.LATE_TWENTIES)
+    assert prompt(young).startswith("one adult androgynous person in their late thirties")
+    # Only the adults asked for older keep childlike looks out; the others' prompts are as made.
+    assert not negative(person).startswith("child")
+    assert not negative(Person("female", "photoreal", "Young Adult", "x")).startswith("child")
+    assert negative(Person("male", "animated", "Young Adult", "x")).startswith("child")
     avoid = negative(person)
     assert avoid.startswith("feminine, masculine, makeup") and "tinted glasses" in avoid
     assert "feminine" not in negative(Person("female", "photoreal", "Boss", "x"))

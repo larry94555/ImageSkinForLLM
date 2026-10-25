@@ -72,8 +72,8 @@ def test_every_gender_has_an_american_and_a_british_voice() -> None:
 
 
 def test_prompt_fits_the_choices() -> None:
-    text = prompt(Person("female", "animated", "Teenager"))
-    assert "3D animated" in text and "girl aged sixteen" in text and "hoodie" in text
+    text = prompt(Person("female", "animated", "Young Adult"))
+    assert "3D animated" in text and "adult woman in their late twenties" in text
     text = prompt(Person("male", "photoreal", "Professor"))
     assert "photograph" in text and "a man in their late fifties" in text
     assert "facing the camera" in text
@@ -192,10 +192,10 @@ def test_page_and_results(tmp_path: Path) -> None:
 
 
 def test_a_second_face_gets_its_own_files(tmp_path: Path) -> None:
-    person = Person("female", "animated", "Teenager", face=2, look="with curly hair")
+    person = Person("female", "animated", "Young Adult", face=2, look="with curly hair")
     r = run_person(person, tmp_path, fake_picture, passes, lambda photo: "face", fake_render)
-    assert r.picture == "animated_female_teenager_2.png"
-    assert r.videos["American"] == "animated_female_teenager_2_american.mp4"
+    assert r.picture == "animated_female_young_adult_2.png"
+    assert r.videos["American"] == "animated_female_young_adult_2_american.mp4"
     assert "with curly hair" in r.prompt
 
 

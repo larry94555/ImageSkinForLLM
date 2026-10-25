@@ -83,7 +83,7 @@ def test_nonbinary_people_are_four_for_each_realism_with_a_range() -> None:
     for r in dp.REALISMS:
         group = [p for p in NONBINARY if p.realism == r]
         assert sum("glasses" in p.look for p in group) == 1
-        older = [p for p in group if p.age]
+        older = [p for p in group if dp.age(p) == "older"]
         assert len(older) == 1 and older[0].role in OLDER_ROLES
 
 
@@ -122,15 +122,26 @@ def test_every_person_has_a_voice_for_each_accent_that_kokoro_has() -> None:
                 assert set(kinds) == {person.gender[0]}
 
 
-def test_teenagers_sound_younger_and_older_people_older() -> None:
+def test_young_adults_sound_younger_and_older_people_older() -> None:
     for person in dp.people():
         for accent, _, voice in dp.voices_for(person):
-            older = "older" if person.age else "adult"
-            expected = "younger" if person.role == "Teenager" else older
+            older = "older" if person.age in (dp.SIXTIES, dp.SEVENTIES) else "adult"
+            expected = "younger" if person.role == "Young Adult" else older
             assert voice in dp.VOICE_CHOICES[(person.gender, accent, expected)]
-    assert dp.age(dp.Person("female", "animated", "Teenager", "x")) == "younger"
+    assert dp.age(dp.Person("female", "animated", "Young Adult", "x")) == "younger"
     assert dp.age(dp.Person("male", "animated", "Boss", "x", age=dp.SIXTIES)) == "older"
     assert dp.age(dp.Person("male", "animated", "Boss", "x")) == "adult"
+    # Asked for older so as to look adult, not as an older person.
+    assert dp.age(dp.Person("male", "animated", "Student", "x", age=dp.LATE_TWENTIES)) == "adult"
+
+
+def test_every_default_person_is_an_adult() -> None:
+    # Larry, 2026-10-24: no default person is, or looks, under 18.
+    assert "Teenager" not in dp.ROLES
+    named = {p.name: p for p in dp.people()}
+    assert not [n for n in named if "teen" in n]
+    for name, age in dp.LOOKED_YOUNG.items():
+        assert named[name].age == age
 
 
 def test_faces_near_each_other_on_the_avatar_page_sound_different() -> None:

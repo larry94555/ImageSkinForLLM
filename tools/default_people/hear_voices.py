@@ -141,7 +141,7 @@ audio {{ height: 32px; }}
 </style></head><body>
 <h1>Default people's voices (R24e)</h1>
 <p>Each face in the order the avatar page shows it, with the line "{escape(LINE)}" in its
-American and British voice, and the voice's median pitch. Teenagers have the accent's younger
+American and British voice, and the voice's median pitch. Young adults have the accent's younger
 voices and the people in their sixties and seventies its older ones.</p>
 {"".join(sections)}
 </body></html>

@@ -37,7 +37,7 @@ it and drops the rest; every prompt fits (the longest is 74).
 
 Larry asked for more people to find someone who looks like them (2026-10-17): across the 15
 people of each gender and realism, all eight heritages, red and blond hair, at least three with
-glasses, at least three in their 60s or 70s (not as Teenager, Student or Teaching Assistant) and
+glasses, at least three in their 60s or 70s (not as Young Adult, Student or Teaching Assistant) and
 at least two with a visible disability. The first 36 already have red and blond hair and seven of
 the heritages in every group, so `SECOND_FACES` in `default_people.py` gives each group the same
 six: three older people (one with glasses, one in a wheelchair, one Indigenous), a young person
@@ -67,17 +67,34 @@ at 640 by 640 and 12 steps tried four wordings first, since the first full pictu
 woman. Their voice is an even blend of the accent's woman's and man's Kokoro voice (`VOICES`).
 `looks_shown.json` counts them as one group, `nonbinary`, over both realisms.
 
+## Only adults (R24b4)
+
+Larry asked that every default person be 18 or over (2026-10-24). The Teenager role, asked for
+as "aged sixteen" in a hoodie, became Young Adult, and four more people who looked sixteen or
+seventeen at their role's age are listed in `LOOKED_YOUNG` (in `default_people.py`) and asked for
+older. All 14 are asked for as an "adult" woman, man or androgynous person in their late
+twenties; quick drafts of "young" or "mid twenties", or in a hoodie, still looked like
+teenagers. The animated style, and an androgynous face, make a face look younger still: the
+first full pictures of these looked about eighteen. So the animated women and men are asked for
+in their early thirties, the photoreal nonbinary people in their late thirties and the animated
+nonbinary person in their early forties, all with "child, teenager, childlike face" in the
+negative prompt (`CHILDLIKE`). As an adult in an apartment, the animated woman in a wheelchair
+was drawn full length with her face too small on three seeds; her look now asks for waist-up,
+with fewer words to stay within 77 tokens, and passed on seed 2. Every one of the 14 was looked
+at to check that they read as an adult. The young adults keep the younger voices the teenagers
+had.
+
 ## The voices (R24e)
 
 Larry found the voices didn't fit the faces (2026-10-22): a voice was picked only by gender and
-accent, so a sixteen-year-old, a Student and a woman in her seventies all spoke in `af_heart`.
+accent, so a teenager, a Student and a woman in her seventies all spoke in `af_heart`.
 Each person now has a voice of their own for each accent (`VOICE_CHOICES` and `person_voices()`
-in `default_people.py`): the teenagers take a younger voice, the people `looks_shown.json` marks
+in `default_people.py`): the young adults take a younger voice, the people `looks_shown.json` marks
 as in their sixties or seventies an older one, and the adults take turns over several. The turns
 go in the avatar page's order within each look, so no face has the same voice as either of the
 two faces before it, which are a different gender or the same role's other face.
 
-Kokoro has no teenage or older voices, so the choice is by measured median pitch (the voice's
+Kokoro has no young or older voices, so the choice is by measured median pitch (the voice's
 pitch while saying one line, by autocorrelation, in `hear_voices.py`), with blends of two voices
 where no single voice is high or low enough, and Kokoro's own grades in its VOICES.md to avoid
 its weakest voices (`af_nicole` whispers, `am_santa` and `am_adam` are graded lowest). No speed
@@ -94,7 +111,7 @@ about the course." on 2026-10-22:
 | British nonbinary | `bf_alice,bm_george` 191 | `bf_emma,bm_george` 171, `bf_isabella,bm_fable` 174 | `bf_emma,bm_lewis` 154 |
 
 Kokoro has only four British women's and four British men's voices, so the British older women
-blend `bf_emma` with an American woman's lower voice, and the British teenage boys blend a
+blend `bf_emma` with an American woman's lower voice, and the British young men blend a
 British man's voice with `am_fenrir`, the highest well-graded man's voice; the accent is the
 British pronunciation, which the language code sets, not the voice. The first adult voice of each
 kind is R24a's or R24b3's, so a ready-made voice saved before R24e is still offered. Pitch only
