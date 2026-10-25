@@ -19,6 +19,7 @@ accepted; choosing an avatar again starts it in its ready-made voice.
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 import urllib.error
@@ -322,12 +323,25 @@ class StartNow:
         """At start-up: the chosen person, unpacked before, whose lines aren't there in their
         voice, since it changed (R24e), gets them rendered again on the background thread. Only
         the lines: the choice, and whether the avatar speaks in the user's own voice (R24d), stay
-        as they were (Codex's review of PR #142). Whether that started. Raises as `start` does
-        while Prepare runs."""
+        as they were (Codex's review of PR #142). A person whose pack has changed since it was
+        unpacked (R24b4 remade four people under the same names) is downloaded and unpacked
+        again first, keeping the choice in the same way. Whether that started. Raises as
+        `start` does while Prepare runs."""
         with self._lock:
             choice = self.chosen()
             if choice is None or self._status.state in BUSY:
                 return False
+            if self._changed(choice.name):
+                logger.info(
+                    "Default person's pack changed: downloaded again", extra={"person": choice.name}
+                )
+                self._claim()  # refused while Prepare runs
+                self._status = StartStatus("downloading", choice.name)
+                self._thread = threading.Thread(
+                    target=self._run, args=(choice, False), name="start-now", daemon=True
+                )
+                self._thread.start()
+                return True
             if not self._unpacked(choice.name) or self._ready(choice):
                 return False
             logger.info(
@@ -369,13 +383,42 @@ class StartNow:
         )
 
     def _unpacked(self, name: str) -> bool:
-        """The picture and its prepared library are there. Delete my data removes the library
-        with the person's own (it is under photoreal/), so it is unpacked again from the kept
-        pack (review on PR #113)."""
+        """The picture and its prepared library are there, from the pack the app names now.
+        Delete my data removes the library with the person's own (it is under photoreal/), so
+        it is unpacked again from the kept pack (review on PR #113)."""
         picture = self._picture(name)
-        if not picture.is_file():
+        if not picture.is_file() or not self._current(name):
             return False
         return (self._home / "photoreal" / library_key(picture) / "library.json").is_file()
+
+    def _changed(self, name: str) -> bool:
+        """The person was unpacked from a pack the app no longer names (Codex's review of
+        PR #165): their picture and lines are of the face they had before."""
+        return self._picture(name).is_file() and not self._current(name)
+
+    def _unpacked_from(self, name: str) -> Path:
+        return self._folder / f"{name}.pack"
+
+    def _current(self, name: str) -> bool:
+        """Whether the person was unpacked from the pack the app names now."""
+        info = self._packs.get(name)
+        if info is None:
+            return True  # no pack to compare with; choosing them says so
+        try:
+            return self._unpacked_from(name).read_text(encoding="utf-8") == str(info["sha256"])
+        except FileNotFoundError:
+            pass
+        # Unpacked before the pack's SHA-256 was kept with it: the kept pack tells.
+        if self._kept(name) is None:
+            return False
+        self._unpacked_from(name).write_text(info["sha256"], encoding="utf-8")
+        return True
+
+    def _forget_lines(self, name: str) -> None:
+        """The person's lines in every accent and voice, said by the face they had before."""
+        for folder in (self._folder / "lines").glob(f"{name}_*"):
+            if not folder.name[len(name) + 1 :][:1].isdigit():  # not their second face's
+                shutil.rmtree(folder)
 
     def _pack(self, name: str) -> Path:
         return self._folder / "downloads" / f"{name}.zip"
@@ -392,10 +435,10 @@ class StartNow:
         with self._lock:
             self._status = StartStatus(state, self._status.person, percent, error)
 
-    def _run(self, choice: Choice) -> None:
+    def _run(self, choice: Choice, save: bool = True) -> None:
         start = time.perf_counter()
         try:
-            error = self._work(choice)
+            error = self._work(choice, save)
         finally:
             self._release()  # nothing more is written: Prepare and Delete my data may run now
         if error is not None:
@@ -410,20 +453,27 @@ class StartNow:
             extra={"person": choice.name, "duration_s": round(time.perf_counter() - start, 1)},
         )
 
-    def _work(self, choice: Choice) -> str | None:
-        """Download, unpack and render the lines; what went wrong, in plain words, or None."""
+    def _work(self, choice: Choice, save: bool = True) -> str | None:
+        """Download, unpack and render the lines; what went wrong, in plain words, or None.
+        Without save, the choice and its voice stay as they were (refresh)."""
         name = choice.name
         try:
             if not self._unpacked(name):
+                changed = self._changed(name)
                 # The pack is kept: unpacked again after Delete my data, it needs no download.
                 pack = self._kept(name) or self._download(name)
                 self._set("unpacking", 100)
                 self._unpack(pack, self._home)
+                self._unpacked_from(name).write_text(self._packs[name]["sha256"], encoding="utf-8")
+                if changed:
+                    self._forget_lines(name)
+                    logger.info("Default person's pack changed", extra={"person": name})
             self._set("getting-ready", 100)
             self._render_lines(choice)
-            # Chosen only once everything is ready: until then the chat stays locked, and a
-            # failure leaves the person chosen before (review on PR #113).
-            self._activate(lambda: self._save(choice))
+            if save:
+                # Chosen only once everything is ready: until then the chat stays locked, and a
+                # failure leaves the person chosen before (review on PR #113).
+                self._activate(lambda: self._save(choice))
         except DownloadError as e:
             logger.error(
                 "Could not download the default person", extra={"person": name, "error": str(e)}
