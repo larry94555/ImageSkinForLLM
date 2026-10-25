@@ -336,6 +336,18 @@ class SentenceClips:
             time.sleep(every)
 
 
+def forget_idle(home: Path, photo: Path) -> None:
+    """Remove the photo's idle video (roadmap R23), so the next warm-up makes it again: the
+    photo has a new face under the same name (Codex's review of PR #165)."""
+    path = home / "replies" / "idle" / f"{photo.stem}.mp4"
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as e:  # open in a browser, as on Windows
+        logger.warning(
+            "Could not remove an old idle video", extra={"video": path.name, "error": str(e)}
+        )
+
+
 class ReplyVideos:
     """Renders one reply at a time, as the voice and video engines are not shared safely."""
 

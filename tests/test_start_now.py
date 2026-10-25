@@ -20,7 +20,8 @@ from imageskin import default_people as dp
 from imageskin import start_now as sn
 from imageskin.app import create_app
 from imageskin.download import DownloadError, sha256_of
-from imageskin.prepare_job import PrepareError
+from imageskin.prepare_job import ClipSteps, PrepareError
+from imageskin.reply_video import ReplyVideos, VoiceReady, forget_idle
 from imageskin.voice import Speech
 
 CHOICE = sn.Choice("female", "British", "animated", "Professor")
@@ -282,6 +283,43 @@ def test_a_remade_pack_is_got_at_start_up_keeping_the_choice(tmp_path: Path, pac
     picture = again.picture()
     assert picture is not None and picture.read_bytes() == b"the new face"
     assert said == ["Goodbye.", "Welcome back."] and again.refresh() is False
+
+
+def test_a_remade_pack_has_its_idle_video_made_again_from_the_new_face(
+    tmp_path: Path, pack: Path
+) -> None:
+    # Codex's review of PR #165: the chat's idle video is kept by the picture's name.
+    def idle(photo: Path, output: Path) -> None:
+        output.write_bytes(photo.read_bytes())
+
+    replies = ReplyVideos(
+        tmp_path,
+        lambda photo, text, output: output.write_bytes(b"mp4"),
+        VoiceReady(lambda: None, lambda: "v"),
+        ClipSteps(lambda text, wav: None, lambda photo, wav, output: None, idle),
+    )
+    first = started(tmp_path, pack, on_ready=lambda: replies.warm_up(first.picture()))
+    first.start(CHOICE)
+    first.wait(10)
+    old = replies.idle(tmp_path / "default-people" / f"{CHOICE.name}.png")
+    assert old is not None and old.read_bytes() == b"picture bytes"
+    new = remade(tmp_path)
+    again = started(tmp_path, new, on_ready=lambda: replies.warm_up(again.picture()))
+    assert again.refresh() is True
+    again.wait(10)
+    remade_idle = replies.idle(tmp_path / "default-people" / f"{CHOICE.name}.png")
+    assert remade_idle is not None and remade_idle.read_bytes() == b"the new face"
+
+
+def test_an_old_idle_video_that_cant_be_removed_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(self: Path, missing_ok: bool = False) -> None:
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    forget_idle(tmp_path, tmp_path / "me.png")
+    assert "Could not remove an old idle video" in caplog.messages
 
 
 def test_a_person_unpacked_before_the_pack_was_noted_is_told_by_the_kept_pack(
