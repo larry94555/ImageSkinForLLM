@@ -21,12 +21,15 @@ engine draws each frame from. The tables are written to `mouth-lead/mouth-lead-<
 `.json`, and the log has `Mouth lead experiment started`, `Measured clip` for each clip with its
 lead at the start and the time it took, and `Mouth lead experiment done`.
 
-For the browser (Node and Playwright, as the web tests use):
+For the browser it needs Node and Playwright, which the app doesn't install; on Windows, in
+PowerShell, it can go in a folder of its own:
 
 ```
+npm install --prefix $env:TEMP\pw playwright
+$env:NODE_PATH = "$env:TEMP\pw\node_modules"
 python experiments/mouth_sync/mouth_lead.py --media sync-media
-node experiments/mouth_sync/browser_sync.js sync-media            # Playwright's Chromium
 node experiments/mouth_sync/browser_sync.js sync-media chrome     # the installed Chrome
+node experiments/mouth_sync/browser_sync.js sync-media            # Playwright's own Chromium
 ```
 
 ## What it measures
