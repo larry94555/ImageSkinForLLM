@@ -6,7 +6,14 @@ import type { ComponentChildren } from "preact";
 import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
-import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
+import {
+  changeSettings,
+  DEFAULT_SETTINGS,
+  type FaceMovement,
+  getSettings,
+  type UiSettings,
+  type View,
+} from "./api";
 import { ChangeSetup } from "./change-setup";
 import { ChatGptPlanSection } from "./chatgpt-plan";
 import { DeleteData } from "./delete-data";
@@ -64,6 +71,14 @@ export function SettingsProvider({ children }: { children: ComponentChildren }) 
 const VIEWS: [View, string, string][] = [
   ["host", "Host (Teacher)", "every page and option"],
   ["participant", "Participant (Student)", "the chat and a read-only wiki"],
+];
+
+// How much the face moves with the mouth while the person speaks (R128a), weakest first.
+const FACE_MOVEMENTS: [FaceMovement, string][] = [
+  ["off", "Off"],
+  ["slight", "Slight"],
+  ["normal", "Normal"],
+  ["more", "More"],
 ];
 
 // The on and off settings, in the order shown, each with what it does.
@@ -162,6 +177,16 @@ export function SettingsPage({
     });
   }
 
+  function chooseFaceMovement(face_movement: FaceMovement) {
+    const was = settings.face_movement;
+    save({ face_movement }, () => {
+      const box = page.current?.querySelector<HTMLInputElement>(
+        `input[name="face_movement"][value="${was}"]`,
+      );
+      if (box) box.checked = true;
+    });
+  }
+
   return (
     <div className="host-page settings-page" ref={page}>
       <h1>Settings</h1>
@@ -211,6 +236,28 @@ export function SettingsPage({
           ))}
         </section>
       ))}
+      <section className="panel" aria-labelledby="settings-face">
+        <h2 id="settings-face">Face movement while speaking</h2>
+        <p className="muted">
+          How much the cheeks and the face around the mouth move with it. Off moves only the lips
+          and jaw. Used for the next video made.
+        </p>
+        <fieldset>
+          <legend className="sr-only">Face movement while speaking</legend>
+          {FACE_MOVEMENTS.map(([value, label]) => (
+            <label key={value} className="choice">
+              <input
+                type="radio"
+                name="face_movement"
+                value={value}
+                checked={settings.face_movement === value}
+                onChange={() => chooseFaceMovement(value)}
+              />{" "}
+              <span>{label}</span>
+            </label>
+          ))}
+        </fieldset>
+      </section>
       {/* The LLM and its key are the host's to pick (R42). */}
       {settings.view === "host" && <LlmSettingSection />}
       {/* Signing in with ChatGPT to use the plan in place of a key (R43). */}

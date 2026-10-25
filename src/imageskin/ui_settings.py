@@ -43,6 +43,9 @@ class UiSettings:
     # Whether prompts the content doesn't cover are answered (item 28, R41); off unless the config
     # file or the Settings page turns it on (R27).
     general_prompts: bool = False
+    # How much the cheeks and the face around the mouth move with it while the person speaks
+    # (R128a): "off" leaves only the lips and jaw moving. Its strengths are `cheeks.STRENGTHS`.
+    face_movement: str = "normal"
 
 
 DEFAULTS = UiSettings()
@@ -56,6 +59,7 @@ CHOICES: dict[str, tuple[object, ...]] = {
     "assessment": (True, False),
     "debug": (True, False),
     "general_prompts": (True, False),
+    "face_movement": ("off", "slight", "normal", "more"),
 }
 
 
