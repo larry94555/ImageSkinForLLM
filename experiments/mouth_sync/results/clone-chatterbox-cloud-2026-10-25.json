@@ -1,0 +1,269 @@
+[
+  {
+    "name": "reply 1",
+    "text": "Hello! I'm glad you asked.",
+    "seconds": 1.96,
+    "onsets": [
+      {
+        "word": "Hello",
+        "heard": 0.135,
+        "sound": 0.121,
+        "opens": 0.04,
+        "lead_ms": 95,
+        "timings_ms": 14,
+        "frames_ms": 81
+      },
+      {
+        "word": "I'm",
+        "heard": 0.835,
+        "sound": 0.849,
+        "opens": 0.76,
+        "lead_ms": 75,
+        "timings_ms": -14,
+        "frames_ms": 89
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "reply 2",
+    "text": "Mount Everest is the tallest mountain in the world, at about 8,849 meters.",
+    "seconds": 5.76,
+    "onsets": [
+      {
+        "word": "Mount",
+        "heard": 0.14,
+        "sound": 0.201,
+        "opens": 0.24,
+        "lead_ms": -100,
+        "timings_ms": -61,
+        "frames_ms": -39
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "reply 3",
+    "text": "Once upon a time, a cat named Milo was afraid of water.",
+    "seconds": 3.6,
+    "onsets": [
+      {
+        "word": "Once",
+        "heard": 0.105,
+        "sound": 0.221,
+        "opens": 0.16,
+        "lead_ms": -55,
+        "timings_ms": -116,
+        "frames_ms": 61
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "goodbye",
+    "text": "Goodbye.",
+    "seconds": 0.88,
+    "onsets": [
+      {
+        "word": "Goodbye",
+        "heard": 0.21,
+        "sound": 0.205,
+        "opens": 0.12,
+        "lead_ms": 90,
+        "timings_ms": 5,
+        "frames_ms": 85
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "welcome back",
+    "text": "Welcome back.",
+    "seconds": 1.28,
+    "onsets": [
+      {
+        "word": "Welcome",
+        "heard": 0.16,
+        "sound": 0.183,
+        "opens": 0.12,
+        "lead_ms": 40,
+        "timings_ms": -23,
+        "frames_ms": 63
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "sample",
+    "text": "This is a test. How do I sound? I'm speaking in my own voice, or as close to it as a computer can get. Let me try a few things. Numbers: one, two, three, forty-five, and nine hundred ninety-nine. A question: did you see that coming? And a little excitement: wow, that's great news! She sells seashells by the seashore. If anything looks or sounds wrong, tell me now so we can fix it.",
+    "seconds": 28.48,
+    "onsets": [
+      {
+        "word": "This",
+        "heard": 0.025,
+        "sound": 0.08,
+        "opens": null,
+        "lead_ms": null,
+        "timings_ms": -55,
+        "frames_ms": null
+      },
+      {
+        "word": "How",
+        "heard": 1.515,
+        "sound": 1.521,
+        "opens": 1.44,
+        "lead_ms": 75,
+        "timings_ms": -6,
+        "frames_ms": 81
+      },
+      {
+        "word": "I'm",
+        "heard": 3.035,
+        "sound": 3.062,
+        "opens": 2.96,
+        "lead_ms": 75,
+        "timings_ms": -27,
+        "frames_ms": 102
+      },
+      {
+        "word": "or",
+        "heard": 4.975,
+        "sound": 5.044,
+        "opens": null,
+        "lead_ms": null,
+        "timings_ms": -69,
+        "frames_ms": null
+      },
+      {
+        "word": "Let",
+        "heard": 7.975,
+        "sound": 7.986,
+        "opens": 7.92,
+        "lead_ms": 55,
+        "timings_ms": -11,
+        "frames_ms": 66
+      },
+      {
+        "word": "Numbers",
+        "heard": 9.86,
+        "sound": 9.927,
+        "opens": 9.84,
+        "lead_ms": 20,
+        "timings_ms": -67,
+        "frames_ms": 87
+      },
+      {
+        "word": "one",
+        "heard": 10.64,
+        "sound": 10.808,
+        "opens": 10.76,
+        "lead_ms": -120,
+        "timings_ms": -168,
+        "frames_ms": 48
+      },
+      {
+        "word": "two",
+        "heard": 11.57,
+        "sound": 11.548,
+        "opens": 11.48,
+        "lead_ms": 90,
+        "timings_ms": 22,
+        "frames_ms": 68
+      },
+      {
+        "word": "three",
+        "heard": 12.36,
+        "sound": 12.289,
+        "opens": 12.2,
+        "lead_ms": 160,
+        "timings_ms": 71,
+        "frames_ms": 89
+      },
+      {
+        "word": "forty-five",
+        "heard": 13.075,
+        "sound": 13.049,
+        "opens": 13.08,
+        "lead_ms": -5,
+        "timings_ms": 26,
+        "frames_ms": -31
+      },
+      {
+        "word": "and",
+        "heard": 14.135,
+        "sound": 14.19,
+        "opens": 14.08,
+        "lead_ms": 55,
+        "timings_ms": -55,
+        "frames_ms": 110
+      },
+      {
+        "word": "A",
+        "heard": 15.64,
+        "sound": 15.691,
+        "opens": 15.6,
+        "lead_ms": 40,
+        "timings_ms": -51,
+        "frames_ms": 91
+      },
+      {
+        "word": "did",
+        "heard": 16.75,
+        "sound": 16.732,
+        "opens": 16.64,
+        "lead_ms": 110,
+        "timings_ms": 18,
+        "frames_ms": 92
+      },
+      {
+        "word": "And",
+        "heard": 18.385,
+        "sound": 18.433,
+        "opens": 18.36,
+        "lead_ms": 25,
+        "timings_ms": -48,
+        "frames_ms": 73
+      },
+      {
+        "word": "She",
+        "heard": 21.485,
+        "sound": 21.515,
+        "opens": 21.44,
+        "lead_ms": 45,
+        "timings_ms": -30,
+        "frames_ms": 75
+      },
+      {
+        "word": "If",
+        "heard": 24.04,
+        "sound": 24.097,
+        "opens": 24.04,
+        "lead_ms": 0,
+        "timings_ms": -57,
+        "frames_ms": 57
+      },
+      {
+        "word": "tell",
+        "heard": 26.455,
+        "sound": 26.479,
+        "opens": 26.4,
+        "lead_ms": 55,
+        "timings_ms": -24,
+        "frames_ms": 79
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  }
+]

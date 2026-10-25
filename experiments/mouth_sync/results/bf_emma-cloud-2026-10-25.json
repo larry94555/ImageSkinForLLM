@@ -1,0 +1,188 @@
+[
+  {
+    "name": "reply 1",
+    "text": "Hello! I'm glad you asked.",
+    "seconds": 2.42,
+    "onsets": [
+      {
+        "word": "Hello",
+        "heard": 0.25,
+        "sound": 0.325,
+        "opens": 0.24,
+        "lead_ms": 10,
+        "timings_ms": -75,
+        "frames_ms": 85
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "reply 2",
+    "text": "Mount Everest is the tallest mountain in the world, at about 8,849 meters.",
+    "seconds": 6.55,
+    "onsets": [
+      {
+        "word": "Mount",
+        "heard": 0.295,
+        "sound": 0.35,
+        "opens": 0.4,
+        "lead_ms": -105,
+        "timings_ms": -55,
+        "frames_ms": -50
+      },
+      {
+        "word": "at",
+        "heard": 3.135,
+        "sound": 3.2,
+        "opens": 3.4,
+        "lead_ms": -265,
+        "timings_ms": -65,
+        "frames_ms": -200
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "reply 3",
+    "text": "Once upon a time, a cat named Milo was afraid of water.",
+    "seconds": 4.2,
+    "onsets": [
+      {
+        "word": "Once",
+        "heard": 0.28,
+        "sound": 0.325,
+        "opens": 0.24,
+        "lead_ms": 40,
+        "timings_ms": -45,
+        "frames_ms": 85
+      },
+      {
+        "word": "a",
+        "heard": 1.44,
+        "sound": 1.5,
+        "opens": 1.4,
+        "lead_ms": 40,
+        "timings_ms": -60,
+        "frames_ms": 100
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "goodbye",
+    "text": "Goodbye.",
+    "seconds": 1.07,
+    "onsets": [
+      {
+        "word": "Goodbye",
+        "heard": 0.21,
+        "sound": 0.325,
+        "opens": 0.24,
+        "lead_ms": -30,
+        "timings_ms": -115,
+        "frames_ms": 85
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "welcome back",
+    "text": "Welcome back.",
+    "seconds": 1.7,
+    "onsets": [
+      {
+        "word": "Welcome",
+        "heard": 0.24,
+        "sound": 0.325,
+        "opens": 0.24,
+        "lead_ms": 0,
+        "timings_ms": -85,
+        "frames_ms": 85
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  },
+  {
+    "name": "sample",
+    "text": "This is a test. How do I sound? I'm speaking in my own voice, or as close to it as a computer can get. Let me try a few things. Numbers: one, two, three, forty-five, and nine hundred ninety-nine. A question: did you see that coming? And a little excitement: wow, that's great news! She sells seashells by the seashore. If anything looks or sounds wrong, tell me now so we can fix it.",
+    "seconds": 21.05,
+    "onsets": [
+      {
+        "word": "This",
+        "heard": 0.315,
+        "sound": 0.325,
+        "opens": 0.24,
+        "lead_ms": 75,
+        "timings_ms": -10,
+        "frames_ms": 85
+      },
+      {
+        "word": "Let",
+        "heard": 5.76,
+        "sound": 5.8,
+        "opens": 5.92,
+        "lead_ms": -160,
+        "timings_ms": -40,
+        "frames_ms": -120
+      },
+      {
+        "word": "Numbers",
+        "heard": 7.185,
+        "sound": 7.25,
+        "opens": 7.4,
+        "lead_ms": -215,
+        "timings_ms": -65,
+        "frames_ms": -150
+      },
+      {
+        "word": "question",
+        "heard": 10.78,
+        "sound": 10.825,
+        "opens": null,
+        "lead_ms": null,
+        "timings_ms": -45,
+        "frames_ms": null
+      },
+      {
+        "word": "a",
+        "heard": 12.645,
+        "sound": 12.7,
+        "opens": null,
+        "lead_ms": null,
+        "timings_ms": -55,
+        "frames_ms": null
+      },
+      {
+        "word": "She",
+        "heard": 15.31,
+        "sound": 15.375,
+        "opens": null,
+        "lead_ms": null,
+        "timings_ms": -65,
+        "frames_ms": null
+      },
+      {
+        "word": "If",
+        "heard": 17.345,
+        "sound": 17.4,
+        "opens": 17.36,
+        "lead_ms": -15,
+        "timings_ms": -55,
+        "frames_ms": 40
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": []
+  }
+]
