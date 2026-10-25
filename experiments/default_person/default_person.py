@@ -46,7 +46,8 @@ ROLE_LOOKS = {
     "Professor": ("in their late fifties", "a tweed jacket", "a university office with books"),
     "Boss": ("in their late forties", "a tailored dark suit", "a modern glass office"),
     "Parent": ("in their early forties", "a casual sweater", "a warm family kitchen"),
-    "Teenager": ("aged sixteen", "a hoodie", "a bright bedroom"),
+    # Every default person is an adult (Larry, 2026-10-24): this role replaced Teenager.
+    "Young Adult": ("in their late twenties", "a button-up shirt", "an apartment"),
 }
 REALISM = {
     "photoreal": "professional headshot photograph, natural skin texture, soft daylight, "
@@ -76,7 +77,7 @@ class Person:
 
     @property
     def name(self) -> str:
-        name = f"{self.realism}_{self.gender}_{self.role.lower()}"
+        name = f"{self.realism}_{self.gender}_{self.role.lower().replace(' ', '_')}"
         return f"{name}_{self.face}" if self.face > 1 else name
 
 
@@ -85,11 +86,11 @@ PEOPLE = [
     Person("male", "photoreal", "Professor"),
     Person("female", "photoreal", "Boss"),
     Person("female", "photoreal", "Parent"),
-    Person("male", "photoreal", "Teenager"),
+    Person("male", "photoreal", "Young Adult"),
     Person("female", "animated", "Professor"),
     Person("male", "animated", "Boss"),
     Person("male", "animated", "Parent"),
-    Person("female", "animated", "Teenager"),
+    Person("female", "animated", "Young Adult"),
 ]
 
 # R24a2: a second face for each of the eight above, in the same order, each of a different
@@ -113,8 +114,8 @@ def prompt(person: Person) -> str:
     """The text the picture is made from."""
     age, clothes, setting = ROLE_LOOKS[person.role]
     who = "woman" if person.gender == "female" else "man"
-    if person.role == "Teenager":
-        who = "girl" if person.gender == "female" else "boy"
+    if person.role == "Young Adult":
+        who = f"adult {who}"
     if not person.look:  # R24a's order, so its pictures can be made again from the same seed
         return (
             f"{REALISM[person.realism]}, {FRAMING}, a {who} {age} wearing {clothes}, in {setting}"

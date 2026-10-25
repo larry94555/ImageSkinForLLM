@@ -20,7 +20,8 @@ from imageskin import default_people as dp
 from imageskin import start_now as sn
 from imageskin.app import create_app
 from imageskin.download import DownloadError, sha256_of
-from imageskin.prepare_job import PrepareError
+from imageskin.prepare_job import ClipSteps, PrepareError
+from imageskin.reply_video import ReplyVideos, VoiceReady
 from imageskin.voice import Speech
 
 CHOICE = sn.Choice("female", "British", "animated", "Professor")
@@ -29,12 +30,16 @@ CHOICE = sn.Choice("female", "British", "animated", "Professor")
 @pytest.fixture
 def pack(tmp_path: Path) -> Path:
     """A real, small pack of the person CHOICE names."""
-    library = tmp_path / "lib"
+    return make_pack(tmp_path, b"picture bytes")
+
+
+def make_pack(tmp_path: Path, picture_bytes: bytes, served: str = "served") -> Path:
+    library = tmp_path / f"lib-{served}"
     fake_library(library, np.random.default_rng(1))
-    picture = tmp_path / "pic.png"
-    picture.write_bytes(b"picture bytes")
+    picture = tmp_path / f"pic-{served}.png"
+    picture.write_bytes(picture_bytes)
     person = next(p for p in dp.people() if p.name == CHOICE.name)
-    out = tmp_path / "served" / f"{CHOICE.name}.zip"
+    out = tmp_path / served / f"{CHOICE.name}.zip"
     out.parent.mkdir()
     dp.pack(person, picture, library, out)
     return out
@@ -231,6 +236,116 @@ def test_refreshing_the_lines_keeps_the_avatar_in_the_users_own_voice(
     assert again.status().state == "ready" and claims == ["claim", "release"]
     assert again.own_voice() is True and again.chosen() == CHOICE
     assert again.clip("goodbye") is not None
+
+
+def remade(tmp_path: Path) -> Path:
+    """The same person's pack made again with a new face, as R24b4 did for four people."""
+    return make_pack(tmp_path, b"the new face", served="remade")
+
+
+def test_a_remade_pack_replaces_the_old_face_before_the_person_is_ready(
+    tmp_path: Path, pack: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Codex's review of PR #165: the old picture, library and lines were taken as ready.
+    first = started(tmp_path, pack)
+    first.start(CHOICE)
+    first.wait(10)
+    second_face = tmp_path / "default-people" / "lines" / f"{CHOICE.name}_2_british_bf_emma"
+    second_face.mkdir()
+    new = remade(tmp_path)
+    fetch, said = Fetcher(new), list[str]()
+    again = started(tmp_path, new, fetch=fetch, render_clip=renderer(said))
+    with caplog.at_level(logging.INFO):
+        assert again.start(CHOICE).state == "downloading"
+        again.wait(10)
+    assert again.status().state == "ready" and len(fetch.urls) == 1
+    picture = again.picture()
+    assert picture is not None and picture.read_bytes() == b"the new face"
+    assert said == ["Goodbye.", "Welcome back."]  # said again by the new face
+    assert second_face.is_dir()  # the second face's lines are its own
+    assert any(r.getMessage() == "Default person's pack changed" for r in caplog.records)
+    assert started(tmp_path, new, fetch=fetch).start(CHOICE).state == "ready"
+    assert len(fetch.urls) == 1
+
+
+def test_a_remade_pack_is_got_at_start_up_keeping_the_choice(tmp_path: Path, pack: Path) -> None:
+    first = started(tmp_path, pack)
+    first.start(CHOICE)
+    first.wait(10)
+    first.set_own_voice(True)
+    new = remade(tmp_path)
+    fetch, said = Fetcher(new), list[str]()
+    again = started(tmp_path, new, fetch=fetch, render_clip=renderer(said))
+    assert again.refresh() is True
+    again.wait(10)
+    assert again.status().state == "ready" and len(fetch.urls) == 1
+    assert again.own_voice() is True and again.chosen() == CHOICE
+    picture = again.picture()
+    assert picture is not None and picture.read_bytes() == b"the new face"
+    assert said == ["Goodbye.", "Welcome back."] and again.refresh() is False
+
+
+@pytest.mark.parametrize("held_open", [False, True])
+def test_a_remade_pack_has_its_idle_video_made_again_from_the_new_face(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch, held_open: bool
+) -> None:
+    # Codex's reviews of PR #165: the chat's idle video was kept by the picture's name, so
+    # the old face's stayed, above all while a browser held it open (as on Windows).
+    def idle(photo: Path, output: Path) -> None:
+        output.write_bytes(photo.read_bytes())
+
+    picture = tmp_path / "default-people" / f"{CHOICE.name}.png"
+    replies = ReplyVideos(
+        tmp_path,
+        renderer([]),
+        VoiceReady(lambda: None, lambda: "v"),
+        ClipSteps(lambda text, wav: None, lambda photo, wav, output: None, idle),
+    )
+    first = started(tmp_path, pack, on_ready=lambda: replies.warm_up(picture))
+    first.start(CHOICE)
+    first.wait(10)
+    old = replies.idle(picture)
+    assert old is not None and old.read_bytes() == b"picture bytes"
+    real_unlink = Path.unlink
+
+    def unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == old:
+            raise PermissionError("open in the browser")
+        real_unlink(self, missing_ok)
+
+    if held_open:
+        monkeypatch.setattr(Path, "unlink", unlink)
+    new = remade(tmp_path)
+    again = started(tmp_path, new, on_ready=lambda: replies.warm_up(picture))
+    assert again.refresh() is True
+    again.wait(10)
+    remade_idle = replies.idle(picture)
+    assert remade_idle is not None and remade_idle.read_bytes() == b"the new face"
+    assert old.exists() is held_open
+    monkeypatch.undo()  # the browser lets go: the next warm-up removes the old one
+    replies.warm_up(picture)
+    assert not old.exists() and replies.idle(picture) == remade_idle
+
+
+def test_a_person_unpacked_before_the_pack_was_noted_is_told_by_the_kept_pack(
+    tmp_path: Path, pack: Path
+) -> None:
+    first = started(tmp_path, pack)
+    first.start(CHOICE)
+    first.wait(10)
+    noted = tmp_path / "default-people" / f"{CHOICE.name}.pack"
+    noted.unlink()  # as left by an older version of the app
+    fetch = Fetcher(pack)
+    assert started(tmp_path, pack, fetch=fetch).start(CHOICE).state == "ready"
+    assert fetch.urls == [] and noted.read_text() == sha256_of(pack)
+    # Older still, with a kept pack that is not the one named now: downloaded again.
+    noted.unlink()
+    new = remade(tmp_path)
+    fetch = Fetcher(new)
+    again = started(tmp_path, new, fetch=fetch)
+    again.start(CHOICE)
+    again.wait(10)
+    assert again.status().state == "ready" and len(fetch.urls) == 1
 
 
 def test_lines_that_cant_be_rendered_again_say_so(
@@ -626,7 +741,7 @@ def test_start_now_waits_for_the_new_persons_idle_video(client: TestClient, tmp_
     assert client.get("/api/start-now").json()["chat_ready"] is True
     warming["running"] = True
     picture = client.app.state.start_now.picture()  # type: ignore[attr-defined]
-    idle = tmp_path / "home" / "replies" / "idle" / f"{picture.stem}.mp4"
+    idle = tmp_path / "home" / "replies" / "idle" / f"{picture.stem}-{sha256_of(picture)[:12]}.mp4"
     idle.parent.mkdir(parents=True, exist_ok=True)
     idle.write_bytes(b"mp4")
     assert client.get("/api/start-now").json()["chat_ready"] is True  # made, while it runs on

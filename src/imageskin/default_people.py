@@ -19,7 +19,7 @@ import os
 import shutil
 import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +52,7 @@ ROLES = (
     "Teaching Assistant",
     "Student",
     "Parent",
-    "Teenager",
+    "Young Adult",
     "Boss",
     "Office Manager",
     "High School Teacher",
@@ -64,7 +64,7 @@ ROLES = (
 ACCENT_LANGS = {"American": "a", "British": "b"}
 
 # R24e: a voice for each person that fits their face, instead of one for each gender and accent
-# (Larry, 2026-10-22). Kokoro has no teenage or older voices, so the teenagers take the accent's
+# (Larry, 2026-10-22). Kokoro has no young or older voices, so the young adults take the accent's
 # highest voices and the people in their sixties and seventies its lowest, by measured median
 # pitch, and the adults take turns over the rest so that faces next to each other on the avatar
 # page don't sound alike. A blend ("a,b") averages two voices' style vectors. Each nonbinary voice
@@ -116,7 +116,7 @@ class Person:
     look: str
     face: int = 1  # 2 for R24b2's second faces
     seed: int = 1
-    age: str = ""  # an age other than the role's, for R24b2's older people
+    age: str = ""  # an age other than the role's: R24b2's older people, or LOOKED_YOUNG's
 
     @property
     def name(self) -> str:
@@ -135,6 +135,7 @@ def people() -> list[Person]:
         for r, role in enumerate(ROLES):
             look = LOOKS[(r + 2 * g) % len(LOOKS)]
             found.append(Person(gender, realism, role, look))
+    found = [replace(p, age=LOOKED_YOUNG.get(p.name, p.age)) for p in found]
     return found + list(SECOND_FACES) + list(NONBINARY_PEOPLE)
 
 
@@ -146,6 +147,14 @@ def people() -> list[Person]:
 # wheelchair, one Indigenous), a young person in a wheelchair and two more with glasses.
 # Which looks each picture actually shows is recorded in tools/default_people/looks_shown.json.
 SIXTIES, SEVENTIES = "in their late sixties", "in their seventies"
+# Every default person is an adult (Larry, 2026-10-24). These people, made at the role's age,
+# looked sixteen or seventeen, so they are asked for older; the prompt then says "adult".
+LATE_TWENTIES, EARLY_THIRTIES = "in their late twenties", "in their early thirties"
+LATE_THIRTIES, EARLY_FORTIES = "in their late thirties", "in their early forties"
+LOOKED_YOUNG = {
+    "animated_female_student": LATE_TWENTIES,
+    "animated_male_student": LATE_TWENTIES,
+}
 # SSD-1B draws a wheelchair only when it comes first in the look and is described in full; it
 # drew no hearing aid, cochlear implant or white cane in R24b2's tries, so both visible
 # disabilities are wheelchairs.
@@ -185,7 +194,10 @@ SECOND_FACES = (
         f"South Asian, with brown skin and long dark hair, {WHEELCHAIR}",
     ),
     _second(
-        "female", "photoreal", "Teenager", f"Latino, with olive skin and dark wavy hair, {GLASSES}"
+        "female",
+        "photoreal",
+        "Young Adult",
+        f"Latino, with olive skin and dark wavy hair, {GLASSES}",
     ),
     _second(
         "female",
@@ -229,7 +241,10 @@ SECOND_FACES = (
         f"Middle Eastern, with light brown skin and dark curly hair, {GLASSES}",
     ),
     _second(
-        "male", "photoreal", "Teenager", f"Southeast Asian, with tan skin and black hair, {GLASSES}"
+        "male",
+        "photoreal",
+        "Young Adult",
+        f"Southeast Asian, with tan skin and black hair, {GLASSES}",
     ),
     _second(
         "female",
@@ -255,9 +270,11 @@ SECOND_FACES = (
     _second(
         "female",
         "animated",
-        "Teenager",
-        f"{WHEELCHAIR}, Black, with deep brown skin and curly black hair",
-        seed=3,  # seeds 1 and 2 drew the wheelchair too small or cropped it out
+        "Young Adult",
+        # As an adult in an apartment, seeds 3 to 5 drew her full length with the face too
+        # small, so the look asks for waist-up, with fewer words to stay within 77 tokens.
+        f"{WHEELCHAIR}, waist-up, Black, with curly black hair",
+        seed=2,  # seed 1 still drew her face too small
     ),
     _second(
         "female",
@@ -297,7 +314,7 @@ SECOND_FACES = (
         "male", "animated", "Student", f"{WHEELCHAIR}, white, with light skin and short blond hair"
     ),
     _second(
-        "male", "animated", "Teenager", f"South Asian, with brown skin and black hair, {GLASSES}"
+        "male", "animated", "Young Adult", f"South Asian, with brown skin and black hair, {GLASSES}"
     ),
     _second(
         "male",
@@ -323,15 +340,23 @@ NONBINARY_PEOPLE = (
         SIXTIES,
     ),
     _nonbinary(
-        "photoreal", "Teaching Assistant", "East Asian, with light skin and short black hair"
+        "photoreal",
+        "Teaching Assistant",
+        "East Asian, with light skin and short black hair",
+        EARLY_THIRTIES,  # LOOKED_YOUNG
     ),
-    _nonbinary("photoreal", "Student", "South Asian, with brown skin and short dark hair"),
-    _nonbinary("photoreal", "Teenager", "white, with fair freckled skin and short red hair"),
+    _nonbinary(
+        "photoreal",
+        "Student",
+        "South Asian, with brown skin and short dark hair",
+        LATE_TWENTIES,  # LOOKED_YOUNG
+    ),
+    _nonbinary("photoreal", "Young Adult", "white, with fair freckled skin and short red hair"),
     _nonbinary("animated", "Boss", "Indigenous, with brown skin and a long grey braid", SIXTIES),
     _nonbinary(
         "animated", "Parent", f"Southeast Asian, with tan skin and short black hair, {GLASSES}"
     ),
-    _nonbinary("animated", "Teenager", "Latino, with olive skin and short curly dark hair"),
+    _nonbinary("animated", "Young Adult", "Latino, with olive skin and short curly dark hair"),
     _nonbinary(
         "animated",
         "Business Consultant",
@@ -342,9 +367,9 @@ NONBINARY_PEOPLE = (
 
 def age(person: Person) -> str:
     """Whether the person's voice is to sound younger, adult or older (R24e)."""
-    if person.role == "Teenager":
+    if person.role == "Young Adult":
         return "younger"
-    return "older" if person.age else "adult"
+    return "older" if person.age in (SIXTIES, SEVENTIES) else "adult"
 
 
 def page_order(found: list[Person]) -> list[Person]:

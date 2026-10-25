@@ -14,6 +14,11 @@ app; R24b makes and packs all 36 people with the tool Larry accepts here.
 | Photoreal woman, Parent; animated man, Parent | early forties, casual sweater, family kitchen |
 | Photoreal boy, Teenager; animated girl, Teenager | sixteen, hoodie, bright bedroom |
 
+Every default person is an adult (Larry, 2026-10-24, R24b4), so the Teenager role is now Young
+Adult: an "adult" man or woman in their late twenties, in a button-up shirt in an apartment. The
+four Teenager pictures were taken out of `resources/default-people/`; the results below are
+R24a's and R24a2's as they ran.
+
 Every prompt asks for one person facing the camera with a closed mouth and the whole face
 visible, and names no real person or public figure (item 57). The prompts are in
 `default_person.py` (`prompt`), and the page shows each one under its picture.
