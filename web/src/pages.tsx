@@ -846,9 +846,9 @@ export function FailureReport(props: { failure: PrepareFailure; at: string | nul
       </p>
       <p className="muted">
         {failure.retry
-          ? "Try again may help."
-          : "Trying again won't help until this is fixed."}{" "}
-        If it keeps failing, give support the reference <strong>{failure.reference}</strong>.
+          ? "Try again may help. If it keeps failing, please give support the reference "
+          : "Please give support the reference "}
+        <strong>{failure.reference}</strong>.
       </p>
       <button type="button" className="secondary" onClick={copy}>
         Copy details for support

@@ -2891,9 +2891,7 @@ function FailureReport(props) {
 			/* @__PURE__ */ u("p", {
 				className: "muted",
 				children: [
-					failure.retry ? "Try again may help." : "Trying again won't help until this is fixed.",
-					" ",
-					"If it keeps failing, give support the reference ",
+					failure.retry ? "Try again may help. If it keeps failing, please give support the reference " : "Please give support the reference ",
 					/* @__PURE__ */ u("strong", { children: failure.reference }),
 					"."
 				]

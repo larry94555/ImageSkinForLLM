@@ -1144,8 +1144,9 @@ test("a failed job shows the step, the reason and the reference for support (R13
   expect(alert.textContent).toContain(
     "“Make the video of the person listening” failed. The computer ran out of memory.",
   );
-  expect(alert.textContent).toContain("Try again may help.");
-  expect(alert.textContent).toContain("give support the reference P-7K3F9Q");
+  expect(alert.textContent).toContain(
+    "Try again may help. If it keeps failing, please give support the reference P-7K3F9Q.",
+  );
   expect(alert.textContent).not.toContain("log");
   expect(screen.getByText("Details")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Copy details for support" }));
@@ -1169,7 +1170,9 @@ test("a failure Try again can't fix says so, and the details can be copied by ha
   await openAt("#/setup");
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("Preparing failed. A program is missing.");
-  expect(alert.textContent).toContain("Trying again won't help until this is fixed.");
+  expect(alert.textContent).toContain("Please give support the reference P-7K3F9Q.");
+  expect(alert.textContent).not.toContain("Trying again");
+  expect(alert.textContent).not.toContain("keeps failing");
   fireEvent.click(screen.getByRole("button", { name: "Copy details for support" }));
   const byHand = (await screen.findByLabelText("Details for support")) as HTMLTextAreaElement;
   expect(byHand.value).toContain("Step: Before the first step");
