@@ -1,0 +1,640 @@
+[
+  {
+    "name": "reply 1",
+    "text": "Hello! I'm glad you asked.",
+    "seconds": 2.48,
+    "onsets": [
+      {
+        "word": "Hello",
+        "heard": 0.405,
+        "sound": 0.45,
+        "opens": 0.36,
+        "lead_ms": 45,
+        "timings_ms": -45,
+        "frames_ms": 90
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": [
+      [
+        "Hello",
+        48
+      ],
+      [
+        "I'm",
+        83
+      ],
+      [
+        "glad",
+        76
+      ],
+      [
+        "you",
+        53
+      ],
+      [
+        "asked",
+        192
+      ]
+    ]
+  },
+  {
+    "name": "reply 2",
+    "text": "Mount Everest is the tallest mountain in the world, at about 8,849 meters.",
+    "seconds": 7.2,
+    "onsets": [
+      {
+        "word": "Mount",
+        "heard": 0.415,
+        "sound": 0.475,
+        "opens": 0.52,
+        "lead_ms": -105,
+        "timings_ms": -60,
+        "frames_ms": -45
+      },
+      {
+        "word": "at",
+        "heard": 3.51,
+        "sound": 3.65,
+        "opens": 3.56,
+        "lead_ms": -50,
+        "timings_ms": -140,
+        "frames_ms": 90
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": [
+      [
+        "Mount",
+        61
+      ],
+      [
+        "Everest",
+        114
+      ],
+      [
+        "is",
+        102
+      ],
+      [
+        "the",
+        79
+      ],
+      [
+        "tallest",
+        83
+      ],
+      [
+        "mountain",
+        94
+      ],
+      [
+        "in",
+        54
+      ],
+      [
+        "the",
+        60
+      ],
+      [
+        "world",
+        93
+      ],
+      [
+        "at",
+        72
+      ],
+      [
+        "about",
+        92
+      ],
+      [
+        "8,849",
+        111
+      ],
+      [
+        "meters",
+        77
+      ]
+    ]
+  },
+  {
+    "name": "reply 3",
+    "text": "Once upon a time, a cat named Milo was afraid of water.",
+    "seconds": 4.62,
+    "onsets": [
+      {
+        "word": "Once",
+        "heard": 0.425,
+        "sound": 0.475,
+        "opens": 0.4,
+        "lead_ms": 25,
+        "timings_ms": -50,
+        "frames_ms": 75
+      },
+      {
+        "word": "a",
+        "heard": 1.74,
+        "sound": 1.8,
+        "opens": 1.68,
+        "lead_ms": 60,
+        "timings_ms": -60,
+        "frames_ms": 120
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": [
+      [
+        "Once",
+        121
+      ],
+      [
+        "upon",
+        84
+      ],
+      [
+        "a",
+        74
+      ],
+      [
+        "time",
+        91
+      ],
+      [
+        "a",
+        82
+      ],
+      [
+        "cat",
+        70
+      ],
+      [
+        "named",
+        57
+      ],
+      [
+        "Milo",
+        70
+      ],
+      [
+        "was",
+        63
+      ],
+      [
+        "afraid",
+        73
+      ],
+      [
+        "of",
+        62
+      ],
+      [
+        "water",
+        77
+      ]
+    ]
+  },
+  {
+    "name": "goodbye",
+    "text": "Goodbye.",
+    "seconds": 1.48,
+    "onsets": [
+      {
+        "word": "Goodbye",
+        "heard": 0.37,
+        "sound": 0.45,
+        "opens": 0.36,
+        "lead_ms": 10,
+        "timings_ms": -80,
+        "frames_ms": 90
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": [
+      [
+        "Goodbye",
+        49
+      ]
+    ]
+  },
+  {
+    "name": "welcome back",
+    "text": "Welcome back.",
+    "seconds": 1.77,
+    "onsets": [
+      {
+        "word": "Welcome",
+        "heard": 0.385,
+        "sound": 0.475,
+        "opens": 0.4,
+        "lead_ms": -15,
+        "timings_ms": -90,
+        "frames_ms": 75
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": [
+      [
+        "Welcome",
+        44
+      ],
+      [
+        "back",
+        83
+      ]
+    ]
+  },
+  {
+    "name": "sample",
+    "text": "This is a test. How do I sound? I'm speaking in my own voice, or as close to it as a computer can get. Let me try a few things. Numbers: one, two, three, forty-five, and nine hundred ninety-nine. A question: did you see that coming? And a little excitement: wow, that's great news! She sells seashells by the seashore. If anything looks or sounds wrong, tell me now so we can fix it.",
+    "seconds": 24.48,
+    "onsets": [
+      {
+        "word": "This",
+        "heard": 0.42,
+        "sound": 0.45,
+        "opens": 0.36,
+        "lead_ms": 60,
+        "timings_ms": -30,
+        "frames_ms": 90
+      },
+      {
+        "word": "How",
+        "heard": 1.48,
+        "sound": 1.525,
+        "opens": null,
+        "lead_ms": null,
+        "timings_ms": -45,
+        "frames_ms": null
+      },
+      {
+        "word": "I'm",
+        "heard": 2.695,
+        "sound": 2.85,
+        "opens": 2.92,
+        "lead_ms": -225,
+        "timings_ms": -155,
+        "frames_ms": -70
+      },
+      {
+        "word": "Let",
+        "heard": 6.87,
+        "sound": 6.925,
+        "opens": 7.08,
+        "lead_ms": -210,
+        "timings_ms": -55,
+        "frames_ms": -155
+      },
+      {
+        "word": "Numbers",
+        "heard": 8.61,
+        "sound": 8.675,
+        "opens": 8.84,
+        "lead_ms": -230,
+        "timings_ms": -65,
+        "frames_ms": -165
+      },
+      {
+        "word": "A",
+        "heard": 12.69,
+        "sound": 12.85,
+        "opens": null,
+        "lead_ms": null,
+        "timings_ms": -160,
+        "frames_ms": null
+      },
+      {
+        "word": "And",
+        "heard": 14.885,
+        "sound": 15.075,
+        "opens": 14.96,
+        "lead_ms": -75,
+        "timings_ms": -190,
+        "frames_ms": 115
+      },
+      {
+        "word": "She",
+        "heard": 17.87,
+        "sound": 17.95,
+        "opens": null,
+        "lead_ms": null,
+        "timings_ms": -80,
+        "frames_ms": null
+      },
+      {
+        "word": "If",
+        "heard": 20.355,
+        "sound": 20.425,
+        "opens": 20.4,
+        "lead_ms": -45,
+        "timings_ms": -70,
+        "frames_ms": 25
+      }
+    ],
+    "whole_mp4_ms": 0.0,
+    "progressive_mp4_ms": 0.0,
+    "aligner_ms": [
+      [
+        "This",
+        45
+      ],
+      [
+        "is",
+        70
+      ],
+      [
+        "a",
+        85
+      ],
+      [
+        "test",
+        54
+      ],
+      [
+        "How",
+        76
+      ],
+      [
+        "do",
+        41
+      ],
+      [
+        "I",
+        109
+      ],
+      [
+        "sound",
+        66
+      ],
+      [
+        "I'm",
+        102
+      ],
+      [
+        "speaking",
+        67
+      ],
+      [
+        "in",
+        59
+      ],
+      [
+        "my",
+        85
+      ],
+      [
+        "own",
+        124
+      ],
+      [
+        "voice",
+        70
+      ],
+      [
+        "or",
+        78
+      ],
+      [
+        "as",
+        93
+      ],
+      [
+        "close",
+        70
+      ],
+      [
+        "to",
+        53
+      ],
+      [
+        "it",
+        83
+      ],
+      [
+        "as",
+        78
+      ],
+      [
+        "a",
+        66
+      ],
+      [
+        "computer",
+        83
+      ],
+      [
+        "can",
+        54
+      ],
+      [
+        "get",
+        67
+      ],
+      [
+        "Let",
+        72
+      ],
+      [
+        "me",
+        61
+      ],
+      [
+        "try",
+        72
+      ],
+      [
+        "a",
+        57
+      ],
+      [
+        "few",
+        75
+      ],
+      [
+        "things",
+        77
+      ],
+      [
+        "Numbers",
+        83
+      ],
+      [
+        "one",
+        173
+      ],
+      [
+        "two",
+        58
+      ],
+      [
+        "three",
+        68
+      ],
+      [
+        "forty-five",
+        68
+      ],
+      [
+        "and",
+        64
+      ],
+      [
+        "nine",
+        92
+      ],
+      [
+        "hundred",
+        82
+      ],
+      [
+        "ninety-nine",
+        72
+      ],
+      [
+        "A",
+        110
+      ],
+      [
+        "question",
+        78
+      ],
+      [
+        "did",
+        58
+      ],
+      [
+        "you",
+        68
+      ],
+      [
+        "see",
+        71
+      ],
+      [
+        "that",
+        59
+      ],
+      [
+        "coming",
+        76
+      ],
+      [
+        "And",
+        104
+      ],
+      [
+        "a",
+        61
+      ],
+      [
+        "little",
+        79
+      ],
+      [
+        "excitement",
+        89
+      ],
+      [
+        "wow",
+        55
+      ],
+      [
+        "that's",
+        50
+      ],
+      [
+        "great",
+        70
+      ],
+      [
+        "news",
+        95
+      ],
+      [
+        "She",
+        74
+      ],
+      [
+        "sells",
+        79
+      ],
+      [
+        "seashells",
+        76
+      ],
+      [
+        "by",
+        67
+      ],
+      [
+        "the",
+        72
+      ],
+      [
+        "seashore",
+        75
+      ],
+      [
+        "If",
+        117
+      ],
+      [
+        "anything",
+        98
+      ],
+      [
+        "looks",
+        75
+      ],
+      [
+        "or",
+        78
+      ],
+      [
+        "sounds",
+        83
+      ],
+      [
+        "wrong",
+        66
+      ],
+      [
+        "tell",
+        44
+      ],
+      [
+        "me",
+        82
+      ],
+      [
+        "now",
+        84
+      ],
+      [
+        "so",
+        67
+      ],
+      [
+        "we",
+        79
+      ],
+      [
+        "can",
+        69
+      ],
+      [
+        "fix",
+        81
+      ],
+      [
+        "it",
+        90
+      ]
+    ]
+  }
+]
