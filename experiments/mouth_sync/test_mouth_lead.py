@@ -11,9 +11,13 @@ from mouth_lead import (
     CLIPS,
     FPS,
     MARKS_S,
+    BrowserClip,
     ClipResult,
     Onset,
     audio_delay_ms,
+    browser_clips,
+    browser_markdown,
+    browser_table,
     first_sound,
     frame_times,
     level_db,
@@ -208,3 +212,64 @@ def test_clips_cover_replies_the_fixed_lines_and_the_sample() -> None:
     names = [n for n, _ in CLIPS]
     assert names[:3] == ["reply 1", "reply 2", "reply 3"]
     assert {"goodbye", "welcome back", "sample"} <= set(names)
+
+
+def browser_raw() -> dict:
+    """Two clips: the first fades in after it plays; the second is shown before it plays."""
+    frames = [{"clip": 0, "media": 0.0, "shown": 500.0}]  # loaded out of sight, before playing
+    frames += [{"clip": 0, "media": t / 1000, "shown": 1000.0 + t} for t in (0, 40, 600, 640)]
+    frames += [{"clip": 1, "media": t / 1000, "shown": 4100.0 + t} for t in (0, 40, 600)]
+    return {
+        "clips": ["a.mp4", "b.mp4"],
+        "frames": frames,
+        # First sound 30 ms after the first frame in clip 1; in clip 2, 90 ms after it was shown.
+        "sounds": [
+            {"clip": 0, "played": 1030.0},
+            {"clip": 0, "played": 1640.0},
+            {"clip": 1, "played": 4140.0},
+            {"clip": 1, "played": 4740.0},
+        ],
+        "playing": [{"clip": 0, "at": 995.0}, {"clip": 1, "at": 4095.0}],
+        "shown": [{"clip": 1, "at": 4050.0}],
+        "visible": [{"clip": 0, "at": 1100.0}, {"clip": 1, "at": 4050.0}],
+        "browser": "Chromium 1",
+        "latency": 0.042,
+    }
+
+
+WHITES = {"a.mp4": [0.0, 0.6], "b.mp4": [0.0, 0.6]}
+
+
+def test_browser_clips_measures_the_switch_and_each_mark() -> None:
+    a, b = browser_clips(browser_raw(), WHITES)
+    # The frame shown before clip 1 played is out of sight and doesn't count.
+    assert a == BrowserClip(1, "a.mp4", 30, -70, [30, 40])
+    # Clip 2's player was shown before its first frame came: that is its first picture.
+    assert b == BrowserClip(2, "b.mp4", 90, 90, [40, 40])
+
+
+def test_browser_clips_keep_the_switch_apart_from_later_marks() -> None:
+    raw = browser_raw()
+    raw["sounds"] = [s for s in raw["sounds"] if s["played"] != 1640.0]  # a beep not heard
+    a, _ = browser_clips(raw, WHITES)
+    assert a.first_picture_ms == 30
+    assert a.marks_ms == [30, None]
+
+
+def test_browser_clips_without_frames_or_sounds() -> None:
+    raw = browser_raw()
+    raw["frames"] = [f for f in raw["frames"] if f["clip"] == 0]
+    raw["sounds"] = [s for s in raw["sounds"] if s["clip"] == 1]
+    a, b = browser_clips(raw, WHITES)
+    assert (a.first_picture_ms, a.half_visible_ms, a.marks_ms) == (None, None, [None, None])
+    assert (b.first_picture_ms, b.marks_ms) == (None, [])
+
+
+def test_browser_table_writes_markdown(tmp_path: Path) -> None:
+    (tmp_path / "browser-raw.json").write_text(json.dumps(browser_raw()))
+    (tmp_path / "marks.json").write_text(json.dumps(WHITES))
+    md = browser_table(tmp_path).read_text()
+    assert "Chromium 1; Web Audio's output delay 42 ms" in md
+    assert "| 1 (a.mp4) | idle video to the reply | 30 ms | -70 ms | 30 ms | 40 ms |" in md
+    assert "| 2 (b.mp4) | from the clip before | 90 ms | 90 ms |" in md
+    assert "| 1 (" not in browser_markdown(browser_raw(), [])
