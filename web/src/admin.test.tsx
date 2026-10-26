@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { CHECK_MS } from "./admin";
+import { CHECK_MS, GUIDE } from "./admin";
 import { App } from "./App";
 
 // A server with consent given, the settings as `settings`, and an administrator password
@@ -122,6 +122,9 @@ test("with no password set, signing in is off and says so", async () => {
   server({}, false);
   await openAt("#/settings");
   await screen.findByText(/Signing in as the administrator is off/);
+  expect(screen.getByRole("link", { name: "admin password guide" }).getAttribute("href")).toBe(
+    GUIDE,
+  );
   expect(screen.queryByLabelText("Administrator password")).toBeNull();
 });
 

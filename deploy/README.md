@@ -220,6 +220,7 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 |---|---|
 | Update to the latest version | `git pull`, then `docker compose up -d --build` |
 | Change the password | a new hash in `.env`, then `docker compose up -d` |
+| Set or change the administrator password (the admin view's, not the site's) | edit `admin/admin.toml` here; no restart (see [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
 | Change the app's settings (`config.toml` here) | edit it, then `docker compose restart app` |
 | See the app's log | `docker compose logs -f app` (Ctrl+C stops watching) |
 | Stop the site | `docker compose down` (the data is kept) |

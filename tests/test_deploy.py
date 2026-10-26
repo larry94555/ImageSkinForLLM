@@ -149,3 +149,13 @@ def test_the_admin_password_folder_is_mounted_where_the_config_looks() -> None:
     assert settings.admin_file == "/etc/imageskin/admin/admin.toml"
     assert "- ./admin:/etc/imageskin/admin:ro" in text(DEPLOY / "compose.yaml")
     assert (DEPLOY / "admin" / "README.md").exists()
+
+
+def test_the_admin_password_guide_is_there_and_linked() -> None:
+    # Every step of setting the administrator password (R151).
+    guide = ROOT / "docs" / "guides" / "Admin-Password-Guide.pdf"
+    assert guide.read_bytes().startswith(b"%PDF")
+    assert "docs/guides/Admin-Password-Guide.pdf" in text(ROOT / "README.md")
+    assert "../docs/guides/Admin-Password-Guide.pdf" in text(DEPLOY / "README.md")
+    assert "guides/Admin-Password-Guide.pdf" in text(ROOT / "docs" / "FAQ.md")
+    assert "../../docs/guides/Admin-Password-Guide.pdf" in text(DEPLOY / "admin" / "README.md")
