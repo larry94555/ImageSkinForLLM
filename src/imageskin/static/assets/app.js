@@ -209,6 +209,11 @@ async function sendPrompt(prompt, replyId, lesson, quiz, assessment, spoken) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function getThinking(replyId) {
+	const response = await fetch(`/api/chat/thinking/${replyId}`);
+	if (response.status === 404) return null;
+	return json(response);
+}
 async function speakReply(turn, replyId) {
 	const response = await fetch("/api/chat/video", {
 		method: "POST",
@@ -355,7 +360,8 @@ var DEFAULT_SETTINGS = {
 	assessment: false,
 	debug: false,
 	general_prompts: false,
-	face_movement: "normal"
+	face_movement: "normal",
+	show_thinking: true
 };
 function settings(data) {
 	return {
@@ -366,7 +372,8 @@ function settings(data) {
 		assessment: data.assessment === true,
 		debug: data.debug === true,
 		general_prompts: data.general_prompts === true,
-		face_movement: FACE_MOVEMENTS.includes(data.face_movement) ? data.face_movement : "normal"
+		face_movement: FACE_MOVEMENTS.includes(data.face_movement) ? data.face_movement : "normal",
+		show_thinking: data.show_thinking !== false
 	};
 }
 async function getSettings() {
@@ -1819,15 +1826,23 @@ var SWITCHES = [{
 }, {
 	group: "Display",
 	about: "What else is shown on the pages.",
-	items: [[
-		"show_metrics",
-		"Show timing metrics",
-		"How long replies and other steps take, under the video and on the pages."
-	], [
-		"debug",
-		"Debug",
-		"Copy chat under the conversation, to paste the latest exchanges somewhere else."
-	]]
+	items: [
+		[
+			"show_thinking",
+			"Show what thinking is doing",
+			"While a reply is thought of, what is being done and the time so far; under each reply, how long it took. Off: only “Thinking…” shows."
+		],
+		[
+			"show_metrics",
+			"Show timing metrics",
+			"How long replies and other steps take, under the video and on the pages."
+		],
+		[
+			"debug",
+			"Debug",
+			"Copy chat under the conversation, to paste the latest exchanges somewhere else."
+		]
+	]
 }];
 var ICON = /* @__PURE__ */ u("svg", {
 	viewBox: "0 0 24 24",
@@ -3310,7 +3325,9 @@ function saveSound(sound) {
 function Chat(props) {
 	const metrics = useSettings().show_metrics;
 	const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
+	const showThinking = useSettings().show_thinking;
 	const [turns, setTurns] = d(null);
+	const [thinkingOf, setThinkingOf] = d(null);
 	const [prompt, setPrompt] = d("");
 	const [sending, setSending] = d(false);
 	const [speaking, setSpeaking] = d(false);
@@ -3501,6 +3518,10 @@ function Chat(props) {
 		});
 		setHalted(false);
 		setSending(true);
+		setThinkingOf({
+			id: replyId,
+			since: performance.now()
+		});
 		setSpeaking(true);
 		setWaiting(true);
 		clipTotal.current = 0;
@@ -3550,15 +3571,19 @@ function Chat(props) {
 				if (next) console.info(`Assessment: question ${next.number} of ${next.total}`);
 			}
 			setChoices(reply.choices ?? []);
-			const { role, content } = reply;
+			const { role, content, thinking_s } = reply;
 			const meant = reply.prompt;
 			if (meant && meant !== text) console.info(`Push-to-talk: "${text}" taken as "${meant}"`);
 			setTurns((t) => [...(t ?? []).map((turn, i, all) => meant && i === all.length - 1 ? {
 				...turn,
 				content: meant
-			} : turn), {
+			} : turn), thinking_s === void 0 ? {
 				role,
 				content
+			} : {
+				role,
+				content,
+				thinking_s
 			}]);
 		} catch (e) {
 			const halt = e instanceof ServerRefusal && e.status === 409 && stopped.current === replyId;
@@ -3702,6 +3727,10 @@ function Chat(props) {
 						children: status
 					})
 				}),
+				sending && !halted && showThinking && thinkingOf && /* @__PURE__ */ u(ThinkingNow, {
+					replyId: thinkingOf.id,
+					since: thinkingOf.since
+				}, thinkingOf.id),
 				failed && /* @__PURE__ */ u("p", {
 					className: "error",
 					role: "alert",
@@ -3919,8 +3948,59 @@ function latestExchange(turns) {
 	for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === "user") return i;
 	return Math.max(turns.length - 1, 0);
 }
+function thinkingTook(seconds) {
+	if (seconds < 1) return "Took less than a second for thinking";
+	const whole = Math.round(seconds);
+	return `Took ${whole} ${whole === 1 ? "second" : "seconds"} for thinking`;
+}
+function ThinkingNow({ replyId, since }) {
+	const [now, setNow] = d(null);
+	const [seconds, setSeconds] = d(() => Math.floor((performance.now() - since) / 1e3));
+	h(() => {
+		let gone = false;
+		let next;
+		let failures = 0;
+		let shown = "";
+		async function ask() {
+			try {
+				const read = await getThinking(replyId);
+				failures = 0;
+				if (!gone && read && typeof read.stage === "string") {
+					setNow(read);
+					if (read.stage !== shown) console.debug(`Thinking: ${read.stage} (${read.elapsed_s} s)`);
+					shown = read.stage;
+				}
+			} catch (e) {
+				if (failures++ === 0) console.error("Could not read what thinking is doing", e);
+			}
+			if (!gone) next = setTimeout(() => void ask(), 1e3);
+		}
+		ask();
+		const tick = setInterval(() => setSeconds(Math.floor((performance.now() - since) / 1e3)), 1e3);
+		return () => {
+			gone = true;
+			clearTimeout(next);
+			clearInterval(tick);
+		};
+	}, [replyId, since]);
+	return /* @__PURE__ */ u("div", {
+		className: "thinking muted",
+		children: [/* @__PURE__ */ u("span", {
+			className: "thinking-time",
+			children: [seconds, " s so far"]
+		}), now && /* @__PURE__ */ u("span", {
+			className: "thinking-stage",
+			children: [
+				now.stage,
+				now.detail ? `: ${now.detail}` : "",
+				now.stage_s >= 2 ? ` (${Math.floor(now.stage_s)} s)` : ""
+			]
+		})]
+	});
+}
 function TurnList(props) {
 	const { turns, from = 0, unspoken, search } = props;
+	const showThinking = useSettings().show_thinking;
 	let counted = 0;
 	return /* @__PURE__ */ u("ol", {
 		className: "turns",
@@ -3949,6 +4029,10 @@ function TurnList(props) {
 					unspoken?.turn === i && /* @__PURE__ */ u("span", {
 						className: "note",
 						children: "I couldn't say this one aloud, so here it is as text."
+					}),
+					showThinking && turn.thinking_s !== void 0 && /* @__PURE__ */ u("span", {
+						className: "took",
+						children: thinkingTook(turn.thinking_s)
 					})
 				]
 			}, i);
@@ -3982,7 +4066,10 @@ function exchanges(turns) {
 function chatText(turns, count) {
 	const all = exchanges(turns);
 	const kept = all.slice(Math.max(all.length - count, 0));
-	return [`Chat: the last ${kept.length} of ${all.length} exchanges`, ...kept.flat().map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`)].join("\n\n");
+	return [`Chat: the last ${kept.length} of ${all.length} exchanges`, ...kept.flat().map((t) => {
+		const took = t.thinking_s === void 0 ? "" : ` (${thinkingTook(t.thinking_s).toLowerCase()})`;
+		return `${t.role === "user" ? "You" : "Reply"}: ${t.content}${took}`;
+	})].join("\n\n");
 }
 function CopyChat(props) {
 	const all = exchanges(props.turns).length;

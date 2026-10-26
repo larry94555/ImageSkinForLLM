@@ -395,6 +395,9 @@ export async function review(decision: Decision): Promise<Review> {
 export interface Turn {
   role: "user" | "assistant";
   content: string;
+  // How long a reply took to think of, in seconds (R134c); none for a prompt, or a reply made
+  // before it was kept.
+  thinking_s?: number;
 }
 
 // The conversation so far. The server keeps it until it stops.
@@ -507,6 +510,23 @@ export async function sendPrompt(
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Reply;
+}
+
+// What a prompt is thinking about now (R134c): its stage, a line of detail, and the seconds the
+// stage and the whole thinking have taken.
+export interface Thinking {
+  stage: string;
+  detail: string | null;
+  stage_s: number;
+  elapsed_s: number;
+}
+
+// What the prompt for `replyId` is thinking about, or null when it isn't being answered: not
+// yet, or its reply is in.
+export async function getThinking(replyId: string): Promise<Thinking | null> {
+  const response = await fetch(`/api/chat/thinking/${replyId}`);
+  if (response.status === 404) return null;
+  return json<Thinking>(response);
 }
 
 // Speaks a reply in the person's voice on their photo (roadmap R17); turn is its place in the
@@ -850,6 +870,9 @@ export interface UiSettings {
   // How much the cheeks and the face around the mouth move with it while the person speaks
   // (R128a); "off" leaves only the lips and jaw moving.
   face_movement: FaceMovement;
+  // While a prompt is thought about, what is being done and for how long, and under each reply
+  // how long it took (R134c); on by default.
+  show_thinking: boolean;
 }
 
 export type FaceMovement = "off" | "slight" | "normal";
@@ -864,6 +887,7 @@ export const DEFAULT_SETTINGS: UiSettings = {
   debug: false,
   general_prompts: false,
   face_movement: "normal",
+  show_thinking: true,
 };
 
 // Any value the server didn't send as one the setting can take is the default.
@@ -879,6 +903,7 @@ function settings(data: Partial<UiSettings>): UiSettings {
     face_movement: FACE_MOVEMENTS.includes(data.face_movement as FaceMovement)
       ? (data.face_movement as FaceMovement)
       : "normal",
+    show_thinking: data.show_thinking !== false,
   };
 }
 

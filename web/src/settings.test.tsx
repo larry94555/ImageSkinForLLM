@@ -73,8 +73,13 @@ test("the page groups the settings and shows each one as saved", async () => {
   expect(checked("Teach me")).toBe(false);
   const display = within(screen.getByRole("region", { name: "Display" }));
   expect(display.getAllByRole("checkbox").map((b) => b.parentElement?.textContent?.trim())).toEqual(
-    ["Show timing metrics", "Debug"],
+    ["Show what thinking is doing", "Show timing metrics", "Debug"],
   );
+  // On unless turned off (R134c).
+  expect(
+    (display.getByRole("checkbox", { name: "Show what thinking is doing" }) as HTMLInputElement)
+      .checked,
+  ).toBe(true);
 });
 
 test("the question scope is changed on the Settings page (R41, R27)", async () => {
