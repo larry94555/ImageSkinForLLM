@@ -303,7 +303,8 @@
       },
       "stretch_ms_max": 40,
       "own_rate_wpm": 203,
-      "own_seconds": 44.8
+      "own_seconds": 44.8,
+      "rate_speech_wpm": 198
     },
     {
       "prompt": "How do bees make honey?",
@@ -727,7 +728,8 @@
       },
       "stretch_ms_max": 40,
       "own_rate_wpm": 236,
-      "own_seconds": 56.0
+      "own_seconds": 56.0,
+      "rate_speech_wpm": 214
     },
     {
       "prompt": "What should I know before I start running?",
@@ -1362,7 +1364,8 @@
       },
       "stretch_ms_max": 40,
       "own_rate_wpm": 217,
-      "own_seconds": 72.3
+      "own_seconds": 72.3,
+      "rate_speech_wpm": 229
     }
   ]
 }

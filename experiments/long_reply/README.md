@@ -40,24 +40,43 @@ cloned voice is the person's own when Chatterbox is installed; otherwise Kokoro 
 
 ### On the hosted machine
 
-The app is in its Docker image, which leaves `experiments/` out, and llama-server is the real
-Gemma. From `deploy/`, stop the app and run it in a one-off container under serve_logged.py with
-this folder mounted, then measure inside it:
+The app there is in its Docker image, which leaves `experiments/` out, and llama-server is the
+real Gemma, so Gemma writes the replies to the three prompts (no fake_llm.py). The steps stop the
+site's app, run the same image in a one-off container named `long-reply` under serve_logged.py
+with this folder mounted, measure inside it, and then put the site back. The site is down while
+it runs: about 5 minutes with a ready-made voice, about 15 with your own cloned voice.
+
+Before you start, the chat must work on the site (a person set up and accepted, or chosen with
+Start now). The three prompts and their replies are added to the chat's history.
+
+On the hosted machine, in the folder you cloned for the site (`~/ImageSkinForLLM`, the
+`git clone` of deploy/README.md):
 
 ```
+cd ~/ImageSkinForLLM
+git fetch origin
+git checkout long-reply-pauses-experiment
+cd deploy
+docker rm -f long-reply 2>/dev/null
 docker compose stop app
 docker compose run -d --name long-reply -v "$PWD/../experiments/long_reply:/exp:ro" app \
     python /exp/serve_logged.py /data/long-reply/clips.jsonl --config /etc/imageskin/config.toml
-docker exec long-reply pip install matplotlib        # optional: the timelines
 docker exec -w /exp long-reply python long_reply.py /data/long-reply/clips.jsonl \
-    -o /data/long-reply --label hosted
+    -o /data/long-reply --label hosted --no-own-rate
 docker exec long-reply cat /data/long-reply/long-reply-hosted.md
 docker rm -f long-reply
 docker compose start app
+cd ..
+git checkout main
 ```
 
-For a person in their own voice, add `--voice-sample /data/uploads/voice-sample.wav` to the
-measurement.
+`long_reply.py` waits for the app to start (`Waiting for the app to start` in its log), logs
+`Long reply experiment started`, `Long reply measured` once for each reply, and
+`Long reply experiment done`, then prints the tables. The `cat` line prints the same tables again
+on their own: that output is what to paste. `--no-own-rate` skips speaking the replies again
+outside the app, which would need the voice the site uses named on the command line; the
+**Speech rate** column gives the voice's own pace from the clips themselves. The JSON with every
+number is beside it, in `/data/long-reply/long-reply-hosted.json`.
 
 ## What it measures
 
@@ -77,7 +96,9 @@ For each clip, in order:
 | Cause | why there was a gap: `queued` (made behind the clips before it, so clips are made slower than they play), `text late` (its text came only after the clip before had started playing) or `slow to make` |
 
 For each reply: the speaking rate heard (words a minute from the first word to the end of the
-last clip), the rate inside the clips (gaps left out), the voice's **own rate** (the reply spoken
+last clip), the rate inside the clips (gaps left out), the **speech rate** (the clips' speech
+with the silence at their starts and ends left out: the voice's own pace as the app spoke it),
+the voice's **own rate** (the reply spoken
 a whole sentence at a time outside the app, the silence at each sentence's start and end left
 out; a sentence at a time because Chatterbox stops at about 40 s of speech), the LLM's writing
 rate, the time to make the clips against how long they play, the gaps and pauses over 0.3 s and
@@ -113,8 +134,8 @@ There are two different bugs, one for each voice.
    about 0.8 s (median 770 to 790 ms) is heard between every two clips: Kokoro starts every clip
    with about 320 ms of silence and ends it with about 450 ms. The clips are short, 6.3 to 6.5
    words on average, so a reply has 24 to 40 joins and 18 to 30 s of silence at them, a quarter
-   of the time it is heard. With that silence left out, the clips speak at 192 to 222 words a
-   minute, the voice's own rate (181 to 217); with it, 137 to 154. Nothing is stretched: each
+   of the time it is heard. With that silence left out, the clips speak at 195 to 227 words a
+   minute (the speech rate), about the voice's own rate outside the app (181 to 217); with it, 137 to 154. Nothing is stretched: each
    clip plays as long as its speech (within 50 ms).
 2. **With Kokoro, most joins fall where no pause belongs.** 16 to 22 of the pauses in each reply
    come mid-sentence, 9 to 15 of them mid-clause, as in "Soon after came the penny / farthing,

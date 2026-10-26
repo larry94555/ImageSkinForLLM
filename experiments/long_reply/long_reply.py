@@ -15,12 +15,13 @@ for it), the whole pause heard before it (the silence at the end of the clip bef
 the silence at its start), and why there was a gap.
 
 For each reply: the speaking rate heard (words a minute from the first word to the end of the
-last clip), the rate inside the clips (gaps left out), the voice's own rate outside the app (the
-reply spoken a whole sentence at a time with `imageskin say`'s engine, the silence at each
-sentence's start and end left out, after the replies, unless --no-own-rate), the LLM's writing
-rate, and how fast clips are made against how long they play. The tables go to
-<out>/long-reply-<label>.md and .json, and one timeline a reply to
-<out>/timeline-<label>-<n>.png when matplotlib is installed.
+last clip), the rate inside the clips (gaps left out), the speech rate (the clips' speech with
+their silence left out: the voice's own pace as the app spoke it), the voice's own rate outside
+the app (the reply spoken a whole sentence at a time with `imageskin say`'s engine, the silence
+at each sentence's start and end left out, after the replies, unless --no-own-rate), the LLM's
+writing rate, and how fast clips are made against how long they play. It waits up to --wait
+seconds for the app to start. The tables go to <out>/long-reply-<label>.md and .json, and one
+timeline a reply to <out>/timeline-<label>-<n>.png when matplotlib is installed.
 """
 
 import argparse
@@ -30,7 +31,7 @@ import re
 import sys
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ logger = logging.getLogger("long_reply")
 
 GAP_MS = 300  # a gap or pause heard longer than this is counted (R130's default)
 WAITED_MS = 100  # waiting longer than this for the clip before it means it was queued
+WAIT_EVERY_S = 3  # how often to ask whether the app has started
 TOGETHER_MS = 50  # clips whose text came this close together were cut in one go
 _SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]*_]*$")
 _CLAUSE_END = re.compile(r"[,;:—–-][\"'”’)\]*_]*$")
@@ -141,6 +143,10 @@ def analyze(summary: dict[str, Any], noted: list[dict[str, Any]]) -> dict[str, A
     played = [c for c in clips if c["end_ms"] is not None]
     span_s = (played[-1]["end_ms"] - played[0]["plays_ms"]) / 1000 if played else None
     in_clips_s = sum(c["seconds"] for c in played)
+    speech_s = sum(
+        c["wav_s"] - ((c["lead_silence_ms"] or 0) + (c["trail_silence_ms"] or 0)) / 1000
+        for c in clips
+    )
     made_s = sum((c["voice_ms"] or 0) + (c["video_ms"] or 0) for c in clips) / 1000
     writing_s = (
         None
@@ -160,6 +166,8 @@ def analyze(summary: dict[str, Any], noted: list[dict[str, Any]]) -> dict[str, A
         "heard_s": None if span_s is None else round(span_s, 1),
         "rate_heard_wpm": rate(words, span_s),
         "rate_in_clips_wpm": rate(words, in_clips_s),
+        # The voice's own pace as the app spoke it: the clips' speech, their silence left out.
+        "rate_speech_wpm": rate(words, speech_s),
         "rate_llm_wpm": rate(words, writing_s),
         # Time to make the clips against how long they play: over 1 is slower than they play.
         "make_ratio": round(made_s / in_clips_s, 2) if in_clips_s else None,
@@ -274,6 +282,7 @@ def markdown(results: list[dict[str, Any]], label: str) -> str:
             "Heard for (s)",
             "Rate heard",
             "Rate in clips",
+            "Speech rate",
             "Own rate",
             "LLM writes",
             "Make/play",
@@ -295,6 +304,7 @@ def markdown(results: list[dict[str, Any]], label: str) -> str:
                 r["heard_s"],
                 r["rate_heard_wpm"],
                 r["rate_in_clips_wpm"],
+                r.get("rate_speech_wpm"),
                 r["own_rate_wpm"],
                 r["rate_llm_wpm"],
                 r["make_ratio"],
@@ -456,6 +466,24 @@ def timeline(result: dict[str, Any], path: Path, title: str) -> bool:
     return True
 
 
+def wait_for_app(base: str, wait_s: float, sleep: Callable[[float], None] = time.sleep) -> bool:
+    """Whether the app answers, asking every few seconds for up to `wait_s` seconds while it
+    starts."""
+    from imageskin import time_reply
+
+    deadline = time.perf_counter() + wait_s
+    while True:
+        try:
+            time_reply.ask(base + "/health", timeout=10)
+            return True
+        except OSError as e:
+            if time.perf_counter() >= deadline:
+                logger.error("Could not reach the app", extra={"url": base, "error": str(e)})
+                return False
+        logger.info("Waiting for the app to start", extra={"url": base})
+        sleep(WAIT_EVERY_S)
+
+
 def run(
     base: str,
     prompts: list[str],
@@ -465,15 +493,13 @@ def run(
     voice: str,
     voice_sample: Path | None,
     measure_own_rate: bool = True,
+    wait_s: float = 0.0,
 ) -> int:
     from imageskin import time_reply
 
     start = time.perf_counter()
     base = base.rstrip("/")
-    try:
-        time_reply.ask(base + "/health", timeout=10)
-    except OSError as e:
-        logger.error("Could not reach the app", extra={"url": base, "error": str(e)})
+    if not wait_for_app(base, wait_s):
         return 1
     logger.info("Long reply experiment started", extra={"replies": len(prompts), "label": label})
     results = []
@@ -541,7 +567,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--label", default="run")
     parser.add_argument("--voice", default=DEFAULT_VOICE, help="Kokoro voice for the own rate")
     parser.add_argument("--voice-sample", type=Path, help="the cloned voice's sample, instead")
-    parser.add_argument("--no-own-rate", action="store_true")
+    parser.add_argument(
+        "--no-own-rate",
+        action="store_true",
+        help="skip speaking each reply again outside the app (the Speech rate column still "
+        "gives the voice's own pace)",
+    )
+    parser.add_argument(
+        "--wait", type=float, default=300, help="seconds to wait for the app to start"
+    )
     args = parser.parse_args(argv)
     setup_logging()
     return run(
@@ -553,6 +587,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.voice,
         args.voice_sample,
         not args.no_own_rate,
+        args.wait,
     )
 
 

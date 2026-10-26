@@ -19,6 +19,7 @@ from long_reply import (
     rate,
     sentences_of,
     timeline,
+    wait_for_app,
 )
 from replies import PROMPTS, REPLIES
 from serve_logged import clip_row, note_clips, silences
@@ -134,6 +135,8 @@ def test_analyze_joins_clips_and_finds_the_pauses() -> None:
     assert result["heard_s"] == 7.5  # 3.0 s to 10.5 s
     assert result["rate_heard_wpm"] == round(words / 7.5 * 60)
     assert result["rate_in_clips_wpm"] == round(words / 7.0 * 60)
+    speech = (1.9 - 0.25) + (1.9 - 0.2) + (2.9 - 0.15)  # each clip's silence left out
+    assert result["rate_speech_wpm"] == round(words / speech * 60)
     assert result["rate_llm_wpm"] == words  # written over 60 s
     assert result["make_ratio"] == round(3 * 1.4 / 7.0, 2)
     assert result["gaps_over"] == 1 and result["gaps_total_s"] == 0.5
@@ -376,3 +379,21 @@ def test_run_without_the_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 def test_sentences_of() -> None:
     assert sentences_of(" One. Two? Three!  Four ") == ["One.", "Two?", "Three!", "Four"]
     assert sentences_of("") == []
+
+
+def test_wait_for_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    from imageskin import time_reply
+
+    answers: list[bool] = [False, False, True]
+
+    def ask(url: str, timeout: float = 30) -> dict[str, Any]:
+        if not answers.pop(0):
+            raise OSError("refused")
+        return {"status": "ok"}
+
+    slept: list[float] = []
+    monkeypatch.setattr(time_reply, "ask", ask)
+    assert wait_for_app("http://x", 60, slept.append)
+    assert slept == [3, 3]
+    answers[:] = [False]
+    assert not wait_for_app("http://x", 0, slept.append)  # no time left: one try only

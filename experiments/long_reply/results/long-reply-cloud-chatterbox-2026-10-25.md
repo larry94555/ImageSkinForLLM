@@ -2,11 +2,11 @@
 
 Times in milliseconds from the prompt being sent, rates in words a minute. A gap is playback waiting for the clip; the pause heard is the silence at the end of the clip before, the gap and the silence at the start of this one.
 
-| Reply | Words | First word heard | Heard for (s) | Rate heard | Rate in clips | Own rate | LLM writes | Make/play | Gaps > 300 ms | Gap total (s) | Gap causes | Pauses heard > 300 ms | Of them mid-sentence | Cut together | Silence at joins (s) | Clip ends | Start/end silence |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 152 | 10784 | 120.1 | 76 | 184 | 203 | 203 | 2.47 | 8 | 70.5 | queued 8 | 8 | 1 | 0 | 2.9 | none 1, sentence 8 | 110/230 |
-| 2 | 220 | 9815 | 160.9 | 82 | 198 | 236 | 216 | 2.42 | 12 | 94.4 | queued 12 | 12 | 1 | 0 | 4.3 | none 1, sentence 12 | 120/235 |
-| 3 | 261 | 7783 | 189.2 | 83 | 205 | 217 | 208 | 2.51 | 18 | 112.7 | queued 18 | 19 | 2 | 0 | 6.9 | none 1, sentence 18, clause 1 | 100/260 |
+| Reply | Words | First word heard | Heard for (s) | Rate heard | Rate in clips | Speech rate | Own rate | LLM writes | Make/play | Gaps > 300 ms | Gap total (s) | Gap causes | Pauses heard > 300 ms | Of them mid-sentence | Cut together | Silence at joins (s) | Clip ends | Start/end silence |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 152 | 10784 | 120.1 | 76 | 184 | 198 | 203 | 203 | 2.47 | 8 | 70.5 | queued 8 | 8 | 1 | 0 | 2.9 | none 1, sentence 8 | 110/230 |
+| 2 | 220 | 9815 | 160.9 | 82 | 198 | 214 | 236 | 216 | 2.42 | 12 | 94.4 | queued 12 | 12 | 1 | 0 | 4.3 | none 1, sentence 12 | 120/235 |
+| 3 | 261 | 7783 | 189.2 | 83 | 205 | 229 | 217 | 208 | 2.51 | 18 | 112.7 | queued 18 | 19 | 2 | 0 | 6.9 | none 1, sentence 18, clause 1 | 100/260 |
 
 ## Reply 1: Tell me about the history of the bicycle.
 
