@@ -136,8 +136,11 @@ def test_prepare_library_builds_once_and_writes_preview(tmp_path: Path, short_lo
     photo = photo_file(tmp_path)
     lib = prepare_library(photo, tmp_path / "home", make)
     assert lib.folder.parent == tmp_path / "home" / "photoreal"
-    prepare_library(photo, tmp_path / "home", make)
+    told: list[tuple[str, int, int]] = []
+    prepare_library(photo, tmp_path / "home", make, lambda s, d, t, a=None: told.append((s, d, t)))
     assert calls == [photo]  # the second call loads the finished library
+    # ...and says each face step is done, so Prepare again doesn't count them as still to do.
+    assert told == [(s, 1, 1) for s in ("models", "shapes", "loop", "align")]
 
     out = tmp_path / "idle.mp4"
     assert write_idle_preview(lib, out) == pytest.approx(0.4)

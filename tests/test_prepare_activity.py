@@ -5,7 +5,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -254,3 +254,37 @@ def test_the_portrait_factory_reports_the_download_then_the_loading(tmp_path: Pa
     ensure.assert_called_once_with(lp_dir, said.append)
     portrait.assert_called_once_with(lp_dir, tmp_path / "me.jpg")
     assert said == ["Loading the face models"]
+
+
+def test_prepare_again_leaves_out_the_face_steps_kept_from_before(tmp_path: Path) -> None:
+    """Prepare again on a slow host (PR #174 testing): the face is kept, so the time left is the
+    clips only, not the face steps at the slow voice's pace as well (about 25 minutes)."""
+    reached, release = threading.Event(), threading.Event()
+
+    def kept_face(photo: Path, progress: Progress) -> None:
+        for key in ("models", "shapes", "loop", "align"):
+            progress(key, 1, 1)  # as prepare_library says of a library kept from before
+
+    def clip(photo: Path, text: str, out: Path) -> None:
+        reached.set()
+        release.wait(5)
+        out.write_bytes(b"mp4")
+
+    job, _ = make_job(tmp_path, kept_face, clip=clip)
+    with patch("imageskin.prepare_job.BEAT_S", 60):
+        job.start()
+        assert reached.wait(5)
+        with job._lock:  # the voice took 5 times its usual time
+            steps = [
+                replace(s, seconds=5.0 * USUAL["voice"]) if s.key == "voice" else s
+                for s in job._status.steps or []
+            ]
+            job._status = replace(job._status, steps=steps)
+        start = job._clock["clips"][0]
+        job._beat(start + 10)
+        status = job.status()
+        release.set()
+        job.wait(5)
+    assert all(step(status, k).seconds is None for k in ("models", "shapes", "loop", "align"))
+    assert status.left_s == USUAL["clips"] * 5 - 10  # the clips only
+    assert status.percent == 100 * (sum(USUAL.values()) - USUAL["clips"]) // sum(USUAL.values())
