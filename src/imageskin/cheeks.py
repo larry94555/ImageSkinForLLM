@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 # "Face movement while speaking" on the Setup page (UiSettings.face_movement): how much of
 # CheekGains to use. "off" leaves only the lips and jaw moving, as before R128a.
-STRENGTHS: dict[str, float] = {"off": 0.0, "slight": 0.5, "normal": 1.0, "more": 1.5}
-MAX_PX = 5.0  # however strong, no pixel moves further than this
+STRENGTHS: dict[str, float] = {"off": 0.0, "slight": 0.6, "normal": 1.0, "more": 1.75}
+MAX_PX = 25.0  # however strong, no pixel moves further than this
 
 _GRIN = max(s.controls.get("grin", 0.0) for s in MOUTH_SHAPES.values())
 _PURSE = max(s.controls.get("purse", 0.0) for s in MOUTH_SHAPES.values())
@@ -42,12 +42,13 @@ _PURSE = max(s.controls.get("purse", 0.0) for s in MOUTH_SHAPES.values())
 
 @dataclass(frozen=True)
 class CheekGains:
-    """How far the face moves at "normal", in pixels of the 512 px crop. Kept slight: where in
-    doubt, smooth and small rather than sharp."""
+    """How far the face moves at "normal", in pixels of the 512 px crop. At first a quarter of
+    this, which Larry couldn't see at all in the sample video (2026-10-26); the fields are wide
+    and smooth, so even "more" keeps the face whole."""
 
-    lift_px: float = 2.5  # cheeks up on the most spread shape
-    draw_px: float = 1.5  # cheeks in on the most rounded shape
-    stretch_px: float = 3.0  # lower cheeks and chin down on the most open shape
+    lift_px: float = 10.0  # cheeks up on the most spread shape
+    draw_px: float = 6.0  # cheeks in on the most rounded shape
+    stretch_px: float = 12.0  # lower cheeks and chin down on the most open shape
     lag_s: float = 0.04  # behind the lips
     ease_s: float = 0.07  # eased in and out over about this long
 

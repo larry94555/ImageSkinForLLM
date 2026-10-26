@@ -37,8 +37,8 @@ def test_each_kind_of_shape_moves_its_own_part() -> None:
     spread = tracks(word("EE"), jaw, FPS)
     rounded = tracks(word("OO"), jaw, FPS)
     opened = tracks(word("AA"), jaw, FPS)
-    assert spread.lift.max() > 2.0 and spread.draw.max() == 0.0
-    assert rounded.draw.max() > 1.0 and rounded.lift.max() == 0.0
+    assert spread.lift.max() > 8.0 and spread.draw.max() == 0.0
+    assert rounded.draw.max() > 4.0 and rounded.lift.max() == 0.0
     assert opened.stretch.max() > rounded.stretch.max() > 0.0  # wider open, more stretch
     assert opened.stretch.max() > spread.stretch.max()
 
@@ -54,9 +54,10 @@ def test_the_cheeks_follow_a_little_behind_the_lips_and_ease_back_to_rest() -> N
     cheeks = tracks(word("EE", start=15, length=10), np.zeros(50), FPS)
     peak = int(np.argmax(cheeks.lift))
     assert 20 <= peak <= 22  # the shape's middle is frame 19.5; the cheeks come 40 ms later
-    assert cheeks.lift[12] < 0.1 < cheeks.lift[15] < 0.6 * cheeks.lift[peak]  # eased in
+    top = cheeks.lift[peak]
+    assert cheeks.lift[12] < 0.05 * top < cheeks.lift[15] < 0.6 * top  # eased in
     assert cheeks.lift[40:].max() < 0.01  # back at rest between words
-    assert np.abs(np.diff(cheeks.lift)).max() < 1.0  # never more than a pixel a frame
+    assert np.abs(np.diff(cheeks.lift)).max() < 0.4 * top  # no jumps
 
 
 def test_a_louder_syllable_stretches_the_face_further() -> None:
@@ -71,7 +72,7 @@ def test_the_strength_scales_the_movement_and_off_stops_it() -> None:
     normal = tracks(weights, jaw, FPS, STRENGTHS["normal"])
     more = tracks(weights, jaw, FPS, STRENGTHS["more"])
     off = tracks(weights, jaw, FPS, STRENGTHS["off"])
-    assert more.lift.max() == pytest.approx(1.5 * normal.lift.max())
+    assert more.lift.max() == pytest.approx(1.75 * normal.lift.max())
     assert not off.lift.any() and not off.stretch.any()
     custom = tracks(weights, jaw, FPS, gains=CheekGains(lift_px=1.0))
     assert custom.lift.max() < normal.lift.max()
@@ -100,17 +101,17 @@ def test_the_fields_move_the_cheeks_and_chin_but_not_the_lips() -> None:
 
 
 def test_limit_keeps_every_pixel_within_max_px() -> None:
-    assert limit(1.0, 0.5, 2.0) == (1.0, 0.5, 2.0)
-    capped = limit(4.0, 2.0, 6.0)
+    assert limit(4.0, 2.0, 8.0) == (4.0, 2.0, 8.0)
+    capped = limit(20.0, 10.0, 30.0)
     assert sum(abs(v) for v in capped) == pytest.approx(MAX_PX)
-    assert capped[0] / capped[2] == pytest.approx(4.0 / 6.0)
+    assert capped[0] / capped[2] == pytest.approx(20.0 / 30.0)
     assert limit(0.0, 0.0, 0.0) == (0.0, 0.0, 0.0)
 
 
 def test_an_unknown_strength_is_logged_and_taken_as_normal(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    assert strength_of("slight") == 0.5
+    assert strength_of("slight") == 0.6
     with caplog.at_level(logging.ERROR):
         assert strength_of("wild") == 1.0
     assert "Unknown face movement strength; using normal" in caplog.messages
@@ -122,7 +123,7 @@ def test_the_log_says_how_far_and_how_long(caplog: pytest.LogCaptureFixture) -> 
         log_added(cheeks, "normal", 0.0123, 50)
     record = next(r for r in caplog.records if r.message == "Face movement added")
     assert record.__dict__["duration_ms"] == 12.3 and record.__dict__["frames"] == 50
-    assert 2.0 < record.__dict__["peak_px"] <= MAX_PX and record.__dict__["strength"] == "normal"
+    assert 8.0 < record.__dict__["peak_px"] <= MAX_PX and record.__dict__["strength"] == "normal"
 
 
 def test_the_compositor_moves_the_cheeks_and_leaves_the_rest(
