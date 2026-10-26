@@ -113,7 +113,7 @@ silence the clips' own starts and ends add at the joins.
 A 4-core cloud machine with no graphics card, the photoreal engine with a default person's photo
 prepared (`photoreal_male_professor.jpg`), fake_llm.py at Gemma's cloud pace, Kokoro's af_heart
 (the ready-made voice) and then Chatterbox Turbo cloned from the setup samples' recording (as a
-person's own voice). The hosted machine and Larry's own voice are for the manual test in the PR.
+person's own voice). The hosted machine's results are in the next section.
 Full tables: [Kokoro](results/long-reply-cloud-kokoro-2026-10-25.md) and
 [Chatterbox](results/long-reply-cloud-chatterbox-2026-10-25.md), with the JSON beside them.
 
@@ -165,6 +165,39 @@ There are two different bugs, one for each voice.
    clip's first frame shows 85 to 91 ms before its sound, at rest, and its sound follows at once.
    So the pauses heard are the clips' own silence and the gaps above, not the player.
 
+## Results: hosted machine, 2026-10-26
+
+Larry's hosted machine (4 Ampere cores, the app capped at 3, llama-server with Gemma 3 4B on 2
+threads), with the person speaking in Larry's own voice with another accent: Kokoro's am_michael
+and then Chatterbox's converter. Gemma wrote the replies itself, and the run used `--no-own-rate`.
+Full tables: [hosted](results/long-reply-hosted-2026-10-26.md).
+
+| Reply | Words | Clips | First word heard | Rate heard | Rate in clips | Speech rate | Make/play | Gaps (total) | Of them queued | Pauses heard mid-sentence | Silence at joins |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 199 | 18 | 287.6 s | 48 | 128 | 155 | 2.79 | 16 (157.7 s) | 16 | 1 | 14.8 s |
+| 2 | 109 | 9 | 13.8 s | 53 | 136 | 165 | 2.76 | 8 (75.2 s) | 8 | 1 | 7.1 s |
+| 3 | 200 | 20 | 14.3 s | 47 | 135 | 169 | 2.95 | 19 (163.8 s) | 19 | 1 | 16.8 s |
+
+1. **Here the pauses are clips not ready in time, as with the cloned voice in the cloud, and
+   worse.** Making a clip takes 2.8 to 2.95 times as long as it plays, so after the first clip
+   every clip waits behind the one before: all 43 gaps are `queued`, mostly 2 to 18 s, and a reply
+   is heard at 47 to 53 words a minute, a third of the voice's own pace (155 to 169 inside the
+   clips with their silence left out). Over half of the time a reply is heard is waiting.
+2. **The voice has a large fixed cost per clip.** A clip of 2 s of speech takes 6 to 12 s to
+   make, the first clips of a reply about 12 s, while a clip of 9 s takes 17 to 20 s. So short
+   clips are the slowest for their length, and fewer, longer clips would be made faster per word.
+   Most of the time is the voice step; the video step is a tenth of it.
+3. **Nothing is chopped here.** The voice is always busy, so R100's waiting cut never fires (no
+   clip was cut together) and the clips are whole sentences; only the first clip of each reply is
+   its first few words (R100's first clause). Each clip still starts with about 390 ms of silence
+   and ends with about 550 ms, so the joins add 7 to 17 s a reply on top of the gaps.
+4. **The LLM keeps up.** Gemma writes 190 to 234 words a minute, and no gap was `text late`. The
+   first reply's first word came at 287.6 s only because it waited for the app's warm-up after
+   start; the others were heard at about 14 s, almost all of it the first clip's voice step.
+5. **Two replies ended mid-sentence** ("The Rover Safety Bicycle, introduced in 1" and
+   "Don't run every day, especially when"): Gemma's reply
+   hit the reply's token limit. That is a separate issue from the pauses.
+
 ### What R130 should fix
 
 - **Trim each clip's silence to the pause its text calls for**: the silence Kokoro leaves at a
@@ -179,8 +212,10 @@ There are two different bugs, one for each voice.
   clause boundary, never by word count after the first clause, so a sentence is never chopped
   into pieces of a few words.
 - **Keep up with a slow voice**: when clips are made slower than they play (the cloned voice
-  here, perhaps Kokoro on the hosted machine), start playback once enough is made that the rest,
+  in the cloud, and the hosted machine's voice at 2.8 to 2.95 times real time), start playback once enough is made that the rest,
   at the measured pace, keeps up to the end (R130's second point), or speak the reply in larger
   pieces so the voice has fewer starts. For Chatterbox at 2.2 times real time on 4 cores, keeping
   up means a long first wait (about half the reply's length); a faster clone (Pocket TTS, R22f)
-  is the other way.
+  is the other way. On the hosted machine the voice's fixed cost per clip is the first thing
+  to cut: fewer, longer clips (whole sentences joined up to a few seconds of speech, after the
+  first clause) and a faster voice path there, measured again with this experiment.
