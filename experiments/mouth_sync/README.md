@@ -161,6 +161,41 @@ over 80 ms too (bf_emma's sample at 75 ms becomes about 110 ms, am_michael's at 
    the mouth open after the voice. Starting the first sound after a pause where the voice is
    first heard (as in 3) fixes both voices the same way.
 
+## After R128
+
+R128 made changes 1, 3 and 4 above (`visemes.frame_weights` and `imageskin/mouth_sync.py`), and
+`mouth_lead.py` now measures the mouth as the app draws it. Measured again in the cloud session
+the same day ([results/](results/), `*-after-r128-*`):
+
+| Voice | Starts and words after a pause | Lead in the file, before R128 | After R128 | Over 80 ms |
+|---|---|---|---|---|
+| af_heart | 17 | -235 to +55 ms | -80 to -10 ms | 0 |
+| am_michael | 16 | -230 to +60 ms | -155 to -5 ms | 0 |
+| bf_emma | 14 | -265 to +75 ms | -105 to 0 ms | 0 |
+| Cloned (Chatterbox) | 21 (23 before) | -120 to +160 ms | -40 to 0 ms | 0 |
+
+Since Codex's review of R128 the mouth also closes in every pause heard in the audio, even
+where the sound timings run a sound on into it, and a mouth that stays open through a pause
+counts as leading by the whole pause rather than being left out (the "–" rows before). Every
+start and word after a pause now has a measured opening.
+
+The mouth now opens on the first frame that starts with the voice, or up to a frame (33 ms)
+after it; the browser's ~30 ms (change 2) puts the picture back about level with the sound.
+Leads well below zero are, as before, words starting with m, b or p and short pauses the mouth
+doesn't close in. Chatterbox speaks a little differently each time, so its clips aren't the
+same takes as before.
+
+To watch it rather than read it, `side_by_side.py` renders lines on a prepared face twice, as
+before R128 on the left and as now on the right, with the voice, at normal and half speed:
+
+```
+python experiments/mouth_sync/side_by_side.py                          # the face prepared last, af_heart
+python experiments/mouth_sync/side_by_side.py --clone <voice-sample.wav>
+python experiments/mouth_sync/side_by_side.py --library <home>/photoreal/<folder>
+```
+
+The videos go to `side-by-side/`, and it prints each line's lead before and after.
+
 ## Still to measure
 
 - Larry's own photo and voice (cloned with Chatterbox, or Pocket TTS on the hosted machine):

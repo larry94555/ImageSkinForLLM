@@ -56,7 +56,9 @@ PrepareVoice = Callable[[], None]
 PrepareFace = Callable[[Path, Progress], None]
 RenderClip = Callable[[Path, str, Path], None]  # photo, what to say, MP4 to write
 SpeakClip = Callable[[str, Path], None]  # what to say, WAV to write (its timings JSON beside it)
-RenderVideo = Callable[[Path, Path, Path], None]  # photo, the WAV spoken, MP4 to write
+# photo, the WAV spoken, MP4 to write; returns how far the mouth opened before the voice in
+# ms, when the engine measures it (roadmap R128)
+RenderVideo = Callable[[Path, Path, Path], float | None]
 RenderIdle = Callable[[Path, Path], None]  # photo, MP4 to write
 
 
@@ -114,6 +116,12 @@ BEAT_S = 1.0
 SLOW_FACTOR = 2
 # The range this run's pace against the usual times is kept in, for the time left.
 PACE_MIN, PACE_MAX = 0.5, 5.0
+# The last part of a step's expected time, as a share of it, over which its time left counts
+# down ever more slowly instead of reaching 0 while the step still runs, and at least this many
+# seconds of it, so the page keeps moving when a step takes longer than expected.
+TAIL_SHARE, TAIL_MIN_S = 0.25, 10.0
+# A step that took less than this last time had nothing to do then (the face kept, say).
+NO_OP_S = 1.0
 # What each clip's activity line says while it is made.
 CLIP_ACTIVITY: dict[str, str] = {
     "goodbye": "Making the video of “Goodbye.”",
@@ -177,6 +185,9 @@ class PrepareStatus:
     started_at: str | None = None  # ISO 8601, UTC
     finished_at: str | None = None
     left_s: int | None = None  # while it runs: about how many seconds the whole prepare has left
+    # How many seconds each step took the last time it ran on this machine (0: it had nothing
+    # to do, as the face on Prepare again), for the time left of the next prepare.
+    times: dict[str, float] | None = None
     # Running, but the app is no longer working on it (its thread has gone): Try again carries on.
     stopped: bool = False
     # The face movement while speaking the clips are made with (R128a), from the Setup page when
@@ -200,6 +211,18 @@ def share(step: Step, usual_s: float) -> float:
     if step.total == 1 and step.done == 0 and step.elapsed_s:
         return 0.9 * (1 - math.exp(-step.elapsed_s / usual_s))
     return step.done / step.total
+
+
+def remaining(expected: float, elapsed: float) -> float:
+    """About how many seconds are left of a step expected to take `expected` seconds, `elapsed`
+    seconds in. It counts down a second a second, then, over the last part (TAIL_SHARE, at least
+    TAIL_MIN_S), ever more slowly, so it never stands at 0 while the step still runs."""
+    tail = min(max(TAIL_SHARE * expected, TAIL_MIN_S), expected) if expected > 0 else 0.0
+    if expected - elapsed >= tail:
+        return expected - elapsed
+    if tail <= 0:
+        return 0.0
+    return tail * math.exp((expected - tail - elapsed) / tail)
 
 
 def voice_fingerprint(path: Path) -> str | None:
@@ -453,7 +476,15 @@ class PrepareJob:
         # Clips from before were made from other uploads; the face's frames are kept per
         # photo by the library, so only the clips are removed.
         self._remove_clips()
-        self._status = PrepareStatus("running", photo_id, steps=fresh_steps(), started_at=now_iso())
+        times = dict(self._status.times or {})
+        if self._status.photo_id != photo_id:  # another face: its steps have work to do again
+            times = {key: s for key, s in times.items() if s > 0}
+        if self._status.voice_id != self.voice_id():  # another voice: timed afresh
+            times.pop("voice", None)
+            times.pop("clips", None)
+        self._status = PrepareStatus(
+            "running", photo_id, steps=fresh_steps(), started_at=now_iso(), times=times
+        )
         self._save()
         self._run_in_background()
         return self._status
@@ -540,15 +571,23 @@ class PrepareJob:
                 return
             if activity is not None:
                 logger.debug("Prepare activity", extra={"step": key, "activity": activity})
+            times = dict(self._status.times or {})
+            if key not in self._clock and done < total and times.get(key, NO_OP_S) < NO_OP_S:
+                # It had nothing to do last time (the face kept, say) but has work now, such
+                # as new mouth settings: its usual time, or how fast it counts, instead.
+                del times[key]
             started, done_at_start = self._clock.setdefault(key, (now, done))
             self._counted[key] = now
             elapsed = now - started
             seconds, left = None, None
             if done >= total and done_at_start >= total:
                 logger.info("Prepare step already done", extra={"step": key})  # kept from before
+                times[key] = 0.0
             elif done >= total:
                 seconds = round(elapsed, 1)
                 logger.info("Prepare step finished", extra={"step": key, "duration_s": seconds})
+                # Carried on after a restart: what the whole step would have taken at this pace.
+                times[key] = round(seconds * total / (total - done_at_start), 1)
             elif done > done_at_start:
                 left = round(elapsed / (done - done_at_start) * (total - done))
             new = replace(
@@ -562,60 +601,72 @@ class PrepareJob:
                 slow=False,
             )
             steps = [new if s.key == key else s for s in steps]
-            self._status = replace(self._status, steps=steps, percent=percent(steps))
+            self._status = replace(self._status, steps=steps, times=times)
+            self._estimate(now)
             self._save()  # a small file, and a frame takes seconds
 
     def _beat(self, now: float) -> None:
         """Tell the page the job is still working (roadmap R134b): about how long the running
         step and the whole prepare have left, and whether nothing new has come for longer than
-        usual."""
-        usual = {key: weight for key, _, weight in STEPS}
+        expected. Each step is expected to take as long as it did the last time it ran on this
+        machine, or else its usual time at this run's pace. The time left counts down every
+        second and the percentage, the time so far against the time so far and left, moves
+        with it: never back, and never standing still while a step runs longer than expected."""
         with self._lock:
-            if self._status.state != "running":
-                return
-            steps = self._status.steps or []
-            pace = self._pace(steps)
-            step = next((s for s in steps if s.done < s.total and s.key in self._clock), None)
-            left = None
-            if step is not None:
-                started, done_at_start = self._clock[step.key]
-                elapsed = now - started
-                quiet = now - self._changed
-                slow = quiet > SLOW_FACTOR * usual[step.key]
-                if slow and not step.slow:
-                    logger.warning(
-                        "Prepare step slow",
-                        extra={
-                            "step": step.key,
-                            "elapsed_s": round(elapsed),
-                            "quiet_s": round(quiet),
-                        },
-                    )
-                if step.done > done_at_start:  # from how fast it counts
-                    counted = self._counted[step.key]
-                    per = (counted - started) / (step.done - done_at_start)
-                    left = per * (step.total - step.done) - (now - counted)
-                else:  # from its usual time, at this run's pace
-                    left = usual[step.key] * pace - elapsed
-                left = left if left > 0 else None
-                new = replace(
-                    step,
-                    elapsed_s=round(elapsed),
-                    slow=slow,
-                    left_s=None if left is None else round(left),
+            if self._status.state == "running":
+                self._estimate(now)
+
+    def _estimate(self, now: float) -> None:
+        """_beat()'s work, with the job's lock held."""
+        usual = {key: weight for key, _, weight in STEPS}
+        steps = self._status.steps or []
+        pace = self._pace(steps)
+        times = self._status.times or {}
+
+        def expected(key: str) -> float:
+            return times[key] if key in times else usual[key] * pace
+
+        step = next((s for s in steps if s.done < s.total and s.key in self._clock), None)
+        left = 0.0
+        spent = sum(s.seconds or 0 for s in steps if s.done >= s.total)
+        if step is not None:
+            started, done_at_start = self._clock[step.key]
+            elapsed = now - started
+            spent += elapsed
+            quiet = now - self._changed
+            slow = quiet > SLOW_FACTOR * max(expected(step.key), usual[step.key])
+            if slow and not step.slow:
+                logger.warning(
+                    "Prepare step slow",
+                    extra={
+                        "step": step.key,
+                        "elapsed_s": round(elapsed),
+                        "quiet_s": round(quiet),
+                    },
                 )
-                steps = [new if s.key == step.key else s for s in steps]
-            rest = sum(
-                usual[s.key] * pace * (1 - s.done / s.total)
-                for s in steps
-                if s.done < s.total and (step is None or s.key != step.key)
-            )
-            self._status = replace(
-                self._status,
-                steps=steps,
-                percent=percent(steps),
-                left_s=round((left or 0) + rest),
-            )
+            if step.done > done_at_start and (step.key not in times or done_at_start):
+                # From how fast it counts, when this machine's time for it isn't known.
+                counted = self._counted[step.key]
+                per = (counted - started) / (step.done - done_at_start)
+                left = remaining(per * (step.total - step.done), now - counted)
+            else:  # what was left of it when it started, at its expected time
+                share_left = 1 - done_at_start / step.total
+                left = remaining(expected(step.key) * share_left, elapsed)
+            new = replace(step, elapsed_s=round(elapsed), slow=slow, left_s=round(left))
+            steps = [new if s.key == step.key else s for s in steps]
+        rest = sum(
+            expected(s.key) * (1 - s.done / s.total)
+            for s in steps
+            if s.done < s.total and (step is None or s.key != step.key)
+        )
+        whole = spent + left + rest
+        done_share = int(100 * spent / whole) if whole > 0 else 0
+        self._status = replace(
+            self._status,
+            steps=steps,
+            percent=min(max(done_share, self._status.percent), 99),
+            left_s=round(left + rest),
+        )
 
     @staticmethod
     def _pace(steps: list[Step]) -> float:
@@ -899,7 +950,7 @@ def photoreal_steps(
             kept.update(photo=photo, video=video, lib=lib, frame=0)
         return kept["video"], kept["lib"]
 
-    def render(photo: Path, wav: Path, output: Path) -> None:
+    def render(photo: Path, wav: Path, output: Path) -> float | None:
         from imageskin.video import FPS
 
         video, lib = load(photo)
@@ -913,6 +964,8 @@ def photoreal_steps(
             face_movement=face_movement(),
         )
         kept["frame"] = start + max(1, round(seconds * FPS))  # the loop wraps it
+        lead: float | None = video.mouth_lead_ms
+        return lead
 
     def idle(photo: Path, output: Path) -> None:
         video, lib = load(photo)
