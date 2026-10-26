@@ -233,3 +233,9 @@ def test_delete_my_data_removes_the_kept_replies(tmp_path: Path) -> None:
     )
     delete_my_data(tmp_path)
     assert not (tmp_path / "replies" / "topics").exists()
+
+
+def test_replies_kept_before_a_change_in_how_replies_are_made_are_made_again() -> None:
+    before = context_of("photo", "voice")
+    with patch("imageskin.topic_replies.MAKING", 99):
+        assert context_of("photo", "voice") != before

@@ -479,11 +479,6 @@ def _replace(display: str) -> tuple[list[bool], dict[int, str]]:
     return keep, say
 
 
-# A curly or other typographic apostrophe inside a word, as LLMs often write "Trump’s", is
-# read by the voice as a break, "Trump-s" (Larry's test of PR #178), so it is said as a plain one.
-_APOSTROPHE = re.compile(r"(?<=\w)[’‘ʼ´](?=\w)")
-
-
 def spoken_text(display: str) -> str:
     """The words of a displayed reply that should be voiced."""
     keep, say = _replace(display)
@@ -525,4 +520,4 @@ def spoken_text(display: str) -> str:
         gap = False
         chars.append(word)
         last = i
-    return _APOSTROPHE.sub("'", "".join(chars))
+    return "".join(chars)

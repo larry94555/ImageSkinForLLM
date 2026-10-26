@@ -21,11 +21,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 REPLY_FILE = "reply.json"
+# Raised when the way a reply is cut into clips or spoken changes, so the replies kept before are
+# made again: 2 when a clip stopped ending on a possessive (Larry's test of PR #178).
+MAKING = 2
 
 
 def context_of(*parts: object) -> str:
     """A short digest of what a reply was made with."""
-    text = json.dumps(parts, sort_keys=True, default=str)
+    text = json.dumps([MAKING, *parts], sort_keys=True, default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
