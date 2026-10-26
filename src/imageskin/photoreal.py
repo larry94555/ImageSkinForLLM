@@ -5,8 +5,8 @@
 morphs between the two strongest shapes along the optical flow between them, places that
 mouth on the matching idle-loop frame, adds the blinks (at natural, irregular times from
 `liveportrait_edits.eye_track`), moves the jaw, brows and head with the voice's loudness and
-pitch (`imageskin.expression`), pastes the face back into the photo and encodes the MP4 with
-the voice.
+pitch (`imageskin.expression`) and the cheeks with the mouth (`imageskin.cheeks`), pastes the
+face back into the photo and encodes the MP4 with the voice.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from imageskin.cheeks import fields, limit, log_added, strength_of, tracks
 from imageskin.config import default_home
 from imageskin.expression import (
     STILL,
@@ -141,6 +142,8 @@ class Compositor:
         self.jaw = jaw_field(lm, lib.window)
         self.brow = brow_field(lm, lib.eye_window)
         self.head = head_weight(lm)
+        self.cheeks = fields(lm)  # where the cheeks and chin move with the mouth (R128a)
+        self.cheek_s = 0.0  # the time spent moving them, for the log
         # The head's move is a turn about a pivot below the chin, at the neck, plus a shift,
         # faded by `head`: the parts that don't change from frame to frame are made once
         # (roadmap R22c).
@@ -188,14 +191,15 @@ class Compositor:
         if move.brow > 0.05:
             eyes = push(eyes, self.eyes.morph.grid, 0.0, -move.brow * self.brow)
         self._put(face, eyes, lib.eye_window, eye_box, lib.eye_align[j], lib.eye_mask)
-        if move.nod or move.tilt or move.sway:
+        if move.nod or move.tilt or move.sway or move.lift or move.draw or move.stretch:
             face = self._move_head(face, move)
         return face
 
     def _move_head(self, face: Image, move: FrameMotion) -> Image:
-        """Turn the head about the neck by `move.tilt` and shift it by the nod and sway: each
-        output pixel takes the colour from where it came, as `expression.push` does, with the
-        maps made in place by OpenCV."""
+        """Turn the head about the neck by `move.tilt` and shift it by the nod and sway, and
+        move the cheeks and chin with the mouth, in one warp: each output pixel takes the
+        colour from where it came, as `expression.push` does, with the maps made in place by
+        OpenCV."""
         a = math.radians(move.tilt)
         turn, lean = math.cos(a) - 1.0, math.sin(a)
         # map_x = x - head * ((cos a - 1) * gx - sin a * gy + sway), and likewise for y.
@@ -206,6 +210,17 @@ class Compositor:
         cv2.addWeighted(self._hx, -lean, self._hy, -turn, 0.0, dst=map_y)
         cv2.scaleAdd(self.head, -move.nod, map_y, dst=map_y)
         cv2.add(map_y, self._y, dst=map_y)
+        if move.lift or move.draw or move.stretch:
+            start = time.perf_counter()
+            cheeks = self.cheeks
+            amounts = limit(move.lift, move.draw, move.stretch)
+            for (dx, dy), amount in zip(
+                (cheeks.lift, cheeks.draw, cheeks.stretch), amounts, strict=True
+            ):
+                if amount:
+                    cv2.scaleAdd(dx, -amount, map_x, dst=map_x)
+                    cv2.scaleAdd(dy, -amount, map_y, dst=map_y)
+            self.cheek_s += time.perf_counter() - start
         out = cv2.remap(face, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
         return np.asarray(out, np.uint8)
 
@@ -289,11 +304,14 @@ class PhotorealEngine:
         output: Path,
         progressive: bool = False,
         start_frame: int = 0,
+        face_movement: str = "normal",
     ) -> float:
         """Render the speech in `wav` on the library's photo into `output`; `progressive` for an
         MP4 that can be played while it is written (roadmap R22d). The head moves through the
         idle loop from frame `start_frame`, and the voice's movement settles at each end, so a
         clip that starts where the one before it ended joins it without a jump (roadmap R23).
+        The cheeks move with the mouth at `face_movement`'s strength (R128a): the one the
+        prepare job was made with, not the Setup page's now.
         Returns the video's seconds."""
         start = time.perf_counter()
         samples, rate = read_pcm16(wav)
@@ -303,10 +321,16 @@ class PhotorealEngine:
         eyes = eye_track(n_frames, FPS, seed=audio_seed(samples))
         moves = motion(np.asarray(samples, np.float32) / 32768.0, rate, n_frames, FPS)
         compositor = self._compositor(lib)
+        cheek_start = time.perf_counter()
+        cheeks = tracks(weights, moves.jaw, FPS, strength_of(face_movement))
+        cheek_s = time.perf_counter() - cheek_start
+        warp_s = compositor.cheek_s
 
         def frames() -> Iterator[bytes]:
             for i, w in enumerate(weights):
-                move = settled(moves.at(i), i, n_frames)
+                lift, draw, stretch = cheeks.at(i)
+                move = moves.at(i)._replace(lift=lift, draw=draw, stretch=stretch)
+                move = settled(move, i, n_frames)
                 yield compositor.frame(w, start_frame + i, eyes[i], move).tobytes()
 
         h, w = lib.photo.shape[:2]
@@ -314,6 +338,7 @@ class PhotorealEngine:
             frames(), (w, h), wav, output, self._timeout_s, pix_fmt="rgb24", progressive=progressive
         )
         elapsed = time.perf_counter() - start
+        log_added(cheeks, face_movement, cheek_s + compositor.cheek_s - warp_s, n_frames)
         logger.info(
             "Rendered video",
             extra={

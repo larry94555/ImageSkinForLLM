@@ -43,6 +43,11 @@ class UiSettings:
     # Whether prompts the content doesn't cover are answered (item 28, R41); off unless the config
     # file or the Settings page turns it on (R27).
     general_prompts: bool = False
+    # How much the cheeks and the face around the mouth move with it while the person speaks
+    # (R128a): "off" leaves only the lips and jaw moving. Its strengths are `cheeks.STRENGTHS`.
+    # It is chosen on the Setup page beside Prepare, not the Settings page, since the prepared
+    # clips are made with it (Larry, 2026-10-26).
+    face_movement: str = "normal"
 
 
 DEFAULTS = UiSettings()
@@ -56,6 +61,7 @@ CHOICES: dict[str, tuple[object, ...]] = {
     "assessment": (True, False),
     "debug": (True, False),
     "general_prompts": (True, False),
+    "face_movement": ("off", "slight", "normal"),
 }
 
 
@@ -65,7 +71,12 @@ OLD_VIEWS = {"teacher": "host", "student": "participant"}
 
 
 def renamed(changes: dict[str, Any]) -> dict[str, Any]:
-    """The changes with an old view name replaced by its new one."""
+    """The changes with an old view name replaced by its new one, and the face movement "more",
+    taken out on 2026-10-26 (Larry), as "normal", so a file saved with it keeps its other
+    settings."""
+    if changes.get("face_movement") == "more":
+        logger.info("Face movement more read as normal")
+        changes = {**changes, "face_movement": "normal"}
     view = changes.get("view")
     if isinstance(view, str) and view in OLD_VIEWS:
         logger.info(

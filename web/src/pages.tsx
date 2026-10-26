@@ -58,6 +58,7 @@ import { switchToOwn } from "./change-setup";
 import { Checks, minutes } from "./checks";
 import { useConfirm } from "./confirm-dialog";
 import { ExitScreen } from "./exit";
+import { FaceMovementChoice } from "./face-movement";
 import { useLeaveGuard } from "./leave-guard";
 import { ASSESSMENT_KEY, LESSON_KEY, QUIZ_KEY } from "./progress";
 import { OWN_CONSENT, type SetupPart } from "./router";
@@ -745,6 +746,7 @@ export function PrepareSection(props: {
           Could not read how far preparing has got. Reload the page to try again.
         </p>
       )}
+      <FaceMovementChoice onChanged={() => void read()} disabled={running} />
       {status !== null && !running && (
         <button
           type="button"
