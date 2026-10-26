@@ -24,6 +24,7 @@ from imageskin.prepare_job import (
     Step,
     fresh_steps,
     percent,
+    remaining,
     share,
 )
 
@@ -97,7 +98,7 @@ def test_the_beat_gives_the_time_left_and_moves_the_percentage(tmp_path: Path) -
         early = job.status()
         job._beat(start + 30)
         later = job.status()
-        job._beat(start + USUAL["voice"] + 5)  # past its usual time: no guess for the step
+        job._beat(start + USUAL["voice"] + 5)  # past its usual time: still counting down
         past = job.status()
         release.set()
         job.wait(5)
@@ -106,8 +107,10 @@ def test_the_beat_gives_the_time_left_and_moves_the_percentage(tmp_path: Path) -
     assert step(early, "voice").left_s == USUAL["voice"] - 10
     assert early.left_s == USUAL["voice"] - 10 + rest
     assert step(later, "voice").left_s == USUAL["voice"] - 30
-    assert step(past, "voice").left_s is None and past.left_s == rest
-    assert 0 < early.percent < later.percent  # the voice step can't count its work
+    assert step(past, "voice").left_s == round(remaining(USUAL["voice"], USUAL["voice"] + 5))
+    assert 0 < step(past, "voice").left_s < USUAL["voice"] - 30
+    assert past.left_s == step(past, "voice").left_s + rest
+    assert 0 < early.percent < later.percent < past.percent
     assert not step(later, "voice").slow
     assert job.status().left_s is None  # finished
 
@@ -287,4 +290,65 @@ def test_prepare_again_leaves_out_the_face_steps_kept_from_before(tmp_path: Path
         job.wait(5)
     assert all(step(status, k).seconds is None for k in ("models", "shapes", "loop", "align"))
     assert status.left_s == USUAL["clips"] * 5 - 10  # the clips only
-    assert status.percent == 100 * (sum(USUAL.values()) - USUAL["clips"]) // sum(USUAL.values())
+    assert status.percent == 100 * (5 * USUAL["voice"] + 10) // (5 * USUAL["voice"] + 500)
+
+
+def test_remaining_counts_down_then_ever_more_slowly_never_reaching_0() -> None:
+    assert remaining(100, 0) == 100
+    assert remaining(100, 75) == 25  # a second a second until its last quarter
+    lefts = [remaining(100, t) for t in range(76, 400)]
+    assert all(0 < b < a for a, b in zip([25.0, *lefts], lefts, strict=False))
+    assert remaining(20, 10) == 10  # at least 10 s of tail
+    assert remaining(20, 11) < 9.1
+    assert remaining(0, 5) == 0  # nothing to do
+
+
+def test_prepare_again_expects_each_step_to_take_its_time_from_last_run(tmp_path: Path) -> None:
+    """Larry on PR #177: at 10% the page stood still for over a minute. The voice took much
+    longer on the hosted machine than its usual 40 s, so its time left went and the percentage
+    hardly moved. Prepare again now expects each step to take what it took last time."""
+    reached, release = threading.Event(), threading.Event()
+
+    def voice() -> None:
+        reached.set()
+        release.wait(5)
+
+    job, _ = make_job(tmp_path, voice=voice)
+    last = {"voice": 200.0, "models": 0.0, "shapes": 0.0, "loop": 0.0, "align": 0.0, "clips": 150.0}
+    saved = asdict(PrepareStatus("done", PHOTO_ID, steps=fresh_steps(), times=last))
+    (tmp_path / "prepare.json").write_text(json.dumps(saved), encoding="utf-8")
+    job = PrepareJob(
+        tmp_path, job._store, voice, job._prepare_face, job._render_clip, "kokoro", job._accent
+    )
+    with patch("imageskin.prepare_job.BEAT_S", 60):
+        job.start()
+        assert reached.wait(5)
+        start = job._clock["voice"][0]
+        seen = []
+        for t in range(0, 200, 5):  # every 5 s, as Larry asked
+            job._beat(start + t)
+            seen.append(job.status())
+        release.set()
+        job.wait(5)
+    assert seen[0].left_s == 350  # 200 s of voice and 150 s of clips
+    assert [s.left_s for s in seen[:30]] == list(range(350, 200, -5))
+    percents = [s.percent for s in seen]
+    assert percents == sorted(percents) and percents[-1] >= 50  # half the time has gone
+    assert len(set(percents)) > 30  # it moves every 5 s or so, it doesn't stand still
+    assert not any(step(s, "voice").slow for s in seen)
+    times = job.status().times or {}
+    assert set(times) == {key for key, _, _ in STEPS}  # this run's times, for the next one
+
+
+def test_steps_with_nothing_to_do_last_time_are_expected_again_for_another_photo(
+    tmp_path: Path,
+) -> None:
+    job, store = make_job(tmp_path)
+    saved = asdict(
+        PrepareStatus("done", "another-photo", steps=fresh_steps(), times={"voice": 9, "loop": 0})
+    )
+    (tmp_path / "prepare.json").write_text(json.dumps(saved), encoding="utf-8")
+    job = PrepareJob(tmp_path, job._store, job._prepare_voice, job._prepare_face, job._render_clip)
+    with patch.object(job, "_run_in_background"):
+        started = job.start()
+    assert started.times == {"voice": 9}  # the new photo's loop is made, not kept
