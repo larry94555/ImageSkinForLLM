@@ -45,6 +45,8 @@ class UiSettings:
     general_prompts: bool = False
     # How much the cheeks and the face around the mouth move with it while the person speaks
     # (R128a): "off" leaves only the lips and jaw moving. Its strengths are `cheeks.STRENGTHS`.
+    # It is chosen on the Setup page beside Prepare, not the Settings page, since the prepared
+    # clips are made with it (Larry, 2026-10-26).
     face_movement: str = "normal"
 
 

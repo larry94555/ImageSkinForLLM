@@ -57,7 +57,6 @@ test("the page groups the settings and shows each one as saved", async () => {
     "View",
     "Chat",
     "Display",
-    "Face movement while speaking",
     "LLM",
     "ChatGPT plan",
     "Photos and recordings",
@@ -65,6 +64,8 @@ test("the page groups the settings and shows each one as saved", async () => {
     "Video and conversation",
     "Your data",
   ]);
+  // Face movement is on the Setup page, beside Prepare, since it needs preparing again (R128a).
+  expect(screen.queryByRole("radio", { name: "Slight" })).toBeNull();
   const chat = within(screen.getByRole("region", { name: "Chat" }));
   const checked = (name: string) => (chat.getByRole("checkbox", { name }) as HTMLInputElement).checked;
   expect(checked("Answer questions outside the content")).toBe(true);
@@ -90,41 +91,6 @@ test("the question scope is changed on the Settings page (R41, R27)", async () =
   expect(box.checked).toBe(true);
   const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
   expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ general_prompts: true });
-});
-
-test("the face movement is shown as saved and changed on the Settings page (R128a)", async () => {
-  const saved: Record<string, unknown> = { face_movement: "slight" };
-  const fetchMock = server(saved);
-  await openAt("#/settings");
-  const face = within(screen.getByRole("region", { name: "Face movement while speaking" }));
-  const radio = (name: string) => face.getByRole("radio", { name }) as HTMLInputElement;
-  expect(face.getAllByRole("radio").map((r) => r.parentElement?.textContent?.trim())).toEqual([
-    "Off",
-    "Slight",
-    "Normal",
-    "More",
-  ]);
-  expect(radio("Slight").checked).toBe(true);
-  await act(async () => {
-    fireEvent.click(radio("Off"));
-  });
-  expect(saved.face_movement).toBe("off");
-  expect(radio("Off").checked).toBe(true);
-  const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
-  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ face_movement: "off" });
-});
-
-test("an unknown face movement from the server shows as Normal, and a failed change goes back", async () => {
-  server({ face_movement: "wild" }, false);
-  await openAt("#/settings");
-  const face = within(screen.getByRole("region", { name: "Face movement while speaking" }));
-  const radio = (name: string) => face.getByRole("radio", { name }) as HTMLInputElement;
-  expect(radio("Normal").checked).toBe(true);
-  await act(async () => {
-    fireEvent.click(radio("More"));
-  });
-  expect(await screen.findByText("The setting could not be changed. Try again.")).toBeTruthy();
-  expect(radio("Normal").checked).toBe(true);
 });
 
 test("a change that can't be saved says so and leaves the box as it was", async () => {

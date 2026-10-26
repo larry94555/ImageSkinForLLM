@@ -31,7 +31,7 @@ from imageskin.photoreal_library import CROP
 
 logger = logging.getLogger(__name__)
 
-# The Settings page's "Face movement while speaking" (UiSettings.face_movement): how much of
+# "Face movement while speaking" on the Setup page (UiSettings.face_movement): how much of
 # CheekGains to use. "off" leaves only the lips and jaw moving, as before R128a.
 STRENGTHS: dict[str, float] = {"off": 0.0, "slight": 0.5, "normal": 1.0, "more": 1.5}
 MAX_PX = 5.0  # however strong, no pixel moves further than this

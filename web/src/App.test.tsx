@@ -1033,6 +1033,19 @@ function prepareServer(reads: (PrepareStatus | Response)[], started?: Response) 
   return fetchMock;
 }
 
+test("the face movement is chosen on the Setup page, beside Prepare (R128a)", async () => {
+  const fetchMock = prepareServer([IDLE]);
+  await openAt("#/setup");
+  await screen.findByRole("button", { name: "Prepare the video" });
+  const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
+  expect((choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked).toBe(true);
+  await act(async () => {
+    fireEvent.click(choice.getByRole("radio", { name: "More" }));
+  });
+  const patch = fetchMock.mock.calls.find(([url, init]) => url === "/api/settings" && init?.method === "PATCH");
+  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ face_movement: "more" });
+});
+
 test("prepare starts the job and shows each step's progress until it is ready", async () => {
   const fetchMock = prepareServer([IDLE, RUNNING, DONE]);
   showMetrics();

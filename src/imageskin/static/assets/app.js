@@ -342,7 +342,7 @@ function pdfPageUrl(id, page) {
 async function listWikiBuilds() {
 	return json(await fetch("/api/wiki/builds"));
 }
-var FACE_MOVEMENTS$1 = [
+var FACE_MOVEMENTS = [
 	"off",
 	"slight",
 	"normal",
@@ -367,7 +367,7 @@ function settings(data) {
 		assessment: data.assessment === true,
 		debug: data.debug === true,
 		general_prompts: data.general_prompts === true,
-		face_movement: FACE_MOVEMENTS$1.includes(data.face_movement) ? data.face_movement : "normal"
+		face_movement: FACE_MOVEMENTS.includes(data.face_movement) ? data.face_movement : "normal"
 	};
 }
 async function getSettings() {
@@ -962,22 +962,6 @@ function ExitScreen({ onStartAgain }) {
 	});
 }
 //#endregion
-//#region src/progress.ts
-var LESSON_KEY = "imageskin.lesson";
-var QUIZ_KEY = "imageskin.quiz";
-var ASSESSMENT_KEY = "imageskin.assessment";
-function clearProgress() {
-	for (const key of [
-		LESSON_KEY,
-		QUIZ_KEY,
-		ASSESSMENT_KEY
-	]) try {
-		localStorage.removeItem(key);
-	} catch (e) {
-		console.error(`Could not clear ${key}`, e);
-	}
-}
-//#endregion
 //#region src/chatgpt-plan.tsx
 function ChatGptPlanSection() {
 	const [status, setStatus] = d(null);
@@ -1109,6 +1093,22 @@ function ChatGptPlanSection() {
 			})
 		]
 	});
+}
+//#endregion
+//#region src/progress.ts
+var LESSON_KEY = "imageskin.lesson";
+var QUIZ_KEY = "imageskin.quiz";
+var ASSESSMENT_KEY = "imageskin.assessment";
+function clearProgress() {
+	for (const key of [
+		LESSON_KEY,
+		QUIZ_KEY,
+		ASSESSMENT_KEY
+	]) try {
+		localStorage.removeItem(key);
+	} catch (e) {
+		console.error(`Could not clear ${key}`, e);
+	}
 }
 //#endregion
 //#region src/delete-data.tsx
@@ -1792,12 +1792,6 @@ var VIEWS = [[
 	"Participant (Student)",
 	"the chat and a read-only wiki"
 ]];
-var FACE_MOVEMENTS = [
-	["off", "Off"],
-	["slight", "Slight"],
-	["normal", "Normal"],
-	["more", "More"]
-];
 var SWITCHES = [{
 	group: "Chat",
 	about: "What the person in the video answers, and the buttons under the prompt box.",
@@ -1886,13 +1880,6 @@ function SettingsPage({ back, onDataDeleted }) {
 			if (box) box.checked = true;
 		});
 	}
-	function chooseFaceMovement(face_movement) {
-		const was = settings.face_movement;
-		save({ face_movement }, () => {
-			const box = page.current?.querySelector(`input[name="face_movement"][value="${was}"]`);
-			if (box) box.checked = true;
-		});
-	}
 	return /* @__PURE__ */ u("div", {
 		className: "host-page settings-page",
 		ref: page,
@@ -1972,37 +1959,6 @@ function SettingsPage({ back, onDataDeleted }) {
 					}, name))
 				]
 			}, group)),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "settings-face",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "settings-face",
-						children: "Face movement while speaking"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: "How much the cheeks and the face around the mouth move with it. Off moves only the lips and jaw. Used for the next video made."
-					}),
-					/* @__PURE__ */ u("fieldset", { children: [/* @__PURE__ */ u("legend", {
-						className: "sr-only",
-						children: "Face movement while speaking"
-					}), FACE_MOVEMENTS.map(([value, label]) => /* @__PURE__ */ u("label", {
-						className: "choice",
-						children: [
-							/* @__PURE__ */ u("input", {
-								type: "radio",
-								name: "face_movement",
-								value,
-								checked: settings.face_movement === value,
-								onChange: () => chooseFaceMovement(value)
-							}),
-							" ",
-							/* @__PURE__ */ u("span", { children: label })
-						]
-					}, value))] })
-				]
-			}),
 			settings.view === "host" && /* @__PURE__ */ u(LlmSettingSection, {}),
 			settings.view === "host" && /* @__PURE__ */ u(ChatGptPlanSection, {}),
 			/* @__PURE__ */ u(YourFiles, {}),
@@ -2014,6 +1970,59 @@ function SettingsPage({ back, onDataDeleted }) {
 				href: back,
 				children: "Return to the app"
 			}) })
+		]
+	});
+}
+//#endregion
+//#region src/face-movement.tsx
+var CHOICES = [
+	["off", "Off"],
+	["slight", "Slight"],
+	["normal", "Normal"],
+	["more", "More"]
+];
+function FaceMovementChoice() {
+	const { settings, change } = x(SettingsContext);
+	const [failed, setFailed] = d(false);
+	const [picked, setPicked] = d(null);
+	const shown = picked ?? settings.face_movement;
+	async function choose(face_movement) {
+		setFailed(false);
+		setPicked(face_movement);
+		try {
+			await change({ face_movement });
+		} catch (e) {
+			console.error(`Could not change the face movement to ${face_movement}`, e);
+			setFailed(true);
+		}
+		setPicked(null);
+	}
+	return /* @__PURE__ */ u("fieldset", {
+		className: "face-movement",
+		children: [
+			/* @__PURE__ */ u("legend", { children: "Face movement while speaking" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "How much the cheeks and the face around the mouth move with it. Off moves only the lips and jaw. After changing it, Prepare again to see it."
+			}),
+			CHOICES.map(([value, label]) => /* @__PURE__ */ u("label", {
+				className: "choice",
+				children: [
+					/* @__PURE__ */ u("input", {
+						type: "radio",
+						name: "face_movement",
+						value,
+						checked: shown === value,
+						onChange: () => void choose(value)
+					}),
+					" ",
+					/* @__PURE__ */ u("span", { children: label })
+				]
+			}, value)),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The face movement could not be changed. Try again."
+			})
 		]
 	});
 }
@@ -2829,6 +2838,7 @@ function PrepareSection(props) {
 				className: "error",
 				children: "Could not read how far preparing has got. Reload the page to try again."
 			}),
+			/* @__PURE__ */ u(FaceMovementChoice, {}),
 			status !== null && !running && /* @__PURE__ */ u("button", {
 				type: "button",
 				className: starting ? "busy" : void 0,
