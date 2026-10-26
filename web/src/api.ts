@@ -1059,3 +1059,29 @@ export async function getResources(): Promise<Resources> {
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Resources;
 }
+
+// The settings only the administrator can change (roadmap R155), with the recommended ones.
+export interface AdminSettings {
+  timeout_minutes: number;
+  thresholds: Thresholds;
+  recommended: { timeout_minutes: number; thresholds: Thresholds };
+}
+
+export async function getAdminSettings(): Promise<AdminSettings> {
+  const response = await fetch("/api/admin/settings");
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as AdminSettings;
+}
+
+// Throws a ServerRefusal saying why when a setting is refused (400) or signed out (401).
+export async function saveAdminSettings(
+  changes: Partial<Pick<AdminSettings, "timeout_minutes" | "thresholds">>,
+): Promise<AdminSettings> {
+  const response = await fetch("/api/admin/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as AdminSettings;
+}

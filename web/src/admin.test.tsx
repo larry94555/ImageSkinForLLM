@@ -241,7 +241,7 @@ test("a click on the Settings page or in the admin view is activity, at most onc
     fireEvent.click(document.body);
   });
   expect(activity()).toBe(3);
-  expect(calls(fetchMock, "/api/admin/session")).toBeGreaterThan(before);
+  await vi.waitFor(() => expect(calls(fetchMock, "/api/admin/session")).toBeGreaterThan(before));
   await screen.findByLabelText("Administrator password");
 });
 

@@ -31,6 +31,8 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.admin import FILENAME as ADMIN_FILENAME
 from imageskin.admin import AdminSignIns
 from imageskin.admin_api import admin_router
+from imageskin.admin_settings import DEFAULTS as ADMIN_DEFAULTS
+from imageskin.admin_settings import AdminSettingsStore
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
@@ -527,7 +529,13 @@ def create_app(
         return startup.snapshot()
 
     # Signing in as the administrator (R149). Every admin route later depends on require_admin.
-    admin_sign_ins = AdminSignIns(admin_file or data_home / ADMIN_FILENAME)
+    # The minutes before an inactive administrator is signed out, and the dashboard's colours,
+    # are admin settings (R155), read at each check so a change applies at once.
+    admin_settings = AdminSettingsStore(data_home)
+    admin_sign_ins = AdminSignIns(
+        admin_file or data_home / ADMIN_FILENAME,
+        timeout_minutes=lambda: admin_settings.current.timeout_minutes,
+    )
     admin_routes, app.state.require_admin = admin_router(admin_sign_ins)
     app.include_router(admin_routes)
 
@@ -538,7 +546,20 @@ def create_app(
 
     @app.get("/api/admin/resources", dependencies=[Depends(app.state.require_admin)])
     def get_resources() -> dict[str, Any]:
-        return resource_reader.read()
+        return resource_reader.read(admin_settings.current.thresholds)
+
+    @app.get("/api/admin/settings", dependencies=[Depends(app.state.require_admin)])
+    def get_admin_settings() -> dict[str, Any]:
+        return {**admin_settings.current.as_dict(), "recommended": ADMIN_DEFAULTS.as_dict()}
+
+    @app.put("/api/admin/settings", dependencies=[Depends(app.state.require_admin)])
+    def put_admin_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, Any]:
+        try:
+            saved = admin_settings.change(changes)
+        except ValueError as e:
+            logger.warning("Admin settings refused", extra={"error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return {**saved.as_dict(), "recommended": ADMIN_DEFAULTS.as_dict()}
 
     @app.get("/api/consent")
     def get_consent() -> dict[str, object]:

@@ -1036,3 +1036,10 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .resource.green .bar span { background: var(--green); }
 .resource.orange .bar span { background: var(--orange); }
 .resource.red .bar span { background: var(--red); }
+/* The admin view's two pages (R155), and the admin settings' number boxes. */
+.admin-tabs { display: flex; gap: 4px; margin: 0 0 12px; }
+.admin-tabs a { padding: 6px 14px; border-radius: 999px; color: var(--muted); font-weight: 500; text-decoration: none; }
+.admin-tabs a:hover { background: var(--sunken); color: var(--fg); }
+.admin-tabs a.current { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.admin-number { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 8px 0; max-width: 480px; }
+.admin-number input { width: 7em; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); color: var(--fg); font: inherit; }
