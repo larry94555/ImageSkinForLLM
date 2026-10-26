@@ -1749,9 +1749,10 @@ def create_app(
         start = time.perf_counter()
         kept = topic_replies.get(prompt, context)
         if kept is None:
+            epoch = topic_replies.epoch  # not kept if the conversation is cleared meanwhile
             reply, turn = conversation.send(prompt, clips)
             text = reply.content
-            clips.on_complete = lambda made: topic_replies.keep(prompt, context, text, made)
+            clips.on_complete = lambda made: topic_replies.keep(prompt, context, text, made, epoch)
             logger.info("Topic reply not kept yet", extra={"question": prompt})
             return reply, turn
         reply, turn = conversation.say(prompt, [kept.text])
@@ -2152,6 +2153,9 @@ def create_app(
             threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
         # After the conversation: a video asked for after replies.clear() reads it empty.
         videos = replies.clear()
+        # The example questions' replies were made with what was said, so they go too (Codex's
+        # review of PR #178).
+        topic_replies.clear()
         logger.info(
             "Reply videos cleared",
             extra={"videos": videos, "streamed_replies": len(streamed)},

@@ -34,7 +34,7 @@ def clips_in(folder: Path, *texts: str) -> list[Path]:
 def test_a_reply_kept_is_given_back_only_for_its_context(tmp_path: Path) -> None:
     kept = TopicReplies(tmp_path / "topics")
     assert kept.get(QUESTION, "a") is None
-    kept.keep(QUESTION, "a", "Rain falls.", clips_in(tmp_path / "made", "one", "two"))
+    kept.keep(QUESTION, "a", "Rain falls.", clips_in(tmp_path / "made", "one", "two"), 0)
     got = kept.get(f"  {QUESTION.lower()} ", "a")  # as typed, in any case
     assert got is not None and got.text == "Rain falls."
     assert [c.read_text() for c in got.clips] == ["one", "two"]
@@ -46,10 +46,10 @@ def test_keeping_a_reply_replaces_the_last_and_removes_other_contexts(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     kept = TopicReplies(tmp_path / "topics")
-    kept.keep(QUESTION, "old", "Old.", clips_in(tmp_path / "a", "old"))
-    kept.keep("Tell me about Snow.", "old", "Snow.", clips_in(tmp_path / "b", "snow"))
+    kept.keep(QUESTION, "old", "Old.", clips_in(tmp_path / "a", "old"), 0)
+    kept.keep("Tell me about Snow.", "old", "Snow.", clips_in(tmp_path / "b", "snow"), 0)
     with caplog.at_level(logging.INFO, logger="imageskin.topic_replies"):
-        kept.keep(QUESTION, "new", "New.", clips_in(tmp_path / "c", "new"))
+        kept.keep(QUESTION, "new", "New.", clips_in(tmp_path / "c", "new"), 0)
     got = kept.get(QUESTION, "new")
     assert got is not None and got.text == "New."
     assert len(list((tmp_path / "topics").iterdir())) == 1  # Snow's, made with "old", is gone
@@ -62,7 +62,7 @@ def test_a_reply_with_a_clip_missing_or_unreadable_is_not_given(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     kept = TopicReplies(tmp_path / "topics")
-    kept.keep(QUESTION, "a", "Rain.", clips_in(tmp_path / "made", "one", "two"))
+    kept.keep(QUESTION, "a", "Rain.", clips_in(tmp_path / "made", "one", "two"), 0)
     entry = next((tmp_path / "topics").iterdir())
     (entry / "2.mp4").unlink()
     assert kept.get(QUESTION, "a") is None
@@ -77,7 +77,7 @@ def test_a_reply_that_cant_be_kept_is_logged_and_leaves_nothing(
 ) -> None:
     kept = TopicReplies(tmp_path / "topics")
     with caplog.at_level(logging.ERROR, logger="imageskin.topic_replies"):
-        kept.keep(QUESTION, "a", "Rain.", [tmp_path / "gone.mp4"])
+        kept.keep(QUESTION, "a", "Rain.", [tmp_path / "gone.mp4"], 0)
     logged = next(r for r in caplog.records if r.message == "Could not keep a topic reply")
     assert "gone.mp4" in logged.error  # type: ignore[attr-defined]
     assert list((tmp_path / "topics").iterdir()) == []
@@ -148,6 +148,14 @@ def test_clips_made_before_are_listed_whole_at_once(tmp_path: Path) -> None:
 
 
 # --- In the chat ---
+
+
+def read_rain(path: Path, progress: Progress) -> Reading:
+    return Reading("text", 1, [Piece(1, "paragraph", "Rain falls.")], [])
+
+
+def build_rain(pdf_id: str, pieces: list[dict[str, Any]], progress: WikiProgress, w: Any) -> Wiki:
+    return Wiki(1, [WikiPage(f"{pdf_id}-0", "Rain", "Rain is weather.", [1])])
 
 
 def app_with_examples(tmp_path: Path, asked: list[str], titles: list[str]) -> Any:
@@ -229,7 +237,7 @@ def test_delete_my_data_removes_the_kept_replies(tmp_path: Path) -> None:
     from imageskin.delete_data import delete_my_data
 
     TopicReplies(tmp_path / "replies" / "topics").keep(
-        QUESTION, "a", "Rain.", clips_in(tmp_path / "made", "one")
+        QUESTION, "a", "Rain.", clips_in(tmp_path / "made", "one"), 0
     )
     delete_my_data(tmp_path)
     assert not (tmp_path / "replies" / "topics").exists()
@@ -239,3 +247,45 @@ def test_replies_kept_before_a_change_in_how_replies_are_made_are_made_again() -
     before = context_of("photo", "voice")
     with patch("imageskin.topic_replies.MAKING", 99):
         assert context_of("photo", "voice") != before
+
+
+def test_clearing_removes_the_kept_replies_and_one_begun_before_is_not_kept(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    kept = TopicReplies(tmp_path / "topics")
+    assert kept.clear() == 0  # nothing kept yet
+    kept.keep(QUESTION, "a", "Rain.", clips_in(tmp_path / "made", "one"), kept.epoch)
+    begun = kept.epoch  # a reply being made when the conversation is cleared
+    with caplog.at_level(logging.INFO, logger="imageskin.topic_replies"):
+        assert kept.clear() == 1
+        kept.keep("Tell me about Snow.", "a", "Snow.", clips_in(tmp_path / "b", "s"), begun)
+    assert kept.get(QUESTION, "a") is None and kept.get("Tell me about Snow.", "a") is None
+    messages = [r.message for r in caplog.records]
+    assert "Topic replies cleared" in messages
+    assert "Topic reply not kept: cleared meanwhile" in messages
+
+
+def test_a_cleared_conversation_never_brings_back_a_reply_kept_in_it(tmp_path: Path) -> None:
+    """Codex's review of PR #178: a reply shaped by what was said before must not come back
+    after Clear conversation."""
+    asked: list[list[dict[str, str]]] = []
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        asked.append(messages)
+        french = any("French" in m["content"] for m in messages)
+        yield from (["Il pleut. ", "C'est mouillé."] if french else ["It rains. ", "It is wet."])
+
+    client = video_app(tmp_path, write_text, stream, read_pdf=read_rain, build_wiki=build_rain)
+    client.post("/api/content", files={"file": ("weather.pdf", io.BytesIO(PDF))})
+    client.app.state.readings.wait()  # type: ignore[attr-defined]
+    client.app.state.wiki.wait()  # type: ignore[attr-defined]
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        ask_and_play(client, "Tell me about Rain in French from now on.", "a" * 32)
+        assert ask_and_play(client, QUESTION, REPLY_ID)[0] == "Il pleut. C'est mouillé."
+        assert client.delete("/api/chat").status_code == 200
+        calls = len(asked)
+        assert ask_and_play(client, QUESTION, "e" * 32)[0] == "It rains. It is wet."
+        assert len(asked) == calls + 1  # asked afresh, not the French reply kept before
+        # And that fresh reply is kept in its place.
+        assert ask_and_play(client, QUESTION, "f" * 32)[0] == "It rains. It is wet."
+        assert len(asked) == calls + 1

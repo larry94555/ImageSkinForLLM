@@ -5,7 +5,9 @@ one is answered and its clips are all rendered, the reply and its clips are kept
 <data folder>/replies/topics. Asked again, it is said from those at once, with no LLM call and
 no rendering. What a reply was made with, its `context` (the person's photo and voice, the
 prepare it came from, the wiki, and whether general prompts are allowed), is kept with it: a
-reply made with another context is never played, and is removed when a new one is kept.
+reply made with another context is never played, and is removed when a new one is kept. A reply
+is made with the conversation so far, so Clear conversation removes them all, and a reply being
+made when it ran is not kept (Codex's review of PR #178).
 """
 
 import hashlib
@@ -13,6 +15,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -48,6 +51,21 @@ class Kept:
 class TopicReplies:
     def __init__(self, folder: Path) -> None:
         self.folder = folder
+        # Raised by each clear: a reply begun before it (`keep` is given the epoch it began in)
+        # is not kept. The lock keeps a clear and a keep apart.
+        self.epoch = 0
+        self._lock = threading.Lock()
+
+    def clear(self) -> int:
+        """Remove every reply kept, as the conversation they were made in was cleared. Returns
+        how many were removed."""
+        with self._lock:
+            self.epoch += 1
+            entries = list(self.folder.iterdir()) if self.folder.is_dir() else []
+            for entry in entries:
+                shutil.rmtree(entry, ignore_errors=True)
+        logger.info("Topic replies cleared", extra={"removed": len(entries)})
+        return len(entries)
 
     def _entry(self, question: str) -> Path:
         name = hashlib.sha256(question.strip().casefold().encode("utf-8")).hexdigest()[:16]
@@ -73,10 +91,20 @@ class TopicReplies:
             return None
         return Kept(saved["text"], clips)
 
-    def keep(self, question: str, context: str, text: str, clips: Sequence[Path]) -> None:
+    def keep(
+        self, question: str, context: str, text: str, clips: Sequence[Path], epoch: int
+    ) -> None:
         """Keep the reply and copies of its clips, in place of any kept for the question, and
-        remove the replies kept with another context. Failures are logged only: the question is
-        then answered by the LLM again next time."""
+        remove the replies kept with another context; not if the conversation was cleared since
+        `epoch`. Failures are logged only: the question is then answered by the LLM again next
+        time."""
+        with self._lock:
+            if epoch != self.epoch:
+                logger.info("Topic reply not kept: cleared meanwhile", extra={"question": question})
+                return
+            self._keep(question, context, text, clips)
+
+    def _keep(self, question: str, context: str, text: str, clips: Sequence[Path]) -> None:
         start = time.perf_counter()
         entry = self._entry(question)
         writing = entry.with_name(f"{entry.name}.writing")
