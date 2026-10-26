@@ -52,11 +52,11 @@ Start now). The three prompts and their replies are added to the chat's history.
 isn't open, the first prompt is refused and the run stops with `The app refused the prompt` and
 the reason.
 
-On the hosted machine, in the folder you cloned for the site (`~/ImageSkinForLLM`, the
-`git clone` of deploy/README.md):
+On the hosted machine, in the folder you cloned for the site with deploy/README.md's
+`git clone` (`~/github/ImageSkinForLLM` on Larry's machine):
 
 ```
-cd ~/ImageSkinForLLM
+cd ~/github/ImageSkinForLLM
 git fetch origin
 git checkout long-reply-pauses-experiment
 cd deploy
