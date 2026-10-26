@@ -8,6 +8,7 @@ import { useEffect, useState } from "preact/hooks";
 import { DEFAULT_PICTURE, getReview, type Review, useAvatarOwnVoice, useAvatarReadyVoice } from "./api";
 import { useLeaveGuard } from "./leave-guard";
 import { AccentSection, PrepareSection, StepOf, UploadSection } from "./pages";
+import { SettingGuard, usePrepareStopGuard } from "./setting-guard";
 import type { SetupPart } from "./router";
 
 const BACK_NOTICE: Partial<Record<SetupPart, string>> = {
@@ -25,6 +26,7 @@ export function AvatarVoicePage() {
   const [back, setBack] = useState<SetupPart | null>(null);
   const [pending, setPending] = useState(false);
   const leaveDialog = useLeaveGuard(pending, "The avatar keeps the voice it has now.");
+  const stopGuard = usePrepareStopGuard(changed);
 
   useEffect(() => {
     const started = performance.now();
@@ -71,50 +73,54 @@ export function AvatarVoicePage() {
 
   const notice = (part: SetupPart) => (back === part ? (BACK_NOTICE[part] ?? null) : null);
   return (
-    <div className="host-page">
-      <h1>Your voice for the avatar</h1>
-      <p className="lead">
-        The avatar keeps its picture and speaks in a voice made from your recordings. Add them,
-        choose an accent, then prepare a sample video and check it. Until you accept it, the
-        avatar speaks in its ready-made voice.
-      </p>
-      <p className="avatar-instead">
-        Rather keep its ready-made voice?{" "}
-        <button type="button" className="link" onClick={() => void readyVoice()}>
-          Use the avatar&apos;s ready-made voice
-        </button>
-        . Your recordings are kept.
-      </p>
-      {failed && <p className="error">{failed}</p>}
-      <section className="panel" id="photos">
-        <StepOf n={1} />
-        <h2>Picture</h2>
-        <p className="muted">The ready-made avatar&apos;s picture, already prepared.</p>
-        <img className="avatar-picture" src={DEFAULT_PICTURE} alt="The ready-made avatar" />
-      </section>
-      <UploadSection
-        kind="sounds"
-        step={2}
-        title="Voice recordings"
-        button="Add recordings"
-        hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
-        accept="audio/*,.m4a,.wav,.mp3"
-        notice={notice("sounds")}
-        onChange={changed}
-      />
-      <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
-      <PrepareSection
-        changes={changes}
-        onRunning={setPreparing}
-        onPending={setPending}
-        avatarVoice
-        onBack={(to) => {
-          setBack(to);
-          window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
-        }}
-      />
-      {leaveDialog}
-    </div>
+    <SettingGuard.Provider value={stopGuard.guard}>
+      <div className="host-page">
+        <h1>Your voice for the avatar</h1>
+        <p className="lead">
+          The avatar keeps its picture and speaks in a voice made from your recordings. Add them,
+          choose an accent, then prepare a sample video and check it. Until you accept it, the
+          avatar speaks in its ready-made voice.
+        </p>
+        <p className="avatar-instead">
+          Rather keep its ready-made voice?{" "}
+          <button type="button" className="link" onClick={() => void readyVoice()}>
+            Use the avatar&apos;s ready-made voice
+          </button>
+          . Your recordings are kept.
+        </p>
+        {failed && <p className="error">{failed}</p>}
+        <section className="panel" id="photos">
+          <StepOf n={1} />
+          <h2>Picture</h2>
+          <p className="muted">The ready-made avatar&apos;s picture, already prepared.</p>
+          <img className="avatar-picture" src={DEFAULT_PICTURE} alt="The ready-made avatar" />
+        </section>
+        <UploadSection
+          kind="sounds"
+          step={2}
+          title="Voice recordings"
+          button="Add recordings"
+          hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
+          accept="audio/*,.m4a,.wav,.mp3"
+          notice={notice("sounds")}
+          onChange={changed}
+        />
+        <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
+        <PrepareSection
+          changes={changes}
+          onRunning={setPreparing}
+          onPending={setPending}
+          onStopped={stopGuard.onStopped}
+          avatarVoice
+          onBack={(to) => {
+            setBack(to);
+            window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
+          }}
+        />
+        {leaveDialog}
+        {stopGuard.dialog}
+      </div>
+    </SettingGuard.Provider>
   );
 }
 

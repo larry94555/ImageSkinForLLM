@@ -10,6 +10,7 @@ when the server stops mid-way, the next start carries on: frames and clips alrea
 are kept. The clips are saved in <data folder>/clips/<name>.mp4.
 """
 
+import ctypes
 import json
 import logging
 import math
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-State = Literal["idle", "running", "done", "failed"]
+State = Literal["idle", "running", "done", "failed", "cancelled"]
 T = TypeVar("T")
 
 
@@ -142,8 +143,11 @@ WAIT_TO_DELETE = "Setup is preparing the video. Try again once it has finished."
 # Start now waits for a prepare, which uses the same engines.
 WAIT_TO_START_NOW = "Setup is preparing your own video. Try again once it has finished."
 DEFAULT_PERSON_BEING_READIED = "A default person is being got ready. Try again once they are ready."
-# Prepare clicked while a cancelled job is still finishing the part it was on (roadmap R134c).
+# Prepare clicked while a cancelled job is still stopping (roadmap R134c).
 STOPPING = "Preparing is stopping. Try again in a moment."
+# Stop after this part (R134c) waits at most this many seconds for the part to finish, then
+# stops it at once (Larry: "It should still stop within 10 seconds").
+STOP_AFTER_PART_MAX_S = 10.0
 # Before the avatar's name in a photo id, when the avatar is prepared in the user's voice (R24d).
 AVATAR_PREFIX = "avatar-"
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
@@ -155,8 +159,22 @@ class PrepareError(Exception):
 
 
 class PrepareCancelled(BaseException):
-    """Raised in the job's thread at its next progress report once Cancel is confirmed (roadmap
-    R134c). A BaseException, so an engine that catches Exception doesn't swallow it."""
+    """Raised in the job's thread when Cancel is confirmed (roadmap R134c): at its next progress
+    report, or at once with interrupt(). A BaseException, so an engine that catches Exception
+    doesn't swallow it."""
+
+
+def interrupt(thread: threading.Thread) -> bool:
+    """Raise PrepareCancelled in the thread as soon as it next runs Python code: within a moment
+    even in the middle of an engine's work, as each frame or model call returns to Python
+    quickly. Whether the thread was found. What it was writing is safe: frames and clips are
+    written aside and then moved, and downloads carry on from their .part file."""
+    if thread.ident is None:
+        return False
+    found = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_ulong(thread.ident), ctypes.py_object(PrepareCancelled)
+    )
+    return bool(found == 1)
 
 
 @dataclass(frozen=True)
@@ -200,8 +218,8 @@ class PrepareStatus:
     # The face movement while speaking the clips are made with (R128a), from the Setup page when
     # the job ran; None if saved before R128a.
     face_movement: str | None = None
-    # Running, but Cancel was confirmed (R134c): it stops at the next progress report, once the
-    # part it is on is finished, and is then idle.
+    # Running, but Cancel was confirmed (R134c): it is stopping, and is then "cancelled", which
+    # Resume Preparation carries on from where it stopped.
     cancelling: bool = False
 
 
@@ -292,6 +310,10 @@ class PrepareJob:
         self._counted: dict[str, float] = {}
         # Set by cancel() (R134c); the job's thread stops at its next progress report.
         self._cancel = threading.Event()
+        # While the job's thread is in its steps, it may be stopped at once with interrupt().
+        self._interruptible = False
+        # Stops a part that runs past STOP_AFTER_PART_MAX_S after Stop after this part.
+        self._late_stop: threading.Timer | None = None
         self._status = self._load()
 
     def _load(self) -> PrepareStatus:
@@ -337,7 +359,7 @@ class PrepareJob:
         return self._thread is not None and self._thread.is_alive()
 
     def _current(self, status: PrepareStatus) -> PrepareStatus:
-        if status.state in ("done", "failed"):
+        if status.state in ("done", "failed", "cancelled"):
             if status.photo_id != self._photo_id():
                 return PrepareStatus("idle")
             if self._voice_problem():
@@ -481,6 +503,15 @@ class PrepareJob:
                 self._run_in_background()
             return self._status
         self._refuse_if_busy()
+        if self._current(self._status).state == "cancelled":  # Resume Preparation (R134c)
+            logger.info(
+                "Prepare resumed",
+                extra={"photo_id": self._status.photo_id, "percent": self._status.percent},
+            )
+            self._status = replace(self._status, state="running", finished_at=None)
+            self._save()
+            self._run_in_background()
+            return self._status
         photo_id = self._photo_id()
         if photo_id is None:
             raise PrepareError(NO_PHOTO)
@@ -503,11 +534,11 @@ class PrepareJob:
         self._run_in_background()
         return self._status
 
-    def cancel(self) -> PrepareStatus:
-        """Stop the running job (roadmap R134c). A job no thread is working on stops at once;
-        otherwise it is marked cancelling and its thread stops at its next progress report, as
-        an engine can't be stopped half-way through a frame or a clip. The face's frames already
-        made are kept by the library, so preparing again later is quicker."""
+    def cancel(self, now: bool = False) -> PrepareStatus:
+        """Stop the running job (roadmap R134c): `now` at once, otherwise once the part it is on
+        is finished, or after STOP_AFTER_PART_MAX_S if that comes first. A job no thread is
+        working on stops at once. A stopped job is "cancelled": Resume Preparation carries on
+        from where it stopped, and the face's frames already made are kept."""
         with self._lock:
             if self._status.state != "running":
                 logger.info(
@@ -515,21 +546,74 @@ class PrepareJob:
                 )
                 return self._status
             if not self._working():
-                self._to_idle("stopped")
+                self._to_cancelled("stopped")
                 return self._status
             if not self._status.cancelling:
-                logger.info("Prepare cancelling", extra={"photo_id": self._status.photo_id})
+                logger.info(
+                    "Prepare cancelling", extra={"photo_id": self._status.photo_id, "now": now}
+                )
                 self._cancel.set()
                 self._status = replace(self._status, cancelling=True)
                 self._save()
+                if not now:
+                    self._late_stop = threading.Timer(STOP_AFTER_PART_MAX_S, self._stop_late)
+                    self._late_stop.daemon = True
+                    self._late_stop.start()
+            if now:
+                self._interrupt()
             return self._status
 
-    def _to_idle(self, why: str) -> None:
-        """The job cancelled, with the lock held: nothing prepared, but each step's time is
-        kept for the next prepare's time left."""
-        logger.info("Prepare cancelled", extra={"photo_id": self._status.photo_id, "when": why})
-        self._status = PrepareStatus("idle", times=self._status.times)
+    def _stop_late(self) -> None:
+        with self._lock:
+            if self._status.state == "running" and self._status.cancelling:
+                logger.warning(
+                    "Prepare part still running; stopping it now",
+                    extra={"waited_s": STOP_AFTER_PART_MAX_S},
+                )
+                self._interrupt()
+
+    def _interrupt(self) -> None:
+        """Stop the job's thread at once, with the lock held. Only while it is in its steps,
+        and only once."""
+        if self._interruptible and self._thread is not None and self._thread.is_alive():
+            self._interruptible = False
+            found = interrupt(self._thread)
+            logger.info("Prepare interrupted", extra={"found": found})
+
+    def _to_cancelled(self, why: str) -> None:
+        """The job stopped, with the lock held. Its steps show how far it got."""
+        if self._late_stop is not None:
+            self._late_stop.cancel()
+            self._late_stop = None
+        self._interruptible = False
+        logger.info(
+            "Prepare cancelled",
+            extra={"photo_id": self._status.photo_id, "percent": self._status.percent, "when": why},
+        )
+        steps = [
+            replace(s, left_s=None, activity=None, elapsed_s=None, slow=False)
+            for s in self._status.steps or []
+        ]
+        self._status = replace(
+            self._status,
+            state="cancelled",
+            steps=steps,
+            cancelling=False,
+            finished_at=now_iso(),
+            left_s=None,
+        )
         self._save()
+
+    def discard(self) -> PrepareStatus:
+        """Start again from nothing prepared instead of resuming a cancelled job (R134c), once
+        the user confirmed that changing a setting means preparing over again. Each step's time
+        is kept for the next prepare's time left."""
+        with self._lock:
+            if self._current(self._status).state == "cancelled":
+                logger.info("Stopped prepare discarded", extra={"photo_id": self._status.photo_id})
+                self._status = PrepareStatus("idle", times=self._status.times)
+                self._save()
+            return self._current(self._status)
 
     def _photo_id(self) -> str | None:
         """What is prepared: the chosen photo, or the avatar to speak in the user's voice."""
@@ -581,7 +665,7 @@ class PrepareJob:
             if self._status.state != "running":
                 return
             if self._status.cancelling:  # the server stopped before the cancel was done
-                self._to_idle("at start")
+                self._to_cancelled("at start")
                 return
             # The steps keep showing how far it had got until each one reports again.
             logger.info("Resuming prepare job", extra={"photo_id": self._status.photo_id})
@@ -741,6 +825,10 @@ class PrepareJob:
         beats.start()
         try:
             self._run_steps()
+        except PrepareCancelled:  # interrupted just as the steps ended
+            with self._lock:
+                if self._status.state == "running":
+                    self._to_cancelled("late")
         finally:
             finished.set()
 
@@ -773,6 +861,7 @@ class PrepareJob:
                     logger.info(message, extra={"clips": removed, "face_movement": movement})
                 self._status = replace(self._status, face_movement=movement)
                 self._save()
+            self._interruptible = True
         try:
             photo = self._photo(photo_id)
             if photo is None:
@@ -792,20 +881,23 @@ class PrepareJob:
             self._progress("voice", 1, 1)
             self._prepare_face(photo, self._progress)
             self._render_clips(photo)  # its report after the last clip stops a late cancel
+            with self._lock:
+                self._interruptible = False
         except PrepareCancelled:
             with self._lock:
-                self._to_idle("running")
+                self._to_cancelled("running")
             logger.info(
                 "Prepare job stopped",
                 extra={"photo_id": photo_id, "duration_s": round(time.perf_counter() - start, 1)},
             )
             return
         except Exception as e:
-            if self._cancel.is_set():  # an engine failed while it was being stopped
-                logger.warning("Prepare failed while cancelling", extra={"error": str(e)})
-                with self._lock:
-                    self._to_idle("running")
-                return
+            with self._lock:
+                self._interruptible = False
+                if self._cancel.is_set():  # an engine failed while it was being stopped
+                    logger.warning("Prepare failed while cancelling", extra={"error": str(e)})
+                    self._to_cancelled("running")
+                    return
             self._fail(e, photo_id)
             return
         self._finish("done", None)

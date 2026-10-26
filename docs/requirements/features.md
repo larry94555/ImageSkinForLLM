@@ -233,7 +233,7 @@ Added by Larry on 2026-10-25, to build right after the speed-ups (Milestone 10b)
 
 119. **Example questions answered at once.** The example questions under the prompt box (item 53) are the same until the PDFs change, so once one has been answered and its video made, the reply and its video are kept, and picking it again plays them at once, with no wait for the LLM or the video (Larry, 2026-10-26). A kept reply is used only for the same person, voice, prepare and wiki, and whether general prompts are allowed; after any of them changes, it is made again the next time and kept in its place. Delete my data removes them.
 
-120. **Cancel Prepare.** While Prepare runs, a Cancel button lets the user stop it if it is taking too long. A professional confirmation box asks whether to stop preparing or keep preparing; stopping leaves setup ready to prepare again, keeping what was already made of the face so the next prepare is quicker (Larry, 2026-10-26).
+120. **Cancel Prepare.** While Prepare runs, a Cancel button lets the user stop it if it is taking too long. A professional confirmation box asks whether to stop now, stop once the part it is on is finished (within 10 seconds), or keep preparing. A stopped prepare can be resumed from where it stopped; changing a setting meanwhile warns that preparing will start over, to confirm or cancel. Once prepared, Prepare Video is off until a setting changes (Larry, 2026-10-26).
 
 ## Setup wizard
 

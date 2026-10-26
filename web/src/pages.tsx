@@ -58,6 +58,7 @@ import {
 import { switchToOwn } from "./change-setup";
 import { Checks, minutes } from "./checks";
 import { useConfirm } from "./confirm-dialog";
+import { RESTART_WARNING, SettingGuard, usePrepareStopGuard, useSettingGuard } from "./setting-guard";
 import { ExitScreen } from "./exit";
 import { FaceMovementChoice } from "./face-movement";
 import { useLeaveGuard } from "./leave-guard";
@@ -157,6 +158,7 @@ export function SetupPage({ change }: { change?: SetupPart }) {
   const [undoFailed, setUndoFailed] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
+  const stopGuard = usePrepareStopGuard(changed);
   useEffect(() => {
     getReview()
       .then((r) => setAvatarVoice(r.own_voice === true))
@@ -194,58 +196,62 @@ export function SetupPage({ change }: { change?: SetupPart }) {
     );
   }
   return (
-    <div className="host-page">
-      <h1>Setup</h1>
-      <p className="lead">
-        Make the talking person in four steps: add photos, add voice recordings, choose an
-        accent, then prepare a sample video and check it. Without recordings, the person speaks
-        in a ready-made voice.
-      </p>
-      {/* Avatar Choice (Larry's test of R32a): the ready-made avatars are a click away. */}
-      <p className="avatar-instead">
-        Rather not use your own photo and voice?{" "}
-        <a
-          href="#/start-now"
-          onClick={() => console.info("Choosing a ready-made avatar from Setup")}
-        >
-          Use a ready-made avatar instead
-        </a>
-        . Your photos and recordings are kept.
-      </p>
-      <p className="notice">
-        New to this? The <a href="#/guide">recording guide</a> walks you step by step through
-        taking the photos and making the voice recordings on a Windows or Mac laptop.
-      </p>
-      <UploadSection
-        kind="photos"
-        step={1}
-        title="Photos"
-        button="Add photos"
-        hint="Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best."
-        accept="image/jpeg,image/png,image/heic,.heic"
-        notice={notice("photos")}
-        onChange={changed}
-      />
-      <UploadSection
-        kind="sounds"
-        step={2}
-        title="Voice recordings"
-        button="Add recordings"
-        hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
-        accept="audio/*,.m4a,.wav,.mp3"
-        notice={notice("sounds")}
-        onChange={changed}
-      />
-      <ReadyVoiceChoice changes={changes} onChange={changed} />
-      <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
-      <PrepareSection
-        changes={changes}
-        onRunning={setPreparing}
-        onBack={goBack}
-        onPending={setPending}
-      />
-      {leaveDialog}
-    </div>
+    <SettingGuard.Provider value={stopGuard.guard}>
+      <div className="host-page">
+        <h1>Setup</h1>
+        <p className="lead">
+          Make the talking person in four steps: add photos, add voice recordings, choose an
+          accent, then prepare a sample video and check it. Without recordings, the person speaks
+          in a ready-made voice.
+        </p>
+        {/* Avatar Choice (Larry's test of R32a): the ready-made avatars are a click away. */}
+        <p className="avatar-instead">
+          Rather not use your own photo and voice?{" "}
+          <a
+            href="#/start-now"
+            onClick={() => console.info("Choosing a ready-made avatar from Setup")}
+          >
+            Use a ready-made avatar instead
+          </a>
+          . Your photos and recordings are kept.
+        </p>
+        <p className="notice">
+          New to this? The <a href="#/guide">recording guide</a> walks you step by step through
+          taking the photos and making the voice recordings on a Windows or Mac laptop.
+        </p>
+        <UploadSection
+          kind="photos"
+          step={1}
+          title="Photos"
+          button="Add photos"
+          hint="Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best."
+          accept="image/jpeg,image/png,image/heic,.heic"
+          notice={notice("photos")}
+          onChange={changed}
+        />
+        <UploadSection
+          kind="sounds"
+          step={2}
+          title="Voice recordings"
+          button="Add recordings"
+          hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
+          accept="audio/*,.m4a,.wav,.mp3"
+          notice={notice("sounds")}
+          onChange={changed}
+        />
+        <ReadyVoiceChoice changes={changes} onChange={changed} />
+        <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
+        <PrepareSection
+          changes={changes}
+          onRunning={setPreparing}
+          onBack={goBack}
+          onPending={setPending}
+          onStopped={stopGuard.onStopped}
+        />
+        {leaveDialog}
+        {stopGuard.dialog}
+      </div>
+    </SettingGuard.Provider>
   );
 }
 
@@ -253,6 +259,7 @@ export function SetupPage({ change }: { change?: SetupPart }) {
 // or removed), the person speaks in a ready-made voice, which can be chosen here.
 function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
   const [ready, setReady] = useState<ReadyVoice | null>(null);
+  const guard = useSettingGuard();
   const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
     getReadyVoice()
@@ -265,6 +272,10 @@ function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
   if (ready === null || !Array.isArray(ready.voices)) return null; // not answered, or not understood
 
   async function choose(voice: string) {
+    if (!(await guard.confirm())) {
+      setReady((r) => r && { ...r }); // shows the voice it has again
+      return;
+    }
     const started = performance.now();
     setFailed(null);
     try {
@@ -330,6 +341,7 @@ export function UploadSection(props: {
   const [loadFailed, setLoadFailed] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   const { ask, dialog } = useConfirm();
+  const guard = useSettingGuard();
   const [refused, setRefused] = useState<Refused[]>([]);
   // Uploads still to be checked, in order; the first one is being checked now.
   const [toCheck, setToCheck] = useState<string[]>([]);
@@ -358,6 +370,7 @@ export function UploadSection(props: {
 
   async function choose(item: Upload) {
     if (choosing !== null) return; // one at a time
+    if (!(await guard.confirm(`Use ${item.name} instead?`))) return;
     const sent = ++choiceRequests.current; // reads sent before this click are now out of date
     setChoosing(item.id);
     setRefused([]);
@@ -425,6 +438,7 @@ export function UploadSection(props: {
     const files = Array.from(input.files ?? []);
     input.value = "";
     setRefused([]);
+    if (files.length && !(await guard.confirm(`Add ${files.length === 1 ? files[0].name : `${files.length} files`}?`))) return;
     for (const file of files) {
       setSending(file.name);
       try {
@@ -443,11 +457,11 @@ export function UploadSection(props: {
   }
 
   async function remove(item: Upload) {
-    const yes = await ask({
-      title: `Remove ${item.name}?`,
-      keepLabel: "No, keep it",
-      confirmLabel: "Yes, remove it",
-    });
+    const title = `Remove ${item.name}?`;
+    // While a prepare is stopped part-way (R134c), one box asks and warns.
+    const yes = guard.needed()
+      ? await guard.confirm(title)
+      : await ask({ title, keepLabel: "No, keep it", confirmLabel: "Yes, remove it" });
     if (!yes) return;
     try {
       await removeUpload(kind, item.id);
@@ -596,6 +610,7 @@ export function AccentSection(props: {
   const [choice, setChoice] = useState<AccentChoice | null>(null);
   const [saving, setSaving] = useState<Accent | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const guard = useSettingGuard();
 
   useEffect(() => {
     getAccent()
@@ -608,6 +623,10 @@ export function AccentSection(props: {
 
   async function choose(accent: Accent) {
     setSaving(accent);
+    if (!(await guard.confirm())) {
+      setSaving(null); // shows the accent it has again
+      return;
+    }
     setFailed(null);
     try {
       setChoice(await chooseAccent(accent));
@@ -671,6 +690,7 @@ export function PrepareSection(props: {
   onBack: (to: Back) => void;
   avatarVoice?: boolean; // a ready-made avatar's picture in the user's voice (R24d)
   onPending?: (pending: boolean) => void; // a sample is neither accepted nor rejected
+  onStopped?: (stopped: boolean) => void; // stopped part-way with Cancel, to resume (R134c)
 }) {
   const { changes, onRunning } = props;
   // null until the server has answered.
@@ -678,9 +698,7 @@ export function PrepareSection(props: {
   const [loadFailed, setLoadFailed] = useState(false);
   const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
-  // Set once a cancel finished (R134c), until Prepare is clicked again.
-  const [cancelled, setCancelled] = useState(false);
-  const { ask, dialog } = useConfirm();
+  const { choose, dialog } = useConfirm();
   // Only the newest request's answer is shown, so a slow read can't undo a click on Prepare.
   const requests = useRef(0);
 
@@ -700,7 +718,6 @@ export function PrepareSection(props: {
     const request = ++requests.current;
     setStarting(true);
     setRefused(null);
-    setCancelled(false);
     try {
       const started = await startPrepare();
       if (request === requests.current) setStatus(started);
@@ -711,27 +728,29 @@ export function PrepareSection(props: {
     setStarting(false);
   }
 
-  // Cancel (R134c): asks first, in the app's own box, whether to stop or keep preparing.
+  // Cancel (R134c): asks first, in the app's own box, whether to stop now, stop once the part
+  // it is on is finished (at most 10 seconds), or keep preparing.
   async function cancel() {
     const left = status?.left_s != null ? ` About ${countdown(status.left_s)} is left.` : "";
-    const stop = await ask({
+    const answer = await choose({
       title: "Stop preparing the video?",
       children: (
         <p>
-          Preparing is {status?.percent ?? 0}% done.{left} If you stop now, you can prepare the
-          video again later, and the parts of the face already made are kept, so it is quicker.
+          Preparing is {status?.percent ?? 0}% done.{left} You can stop now, or once the part it
+          is working on is finished (at most 10 seconds). Either way, Resume Preparation carries
+          on from where it stopped.
         </p>
       ),
       keepLabel: "Keep preparing",
-      confirmLabel: "Stop preparing",
+      otherLabel: "Stop after this part",
+      confirmLabel: "Stop now",
     });
-    if (!stop) return;
+    if (answer === "cancel") return;
     const request = ++requests.current;
     setRefused(null);
     try {
-      const answer = await cancelPrepare();
-      if (request === requests.current) setStatus(answer);
-      setCancelled(true);
+      const stopping = await cancelPrepare(answer === "confirm");
+      if (request === requests.current) setStatus(stopping);
     } catch (e) {
       console.error("Could not stop preparing", e);
       setRefused((e as Error).message);
@@ -751,18 +770,24 @@ export function PrepareSection(props: {
   const cancelling = running && status.cancelling === true;
   const slow =
     running && !cancelling && status.steps?.find((s) => s.done < s.total)?.slow === true;
+  const cancelled = status?.state === "cancelled";
   useEffect(() => onRunning(running), [running]);
+  // Before the browser paints, so a setting changed at once after is guarded.
+  useLayoutEffect(() => props.onStopped?.(cancelled), [cancelled]);
   useEffect(() => {
     if (!running) return;
     const timer = window.setInterval(() => void read(), PREPARE_POLL_MS);
     return () => window.clearInterval(timer);
   }, [running]);
 
+  // Prepared already: nothing to do until a setting changes, which shows it as idle again
+  // (Larry, 2026-10-26).
   const label: Record<PrepareStatus["state"], string> = {
-    idle: "Prepare the video",
+    idle: "Prepare Video",
     running: "Preparing…",
-    done: "Prepare again",
+    done: "Prepare Video",
     failed: "Try again",
+    cancelled: "Resume Preparation",
   };
   return (
     <section className="prepare panel">
@@ -786,7 +811,7 @@ export function PrepareSection(props: {
           type="button"
           className={starting ? "busy" : undefined}
           onClick={start}
-          disabled={starting}
+          disabled={starting || status.state === "done"}
         >
           {starting ? "Starting…" : stopped ? "Try again" : label[status.state]}
         </button>
@@ -814,12 +839,11 @@ export function PrepareSection(props: {
           {cancelling ? "Stopping…" : "Cancel"}
         </button>
       )}
-      {cancelling && (
-        <p className="muted">Stopping once the part it is working on is finished.</p>
-      )}
-      {cancelled && status?.state === "idle" && (
+      {cancelling && <p className="muted">Stopping, within 10 seconds…</p>}
+      {cancelled && (
         <p className="muted">
-          You stopped preparing. Click Prepare the video whenever you are ready to start again.
+          Preparing stopped at {status.percent}%. Click Resume Preparation to carry on from where
+          it stopped. {RESTART_WARNING}
         </p>
       )}
       {slow && <p className="muted">This is taking longer than usual. It&apos;s still working.</p>}
@@ -2597,6 +2621,7 @@ function StepState(props: { step: PrepareStep; status: PrepareStatus; index: num
   }
   const current = status.steps?.findIndex((s) => s.done < s.total) === props.index;
   if (!current) return <span className="muted">Waiting</span>;
+  if (status.state === "cancelled") return <span className="muted">Stopped</span>;
   if (status.state === "failed" || status.stopped) return <span className="error">Stopped</span>;
   return (
     <span className="busy">
