@@ -14,6 +14,7 @@ from imageskin.ui_settings import (
     CHOICES,
     FILENAME,
     UiSettings,
+    checked,
     load_ui_settings,
     save_ui_settings,
 )
@@ -157,3 +158,15 @@ def test_the_question_scope_defaults_to_the_config_file(tmp_path: Path) -> None:
     assert changed.json()["general_prompts"] is False
     again = TestClient(create_app(tmp_path, general_prompts=True))
     assert again.get("/api/settings").json()["general_prompts"] is False  # the change stays
+
+
+def test_a_face_movement_saved_as_more_is_read_as_normal(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # "more" was taken out on 2026-10-26 (Larry); the file's other settings are kept.
+    (tmp_path / FILENAME).write_text(json.dumps({"face_movement": "more", "debug": True}))
+    with caplog.at_level(logging.INFO):
+        assert load_ui_settings(tmp_path) == UiSettings(face_movement="normal", debug=True)
+    assert "Face movement more read as normal" in caplog.messages
+    with pytest.raises(ValueError, match="must be one of: off, slight, normal"):
+        checked(UiSettings(), {"face_movement": "wild"})

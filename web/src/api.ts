@@ -852,8 +852,8 @@ export interface UiSettings {
   face_movement: FaceMovement;
 }
 
-export type FaceMovement = "off" | "slight" | "normal" | "more";
-const FACE_MOVEMENTS: FaceMovement[] = ["off", "slight", "normal", "more"];
+export type FaceMovement = "off" | "slight" | "normal";
+const FACE_MOVEMENTS: FaceMovement[] = ["off", "slight", "normal"];
 
 export const DEFAULT_SETTINGS: UiSettings = {
   show_metrics: false,

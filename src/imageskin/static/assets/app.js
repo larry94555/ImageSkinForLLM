@@ -345,8 +345,7 @@ async function listWikiBuilds() {
 var FACE_MOVEMENTS = [
 	"off",
 	"slight",
-	"normal",
-	"more"
+	"normal"
 ];
 var DEFAULT_SETTINGS = {
 	show_metrics: false,
@@ -1978,8 +1977,7 @@ function SettingsPage({ back, onDataDeleted }) {
 var CHOICES = [
 	["off", "Off"],
 	["slight", "Slight"],
-	["normal", "Normal"],
-	["more", "More"]
+	["normal", "Normal"]
 ];
 function FaceMovementChoice() {
 	const { settings, change } = x(SettingsContext);

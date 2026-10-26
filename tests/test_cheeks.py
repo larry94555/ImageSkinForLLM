@@ -70,9 +70,10 @@ def test_a_louder_syllable_stretches_the_face_further() -> None:
 def test_the_strength_scales_the_movement_and_off_stops_it() -> None:
     weights, jaw = word("EH"), np.zeros(50)
     normal = tracks(weights, jaw, FPS, STRENGTHS["normal"])
-    more = tracks(weights, jaw, FPS, STRENGTHS["more"])
+    slight = tracks(weights, jaw, FPS, STRENGTHS["slight"])
     off = tracks(weights, jaw, FPS, STRENGTHS["off"])
-    assert more.lift.max() == pytest.approx(1.75 * normal.lift.max())
+    assert slight.lift.max() == pytest.approx(0.6 * normal.lift.max())
+    assert "more" not in STRENGTHS  # taken out: it looked strange (Larry, 2026-10-26)
     assert not off.lift.any() and not off.stretch.any()
     custom = tracks(weights, jaw, FPS, gains=CheekGains(lift_px=1.0))
     assert custom.lift.max() < normal.lift.max()

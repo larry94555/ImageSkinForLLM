@@ -61,7 +61,7 @@ CHOICES: dict[str, tuple[object, ...]] = {
     "assessment": (True, False),
     "debug": (True, False),
     "general_prompts": (True, False),
-    "face_movement": ("off", "slight", "normal", "more"),
+    "face_movement": ("off", "slight", "normal"),
 }
 
 
@@ -71,7 +71,12 @@ OLD_VIEWS = {"teacher": "host", "student": "participant"}
 
 
 def renamed(changes: dict[str, Any]) -> dict[str, Any]:
-    """The changes with an old view name replaced by its new one."""
+    """The changes with an old view name replaced by its new one, and the face movement "more",
+    taken out on 2026-10-26 (Larry), as "normal", so a file saved with it keeps its other
+    settings."""
+    if changes.get("face_movement") == "more":
+        logger.info("Face movement more read as normal")
+        changes = {**changes, "face_movement": "normal"}
     view = changes.get("view")
     if isinstance(view, str) and view in OLD_VIEWS:
         logger.info(

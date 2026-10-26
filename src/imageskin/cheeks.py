@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 
 # "Face movement while speaking" on the Setup page (UiSettings.face_movement): how much of
 # CheekGains to use. "off" leaves only the lips and jaw moving, as before R128a.
-STRENGTHS: dict[str, float] = {"off": 0.0, "slight": 0.6, "normal": 1.0, "more": 1.75}
+# "more" (1.75) was taken out: Larry found it looked strange (2026-10-26).
+STRENGTHS: dict[str, float] = {"off": 0.0, "slight": 0.6, "normal": 1.0}
 MAX_PX = 25.0  # however strong, no pixel moves further than this
 
 _GRIN = max(s.controls.get("grin", 0.0) for s in MOUTH_SHAPES.values())
@@ -44,7 +45,7 @@ _PURSE = max(s.controls.get("purse", 0.0) for s in MOUTH_SHAPES.values())
 class CheekGains:
     """How far the face moves at "normal", in pixels of the 512 px crop. At first a quarter of
     this, which Larry couldn't see at all in the sample video (2026-10-26); the fields are wide
-    and smooth, so even "more" keeps the face whole."""
+    and smooth, so the face stays whole."""
 
     lift_px: float = 10.0  # cheeks up on the most spread shape
     draw_px: float = 6.0  # cheeks in on the most rounded shape

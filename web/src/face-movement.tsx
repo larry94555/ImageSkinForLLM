@@ -12,7 +12,6 @@ const CHOICES: [FaceMovement, string][] = [
   ["off", "Off"],
   ["slight", "Slight"],
   ["normal", "Normal"],
-  ["more", "More"],
 ];
 
 export function FaceMovementChoice() {

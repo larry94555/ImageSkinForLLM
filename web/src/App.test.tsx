@@ -1040,10 +1040,10 @@ test("the face movement is chosen on the Setup page, beside Prepare (R128a)", as
   const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
   expect((choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked).toBe(true);
   await act(async () => {
-    fireEvent.click(choice.getByRole("radio", { name: "More" }));
+    fireEvent.click(choice.getByRole("radio", { name: "Slight" }));
   });
   const patch = fetchMock.mock.calls.find(([url, init]) => url === "/api/settings" && init?.method === "PATCH");
-  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ face_movement: "more" });
+  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ face_movement: "slight" });
 });
 
 test("prepare starts the job and shows each step's progress until it is ready", async () => {

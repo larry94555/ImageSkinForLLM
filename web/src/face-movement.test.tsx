@@ -39,7 +39,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("it shows the four strengths with the saved one picked, and saves a new one", async () => {
+test("it shows the three strengths with the saved one picked, and saves a new one", async () => {
   const saved: Record<string, unknown> = { face_movement: "slight" };
   const fetchMock = server(saved);
   await show();
@@ -47,7 +47,6 @@ test("it shows the four strengths with the saved one picked, and saves a new one
     "Off",
     "Slight",
     "Normal",
-    "More",
   ]);
   await waitFor(() => expect(radio("Slight").checked).toBe(true));
   expect(screen.getByText(/Prepare again to see it/)).toBeTruthy();
@@ -61,11 +60,11 @@ test("it shows the four strengths with the saved one picked, and saves a new one
 });
 
 test("an unknown strength shows as Normal, and one that can't be saved goes back", async () => {
-  server({ face_movement: "wild" }, false);
+  server({ face_movement: "more" }, false); // "more" was taken out
   await show();
   expect(radio("Normal").checked).toBe(true);
   await act(async () => {
-    fireEvent.click(radio("More"));
+    fireEvent.click(radio("Slight"));
   });
   expect(await screen.findByText("The face movement could not be changed. Try again.")).toBeTruthy();
   expect(radio("Normal").checked).toBe(true);
