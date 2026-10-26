@@ -70,6 +70,7 @@ from imageskin.llm_choice import (
     save_choice,
 )
 from imageskin.lookup import ContentLookup, as_passages
+from imageskin.network import NetworkMonth
 from imageskin.prepare_job import (
     CLONES,
     NOT_PREPARED,
@@ -531,7 +532,9 @@ def create_app(
     app.include_router(admin_routes)
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
-    resource_reader = ResourceReader(data_home)
+    # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
+    app.state.network_month = NetworkMonth(data_home)
+    resource_reader = ResourceReader(data_home, network=app.state.network_month)
 
     @app.get("/api/admin/resources", dependencies=[Depends(app.state.require_admin)])
     def get_resources() -> dict[str, Any]:

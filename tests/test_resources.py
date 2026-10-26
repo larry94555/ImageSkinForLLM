@@ -210,7 +210,7 @@ def test_the_api_is_for_the_administrator_only(
     assert browser.get("/api/admin/resources").status_code == 401
     browser.post("/api/admin/sign-in", json={"password": "secret"})
     reading = browser.get("/api/admin/resources").json()
-    assert [r["name"] for r in reading["resources"]] == ["cpu", "memory", "disk"]
+    assert [r["name"] for r in reading["resources"]] == ["cpu", "memory", "disk", "network"]
     assert reading["thresholds"] == {
         "blue_above": RECOMMENDED.blue_above,
         "orange_below": RECOMMENDED.orange_below,
