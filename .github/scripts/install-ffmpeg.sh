@@ -2,7 +2,8 @@
 # Installs ffmpeg and ffprobe for CI. Ubuntu's apt mirrors have stalled or crawled at about
 # 100 kB/s, so this first downloads a pinned static build from GitHub's release storage, which
 # takes seconds, and checks it against the digests below. If the download, the check or a test
-# run fails, it falls back to apt. To update the build, change the release and both digests.
+# run (including drawing text) fails, it falls back to apt. To update the build, change the
+# release and both digests.
 set -euo pipefail
 
 base_url="${FFMPEG_BASE_URL:-https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1}"
@@ -18,7 +19,18 @@ install_static() {
     sha256sum --check --strict --quiet &&
     chmod +x "$bin_dir/ffmpeg" "$bin_dir/ffprobe" &&
     "$bin_dir/ffmpeg" -version >/dev/null &&
-    "$bin_dir/ffprobe" -version >/dev/null
+    "$bin_dir/ffprobe" -version >/dev/null &&
+    can_draw_text
+}
+
+# Some tests label videos with drawtext, which needs fontconfig to find a font.
+can_draw_text() {
+  local err
+  if ! err=$("$bin_dir/ffmpeg" -v error -f lavfi -i color=c=black:s=64x64:d=0.1 \
+    -vf drawtext=text=ok -f null - 2>&1); then
+    echo "Static ffmpeg can't draw text: $err"
+    return 1
+  fi
 }
 
 start=$(date +%s)
