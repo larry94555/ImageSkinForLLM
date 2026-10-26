@@ -56,7 +56,9 @@ PrepareVoice = Callable[[], None]
 PrepareFace = Callable[[Path, Progress], None]
 RenderClip = Callable[[Path, str, Path], None]  # photo, what to say, MP4 to write
 SpeakClip = Callable[[str, Path], None]  # what to say, WAV to write (its timings JSON beside it)
-RenderVideo = Callable[[Path, Path, Path], None]  # photo, the WAV spoken, MP4 to write
+# photo, the WAV spoken, MP4 to write; returns how far the mouth opened before the voice in
+# ms, when the engine measures it (roadmap R128)
+RenderVideo = Callable[[Path, Path, Path], float | None]
 RenderIdle = Callable[[Path, Path], None]  # photo, MP4 to write
 
 
@@ -899,7 +901,7 @@ def photoreal_steps(
             kept.update(photo=photo, video=video, lib=lib, frame=0)
         return kept["video"], kept["lib"]
 
-    def render(photo: Path, wav: Path, output: Path) -> None:
+    def render(photo: Path, wav: Path, output: Path) -> float | None:
         from imageskin.video import FPS
 
         video, lib = load(photo)
@@ -913,6 +915,8 @@ def photoreal_steps(
             face_movement=face_movement(),
         )
         kept["frame"] = start + max(1, round(seconds * FPS))  # the loop wraps it
+        lead: float | None = video.mouth_lead_ms
+        return lead
 
     def idle(photo: Path, output: Path) -> None:
         video, lib = load(photo)

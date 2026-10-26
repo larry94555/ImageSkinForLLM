@@ -39,6 +39,7 @@ from imageskin.expression import (
     push,
 )
 from imageskin.liveportrait_edits import EYE_STAGES, eye_track, top_two
+from imageskin.mouth_sync import mouth_lead_ms, mouth_weights
 from imageskin.photoreal_library import (
     CROP,
     Image,
@@ -55,7 +56,7 @@ from imageskin.photoreal_library import (
     to_gray,
 )
 from imageskin.video import FPS, VideoError, find_ffmpeg, read_pcm16, write_mp4
-from imageskin.visemes import ShapeTiming, frame_weights
+from imageskin.visemes import ShapeTiming
 
 logger = logging.getLogger(__name__)
 
@@ -286,6 +287,8 @@ class PhotorealEngine:
         self._timeout_s = timeout_s
         # By library and photo size: a library may be scaled down for reply clips (R22c).
         self._compositors: dict[tuple[Path, tuple[int, ...]], Compositor] = {}
+        # How far the last clip's mouth opened before its voice, in ms (roadmap R128).
+        self.mouth_lead_ms: float | None = None
 
     def prepare(self, photo: Path) -> Library:
         find_ffmpeg()  # fail now, not after a long setup
@@ -317,9 +320,11 @@ class PhotorealEngine:
         samples, rate = read_pcm16(wav)
         seconds = len(samples) / rate
         n_frames = max(1, round(seconds * FPS))
-        weights = frame_weights(read_shapes(wav.with_suffix(".json")), n_frames, FPS)
+        voice = np.asarray(samples, np.float32) / 32768.0
+        weights = mouth_weights(read_shapes(wav.with_suffix(".json")), voice, rate, n_frames, FPS)
+        self.mouth_lead_ms = mouth_lead_ms(weights, voice, rate, FPS)
         eyes = eye_track(n_frames, FPS, seed=audio_seed(samples))
-        moves = motion(np.asarray(samples, np.float32) / 32768.0, rate, n_frames, FPS)
+        moves = motion(voice, rate, n_frames, FPS)
         compositor = self._compositor(lib)
         cheek_start = time.perf_counter()
         cheeks = tracks(weights, moves.jaw, FPS, strength_of(face_movement))
@@ -346,6 +351,7 @@ class PhotorealEngine:
                 "output": str(output),
                 "frames": n_frames,
                 "video_s": round(seconds, 2),
+                "mouth_lead_ms": self.mouth_lead_ms,
                 "duration_ms": round(elapsed * 1000, 1),
                 # Below 1.0 means faster than real time.
                 "real_time_factor": round(elapsed / seconds, 2) if seconds else None,

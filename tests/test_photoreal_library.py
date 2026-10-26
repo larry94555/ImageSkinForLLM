@@ -173,6 +173,8 @@ def test_reply_clips_are_rendered_on_a_photo_no_larger_than_the_cap(
     rendered: list[tuple[int, ...]] = []
 
     class FakeEngine:
+        mouth_lead_ms = 20.0
+
         def __init__(self, home: Path) -> None:
             pass
 
@@ -195,7 +197,8 @@ def test_reply_clips_are_rendered_on_a_photo_no_larger_than_the_cap(
     monkeypatch.setattr("imageskin.photoreal.PhotorealEngine", FakeEngine)
     steps = photoreal_steps(tmp_path, None, max_side=100, progressive=True)  # type: ignore[arg-type]
     steps.render(tmp_path / "me.png", tmp_path / "1.wav", tmp_path / "1.mp4")
-    steps.render(tmp_path / "me.png", tmp_path / "2.wav", tmp_path / "2.mp4")  # the kept one
+    # The kept one; it hands on the engine's lead of the mouth over the voice (roadmap R128).
+    assert steps.render(tmp_path / "me.png", tmp_path / "2.wav", tmp_path / "2.mp4") == 20.0
     assert rendered == [(80, 100, True), (80, 100, True)] and (tmp_path / "2.mp4").exists()
 
 
@@ -209,6 +212,8 @@ def test_each_clip_starts_where_the_one_before_ended(
     idles: list[Path] = []
 
     class FakeEngine:
+        mouth_lead_ms = 20.0
+
         def __init__(self, home: Path) -> None:
             pass
 
@@ -253,6 +258,8 @@ def test_forgetting_drops_the_loaded_face(
     starts: list[int] = []
 
     class FakeEngine:
+        mouth_lead_ms = 20.0
+
         def __init__(self, home: Path) -> None:
             pass
 
