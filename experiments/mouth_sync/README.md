@@ -41,7 +41,8 @@ npm install --prefix $env:TEMP\pw playwright
 $env:NODE_PATH = "$env:TEMP\pw\node_modules"
 python experiments/mouth_sync/mouth_lead.py --media sync-media
 node experiments/mouth_sync/browser_sync.js sync-media chrome     # the installed Chrome
-node experiments/mouth_sync/browser_sync.js sync-media            # Playwright's own Chromium
+node experiments/mouth_sync/browser_sync.js sync-media            # or Playwright's own Chromium
+python experiments/mouth_sync/mouth_lead.py --browser sync-media  # the table, in sync-media/browser.md
 ```
 
 ## What it measures
@@ -64,11 +65,15 @@ after a pause of at least 150 ms:
 For Kokoro it also runs the forced aligner the cloned voice uses (R25) on Kokoro's own audio and
 compares its word starts with Kokoro's.
 
-In the browser, `browser_sync.js` plays MP4s with a white frame and a beep at the same moments,
-written with `write_mp4` as the app writes its clips, the way the chat plays them: the muted
-idle video first, then a whole MP4, then two progressive ones, each started by a hidden second
-player as the one before ends. It takes when each white frame is shown and when each beep is
-played, and gives the picture's lead over the sound.
+In the browser, `browser_sync.js` plays MP4s written with `write_mp4` as the app writes its
+clips, each with a white frame and a beep on its first frame and at 0.6, 1.6 and 2.6 s, the way
+the chat's ClipPlayer plays a reply: the muted idle video underneath; the first clip, progressive
+as reply clips are, faded in over it with the chat's 0.25 s opacity transition once it plays;
+then two more progressive clips and a whole one (as the sample and fixed lines are), each loaded
+in a hidden second player that is shown, then played, when the clip before ends. At each switch
+it compares the clip's first picture on screen (its first frame after it plays, or its player
+being shown, whichever is first) and the moment it is half faded in with its first sound; and at
+each white frame, when it is shown with when its beep is played.
 
 ## Results: cloud session, 2026-10-25
 
@@ -85,16 +90,27 @@ Chatterbox. Full tables: [results/](results/).
 | bf_emma | 14 | -265 to +75 ms | 0 | -115 to -10 ms (-55) | +85 to +100 ms (+85) |
 | Cloned (Chatterbox) | 23 | -120 to +160 ms | 5 | -168 to +71 ms (-27) | +57 to +110 ms (+81) |
 
-- **The MP4 adds nothing.** ffmpeg's AAC encoder starts the sound 43 ms (1024 samples) late in a
-  progressive MP4, but the frames move by the same 43 ms (all but the first, which shows for
-  83 ms), so sound and picture stay together; a whole MP4 moves neither. Measured 0 ms in every
-  clip of every voice.
-- **The browser adds about 30 ms.** In headless Chromium 153 the picture was 16 to 41 ms ahead of
-  the sound over five runs ([browser-cloud-2026-10-25.md](results/browser-cloud-2026-10-25.md)),
-  the same for a whole and a progressive MP4, for the first clip after the idle video and for
-  clips that follow one another. Chromium shows frames on its screen's beat (about 33 ms here),
-  so that is about the accuracy. The sound goes through Web Audio to be measured, and its own
-  42 ms output delay is left out, as the chat page doesn't use Web Audio.
+- **The MP4 adds nothing after its first frame.** ffmpeg's AAC encoder starts the sound 43 ms
+  (1024 samples) late in a progressive MP4, and every frame but the first moves by the same
+  43 ms, so they stay together; a whole MP4 moves neither. Measured 0 ms in every clip of every
+  voice. The progressive MP4's first frame stays at 0, so it shows 43 ms before the sound (for
+  83 ms). Every clip starts with 0.1 to 0.4 s of silence, so that frame always has the mouth at
+  rest: it puts no open mouth before the voice.
+- **The browser adds about 35 ms within a clip.** In headless Chromium 153, over five runs
+  ([browser-cloud-2026-10-25.md](results/browser-cloud-2026-10-25.md)), each white frame after
+  a clip's first showed 24 to 49 ms (once 13 ms) before its beep, the same in every clip and in
+  whole and progressive MP4s. Chromium shows frames on its screen's beat (about 33 ms here), so
+  that is about the accuracy. The sound goes through Web Audio to be measured, and its own 42 ms
+  output delay is left out, as the chat page doesn't use Web Audio.
+- **The switch from the idle video adds nothing.** The first clip of a reply is out of sight
+  until it plays and then fades in: its first frame came -9 to +7 ms from its first sound, and
+  it was half faded in -10 to +1 ms from it, so the sound comes with the picture.
+- **The switch between clips shows the next clip's first frame early, at rest.** The loaded next
+  player shows its first frame as soon as it takes over, and it played 85 to 91 ms before its
+  first sound for a progressive clip (the browser's ~40 ms and the progressive MP4's 43 ms first
+  frame) and 42 to 45 ms for a whole one. That first frame has the mouth at rest (each clip
+  starts with silence), so it is not a mouth lead; the frames after it are back to the
+  browser's ~35 ms.
 - **The frames open the mouth 60 to 120 ms before the first sound.** Wherever the mouth opens first,
   the Frames part is 57 to 120 ms, with a median of 81 to 90 ms in each voice: `frame_weights`' 30 ms lead, the 60 ms blend starting the
   opening early (a tenth open is reached about 50 ms before the sound), and frames sampled at
@@ -125,9 +141,9 @@ In the file, all five are the cloned voice's:
 | sample | three | 160 ms | +71 ms | +89 ms | the aligner 71 ms early ("th" is quiet), and the frames |
 | sample | did | 110 ms | +18 ms | +92 ms | the frames' early opening |
 
-In the browser, add about 30 ms to every lead: that puts Kokoro's largest leads over 80 ms too
-(bf_emma's sample at 75 ms becomes about 105 ms, am_michael's at 60 ms about 90 ms, af_heart's
-50 to 55 ms leads about 80 to 85 ms).
+In the browser, add about 35 ms to every lead within a clip: that puts Kokoro's largest leads
+over 80 ms too (bf_emma's sample at 75 ms becomes about 110 ms, am_michael's at 60 ms about
+95 ms, af_heart's 50 to 55 ms leads about 85 to 90 ms).
 
 ## What R128 should change
 
@@ -135,7 +151,7 @@ In the browser, add about 30 ms to every lead: that puts Kokoro's largest leads 
    (drop the 30 ms lead and the blend's early start where the mouth opens from rest, and
    sample each frame where it starts to show), keeping the blend between sounds as it is. This
    takes 60 to 120 ms off every opening.
-2. **The browser's ~30 ms:** small, the same everywhere, and less than a frame's accuracy here;
+2. **The browser's ~35 ms:** small, the same in every clip, and about a frame's accuracy here;
    measure it on Larry's laptop and the hosted machine with real sound (below) before allowing
    for it.
 3. **The cloned voice's timings:** after the first change, the aligner's early starts (up to

@@ -1,7 +1,7 @@
 """R127: where the mouth runs ahead of the voice. An experiment, not part of the app.
 
     python experiments/mouth_sync/mouth_lead.py [--voice af_heart] [--lang a]
-        [--clone WAV [--pocket]] [-o mouth-lead] [--media FOLDER]
+        [--clone WAV [--pocket]] [-o mouth-lead] [--media FOLDER] [--browser FOLDER]
 
 For each clip the app makes (three reply sentences, "Goodbye.", "Welcome back." and the sample
 video's script) it speaks the text with the app's own voice engine, writes the WAV and timings
@@ -24,7 +24,8 @@ gives how much later the sound is in the file than in the WAV. For Kokoro, the f
 cloned voice uses (R25) is run on Kokoro's audio, and its word starts compared with Kokoro's own.
 
 --media writes the browser test's MP4s (a white frame and a beep at the same moments, whole and
-progressive) to FOLDER, for browser_sync.js. The tables go to <out>/mouth-lead-<voice>.md and
+progressive) to FOLDER, for browser_sync.js; --browser reads what browser_sync.js recorded there
+and writes its table to FOLDER/browser.md. The tables go to <out>/mouth-lead-<voice>.md and
 .json.
 """
 
@@ -452,7 +453,8 @@ def write_results(out: Path, voice: str, results: Sequence[ClipResult]) -> Path:
 
 
 # The browser test's media: a white frame and a 1 kHz beep at the same moments.
-MARKS_S = (0.6, 1.6, 2.6)  # on whole frames at 25 fps
+# On whole frames at 25 fps; the first on the clip's first frame, for the switch to the clip.
+MARKS_S = (0.0, 0.6, 1.6, 2.6)
 MEDIA_SECONDS = 3.0
 MEDIA_RATE = 24000
 
@@ -491,6 +493,82 @@ def sync_media(folder: Path) -> list[Path]:
     return out + [idle]
 
 
+@dataclass(frozen=True)
+class BrowserClip:
+    """One clip as the browser played it; ms, positive when the picture is ahead of the sound."""
+
+    n: int
+    file: str
+    first_picture_ms: float | None  # the clip's first frame on screen, against its first sound
+    half_visible_ms: float | None  # the clip half faded in, against its first sound
+    marks_ms: list[float | None]  # each white frame shown, against its beep
+
+
+def _median(values: Sequence[float]) -> float:
+    return float(np.median(values))
+
+
+def browser_clips(raw: dict[str, Any], whites: dict[str, list[float]]) -> list[BrowserClip]:
+    """What browser_sync.js recorded, per clip. The frames are shown on the screen's beat, so a
+    clip's picture clock is the median of (shown - media time) over its frames, and each white
+    frame shows at clock + its time in the file. The clip's first picture is the earlier of its
+    first frame shown and its player being shown (a loaded next clip shows its first frame as
+    soon as it takes over, before it plays). Frames shown before the clip played don't count: the
+    first clip is loaded out of sight and fades in once it plays. Its first sound is its first
+    beep, on that frame."""
+    out = []
+    for n, file in enumerate(raw["clips"]):
+        frames = [f for f in raw["frames"] if f["clip"] == n]
+        beeps = sorted(s["played"] for s in raw["sounds"] if s["clip"] == n)
+        marks: list[float | None] = []
+        first_picture = half = None
+        if frames:
+            clock = _median([f["shown"] - f["media"] * 1000 for f in frames])
+            for i, white in enumerate(whites[file]):
+                beep = beeps[i] if i < len(beeps) else None
+                marks.append(None if beep is None else round(beep - (clock + white * 1000)))
+            played = [p["at"] for p in raw.get("playing", []) if p["clip"] == n]
+            after = [f["shown"] for f in frames if not played or f["shown"] >= played[0]]
+            starts = after[:1] + [s["at"] for s in raw.get("shown", []) if s["clip"] == n]
+            if beeps and starts:
+                first_picture = round(beeps[0] - min(starts))
+        seen = [v["at"] for v in raw.get("visible", []) if v["clip"] == n]
+        if seen and beeps:
+            half = round(beeps[0] - seen[0])
+        out.append(BrowserClip(n + 1, file, first_picture, half, marks))
+    return out
+
+
+def browser_markdown(raw: dict[str, Any], clips: Sequence[BrowserClip]) -> str:
+    marks = " | ".join(f"White frame at {m:g} s" for m in MARKS_S)
+    lines = [
+        f"Browser: {raw.get('browser', '?')}; Web Audio's output delay "
+        f"{raw.get('latency', 0) * 1000:.0f} ms (not in the leads). Positive: the picture is "
+        "ahead of the sound.",
+        "",
+        "| Clip | Switch | First picture vs first sound | Half faded in vs first sound "
+        f"| {marks} |",
+        "|---|---|---|---|" + "---|" * len(MARKS_S),
+    ]
+    for c in clips:
+        switch = "idle video to the reply" if c.n == 1 else "from the clip before"
+        lines.append(
+            f"| {c.n} ({c.file}) | {switch} | {_cell(c.first_picture_ms)} ms "
+            f"| {_cell(c.half_visible_ms)} ms | "
+            + " | ".join(f"{_cell(v)} ms" for v in c.marks_ms)
+            + " |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def browser_table(folder: Path) -> Path:
+    raw = json.loads((folder / "browser-raw.json").read_text(encoding="utf-8"))
+    whites = json.loads((folder / "marks.json").read_text(encoding="utf-8"))
+    out = folder / "browser.md"
+    out.write_text(browser_markdown(raw, browser_clips(raw, whites)), encoding="utf-8")
+    return out
+
+
 def kokoro_speaker(voice: str, lang: str) -> Callable[[str], Speech]:
     from imageskin.kokoro_engine import kokoro_for
 
@@ -524,11 +602,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--no-aligner", action="store_true", help="skip the aligner check (Kokoro)")
     p.add_argument("-o", "--out", type=Path, default=Path("mouth-lead"))
     p.add_argument("--media", type=Path, help="write the browser test's MP4s to this folder")
+    p.add_argument("--browser", type=Path, help="make the table of browser_sync.js's run there")
     args = p.parse_args(argv)
     setup_logging()
     if args.media:
         for path in sync_media(args.media):
             print(path)
+        return 0
+    if args.browser:
+        table = browser_table(args.browser)
+        logger.info("Browser table written", extra={"output": str(table)})
+        print(table.read_text(encoding="utf-8"))
         return 0
     start = time.perf_counter()
     if args.clone:

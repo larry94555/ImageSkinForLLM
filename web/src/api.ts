@@ -847,7 +847,13 @@ export interface UiSettings {
   // Whether prompts the content doesn't cover are answered (R41); the config file's setting
   // until changed on the Settings page (R27).
   general_prompts: boolean;
+  // How much the cheeks and the face around the mouth move with it while the person speaks
+  // (R128a); "off" leaves only the lips and jaw moving.
+  face_movement: FaceMovement;
 }
+
+export type FaceMovement = "off" | "slight" | "normal";
+const FACE_MOVEMENTS: FaceMovement[] = ["off", "slight", "normal"];
 
 export const DEFAULT_SETTINGS: UiSettings = {
   show_metrics: false,
@@ -857,6 +863,7 @@ export const DEFAULT_SETTINGS: UiSettings = {
   assessment: false,
   debug: false,
   general_prompts: false,
+  face_movement: "normal",
 };
 
 // Any value the server didn't send as one the setting can take is the default.
@@ -869,6 +876,9 @@ function settings(data: Partial<UiSettings>): UiSettings {
     assessment: data.assessment === true,
     debug: data.debug === true,
     general_prompts: data.general_prompts === true,
+    face_movement: FACE_MOVEMENTS.includes(data.face_movement as FaceMovement)
+      ? (data.face_movement as FaceMovement)
+      : "normal",
   };
 }
 

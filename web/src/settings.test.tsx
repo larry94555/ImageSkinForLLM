@@ -64,6 +64,8 @@ test("the page groups the settings and shows each one as saved", async () => {
     "Video and conversation",
     "Your data",
   ]);
+  // Face movement is on the Setup page, beside Prepare, since it needs preparing again (R128a).
+  expect(screen.queryByRole("radio", { name: "Slight" })).toBeNull();
   const chat = within(screen.getByRole("region", { name: "Chat" }));
   const checked = (name: string) => (chat.getByRole("checkbox", { name }) as HTMLInputElement).checked;
   expect(checked("Answer questions outside the content")).toBe(true);

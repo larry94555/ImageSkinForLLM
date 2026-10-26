@@ -1,24 +1,37 @@
-// R127 in the browser: does a clip's picture show before its sound plays?
+// R127 in the browser: does a clip's picture show before its sound plays, at the switch from
+// the idle video to a reply, between clips, and within a clip?
 //
 //   python experiments/mouth_sync/mouth_lead.py --media sync-media
 //   node experiments/mouth_sync/browser_sync.js sync-media [chrome-channel]
+//   python experiments/mouth_sync/mouth_lead.py --browser sync-media
 //
-// The media have a white frame and a beep at the same moments (MARKS_S in mouth_lead.py). The
-// page plays them as the chat does (ClipPlayer in web/src/pages.tsx): the muted idle video
-// first, then the clips one after another, each next one loaded in a hidden second player that
-// takes over when the one before ends. For each mark it takes when the browser shows the white
-// frame (requestVideoFrameCallback's expected display time) and when the beep is played (an
-// AudioWorklet on the clip's sound, mapped to the page's clock with getOutputTimestamp), and
-// prints the lead of the picture over the sound. The sound goes through Web Audio here, so its
-// output delay is Web Audio's, which Chromium reports and is added in.
+// The media have a white frame and a beep at the same moments (MARKS_S in mouth_lead.py), the
+// first on the clip's first frame. The page plays them the way the chat's ClipPlayer
+// (web/src/pages.tsx) plays a reply: the muted idle video underneath, the first clip (a
+// progressive MP4, as reply clips are) faded in over it with the chat's own 0.25 s opacity
+// transition once it plays, and each next clip loaded in a hidden second player that is shown,
+// then played, when the one before ends. A whole MP4 (the sample and the fixed lines) is played
+// last, the same way.
+//
+// It records, on the page's clock: each frame the browser shows (requestVideoFrameCallback's
+// media time and expected display time), when each clip starts playing, when each hidden player
+// is shown, when each clip's
+// opacity first reaches half, and when each beep is played (an AudioWorklet on the clip's
+// sound, mapped with getOutputTimestamp). The raw times go to browser-raw.json in the media
+// folder, and `mouth_lead.py --browser` turns them into the table. The sound goes through Web
+// Audio to be measured; its own output delay, which the chat page doesn't have, is saved apart.
 
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { chromium } = require("playwright");
 
-const MARKS_S = [0.6, 1.6, 2.6];
-const CLIPS = ["marks-whole.mp4", "marks-progressive.mp4", "marks-progressive.mp4"];
+const CLIPS = [
+  "marks-progressive.mp4",
+  "marks-progressive.mp4",
+  "marks-progressive.mp4",
+  "marks-whole.mp4",
+];
 
 const WORKLET = `
 class Onset extends AudioWorkletProcessor {
@@ -38,19 +51,30 @@ class Onset extends AudioWorkletProcessor {
 }
 registerProcessor("onset", Onset);`;
 
-const PAGE = `<!doctype html><meta charset="utf-8"><body style="background:#000">
-<video id="idle" src="idle.mp4" muted loop autoplay playsinline></video>
-<video id="a" playsinline></video><video id="b" playsinline preload="auto" hidden></video>
+// The stage and the two players, styled as web/src/styles.css styles them.
+const PAGE = `<!doctype html><meta charset="utf-8">
+<style>
+  body { margin: 0; background: #000; }
+  .stage { position: relative; width: 256px; height: 256px; }
+  .reply-video, .idle-video { position: absolute; inset: 0; width: 100%; height: 100%;
+    transition: opacity 0.25s ease; }
+  .reply-video.resting { opacity: 0; }
+</style>
+<div class="stage">
+  <video class="idle-video" src="idle.mp4" muted loop autoplay playsinline></video>
+  <video id="a" class="reply-video resting" playsinline></video>
+  <video id="b" class="reply-video" playsinline preload="auto" hidden></video>
+</div>
 <script>
-const MARKS = ${JSON.stringify(MARKS_S)}, CLIPS = ${JSON.stringify(CLIPS)}, FPS = 25;
+const CLIPS = ${JSON.stringify(CLIPS)};
 window.result = null;
 async function run() {
   const ctx = new AudioContext();
   await ctx.audioWorklet.addModule("onset.js");
-  const players = [document.getElementById("a"), document.getElementById("b")];
-  const pictures = [], sounds = [];
-  let clip = 0;
-  for (const p of players) {
+  const [a, b] = [document.getElementById("a"), document.getElementById("b")];
+  const frames = [], sounds = [], shown = [], visible = [], playing = [];
+  let clip = 0, active = a;
+  for (const p of [a, b]) {
     const node = new AudioWorkletNode(ctx, "onset");
     ctx.createMediaElementSource(p).connect(node);
     node.connect(ctx.destination);
@@ -59,31 +83,48 @@ async function run() {
       sounds.push({ clip, played: ts.performanceTime + (e.data - ts.contextTime) * 1000 });
     };
     const frame = (now, md) => {
-      pictures.push({ clip, media: md.mediaTime, shown: md.expectedDisplayTime, now });
+      if (p === active) frames.push({ clip, media: md.mediaTime, shown: md.expectedDisplayTime });
       p.requestVideoFrameCallback(frame);
     };
     p.requestVideoFrameCallback(frame);
+    p.addEventListener("playing", () => playing.push({ clip, at: performance.now() }));
   }
-  await new Promise((r) => setTimeout(r, 1000)); // the idle video plays first
-  const [a, b] = players;
-  a.src = CLIPS[0];
-  let active = a;
-  const next = () => {
+  // When each clip is first at least half visible, checked on every screen update.
+  let seen = -1;
+  const watch = (t) => {
+    if (seen < clip && !active.hidden && parseFloat(getComputedStyle(active).opacity) >= 0.5) {
+      seen = clip;
+      visible.push({ clip, at: t });
+    }
+    if (window.result === null) requestAnimationFrame(watch);
+  };
+  requestAnimationFrame(watch);
+  a.addEventListener("playing", () => a.classList.remove("resting"), { once: true });
+  const ended = () => {
     clip += 1;
     if (clip >= CLIPS.length) {
-      setTimeout(() => { window.result = { pictures, sounds, latency: (ctx.outputLatency || 0) + ctx.baseLatency }; }, 500);
+      setTimeout(() => {
+        window.result = { frames, sounds, shown, visible, playing, clips: CLIPS,
+                          latency: (ctx.outputLatency || 0) + ctx.baseLatency };
+      }, 500);
       return;
     }
-    const other = active === a ? b : a;
-    other.hidden = false; active.hidden = true;
-    active = other;
+    // As ClipPlayer: the loaded player takes over, shown at once, and is then played.
+    const next = active === a ? b : a;
+    next.hidden = false;
+    shown.push({ clip, at: performance.now() });
+    active.hidden = true;
+    active = next;
     active.play();
     const after = active === a ? b : a;
     if (clip + 1 < CLIPS.length) after.src = CLIPS[clip + 1];
   };
-  a.onended = next; b.onended = next;
+  a.onended = ended;
+  b.onended = ended;
+  a.src = CLIPS[0];
   b.src = CLIPS[1];
   await ctx.resume();
+  await new Promise((r) => setTimeout(r, 1000)); // the idle video plays first
   await a.play();
 }
 run().catch((e) => { window.result = { error: String(e) }; });
@@ -96,13 +137,17 @@ async function main() {
   const types = { ".html": "text/html", ".js": "text/javascript", ".mp4": "video/mp4" };
   const server = http
     .createServer((req, res) => {
-      const file = path.join(folder, decodeURIComponent(req.url.split("?")[0]).replace(/^\/+/, "") || "index.html");
-      if (!fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
+      const name = decodeURIComponent(req.url.split("?")[0]).replace(/^\/+/, "") || "index.html";
+      const file = path.join(folder, name);
+      if (!fs.existsSync(file)) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
       res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream" });
       fs.createReadStream(file).pipe(res);
     })
     .listen(0);
-  const port = server.address().port;
   const channel = process.argv[3];
   const browser = await chromium.launch({
     channel,
@@ -110,47 +155,19 @@ async function main() {
   });
   const page = await browser.newPage();
   page.on("console", (m) => console.error("page:", m.text()));
-  await page.goto(`http://127.0.0.1:${port}/index.html`);
+  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
   await page.waitForFunction(() => window.result !== null, null, { timeout: 30000 });
   const r = await page.evaluate(() => window.result);
-  const version = `Chromium ${browser.version()}${channel ? ` (${channel})` : ""}`;
-  if (process.env.DUMP) fs.writeFileSync(process.env.DUMP, JSON.stringify(r));
+  r.browser = `Chromium ${browser.version()}${channel ? ` (${channel})` : ""}`;
   await browser.close();
   server.close();
   if (r.error) throw new Error(r.error);
-  r.whites = JSON.parse(fs.readFileSync(path.join(folder, "marks.json"), "utf-8"));
-  console.log(leadTable(r, version));
+  const out = path.join(folder, "browser-raw.json");
+  fs.writeFileSync(out, JSON.stringify(r, null, 1));
+  console.log(`${r.browser}: ${r.frames.length} frames, ${r.sounds.length} beeps; wrote ${out}`);
 }
 
-const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
-
-// The lead of the picture over the sound at each mark. Frames are shown on the screen's beat, so
-// each clip's picture clock is the median of (shown - media time) over its frames; the white
-// frame shows at its time in the file (marks.json, from ffprobe: in a progressive MP4 every frame
-// after the first is a little later than frame / 25). Web Audio's own output delay, which a page that doesn't route the sound through it
-// doesn't have, is given apart.
-function leadTable(r, browser) {
-  const lines = [
-    `Browser: ${browser}; Web Audio's output delay ${(r.latency * 1000).toFixed(0)} ms (not in the leads)`,
-    "",
-    "| Clip | Mark | Picture ahead of sound |",
-    "|---|---|---|",
-  ];
-  for (let c = 0; c < CLIPS.length; c++) {
-    const frames = r.pictures.filter((p) => p.clip === c);
-    const beeps = r.sounds.filter((s) => s.clip === c).map((s) => s.played);
-    if (!frames.length) continue;
-    const clock = median(frames.map((p) => p.shown - p.media * 1000));
-    MARKS_S.forEach((m, i) => {
-      const shown = clock + r.whites[CLIPS[c]][i] * 1000;
-      const lead = beeps[i] === undefined ? "no beep" : `${(beeps[i] - shown).toFixed(0)} ms`;
-      lines.push(`| ${c + 1} (${CLIPS[c]}) | ${m} s | ${lead} |`);
-    });
-  }
-  return lines.join("\n");
-}
-
-if (require.main === module) {
-  main().catch((e) => { console.error(e); process.exit(1); });
-}
-module.exports = { leadTable };
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

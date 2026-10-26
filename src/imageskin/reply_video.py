@@ -13,6 +13,7 @@ import hashlib
 import logging
 import os
 import queue
+import shutil
 import tempfile
 import threading
 import time
@@ -132,6 +133,9 @@ class SentenceClips:
         self._closed = False
         self.done = False  # every clip is rendered, or rendering stopped
         self._changed = threading.Condition()  # a clip was added, a clip failed or it is done
+        # Given the clips once every one is rendered and none failed or was stopped, before they
+        # can be removed (roadmap R130a). Set before close().
+        self.on_complete: Callable[[list[Path]], None] | None = None
 
     def __call__(self, sentence: str | None) -> None:
         if sentence is None:  # the LLM has started writing
@@ -142,6 +146,21 @@ class SentenceClips:
             self._thread = threading.Thread(target=self._run, name="sentence-clips", daemon=True)
             self._thread.start()
         self._queue.put((sentence, time.perf_counter()))
+
+    def replay(self, kept: list[Path]) -> None:
+        """Give the reply clips made before (roadmap R130a): copied in and listed whole at once,
+        so the browser plays them as it would ones just rendered."""
+        self.folder.mkdir(parents=True, exist_ok=True)
+        now = time.perf_counter()
+        with self._changed:
+            for n, clip in enumerate(kept, 1):
+                path = self.folder / f"{n}.mp4"
+                shutil.copyfile(clip, path)
+                self.clips.append(path)
+                self.times.append(ClipTime(now, now, now))
+                self.whole_at.append(now)
+            self.rendered = self.sentences = self._handled = len(kept)
+            self._changed.notify_all()
 
     def close(self) -> None:
         """The reply is complete: the clips' thread ends after the last sentence, so it never
@@ -209,6 +228,11 @@ class SentenceClips:
                 n += 1
                 self._make(n, *item)
                 self._handled += 1
+            if self.on_complete is not None and not self._stopped() and self.clips:
+                try:
+                    self.on_complete(list(self.clips))
+                except Exception:
+                    logger.exception("Could not hand on a reply's clips")
         self._finish()
 
     def voice_waiting(self) -> bool:
@@ -413,10 +437,10 @@ class ReplyVideos:
 
     def idle(self, photo: Path) -> Path | None:
         """The idle video for the photo (roadmap R23), once the warm-up has made it."""
-        path = self.folder / "idle" / f"{self._idle_name(photo)}.mp4"
+        path = self.folder / "idle" / f"{self.idle_name(photo)}.mp4"
         return path if path.is_file() else None
 
-    def _idle_name(self, photo: Path) -> str:
+    def idle_name(self, photo: Path) -> str:
         """The photo's name and the start of its SHA-256: a photo replaced under the same name,
         as a default person remade in R24b4, gets an idle video of its new face, even while
         the old one is open in a browser and can't be removed (Codex's review of PR #165)."""
@@ -441,7 +465,7 @@ class ReplyVideos:
             return
         start = time.perf_counter()
         folder = self.folder / "idle"
-        name = self._idle_name(photo)
+        name = self.idle_name(photo)
         path = folder / f"{name}.mp4"
         rendering = folder / f"{name}.rendering.mp4"
         try:
