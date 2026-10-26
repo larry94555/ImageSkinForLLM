@@ -386,3 +386,27 @@ def test_a_title_with_a_comma_may_be_cut_at_it() -> None:
         "I can talk about War,",
         "Peace and Politics and Rain.",
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # Larry's test of PR #178: the first clip ended on "Trump’s", which the cloned voice said
+        # as "Trump-s".
+        (
+            "The article suggests that Trump’s “America First” approach isn’t really realism.",
+            [
+                "The article suggests",
+                "that Trump’s “America First” approach isn’t really realism.",
+            ],
+        ),
+        (
+            "We looked at all the students' marks today and more.",
+            ["We looked at all", "the students' marks today and more."],
+        ),
+        ("The teacher says it's fine to go now.", ["The teacher says it's fine", "to go now."]),
+    ],
+)
+@pytest.mark.parametrize("step", [1, 3, 1000])
+def test_a_clip_never_ends_on_a_possessive(text: str, expected: list[str], step: int) -> None:
+    assert clauses(text, step) == expected

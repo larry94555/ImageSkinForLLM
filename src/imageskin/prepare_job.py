@@ -28,6 +28,7 @@ from imageskin.download import sha256_of
 from imageskin.failure import Failure, report
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
 from imageskin.sample import SAMPLE_SCRIPT
+from imageskin.ui_settings import DEFAULTS, load_ui_settings
 from imageskin.uploads import UploadStore
 from imageskin.video import INSTALL_HINT, VideoError, find_ffmpeg
 from imageskin.voice import VoiceEngine, VoiceError, write_speech
@@ -55,7 +56,9 @@ PrepareVoice = Callable[[], None]
 PrepareFace = Callable[[Path, Progress], None]
 RenderClip = Callable[[Path, str, Path], None]  # photo, what to say, MP4 to write
 SpeakClip = Callable[[str, Path], None]  # what to say, WAV to write (its timings JSON beside it)
-RenderVideo = Callable[[Path, Path, Path], None]  # photo, the WAV spoken, MP4 to write
+# photo, the WAV spoken, MP4 to write; returns how far the mouth opened before the voice in
+# ms, when the engine measures it (roadmap R128)
+RenderVideo = Callable[[Path, Path, Path], float | None]
 RenderIdle = Callable[[Path, Path], None]  # photo, MP4 to write
 
 
@@ -156,6 +159,12 @@ class Step:
     slow: bool = False  # nothing new for longer than twice its usual time
 
 
+# A job saved before R128a has no face movement: its clips were made with none, as with "off".
+# So once the default Normal is chosen, it is prepared and reviewed again before replies move
+# the cheeks (review on PR #174).
+BEFORE_R128A = "off"
+
+
 @dataclass(frozen=True)
 class PrepareStatus:
     state: State
@@ -172,6 +181,9 @@ class PrepareStatus:
     left_s: int | None = None  # while it runs: about how many seconds the whole prepare has left
     # Running, but the app is no longer working on it (its thread has gone): Try again carries on.
     stopped: bool = False
+    # The face movement while speaking the clips are made with (R128a), from the Setup page when
+    # the job ran; None if saved before R128a.
+    face_movement: str | None = None
 
 
 def fresh_steps() -> list[Step]:
@@ -299,7 +311,21 @@ class PrepareJob:
                 return PrepareStatus("idle")
             if status.voice_id != self.voice_id():
                 return PrepareStatus("idle")
+            # Another face movement chosen (R128a): the sample shows the old one, so it is
+            # prepared and reviewed again before replies use the new one. A job saved before
+            # R128a was made with none, as Off is (review on PR #174).
+            if (status.face_movement or BEFORE_R128A) != self.face_movement():
+                return PrepareStatus("idle")
         return status
+
+    def face_movement(self) -> str:
+        """The face movement chosen on the Setup page now."""
+        return load_ui_settings(self._file.parent).face_movement
+
+    def prepared_face_movement(self) -> str:
+        """The face movement the clips of this job are made with: the one chosen when it ran,
+        not a change made since, so a job's clips and the replies after them all move alike."""
+        return self._status.face_movement or BEFORE_R128A
 
     def peek(self) -> PrepareStatus:
         """status() without the job's lock, for the replies' voice (R24d): a reply holds the
@@ -640,6 +666,16 @@ class PrepareJob:
                     logger.info(message, extra={"clips": removed})
                 self._status = replace(self._status, voice_id=voice_id)
                 self._save()
+            # Likewise a job resumed after another face movement was chosen (R128a), or saved
+            # before it was tracked: no clip set mixes two.
+            movement = self.face_movement()
+            if self._status.face_movement != movement:
+                removed = self._remove_clips()
+                if removed:
+                    message = "Face movement changed; rendering the clips again"
+                    logger.info(message, extra={"clips": removed, "face_movement": movement})
+                self._status = replace(self._status, face_movement=movement)
+                self._save()
         try:
             photo = self._photo(photo_id)
             if photo is None:
@@ -837,6 +873,9 @@ def photoreal_steps(
     voice: str = DEFAULT_VOICE,
     max_side: int | None = None,  # the clip's longest side, when the photo is to be scaled down
     progressive: bool = False,  # an MP4 that can be played while it is written (roadmap R22d)
+    # The face movement to render with (R128a): the prepare job's, so a change on the Setup
+    # page shows only after preparing again.
+    face_movement: Callable[[], str] = lambda: DEFAULTS.face_movement,
 ) -> ClipSteps:
     """Speak the text in the voice; render the speech from the photo's photoreal library.
 
@@ -862,13 +901,22 @@ def photoreal_steps(
             kept.update(photo=photo, video=video, lib=lib, frame=0)
         return kept["video"], kept["lib"]
 
-    def render(photo: Path, wav: Path, output: Path) -> None:
+    def render(photo: Path, wav: Path, output: Path) -> float | None:
         from imageskin.video import FPS
 
         video, lib = load(photo)
         start = kept["frame"]
-        seconds = video.render(lib, wav, output, progressive=progressive, start_frame=start)
+        seconds = video.render(
+            lib,
+            wav,
+            output,
+            progressive=progressive,
+            start_frame=start,
+            face_movement=face_movement(),
+        )
         kept["frame"] = start + max(1, round(seconds * FPS))  # the loop wraps it
+        lead: float | None = video.mouth_lead_ms
+        return lead
 
     def idle(photo: Path, output: Path) -> None:
         video, lib = load(photo)

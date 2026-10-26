@@ -188,13 +188,17 @@ class Motion:
 
 
 class FrameMotion(NamedTuple):
-    """The motion in one frame, in the units of `Motion`."""
+    """The motion in one frame, in the units of `Motion`, and the cheeks' lift, draw and
+    stretch (px, from `imageskin.cheeks`)."""
 
     jaw: float = 0.0
     brow: float = 0.0
     nod: float = 0.0
     tilt: float = 0.0
     sway: float = 0.0
+    lift: float = 0.0
+    draw: float = 0.0
+    stretch: float = 0.0
 
 
 STILL = FrameMotion()

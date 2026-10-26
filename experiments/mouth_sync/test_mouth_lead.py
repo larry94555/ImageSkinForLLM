@@ -69,8 +69,9 @@ def test_voice_onsets_are_the_start_and_each_start_after_a_pause() -> None:
 def test_mouth_opens_on_the_first_open_frame_after_a_closed_one() -> None:
     track = [0.0] * 5 + [0.05, 0.2, 0.5] + [0.0] * 4
     assert mouth_opens(track, FPS, 0.0, 0.3) == pytest.approx(6 / FPS)
-    # It must have closed in the pause: open from the start, it never "opens".
-    assert mouth_opens([0.5] * 20, FPS, 0.0, 0.2) is None
+    # Open through the whole silence, it opened when the silence began (Codex's review).
+    assert mouth_opens([0.5] * 20, FPS, 0.0, 0.2) == 0.0  # open through the silence
+    assert mouth_opens([0.0] * 20, FPS, 0.0, 0.2) is None  # never opens
 
 
 def test_first_sound_is_the_one_nearest_the_voice_after_the_pause() -> None:
@@ -127,9 +128,9 @@ def test_measure_clip_finds_the_lead_at_the_start(
     assert r.start is not None
     assert r.start.heard == pytest.approx(0.4, abs=0.006)
     assert r.start.sound == 0.4
-    # frame_weights' 30 ms lead and 60 ms blend open the mouth a few frames early.
-    assert r.start.opens is not None and 0.2 <= r.start.opens < 0.4
-    assert r.start.lead_ms is not None and 0 < r.start.lead_ms < 200
+    # Since R128 the mouth opens on the first frame that starts with the voice, not before it.
+    assert r.start.opens == pytest.approx(0.4)
+    assert r.start.lead_ms is not None and -40 < r.start.lead_ms <= 0
     assert "Measured clip" in caplog.text
 
 
