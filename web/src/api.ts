@@ -222,6 +222,7 @@ export interface PrepareStatus {
   finished_at: string | null;
   left_s?: number | null; // while it runs: about how long the whole prepare has left
   stopped?: boolean; // running, but the app is no longer working on it: Try again carries on
+  cancelling?: boolean; // Cancel was confirmed: it stops once the part it is on is done (R134c)
 }
 
 // A video the prepare job rendered (roadmap R13). The finish time is added so that the browser
@@ -330,6 +331,14 @@ export async function chooseReadyVoice(voice: string): Promise<ReadyVoice> {
 // Starts the job, or reports on it while it runs. Throws an Error saying what is missing.
 export async function startPrepare(): Promise<PrepareStatus> {
   const response = await fetch("/api/prepare", { method: "POST" });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as PrepareStatus;
+}
+
+// Stops the running job (roadmap R134c), once the user confirmed it. It stops once the part it
+// is on is finished, so the answer may still be running, with cancelling set.
+export async function cancelPrepare(): Promise<PrepareStatus> {
+  const response = await fetch("/api/prepare/cancel", { method: "POST" });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as PrepareStatus;
 }

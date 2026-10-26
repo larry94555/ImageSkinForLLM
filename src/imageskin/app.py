@@ -1119,6 +1119,11 @@ def create_app(
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
 
+    @app.post("/api/prepare/cancel", dependencies=needs_consent)
+    def cancel_prepare() -> PrepareStatus:
+        """Stop preparing (roadmap R134c), once the user confirmed it on the page."""
+        return job.cancel()
+
     @app.get("/api/accent", dependencies=needs_consent)
     def get_accent() -> AccentChoice:
         # Without the person's own voice, Kokoro speaks in its own accent, so that is the one shown.

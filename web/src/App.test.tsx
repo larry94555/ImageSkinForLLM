@@ -1130,6 +1130,70 @@ test("a job the app is no longer working on says so and can be tried again (R134
   expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
 });
 
+// prepareServer with Cancel (R134c): POST /api/prepare/cancel answers with `answer`, and the
+// reads after it come from `after`.
+function cancelServer(answer: PrepareStatus | Response, after: PrepareStatus[]) {
+  const reads: PrepareStatus[] = [{ ...RUNNING, left_s: 600 }];
+  const inner = prepareServer(reads);
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/prepare/cancel") {
+      reads.splice(0, reads.length, ...after);
+      return answer instanceof Response ? answer : Response.json(answer);
+    }
+    return inner(url, init);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("Cancel asks first, and Keep preparing carries on (R134c)", async () => {
+  const fetchMock = cancelServer(IDLE, [IDLE]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  const box = within(screen.getByRole("alertdialog", { name: "Stop preparing the video?" }));
+  expect(box.getByText(/Preparing is 31% done\. About 10 min 0 s is left\./)).toBeTruthy();
+  // Keep preparing has the focus, so Enter or Escape never stops it by mistake.
+  expect(document.activeElement).toBe(box.getByRole("button", { name: "Keep preparing" }));
+  fireEvent.click(box.getByRole("button", { name: "Keep preparing" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.getByText(/Preparing… 31% done/)).toBeTruthy();
+  expect(fetchMock.mock.calls.some(([url]) => url === "/api/prepare/cancel")).toBe(false);
+});
+
+test("Stop preparing stops the job and Prepare can start it again (R134c)", async () => {
+  const fetchMock = cancelServer({ ...RUNNING, cancelling: true }, [{ ...RUNNING, cancelling: true }, IDLE]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stop preparing" }));
+  // Until the part it is on is done, it says it is stopping.
+  const stopping = (await screen.findByRole("button", { name: "Stopping…" })) as HTMLButtonElement;
+  expect(stopping.disabled).toBe(true);
+  expect(screen.getByText("Stopping once the part it is working on is finished.")).toBeTruthy();
+  expect(screen.queryByText(/% done/)).toBeNull();
+  expect(fetchMock).toHaveBeenCalledWith("/api/prepare/cancel", { method: "POST" });
+  // Then it is idle, and says so.
+  expect(
+    await screen.findByText(
+      "You stopped preparing. Click Prepare the video whenever you are ready to start again.",
+      {},
+      { timeout: 3000 },
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Prepare the video" }));
+  expect(await screen.findByText(/Preparing… 31% done/)).toBeTruthy();
+  expect(screen.queryByText(/You stopped preparing/)).toBeNull();
+});
+
+test("a cancel the server refuses says why (R134c)", async () => {
+  cancelServer(new Response(JSON.stringify({ detail: "Not now." }), { status: 409 }), [RUNNING]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stop preparing" }));
+  expect(await screen.findByText("Not now.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+});
+
 test("prepare says what is missing when it can't start", async () => {
   prepareServer(
     [IDLE],

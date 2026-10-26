@@ -140,6 +140,8 @@ WAIT_TO_DELETE = "Setup is preparing the video. Try again once it has finished."
 # Start now waits for a prepare, which uses the same engines.
 WAIT_TO_START_NOW = "Setup is preparing your own video. Try again once it has finished."
 DEFAULT_PERSON_BEING_READIED = "A default person is being got ready. Try again once they are ready."
+# Prepare clicked while a cancelled job is still finishing the part it was on (roadmap R134c).
+STOPPING = "Preparing is stopping. Try again in a moment."
 # Before the avatar's name in a photo id, when the avatar is prepared in the user's voice (R24d).
 AVATAR_PREFIX = "avatar-"
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
@@ -148,6 +150,11 @@ CLONES = ("pocket", "clone")
 
 class PrepareError(Exception):
     """The job can't start yet; the message says what is missing."""
+
+
+class PrepareCancelled(BaseException):
+    """Raised in the job's thread at its next progress report once Cancel is confirmed (roadmap
+    R134c). A BaseException, so an engine that catches Exception doesn't swallow it."""
 
 
 @dataclass(frozen=True)
@@ -191,6 +198,9 @@ class PrepareStatus:
     # The face movement while speaking the clips are made with (R128a), from the Setup page when
     # the job ran; None if saved before R128a.
     face_movement: str | None = None
+    # Running, but Cancel was confirmed (R134c): it stops at the next progress report, once the
+    # part it is on is finished, and is then idle.
+    cancelling: bool = False
 
 
 def fresh_steps() -> list[Step]:
@@ -278,6 +288,8 @@ class PrepareJob:
         self._changed = 0.0
         # When each running step's count last went up, for its time left between counts.
         self._counted: dict[str, float] = {}
+        # Set by cancel() (R134c); the job's thread stops at its next progress report.
+        self._cancel = threading.Event()
         self._status = self._load()
 
     def _load(self) -> PrepareStatus:
@@ -457,6 +469,8 @@ class PrepareJob:
 
     def _start(self) -> PrepareStatus:
         if self._status.state == "running":
+            if self._status.cancelling:
+                raise PrepareError(STOPPING)
             if not self._working():  # stopped (R134b): carry on where it left off
                 logger.warning(
                     "Prepare job had stopped; carrying on",
@@ -483,6 +497,34 @@ class PrepareJob:
         self._save()
         self._run_in_background()
         return self._status
+
+    def cancel(self) -> PrepareStatus:
+        """Stop the running job (roadmap R134c). A job no thread is working on stops at once;
+        otherwise it is marked cancelling and its thread stops at its next progress report, as
+        an engine can't be stopped half-way through a frame or a clip. The face's frames already
+        made are kept by the library, so preparing again later is quicker."""
+        with self._lock:
+            if self._status.state != "running":
+                logger.info(
+                    "Cancel asked with no prepare running", extra={"state": self._status.state}
+                )
+                return self._status
+            if not self._working():
+                self._to_idle("stopped")
+                return self._status
+            if not self._status.cancelling:
+                logger.info("Prepare cancelling", extra={"photo_id": self._status.photo_id})
+                self._cancel.set()
+                self._status = replace(self._status, cancelling=True)
+                self._save()
+            return self._status
+
+    def _to_idle(self, why: str) -> None:
+        """The job cancelled, with the lock held: nothing prepared, but each step's time is
+        kept for the next prepare's time left."""
+        logger.info("Prepare cancelled", extra={"photo_id": self._status.photo_id, "when": why})
+        self._status = PrepareStatus("idle", times=self._status.times)
+        self._save()
 
     def _photo_id(self) -> str | None:
         """What is prepared: the chosen photo, or the avatar to speak in the user's voice."""
@@ -533,11 +575,15 @@ class PrepareJob:
         with self._lock:
             if self._status.state != "running":
                 return
+            if self._status.cancelling:  # the server stopped before the cancel was done
+                self._to_idle("at start")
+                return
             # The steps keep showing how far it had got until each one reports again.
             logger.info("Resuming prepare job", extra={"photo_id": self._status.photo_id})
             self._run_in_background()
 
     def _run_in_background(self) -> None:
+        self._cancel.clear()
         self._thread = threading.Thread(target=self._run, name="prepare", daemon=True)
         self._thread.start()
 
@@ -547,6 +593,8 @@ class PrepareJob:
             self._thread.join(timeout)
 
     def _progress(self, key: str, done: int, total: int, activity: str | None = None) -> None:
+        if self._cancel.is_set():
+            raise PrepareCancelled()
         now = time.perf_counter()
         with self._lock:
             steps = self._status.steps or []
@@ -733,8 +781,21 @@ class PrepareJob:
                 self._prepare_voice()
             self._progress("voice", 1, 1)
             self._prepare_face(photo, self._progress)
-            self._render_clips(photo)
+            self._render_clips(photo)  # its report after the last clip stops a late cancel
+        except PrepareCancelled:
+            with self._lock:
+                self._to_idle("running")
+            logger.info(
+                "Prepare job stopped",
+                extra={"photo_id": photo_id, "duration_s": round(time.perf_counter() - start, 1)},
+            )
+            return
         except Exception as e:
+            if self._cancel.is_set():  # an engine failed while it was being stopped
+                logger.warning("Prepare failed while cancelling", extra={"error": str(e)})
+                with self._lock:
+                    self._to_idle("running")
+                return
             self._fail(e, photo_id)
             return
         self._finish("done", None)

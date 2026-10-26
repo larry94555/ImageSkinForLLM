@@ -153,6 +153,11 @@ async function startPrepare() {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function cancelPrepare() {
+	const response = await fetch("/api/prepare/cancel", { method: "POST" });
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 async function useAvatarOwnVoice() {
 	const response = await fetch("/api/start-now/own-voice", {
 		method: "PUT",
@@ -2784,6 +2789,8 @@ function PrepareSection(props) {
 	const [loadFailed, setLoadFailed] = d(false);
 	const [starting, setStarting] = d(false);
 	const [refused, setRefused] = d(null);
+	const [cancelled, setCancelled] = d(false);
+	const { ask, dialog } = useConfirm();
 	const requests = A(0);
 	async function read() {
 		const request = ++requests.current;
@@ -2800,6 +2807,7 @@ function PrepareSection(props) {
 		const request = ++requests.current;
 		setStarting(true);
 		setRefused(null);
+		setCancelled(false);
 		try {
 			const started = await startPrepare();
 			if (request === requests.current) setStatus(started);
@@ -2809,12 +2817,38 @@ function PrepareSection(props) {
 		}
 		setStarting(false);
 	}
+	async function cancel() {
+		const left = status?.left_s != null ? ` About ${countdown(status.left_s)} is left.` : "";
+		if (!await ask({
+			title: "Stop preparing the video?",
+			children: /* @__PURE__ */ u("p", { children: [
+				"Preparing is ",
+				status?.percent ?? 0,
+				"% done.",
+				left,
+				" If you stop now, you can prepare the video again later, and the parts of the face already made are kept, so it is quicker."
+			] }),
+			keepLabel: "Keep preparing",
+			confirmLabel: "Stop preparing"
+		})) return;
+		const request = ++requests.current;
+		setRefused(null);
+		try {
+			const answer = await cancelPrepare();
+			if (request === requests.current) setStatus(answer);
+			setCancelled(true);
+		} catch (e) {
+			console.error("Could not stop preparing", e);
+			setRefused(e.message);
+		}
+	}
 	h(() => {
 		read();
 	}, [changes]);
 	const stopped = status?.state === "running" && status.stopped === true;
 	const running = status?.state === "running" && !stopped;
-	const slow = running && status.steps?.find((s) => s.done < s.total)?.slow === true;
+	const cancelling = running && status.cancelling === true;
+	const slow = running && !cancelling && status.steps?.find((s) => s.done < s.total)?.slow === true;
 	h(() => onRunning(running), [running]);
 	h(() => {
 		if (!running) return;
@@ -2862,7 +2896,7 @@ function PrepareSection(props) {
 				className: "error",
 				children: "Preparing stopped: the app is no longer working on it. Click Try again to carry on where it left off."
 			}),
-			running && /* @__PURE__ */ u("p", {
+			running && !cancelling && /* @__PURE__ */ u("p", {
 				className: "busy",
 				children: [
 					"Preparing… ",
@@ -2870,6 +2904,21 @@ function PrepareSection(props) {
 					"% done",
 					status.left_s != null && ` · about ${countdown(status.left_s)} left`
 				]
+			}),
+			running && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: cancelling ? "secondary busy" : "secondary",
+				onClick: () => void cancel(),
+				disabled: cancelling,
+				children: cancelling ? "Stopping…" : "Cancel"
+			}),
+			cancelling && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Stopping once the part it is working on is finished."
+			}),
+			cancelled && status?.state === "idle" && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "You stopped preparing. Click Prepare the video whenever you are ready to start again."
 			}),
 			slow && /* @__PURE__ */ u("p", {
 				className: "muted",
@@ -2919,7 +2968,8 @@ function PrepareSection(props) {
 			}) : /* @__PURE__ */ u("p", {
 				className: "error",
 				children: status.error
-			}))
+			})),
+			dialog
 		]
 	});
 }

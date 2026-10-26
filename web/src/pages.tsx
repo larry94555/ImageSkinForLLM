@@ -46,6 +46,7 @@ import {
   sendPrompt,
   speakReply,
   startPrepare,
+  cancelPrepare,
   stopReply,
   type Turn,
   type Upload,
@@ -677,6 +678,9 @@ export function PrepareSection(props: {
   const [loadFailed, setLoadFailed] = useState(false);
   const [starting, setStarting] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
+  // Set once a cancel finished (R134c), until Prepare is clicked again.
+  const [cancelled, setCancelled] = useState(false);
+  const { ask, dialog } = useConfirm();
   // Only the newest request's answer is shown, so a slow read can't undo a click on Prepare.
   const requests = useRef(0);
 
@@ -696,6 +700,7 @@ export function PrepareSection(props: {
     const request = ++requests.current;
     setStarting(true);
     setRefused(null);
+    setCancelled(false);
     try {
       const started = await startPrepare();
       if (request === requests.current) setStatus(started);
@@ -704,6 +709,33 @@ export function PrepareSection(props: {
       setRefused((e as Error).message);
     }
     setStarting(false);
+  }
+
+  // Cancel (R134c): asks first, in the app's own box, whether to stop or keep preparing.
+  async function cancel() {
+    const left = status?.left_s != null ? ` About ${countdown(status.left_s)} is left.` : "";
+    const stop = await ask({
+      title: "Stop preparing the video?",
+      children: (
+        <p>
+          Preparing is {status?.percent ?? 0}% done.{left} If you stop now, you can prepare the
+          video again later, and the parts of the face already made are kept, so it is quicker.
+        </p>
+      ),
+      keepLabel: "Keep preparing",
+      confirmLabel: "Stop preparing",
+    });
+    if (!stop) return;
+    const request = ++requests.current;
+    setRefused(null);
+    try {
+      const answer = await cancelPrepare();
+      if (request === requests.current) setStatus(answer);
+      setCancelled(true);
+    } catch (e) {
+      console.error("Could not stop preparing", e);
+      setRefused((e as Error).message);
+    }
   }
 
   // Read when the page opens, and again after the uploads change: a finished job for another
@@ -716,7 +748,9 @@ export function PrepareSection(props: {
   // (R134b) isn't followed: Try again carries it on.
   const stopped = status?.state === "running" && status.stopped === true;
   const running = status?.state === "running" && !stopped;
-  const slow = running && status.steps?.find((s) => s.done < s.total)?.slow === true;
+  const cancelling = running && status.cancelling === true;
+  const slow =
+    running && !cancelling && status.steps?.find((s) => s.done < s.total)?.slow === true;
   useEffect(() => onRunning(running), [running]);
   useEffect(() => {
     if (!running) return;
@@ -764,10 +798,28 @@ export function PrepareSection(props: {
           it left off.
         </p>
       )}
-      {running && (
+      {running && !cancelling && (
         <p className="busy">
           Preparing… {status.percent}% done
           {status.left_s != null && ` · about ${countdown(status.left_s)} left`}
+        </p>
+      )}
+      {running && (
+        <button
+          type="button"
+          className={cancelling ? "secondary busy" : "secondary"}
+          onClick={() => void cancel()}
+          disabled={cancelling}
+        >
+          {cancelling ? "Stopping…" : "Cancel"}
+        </button>
+      )}
+      {cancelling && (
+        <p className="muted">Stopping once the part it is working on is finished.</p>
+      )}
+      {cancelled && status?.state === "idle" && (
+        <p className="muted">
+          You stopped preparing. Click Prepare the video whenever you are ready to start again.
         </p>
       )}
       {slow && <p className="muted">This is taking longer than usual. It&apos;s still working.</p>}
@@ -808,6 +860,7 @@ export function PrepareSection(props: {
         ) : (
           <p className="error">{status.error}</p>
         ))}
+      {dialog}
     </section>
   );
 }
