@@ -1023,3 +1023,39 @@ export async function adminActivity(): Promise<boolean> {
   const response = await fetch("/api/admin/activity", { method: "POST" });
   return response.ok;
 }
+
+// The machine's resources for the admin dashboard (roadmap R152 to R154). A figure that couldn't
+// be read is null, with the colour "unknown".
+export type ResourceColour = "blue" | "green" | "orange" | "red" | "unknown";
+
+export interface Resource {
+  name: "cpu" | "memory" | "disk" | "network";
+  unit: "cores" | "bytes";
+  available: number | null;
+  used: number | null;
+  remaining: number | null;
+  percent_remaining: number | null;
+  colour: ResourceColour;
+  free_tier: number;
+  basis: "free tier" | "machine" | "";
+  details: Record<string, number | string | null | undefined>;
+}
+
+export interface Thresholds {
+  blue_above: number;
+  orange_below: number;
+  red_below: number;
+}
+
+export interface Resources {
+  read_at: string;
+  thresholds: Thresholds;
+  resources: Resource[];
+}
+
+// Throws a ServerRefusal with status 401 once the administrator is signed out.
+export async function getResources(): Promise<Resources> {
+  const response = await fetch("/api/admin/resources");
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as Resources;
+}

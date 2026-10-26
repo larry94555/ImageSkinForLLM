@@ -438,6 +438,260 @@ async function signOutAsAdmin() {
 async function adminActivity() {
 	return (await fetch("/api/admin/activity", { method: "POST" })).ok;
 }
+async function getResources() {
+	const response = await fetch("/api/admin/resources");
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+//#endregion
+//#region src/dashboard.tsx
+var REFRESH_MS = 1e4;
+var TITLES = {
+	cpu: "CPU",
+	memory: "Memory",
+	disk: "Disk",
+	network: "Network this month"
+};
+var MEANINGS = [
+	[
+		"blue",
+		"More than enough",
+		"The site could take on more work, or reserve less."
+	],
+	[
+		"green",
+		"Enough",
+		"No action needed."
+	],
+	[
+		"orange",
+		"Getting close",
+		"Act now, before it runs out."
+	],
+	[
+		"red",
+		"Running out",
+		"Act at once: the site may slow down or fail."
+	]
+];
+var NAMES = {
+	blue: "Blue",
+	green: "Green",
+	orange: "Orange",
+	red: "Red",
+	unknown: "Unknown"
+};
+var GB = 1e3 ** 3;
+var GIB = 1024 ** 3;
+function amount(resource, value) {
+	if (value === null || value === void 0) return "unknown";
+	if (resource.unit === "cores") return `${value.toFixed(value >= 10 ? 0 : 2)} cores`;
+	const binary = resource.name === "memory";
+	const gb = value / (binary ? GIB : GB);
+	if (gb >= 1e3) return `${(gb / 1e3).toFixed(2)} TB`;
+	if (gb >= 10) return `${gb.toFixed(0)} GB`;
+	if (gb >= 1) return `${gb.toFixed(1)} GB`;
+	const mb = value / (binary ? 1024 ** 2 : 1e3 ** 2);
+	if (mb >= 1) return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+	return `${Math.round(value / (binary ? 1024 : 1e3))} KB`;
+}
+function rangeOf(colour, t) {
+	return {
+		blue: `more than ${t.blue_above}% left`,
+		green: `${t.orange_below}% to ${t.blue_above}% left`,
+		orange: `${t.red_below}% to ${t.orange_below}% left`,
+		red: `less than ${t.red_below}% left`,
+		unknown: ""
+	}[colour];
+}
+function basisLine(resource) {
+	const limit = amount(resource, resource.free_tier);
+	if (resource.name === "disk") return `This disk's own size. Oracle's free tier allows ${limit} of disks in all.`;
+	if (resource.name === "network") return `Oracle's free tier allows ${limit} out each month.`;
+	if (resource.basis === "machine") return `This machine's own, less than the free tier's ${limit}.`;
+	return `Oracle's free tier limit.`;
+}
+function detailLines(resource) {
+	const d = resource.details;
+	const bytes = (v) => amount({
+		...resource,
+		unit: "bytes"
+	}, v);
+	if (resource.name === "cpu" && d.load_15 !== void 0) return [`Load over 1, 5 and 15 minutes: ${d.load_1}, ${d.load_5}, ${d.load_15}`];
+	if (resource.name === "memory" && typeof d.app_cap === "number") return [`The app: ${bytes(d.app_used)} of its ${bytes(d.app_cap)} cap`];
+	if (resource.name === "network" && d.month !== void 0) {
+		const lines = [`Received: ${bytes(d.received)} (inbound is free)`, `Now: ${bytes(d.sent_per_s)}/s out, ${bytes(d.received_per_s)}/s in`];
+		if (typeof d.projected_sent === "number") lines.push(`At this pace, about ${bytes(d.projected_sent)} out by the month's end`);
+		return lines;
+	}
+	return [];
+}
+function Card({ resource, thresholds }) {
+	const known = resource.colour !== "unknown";
+	const usedShare = known && resource.available ? 100 * (resource.used ?? 0) / resource.available : 0;
+	const name = TITLES[resource.name];
+	return /* @__PURE__ */ u("section", {
+		className: `panel resource ${resource.colour}`,
+		"aria-labelledby": `resource-${resource.name}`,
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: `resource-${resource.name}`,
+				children: name
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "remaining",
+				children: [
+					/* @__PURE__ */ u("span", {
+						className: "big",
+						children: amount(resource, resource.remaining)
+					}),
+					" remaining",
+					known && /* @__PURE__ */ u("span", {
+						className: "muted",
+						children: [
+							" · ",
+							resource.percent_remaining,
+							"%"
+						]
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: `colour-name ${resource.colour}`,
+				children: [NAMES[resource.colour], known ? ` · ${rangeOf(resource.colour, thresholds)}` : " · couldn't be read"]
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "bar",
+				role: "meter",
+				"aria-label": `${name} used`,
+				"aria-valuemin": 0,
+				"aria-valuemax": 100,
+				"aria-valuenow": Math.round(usedShare),
+				children: /* @__PURE__ */ u("span", { style: { width: `${Math.min(usedShare, 100)}%` } })
+			}),
+			/* @__PURE__ */ u("dl", { children: [
+				/* @__PURE__ */ u("dt", { children: "Available" }),
+				/* @__PURE__ */ u("dd", { children: amount(resource, resource.available) }),
+				/* @__PURE__ */ u("dt", { children: "Used" }),
+				/* @__PURE__ */ u("dd", { children: amount(resource, resource.used) }),
+				/* @__PURE__ */ u("dt", { children: "Remaining" }),
+				/* @__PURE__ */ u("dd", { children: amount(resource, resource.remaining) })
+			] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted small",
+				children: basisLine(resource)
+			}),
+			detailLines(resource).map((line) => /* @__PURE__ */ u("p", {
+				className: "muted small",
+				children: line
+			}, line))
+		]
+	});
+}
+function ResourceDashboard() {
+	const { refresh } = useAdmin();
+	const [reading, setReading] = d(null);
+	const [failed, setFailed] = d(false);
+	const colours = A(null);
+	h(() => {
+		let active = true;
+		async function read() {
+			const started = performance.now();
+			try {
+				const read = await getResources();
+				if (!active) return;
+				setReading(read);
+				setFailed(false);
+				logColours(read, Math.round(performance.now() - started));
+			} catch (e) {
+				if (!active) return;
+				if (e instanceof ServerRefusal && e.status === 401) {
+					await refresh();
+					return;
+				}
+				console.error("Could not read the resources", e);
+				setFailed(true);
+			}
+		}
+		function logColours(read, took) {
+			const now = Object.fromEntries(read.resources.map((r) => [r.name, r.colour]));
+			const before = colours.current;
+			colours.current = now;
+			if (!before) {
+				console.info(`Resources shown: ${JSON.stringify(now)} (${took} ms)`);
+				return;
+			}
+			for (const [name, colour] of Object.entries(now)) if (before[name] !== colour) console.info(`Resource colour changed: ${name} ${before[name]} to ${colour}`);
+		}
+		read();
+		const timer = setInterval(() => void read(), REFRESH_MS);
+		return () => {
+			active = false;
+			clearInterval(timer);
+		};
+	}, []);
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("h2", {
+			className: "section-title",
+			children: "Resources"
+		}),
+		failed && /* @__PURE__ */ u("p", {
+			className: "error",
+			children: "The resources could not be read. Trying again…"
+		}),
+		!reading && !failed && /* @__PURE__ */ u("p", {
+			className: "muted",
+			children: "Reading the resources…"
+		}),
+		reading && /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Read at ",
+					new Date(reading.read_at).toLocaleTimeString(),
+					", every 10 seconds while this page is open."
+				]
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "resources",
+				children: reading.resources.map((resource) => /* @__PURE__ */ u(Card, {
+					resource,
+					thresholds: reading.thresholds
+				}, resource.name))
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "resource-colours",
+				children: [/* @__PURE__ */ u("h2", {
+					id: "resource-colours",
+					children: "What the colours mean"
+				}), MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
+					className: "colour-key",
+					children: [
+						/* @__PURE__ */ u("span", {
+							className: `colour-name ${colour}`,
+							children: NAMES[colour]
+						}),
+						" ",
+						/* @__PURE__ */ u("span", {
+							className: "muted",
+							children: [
+								"(",
+								rangeOf(colour, reading.thresholds),
+								")"
+							]
+						}),
+						": ",
+						meaning,
+						".",
+						" ",
+						todo
+					]
+				}, colour))]
+			})
+		] })
+	] });
+}
 //#endregion
 //#region src/admin.tsx
 var GUIDE = "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides/Admin-Password-Guide.pdf";
@@ -679,7 +933,7 @@ function AdminPage() {
 				className: "lead",
 				children: "Site-wide administration, separate from the host and participant views."
 			}),
-			session?.signed_in ? /* @__PURE__ */ u("p", { children: "You are signed in as administrator." }) : /* @__PURE__ */ u(AdminSection, {})
+			session?.signed_in ? /* @__PURE__ */ u(ResourceDashboard, {}) : /* @__PURE__ */ u(AdminSection, {})
 		]
 	});
 }
