@@ -622,17 +622,29 @@ def test_another_face_movement_needs_preparing_and_reviewing_again(tmp_path: Pat
     assert load_review(tmp_path, again).accepted is False  # a new sample to review
 
 
-def test_a_job_saved_before_face_movement_counts_as_normal(tmp_path: Path) -> None:
+def test_a_sample_accepted_before_face_movement_is_prepared_again_for_normal(
+    tmp_path: Path,
+) -> None:
+    # Made and accepted before R128a, so with no cheek movement: after the upgrade, replies
+    # never move the cheeks more than the reviewed sample did (review on PR #174).
     job, _ = make_job(tmp_path)
     job.start()
     job.wait(5)
     saved = json.loads((tmp_path / "prepare.json").read_text())
     del saved["face_movement"]
     (tmp_path / "prepare.json").write_text(json.dumps(saved))
+    (tmp_path / "review.json").write_text(
+        json.dumps({"sample": {k: saved[k] for k in ("photo_id", "voice_id", "finished_at")}})
+    )
     later, _ = make_job(tmp_path)
-    assert later.status().state == "done" and later.prepared_face_movement() == "normal"
+    assert later.prepared_face_movement() == "off"  # what its clips were made with
+    # The default, Normal, is chosen: not current, so the chat waits for Prepare and a review.
+    assert later.status().state == "idle" and later.clip("sample") is None
+    assert load_review(tmp_path, later.status()).accepted is False
+    # Off is what it was made with: the sample and its acceptance stand, and replies use Off.
     save_ui_settings(tmp_path, {"face_movement": "off"})
-    assert later.status().state == "idle"
+    assert later.status().state == "done" and load_review(tmp_path, later.status()).accepted
+    assert later.prepared_face_movement() == "off"
 
 
 def test_a_change_while_preparing_waits_for_the_next_prepare(tmp_path: Path) -> None:

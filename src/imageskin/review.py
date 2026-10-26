@@ -38,7 +38,7 @@ def sample_key(status: PrepareStatus) -> dict[str, str | None] | None:
         "finished_at": status.finished_at,
     }
     # The face movement it was made with (R128a); left out for a sample made before R128a, so
-    # one accepted then stays accepted.
+    # one accepted then stays accepted while Off, what it was made with, is chosen.
     if status.face_movement is not None:
         key["face_movement"] = status.face_movement
     return key

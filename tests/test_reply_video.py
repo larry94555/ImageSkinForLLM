@@ -855,7 +855,9 @@ def test_the_sample_keeps_the_photos_size_and_only_reply_clips_are_scaled_down(
         client = video_app(tmp_path, None, stream)
     assert sorted(made, key=str) == [720, None]  # an engine each, for the sample and replies
     photo = tmp_path / "me.jpg"
-    client.app.state.prepare_job._render_clip(photo, "Hello.", tmp_path / "sample.mp4")  # type: ignore[attr-defined]
+    job = client.app.state.prepare_job  # type: ignore[attr-defined]
+    job._status = PrepareStatus("running", face_movement="normal")  # prepared with Normal
+    job._render_clip(photo, "Hello.", tmp_path / "sample.mp4")
     assert rendered == [None]  # the sample, at the photo's own size
     # Chosen after the sample was made: replies keep the prepared one until Prepare again.
     save_ui_settings(tmp_path, {"face_movement": "slight"})

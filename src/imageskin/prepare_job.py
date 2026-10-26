@@ -157,6 +157,12 @@ class Step:
     slow: bool = False  # nothing new for longer than twice its usual time
 
 
+# A job saved before R128a has no face movement: its clips were made with none, as with "off".
+# So once the default Normal is chosen, it is prepared and reviewed again before replies move
+# the cheeks (review on PR #174).
+BEFORE_R128A = "off"
+
+
 @dataclass(frozen=True)
 class PrepareStatus:
     state: State
@@ -305,8 +311,8 @@ class PrepareJob:
                 return PrepareStatus("idle")
             # Another face movement chosen (R128a): the sample shows the old one, so it is
             # prepared and reviewed again before replies use the new one. A job saved before
-            # R128a counts as made with the default.
-            if (status.face_movement or DEFAULTS.face_movement) != self.face_movement():
+            # R128a was made with none, as Off is (review on PR #174).
+            if (status.face_movement or BEFORE_R128A) != self.face_movement():
                 return PrepareStatus("idle")
         return status
 
@@ -317,7 +323,7 @@ class PrepareJob:
     def prepared_face_movement(self) -> str:
         """The face movement the clips of this job are made with: the one chosen when it ran,
         not a change made since, so a job's clips and the replies after them all move alike."""
-        return self._status.face_movement or DEFAULTS.face_movement
+        return self._status.face_movement or BEFORE_R128A
 
     def peek(self) -> PrepareStatus:
         """status() without the job's lock, for the replies' voice (R24d): a reply holds the
