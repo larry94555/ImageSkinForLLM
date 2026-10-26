@@ -70,6 +70,10 @@ class Progress(Protocol):
     ) -> None: ...
 
 
+# The prepare steps the library's progress reports on, in order.
+FACE_STEPS = ("models", "shapes", "loop", "align")
+
+
 def no_progress(step: str, done: int, total: int, activity: str | None = None) -> None:
     pass
 
@@ -494,6 +498,12 @@ def prepare_library(
             progress("models", 0, 1, text)
 
         build_library(photo, folder, make_portrait or liveportrait_factory(home, report), progress)
+    else:
+        # Kept from before, as on Prepare again: each face step is told it is done, or the time
+        # left would count them as still to do.
+        for step in FACE_STEPS:
+            progress(step, 1, 1)
+        logger.info("Photoreal library kept from before", extra={"photo": str(photo)})
     lib = load_library(folder)
     logger.info(
         "Loaded photoreal library",
