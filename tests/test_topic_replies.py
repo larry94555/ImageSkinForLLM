@@ -53,7 +53,7 @@ def test_keeping_a_reply_replaces_the_last_and_removes_other_contexts(
     got = kept.get(QUESTION, "new")
     assert got is not None and got.text == "New."
     assert len(list((tmp_path / "topics").iterdir())) == 1  # Snow's, made with "old", is gone
-    logged = next(r for r in caplog.records if r.message == "Topic reply kept")
+    logged = [r for r in caplog.records if r.message == "Topic reply kept"][-1]
     assert (logged.clips, logged.stale_removed) == (1, 1)  # type: ignore[attr-defined]
     assert logged.duration_ms >= 0  # type: ignore[attr-defined]
 
