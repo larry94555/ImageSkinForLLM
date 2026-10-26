@@ -10,6 +10,7 @@ from imageskin.mouth_sync import (
     mouth_opens,
     mouth_weights,
     rest_in_silence,
+    silence_at_end,
     start_at_voice,
     voice_onsets,
     voice_start,
@@ -191,3 +192,23 @@ def test_a_mouth_open_through_a_pause_leads_by_the_whole_pause() -> None:
     samples = voice(1.5, [(0.1, 0.5), (1.0, 1.4)])
     assert mouth_lead_ms([{"AA": 1.0}] * 45, samples, RATE, FPS) == 500
     assert mouth_opens([0.5] * 10, FPS, 0.2, 0.25) == 0.2
+
+
+def test_the_mouth_closes_in_the_silence_after_the_last_word() -> None:
+    """Codex's review: the aligner can run the last word on to the clip's end (it widens it by
+    up to 200 ms), though the voice stops 300 ms before it. The mouth closes in that silence."""
+    samples = voice(1.5, [(0.2, 1.2)])
+    shapes = [ShapeTiming("rest", 0.0, 0.2), ShapeTiming("AA", 0.2, 1.5)]
+    n = round(1.5 * FPS)
+    before = [openness(w) for w in frame_weights(shapes, n, FPS)]
+    after = [openness(w) for w in mouth_weights(shapes, samples, RATE, n, FPS)]
+    assert min(before[-3:]) > 0.5  # open to the end, before
+    assert max(after[-3:]) < 0.1  # closed before the last frames
+    assert after[round(1.0 * FPS)] > 0.5  # and still open while the voice is heard
+
+
+def test_the_silence_at_the_end_counts_only_when_long_enough() -> None:
+    q, end = silence_at_end(voice(1.5, [(0.2, 1.2)]), RATE) or (None, None)
+    assert q == pytest.approx(1.2, abs=0.006) and end == 1.5
+    assert silence_at_end(voice(1.5, [(0.2, 1.4)]), RATE) is None  # 100 ms
+    assert silence_at_end(np.zeros(RATE), RATE) is None  # no voice

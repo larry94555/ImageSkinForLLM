@@ -117,7 +117,9 @@ def mouth_weights(
     moved = start_at_voice(shapes, samples, rate)
     pauses = voice_onsets(samples, rate)
     opens = sorted({moved[i].start for i in openings(shapes)} | {at for _, at in pauses})
-    return frame_weights(rest_in_silence(moved, pauses), n_frames, fps, opens=opens)
+    end = silence_at_end(samples, rate)
+    silences = pauses + ([] if end is None else [end])
+    return frame_weights(rest_in_silence(moved, silences), n_frames, fps, opens=opens)
 
 
 def voice_onsets(samples: Samples, rate: int) -> list[tuple[float, float]]:
@@ -134,6 +136,19 @@ def voice_onsets(samples: Samples, rate: int) -> list[tuple[float, float]]:
             quiet_from = t
         was = bool(h)
     return out
+
+
+def silence_at_end(samples: Samples, rate: int) -> tuple[float, float] | None:
+    """The silence after the voice's last sound to the end of the clip, as (its start, the
+    clip's end), when it is at least PAUSE_S; None if there is none or no voice. The aligner
+    can run the last word on into it (`alignment.widened`), so the mouth is closed through it
+    too (Codex's review of R128)."""
+    loud = heard(samples, rate)
+    if not loud.any():
+        return None
+    quiet_from = (int(np.flatnonzero(loud)[-1]) + 1) * WINDOW_S
+    end = len(samples) / rate
+    return (quiet_from, end) if end - quiet_from >= PAUSE_S else None
 
 
 def mouth_opens(track: Sequence[float], fps: float, quiet_from: float, at: float) -> float | None:
