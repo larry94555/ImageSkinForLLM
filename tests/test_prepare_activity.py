@@ -373,9 +373,11 @@ def test_a_step_carried_on_after_a_restart_saves_its_whole_time(tmp_path: Path) 
     """Codex's review on PR #177: 80% of the clips were there before a restart and the last 20%
     took 30 s, so the next prepare, which makes them all again, should expect 150 s, not 30."""
     job = running_job(tmp_path, {"clips": 400.0})
-    with patch("imageskin.prepare_job.time.perf_counter", side_effect=[1000.0, 1030.0]):
-        job._progress("clips", 80, 100)  # what was on disk when it carried on
-        job._progress("clips", 100, 100)
+    job._progress("clips", 80, 100)  # what was on disk when it carried on
+    # 30 s ago, set on the job rather than by patching the clock every thread shares.
+    started, done_at_start = job._clock["clips"]
+    job._clock["clips"] = (started - 30, done_at_start)
+    job._progress("clips", 100, 100)
     assert (job.status().times or {})["clips"] == 150.0
 
 
