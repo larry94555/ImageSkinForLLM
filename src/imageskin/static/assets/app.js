@@ -2276,8 +2276,7 @@ function SetupPage({ change }) {
 			/* @__PURE__ */ u("p", {
 				className: "notice",
 				children: [
-					"The ready-made avatar is set to speak in your voice, so Prepare makes the avatar's video.",
-					" ",
+					"The ready-made avatar is set to speak in your voice, so Prepare makes the avatar's video. ",
 					/* @__PURE__ */ u("a", {
 						href: "#/avatar-voice",
 						children: "Go to your voice for the avatar"
