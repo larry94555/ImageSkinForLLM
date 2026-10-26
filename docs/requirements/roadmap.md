@@ -844,6 +844,7 @@ Added by Larry on 2026-10-25, right after Milestone 10b and before Milestone 20,
 - The log has `Topic reply kept` with the clips and the time it took, `Topic reply from the kept one` with the time it took to start it, and `Topic reply not kept yet` when it is written.
 - **Can show:** an example question picked twice: the first time the reply comes as it does today, the second time its first clip plays at once, and the log shows `Topic reply from the kept one`; after a PDF is added or Prepare is run again, it is made again once.
 - **Built:** `topic_replies.py` keeps each reply in `replies/topics/<question's digest>/` with its clips and a `reply.json` of its text and context. In the chat, an example question shown now (`ContentLookup.examples`) whose clips are streamed is looked up there; if kept, it is said with `Conversation.say` and its clips copied in with `SentenceClips.replay`, listed whole at once, so the browser plays them as it does any reply; if not, it is sent to the LLM as before and `SentenceClips.on_complete` hands over its clips once all are rendered, before they can be removed.
+- **Also fixed here (Larry's test, 2026-10-26):** "Trump’s" was read as "Trump-s". A curly or other typographic apostrophe inside a word is now said as a plain one (`spoken_text`), for every voice.
 
 ## Milestone 10d: Setup wizard
 
