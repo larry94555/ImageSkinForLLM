@@ -1033,6 +1033,33 @@ function prepareServer(reads: (PrepareStatus | Response)[], started?: Response) 
   return fetchMock;
 }
 
+test("the face movement is chosen on the Setup page, beside Prepare (R128a)", async () => {
+  // Prepared with Normal; once another is chosen, the sample is no longer current.
+  const fetchMock = prepareServer([DONE, IDLE]);
+  await openAt("#/setup");
+  await screen.findByRole("button", { name: "Prepare again" });
+  const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
+  expect((choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked).toBe(true);
+  await act(async () => {
+    fireEvent.click(choice.getByRole("radio", { name: "Slight" }));
+  });
+  const patch = fetchMock.mock.calls.find(([url, init]) => url === "/api/settings" && init?.method === "PATCH");
+  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ face_movement: "slight" });
+  // The job is read again: the sample made with Normal is gone, to be prepared again.
+  expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
+  expect(screen.queryByLabelText("Sample video")).toBeNull();
+});
+
+test("the face movement can't be changed while preparing (R128a)", async () => {
+  prepareServer([RUNNING]);
+  await openAt("#/setup");
+  await screen.findByText(/Preparing… 31% done/);
+  const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
+  for (const radio of choice.getAllByRole("radio")) {
+    expect((radio as HTMLInputElement).disabled).toBe(true);
+  }
+});
+
 test("prepare starts the job and shows each step's progress until it is ready", async () => {
   const fetchMock = prepareServer([IDLE, RUNNING, DONE]);
   showMetrics();

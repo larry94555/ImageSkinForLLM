@@ -342,6 +342,11 @@ function pdfPageUrl(id, page) {
 async function listWikiBuilds() {
 	return json(await fetch("/api/wiki/builds"));
 }
+var FACE_MOVEMENTS = [
+	"off",
+	"slight",
+	"normal"
+];
 var DEFAULT_SETTINGS = {
 	show_metrics: false,
 	view: "host",
@@ -349,7 +354,8 @@ var DEFAULT_SETTINGS = {
 	quiz_me: false,
 	assessment: false,
 	debug: false,
-	general_prompts: false
+	general_prompts: false,
+	face_movement: "normal"
 };
 function settings(data) {
 	return {
@@ -359,7 +365,8 @@ function settings(data) {
 		quiz_me: data.quiz_me === true,
 		assessment: data.assessment === true,
 		debug: data.debug === true,
-		general_prompts: data.general_prompts === true
+		general_prompts: data.general_prompts === true,
+		face_movement: FACE_MOVEMENTS.includes(data.face_movement) ? data.face_movement : "normal"
 	};
 }
 async function getSettings() {
@@ -954,22 +961,6 @@ function ExitScreen({ onStartAgain }) {
 	});
 }
 //#endregion
-//#region src/progress.ts
-var LESSON_KEY = "imageskin.lesson";
-var QUIZ_KEY = "imageskin.quiz";
-var ASSESSMENT_KEY = "imageskin.assessment";
-function clearProgress() {
-	for (const key of [
-		LESSON_KEY,
-		QUIZ_KEY,
-		ASSESSMENT_KEY
-	]) try {
-		localStorage.removeItem(key);
-	} catch (e) {
-		console.error(`Could not clear ${key}`, e);
-	}
-}
-//#endregion
 //#region src/chatgpt-plan.tsx
 function ChatGptPlanSection() {
 	const [status, setStatus] = d(null);
@@ -1101,6 +1092,22 @@ function ChatGptPlanSection() {
 			})
 		]
 	});
+}
+//#endregion
+//#region src/progress.ts
+var LESSON_KEY = "imageskin.lesson";
+var QUIZ_KEY = "imageskin.quiz";
+var ASSESSMENT_KEY = "imageskin.assessment";
+function clearProgress() {
+	for (const key of [
+		LESSON_KEY,
+		QUIZ_KEY,
+		ASSESSMENT_KEY
+	]) try {
+		localStorage.removeItem(key);
+	} catch (e) {
+		console.error(`Could not clear ${key}`, e);
+	}
 }
 //#endregion
 //#region src/delete-data.tsx
@@ -1965,6 +1972,60 @@ function SettingsPage({ back, onDataDeleted }) {
 		]
 	});
 }
+//#endregion
+//#region src/face-movement.tsx
+var CHOICES = [
+	["off", "Off"],
+	["slight", "Slight"],
+	["normal", "Normal"]
+];
+function FaceMovementChoice(props) {
+	const { settings, change } = x(SettingsContext);
+	const [failed, setFailed] = d(false);
+	const [picked, setPicked] = d(null);
+	const shown = picked ?? settings.face_movement;
+	async function choose(face_movement) {
+		setFailed(false);
+		setPicked(face_movement);
+		try {
+			await change({ face_movement });
+			props.onChanged?.();
+		} catch (e) {
+			console.error(`Could not change the face movement to ${face_movement}`, e);
+			setFailed(true);
+		}
+		setPicked(null);
+	}
+	return /* @__PURE__ */ u("fieldset", {
+		className: "face-movement",
+		children: [
+			/* @__PURE__ */ u("legend", { children: "Face movement while speaking" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "How much the cheeks and the face around the mouth move with it. Off moves only the lips and jaw. After changing it, Prepare again to see it."
+			}),
+			CHOICES.map(([value, label]) => /* @__PURE__ */ u("label", {
+				className: "choice",
+				children: [
+					/* @__PURE__ */ u("input", {
+						type: "radio",
+						name: "face_movement",
+						value,
+						checked: shown === value,
+						disabled: props.disabled,
+						onChange: () => void choose(value)
+					}),
+					" ",
+					/* @__PURE__ */ u("span", { children: label })
+				]
+			}, value)),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The face movement could not be changed. Try again."
+			})
+		]
+	});
+}
 function speechRecognition() {
 	const w = window;
 	return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
@@ -2776,6 +2837,10 @@ function PrepareSection(props) {
 			loadFailed && /* @__PURE__ */ u("p", {
 				className: "error",
 				children: "Could not read how far preparing has got. Reload the page to try again."
+			}),
+			/* @__PURE__ */ u(FaceMovementChoice, {
+				onChanged: () => void read(),
+				disabled: running
 			}),
 			status !== null && !running && /* @__PURE__ */ u("button", {
 				type: "button",
