@@ -44,7 +44,8 @@ The app there is in its Docker image, which leaves `experiments/` out, and llama
 real Gemma, so Gemma writes the replies to the three prompts (no fake_llm.py). The steps stop the
 site's app, run the same image in a one-off container named `long-reply` under serve_logged.py
 with this folder mounted, measure inside it, and then put the site back. The site is down while
-it runs: about 5 minutes with a ready-made voice, about 15 with your own cloned voice.
+it runs: about 10 to 15 minutes with a ready-made voice (2 to 5 a reply,
+and nothing is printed until each reply ends), and up to 30 with your own cloned voice.
 
 Before you start, the chat must work on the site (a person set up and accepted, or chosen with
 Start now). The three prompts and their replies are added to the chat's history. If the chat
