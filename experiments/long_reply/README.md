@@ -47,7 +47,9 @@ with this folder mounted, measure inside it, and then put the site back. The sit
 it runs: about 5 minutes with a ready-made voice, about 15 with your own cloned voice.
 
 Before you start, the chat must work on the site (a person set up and accepted, or chosen with
-Start now). The three prompts and their replies are added to the chat's history.
+Start now). The three prompts and their replies are added to the chat's history. If the chat
+isn't open, the first prompt is refused and the run stops with `The app refused the prompt` and
+the reason.
 
 On the hosted machine, in the folder you cloned for the site (`~/ImageSkinForLLM`, the
 `git clone` of deploy/README.md):
