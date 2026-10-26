@@ -19,3 +19,7 @@ llm_context_tokens = 4096
 # This is only the starting value: once "Answer questions outside the content" is changed on the
 # Settings page, the page decides.
 general_prompts = false
+
+# The administrator's password file (roadmap R149). Left empty, it is admin.toml in the app's home
+# folder (~/.imageskin, or IMAGESKIN_HOME). Copy admin.example.toml there to start.
+admin_file = ""

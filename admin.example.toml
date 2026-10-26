@@ -1,0 +1,15 @@
+# The administrator's password (roadmap R149). Copy this file to admin.toml, in the app's home
+# folder (~/.imageskin on a laptop, deploy/admin/ on the hosted machine), and set one of the two
+# lines below. admin.toml is never committed: .gitignore keeps it out of git.
+#
+# The app reads the file again whenever it changes, so a new password works at once, with no
+# restart, and anyone signed in as the administrator with the old one is signed out. With no
+# password here, no one can sign in as the administrator.
+#
+# Best: a hash, so the password itself isn't on the disk. Make the line with
+#   imageskin admin-password-hash
+# and paste it here.
+password_hash = ""
+
+# Or the password as it is. Used only when password_hash is empty.
+password = ""

@@ -141,3 +141,11 @@ def test_the_image_stops_building_if_kokoros_english_model_cant_load() -> None:
     assert "python -m spacy download en_core_web_sm" in dockerfile
     assert "spacy.load('en_core_web_sm')" in dockerfile
     assert '"preshed<3.0.14"' in text(ROOT / "pyproject.toml")
+
+
+def test_the_admin_password_folder_is_mounted_where_the_config_looks() -> None:
+    # A folder, not the file, so an edit made on the machine is seen with no restart (R149).
+    settings = load_settings(DEPLOY / "config.toml")
+    assert settings.admin_file == "/etc/imageskin/admin/admin.toml"
+    assert "- ./admin:/etc/imageskin/admin:ro" in text(DEPLOY / "compose.yaml")
+    assert (DEPLOY / "admin" / "README.md").exists()

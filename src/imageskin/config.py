@@ -35,6 +35,9 @@ class Settings:
     # Whether the chat answers prompts the PDFs have nothing on, or politely declines them
     # (roadmap R41, item 28). Declining is the default.
     general_prompts: bool = False
+    # The administrator's password file (roadmap R149, item 122); empty for admin.toml in the
+    # app's home folder.
+    admin_file: str = ""
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -76,6 +79,8 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"llm_context_tokens in {path} must be a number of at least 1024")
     if not isinstance(settings.general_prompts, bool):
         raise ConfigError(f"general_prompts in {path} must be true or false")
+    if not isinstance(settings.admin_file, str):
+        raise ConfigError(f"admin_file in {path} must be a string")
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
     logger.info("Loaded config", extra={"path": str(path)})
