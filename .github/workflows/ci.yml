@@ -16,28 +16,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install ffmpeg
-        # Ubuntu's apt mirrors have stalled or crawled at about 100 kB/s, timing this step out.
-        # A static build from GitHub's own release storage downloads in seconds; apt is the fallback.
         timeout-minutes: 10
-        run: |
-          start=$(date +%s)
-          url=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
-          if curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o "$RUNNER_TEMP/ffmpeg.tar.xz" "$url"; then
-            mkdir -p "$RUNNER_TEMP/ffmpeg"
-            tar -xJf "$RUNNER_TEMP/ffmpeg.tar.xz" -C "$RUNNER_TEMP/ffmpeg" --strip-components=1
-            echo "$RUNNER_TEMP/ffmpeg/bin" >> "$GITHUB_PATH"
-            export PATH="$RUNNER_TEMP/ffmpeg/bin:$PATH"
-            echo "Installed static ffmpeg from $url"
-          else
-            echo "::warning::Static ffmpeg download failed ($url); falling back to apt"
-            apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
-            sudo apt-get $apt_opts update -q
-            sudo apt-get $apt_opts install -y -q --no-install-recommends ffmpeg
-            echo "Installed ffmpeg from apt"
-          fi
-          ffmpeg -version | head -n 1
-          ffprobe -version | head -n 1
-          echo "ffmpeg install took $(( $(date +%s) - start )) s"
+        run: .github/scripts/install-ffmpeg.sh
       - run: pip install -e ".[dev,video,heic]"
       - name: Lint
         run: ruff check .
