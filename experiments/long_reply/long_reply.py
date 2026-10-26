@@ -39,6 +39,7 @@ logger = logging.getLogger("long_reply")
 
 GAP_MS = 300  # a gap or pause heard longer than this is counted (R130's default)
 WAITED_MS = 100  # waiting longer than this for the clip before it means it was queued
+REFUSED = (400, 401, 403, 409)  # the app refused the prompt: no other will do better
 WAIT_EVERY_S = 3  # how often to ask whether the app has started
 TOGETHER_MS = 50  # clips whose text came this close together were cut in one go
 _SENTENCE_END = re.compile(r"[.!?…][\"'”’)\]*_]*$")
@@ -523,6 +524,16 @@ def run(
             },
         )
         results.append(result)
+        if summary.get("status") in REFUSED:
+            # The chat is locked (no accepted sample) or the prompt is refused: every other
+            # prompt would be too, so say why once rather than measure nothing three times.
+            logger.error(
+                "The app refused the prompt; stopping",
+                extra={"status": summary["status"], "error": summary["error"]},
+            )
+            print(f"The app refused the prompt ({summary['status']}): {summary['error']}")
+            print("Make sure a typed question gets a spoken answer in the chat, then run again.")
+            return 1
     if measure_own_rate:
         from imageskin.cli import voice_engine
 

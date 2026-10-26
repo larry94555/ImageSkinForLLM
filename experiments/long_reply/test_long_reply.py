@@ -397,3 +397,24 @@ def test_wait_for_app(monkeypatch: pytest.MonkeyPatch) -> None:
     assert slept == [3, 3]
     answers[:] = [False]
     assert not wait_for_app("http://x", 0, slept.append)  # no time left: one try only
+
+
+def test_run_stops_when_the_chat_is_locked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import long_reply
+
+    from imageskin import time_reply
+
+    sent: list[str] = []
+    locked = "The chat is locked until you accept a sample video at the end of setup."
+    monkeypatch.setattr(time_reply, "ask", lambda url, timeout=30: {"status": "ok"})
+    monkeypatch.setattr(time_reply, "measure", lambda base, prompt: sent.append(prompt))
+    monkeypatch.setattr(
+        time_reply,
+        "summarize",
+        lambda m: {**summary([]), "status": 409, "error": locked},
+    )
+    code = long_reply.run("http://x", ["One?", "Two?"], tmp_path / "c", tmp_path, "t", "v", None)
+    assert code == 1 and sent == ["One?"]
+    assert "The app refused the prompt (409)" in capsys.readouterr().out
