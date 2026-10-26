@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from imageskin.expression import openness
 from imageskin.mouth_sync import (
     LOOK_AHEAD_S,
     LOOK_BACK_S,
@@ -8,6 +9,7 @@ from imageskin.mouth_sync import (
     mouth_lead_ms,
     mouth_opens,
     mouth_weights,
+    rest_in_silence,
     start_at_voice,
     voice_onsets,
     voice_start,
@@ -116,8 +118,8 @@ def test_the_lead_is_the_largest_over_the_clip() -> None:
     track_open = [{"rest": 1.0}] * 30 + [{"AA": 1.0}] * 15  # opens at 1.0 s
     samples = voice(1.5, [(1.05, 1.5)])
     assert mouth_lead_ms(track_open, samples, RATE, FPS) == 50
-    # A mouth that never opens from closed has no lead.
-    assert mouth_lead_ms([{"AA": 1.0}] * 45, samples, RATE, FPS) is None
+    # A mouth that never opens has no lead, nor a clip with no voice.
+    assert mouth_lead_ms([{"rest": 1.0}] * 45, samples, RATE, FPS) is None
     assert mouth_lead_ms([{"rest": 1.0}] * 45, np.zeros(RATE), RATE, FPS) is None
 
 
@@ -129,7 +131,8 @@ def test_voice_onsets_are_the_start_and_each_word_after_a_pause() -> None:
 
 def test_the_mouth_opens_on_the_first_open_frame_after_a_closed_one() -> None:
     assert mouth_opens([0.0, 0.0, 0.5, 0.5], FPS, 0.0, 0.07) == pytest.approx(2 / FPS)
-    assert mouth_opens([0.5, 0.5, 0.5, 0.5], FPS, 0.0, 0.07) is None  # never closed
+    assert mouth_opens([0.5, 0.5, 0.5, 0.5], FPS, 0.0, 0.07) == 0.0  # open through the silence
+    assert mouth_opens([0.0, 0.0, 0.0, 0.0], FPS, 0.0, 0.07) is None  # never opens
 
 
 def test_a_pause_shortened_by_a_late_timing_still_keeps_the_mouth_closed() -> None:
@@ -146,3 +149,45 @@ def test_a_pause_shortened_by_a_late_timing_still_keeps_the_mouth_closed() -> No
     weights = mouth_weights(shapes, samples, RATE, 60, FPS)
     assert all(w.get("AA", 0) < 0.01 for w in weights[40:46])  # from 1.33 s until 1.525 s
     assert weights[46]["AA"] > 0.5
+
+
+def test_the_mouth_closes_in_a_pause_the_timings_leave_out() -> None:
+    """Codex's review: the audio has a 250 ms silence between two words, but the timings run
+    the first word's last sound on into it and leave only 50 ms before the next one, under
+    visemes.PAUSE_S. The mouth still closes in the silence and opens no earlier than the voice."""
+    samples = voice(2.0, [(0.2, 0.7), (0.95, 1.5)])
+    shapes = [
+        ShapeTiming("rest", 0.0, 0.2),
+        ShapeTiming("AA", 0.2, 0.85),  # runs 150 ms on into the silence
+        ShapeTiming("rest", 0.85, 0.9),
+        ShapeTiming("EH", 0.9, 1.5),  # starts 50 ms before the voice comes back
+        ShapeTiming("rest", 1.5, 2.0),
+    ]
+    n = round(2.0 * FPS)
+    before = mouth_lead_ms(frame_weights(shapes, n, FPS), samples, RATE, FPS)
+    weights = mouth_weights(shapes, samples, RATE, n, FPS)
+    track = [openness(w) for w in weights]
+    assert min(track[round(0.7 * FPS) : round(0.95 * FPS)]) < 0.1  # closed in the silence
+    lead = mouth_lead_ms(weights, samples, RATE, FPS)
+    assert before is not None and before >= 250  # open through the whole pause, before
+    assert lead is not None and -80 <= lead <= 0
+
+
+def test_sounds_in_a_silence_are_cut_to_either_side_of_it() -> None:
+    shapes = [
+        ShapeTiming("AA", 0.0, 0.5),
+        ShapeTiming("IH", 0.5, 0.6),  # wholly in the silence
+        ShapeTiming("rest", 0.6, 0.62),
+        ShapeTiming("EE", 0.62, 1.0),
+    ]
+    assert rest_in_silence(shapes, [(0.4, 0.7)]) == [
+        ShapeTiming("AA", 0.0, 0.4),
+        ShapeTiming("rest", 0.6, 0.62),
+        ShapeTiming("EE", 0.7, 1.0),
+    ]
+
+
+def test_a_mouth_open_through_a_pause_leads_by_the_whole_pause() -> None:
+    samples = voice(1.5, [(0.1, 0.5), (1.0, 1.4)])
+    assert mouth_lead_ms([{"AA": 1.0}] * 45, samples, RATE, FPS) == 500
+    assert mouth_opens([0.5] * 10, FPS, 0.2, 0.25) == 0.2

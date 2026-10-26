@@ -69,8 +69,9 @@ def test_voice_onsets_are_the_start_and_each_start_after_a_pause() -> None:
 def test_mouth_opens_on_the_first_open_frame_after_a_closed_one() -> None:
     track = [0.0] * 5 + [0.05, 0.2, 0.5] + [0.0] * 4
     assert mouth_opens(track, FPS, 0.0, 0.3) == pytest.approx(6 / FPS)
-    # It must have closed in the pause: open from the start, it never "opens".
-    assert mouth_opens([0.5] * 20, FPS, 0.0, 0.2) is None
+    # Open through the whole silence, it opened when the silence began (Codex's review).
+    assert mouth_opens([0.5] * 20, FPS, 0.0, 0.2) == 0.0  # open through the silence
+    assert mouth_opens([0.0] * 20, FPS, 0.0, 0.2) is None  # never opens
 
 
 def test_first_sound_is_the_one_nearest_the_voice_after_the_pause() -> None:

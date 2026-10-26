@@ -26,8 +26,8 @@ Lead in the file uses the progressive MP4 for reply clips and the whole one for 
 | sample | Let | 6.325 s | 6.36 s | -35 ms | -50 ms | 15 ms |
 | sample | Numbers | 7.885 s | 7.92 s | -35 ms | -65 ms | 30 ms |
 | sample | question | 12.130 s | 12.16 s | -30 ms | -45 ms | 15 ms |
-| sample | And | 14.280 s | 14.28 s | 0 ms | -70 ms | 70 ms |
-| sample | wow | 15.385 s | – s | – ms | -65 ms | – ms |
+| sample | And | 14.280 s | 14.32 s | -40 ms | -70 ms | 30 ms |
+| sample | wow | 15.385 s | 15.4 s | -15 ms | -65 ms | 50 ms |
 | sample | She | 16.965 s | 17 s | -35 ms | -85 ms | 50 ms |
 | sample | If | 19.250 s | 19.28 s | -30 ms | -50 ms | 20 ms |
 

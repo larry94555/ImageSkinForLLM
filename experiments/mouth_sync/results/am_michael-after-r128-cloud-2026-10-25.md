@@ -21,7 +21,7 @@ Lead in the file uses the progressive MP4 for reply clips and the whole one for 
 |---|---|---|---|---|---|---|
 | reply 2 | at | 3.510 s | 3.6 s | -90 ms | -140 ms | 50 ms |
 | reply 3 | a | 1.740 s | 1.76 s | -20 ms | -60 ms | 40 ms |
-| sample | How | 1.480 s | – s | – ms | -45 ms | – ms |
+| sample | How | 1.485 s | 1.52 s | -35 ms | -40 ms | 5 ms |
 | sample | I'm | 2.695 s | 2.8 s | -105 ms | -155 ms | 50 ms |
 | sample | Let | 6.870 s | 6.88 s | -10 ms | -55 ms | 45 ms |
 | sample | Numbers | 8.610 s | 8.64 s | -30 ms | -65 ms | 35 ms |
@@ -32,7 +32,7 @@ Lead in the file uses the progressive MP4 for reply clips and the whole one for 
 
 ## The aligner's word starts against Kokoro's own
 
-107 words: the aligner's start is +77 ms from Kokoro's on average (median +75 ms, from +41 to +192 ms). Negative is earlier.
+107 words: the aligner's start is +77 ms from Kokoro's on average (median +74 ms, from +41 to +192 ms). Negative is earlier.
 
 | Clip | Word | Aligner minus Kokoro |
 |---|---|---|
@@ -137,7 +137,7 @@ Lead in the file uses the progressive MP4 for reply clips and the whole one for 
 | sample | wrong | +66 ms |
 | sample | tell | +44 ms |
 | sample | me | +82 ms |
-| sample | now | +84 ms |
+| sample | now | +64 ms |
 | sample | so | +67 ms |
 | sample | we | +59 ms |
 | sample | can | +69 ms |

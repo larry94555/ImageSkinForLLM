@@ -86,14 +86,38 @@ def start_at_voice(shapes: list[ShapeTiming], samples: Samples, rate: int) -> li
     return out
 
 
+def rest_in_silence(
+    shapes: list[ShapeTiming], pauses: Sequence[tuple[float, float]]
+) -> list[ShapeTiming]:
+    """The shapes with the mouth at rest wherever the voice is silent for a pause: a sound the
+    timings run on into it ends where the silence starts, and one they start in it starts
+    where the voice comes back. The timings can leave less than a pause between two sounds
+    where the audio has one (Codex's review of R128)."""
+    out = list(shapes)
+    for quiet_from, at in pauses:
+        kept: list[ShapeTiming] = []
+        for s in out:
+            if s.shape == "rest" or s.end <= quiet_from or s.start >= at:
+                kept.append(s)
+                continue
+            if s.start < quiet_from:
+                kept.append(ShapeTiming(s.shape, s.start, round(quiet_from, 3)))
+            if s.end > at:
+                kept.append(ShapeTiming(s.shape, round(at, 3), s.end))
+        out = kept
+    return out
+
+
 def mouth_weights(
     shapes: list[ShapeTiming], samples: Samples, rate: int, n_frames: int, fps: float
 ) -> list[dict[str, float]]:
-    """Each frame's mouth shapes, opening no earlier than the voice is heard. The sounds the
-    mouth opens for are found before they move, as moving one can shorten the pause before it."""
+    """Each frame's mouth shapes, closing in each pause the voice makes and opening no earlier
+    than it is heard again. The sounds the mouth opens for are found before they move, as
+    moving one can shorten the pause before it, and each pause heard in the audio is one too."""
     moved = start_at_voice(shapes, samples, rate)
-    opens = [moved[i].start for i in openings(shapes)]
-    return frame_weights(moved, n_frames, fps, opens=opens)
+    pauses = voice_onsets(samples, rate)
+    opens = sorted({moved[i].start for i in openings(shapes)} | {at for _, at in pauses})
+    return frame_weights(rest_in_silence(moved, pauses), n_frames, fps, opens=opens)
 
 
 def voice_onsets(samples: Samples, rate: int) -> list[tuple[float, float]]:
@@ -114,7 +138,9 @@ def voice_onsets(samples: Samples, rate: int) -> list[tuple[float, float]]:
 
 def mouth_opens(track: Sequence[float], fps: float, quiet_from: float, at: float) -> float | None:
     """When the mouth opens for a voice heard at `at` after silence from `quiet_from`: the
-    start of the first frame at or over OPEN_AT after one under it. None if it doesn't close."""
+    start of the first frame at or over OPEN_AT after one under it. If it never closes in the
+    silence it has been open since the silence began, so that is when it opened; None if it
+    closes and doesn't open again."""
     first = max(0, math.floor(quiet_from * fps))
     last = min(len(track), math.ceil((at + 0.5) * fps))
     closed = False
@@ -123,14 +149,15 @@ def mouth_opens(track: Sequence[float], fps: float, quiet_from: float, at: float
             closed = True
         elif closed:
             return f / fps
-    return None
+    return None if closed else quiet_from
 
 
 def mouth_lead_ms(
     weights: Sequence[dict[str, float]], samples: Samples, rate: int, fps: float
 ) -> float | None:
     """The most the mouth opens before the voice in a clip, at its start and after each pause,
-    in ms (negative: it opens after); None when the mouth never opens from closed."""
+    in ms (negative: it opens after). A mouth that stays open through a pause leads by the
+    whole pause. None when there is no voice, or the mouth never opens for it."""
     track = [openness(w) for w in weights]
     leads = [
         at - opens

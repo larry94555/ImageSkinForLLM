@@ -32,7 +32,6 @@ and writes its table to FOLDER/browser.md. The tables go to <out>/mouth-lead-<vo
 import argparse
 import json
 import logging
-import math
 import subprocess
 import tempfile
 import time
@@ -46,6 +45,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from imageskin.expression import openness
+from imageskin.mouth_sync import mouth_opens as app_mouth_opens
 from imageskin.mouth_sync import mouth_weights
 from imageskin.photoreal import read_shapes
 from imageskin.sample import SAMPLE_SCRIPT
@@ -158,18 +158,12 @@ def openness_track(weights: Sequence[dict[str, float]]) -> list[float]:
 def mouth_opens(
     track: Sequence[float], fps: float, quiet_from: float, heard: float
 ) -> float | None:
-    """When the mouth opens for a voice heard at `heard` after silence from `quiet_from`: the
-    start of the first frame at or over OPEN_AT after one under it, looking from the silence's
-    start. None if the mouth stays open from the silence until well after the voice."""
-    first = max(0, math.floor(quiet_from * fps))
-    last = min(len(track), math.ceil((heard + 0.5) * fps))
-    closed = False
-    for f in range(first, last):
-        if track[f] < OPEN_AT:
-            closed = True
-        elif closed:
-            return round(f / fps, 3)
-    return None
+    """When the mouth opens for a voice heard at `heard` after silence from `quiet_from`, as
+    the app measures it (`mouth_sync.mouth_opens`): the start of the first frame at or over
+    OPEN_AT after one under it, or the silence's start if it never closes in it, so a mouth
+    left open through a pause shows a lead of the whole pause. None if it never opens."""
+    opens = app_mouth_opens(track, fps, quiet_from, heard)
+    return None if opens is None else round(opens, 3)
 
 
 def first_sound(
