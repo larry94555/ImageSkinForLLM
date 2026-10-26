@@ -107,9 +107,10 @@ def test_the_beat_gives_the_time_left_and_moves_the_percentage(tmp_path: Path) -
     assert step(early, "voice").left_s == USUAL["voice"] - 10
     assert early.left_s == USUAL["voice"] - 10 + rest
     assert step(later, "voice").left_s == USUAL["voice"] - 30
-    assert step(past, "voice").left_s == round(remaining(USUAL["voice"], USUAL["voice"] + 5))
-    assert 0 < step(past, "voice").left_s < USUAL["voice"] - 30
-    assert past.left_s == step(past, "voice").left_s + rest
+    past_left = step(past, "voice").left_s
+    assert past_left == round(remaining(USUAL["voice"], USUAL["voice"] + 5))
+    assert past_left is not None and 0 < past_left < USUAL["voice"] - 30
+    assert past.left_s == past_left + rest
     assert 0 < early.percent < later.percent < past.percent
     assert not step(later, "voice").slow
     assert job.status().left_s is None  # finished
