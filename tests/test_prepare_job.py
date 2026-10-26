@@ -596,10 +596,12 @@ def test_another_face_movement_needs_preparing_and_reviewing_again(tmp_path: Pat
     # R128a: the replies use the face movement the reviewed sample was made with, until the
     # sample is made again with the new one and reviewed.
     made: list[str] = []
-    job, _ = make_job(
-        tmp_path,
-        clip=lambda p, t, o: (made.append(job.prepared_face_movement()), write_clip(p, t, o)),
-    )
+
+    def clip(photo: Path, text: str, output: Path) -> None:
+        made.append(job.prepared_face_movement())
+        write_clip(photo, text, output)
+
+    job, _ = make_job(tmp_path, clip=clip)
     job.start()
     job.wait(5)
     done = job.status()
