@@ -221,7 +221,7 @@ test("a click on the Settings page or in the admin view is activity, at most onc
   });
   window.location.hash = "#/chat";
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(150);
   });
   await act(async () => {
     fireEvent.click(document.body);
@@ -231,8 +231,9 @@ test("a click on the Settings page or in the admin view is activity, at most onc
   // Activity refused: the sign-in has ended, so it is read again.
   window.location.hash = "#/settings";
   await screen.findByRole("heading", { name: "Settings", level: 1 });
+  // Preact runs effects after the next frame, or 100 ms at most: past that the listener is on.
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(150);
   });
   state.activityOk = false;
   state.signedIn = false;
