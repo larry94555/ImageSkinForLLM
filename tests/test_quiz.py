@@ -12,7 +12,7 @@ from test_question_scope import Llm
 from test_teach import CONTENTS, entry
 from test_topics import riemann_app
 
-from imageskin.chat import Conversation, LlmError, Message, Teach, Turn
+from imageskin.chat import CONTENT_RULES, Conversation, LlmError, Message, Teach, Turn
 from imageskin.quiz import (
     _PLAIN,
     CHANGED,
@@ -436,8 +436,10 @@ def test_a_one_off_answer_leaves_the_conversation_alone(caplog: pytest.LogCaptur
         assert conversation.write("Write a question.", ["Rain: It falls."]) == "Two moons."
     assert conversation.turns() == []
     sent: list[Message] = llm.sent[-1]
-    assert len(sent) == 1 and "Rain: It falls." in sent[0]["content"]
-    assert sent[0]["content"].endswith("Write a question.")
+    # Without the system prompt, the rules for the material go with it (R147).
+    assert sent[0] == {"role": "system", "content": CONTENT_RULES}
+    assert len(sent) == 2 and "Rain: It falls." in sent[1]["content"]
+    assert sent[1]["content"].endswith("Write a question.")
     assert "One-off LLM answer received" in caplog.text
 
 

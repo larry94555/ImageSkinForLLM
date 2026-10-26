@@ -496,9 +496,9 @@ def test_a_topics_reply_that_passes_the_history_budget_starts_a_summary() -> Non
     for i in range(3):
         conversation.send(f"Prompt {i} " + "x" * 640)
         conversation.wait()
-    assert not any(m[0]["content"] == SUMMARY_PROMPT for m in sent)
+    assert not any(m[-1]["content"] == SUMMARY_PROMPT for m in sent)
     conversation.send("What topics can you talk about?")
     conversation.wait()
-    assert any(m[0]["content"] == SUMMARY_PROMPT for m in sent)
+    assert any(m[-1]["content"] == SUMMARY_PROMPT for m in sent)
     conversation.send("Tell me about the first one")
     assert sent[-1][0]["content"].endswith(f"{EARLIER}\nOK.")

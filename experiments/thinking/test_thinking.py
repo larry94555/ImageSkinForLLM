@@ -59,9 +59,9 @@ def test_pinned_requests_name_their_slot() -> None:
     [
         ("baseline", set()),
         ("lesson", set()),
-        ("instructions", {"SYSTEM_PROMPT", "FOUND_START", "FOUND_END"}),
+        ("instructions", set()),  # in the app since R147
         ("passages-150", {"CONTENT_TOKENS"}),
-        ("all", {"SYSTEM_PROMPT", "FOUND_START", "FOUND_END", "CONTENT_TOKENS"}),
+        ("all", {"CONTENT_TOKENS"}),
     ],
 )
 def test_each_variant_changes_only_its_own_settings_and_they_go_back(
@@ -122,7 +122,7 @@ def test_the_summary_is_timed_once_the_history_passes_half_the_window() -> None:
     thinking.ask(talk, 1, "What is a prime?", ("prime",))
     summary = thinking.time_summary(talk, llm)  # type: ignore[arg-type]
     assert summary["history_tokens"] > 2048
-    assert llm.asked[-1][0]["content"] == chat.SUMMARY_PROMPT
+    assert llm.asked[-1][-1]["content"] == chat.SUMMARY_PROMPT
 
 
 def test_the_table_has_a_row_per_question_and_a_mean_per_variant() -> None:

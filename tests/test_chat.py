@@ -16,9 +16,12 @@ from fastapi.testclient import TestClient
 from imageskin import reply_times
 from imageskin.app import CHAT_LOCKED, create_app
 from imageskin.chat import (
+    CONTENT_RULES,
     EARLIER,
     HISTORY_SHARE,
     REPLY_TOKENS,
+    SETTLE_IDLE_S,
+    SETTLE_POLL_S,
     SUMMARY_PROMPT,
     SYSTEM_PROMPT,
     TEMPERATURE,
@@ -40,6 +43,7 @@ from imageskin.chat import (
     strict,
     system_message,
     tokens,
+    wait_until_idle,
 )
 from imageskin.json_grammar import compact_grammar
 from imageskin.llm_choice import save_choice
@@ -52,7 +56,8 @@ from imageskin.wiki_outline import DETAIL_SCHEMA, PARTS_SCHEMA, SECTIONS_SCHEMA,
 
 
 def test_the_system_prompt_asks_for_short_replies() -> None:
-    assert system_message(None) == {"role": "system", "content": SYSTEM_PROMPT}
+    content = f"{SYSTEM_PROMPT} {CONTENT_RULES}"
+    assert system_message(None) == {"role": "system", "content": content}
     assert "short" in SYSTEM_PROMPT
     assert system_message("Larry lives in Seattle.")["content"].endswith(
         f"{EARLIER}\nLarry lives in Seattle."
@@ -98,6 +103,8 @@ def utf8_bytes(text: str) -> int:
 
 
 DENSE_ASCII = "eyJhbGciOiJIUzI1NiJ9.x_Q3" * 8  # like a hash or base64: about a token a byte
+# A small window, with room for the system prompt counted a token a byte.
+WINDOW = 2048 + 2 * utf8_bytes(CONTENT_RULES)
 
 
 @pytest.mark.parametrize("dense", ["你好🐶" * 20, DENSE_ASCII], ids=["chinese-emoji", "ascii"])
@@ -107,20 +114,20 @@ def test_token_dense_turns_stay_within_half_the_window(dense: str, server_counts
     # token per byte.
     llm = FakeLlm2()
     if server_counts:
-        conversation = Conversation(llm, lambda: 2048, count=utf8_bytes)
+        conversation = Conversation(llm, lambda: WINDOW, count=utf8_bytes)
     else:
-        conversation = Conversation(llm, lambda: 2048)
+        conversation = Conversation(llm, lambda: WINDOW)
     for i in range(10):
         conversation.send(f"{i} {dense}")  # about 200 bytes: about 200 tokens at worst
         conversation.wait()
     for sent in llm.sent:
-        if sent[0]["content"] == SUMMARY_PROMPT:
+        if sent[-1]["content"] == SUMMARY_PROMPT:
             continue
         history = sent[1:-1]
         assert (
             sum(utf8_bytes(m["content"]) + TOKENS_PER_MESSAGE for m in history)
-            + (utf8_bytes(sent[0]["content"]) - utf8_bytes(SYSTEM_PROMPT))
-            <= 2048 * HISTORY_SHARE
+            + (utf8_bytes(sent[0]["content"]) - utf8_bytes(system_message(None)["content"]))
+            <= WINDOW * HISTORY_SHARE
         )
 
 
@@ -148,7 +155,7 @@ class FakeLlm2:
 
     def __call__(self, messages: list[Message]) -> str:
         self.sent.append(messages)
-        if messages[0]["content"] == SUMMARY_PROMPT:
+        if messages[-1]["content"] == SUMMARY_PROMPT:
             if self.fail_summary:
                 raise LlmError("busy")
             return f"SUMMARY {len(self.sent)}"
@@ -252,11 +259,13 @@ def test_older_turns_are_summarized_when_the_history_passes_half_the_window(
         for i in range(5):
             conversation.send(f"Prompt {i} " + "x" * 590)  # about 600 tokens each
             conversation.wait()
-    summaries = [m for m in llm.sent if m[0]["content"] == SUMMARY_PROMPT]
+    summaries = [m for m in llm.sent if m[-1]["content"] == SUMMARY_PROMPT]
     assert len(summaries) == 1
-    # Prompts 0 and 1 were summarized; 2 and 3 are still sent word for word, then 4.
-    assert "User: Prompt 0" in summaries[0][1]["content"]
-    assert "Prompt 2" not in summaries[0][1]["content"]
+    # Asked after the conversation as the chat sends it, so llama-server reuses what it read
+    # for the reply (R147). Prompts 0 and 1 were summarized; 2 and 3 are still sent word for
+    # word, then 4.
+    assert summaries[0][0] == system_message(None)
+    assert summaries[0][1]["content"].startswith("Prompt 0")
     last = llm.sent[-1]
     assert last[0]["content"].endswith(f"{EARLIER}\nSUMMARY 5")
     assert [m["content"][:8] for m in last[1:] if m["role"] == "user"] == [
@@ -270,12 +279,16 @@ def test_older_turns_are_summarized_when_the_history_passes_half_the_window(
     assert len(conversation.turns()) == 10
 
 
-def test_the_reply_does_not_wait_for_the_summary() -> None:
+def test_neither_the_reply_nor_the_next_prompt_waits_for_the_summary(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """R147: on the hosted machine a summary took about 2 minutes, which the next prompt waited
+    for. It is now sent with the latest turns that fit, and the summary is used after."""
     release = threading.Event()
     llm = FakeLlm2()
 
     def slow_summaries(messages: list[Message]) -> str:
-        if messages[0]["content"] == SUMMARY_PROMPT:
+        if messages[-1]["content"] == SUMMARY_PROMPT:
             assert release.wait(5)
         return llm(messages)
 
@@ -284,10 +297,61 @@ def test_the_reply_does_not_wait_for_the_summary() -> None:
         conversation.send(f"Prompt {i} " + "x" * 590)
     # The 4th reply came back while its summary is still being made.
     assert conversation.turns()[-1].content.startswith("Reply")
-    assert not any(m[0]["content"] == SUMMARY_PROMPT for m in llm.sent)
+    assert not any(m[-1]["content"] == SUMMARY_PROMPT for m in llm.sent)
+    with caplog.at_level(logging.INFO):
+        conversation.send("Prompt 4 " + "x" * 590)  # sent while the summary is being made
+    assert "Prompt didn't wait for the summary" in caplog.text
+    sent = llm.sent[-1]
+    assert sent[0] == system_message(None)  # no summary yet
+    assert sum(tokens(m) for m in sent[1:-1]) <= 4096 * HISTORY_SHARE  # the latest that fit
+    assert "Prompt 0" not in str(sent)
     release.set()
-    conversation.send("Prompt 4")  # waits for the summary, then is sent with it
-    assert llm.sent[-1][0]["content"].endswith(f"{EARLIER}\nSUMMARY 5")
+    conversation.wait()
+    # The turns said while it was made are kept after the ones it summarized.
+    summaries = [m for m in llm.sent if m[-1]["content"] == SUMMARY_PROMPT]
+    assert len(summaries) == 1 and summaries[0][1]["content"].startswith("Prompt 0")
+    users = [t.content[:8] for t in conversation._turns if t.role == "user"]
+    assert users == ["Prompt 2", "Prompt 3", "Prompt 4"]
+    conversation.send("Prompt 5")
+    assert llm.sent[-1][0]["content"].endswith(f"{EARLIER}\nSUMMARY 6")
+    assert len(conversation.turns()) == 12  # the chat still shows everything said
+
+
+def test_a_summary_made_while_the_conversation_is_cleared_is_not_kept(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    release = threading.Event()
+    llm = FakeLlm2()
+
+    def slow_summaries(messages: list[Message]) -> str:
+        if messages[-1]["content"] == SUMMARY_PROMPT:
+            assert release.wait(5)
+        return llm(messages)
+
+    conversation = Conversation(slow_summaries, lambda: 4096)
+    for i in range(4):
+        conversation.send(f"Prompt {i} " + "x" * 590)
+    assert conversation.summarizing()
+    assert conversation.clear() == 8  # without waiting for it
+    conversation.send("Hello")
+    with caplog.at_level(logging.INFO):
+        release.set()
+        conversation.wait()
+    assert "Summary not kept" in caplog.text
+    conversation.send("Again")
+    assert llm.sent[-1][0] == system_message(None)
+    assert [t.content for t in conversation._turns if t.role == "user"] == ["Hello", "Again"]
+
+
+def test_the_summary_is_asked_for_with_its_own_ask() -> None:
+    """The app's waits while a reply is written (R147); the replies use `ask`."""
+    llm, summaries = FakeLlm2(), FakeLlm2()
+    conversation = Conversation(llm, lambda: 4096, summarize=summaries)
+    for i in range(5):
+        conversation.send(f"Prompt {i} " + "x" * 590)
+        conversation.wait()
+    assert [m[-1]["content"] for m in summaries.sent] == [SUMMARY_PROMPT]
+    assert all(m[-1]["content"] != SUMMARY_PROMPT for m in llm.sent)
 
 
 def test_clearing_forgets_the_turns_and_the_summary(caplog: pytest.LogCaptureFixture) -> None:
@@ -316,9 +380,10 @@ def test_a_summary_is_summarized_again_with_the_next_turns() -> None:
     for i in range(9):
         conversation.send(f"Prompt {i} " + "x" * 590)
         conversation.wait()
-    summaries = [m for m in llm.sent if m[0]["content"] == SUMMARY_PROMPT]
+    summaries = [m for m in llm.sent if m[-1]["content"] == SUMMARY_PROMPT]
     assert len(summaries) >= 2
-    assert summaries[1][1]["content"].startswith("Summary of what came before: SUMMARY")
+    # The summary before it is in the system message, as the chat sends it.
+    assert summaries[1][0]["content"].endswith(f"{EARLIER}\nSUMMARY 5")
 
 
 def test_if_summarizing_fails_the_oldest_turns_are_dropped(
@@ -331,7 +396,7 @@ def test_if_summarizing_fails_the_oldest_turns_are_dropped(
         for i in range(5):
             assert conversation.send(f"Prompt {i} " + "x" * 590)[0].content.startswith("Reply")
             conversation.wait()
-    last = [m for m in llm.sent if m[0]["content"] != SUMMARY_PROMPT][-1]
+    last = [m for m in llm.sent if m[-1]["content"] != SUMMARY_PROMPT][-1]
     assert last[0] == system_message(None)
     assert sum(tokens(m) for m in last[:-1]) - tokens(system_message(None)) <= 2048
     assert "Could not summarize the conversation" in caplog.text
@@ -700,7 +765,7 @@ def test_the_summary_counts_as_the_llm_being_busy(caplog: pytest.LogCaptureFixtu
     for i in range(5):
         conversation.send(f"Prompt {i} " + "x" * 590)
         conversation.wait()
-    assert [m[0]["content"] for m in llm.sent].count(SUMMARY_PROMPT) == 1
+    assert [m[-1]["content"] for m in llm.sent].count(SUMMARY_PROMPT) == 1
     assert busy == ["in", "out"]  # only the summary: send() is wrapped by its caller
 
 
@@ -1166,7 +1231,7 @@ def test_a_prompt_stopped_while_it_was_answered_is_not_kept() -> None:
     """Larry's test of PR #129: a provider's answer can't be cut off, so a reply that comes
     after Stop is dropped with its prompt, whoever wrote it."""
     stop = threading.Event()
-    conversation = Conversation(lambda messages: "Hi there.", lambda: 2048)
+    conversation = Conversation(lambda messages: "Hi there.", lambda: 4096)
     token = ask_stop.set(stop)
     try:
         stop.set()
@@ -1185,3 +1250,52 @@ def test_a_prompt_stop_comes_before_the_reply_is_kept_or_not_at_all() -> None:
     assert stop.keep() and not stop.stop() and not stop.is_set()  # kept first
     stop = PromptStop()
     assert stop.stop() and not stop.keep() and stop.is_set()  # stopped first
+
+
+class Slots(BaseHTTPRequestHandler):
+    """llama-server's /slots: busy for the first `busy` answers, then idle."""
+
+    busy = 0
+    asked = 0
+
+    def do_GET(self) -> None:
+        Slots.asked += 1
+        processing = Slots.asked <= Slots.busy
+        body = json.dumps([{"id": 0, "is_processing": processing}, {"id": 1}]).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+@pytest.fixture
+def slots_server() -> Iterator[str]:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Slots)
+    Slots.busy, Slots.asked = 0, 0
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}/v1"
+    server.shutdown()
+    server.server_close()
+
+
+def test_waiting_until_idle_waits_for_llama_server_to_stop_and_then_a_moment(
+    slots_server: str,
+) -> None:
+    Slots.busy = 3
+    waited = wait_until_idle(slots_server)
+    assert Slots.asked >= 3 + 4  # busy three times, then idle for SETTLE_IDLE_S
+    assert waited >= 1000 * (3 * SETTLE_POLL_S + SETTLE_IDLE_S)
+
+
+def test_waiting_until_idle_gives_up_after_its_limit(slots_server: str) -> None:
+    Slots.busy = 10_000
+    assert 300 <= wait_until_idle(slots_server, timeout_s=0.3) < 1500
+
+
+def test_a_server_that_cant_say_is_not_waited_for(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO):
+        assert wait_until_idle("http://127.0.0.1:9/v1") < 2500
+    assert "Can't tell whether the LLM is idle" in caplog.messages

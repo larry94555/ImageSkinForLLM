@@ -104,3 +104,27 @@ The first asks about the sample PDF and takes about 25 minutes (each variant's s
 about 2 of them); the second asks the app's own example questions about Larry's PDFs and takes
 about 10. Both print a table at the end. They erase llama-server's cache at the start of each
 variant, so the next reply in the app reads its prompt once from the start.
+
+## R147: after the fix (cloud session, 2026-10-26)
+
+`thinking.py --variant baseline` on R147's code: 170 tokens read per question and the first
+token after 1.6 s (2.2 s before), with as many right answers, as the `instructions` variant
+predicted.
+
+`during_summary.py` asks a question right after the reply that starts a summary, with the app's
+wiring. Not waiting for the summary was not enough on its own: the summary and the question
+then ran at once on llama-server's 2 threads, and the question's first token came after 18 s.
+Two things caused it, and both are fixed:
+
+- **The summary read the whole conversation again** (about 2,000 tokens, sent apart from the
+  chat). llama-server goes on reading a cut-off request until its prompt is read (15 s for
+  1,800 tokens here), so cutting it off didn't free the threads. It is now asked after the
+  conversation as the chat sends it, so llama-server reuses what it read for the reply and
+  reads about 100 tokens; cut off while writing, it stops within about a second.
+- **The question went to another slot** and read the whole conversation again: llama-server
+  says a cut-off request is done a moment before it frees the slot. A reply now waits until
+  `/slots` has shown llama-server idle for 0.2 s.
+
+With both: the question read 176 tokens, reused 1,945, and had its first token after 3.2 s; the
+summary finished 26 s later, in the background. On the hosted machine that question waited
+about 2 minutes for the summary before.

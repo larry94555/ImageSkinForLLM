@@ -146,7 +146,8 @@ def prefill(conversation: Conversation, client: LlmClient, draft: str) -> float:
 def patched(variant: str) -> dict[str, Any]:
     """What the variant changes in the chat module, to put back after it."""
     changes: dict[str, Any] = {}
-    if variant in ("instructions", "all"):
+    # Since R147 the app says the instructions once in the system prompt itself.
+    if variant in ("instructions", "all") and not hasattr(chat, "CONTENT_RULES"):
         changes |= {
             "SYSTEM_PROMPT": chat.SYSTEM_PROMPT + CACHED_INSTRUCTIONS,
             "FOUND_START": "Reference text:",
