@@ -4,6 +4,7 @@ a notice when a step is slow, and a job no longer worked on shown as stopped."""
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -316,7 +317,7 @@ def test_prepare_again_expects_each_step_to_take_its_time_from_last_run(tmp_path
 
     job, _ = make_job(tmp_path, voice=voice)
     last = {"voice": 200.0, "models": 0.0, "shapes": 0.0, "loop": 0.0, "align": 0.0, "clips": 150.0}
-    saved = asdict(PrepareStatus("done", PHOTO_ID, steps=fresh_steps(), times=last))
+    saved = asdict(PrepareStatus("done", PHOTO_ID, job.voice_id(), steps=fresh_steps(), times=last))
     (tmp_path / "prepare.json").write_text(json.dumps(saved), encoding="utf-8")
     job = PrepareJob(
         tmp_path, job._store, voice, job._prepare_face, job._render_clip, "kokoro", job._accent
@@ -346,10 +347,60 @@ def test_steps_with_nothing_to_do_last_time_are_expected_again_for_another_photo
 ) -> None:
     job, store = make_job(tmp_path)
     saved = asdict(
-        PrepareStatus("done", "another-photo", steps=fresh_steps(), times={"voice": 9, "loop": 0})
+        PrepareStatus(
+            "done",
+            "another-photo",
+            job.voice_id(),
+            steps=fresh_steps(),
+            times={"voice": 9, "loop": 0},
+        )
     )
     (tmp_path / "prepare.json").write_text(json.dumps(saved), encoding="utf-8")
     job = PrepareJob(tmp_path, job._store, job._prepare_voice, job._prepare_face, job._render_clip)
     with patch.object(job, "_run_in_background"):
         started = job.start()
     assert started.times == {"voice": 9}  # the new photo's loop is made, not kept
+
+
+def running_job(tmp_path: Path, times: dict[str, float]) -> PrepareJob:
+    """A job told it is running, with no thread, so a test calls _progress itself."""
+    job, _ = make_job(tmp_path)
+    job._status = PrepareStatus("running", PHOTO_ID, steps=fresh_steps(), times=times)
+    return job
+
+
+def test_a_step_carried_on_after_a_restart_saves_its_whole_time(tmp_path: Path) -> None:
+    """Codex's review on PR #177: 80% of the clips were there before a restart and the last 20%
+    took 30 s, so the next prepare, which makes them all again, should expect 150 s, not 30."""
+    job = running_job(tmp_path, {"clips": 400.0})
+    with patch("imageskin.prepare_job.time.perf_counter", side_effect=[1000.0, 1030.0]):
+        job._progress("clips", 80, 100)  # what was on disk when it carried on
+        job._progress("clips", 100, 100)
+    assert (job.status().times or {})["clips"] == 150.0
+
+
+def test_a_step_with_nothing_to_do_last_time_is_expected_again_once_it_has_work(
+    tmp_path: Path,
+) -> None:
+    """Codex's review on PR #177: the face was kept last time (0 s), but new mouth settings make
+    the shapes again; a ready-made voice took no time, but now recordings are learned."""
+    job = running_job(tmp_path, {"shapes": 0.0, "voice": 0.2, "loop": 0.0, "clips": 90.0})
+    job._progress("voice", 0, 1)
+    job._progress("shapes", 0, 14)
+    job._progress("loop", 40, 40)  # still nothing to do: kept at 0
+    times = job.status().times or {}
+    assert "shapes" not in times and "voice" not in times
+    assert times["loop"] == 0.0 and times["clips"] == 90.0
+    job._beat(time.perf_counter())
+    voice_left = step(job.status(), "voice").left_s
+    assert voice_left is not None and voice_left > USUAL["voice"] - 5  # its usual time, not 0
+
+
+def test_another_voice_is_timed_afresh(tmp_path: Path) -> None:
+    job, _ = make_job(tmp_path)
+    times = {"voice": 0.0, "models": 30.0, "clips": 20.0}
+    saved = PrepareStatus("done", PHOTO_ID, voice_id="preset:af_heart", steps=fresh_steps())
+    job._status = replace(saved, times=times)
+    with patch.object(job, "_run_in_background"):
+        started = job.start()
+    assert started.times == {"models": 30.0}  # the voice and the clips it speaks are new

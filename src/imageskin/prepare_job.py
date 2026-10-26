@@ -120,6 +120,8 @@ PACE_MIN, PACE_MAX = 0.5, 5.0
 # down ever more slowly instead of reaching 0 while the step still runs, and at least this many
 # seconds of it, so the page keeps moving when a step takes longer than expected.
 TAIL_SHARE, TAIL_MIN_S = 0.25, 10.0
+# A step that took less than this last time had nothing to do then (the face kept, say).
+NO_OP_S = 1.0
 # What each clip's activity line says while it is made.
 CLIP_ACTIVITY: dict[str, str] = {
     "goodbye": "Making the video of “Goodbye.”",
@@ -491,6 +493,9 @@ class PrepareJob:
         times = dict(self._status.times or {})
         if self._status.photo_id != photo_id:  # another face: its steps have work to do again
             times = {key: s for key, s in times.items() if s > 0}
+        if self._status.voice_id != self.voice_id():  # another voice: timed afresh
+            times.pop("voice", None)
+            times.pop("clips", None)
         self._status = PrepareStatus(
             "running", photo_id, steps=fresh_steps(), started_at=now_iso(), times=times
         )
@@ -614,18 +619,23 @@ class PrepareJob:
                 return
             if activity is not None:
                 logger.debug("Prepare activity", extra={"step": key, "activity": activity})
+            times = dict(self._status.times or {})
+            if key not in self._clock and done < total and times.get(key, NO_OP_S) < NO_OP_S:
+                # It had nothing to do last time (the face kept, say) but has work now, such
+                # as new mouth settings: its usual time, or how fast it counts, instead.
+                del times[key]
             started, done_at_start = self._clock.setdefault(key, (now, done))
             self._counted[key] = now
             elapsed = now - started
             seconds, left = None, None
-            times = dict(self._status.times or {})
             if done >= total and done_at_start >= total:
                 logger.info("Prepare step already done", extra={"step": key})  # kept from before
                 times[key] = 0.0
             elif done >= total:
                 seconds = round(elapsed, 1)
                 logger.info("Prepare step finished", extra={"step": key, "duration_s": seconds})
-                times[key] = seconds
+                # Carried on after a restart: what the whole step would have taken at this pace.
+                times[key] = round(seconds * total / (total - done_at_start), 1)
             elif done > done_at_start:
                 left = round(elapsed / (done - done_at_start) * (total - done))
             new = replace(
