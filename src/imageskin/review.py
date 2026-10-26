@@ -32,11 +32,16 @@ def sample_key(status: PrepareStatus) -> dict[str, str | None] | None:
     """What tells this sample apart from any other, or None when no sample is ready."""
     if status.state != "done":
         return None
-    return {
+    key = {
         "photo_id": status.photo_id,
         "voice_id": status.voice_id,
         "finished_at": status.finished_at,
     }
+    # The face movement it was made with (R128a); left out for a sample made before R128a, so
+    # one accepted then stays accepted.
+    if status.face_movement is not None:
+        key["face_movement"] = status.face_movement
+    return key
 
 
 def load_review(home: Path, status: PrepareStatus) -> Review:
@@ -67,7 +72,8 @@ def changed(data: dict[str, object], key: dict[str, str | None] | None) -> str:
         return "not prepared"  # the photo, recordings or accent changed and Prepare hasn't run
     sample = data.get("sample")
     old = sample if isinstance(sample, dict) else {}
-    parts = [name for name in ("photo_id", "voice_id") if old.get(name) != key[name]]
+    names = ("photo_id", "voice_id", "face_movement")
+    parts = [name for name in names if old.get(name) != key.get(name)]
     return ", ".join(parts) or "prepared again"
 
 

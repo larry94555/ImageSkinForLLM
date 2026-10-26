@@ -50,10 +50,16 @@ function serverWithConsent(agreed: boolean, postOk = true) {
     if (url === "/api/prepare") return Response.json(IDLE);
     if (init?.method === "POST") {
       return postOk
-        ? Response.json({ agreed: true, agreed_at: "2026-10-06T20:00:00+00:00" })
+        ? Response.json({
+            agreed: true,
+            agreed_at: "2026-10-06T20:00:00+00:00",
+          })
         : new Response("", { status: 500 });
     }
-    return Response.json({ agreed, agreed_at: agreed ? "2026-10-06T20:00:00+00:00" : null });
+    return Response.json({
+      agreed,
+      agreed_at: agreed ? "2026-10-06T20:00:00+00:00" : null,
+    });
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -66,7 +72,9 @@ function showMetrics() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) =>
-      url === "/api/settings" ? Response.json({ show_metrics: true }) : server(url, init),
+      url === "/api/settings"
+        ? Response.json({ show_metrics: true })
+        : server(url, init),
     ),
   );
 }
@@ -92,9 +100,10 @@ test("setup without consent goes to the consent page", async () => {
   await openAt("#/setup");
   expect(await screen.findByText("Before you start")).toBeTruthy();
   await waitFor(() => expect(window.location.hash).toBe("#/consent"));
-  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  expect(
+    (screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
 });
 
 test("the consent page shows Larry's short image disclaimer and checkbox", async () => {
@@ -105,9 +114,13 @@ test("the consent page shows Larry's short image disclaimer and checkbox", async
       "Only use images you have the right to use. Ideally, use your own picture.",
     ),
   ).toBeTruthy();
-  expect(screen.queryByText(/Only use photos and recordings of someone/)).toBeNull();
   expect(
-    screen.getByText("I have the right to use the photos and recording that will be used by the app."),
+    screen.queryByText(/Only use photos and recordings of someone/),
+  ).toBeNull();
+  expect(
+    screen.getByText(
+      "I have the right to use the photos and recording that will be used by the app.",
+    ),
   ).toBeTruthy();
   expect(screen.queryByText(/agreed to have their face and voice/)).toBeNull();
 });
@@ -116,14 +129,21 @@ test("ticking the box and continuing saves consent and opens setup", async () =>
   const fetchMock = serverWithConsent(false);
   await openAt("#/consent");
   fireEvent.click(await screen.findByRole("checkbox"));
-  const button = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+  const button = screen.getByRole("button", {
+    name: "Continue",
+  }) as HTMLButtonElement;
   expect(button.disabled).toBe(false);
   await act(async () => {
     fireEvent.click(button);
   });
-  expect(await screen.findByText(/^Make the talking person in four steps/)).toBeTruthy();
+  expect(
+    await screen.findByText(/^Make the talking person in four steps/),
+  ).toBeTruthy();
   expect(window.location.hash).toBe("#/setup");
-  expect(fetchMock).toHaveBeenCalledWith("/api/consent", expect.objectContaining({ method: "POST" }));
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/consent",
+    expect.objectContaining({ method: "POST" }),
+  );
 });
 
 test("a failed save shows a message and lets the user try again", async () => {
@@ -133,16 +153,21 @@ test("a failed save shows a message and lets the user try again", async () => {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   });
-  expect(await screen.findByText("Could not save your answer. Please try again.")).toBeTruthy();
-  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(
-    false,
-  );
+  expect(
+    await screen.findByText("Could not save your answer. Please try again."),
+  ).toBeTruthy();
+  expect(
+    (screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
 });
 
 test("the top bar's height is given to the page, and kept up to date (review on PR #83)", async () => {
   serverWithConsent(true);
   let height = 52;
-  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(() => height);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+    () => height,
+  );
   let resized = () => {};
   const disconnect = vi.fn();
   vi.stubGlobal(
@@ -170,9 +195,11 @@ test("the top bar's height is given to the page, and kept up to date (review on 
 // keep the person below the sticky top bar on the chat page (review on PR #83).
 test("the chat's person sticks below the top bar, using its measured height", () => {
   const rule = (selector: string) =>
-    [...styles.matchAll(new RegExp(`${selector.replace(/\./g, "\\.")} \\{([^}]*)\\}`, "g"))].map(
-      (m) => m[1],
-    );
+    [
+      ...styles.matchAll(
+        new RegExp(`${selector.replace(/\./g, "\\.")} \\{([^}]*)\\}`, "g"),
+      ),
+    ].map((m) => m[1]);
   expect(rule("header")[0]).toMatch(/position: sticky;\s*top: 0;/);
   const person = rule(".chat .person");
   expect(person[0]).toMatch(/position: sticky;\s*top: var\(--header-h, 0px\);/);
@@ -195,27 +222,45 @@ test("filled buttons keep readable white text in both modes, hovered too", () =>
     const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
     return (hi + 0.05) / (lo + 0.05);
   };
-  const light = styles.slice(styles.indexOf(":root {"), styles.indexOf("@media (prefers-color-scheme: dark)"));
-  const dark = styles.slice(styles.indexOf("@media (prefers-color-scheme: dark)"));
-  const token = (block: string, name: string) => block.match(new RegExp(`--${name}: (#[0-9a-f]{6});`))?.[1];
+  const light = styles.slice(
+    styles.indexOf(":root {"),
+    styles.indexOf("@media (prefers-color-scheme: dark)"),
+  );
+  const dark = styles.slice(
+    styles.indexOf("@media (prefers-color-scheme: dark)"),
+  );
+  const token = (block: string, name: string) =>
+    block.match(new RegExp(`--${name}: (#[0-9a-f]{6});`))?.[1];
   const text = token(light, "on-button") ?? "";
   for (const block of [light, dark]) {
     for (const fill of ["button", "button-hover"]) {
-      expect(contrast(text, token(block, fill) ?? "#ffffff")).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrast(text, token(block, fill) ?? "#ffffff"),
+      ).toBeGreaterThanOrEqual(4.5);
     }
   }
   // The buttons and the bubble use those tokens, not the accent, which lightens in dark mode.
-  expect(styles).toMatch(/background: var\(--button\);\s*color: var\(--on-button\);\s*font: inherit;/);
-  expect(styles).toMatch(/\.button:hover, button:hover \{ background: var\(--button-hover\); \}/);
-  expect(styles).toMatch(/ol\.turns li\.user \{[^}]*background: var\(--button\);[^}]*color: var\(--on-button\);/);
+  expect(styles).toMatch(
+    /background: var\(--button\);\s*color: var\(--on-button\);\s*font: inherit;/,
+  );
+  expect(styles).toMatch(
+    /\.button:hover, button:hover \{ background: var\(--button-hover\); \}/,
+  );
+  expect(styles).toMatch(
+    /ol\.turns li\.user \{[^}]*background: var\(--button\);[^}]*color: var\(--on-button\);/,
+  );
 });
 
 // A pressed button moves with `translate`, which adds to a `transform` instead of replacing it,
 // so the centred "Play the reply" stays centred when pressed (review on PR #83).
 test("pressing a button doesn't undo the centring of Play the reply", () => {
-  expect(styles).toMatch(/\.button:active, button:active \{ translate: 0 1px; \}/);
+  expect(styles).toMatch(
+    /\.button:active, button:active \{ translate: 0 1px; \}/,
+  );
   expect(styles).not.toMatch(/:active[^{]*\{[^}]*transform/);
-  expect(styles).toMatch(/\.play-reply \{[^}]*transform: translate\(-50%, -50%\);/);
+  expect(styles).toMatch(
+    /\.play-reply \{[^}]*transform: translate\(-50%, -50%\);/,
+  );
 });
 
 test("without ResizeObserver the top bar is measured once and that is logged", async () => {
@@ -224,21 +269,29 @@ test("without ResizeObserver the top bar is measured once and that is logged", a
   vi.stubGlobal("ResizeObserver", undefined);
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   await openAt("#/setup");
-  expect(document.documentElement.style.getPropertyValue("--header-h")).toBe("60px");
-  expect(warn).toHaveBeenCalledWith("No ResizeObserver; the top bar's height is measured once");
+  expect(document.documentElement.style.getPropertyValue("--header-h")).toBe(
+    "60px",
+  );
+  expect(warn).toHaveBeenCalledWith(
+    "No ResizeObserver; the top bar's height is measured once",
+  );
 });
 
 test("with consent, setup opens and the nav marks it", async () => {
   serverWithConsent(true);
   await openAt("#/setup");
-  expect(await screen.findByText(/^Make the talking person in four steps/)).toBeTruthy();
+  expect(
+    await screen.findByText(/^Make the talking person in four steps/),
+  ).toBeTruthy();
   expect(screen.getByRole("link", { name: "Setup" }).className).toBe("current");
 });
 
 test("setup offers a ready-made avatar instead of your own photo and voice", async () => {
   serverWithConsent(true);
   await openAt("#/setup");
-  const link = await screen.findByRole("link", { name: "Use a ready-made avatar instead" });
+  const link = await screen.findByRole("link", {
+    name: "Use a ready-made avatar instead",
+  });
   expect(link.getAttribute("href")).toBe("#/start-now");
 });
 
@@ -246,7 +299,12 @@ test("setup offers a ready-made avatar instead of your own photo and voice", asy
 // the top bar's Setup went to the photo and voice setup instead. Both now go to Start now.
 function serverWithAvatar() {
   const server = serverWithConsent(true);
-  const chosen = { gender: "female", accent: "american", realism: "photoreal", role: "boss" };
+  const chosen = {
+    gender: "female",
+    accent: "american",
+    realism: "photoreal",
+    role: "boss",
+  };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) =>
     url === "/api/start-now" && !init?.method
       ? Response.json({ state: "done", chosen })
@@ -266,20 +324,32 @@ test("with a ready-made avatar, the top bar's Setup goes where the home page's d
     window.location.hash = "#/";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   });
-  await screen.findByText("Choose another ready-made avatar, or use your own photo and voice.");
-  const home = screen.getByText("Choose another ready-made avatar, or use your own photo and voice.").closest("a")!;
+  await screen.findByText(
+    "Choose another ready-made avatar, or use your own photo and voice.",
+  );
+  const home = screen
+    .getByText(
+      "Choose another ready-made avatar, or use your own photo and voice.",
+    )
+    .closest("a")!;
   expect(home.getAttribute("href")).toBe("#/start-now");
-  const nav = within(document.querySelector("nav")!).getByRole("link", { name: "Setup" });
+  const nav = within(document.querySelector("nav")!).getByRole("link", {
+    name: "Setup",
+  });
   await waitFor(() => expect(nav.getAttribute("href")).toBe("#/start-now"));
   expect(info).toHaveBeenCalledWith(
-    expect.stringMatching(/^Top bar Setup link: Start now \(a ready-made avatar is in use\)/),
+    expect.stringMatching(
+      /^Top bar Setup link: Start now \(a ready-made avatar is in use\)/,
+    ),
   );
 });
 
 test("without a ready-made avatar, the top bar's Setup goes to setup", async () => {
   serverWithConsent(true);
   await openAt("#/chat");
-  const nav = await within(document.querySelector("nav")!).findByRole("link", { name: "Setup" });
+  const nav = await within(document.querySelector("nav")!).findByRole("link", {
+    name: "Setup",
+  });
   await act(async () => {});
   expect(nav.getAttribute("href")).toBe("#/setup");
 });
@@ -287,7 +357,9 @@ test("without a ready-made avatar, the top bar's Setup goes to setup", async () 
 test("before consent, the top bar's Setup goes to the consent page, as home's does", async () => {
   serverWithConsent(false);
   await openAt("#/");
-  const nav = await within(document.querySelector("nav")!).findByRole("link", { name: "Setup" });
+  const nav = await within(document.querySelector("nav")!).findByRole("link", {
+    name: "Setup",
+  });
   expect(nav.getAttribute("href")).toBe("#/consent");
 });
 
@@ -295,11 +367,16 @@ test("the top bar's Setup is read again on each page change", async () => {
   const fetchMock = serverWithAvatar();
   await openAt("#/chat");
   await waitFor(() =>
-    expect(within(document.querySelector("nav")!).getByRole("link", { name: "Setup" }).getAttribute("href")).toBe(
-      "#/start-now",
-    ),
+    expect(
+      within(document.querySelector("nav")!)
+        .getByRole("link", { name: "Setup" })
+        .getAttribute("href"),
+    ).toBe("#/start-now"),
   );
-  const reads = () => fetchMock.mock.calls.filter(([u, i]) => u === "/api/start-now" && !i?.method).length;
+  const reads = () =>
+    fetchMock.mock.calls.filter(
+      ([u, i]) => u === "/api/start-now" && !i?.method,
+    ).length;
   const before = reads();
   await act(async () => {
     window.location.hash = "#/guide";
@@ -313,7 +390,9 @@ test("if the avatar can't be read, the top bar's Setup still goes to setup and t
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) =>
-      url === "/api/start-now" ? new Response("", { status: 500 }) : server(url, init),
+      url === "/api/start-now"
+        ? new Response("", { status: 500 })
+        : server(url, init),
     ),
   );
   await openAt("#/chat");
@@ -323,7 +402,9 @@ test("if the avatar can't be read, the top bar's Setup still goes to setup and t
       expect.anything(),
     ),
   );
-  const nav = within(document.querySelector("nav")!).getByRole("link", { name: "Setup" });
+  const nav = within(document.querySelector("nav")!).getByRole("link", {
+    name: "Setup",
+  });
   expect(nav.getAttribute("href")).toBe("#/setup");
 });
 
@@ -334,7 +415,9 @@ test("setup links to the recording guide, which keeps setup marked in the nav", 
   expect(link.getAttribute("href")).toBe("#/guide");
   cleanup();
   await openAt("#/guide");
-  expect(await screen.findByRole("heading", { name: "Before you begin" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Before you begin" }),
+  ).toBeTruthy();
   expect(screen.getByRole("link", { name: "Setup" }).className).toBe("current");
 });
 
@@ -345,11 +428,13 @@ test("unknown pages say so", async () => {
 });
 
 test("if the server can't be reached, setup stays blocked", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("", { status: 503 })),
+  );
   await openAt("#/setup");
   expect(await screen.findByText("Before you start")).toBeTruthy();
 });
-
 
 // --- Upload screen (R7) ---
 
@@ -385,14 +470,23 @@ const NO_VOICE: VoiceSample = {
 
 // A fake server with consent given and these uploads stored. POSTs answer with `posted` in turn.
 // The first photo is the one the app picks for the video.
-function uploadServer(stored: Upload[], posted: Response[] = [], voice = NO_VOICE) {
-  let choice = { id: stored.find((u) => u.kind === "photos")?.id ?? null, chosen_by: "app" };
+function uploadServer(
+  stored: Upload[],
+  posted: Response[] = [],
+  voice = NO_VOICE,
+) {
+  let choice = {
+    id: stored.find((u) => u.kind === "photos")?.id ?? null,
+    chosen_by: "app",
+  };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
     if (url === "/api/uploads/photos/chosen") {
       if (init?.method === "PUT") {
         const { id } = JSON.parse(init.body as string) as { id: string };
-        if (id === "f".repeat(32)) return Response.json({ detail: "No such photo." }, { status: 404 });
+        if (id === "f".repeat(32))
+          return Response.json({ detail: "No such photo." }, { status: 404 });
         choice = { id, chosen_by: "you" };
       }
       return Response.json(choice);
@@ -400,7 +494,8 @@ function uploadServer(stored: Upload[], posted: Response[] = [], voice = NO_VOIC
     if (url === "/api/voice-sample") return Response.json(voice);
     if (url === "/api/prepare") return Response.json(IDLE);
     const kind = url.split("/")[3];
-    if (init?.method === "POST") return posted.shift() ?? new Response("", { status: 500 });
+    if (init?.method === "POST")
+      return posted.shift() ?? new Response("", { status: 500 });
     if (init?.method === "DELETE") return Response.json({ removed: true });
     return Response.json(stored.filter((u) => u.kind === kind));
   });
@@ -419,7 +514,9 @@ async function removeConfirmed(button: HTMLElement) {
 }
 
 function chooseFiles(label: string, files: File[]) {
-  const input = screen.getByText(label).querySelector("input") as HTMLInputElement;
+  const input = screen
+    .getByText(label)
+    .querySelector("input") as HTMLInputElement;
   Object.defineProperty(input, "files", { value: files, configurable: true });
   fireEvent.change(input);
 }
@@ -441,16 +538,27 @@ test("each photo shows what the photo checks found", async () => {
   const turned = "Your face is turned away. Look straight at the camera.";
   uploadServer([
     PHOTO,
-    { ...PHOTO, id: "c".repeat(32), name: "side.jpg", problems: [small, turned] },
+    {
+      ...PHOTO,
+      id: "c".repeat(32),
+      name: "side.jpg",
+      problems: [small, turned],
+    },
     SOUND,
   ]);
   await openAt("#/setup");
   expect(await screen.findByText("Looks good · score 90 of 100")).toBeTruthy();
-  const side = (await screen.findByAltText("side.jpg")).closest("li") as HTMLElement;
-  const shown = Array.from(side.querySelectorAll("li.error")).map((li) => li.textContent);
+  const side = (await screen.findByAltText("side.jpg")).closest(
+    "li",
+  ) as HTMLElement;
+  const shown = Array.from(side.querySelectorAll("li.error")).map(
+    (li) => li.textContent,
+  );
   expect(shown).toEqual([small, turned]);
   // Recordings aren't face-checked.
-  const sound = (await screen.findByText("voice1.m4a (1:35)")).closest("li") as HTMLElement;
+  const sound = (await screen.findByText("voice1.m4a (1:35)")).closest(
+    "li",
+  ) as HTMLElement;
   expect(sound.textContent).not.toContain("Looks good");
   expect(sound.textContent).not.toContain("Use this photo");
 });
@@ -458,26 +566,46 @@ test("each photo shows what the photo checks found", async () => {
 // --- Best photo (R9) ---
 
 test("the best photo is highlighted and another good photo can be chosen instead", async () => {
-  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
-  const blurry = { ...PHOTO, id: "d".repeat(32), name: "blurry.jpg", problems: ["Blurry."] };
+  const second = {
+    ...PHOTO,
+    id: "c".repeat(32),
+    name: "second.jpg",
+    score: 80,
+  };
+  const blurry = {
+    ...PHOTO,
+    id: "d".repeat(32),
+    name: "blurry.jpg",
+    problems: ["Blurry."],
+  };
   const fetchMock = uploadServer([PHOTO, second, blurry]);
   await openAt("#/setup");
-  const best = (await screen.findByAltText("front.jpg")).closest("li") as HTMLElement;
+  const best = (await screen.findByAltText("front.jpg")).closest(
+    "li",
+  ) as HTMLElement;
   await waitFor(() => expect(best.className).toBe("chosen"));
   expect(best.textContent).toContain("Used for the video (best score)");
   expect(best.textContent).not.toContain("Use this photo");
-  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  const other = (await screen.findByAltText("second.jpg")).closest(
+    "li",
+  ) as HTMLElement;
   // A photo that failed a check can't be chosen.
-  const failed = (await screen.findByAltText("blurry.jpg")).closest("li") as HTMLElement;
+  const failed = (await screen.findByAltText("blurry.jpg")).closest(
+    "li",
+  ) as HTMLElement;
   expect(failed.textContent).not.toContain("Use this photo");
 
   await act(async () => {
-    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+    fireEvent.click(
+      within(other).getByRole("button", { name: "Use this photo" }),
+    );
   });
   await waitFor(() => expect(other.className).toBe("chosen"));
   expect(other.textContent).toContain("Used for the video (your choice)");
   expect(best.className).toBe("");
-  expect(within(best).getByRole("button", { name: "Use this photo" })).toBeTruthy();
+  expect(
+    within(best).getByRole("button", { name: "Use this photo" }),
+  ).toBeTruthy();
   expect(fetchMock).toHaveBeenCalledWith("/api/uploads/photos/chosen", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -486,7 +614,12 @@ test("the best photo is highlighted and another good photo can be chosen instead
 });
 
 test("a slow first read of the choice can't undo the user's click", async () => {
-  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  const second = {
+    ...PHOTO,
+    id: "c".repeat(32),
+    name: "second.jpg",
+    score: 80,
+  };
   let answerFirstRead: () => void = () => {};
   const firstRead = new Promise<void>((resolve) => {
     answerFirstRead = resolve;
@@ -495,19 +628,27 @@ test("a slow first read of the choice can't undo the user's click", async () => 
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: null });
       if (url === "/api/uploads/photos/chosen") {
-        if (init?.method === "PUT") return Response.json({ id: second.id, chosen_by: "you" });
+        if (init?.method === "PUT")
+          return Response.json({ id: second.id, chosen_by: "you" });
         if (++reads === 1) await firstRead; // answers with the choice from before the click
         return Response.json({ id: PHOTO.id, chosen_by: "app" });
       }
-      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+      return Response.json(
+        url === "/api/uploads/photos" ? [PHOTO, second] : [],
+      );
     }),
   );
   await openAt("#/setup");
-  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  const other = (await screen.findByAltText("second.jpg")).closest(
+    "li",
+  ) as HTMLElement;
   await act(async () => {
-    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+    fireEvent.click(
+      within(other).getByRole("button", { name: "Use this photo" }),
+    );
   });
   await waitFor(() => expect(other.className).toBe("chosen"));
   await act(async () => {
@@ -520,7 +661,12 @@ test("a slow first read of the choice can't undo the user's click", async () => 
 });
 
 test("an older read of the choice answering last doesn't replace a newer one", async () => {
-  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 95 };
+  const second = {
+    ...PHOTO,
+    id: "c".repeat(32),
+    name: "second.jpg",
+    score: 95,
+  };
   let answerFirstRead: () => void = () => {};
   const firstRead = new Promise<void>((resolve) => {
     answerFirstRead = resolve;
@@ -529,7 +675,8 @@ test("an older read of the choice answering last doesn't replace a newer one", a
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: null });
       if (url === "/api/uploads/photos/chosen") {
         if (++reads === 1) {
           await firstRead; // from before the better photo arrived
@@ -546,7 +693,9 @@ test("an older read of the choice answering last doesn't replace a newer one", a
   await act(async () => {
     chooseFiles("Add photos", [new File(["x"], "second.jpg")]); // a better photo: read again
   });
-  const newer = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  const newer = (await screen.findByAltText("second.jpg")).closest(
+    "li",
+  ) as HTMLElement;
   await waitFor(() => expect(newer.className).toBe("chosen"));
   await act(async () => {
     answerFirstRead();
@@ -557,7 +706,12 @@ test("an older read of the choice answering last doesn't replace a newer one", a
 });
 
 test("a read sent while the choice is being saved can't undo it", async () => {
-  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  const second = {
+    ...PHOTO,
+    id: "c".repeat(32),
+    name: "second.jpg",
+    score: 80,
+  };
   const third = { ...PHOTO, id: "e".repeat(32), name: "third.jpg", score: 70 };
   let finishSave: () => void = () => {};
   const saving = new Promise<void>((resolve) => {
@@ -572,7 +726,8 @@ test("a read sent while the choice is being saved can't undo it", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: null });
       if (url === "/api/uploads/photos/chosen") {
         if (init?.method === "PUT") {
           await saving;
@@ -587,14 +742,20 @@ test("a read sent while the choice is being saved can't undo it", async () => {
         return Response.json(saved);
       }
       if (init?.method === "POST") return Response.json(third);
-      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+      return Response.json(
+        url === "/api/uploads/photos" ? [PHOTO, second] : [],
+      );
     }),
   );
   await openAt("#/setup");
-  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  const other = (await screen.findByAltText("second.jpg")).closest(
+    "li",
+  ) as HTMLElement;
   await screen.findByText("Used for the video (best score)");
   await act(async () => {
-    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+    fireEvent.click(
+      within(other).getByRole("button", { name: "Use this photo" }),
+    );
   });
   await act(async () => {
     chooseFiles("Add photos", [new File(["x"], "third.jpg")]); // reads the choice again
@@ -613,7 +774,12 @@ test("a read sent while the choice is being saved can't undo it", async () => {
 });
 
 test("removing the photo being chosen falls back to the best one", async () => {
-  const second = { ...PHOTO, id: "c".repeat(32), name: "second.jpg", score: 80 };
+  const second = {
+    ...PHOTO,
+    id: "c".repeat(32),
+    name: "second.jpg",
+    score: 80,
+  };
   let finishSave: () => void = () => {};
   const saving = new Promise<void>((resolve) => {
     finishSave = resolve;
@@ -621,7 +787,8 @@ test("removing the photo being chosen falls back to the best one", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: null });
       if (url === "/api/uploads/photos/chosen") {
         if (init?.method === "PUT") {
           await saving; // the server saved it before the photo was removed
@@ -630,15 +797,23 @@ test("removing the photo being chosen falls back to the best one", async () => {
         return Response.json({ id: PHOTO.id, chosen_by: "app" }); // falls back to the best
       }
       if (init?.method === "DELETE") return Response.json({ removed: true });
-      return Response.json(url === "/api/uploads/photos" ? [PHOTO, second] : []);
+      return Response.json(
+        url === "/api/uploads/photos" ? [PHOTO, second] : [],
+      );
     }),
   );
   await openAt("#/setup");
-  const best = (await screen.findByAltText("front.jpg")).closest("li") as HTMLElement;
-  const other = (await screen.findByAltText("second.jpg")).closest("li") as HTMLElement;
+  const best = (await screen.findByAltText("front.jpg")).closest(
+    "li",
+  ) as HTMLElement;
+  const other = (await screen.findByAltText("second.jpg")).closest(
+    "li",
+  ) as HTMLElement;
   await waitFor(() => expect(best.className).toBe("chosen"));
   await act(async () => {
-    fireEvent.click(within(other).getByRole("button", { name: "Use this photo" }));
+    fireEvent.click(
+      within(other).getByRole("button", { name: "Use this photo" }),
+    );
   });
   await removeConfirmed(within(other).getByRole("button", { name: "Remove" }));
   await act(async () => {
@@ -654,24 +829,34 @@ test("a refused choice says why", async () => {
   const gone = { ...PHOTO, id: "f".repeat(32), name: "gone.jpg" };
   uploadServer([PHOTO, gone]);
   await openAt("#/setup");
-  const item = (await screen.findByAltText("gone.jpg")).closest("li") as HTMLElement;
+  const item = (await screen.findByAltText("gone.jpg")).closest(
+    "li",
+  ) as HTMLElement;
   await act(async () => {
-    fireEvent.click(within(item).getByRole("button", { name: "Use this photo" }));
+    fireEvent.click(
+      within(item).getByRole("button", { name: "Use this photo" }),
+    );
   });
   expect(await screen.findByText("gone.jpg: No such photo.")).toBeTruthy();
 });
 
 test("the choice is asked again after a good photo is uploaded or the chosen one removed", async () => {
-  const fetchMock = uploadServer([PHOTO], [Response.json({ ...PHOTO, id: "c".repeat(32) })]);
+  const fetchMock = uploadServer(
+    [PHOTO],
+    [Response.json({ ...PHOTO, id: "c".repeat(32) })],
+  );
   await openAt("#/setup");
   await screen.findByText("Used for the video (best score)");
-  const asked = () => fetchMock.mock.calls.filter(([url]) => url.endsWith("/chosen")).length;
+  const asked = () =>
+    fetchMock.mock.calls.filter(([url]) => url.endsWith("/chosen")).length;
   expect(asked()).toBe(1);
   await act(async () => {
     chooseFiles("Add photos", [new File(["x"], "new.jpg")]);
   });
   await waitFor(() => expect(asked()).toBe(2));
-  const chosen = screen.getByText("Used for the video (best score)").closest("li") as HTMLElement;
+  const chosen = screen
+    .getByText("Used for the video (best score)")
+    .closest("li") as HTMLElement;
   await removeConfirmed(within(chosen).getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(asked()).toBe(3));
 });
@@ -685,7 +870,8 @@ test("photos uploaded before the checks are checked after the list shows", async
     finishCheck = resolve;
   });
   const fetchMock = vi.fn(async (url: string) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
     if (url.endsWith("/check")) {
       await checkPending;
       const photo = [old, next].find((p) => url.includes(p.id));
@@ -698,7 +884,9 @@ test("photos uploaded before the checks are checked after the list shows", async
   expect(await screen.findByText("Checking photo…")).toBeTruthy();
   expect(screen.getByText("Waiting to check")).toBeTruthy();
   // Adding isn't held up by the check.
-  const input = screen.getByText("Add photos").querySelector("input") as HTMLInputElement;
+  const input = screen
+    .getByText("Add photos")
+    .querySelector("input") as HTMLInputElement;
   expect(input.disabled).toBe(false);
   await act(async () => {
     finishCheck();
@@ -706,15 +894,23 @@ test("photos uploaded before the checks are checked after the list shows", async
   await waitFor(() => expect(screen.getAllByText(turned)).toHaveLength(2));
   expect(screen.queryByText("Checking photo…")).toBeNull();
   expect(screen.queryByText("Waiting to check")).toBeNull();
-  expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/photos/${old.id}/check`, {
-    method: "POST",
-  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    `/api/uploads/photos/${old.id}/check`,
+    {
+      method: "POST",
+    },
+  );
 });
 
 test("when the checks are off, old photos say not checked and are tried only once", async () => {
-  const old = [1, 2].map((n) => ({ ...PHOTO, id: String(n).repeat(32), problems: null }));
+  const old = [1, 2].map((n) => ({
+    ...PHOTO,
+    id: String(n).repeat(32),
+    problems: null,
+  }));
   const fetchMock = vi.fn(async (url: string) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
     if (url.endsWith("/check")) {
       const detail = "The photo checks are off, so it could not be checked.";
       return Response.json({ detail }, { status: 503 });
@@ -723,17 +919,26 @@ test("when the checks are off, old photos say not checked and are tried only onc
   });
   vi.stubGlobal("fetch", fetchMock);
   await openAt("#/setup");
-  await waitFor(() => expect(screen.getAllByText("Not checked")).toHaveLength(2));
+  await waitFor(() =>
+    expect(screen.getAllByText("Not checked")).toHaveLength(2),
+  );
   const checks = fetchMock.mock.calls.filter(([url]) => url.endsWith("/check"));
   expect(checks).toHaveLength(1);
 });
 
 test("a photo that can't be checked is skipped and the next one is checked", async () => {
-  const old = [1, 2].map((n) => ({ ...PHOTO, id: String(n).repeat(32), problems: null }));
+  const old = [1, 2].map((n) => ({
+    ...PHOTO,
+    id: String(n).repeat(32),
+    problems: null,
+  }));
   const fetchMock = vi.fn(async (url: string) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
-    if (url === `/api/uploads/photos/${old[0].id}/check`) return new Response("", { status: 404 });
-    if (url.endsWith("/check")) return Response.json({ ...old[1], problems: [] });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
+    if (url === `/api/uploads/photos/${old[0].id}/check`)
+      return new Response("", { status: 404 });
+    if (url.endsWith("/check"))
+      return Response.json({ ...old[1], problems: [] });
     return Response.json(url === "/api/uploads/photos" ? old : []);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -753,20 +958,31 @@ test("choosing several photos uploads each and shows why one was refused", async
     [],
     [
       Response.json(PHOTO),
-      Response.json({ detail: "This is not a JPG, PNG or HEIC photo." }, { status: 415 }),
+      Response.json(
+        { detail: "This is not a JPG, PNG or HEIC photo." },
+        { status: 415 },
+      ),
     ],
   );
   await openAt("#/setup");
   await screen.findAllByText("None yet.");
   await act(async () => {
-    chooseFiles("Add photos", [new File(["x"], "front.jpg"), new File(["y"], "notes.txt")]);
+    chooseFiles("Add photos", [
+      new File(["x"], "front.jpg"),
+      new File(["y"], "notes.txt"),
+    ]);
   });
   expect(await screen.findByAltText("front.jpg")).toBeTruthy();
   expect(
     await screen.findByText("notes.txt: This is not a JPG, PNG or HEIC photo."),
   ).toBeTruthy();
-  const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
-  expect(posts.map(([url]) => url)).toEqual(["/api/uploads/photos", "/api/uploads/photos"]);
+  const posts = fetchMock.mock.calls.filter(
+    ([, init]) => init?.method === "POST",
+  );
+  expect(posts.map(([url]) => url)).toEqual([
+    "/api/uploads/photos",
+    "/api/uploads/photos",
+  ]);
   expect((posts[0][1]?.body as FormData).get("file")).toBeInstanceOf(File);
 });
 
@@ -777,7 +993,9 @@ test("a refusal without a JSON reason still says something", async () => {
   await act(async () => {
     chooseFiles("Add recordings", [new File(["x"], "voice1.wav")]);
   });
-  expect(await screen.findByText("voice1.wav: That didn't work. Please try again.")).toBeTruthy();
+  expect(
+    await screen.findByText("voice1.wav: That didn't work. Please try again."),
+  ).toBeTruthy();
 });
 
 test("remove asks first in the app's own box, then deletes the file", async () => {
@@ -788,26 +1006,39 @@ test("remove asks first in the app's own box, then deletes the file", async () =
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
   });
-  expect(screen.getByRole("alertdialog", { name: "Remove front.jpg?" })).toBeTruthy();
+  expect(
+    screen.getByRole("alertdialog", { name: "Remove front.jpg?" }),
+  ).toBeTruthy();
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "No, keep it" }));
   });
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.queryByAltText("front.jpg")).toBeTruthy();
-  expect(fetchMock).not.toHaveBeenCalledWith(expect.anything(), { method: "DELETE" });
+  expect(fetchMock).not.toHaveBeenCalledWith(expect.anything(), {
+    method: "DELETE",
+  });
   await removeConfirmed(screen.getByRole("button", { name: "Remove" }));
   await waitFor(() => expect(screen.queryByAltText("front.jpg")).toBeNull());
   expect(confirm).not.toHaveBeenCalled(); // not the browser's box
-  expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/photos/${PHOTO.id}`, { method: "DELETE" });
+  expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/photos/${PHOTO.id}`, {
+    method: "DELETE",
+  });
 });
 
 test("a failed remove keeps the file and says so", async () => {
   uploadServer([PHOTO]);
   await openAt("#/setup");
   await screen.findByAltText("front.jpg");
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("", { status: 500 })),
+  );
   await removeConfirmed(screen.getByRole("button", { name: "Remove" }));
-  expect(await screen.findByText("front.jpg: Could not remove it. Please try again.")).toBeTruthy();
+  expect(
+    await screen.findByText(
+      "front.jpg: Could not remove it. Please try again.",
+    ),
+  ).toBeTruthy();
   expect(screen.getByAltText("front.jpg")).toBeTruthy();
 });
 
@@ -823,7 +1054,9 @@ test("if the list can't be loaded the page says so", async () => {
   await openAt("#/setup");
   await waitFor(() =>
     expect(
-      screen.getAllByText("Could not load the list. Reload the page to try again."),
+      screen.getAllByText(
+        "Could not load the list. Reload the page to try again.",
+      ),
     ).toHaveLength(2),
   );
 });
@@ -842,7 +1075,8 @@ test("adding waits until the first list has loaded, so it can't hide a new uploa
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: null });
       if (init?.method === "POST") return Response.json(PHOTO);
       return url === "/api/uploads/photos" ? listPending : Response.json([]);
     }),
@@ -868,13 +1102,16 @@ test("if the list failed, adding still works", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: null });
       if (init?.method === "POST") return Response.json(PHOTO);
       return new Response("", { status: 500 });
     }),
   );
   await openAt("#/setup");
-  await screen.findAllByText("Could not load the list. Reload the page to try again.");
+  await screen.findAllByText(
+    "Could not load the list. Reload the page to try again.",
+  );
   await act(async () => {
     chooseFiles("Add photos", [new File(["x"], "front.jpg")]);
   });
@@ -887,26 +1124,43 @@ const NOISY =
   "There is too much background noise. Record in a quiet room, away from fans, open windows," +
   " music or a TV.";
 const PASSED_SOUND: Upload = { ...SOUND, problems: [], speech: 70.2 };
-const ONE_VOICE: VoiceSample = { recordings: 1, seconds: 95.4, speech: 70.2, problem: null };
+const ONE_VOICE: VoiceSample = {
+  recordings: 1,
+  seconds: 95.4,
+  speech: 70.2,
+  problem: null,
+};
 
 test("each recording shows what the sound checks found, and the voice sample plays", async () => {
-  const noisy = { ...SOUND, id: "c".repeat(32), name: "kitchen.m4a", problems: [NOISY] };
+  const noisy = {
+    ...SOUND,
+    id: "c".repeat(32),
+    name: "kitchen.m4a",
+    problems: [NOISY],
+  };
   uploadServer([PASSED_SOUND, noisy], [], ONE_VOICE);
   await openAt("#/setup");
   expect(await screen.findByText("Looks good · 1:10 of speech")).toBeTruthy();
-  const failed = (await screen.findByText("kitchen.m4a (1:35)")).closest("li") as HTMLElement;
+  const failed = (await screen.findByText("kitchen.m4a (1:35)")).closest(
+    "li",
+  ) as HTMLElement;
   expect(within(failed).getByText(NOISY).className).toBe("error");
   expect(await screen.findByText("Voice sample")).toBeTruthy();
   expect(
-    screen.getByText("Made from the recording that passed the checks: 1:10 of speech."),
+    screen.getByText(
+      "Made from the recording that passed the checks: 1:10 of speech.",
+    ),
   ).toBeTruthy();
   expect(screen.getByText("Enough speech to make the voice.")).toBeTruthy();
-  const players = Array.from(document.querySelectorAll("audio")).map((a) => a.getAttribute("src"));
+  const players = Array.from(document.querySelectorAll("audio")).map((a) =>
+    a.getAttribute("src"),
+  );
   expect(players).toContain("/api/voice-sample/audio?v=0");
 });
 
 test("without enough speech the voice sample says what to add", async () => {
-  const short = "The recordings that passed the checks have 20 seconds of speech.";
+  const short =
+    "The recordings that passed the checks have 20 seconds of speech.";
   uploadServer([PASSED_SOUND, { ...PASSED_SOUND, id: "c".repeat(32) }], [], {
     recordings: 2,
     seconds: 40,
@@ -915,37 +1169,50 @@ test("without enough speech the voice sample says what to add", async () => {
   });
   await openAt("#/setup");
   expect((await screen.findByText(short)).className).toBe("error");
-  expect(screen.getByText(/Made from the 2 recordings that passed the checks, in order/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /Made from the 2 recordings that passed the checks, in order/,
+    ),
+  ).toBeTruthy();
 });
 
 test("with no recording passed, there is nothing to play yet", async () => {
   uploadServer([]);
   await openAt("#/setup");
-  expect((await screen.findByText(NO_VOICE.problem as string)).className).toBe("muted");
+  expect((await screen.findByText(NO_VOICE.problem as string)).className).toBe(
+    "muted",
+  );
   expect(document.querySelector(".voice-sample audio")).toBeNull();
 });
 
 test("the voice sample is read again after a recording is added, checked or removed", async () => {
   const fetchMock = uploadServer(
     [SOUND],
-    [Response.json(PASSED_SOUND), Response.json({ ...PASSED_SOUND, id: "c".repeat(32) })],
+    [
+      Response.json(PASSED_SOUND),
+      Response.json({ ...PASSED_SOUND, id: "c".repeat(32) }),
+    ],
     ONE_VOICE,
   );
-  const reads = () => fetchMock.mock.calls.filter(([url]) => url === "/api/voice-sample").length;
+  const reads = () =>
+    fetchMock.mock.calls.filter(([url]) => url === "/api/voice-sample").length;
   await openAt("#/setup");
   // The stored recording predates the checks, so it is checked first, then the sample read.
   expect(await screen.findByText("Looks good · 1:10 of speech")).toBeTruthy();
-  expect(fetchMock).toHaveBeenCalledWith(`/api/uploads/sounds/${SOUND.id}/check`, {
-    method: "POST",
-  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    `/api/uploads/sounds/${SOUND.id}/check`,
+    {
+      method: "POST",
+    },
+  );
   await waitFor(() => expect(reads()).toBe(2));
   await act(async () => {
     chooseFiles("Add recordings", [new File(["x"], "voice2.m4a")]);
   });
   await waitFor(() => expect(reads()).toBe(3));
-  expect(document.querySelector(".voice-sample audio")?.getAttribute("src")).toBe(
-    "/api/voice-sample/audio?v=2",
-  );
+  expect(
+    document.querySelector(".voice-sample audio")?.getAttribute("src"),
+  ).toBe("/api/voice-sample/audio?v=2");
   await removeConfirmed(screen.getAllByRole("button", { name: "Remove" })[0]);
   await waitFor(() => expect(reads()).toBe(4));
 });
@@ -959,7 +1226,8 @@ test("an older read of the voice sample answering last is not shown", async () =
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: null });
       if (url === "/api/voice-sample") {
         if (++reads === 1) {
           await firstRead; // from before the recording arrived
@@ -976,7 +1244,9 @@ test("an older read of the voice sample answering last is not shown", async () =
   await act(async () => {
     chooseFiles("Add recordings", [new File(["x"], "voice1.m4a")]);
   });
-  expect(await screen.findByText("Enough speech to make the voice.")).toBeTruthy();
+  expect(
+    await screen.findByText("Enough speech to make the voice."),
+  ).toBeTruthy();
   await act(async () => {
     answerFirstRead();
     await new Promise((resolve) => setTimeout(resolve, 10)); // let the old answer arrive
@@ -988,11 +1258,46 @@ test("an older read of the voice sample answering last is not shown", async () =
 // --- Prepare (R12) ---
 
 const STEPS = [
-  { key: "voice", label: "Get the voice ready", done: 1, total: 1, seconds: 4.2, left_s: null },
-  { key: "models", label: "Load the face model", done: 1, total: 1, seconds: 31, left_s: null },
-  { key: "shapes", label: "Render the mouth shapes", done: 10, total: 10, seconds: null, left_s: null },
-  { key: "loop", label: "Render the idle video", done: 52, total: 200, seconds: null, left_s: 725 },
-  { key: "align", label: "Line up the mouth", done: 0, total: 1, seconds: null, left_s: null },
+  {
+    key: "voice",
+    label: "Get the voice ready",
+    done: 1,
+    total: 1,
+    seconds: 4.2,
+    left_s: null,
+  },
+  {
+    key: "models",
+    label: "Load the face model",
+    done: 1,
+    total: 1,
+    seconds: 31,
+    left_s: null,
+  },
+  {
+    key: "shapes",
+    label: "Render the mouth shapes",
+    done: 10,
+    total: 10,
+    seconds: null,
+    left_s: null,
+  },
+  {
+    key: "loop",
+    label: "Render the idle video",
+    done: 52,
+    total: 200,
+    seconds: null,
+    left_s: 725,
+  },
+  {
+    key: "align",
+    label: "Line up the mouth",
+    done: 0,
+    total: 1,
+    seconds: null,
+    left_s: null,
+  },
 ];
 const RUNNING: PrepareStatus = {
   ...IDLE,
@@ -1017,10 +1322,15 @@ const DONE: PrepareStatus = {
 
 // A fake server with consent given, nothing uploaded, and the prepare job answering with each
 // of `reads` in turn (the last one repeats); POST /api/prepare answers with `started`.
-function prepareServer(reads: (PrepareStatus | Response)[], started?: Response) {
+function prepareServer(
+  reads: (PrepareStatus | Response)[],
+  started?: Response,
+) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
-    if (url === "/api/uploads/photos/chosen") return Response.json({ id: null, chosen_by: "app" });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen")
+      return Response.json({ id: null, chosen_by: "app" });
     if (url === "/api/voice-sample") return Response.json(NO_VOICE);
     if (url === "/api/prepare") {
       if (init?.method === "POST") return started ?? Response.json(RUNNING);
@@ -1034,26 +1344,56 @@ function prepareServer(reads: (PrepareStatus | Response)[], started?: Response) 
 }
 
 test("the face movement is chosen on the Setup page, beside Prepare (R128a)", async () => {
-  const fetchMock = prepareServer([IDLE]);
+  // Prepared with Normal; once another is chosen, the sample is no longer current.
+  const fetchMock = prepareServer([DONE, IDLE]);
   await openAt("#/setup");
-  await screen.findByRole("button", { name: "Prepare the video" });
-  const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
-  expect((choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked).toBe(true);
+  await screen.findByRole("button", { name: "Prepare again" });
+  const choice = within(
+    screen.getByRole("group", { name: "Face movement while speaking" }),
+  );
+  expect(
+    (choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked,
+  ).toBe(true);
   await act(async () => {
     fireEvent.click(choice.getByRole("radio", { name: "Slight" }));
   });
-  const patch = fetchMock.mock.calls.find(([url, init]) => url === "/api/settings" && init?.method === "PATCH");
-  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ face_movement: "slight" });
+  const patch = fetchMock.mock.calls.find(
+    ([url, init]) => url === "/api/settings" && init?.method === "PATCH",
+  );
+  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+    face_movement: "slight",
+  });
+  // The job is read again: the sample made with Normal is gone, to be prepared again.
+  expect(
+    await screen.findByRole("button", { name: "Prepare the video" }),
+  ).toBeTruthy();
+  expect(screen.queryByLabelText("Sample video")).toBeNull();
+});
+
+test("the face movement can't be changed while preparing (R128a)", async () => {
+  prepareServer([RUNNING]);
+  await openAt("#/setup");
+  await screen.findByText(/Preparing… 31% done/);
+  const choice = within(
+    screen.getByRole("group", { name: "Face movement while speaking" }),
+  );
+  for (const radio of choice.getAllByRole("radio")) {
+    expect((radio as HTMLInputElement).disabled).toBe(true);
+  }
 });
 
 test("prepare starts the job and shows each step's progress until it is ready", async () => {
   const fetchMock = prepareServer([IDLE, RUNNING, DONE]);
   showMetrics();
   await openAt("#/setup");
-  fireEvent.click(await screen.findByRole("button", { name: "Prepare the video" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Prepare the video" }),
+  );
   expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
   expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
-  const bar = screen.getByRole("progressbar", { name: "Preparing" }) as HTMLProgressElement;
+  const bar = screen.getByRole("progressbar", {
+    name: "Preparing",
+  }) as HTMLProgressElement;
   expect(bar.value).toBe(31);
   expect(screen.getByText("Done in 31 s")).toBeTruthy();
   expect(screen.getByText("52 of 200 · about 12 min 5 s left")).toBeTruthy();
@@ -1062,7 +1402,11 @@ test("prepare starts the job and shows each step's progress until it is ready", 
 
   // The page asks again every second while it runs.
   expect(
-    await screen.findByText("Done. Watch the sample video, then say whether it is right.", {}, { timeout: 3000 }),
+    await screen.findByText(
+      "Done. Watch the sample video, then say whether it is right.",
+      {},
+      { timeout: 3000 },
+    ),
   ).toBeTruthy();
   expect(screen.getByText("Done in 17 min")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Prepare again" })).toBeTruthy();
@@ -1082,11 +1426,17 @@ test("a job already running when the page opens is shown and followed", async ()
 });
 
 test("a running step says what it is doing and about how long is left (R134b)", async () => {
-  const steps = STEPS.map((s) => (s.key === "loop" ? { ...s, activity: "Frame 53 of 200" } : s));
+  const steps = STEPS.map((s) =>
+    s.key === "loop" ? { ...s, activity: "Frame 53 of 200" } : s,
+  );
   prepareServer([{ ...RUNNING, steps, left_s: 1500 }]);
   await openAt("#/setup");
-  expect(await screen.findByText("Preparing… 31% done · about 25 min 0 s left")).toBeTruthy();
-  expect(screen.getByText("Frame 53 of 200 · about 12 min 5 s left")).toBeTruthy();
+  expect(
+    await screen.findByText("Preparing… 31% done · about 25 min 0 s left"),
+  ).toBeTruthy();
+  expect(
+    screen.getByText("Frame 53 of 200 · about 12 min 5 s left"),
+  ).toBeTruthy();
   expect(screen.queryByText(/taking longer than usual/)).toBeNull();
 });
 
@@ -1097,7 +1447,9 @@ test("a slow step says it is still working (R134b)", async () => {
   prepareServer([{ ...RUNNING, steps }]);
   await openAt("#/setup");
   expect(
-    await screen.findByText("This is taking longer than usual. It's still working."),
+    await screen.findByText(
+      "This is taking longer than usual. It's still working.",
+    ),
   ).toBeTruthy();
 });
 
@@ -1119,19 +1471,39 @@ test("a job the app is no longer working on says so and can be tried again (R134
 test("prepare says what is missing when it can't start", async () => {
   prepareServer(
     [IDLE],
-    Response.json({ detail: "Add a photo that passes the checks first." }, { status: 409 }),
+    Response.json(
+      { detail: "Add a photo that passes the checks first." },
+      { status: 409 },
+    ),
   );
   await openAt("#/setup");
-  fireEvent.click(await screen.findByRole("button", { name: "Prepare the video" }));
-  expect(await screen.findByText("Add a photo that passes the checks first.")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Prepare the video" })).toBeTruthy();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Prepare the video" }),
+  );
+  expect(
+    await screen.findByText("Add a photo that passes the checks first."),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Prepare the video" }),
+  ).toBeTruthy();
 });
 
 test("a failed job says why, marks where it stopped and can be tried again", async () => {
-  const steps = STEPS.map((s) => (s.key === "loop" ? { ...s, left_s: null } : s));
-  prepareServer([{ ...RUNNING, state: "failed", steps, error: "The video couldn't be prepared on this computer." }]);
+  const steps = STEPS.map((s) =>
+    s.key === "loop" ? { ...s, left_s: null } : s,
+  );
+  prepareServer([
+    {
+      ...RUNNING,
+      state: "failed",
+      steps,
+      error: "The video couldn't be prepared on this computer.",
+    },
+  ]);
   await openAt("#/setup");
-  expect(await screen.findByText("The video couldn't be prepared on this computer.")).toBeTruthy();
+  expect(
+    await screen.findByText("The video couldn't be prepared on this computer."),
+  ).toBeTruthy();
   expect(screen.getByText("Stopped")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 });
@@ -1147,9 +1519,18 @@ const FAILURE = {
 };
 
 test("a failed job shows the step, the reason and the reference for support (R134)", async () => {
-  const steps = STEPS.map((s) => (s.key === "loop" ? { ...s, left_s: null } : s));
-  const failed = { ...RUNNING, state: "failed" as const, steps, error: FAILURE.message };
-  prepareServer([{ ...failed, failure: FAILURE, finished_at: "2026-10-25T19:30:00+00:00" }]);
+  const steps = STEPS.map((s) =>
+    s.key === "loop" ? { ...s, left_s: null } : s,
+  );
+  const failed = {
+    ...RUNNING,
+    state: "failed" as const,
+    steps,
+    error: FAILURE.message,
+  };
+  prepareServer([
+    { ...failed, failure: FAILURE, finished_at: "2026-10-25T19:30:00+00:00" },
+  ]);
   const writeText = vi.fn(async () => {});
   vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
   await openAt("#/setup");
@@ -1162,7 +1543,9 @@ test("a failed job shows the step, the reason and the reference for support (R13
   );
   expect(alert.textContent).not.toContain("log");
   expect(screen.getByText("Details")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Copy details for support" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Copy details for support" }),
+  );
   expect(await screen.findByText("Copied.")).toBeTruthy();
   const copied = (writeText.mock.calls[0] as unknown as [string])[0];
   expect(copied).toContain("Reference: P-7K3F9Q");
@@ -1170,24 +1553,41 @@ test("a failed job shows the step, the reason and the reference for support (R13
   expect(copied).toContain("Time: 2026-10-25T19:30:00+00:00");
   expect(copied).toContain("App version: 0.1.0");
   expect(copied).toContain("Browser: ");
-  expect(copied).toContain("Error: RuntimeError: out of memory reading <data folder>");
+  expect(copied).toContain(
+    "Error: RuntimeError: out of memory reading <data folder>",
+  );
 });
 
 test("a failure Try again can't fix says so, and the details can be copied by hand", async () => {
-  const failure = { ...FAILURE, step: null, retry: false, message: "A program is missing." };
-  prepareServer([{ ...RUNNING, state: "failed", error: failure.message, failure }]);
+  const failure = {
+    ...FAILURE,
+    step: null,
+    retry: false,
+    message: "A program is missing.",
+  };
+  prepareServer([
+    { ...RUNNING, state: "failed", error: failure.message, failure },
+  ]);
   const writeText = vi.fn(async () => {
     throw new Error("denied");
   });
   vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
   await openAt("#/setup");
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toContain("Preparing failed. A program is missing.");
-  expect(alert.textContent).toContain("Please give support the reference P-7K3F9Q.");
+  expect(alert.textContent).toContain(
+    "Preparing failed. A program is missing.",
+  );
+  expect(alert.textContent).toContain(
+    "Please give support the reference P-7K3F9Q.",
+  );
   expect(alert.textContent).not.toContain("Trying again");
   expect(alert.textContent).not.toContain("keeps failing");
-  fireEvent.click(screen.getByRole("button", { name: "Copy details for support" }));
-  const byHand = (await screen.findByLabelText("Details for support")) as HTMLTextAreaElement;
+  fireEvent.click(
+    screen.getByRole("button", { name: "Copy details for support" }),
+  );
+  const byHand = (await screen.findByLabelText(
+    "Details for support",
+  )) as HTMLTextAreaElement;
   expect(byHand.value).toContain("Step: Before the first step");
   expect(byHand.value).toContain("Time: unknown");
 });
@@ -1206,17 +1606,31 @@ test("the time left counts down to the second while the step and the percentage 
   const at = (left: number) => ({
     ...RUNNING,
     left_s: left,
-    steps: STEPS.map((s) => (s.key === "loop" ? { ...s, activity: "Frame 53 of 200", left_s: left } : s)),
+    steps: STEPS.map((s) =>
+      s.key === "loop"
+        ? { ...s, activity: "Frame 53 of 200", left_s: left }
+        : s,
+    ),
   });
   prepareServer([at(119), at(118), at(117)]);
   await openAt("#/setup");
-  expect(await screen.findByText("Preparing… 31% done · about 1 min 59 s left")).toBeTruthy();
-  expect(screen.getByText("Frame 53 of 200 · about 1 min 59 s left")).toBeTruthy();
+  expect(
+    await screen.findByText("Preparing… 31% done · about 1 min 59 s left"),
+  ).toBeTruthy();
+  expect(
+    screen.getByText("Frame 53 of 200 · about 1 min 59 s left"),
+  ).toBeTruthy();
   // The next read, a second later: the same step, activity and percentage, yet the page changed.
   expect(
-    await screen.findByText("Preparing… 31% done · about 1 min 58 s left", {}, { timeout: 3000 }),
+    await screen.findByText(
+      "Preparing… 31% done · about 1 min 58 s left",
+      {},
+      { timeout: 3000 },
+    ),
   ).toBeTruthy();
-  expect(screen.getByText("Frame 53 of 200 · about 1 min 58 s left")).toBeTruthy();
+  expect(
+    screen.getByText("Frame 53 of 200 · about 1 min 58 s left"),
+  ).toBeTruthy();
 });
 
 test("countdown is to the second", () => {
@@ -1234,12 +1648,18 @@ test("duration says seconds or minutes", () => {
 });
 
 test("Prepare is asked again after the chosen photo or the recordings change", async () => {
-  const other: Upload = { ...PHOTO, id: "c".repeat(32), name: "side.jpg", score: 80 };
+  const other: Upload = {
+    ...PHOTO,
+    id: "c".repeat(32),
+    name: "side.jpg",
+    score: 80,
+  };
   const sound: Upload = { ...SOUND, problems: [], speech: 40 };
   let choice = { id: PHOTO.id, chosen_by: "app" };
   let sounds = [sound];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
     if (url === "/api/uploads/photos/chosen") {
       if (init?.method === "PUT") {
         const { id } = JSON.parse(init.body as string) as { id: string };
@@ -1250,7 +1670,9 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
     if (url === "/api/voice-sample") return Response.json(NO_VOICE);
     // The server reports the finished job only while its photo and enough speech are there.
     if (url === "/api/prepare") {
-      return Response.json(choice.id === PHOTO.id && sounds.length > 0 ? DONE : IDLE);
+      return Response.json(
+        choice.id === PHOTO.id && sounds.length > 0 ? DONE : IDLE,
+      );
     }
     if (url === "/api/uploads/photos") return Response.json([PHOTO, other]);
     if (url === "/api/uploads/sounds") return Response.json(sounds);
@@ -1262,18 +1684,40 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
   });
   vi.stubGlobal("fetch", fetchMock);
   await openAt("#/setup");
-  expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
+  expect(
+    await screen.findByText(
+      "Done. Watch the sample video, then say whether it is right.",
+    ),
+  ).toBeTruthy();
 
-  fireEvent.click(await screen.findByRole("button", { name: "Use this photo" }));
-  expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
-  expect(screen.queryByText("Done. Watch the sample video, then say whether it is right.")).toBeNull();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Use this photo" }),
+  );
+  expect(
+    await screen.findByRole("button", { name: "Prepare the video" }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByText(
+      "Done. Watch the sample video, then say whether it is right.",
+    ),
+  ).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Use this photo" })); // back to the first
-  expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
+  expect(
+    await screen.findByText(
+      "Done. Watch the sample video, then say whether it is right.",
+    ),
+  ).toBeTruthy();
 
-  const recording = (await screen.findByText(/voice1\.m4a/)).closest("li") as HTMLElement;
-  await removeConfirmed(within(recording).getByRole("button", { name: "Remove" }));
-  expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
+  const recording = (await screen.findByText(/voice1\.m4a/)).closest(
+    "li",
+  ) as HTMLElement;
+  await removeConfirmed(
+    within(recording).getByRole("button", { name: "Remove" }),
+  );
+  expect(
+    await screen.findByRole("button", { name: "Prepare the video" }),
+  ).toBeTruthy();
 });
 
 // --- Accent (R26) ---
@@ -1288,18 +1732,23 @@ function accentServer(
 ) {
   let choice = saved;
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
-    if (url === "/api/uploads/photos/chosen") return Response.json({ id: null, chosen_by: "app" });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen")
+      return Response.json({ id: null, chosen_by: "app" });
     if (url === "/api/voice-sample") return Response.json(NO_VOICE);
     if (url === "/api/accent") {
       if (init?.method === "PUT") {
         if (put) return put;
-        const { accent } = JSON.parse(init.body as string) as { accent: string };
+        const { accent } = JSON.parse(init.body as string) as {
+          accent: string;
+        };
         choice = { accent, available: true };
       }
       return choice instanceof Response ? choice : Response.json(choice);
     }
-    if (url === "/api/prepare") return Response.json(reads.length > 1 ? reads.shift() : reads[0]);
+    if (url === "/api/prepare")
+      return Response.json(reads.length > 1 ? reads.shift() : reads[0]);
     return Response.json([]);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -1311,25 +1760,43 @@ function accentOption(name: RegExp | string) {
 }
 
 test("the accent starts as the person's own and another can be chosen", async () => {
-  const fetchMock = accentServer({ accent: "own", available: true }, [DONE, RUNNING]);
+  const fetchMock = accentServer({ accent: "own", available: true }, [
+    DONE,
+    RUNNING,
+  ]);
   await openAt("#/setup");
-  expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
-  await waitFor(() => expect(accentOption(/Their own accent/).checked).toBe(true));
+  expect(
+    await screen.findByText(
+      "Done. Watch the sample video, then say whether it is right.",
+    ),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(accentOption(/Their own accent/).checked).toBe(true),
+  );
   expect(accentOption("British").checked).toBe(false);
-  expect(screen.queryByText(/needs the person's own voice installed/)).toBeNull();
+  expect(
+    screen.queryByText(/needs the person's own voice installed/),
+  ).toBeNull();
 
   await act(async () => {
     fireEvent.click(accentOption("British"));
   });
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/accent",
-    expect.objectContaining({ method: "PUT", body: JSON.stringify({ accent: "british" }) }),
+    expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ accent: "british" }),
+    }),
   );
   await waitFor(() => expect(accentOption("British").checked).toBe(true));
   // The server makes the sample again in the new accent; the page shows it running, and the
   // accent can't change again until it has finished.
   expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
-  expect(await screen.findByText("You can change the accent once Prepare has finished.")).toBeTruthy();
+  expect(
+    await screen.findByText(
+      "You can change the accent once Prepare has finished.",
+    ),
+  ).toBeTruthy();
   expect(accentOption("American").matches(":disabled")).toBe(true);
 });
 
@@ -1346,9 +1813,12 @@ test("without the person's own voice installed, the accent says it can't change 
 test("setup says what it is for and numbers its four steps", async () => {
   accentServer({ accent: "own", available: true });
   await openAt("#/setup");
-  expect(await screen.findByText(/^Make the talking person in four steps/)).toBeTruthy();
+  expect(
+    await screen.findByText(/^Make the talking person in four steps/),
+  ).toBeTruthy();
   const steps = Array.from(document.querySelectorAll("section.panel")).map(
-    (s) => `${s.querySelector(".step-of")?.textContent}: ${s.querySelector("h2")?.textContent}`,
+    (s) =>
+      `${s.querySelector(".step-of")?.textContent}: ${s.querySelector("h2")?.textContent}`,
   );
   expect(steps).toEqual([
     "Step 1 of 4: Photos",
@@ -1363,14 +1833,19 @@ test("an accent that can't be saved says why and keeps the old one", async () =>
   accentServer(
     { accent: "american", available: true },
     [IDLE],
-    Response.json({ detail: "Input should be 'own', 'american' or 'british'" }, { status: 422 }),
+    Response.json(
+      { detail: "Input should be 'own', 'american' or 'british'" },
+      { status: 422 },
+    ),
   );
   await openAt("#/setup");
   await waitFor(() => expect(accentOption("American").checked).toBe(true));
   await act(async () => {
     fireEvent.click(accentOption("British"));
   });
-  expect(await screen.findByText(/Could not save the accent: Input should be/)).toBeTruthy();
+  expect(
+    await screen.findByText(/Could not save the accent: Input should be/),
+  ).toBeTruthy();
   expect(accentOption("American").checked).toBe(true);
 });
 
@@ -1378,7 +1853,9 @@ test("if the accent can't be loaded the page says so", async () => {
   accentServer(new Response("", { status: 500 }));
   await openAt("#/setup");
   expect(
-    await screen.findByText("Could not load the accent. Reload the page to try again."),
+    await screen.findByText(
+      "Could not load the accent. Reload the page to try again.",
+    ),
   ).toBeTruthy();
   expect(accentOption("British").matches(":disabled")).toBe(true);
 });
@@ -1390,19 +1867,27 @@ test("if the accent can't be loaded the page says so", async () => {
 function reviewServer(accepted: boolean, answer?: Response) {
   let current = accepted;
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
-    if (url === "/api/uploads/photos/chosen") return Response.json({ id: null, chosen_by: "app" });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen")
+      return Response.json({ id: null, chosen_by: "app" });
     if (url === "/api/voice-sample") return Response.json(NO_VOICE);
-    if (url === "/api/accent") return Response.json({ accent: "own", available: true });
+    if (url === "/api/accent")
+      return Response.json({ accent: "own", available: true });
     if (url === "/api/prepare") return Response.json(DONE);
     if (url === "/api/chat") return Response.json({ turns: [] });
     if (url === "/api/review") {
       if (init?.method === "POST") {
         if (answer) return answer;
-        const { decision } = JSON.parse(init.body as string) as { decision: string };
+        const { decision } = JSON.parse(init.body as string) as {
+          decision: string;
+        };
         current = decision === "accept";
       }
-      return Response.json({ accepted: current, accepted_at: current ? "2026-10-09T15:00:00" : null });
+      return Response.json({
+        accepted: current,
+        accepted_at: current ? "2026-10-09T15:00:00" : null,
+      });
     }
     return Response.json([]);
   });
@@ -1419,26 +1904,40 @@ test("accepting the sample video unlocks the chat", async () => {
   });
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/review",
-    expect.objectContaining({ method: "POST", body: JSON.stringify({ decision: "accept" }) }),
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ decision: "accept" }),
+    }),
   );
   await waitFor(() => expect(window.location.hash).toBe("#/chat"));
-  expect(await screen.findByText("Ask a question to start the conversation.")).toBeTruthy();
+  expect(
+    await screen.findByText("Ask a question to start the conversation."),
+  ).toBeTruthy();
   expect(screen.getByRole("link", { name: "Chat" }).className).toBe("current");
 });
 
 test("the chat is locked until a sample is accepted", async () => {
   reviewServer(false);
   await openAt("#/chat");
-  expect(await screen.findByText(/The chat is locked until you accept a sample video/)).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Go to setup" }).getAttribute("href")).toBe("#/setup");
+  expect(
+    await screen.findByText(
+      /The chat is locked until you accept a sample video/,
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("link", { name: "Go to setup" }).getAttribute("href"),
+  ).toBe("#/setup");
 });
 
 test("if the review can't be read, the chat stays locked", async () => {
-  vi.stubGlobal("fetch", vi.fn(async (url: string) =>
-    url === "/api/consent"
-      ? Response.json({ agreed: true, agreed_at: null })
-      : new Response("", { status: 500 }),
-  ));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url === "/api/consent"
+        ? Response.json({ agreed: true, agreed_at: null })
+        : new Response("", { status: 500 }),
+    ),
+  );
   await openAt("#/chat");
   expect(await screen.findByText(/The chat is locked/)).toBeTruthy();
 });
@@ -1447,33 +1946,39 @@ test.each([
   ["Reject image", "reject-image", "photos", /You rejected the image/],
   ["Reject voice", "reject-voice", "sounds", /You rejected the voice/],
   ["Change accent", "change-accent", "accent", /Choose another accent/],
-])("%s goes back to that part of setup", async (label, decision, section, notice) => {
-  const fetchMock = reviewServer(true);
-  const scrolled = vi.fn();
-  Element.prototype.scrollIntoView = scrolled;
-  await openAt("#/setup");
-  expect(await screen.findByText("You accepted this sample.")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Accept" })).toBeNull(); // already accepted
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: label }));
-  });
-  expect(fetchMock).toHaveBeenCalledWith(
-    "/api/review",
-    expect.objectContaining({ body: JSON.stringify({ decision }) }),
-  );
-  const target = document.getElementById(section) as HTMLElement;
-  expect(await within(target).findByText(notice)).toBeTruthy();
-  await waitFor(() => expect(scrolled).toHaveBeenCalled());
-  expect(scrolled.mock.contexts[0]).toBe(target);
-  // No longer accepted: Accept is offered again.
-  expect(await screen.findByRole("button", { name: "Accept" })).toBeTruthy();
-  expect(window.location.hash).toBe("#/setup");
-});
+])(
+  "%s goes back to that part of setup",
+  async (label, decision, section, notice) => {
+    const fetchMock = reviewServer(true);
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    await openAt("#/setup");
+    expect(await screen.findByText("You accepted this sample.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull(); // already accepted
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: label }));
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/review",
+      expect.objectContaining({ body: JSON.stringify({ decision }) }),
+    );
+    const target = document.getElementById(section) as HTMLElement;
+    expect(await within(target).findByText(notice)).toBeTruthy();
+    await waitFor(() => expect(scrolled).toHaveBeenCalled());
+    expect(scrolled.mock.contexts[0]).toBe(target);
+    // No longer accepted: Accept is offered again.
+    expect(await screen.findByRole("button", { name: "Accept" })).toBeTruthy();
+    expect(window.location.hash).toBe("#/setup");
+  },
+);
 
 test("a choice that can't be saved says why", async () => {
   reviewServer(
     false,
-    Response.json({ detail: "There is no sample video to accept yet." }, { status: 409 }),
+    Response.json(
+      { detail: "There is no sample video to accept yet." },
+      { status: 409 },
+    ),
   );
   await openAt("#/setup");
   const accept = await screen.findByRole("button", { name: "Accept" });
@@ -1481,7 +1986,9 @@ test("a choice that can't be saved says why", async () => {
     fireEvent.click(accept);
   });
   expect(
-    await screen.findByText("Could not save your choice: There is no sample video to accept yet."),
+    await screen.findByText(
+      "Could not save your choice: There is no sample video to accept yet.",
+    ),
   ).toBeTruthy();
   expect(window.location.hash).toBe("#/setup");
 });
@@ -1499,8 +2006,10 @@ function chatServer(
   clips: Answer = () => Response.json({ detail: "No clips" }, { status: 404 }),
 ) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
-    if (url === "/api/review") return Response.json({ accepted: true, accepted_at: null });
+    if (url === "/api/consent")
+      return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/review")
+      return Response.json({ accepted: true, accepted_at: null });
     if (url === "/api/chat") {
       return init?.method === "POST" ? answer() : Response.json({ turns });
     }
@@ -1521,7 +2030,9 @@ function later(): [Answer, (r: Response) => void] {
 }
 
 function promptBox() {
-  return screen.getByRole("textbox", { name: "Your message" }) as HTMLTextAreaElement;
+  return screen.getByRole("textbox", {
+    name: "Your message",
+  }) as HTMLTextAreaElement;
 }
 
 test("the chat shows the conversation so far", async () => {
@@ -1535,7 +2046,10 @@ test("the chat shows the conversation so far", async () => {
   await openAt("#/chat");
   expect(await screen.findByText("Nice to meet you, Larry!")).toBeTruthy();
   expect(screen.getByText("My name is Larry.").className).toBe("user");
-  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
 });
 
 test("sending a prompt shows it and then the reply", async () => {
@@ -1548,12 +2062,19 @@ test("sending a prompt shows it and then the reply", async () => {
   expect(await screen.findByText("Hello!")).toBeTruthy();
   expect(screen.getByText("Thinking…")).toBeTruthy();
   expect(promptBox().value).toBe("");
-  const sent = fetchMock.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
-  const body = JSON.parse(sent![1]!.body as string) as { prompt: string; reply_id: string };
+  const sent = fetchMock.mock.calls.find(
+    ([url, init]) => url === "/api/chat" && init?.method,
+  );
+  const body = JSON.parse(sent![1]!.body as string) as {
+    prompt: string;
+    reply_id: string;
+  };
   expect(body.prompt).toBe("Hello!");
   expect(body.reply_id).toMatch(/^[0-9a-f]{32}$/);
   await act(async () => {
-    reply(Response.json({ role: "assistant", content: "Hi there, how are you?" }));
+    reply(
+      Response.json({ role: "assistant", content: "Hi there, how are you?" }),
+    );
   });
   expect(await screen.findByText("Hi there, how are you?")).toBeTruthy();
   expect(screen.queryByText("Thinking…")).toBeNull();
@@ -1561,7 +2082,8 @@ test("sending a prompt shows it and then the reply", async () => {
 
 test("a question said with Hold to talk is shown in the box, sent, and shown as meant", async () => {
   // The browser's speech recognition (R24), heard as the test says.
-  let recognition: { onresult: (e: object) => void; onend: () => void } | null = null;
+  let recognition: { onresult: (e: object) => void; onend: () => void } | null =
+    null;
   vi.stubGlobal(
     "webkitSpeechRecognition",
     class {
@@ -1579,7 +2101,11 @@ test("a question said with Hold to talk is shown in the box, sent, and shown as 
   vi.spyOn(console, "info").mockImplementation(() => {});
   // The server put back a name the browser misheard (Larry's "Oiler" for "Euler").
   const fetchMock = chatServer([], () =>
-    Response.json({ role: "assistant", content: "Hi!", prompt: "Who was Euler?" }),
+    Response.json({
+      role: "assistant",
+      content: "Hi!",
+      prompt: "Who was Euler?",
+    }),
   );
   await openAt("#/chat");
   const talk = await screen.findByRole("button", { name: "Hold to talk" });
@@ -1595,16 +2121,22 @@ test("a question said with Hold to talk is shown in the box, sent, and shown as 
   await act(async () => {
     fireEvent.pointerUp(talk);
   });
-  expect(await screen.findByText("Hi!", undefined, { timeout: 3000 })).toBeTruthy();
+  expect(
+    await screen.findByText("Hi!", undefined, { timeout: 3000 }),
+  ).toBeTruthy();
   expect(screen.getByText("Who was Euler?").className).toBe("user");
   expect(screen.queryByText("Who was Oiler?")).toBeNull();
   expect(promptBox().value).toBe("");
-  const sent = fetchMock.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
+  const sent = fetchMock.mock.calls.find(
+    ([url, init]) => url === "/api/chat" && init?.method,
+  );
   expect(JSON.parse(sent![1]!.body as string)).toMatchObject({
     prompt: "Who was Oiler?",
     spoken: true,
   });
-  expect(console.info).toHaveBeenCalledWith('Push-to-talk: "Who was Oiler?" taken as "Who was Euler?"');
+  expect(console.info).toHaveBeenCalledWith(
+    'Push-to-talk: "Who was Oiler?" taken as "Who was Euler?"',
+  );
   vi.unstubAllGlobals();
 });
 
@@ -1620,7 +2152,8 @@ function hintsServer(...hints: (object | Error)[]) {
   server.mockImplementation(async (url, init) => {
     if (url !== "/api/chat/hints") return answers(url, init);
     const hint = hints[Math.min(calls++, hints.length - 1)];
-    if (hint instanceof Error) return Response.json({ detail: hint.message }, { status: 500 });
+    if (hint instanceof Error)
+      return Response.json({ detail: hint.message }, { status: 500 });
     return Response.json(hint);
   });
   return server;
@@ -1638,7 +2171,9 @@ test("under the prompt box, the topics and example questions are shown", async (
   hintsServer(RIEMANN_HINTS);
   await openAt("#/chat");
   expect(await screen.findByText(RIEMANN_HINTS.line)).toBeTruthy();
-  const examples = within(screen.getByRole("list", { name: "Example questions" }));
+  const examples = within(
+    screen.getByRole("list", { name: "Example questions" }),
+  );
   expect(examples.getAllByRole("button").map((b) => b.textContent)).toEqual(
     RIEMANN_HINTS.examples,
   );
@@ -1648,15 +2183,23 @@ test("clicking an example question sends it", async () => {
   const server = hintsServer(RIEMANN_HINTS);
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
-  const example = await screen.findByRole("button", { name: RIEMANN_HINTS.examples[0] });
+  const example = await screen.findByRole("button", {
+    name: RIEMANN_HINTS.examples[0],
+  });
   fireEvent.input(promptBox(), { target: { value: "half typed" } });
   await act(async () => {
     fireEvent.click(example);
   });
   expect(await screen.findByText("Primes are counted.")).toBeTruthy();
-  const sent = server.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
-  expect(JSON.parse(sent![1]!.body as string).prompt).toBe(RIEMANN_HINTS.examples[0]);
-  expect(screen.getByText(RIEMANN_HINTS.examples[0], { selector: "li.user" })).toBeTruthy();
+  const sent = server.mock.calls.find(
+    ([url, init]) => url === "/api/chat" && init?.method,
+  );
+  expect(JSON.parse(sent![1]!.body as string).prompt).toBe(
+    RIEMANN_HINTS.examples[0],
+  );
+  expect(
+    screen.getByText(RIEMANN_HINTS.examples[0], { selector: "li.user" }),
+  ).toBeTruthy();
   expect(promptBox().value).toBe(""); // the box is cleared, as when Send is pressed
   expect(info).toHaveBeenCalledWith("Example question asked");
 });
@@ -1666,10 +2209,14 @@ test("the example questions can't be clicked while a reply is coming", async () 
   const server = hintsServer(RIEMANN_HINTS);
   const answers = server.getMockImplementation()!;
   server.mockImplementation(async (url, init) =>
-    url === "/api/chat" && init?.method === "POST" ? answer() : answers(url, init),
+    url === "/api/chat" && init?.method === "POST"
+      ? answer()
+      : answers(url, init),
   );
   await openAt("#/chat");
-  const first = await screen.findByRole("button", { name: RIEMANN_HINTS.examples[0] });
+  const first = await screen.findByRole("button", {
+    name: RIEMANN_HINTS.examples[0],
+  });
   await act(async () => {
     fireEvent.click(first);
   });
@@ -1687,7 +2234,9 @@ test("the hints are read again after each reply, so they follow the PDFs", async
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   expect(await screen.findByText(RIEMANN_HINTS.line)).toBeTruthy();
-  expect(server.mock.calls.filter(([url]) => url === "/api/chat/hints")).toHaveLength(2);
+  expect(
+    server.mock.calls.filter(([url]) => url === "/api/chat/hints"),
+  ).toHaveLength(2);
 });
 
 test("hints that can't be read are left out", async () => {
@@ -1695,7 +2244,10 @@ test("hints that can't be read are left out", async () => {
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
   await waitFor(() =>
-    expect(console.error).toHaveBeenCalledWith("Could not load the topic hints", expect.anything()),
+    expect(console.error).toHaveBeenCalledWith(
+      "Could not load the topic hints",
+      expect.anything(),
+    ),
   );
   expect(document.querySelector(".hints")).toBeNull();
 });
@@ -1710,12 +2262,18 @@ test("hints that can't be read again are taken away, not left stale (review on P
   });
   await screen.findByText("Primes are counted.");
   await waitFor(() => expect(document.querySelector(".hints")).toBeNull());
-  expect(screen.queryByRole("button", { name: RIEMANN_HINTS.examples[0] })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: RIEMANN_HINTS.examples[0] }),
+  ).toBeNull();
 });
 
 test("the example questions are chips in the design's colours", () => {
-  expect(styles).toMatch(/\.hints button\.example \{[^}]*background: var\(--accent-soft\)/);
-  expect(styles).toMatch(/\.hints button\.example \{[^}]*color: var\(--accent-ink\)/);
+  expect(styles).toMatch(
+    /\.hints button\.example \{[^}]*background: var\(--accent-soft\)/,
+  );
+  expect(styles).toMatch(
+    /\.hints button\.example \{[^}]*color: var\(--accent-ink\)/,
+  );
   // Not boxed like the other lists' items.
   expect(styles).toMatch(/\.hints li \{[^}]*border: 0;[^}]*background: none/);
 });
@@ -1737,7 +2295,9 @@ function lessonServer(...replies: object[]) {
 function sentBodies(server: ReturnType<typeof chatServer>) {
   return server.mock.calls
     .filter(([url, init]) => url === "/api/chat" && init?.method === "POST")
-    .map(([, init]) => JSON.parse(init!.body as string) as Record<string, unknown>);
+    .map(
+      ([, init]) => JSON.parse(init!.body as string) as Record<string, unknown>,
+    );
 }
 
 const ZETA = { topic: "Zeta Function", part: 0, active: true, parts: 3 };
@@ -1749,7 +2309,9 @@ function teachMeOn() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) =>
-      url === "/api/settings" ? Response.json({ teach_me: true }) : server(url, init),
+      url === "/api/settings"
+        ? Response.json({ teach_me: true })
+        : server(url, init),
     ),
   );
 }
@@ -1761,7 +2323,10 @@ test("Teach me asks which topic, and clicking one starts the lesson", async () =
       lesson: null,
       choices: [
         { label: "Zeta Function", prompt: "Teach me about Zeta Function" },
-        { label: "Everything, from the start", prompt: "Teach me everything from the start" },
+        {
+          label: "Everything, from the start",
+          prompt: "Teach me everything from the start",
+        },
       ],
     },
     { content: "The zeta function adds up powers.", lesson: ZETA, choices: [] },
@@ -1775,7 +2340,9 @@ test("Teach me asks which topic, and clicking one starts the lesson", async () =
   });
   const choices = within(await screen.findByRole("list", { name: "Choices" }));
   await waitFor(() =>
-    expect((choices.getAllByRole("button")[0] as HTMLButtonElement).disabled).toBe(false),
+    expect(
+      (choices.getAllByRole("button")[0] as HTMLButtonElement).disabled,
+    ).toBe(false),
   );
   expect(choices.getAllByRole("button").map((b) => b.textContent)).toEqual([
     "Zeta Function",
@@ -1784,7 +2351,9 @@ test("Teach me asks which topic, and clicking one starts the lesson", async () =
   await act(async () => {
     fireEvent.click(choices.getByRole("button", { name: "Zeta Function" }));
   });
-  expect(await screen.findByText("The zeta function adds up powers.")).toBeTruthy();
+  expect(
+    await screen.findByText("The zeta function adds up powers."),
+  ).toBeTruthy();
   expect(screen.queryByRole("list", { name: "Choices" })).toBeNull(); // gone once one is picked
   expect(screen.getByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
   expect(sentBodies(server).map((b) => [b.prompt, b.lesson])).toEqual([
@@ -1795,11 +2364,19 @@ test("Teach me asks which topic, and clicking one starts the lesson", async () =
 });
 
 test("turning Teach me off hides its choices and keeps the lesson's place", async () => {
-  localStorage.setItem("imageskin.lesson", JSON.stringify({ ...ZETA, active: false }));
+  localStorage.setItem(
+    "imageskin.lesson",
+    JSON.stringify({ ...ZETA, active: false }),
+  );
   lessonServer({
     content: "What would you like to learn about?",
     lesson: { ...ZETA, active: false },
-    choices: [{ label: "Carry on with Zeta Function", prompt: "Teach me about Zeta Function" }],
+    choices: [
+      {
+        label: "Carry on with Zeta Function",
+        prompt: "Teach me about Zeta Function",
+      },
+    ],
   });
   let teachMe = true;
   const server = globalThis.fetch;
@@ -1807,7 +2384,8 @@ test("turning Teach me off hides its choices and keeps the lesson's place", asyn
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url !== "/api/settings") return server(url, init);
-      if (init?.method === "PATCH") teachMe = JSON.parse(String(init.body)).teach_me;
+      if (init?.method === "PATCH")
+        teachMe = JSON.parse(String(init.body)).teach_me;
       return Response.json({ teach_me: teachMe });
     }),
   );
@@ -1849,21 +2427,36 @@ function quizMeOn() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) =>
-      url === "/api/settings" ? Response.json({ quiz_me: true }) : server(url, init),
+      url === "/api/settings"
+        ? Response.json({ quiz_me: true })
+        : server(url, init),
     ),
   );
 }
 
 test("Quiz me asks which topic, then each answer is sent with the quiz", async () => {
-  const second = { ...RAIN_QUIZ, number: 2, question: "Where does it fall?", right: 1 };
+  const second = {
+    ...RAIN_QUIZ,
+    number: 2,
+    question: "Where does it fall?",
+    right: 1,
+  };
   const server = lessonServer(
     {
       content: "What would you like to be quizzed on?",
       quiz: null,
       choices: [{ label: "Rain", prompt: "Quiz me on Rain" }],
     },
-    { content: "Question 1 of 5: What makes rain?", quiz: RAIN_QUIZ, choices: [] },
-    { content: "Right! Question 2 of 5: Where does it fall?", quiz: second, choices: [] },
+    {
+      content: "Question 1 of 5: What makes rain?",
+      quiz: RAIN_QUIZ,
+      choices: [],
+    },
+    {
+      content: "Right! Question 2 of 5: Where does it fall?",
+      quiz: second,
+      choices: [],
+    },
     { content: "OK, we'll stop the quiz here.", quiz: null, choices: [] },
   );
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
@@ -1875,7 +2468,9 @@ test("Quiz me asks which topic, then each answer is sent with the quiz", async (
     fireEvent.click(screen.getByRole("button", { name: "Quiz me" }));
   });
   const choices = within(await screen.findByRole("list", { name: "Choices" }));
-  const rain = choices.getByRole("button", { name: "Rain" }) as HTMLButtonElement;
+  const rain = choices.getByRole("button", {
+    name: "Rain",
+  }) as HTMLButtonElement;
   await waitFor(() => expect(rain.disabled).toBe(false));
   await act(async () => {
     fireEvent.click(rain);
@@ -1884,14 +2479,18 @@ test("Quiz me asks which topic, then each answer is sent with the quiz", async (
   expect(loadQuiz()).toEqual(RAIN_QUIZ); // kept on this browser
   expect(info).toHaveBeenCalledWith("Quiz: Rain, question 1");
 
-  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  const send = screen.getByRole("button", {
+    name: "Send",
+  }) as HTMLButtonElement;
   fireEvent.input(promptBox(), { target: { value: "Clouds" } });
   await waitFor(() => expect(send.disabled).toBe(false));
   await act(async () => {
     fireEvent.click(send);
   });
   expect(await screen.findByText("Quiz: Rain · question 2 of 5")).toBeTruthy();
-  const stop = screen.getByRole("button", { name: "Stop the quiz" }) as HTMLButtonElement;
+  const stop = screen.getByRole("button", {
+    name: "Stop the quiz",
+  }) as HTMLButtonElement;
   await waitFor(() => expect(stop.disabled).toBe(false));
   await act(async () => {
     fireEvent.click(stop);
@@ -1903,12 +2502,18 @@ test("Quiz me asks which topic, then each answer is sent with the quiz", async (
     ["Quiz me", undefined],
     ["Quiz me on Rain", undefined],
     ["Clouds", sentQuiz],
-    ["Stop the quiz", { ...sentQuiz, number: 2, question: "Where does it fall?", right: 1 }],
+    [
+      "Stop the quiz",
+      { ...sentQuiz, number: 2, question: "Where does it fall?", right: 1 },
+    ],
   ]);
 });
 
 test("a quiz kept on this browser is shown after a reload, and only with Quiz me on", async () => {
-  localStorage.setItem("imageskin.quiz", JSON.stringify({ ...RAIN_QUIZ, number: 3 }));
+  localStorage.setItem(
+    "imageskin.quiz",
+    JSON.stringify({ ...RAIN_QUIZ, number: 3 }),
+  );
   lessonServer({ content: "Hi" });
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
@@ -1921,13 +2526,23 @@ test("a quiz kept on this browser is shown after a reload, and only with Quiz me
 });
 
 test("a quiz kept that can't be read is dropped", () => {
-  for (const kept of ["{", JSON.stringify({ topic: "Rain" }), JSON.stringify([1])]) {
+  for (const kept of [
+    "{",
+    JSON.stringify({ topic: "Rain" }),
+    JSON.stringify([1]),
+  ]) {
     localStorage.setItem("imageskin.quiz", kept);
     expect(loadQuiz()).toBeNull();
   }
   localStorage.setItem(
     "imageskin.quiz",
-    JSON.stringify({ topic: "Rain", number: 2, question: "Q?", part: 0, asked: [1, "Q?"] }),
+    JSON.stringify({
+      topic: "Rain",
+      number: 2,
+      question: "Q?",
+      part: 0,
+      asked: [1, "Q?"],
+    }),
   );
   expect(loadQuiz()).toEqual({
     topic: "Rain",
@@ -1948,7 +2563,8 @@ function teachAndQuizOn(...replies: object[]) {
   const server = lessonServer(...replies);
   const answers = server.getMockImplementation()!;
   server.mockImplementation(async (url, init) => {
-    if (url === "/api/settings") return Response.json({ teach_me: true, quiz_me: true });
+    if (url === "/api/settings")
+      return Response.json({ teach_me: true, quiz_me: true });
     if (url === "/api/chat/hints") return Response.json(RIEMANN_HINTS);
     return answers(url, init);
   });
@@ -1957,40 +2573,77 @@ function teachAndQuizOn(...replies: object[]) {
 
 test("a quiz started from a lesson's summary shows only the quiz's own controls", async () => {
   localStorage.setItem("imageskin.lesson", JSON.stringify(ZETA));
-  const zetaQuiz = { ...RAIN_QUIZ, topic: "Zeta Function", question: "What is zeta?" };
+  const zetaQuiz = {
+    ...RAIN_QUIZ,
+    topic: "Zeta Function",
+    question: "What is zeta?",
+  };
   const server = teachAndQuizOn(
     {
       content: "In short, zeta.",
       lesson: ZETA,
-      choices: [{ label: "Quiz me on Zeta Function", prompt: "Quiz me on Zeta Function" }],
+      choices: [
+        {
+          label: "Quiz me on Zeta Function",
+          prompt: "Quiz me on Zeta Function",
+        },
+      ],
     },
-    { content: "Question 1 of 5: What is zeta?", lesson: ZETA, quiz: zetaQuiz, choices: [] },
+    {
+      content: "Question 1 of 5: What is zeta?",
+      lesson: ZETA,
+      quiz: zetaQuiz,
+      choices: [],
+    },
   );
   vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
-  expect(await screen.findByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
-  expect(await screen.findByRole("button", { name: RIEMANN_HINTS.examples[0] })).toBeTruthy();
-  const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
+  expect(
+    await screen.findByText("Lesson: Zeta Function · part 1 of 3"),
+  ).toBeTruthy();
+  expect(
+    await screen.findByRole("button", { name: RIEMANN_HINTS.examples[0] }),
+  ).toBeTruthy();
+  const next = screen.getByRole("button", {
+    name: "Next",
+  }) as HTMLButtonElement;
   await waitFor(() => expect(next.disabled).toBe(false));
   await act(async () => {
     fireEvent.click(next);
   });
   const choices = within(await screen.findByRole("list", { name: "Choices" }));
-  const quizMe = choices.getByRole("button", { name: "Quiz me on Zeta Function" });
-  await waitFor(() => expect((quizMe as HTMLButtonElement).disabled).toBe(false));
+  const quizMe = choices.getByRole("button", {
+    name: "Quiz me on Zeta Function",
+  });
+  await waitFor(() =>
+    expect((quizMe as HTMLButtonElement).disabled).toBe(false),
+  );
   await act(async () => {
     fireEvent.click(quizMe);
   });
-  expect(await screen.findByText("Quiz: Zeta Function · question 1 of 5")).toBeTruthy();
+  expect(
+    await screen.findByText("Quiz: Zeta Function · question 1 of 5"),
+  ).toBeTruthy();
   // Whatever is sent now is taken as the answer, so nothing else that sends a prompt is shown.
-  for (const name of ["Next", "Say it more simply", "Stop the lesson", "Teach me", "Quiz me"]) {
+  for (const name of [
+    "Next",
+    "Say it more simply",
+    "Stop the lesson",
+    "Teach me",
+    "Quiz me",
+  ]) {
     expect(screen.queryByRole("button", { name })).toBeNull();
   }
   expect(screen.queryByText("Lesson: Zeta Function · part 1 of 3")).toBeNull();
-  expect(screen.queryByRole("button", { name: RIEMANN_HINTS.examples[0] })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: RIEMANN_HINTS.examples[0] }),
+  ).toBeNull();
   expect(screen.queryByRole("list", { name: "Choices" })).toBeNull();
   expect(screen.getByRole("button", { name: "Stop the quiz" })).toBeTruthy();
-  expect(sentBodies(server).map((b) => b.prompt)).toEqual(["Next", "Quiz me on Zeta Function"]);
+  expect(sentBodies(server).map((b) => b.prompt)).toEqual([
+    "Next",
+    "Quiz me on Zeta Function",
+  ]);
 });
 
 test("turning Quiz me off drops its choices, though Teach me is still on", async () => {
@@ -2003,7 +2656,8 @@ test("turning Quiz me off drops its choices, though Teach me is still on", async
   let quizMe = true;
   server.mockImplementation(async (url, init) => {
     if (url !== "/api/settings") return answers(url, init);
-    if (init?.method === "PATCH") quizMe = JSON.parse(String(init.body)).quiz_me;
+    if (init?.method === "PATCH")
+      quizMe = JSON.parse(String(init.body)).quiz_me;
     return Response.json({ teach_me: true, quiz_me: quizMe });
   });
   await openAt("#/chat");
@@ -2032,15 +2686,18 @@ test("Next and more simply send the lesson along, and the place shown follows it
   );
   teachMeOn();
   await openAt("#/chat");
-  expect(await screen.findByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
+  expect(
+    await screen.findByText("Lesson: Zeta Function · part 1 of 3"),
+  ).toBeTruthy();
   for (const label of ["Next", "Say it more simply", "Next"]) {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: label }));
     });
     await waitFor(() =>
-      expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(
-        false,
-      ),
+      expect(
+        (screen.getByRole("button", { name: "Next" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
     );
   }
   expect(screen.getByText("Lesson: Zeta Function · summary")).toBeTruthy();
@@ -2071,11 +2728,14 @@ test("stopping hides the lesson but keeps its place; finishing forgets it", asyn
   await screen.findByText("OK, we'll stop here.");
   expect(screen.queryByText(/^Lesson:/)).toBeNull();
   expect(loadLesson()).toEqual({ ...ZETA, active: false });
-  fireEvent.input(promptBox(), { target: { value: "Teach me about Zeta Function" } });
+  fireEvent.input(promptBox(), {
+    target: { value: "Teach me about Zeta Function" },
+  });
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(
-      false,
-    ),
+    expect(
+      (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
   );
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -2089,9 +2749,12 @@ test("a reply that says nothing about lessons leaves the lesson as it was", asyn
   chatServer([], () => Response.json({ role: "assistant", content: "Hi." }));
   teachMeOn();
   await openAt("#/chat");
-  fireEvent.input(await screen.findByRole("textbox", { name: "Your message" }), {
-    target: { value: "Hello" },
-  });
+  fireEvent.input(
+    await screen.findByRole("textbox", { name: "Your message" }),
+    {
+      target: { value: "Hello" },
+    },
+  );
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
@@ -2100,12 +2763,22 @@ test("a reply that says nothing about lessons leaves the lesson as it was", asyn
 });
 
 test("a lesson saved wrongly, or storage that can't be read, means no lesson", () => {
-  for (const saved of ["{", '"text"', '{"topic": 3, "part": 0}', '{"topic": "A", "part": -1}']) {
+  for (const saved of [
+    "{",
+    '"text"',
+    '{"topic": 3, "part": 0}',
+    '{"topic": "A", "part": -1}',
+  ]) {
     localStorage.setItem("imageskin.lesson", saved);
     expect(loadLesson()).toBeNull();
   }
   localStorage.setItem("imageskin.lesson", '{"topic": "A", "part": 2}');
-  expect(loadLesson()).toEqual({ topic: "A", part: 2, active: true, parts: undefined });
+  expect(loadLesson()).toEqual({
+    topic: "A",
+    part: 2,
+    active: true,
+    parts: undefined,
+  });
   vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
     throw new Error("blocked");
   });
@@ -2124,8 +2797,13 @@ test("a lesson that can't be kept is logged, and the chat goes on", async () => 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Teach me" }));
   });
-  expect(await screen.findByText("Lesson: Zeta Function · part 1 of 3")).toBeTruthy();
-  expect(console.error).toHaveBeenCalledWith("Could not keep the lesson", expect.any(Error));
+  expect(
+    await screen.findByText("Lesson: Zeta Function · part 1 of 3"),
+  ).toBeTruthy();
+  expect(console.error).toHaveBeenCalledWith(
+    "Could not keep the lesson",
+    expect.any(Error),
+  );
 });
 
 test("with Teach me off, there's no Teach me button and the saved lesson stays", async () => {
@@ -2162,7 +2840,10 @@ test("Enter sends and Shift+Enter does not", async () => {
 test("when the LLM fails, a short apology shows and the prompt goes back in the box", async () => {
   chatServer([], () =>
     Response.json(
-      { detail: "Could not reach the LLM at http://127.0.0.1:8080/v1. Is llama-server running?" },
+      {
+        detail:
+          "Could not reach the LLM at http://127.0.0.1:8080/v1. Is llama-server running?",
+      },
       { status: 502 },
     ),
   );
@@ -2190,20 +2871,34 @@ test("one status line says what is happening until the person speaks", async () 
   await screen.findByText("Thinking…");
   expect(screen.queryByText("Getting ready to say it…")).toBeNull(); // one line, not two
   await act(async () => {
-    reply(Response.json({ role: "assistant", content: "Once upon a time.", streamed: true }));
+    reply(
+      Response.json({
+        role: "assistant",
+        content: "Once upon a time.",
+        streamed: true,
+      }),
+    );
   });
   await screen.findByText("Getting ready to say it…");
   expect(screen.queryByText("Thinking…")).toBeNull();
   await waitFor(() => expect(shownVideo()).not.toBeNull());
   fireEvent.playing(shownVideo());
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
 });
 
 test("the status waits for a reply's one video to start playing, not just to be made", async () => {
   // Review on PR #80: the status went as soon as the video was made, before it played.
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "Hi there.", turn: 1, streamed: false }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "Hi there.",
+        turn: 1,
+        streamed: false,
+      }),
     () => Response.json({ video: "/api/chat/videos/1" }),
   );
   await openAt("#/chat");
@@ -2212,11 +2907,17 @@ test("the status waits for a reply's one video to start playing, not just to be 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
-  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/1/));
+  await waitFor(() =>
+    expect(shownVideo()?.getAttribute("src")).toMatch(
+      /^\/api\/chat\/videos\/1/,
+    ),
+  );
   await act(() => new Promise((done) => setTimeout(done, 20))); // made and handed to the player
   expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
   fireEvent.playing(shownVideo());
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
 });
 
 test("the status waits for a short streamed reply's only clip to start playing", async () => {
@@ -2236,7 +2937,9 @@ test("the status waits for a short streamed reply's only clip to start playing",
   await act(() => new Promise((done) => setTimeout(done, 20))); // every clip made
   expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
   fireEvent.playing(shownVideo());
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
 });
 
 test("the status stays when the first clip is broken, until a later one plays", async () => {
@@ -2244,9 +2947,17 @@ test("the status stays when the first clip is broken, until a later one plays", 
   vi.spyOn(console, "error").mockImplementation(() => {});
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "One. Two.",
+        streamed: true,
+      }),
     undefined,
-    () => Response.json(clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true)),
+    () =>
+      Response.json(
+        clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true),
+      ),
   );
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
@@ -2255,12 +2966,18 @@ test("the status stays when the first clip is broken, until a later one plays", 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   await screen.findByText("One. Two.");
-  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  await waitFor(() =>
+    expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"),
+  );
   fireEvent.error(shownVideo()); // clip 1 can't be played: passed over
-  await waitFor(() => expect(shownVideo().getAttribute("src")).toBe("/api/chat/clips/x/2"));
+  await waitFor(() =>
+    expect(shownVideo().getAttribute("src")).toBe("/api/chat/clips/x/2"),
+  );
   expect(screen.getByText("Getting ready to say it…")).toBeTruthy(); // nobody has spoken yet
   fireEvent.playing(shownVideo());
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
 });
 
 test("the status goes when every clip is broken, as nothing will be said aloud", async () => {
@@ -2281,13 +2998,21 @@ test("the status goes when every clip is broken, as nothing will be said aloud",
   await waitFor(() => expect(shownVideo()).not.toBeNull());
   await act(() => new Promise((done) => setTimeout(done, 20))); // every clip made
   fireEvent.error(shownVideo());
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
 });
 
 test("a reply with nothing to say aloud leaves no status", async () => {
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "```code```", turn: 1, streamed: false }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "```code```",
+        turn: 1,
+        streamed: false,
+      }),
     () => Response.json({ video: null }),
   );
   await openAt("#/chat");
@@ -2297,13 +3022,18 @@ test("a reply with nothing to say aloud leaves no status", async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   await screen.findByText("```code```");
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
   expect(screen.queryByText("Thinking…")).toBeNull();
 });
 
 test("a prompt the server can't use says why in its own words", async () => {
   chatServer([], () =>
-    Response.json({ detail: "That message is too long. Shorten it or split it in two." }, { status: 400 }),
+    Response.json(
+      { detail: "That message is too long. Shorten it or split it in two." },
+      { status: 400 },
+    ),
   );
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
@@ -2354,7 +3084,9 @@ test("only the latest exchange shows; the history is closed until opened", async
   expect(show.getAttribute("aria-expanded")).toBe("false");
   fireEvent.click(show);
   const box = screen.getByLabelText("Conversation history");
-  const items = within(box).getAllByRole("listitem").map((li) => li.textContent);
+  const items = within(box)
+    .getAllByRole("listitem")
+    .map((li) => li.textContent);
   expect(items).toEqual([
     "YouMy name is Larry.",
     "ReplyNice to meet you, Larry!",
@@ -2380,7 +3112,10 @@ test("a search marks every match and steps through them", async () => {
   chatServer(
     [
       { role: "user", content: "Where is Paris?" },
-      { role: "assistant", content: "Paris is in France. See https://en.wikipedia.org/wiki/Paris" },
+      {
+        role: "assistant",
+        content: "Paris is in France. See https://en.wikipedia.org/wiki/Paris",
+      },
       { role: "user", content: "Thanks!" },
       { role: "assistant", content: "You're welcome." },
     ],
@@ -2390,19 +3125,29 @@ test("a search marks every match and steps through them", async () => {
   await screen.findByText("You're welcome.");
   fireEvent.click(screen.getByRole("button", { name: "Show history" }));
   const search = screen.getByLabelText("Search the history");
-  const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
-  const previous = screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement;
+  const next = screen.getByRole("button", {
+    name: "Next",
+  }) as HTMLButtonElement;
+  const previous = screen.getByRole("button", {
+    name: "Previous",
+  }) as HTMLButtonElement;
   expect(next.disabled).toBe(true);
 
   fireEvent.input(search, { target: { value: "paris" } });
   const box = screen.getByLabelText("Conversation history");
   const marks = () => Array.from(box.querySelectorAll("mark"));
   // The link stays in full in the history, so its "Paris" is found too.
-  expect(marks().map((m) => m.textContent)).toEqual(["Paris", "Paris", "Paris"]);
+  expect(marks().map((m) => m.textContent)).toEqual([
+    "Paris",
+    "Paris",
+    "Paris",
+  ]);
   expect(screen.getByText("1 of 3")).toBeTruthy();
   expect(marks()[0].className).toBe("current");
   expect(info).toHaveBeenCalledWith(
-    expect.stringMatching(/^History search found 3 matches in 4 turns \(\d+ ms\)$/),
+    expect.stringMatching(
+      /^History search found 3 matches in 4 turns \(\d+ ms\)$/,
+    ),
   );
 
   fireEvent.click(next);
@@ -2429,8 +3174,12 @@ test("a search marks every match and steps through them", async () => {
   fireEvent.input(search, { target: { value: "Paris" } });
   fireEvent.click(screen.getByRole("button", { name: "Hide history" }));
   fireEvent.click(screen.getByRole("button", { name: "Show history" }));
-  expect((screen.getByLabelText("Search the history") as HTMLInputElement).value).toBe("");
-  expect(screen.getByLabelText("Conversation history").querySelector("mark")).toBeNull();
+  expect(
+    (screen.getByLabelText("Search the history") as HTMLInputElement).value,
+  ).toBe("");
+  expect(
+    screen.getByLabelText("Conversation history").querySelector("mark"),
+  ).toBeNull();
   Reflect.deleteProperty(Element.prototype, "scrollIntoView");
   info.mockRestore();
 });
@@ -2448,7 +3197,9 @@ test("the current match stays valid when a failed prompt is taken back", async (
   await openAt("#/chat");
   await screen.findByText("Paris is in France.");
   fireEvent.click(screen.getByRole("button", { name: "Show history" }));
-  fireEvent.input(screen.getByLabelText("Search the history"), { target: { value: "paris" } });
+  fireEvent.input(screen.getByLabelText("Search the history"), {
+    target: { value: "paris" },
+  });
   fireEvent.input(promptBox(), { target: { value: "More about Paris?" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -2462,7 +3213,9 @@ test("the current match stays valid when a failed prompt is taken back", async (
   expect(await screen.findByText(CANT_ANSWER)).toBeTruthy();
   expect(screen.getByText("2 of 2")).toBeTruthy();
   const box = screen.getByLabelText("Conversation history");
-  expect(box.querySelector("mark.current")?.getAttribute("data-match")).toBe("1");
+  expect(box.querySelector("mark.current")?.getAttribute("data-match")).toBe(
+    "1",
+  );
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("1 of 2")).toBeTruthy();
   vi.restoreAllMocks();
@@ -2521,7 +3274,12 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
       { role: "assistant", content: "Hello!" },
     ],
     () =>
-      Response.json({ role: "assistant", content: "I'm well, thanks.", turn: 3, streamed: false }),
+      Response.json({
+        role: "assistant",
+        content: "I'm well, thanks.",
+        turn: 3,
+        streamed: false,
+      }),
     speak,
   );
   await openAt("#/chat");
@@ -2535,16 +3293,24 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
   await waitFor(() =>
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/chat/video",
-      expect.objectContaining({ method: "POST", body: expect.stringMatching(/^\{"turn":3,"reply_id":"[0-9a-f]{32}"\}$/) }),
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringMatching(/^\{"turn":3,"reply_id":"[0-9a-f]{32}"\}$/),
+      }),
     ),
   );
   expect(screen.getByText("Getting ready to say it…")).toBeTruthy();
-  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
   await act(async () => {
     spoken(Response.json({ video: "/api/chat/videos/3" }));
   });
   const video = await waitFor(() => {
-    const found = document.querySelector("video.reply-video") as HTMLVideoElement | null;
+    const found = document.querySelector(
+      "video.reply-video",
+    ) as HTMLVideoElement | null;
     expect(found).not.toBeNull();
     return found!;
   });
@@ -2552,8 +3318,12 @@ test("a reply that wasn't streamed is spoken in one video", async () => {
   expect(video.autoplay).toBe(true);
   expect(screen.getByText("Getting ready to say it…")).toBeTruthy(); // until it plays (R41d)
   fireEvent.playing(video);
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
-  const asked = fetchMock.mock.calls.filter(([url]) => url === "/api/chat/video");
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
+  const asked = fetchMock.mock.calls.filter(
+    ([url]) => url === "/api/chat/video",
+  );
   expect(asked).toHaveLength(1);
 
   // The next prompt takes the old video away: the server replaces it with the new reply's.
@@ -2586,7 +3356,9 @@ test("a reply's video is asked for by the server's count, not this page's", asyn
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/chat/video",
-      expect.objectContaining({ body: expect.stringMatching(/^\{"turn":3,"reply_id":"[0-9a-f]{32}"\}$/) }),
+      expect.objectContaining({
+        body: expect.stringMatching(/^\{"turn":3,"reply_id":"[0-9a-f]{32}"\}$/),
+      }),
     ),
   );
 });
@@ -2595,10 +3367,19 @@ test("a reply's video is asked for by the server's count, not this page's", asyn
 
 // The server's answer about a reply's clips (R22), with each clip's times on the server's clock
 // (R22a): its sentence arrived `before` seconds before the answer, and it was ready 0.3 s later.
-function clipsMade(urls: string[], done: boolean, error: string | null = null, before = 5) {
+function clipsMade(
+  urls: string[],
+  done: boolean,
+  error: string | null = null,
+  before = 5,
+) {
   const now = 1000;
   return {
-    clips: urls.map((url) => ({ url, sentence_at: now - before, ready_at: now - before + 0.3 })),
+    clips: urls.map((url) => ({
+      url,
+      sentence_at: now - before,
+      ready_at: now - before + 0.3,
+    })),
     done,
     error,
     now,
@@ -2614,7 +3395,13 @@ test("a reply done with no clips is spoken in one video", async () => {
   // The server says so for a moment before it forgets a reply that wasn't streamed (R22a).
   const fetchMock = chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "Hi again.", turn: 1, streamed: false }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "Hi again.",
+        turn: 1,
+        streamed: false,
+      }),
     () => Response.json({ video: "/api/chat/videos/1" }),
     () => Response.json(clipsMade([], true)),
   );
@@ -2628,37 +3415,50 @@ test("a reply done with no clips is spoken in one video", async () => {
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/chat/video",
-      expect.objectContaining({ body: expect.stringMatching(/^\{"turn":1,"reply_id":"[0-9a-f]{32}"\}$/) }),
+      expect.objectContaining({
+        body: expect.stringMatching(/^\{"turn":1,"reply_id":"[0-9a-f]{32}"\}$/),
+      }),
     ),
   );
-  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toMatch(/^\/api\/chat\/videos\/1/));
+  await waitFor(() =>
+    expect(shownVideo()?.getAttribute("src")).toMatch(
+      /^\/api\/chat\/videos\/1/,
+    ),
+  );
 });
 
 test("a reply that fails takes its clips and timing rows away", async () => {
   const [answer, reply] = later();
   // The first clip is made while the LLM writes; once the LLM fails, the server drops the clips.
-  let clips: Answer = () => Response.json(clipsMade(["/api/chat/clips/x/1"], false));
+  let clips: Answer = () =>
+    Response.json(clipsMade(["/api/chat/clips/x/1"], false));
   chatServer([], answer, undefined, () => clips());
   showMetrics();
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  await waitFor(() =>
+    expect(shownVideo()?.getAttribute("src")).toBe("/api/chat/clips/x/1"),
+  );
   expect(screen.getByText("Clip 1: not spoken yet")).toBeTruthy();
   clips = () => Response.json({ detail: "No clips" }, { status: 404 });
   await act(async () => {
     reply(Response.json({ detail: "The LLM stopped." }, { status: 502 }));
   });
   await screen.findByText(CANT_ANSWER);
-  await waitFor(() => expect(document.querySelector("video.reply-video")).toBeNull());
+  await waitFor(() =>
+    expect(document.querySelector("video.reply-video")).toBeNull(),
+  );
   expect(screen.queryByText(/^Clip 1:/)).toBeNull();
 });
 
 test("a streamed reply starts playing on its first clip, before the reply text", async () => {
   const [answer, reply] = later();
   let made = clipsMade([], false);
-  const fetchMock = chatServer([], answer, undefined, () => Response.json(made));
+  const fetchMock = chatServer([], answer, undefined, () =>
+    Response.json(made),
+  );
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
@@ -2666,17 +3466,27 @@ test("a streamed reply starts playing on its first clip, before the reply text",
   await screen.findByText("Thinking…");
   made = clipsMade(["/api/chat/clips/x/1"], false);
   const video = await waitFor(() => {
-    const found = document.querySelector("video.reply-video") as HTMLVideoElement | null;
+    const found = document.querySelector(
+      "video.reply-video",
+    ) as HTMLVideoElement | null;
     expect(found?.getAttribute("src")).toBe("/api/chat/clips/x/1");
     return found!;
   });
   expect(screen.getByText("Thinking…")).toBeTruthy(); // the reply text hasn't come yet
   // Each request says how many clips the page has, so the server answers when there are more.
-  const asked = fetchMock.mock.calls.map(([url]) => url).filter((u) => u.includes("/clips/"));
-  expect(asked[0]).toMatch(/^\/api\/chat\/clips\/[0-9a-f]{32}\?known=0&wait=10$/);
+  const asked = fetchMock.mock.calls
+    .map(([url]) => url)
+    .filter((u) => u.includes("/clips/"));
+  expect(asked[0]).toMatch(
+    /^\/api\/chat\/clips\/[0-9a-f]{32}\?known=0&wait=10$/,
+  );
   await act(async () => {
     reply(
-      Response.json({ role: "assistant", content: "Once upon a time. The end.", streamed: true }),
+      Response.json({
+        role: "assistant",
+        content: "Once upon a time. The end.",
+        streamed: true,
+      }),
     );
   });
   await screen.findByText("Once upon a time. The end.");
@@ -2684,11 +3494,18 @@ test("a streamed reply starts playing on its first clip, before the reply text",
   fireEvent.ended(video); // the first clip ends before the second is made: wait on it
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
   made = clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true);
-  await waitFor(() => expect(video.getAttribute("src")).toBe("/api/chat/clips/x/2"));
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(video.getAttribute("src")).toBe("/api/chat/clips/x/2"),
+  );
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
   fireEvent.ended(video);
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/2"); // stays on the last frame
-  expect(fetchMock).not.toHaveBeenCalledWith("/api/chat/video", expect.anything());
+  expect(fetchMock).not.toHaveBeenCalledWith(
+    "/api/chat/video",
+    expect.anything(),
+  );
   // Once it had one clip, every request said so, up to the answer that brought the end.
   const counts = fetchMock.mock.calls
     .map(([url]) => url)
@@ -2700,14 +3517,17 @@ test("a streamed reply starts playing on its first clip, before the reply text",
 
 test("a reply whose clips a newer prompt took is not spoken again as one video", async () => {
   const [answer, reply] = later();
-  let clipsNow: Answer = () => Response.json(clipsMade(["/api/chat/clips/x/1"], false));
+  let clipsNow: Answer = () =>
+    Response.json(clipsMade(["/api/chat/clips/x/1"], false));
   const fetchMock = chatServer([], answer, undefined, () => clipsNow());
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   const video = await waitFor(() => {
-    const found = document.querySelector("video.reply-video") as HTMLVideoElement | null;
+    const found = document.querySelector(
+      "video.reply-video",
+    ) as HTMLVideoElement | null;
     expect(found?.getAttribute("src")).toBe("/api/chat/clips/x/1");
     return found!;
   });
@@ -2716,13 +3536,23 @@ test("a reply whose clips a newer prompt took is not spoken again as one video",
   clipsNow = () => Response.json({ detail: "No clips" }, { status: 404 });
   await act(async () => {
     reply(
-      Response.json({ role: "assistant", content: "Once upon a time.", turn: 3, streamed: true }),
+      Response.json({
+        role: "assistant",
+        content: "Once upon a time.",
+        turn: 3,
+        streamed: true,
+      }),
     );
   });
   await screen.findByText("Once upon a time.");
   fireEvent.playing(video); // its first clip, already here, plays
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
-  expect(fetchMock).not.toHaveBeenCalledWith("/api/chat/video", expect.anything());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
+  expect(fetchMock).not.toHaveBeenCalledWith(
+    "/api/chat/video",
+    expect.anything(),
+  );
   expect(video.getAttribute("src")).toBe("/api/chat/clips/x/1");
 });
 
@@ -2749,7 +3579,14 @@ test("a clip that fails before the reply is in is reported with the reply", asyn
     await act(() => new Promise((done) => setTimeout(done, 50)));
     expect(unhandled).not.toHaveBeenCalled();
     await act(async () => {
-      reply(Response.json({ role: "assistant", content: "One. Two.", turn: 1, streamed: true }));
+      reply(
+        Response.json({
+          role: "assistant",
+          content: "One. Two.",
+          turn: 1,
+          streamed: true,
+        }),
+      );
     });
     const note = await screen.findByText(/I couldn.t say this one aloud/);
     expect(note.textContent).not.toContain("ffmpeg"); // R41d: the cause goes to the console
@@ -2760,7 +3597,9 @@ test("a clip that fails before the reply is in is reported with the reply", asyn
 });
 
 test("clips play in order when they arrive faster than they play", () => {
-  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const play = vi
+    .spyOn(HTMLMediaElement.prototype, "play")
+    .mockResolvedValue(undefined);
   const { container, rerender } = render(<ClipPlayer clips={["/a"]} />);
   expect(container.querySelectorAll("video")).toHaveLength(1); // nothing to load yet
   rerender(<ClipPlayer clips={["/a", "/b", "/c"]} />);
@@ -2789,18 +3628,24 @@ test("clips play in order when they arrive faster than they play", () => {
 
 test("a reply the browser won't play by itself gets a button to start it", async () => {
   const refused = new DOMException("needs a click first", "NotAllowedError");
-  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValueOnce(refused);
+  const play = vi
+    .spyOn(HTMLMediaElement.prototype, "play")
+    .mockRejectedValueOnce(refused);
   play.mockResolvedValue(undefined);
   render(<ClipPlayer clips={["/a"]} />);
   const button = await screen.findByRole("button", { name: "Play the reply" });
   fireEvent.click(button);
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull(),
+  );
   expect(play).toHaveBeenCalledTimes(2);
 });
 
 test("a clip that arrives after the one before ended still gets the button if refused", async () => {
   const refused = new DOMException("needs a click first", "NotAllowedError");
-  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const play = vi
+    .spyOn(HTMLMediaElement.prototype, "play")
+    .mockResolvedValue(undefined);
   const { rerender } = render(<ClipPlayer clips={["/a"]} />);
   expect(play).toHaveBeenCalledTimes(1);
   fireEvent.ended(shownVideo()); // played every clip so far: waits on the last frame
@@ -2810,12 +3655,16 @@ test("a clip that arrives after the one before ended still gets the button if re
   expect(play).toHaveBeenCalledTimes(2); // started here, not left to autoplay alone
   const button = await screen.findByRole("button", { name: "Play the reply" });
   fireEvent.click(button);
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull(),
+  );
   expect(play).toHaveBeenCalledTimes(3);
 });
 
 test("a clip that fails to play for another reason gets no button", async () => {
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(new Error("no source"));
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(
+    new Error("no source"),
+  );
   render(<ClipPlayer clips={["/a"]} />);
   await Promise.resolve();
   expect(screen.queryByRole("button", { name: "Play the reply" })).toBeNull();
@@ -2824,7 +3673,9 @@ test("a clip that fails to play for another reason gets no button", async () => 
 test("the idle video shows once it plays, and goes when there is none", () => {
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   const told: Idle[] = [];
-  const { rerender } = render(<Stage idle="loading" onIdle={(i) => told.push(i)} />);
+  const { rerender } = render(
+    <Stage idle="loading" onIdle={(i) => told.push(i)} />,
+  );
   const idle = document.querySelector("video.idle-video") as HTMLVideoElement;
   expect(idle.getAttribute("src")).toBe("/api/chat/idle");
   expect(idle.className).toBe("idle-video resting"); // out of sight until it plays
@@ -2878,7 +3729,9 @@ test("without an idle video, the player holds each clip's last frame", () => {
 
 test("the stage takes the photo's shape, so there are no empty bands around the person", () => {
   // Larry on PR #80: a wide video left white bands above and below it in a fixed-size box.
-  const { rerender } = render(<Stage idle="loading" onIdle={() => {}} ratio={16 / 9} />);
+  const { rerender } = render(
+    <Stage idle="loading" onIdle={() => {}} ratio={16 / 9} />,
+  );
   const stage = document.querySelector(".stage") as HTMLElement;
   expect(Number(stage.style.getPropertyValue("--ratio"))).toBeCloseTo(16 / 9);
   rerender(<Stage idle="loading" onIdle={() => {}} />); // no size known: a 4:3 box
@@ -2898,7 +3751,13 @@ test("the chat draws the person's frame only once it knows the photo's shape", a
   await act(() => new Promise((done) => setTimeout(done, 20)));
   expect(document.querySelector(".stage")).toBeNull(); // not drawn at a guessed size
   await act(async () =>
-    answerPhoto(Response.json({ url: "/api/uploads/photos/p1", width: 1280, height: 720 })),
+    answerPhoto(
+      Response.json({
+        url: "/api/uploads/photos/p1",
+        width: 1280,
+        height: 720,
+      }),
+    ),
   );
   const stage = (await waitFor(() => {
     const found = document.querySelector(".stage");
@@ -2906,25 +3765,39 @@ test("the chat draws the person's frame only once it knows the photo's shape", a
     return found;
   })) as HTMLElement;
   expect(Number(stage.style.getPropertyValue("--ratio"))).toBeCloseTo(16 / 9); // from the start
-  expect(stage.querySelector("img.still")?.getAttribute("src")).toBe("/api/uploads/photos/p1");
+  expect(stage.querySelector("img.still")?.getAttribute("src")).toBe(
+    "/api/uploads/photos/p1",
+  );
   expect(info).toHaveBeenCalledWith("Chat photo 1280x720");
 });
 
 test("the stage shows the photo under the videos, and goes without it if it can't load", () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  render(<Stage idle="loading" onIdle={() => {}} photo="/api/uploads/photos/p1" />);
+  render(
+    <Stage idle="loading" onIdle={() => {}} photo="/api/uploads/photos/p1" />,
+  );
   const still = document.querySelector(".stage img.still") as HTMLImageElement;
   expect(still.getAttribute("src")).toBe("/api/uploads/photos/p1");
   expect(still.alt).toBe(""); // only a picture behind the video
   fireEvent.error(still);
   expect(document.querySelector(".stage img.still")).toBeNull(); // no broken image
-  expect(error).toHaveBeenCalledWith(expect.stringContaining("/api/uploads/photos/p1"));
+  expect(error).toHaveBeenCalledWith(
+    expect.stringContaining("/api/uploads/photos/p1"),
+  );
 });
 
 test("the stage plays the idle video at the photo's own address, once that is known", () => {
-  const { rerender } = render(<Stage idle="loading" onIdle={() => {}} idleUrl={null} />);
+  const { rerender } = render(
+    <Stage idle="loading" onIdle={() => {}} idleUrl={null} />,
+  );
   expect(document.querySelector(".stage video")).toBeNull(); // not the person before's
-  rerender(<Stage idle="loading" onIdle={() => {}} idleUrl="/api/chat/idle?photo=boss" />);
+  rerender(
+    <Stage
+      idle="loading"
+      onIdle={() => {}}
+      idleUrl="/api/chat/idle?photo=boss"
+    />,
+  );
   const video = document.querySelector(".stage video") as HTMLVideoElement;
   expect(video.getAttribute("src")).toBe("/api/chat/idle?photo=boss");
 });
@@ -2935,7 +3808,9 @@ test("a clip that can't be played is passed over quietly and the next one plays"
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   render(<ClipPlayer clips={["/a", "/b"]} onEnded={ended} rest />);
   fireEvent.error(shownVideo()); // the first clip is broken
-  expect(error).toHaveBeenCalledWith("Could not play a clip of the reply, so it was skipped: /a");
+  expect(error).toHaveBeenCalledWith(
+    "Could not play a clip of the reply, so it was skipped: /a",
+  );
   expect(shownVideo().getAttribute("src")).toBe("/b");
   expect(shownVideo().className).toBe("reply-video resting"); // nothing broken on the screen
   expect(ended).toHaveBeenCalledWith(0, expect.any(Number)); // so Stop doesn't wait on it
@@ -2945,28 +3820,45 @@ test("a clip that can't be played is passed over quietly and the next one plays"
 
 test("a clip that failed while it waited its turn is passed over when its turn comes", () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
-  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  const play = vi
+    .spyOn(HTMLMediaElement.prototype, "play")
+    .mockResolvedValue(undefined);
   const { container, rerender } = render(<ClipPlayer clips={["/a", "/b"]} />);
   fireEvent.playing(shownVideo());
   const waiting = container.querySelectorAll("video")[1];
   fireEvent.error(waiting); // /b failed to load, out of sight
   rerender(<ClipPlayer clips={["/a", "/b", "/c"]} />);
   const seen = shownStates(container, () => fireEvent.ended(shownVideo()));
-  expect(error).toHaveBeenCalledWith("Could not play a clip of the reply, so it was skipped: /b");
+  expect(error).toHaveBeenCalledWith(
+    "Could not play a clip of the reply, so it was skipped: /b",
+  );
   expect(shownVideo().getAttribute("src")).toBe("/c");
   expect(play).toHaveBeenCalledTimes(2); // /a, then /c; never /b
   // Review on PR #78: the broken clip is never in sight, not even for a moment.
-  expect(seen.filter((v) => v.src === "/b" && v.className === "reply-video")).toEqual([]);
+  expect(
+    seen.filter((v) => v.src === "/b" && v.className === "reply-video"),
+  ).toEqual([]);
 });
 
 // Every state the players passed through while `run` ran, from the attribute changes made to
 // them in order: their src and class after each change.
-function shownStates(container: Element, run: () => void): { src: string; className: string }[] {
+function shownStates(
+  container: Element,
+  run: () => void,
+): { src: string; className: string }[] {
   const now = new Map<Element, Record<string, string>>();
   for (const v of container.querySelectorAll("video"))
-    now.set(v, { src: v.getAttribute("src") ?? "", class: v.getAttribute("class") ?? "" });
+    now.set(v, {
+      src: v.getAttribute("src") ?? "",
+      class: v.getAttribute("class") ?? "",
+    });
   const watch = new MutationObserver(() => {});
-  watch.observe(container, { attributes: true, attributeOldValue: true, attributeFilter: ["src", "class"], subtree: true });
+  watch.observe(container, {
+    attributes: true,
+    attributeOldValue: true,
+    attributeFilter: ["src", "class"],
+    subtree: true,
+  });
   run();
   const records = watch.takeRecords();
   watch.disconnect();
@@ -2975,10 +3867,14 @@ function shownStates(container: Element, run: () => void): { src: string; classN
   const states: { src: string; className: string }[] = [];
   records.forEach((r, i) => {
     const name = r.attributeName!;
-    const later = records.slice(i + 1).find((o) => o.target === r.target && o.attributeName === name);
+    const later = records
+      .slice(i + 1)
+      .find((o) => o.target === r.target && o.attributeName === name);
     const el = r.target as Element;
     const state = now.get(el) ?? { src: "", class: "" };
-    state[name] = later ? (later.oldValue ?? "") : (el.getAttribute(name) ?? "");
+    state[name] = later
+      ? (later.oldValue ?? "")
+      : (el.getAttribute(name) ?? "");
     now.set(el, state);
     states.push({ src: state.src, className: state.class });
   });
@@ -3014,7 +3910,9 @@ test("an idle video that comes after the reply ended or was stopped takes over f
 test("without an idle video, Stop holds the clip's frame and shows no Play button", async () => {
   const refused = new DOMException("needs a click first", "NotAllowedError");
   vi.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(refused);
-  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const pause = vi
+    .spyOn(HTMLMediaElement.prototype, "pause")
+    .mockImplementation(() => {});
   const { rerender } = render(<ClipPlayer clips={["/a"]} />);
   await screen.findByRole("button", { name: "Play the reply" });
   fireEvent.playing(shownVideo());
@@ -3028,7 +3926,9 @@ test("the player says when each clip starts and ends, once each", () => {
   const started = vi.fn();
   const ended = vi.fn();
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
-  const { rerender } = render(<ClipPlayer clips={["/a", "/b"]} onStarted={started} onEnded={ended} />);
+  const { rerender } = render(
+    <ClipPlayer clips={["/a", "/b"]} onStarted={started} onEnded={ended} />,
+  );
   fireEvent.playing(shownVideo());
   fireEvent.playing(shownVideo()); // after a stall: the same clip
   expect(started).toHaveBeenCalledTimes(1);
@@ -3068,7 +3968,9 @@ test("the timing readout shows each sentence against the target", () => {
   expect(container.textContent).toContain("Timing (target 1 to 2 s)");
   // The average of the waits: 1.26, 0.3, 2.4 and 2.1 s.
   const average = container.querySelector(".average") as HTMLElement;
-  expect(average.textContent).toBe("Average wait: 1.5 s over 4 clips of this reply");
+  expect(average.textContent).toBe(
+    "Average wait: 1.5 s over 4 clips of this reply",
+  );
   expect(average.className).toBe("average");
   // With the replies before it since the page was opened: (6.06 + 3 + 3) / 6 = 2.0 s.
   const since = render(<ClipTimes times={times} earlier={[3000, 3000]} />);
@@ -3077,11 +3979,18 @@ test("the timing readout shows each sentence against the target", () => {
   );
   // A reply spoken in one video (not streamed) is one line.
   const whole = render(
-    <ClipTimes times={[{ text: 0, ready: 6000, started: 7200, ended: null }]} whole />,
+    <ClipTimes
+      times={[{ text: 0, ready: 6000, started: 7200, ended: null }]}
+      whole
+    />,
   );
-  expect(whole.container.textContent).toContain("Reply: spoken 7.2 s after its text arrived");
+  expect(whole.container.textContent).toContain(
+    "Reply: spoken 7.2 s after its text arrived",
+  );
   const slow = whole.container.querySelectorAll(".average")[0] as HTMLElement;
-  expect(slow.textContent).toBe("Average wait: 7.2 s over 1 clip of this reply");
+  expect(slow.textContent).toBe(
+    "Average wait: 7.2 s over 1 clip of this reply",
+  );
   expect(slow.className).toBe("average late");
 });
 
@@ -3092,15 +4001,27 @@ test("a clip whose text came after the one before ended waits from its text", ()
   ];
   expect(clipWaits(times)).toEqual([1000, 1500]);
   const { container } = render(<ClipTimes times={times} />);
-  expect(Array.from(container.querySelectorAll("li")).map((r) => r.className)).toEqual(["", ""]);
+  expect(
+    Array.from(container.querySelectorAll("li")).map((r) => r.className),
+  ).toEqual(["", ""]);
 });
 
 test("the chat shows how long each sentence took once it plays", async () => {
   // The first sentence's text came 5 s before the server answered; the clip plays right away.
-  const made = clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true, null, 5);
+  const made = clipsMade(
+    ["/api/chat/clips/x/1", "/api/chat/clips/x/2"],
+    true,
+    null,
+    5,
+  );
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "One. Two.",
+        streamed: true,
+      }),
     undefined,
     () => Response.json(made),
   );
@@ -3112,23 +4033,39 @@ test("the chat shows how long each sentence took once it plays", async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   await screen.findByText("One. Two.");
-  await waitFor(() => expect(shownVideo().getAttribute("src")).toBe("/api/chat/clips/x/1"));
+  await waitFor(() =>
+    expect(shownVideo().getAttribute("src")).toBe("/api/chat/clips/x/1"),
+  );
   expect(screen.getByText("Clip 1: not spoken yet")).toBeTruthy();
   fireEvent.playing(shownVideo());
-  expect(await screen.findByText(/^Clip 1: spoken 5\.[0-2] s after its text arrived$/)).toBeTruthy();
+  expect(
+    await screen.findByText(
+      /^Clip 1: spoken 5\.[0-2] s after its text arrived$/,
+    ),
+  ).toBeTruthy();
   fireEvent.ended(shownVideo());
   fireEvent.playing(shownVideo());
   expect(
-    await screen.findByText(/^Clip 2: spoken 5\.[0-2] s after its text arrived, 0\.[0-2] s after clip 1 ended$/),
+    await screen.findByText(
+      /^Clip 2: spoken 5\.[0-2] s after its text arrived, 0\.[0-2] s after clip 1 ended$/,
+    ),
   ).toBeTruthy();
 });
 
 test("when a clip fails, the clips so far stay and a plain note says so", async () => {
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "One. Two.", streamed: true }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "One. Two.",
+        streamed: true,
+      }),
     undefined,
-    () => Response.json(clipsMade(["/api/chat/clips/x/1"], true, "ffmpeg is not installed")),
+    () =>
+      Response.json(
+        clipsMade(["/api/chat/clips/x/1"], true, "ffmpeg is not installed"),
+      ),
   );
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
@@ -3137,8 +4074,12 @@ test("when a clip fails, the clips so far stay and a plain note says so", async 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
   const note = await screen.findByText(/I couldn.t say this one aloud/);
-  expect(note.textContent).toBe("I couldn't say this one aloud, so here it is as text.");
-  expect(document.querySelector("video.reply-video")?.getAttribute("src")).toBe("/api/chat/clips/x/1");
+  expect(note.textContent).toBe(
+    "I couldn't say this one aloud, so here it is as text.",
+  );
+  expect(document.querySelector("video.reply-video")?.getAttribute("src")).toBe(
+    "/api/chat/clips/x/1",
+  );
 });
 
 test("when the voice or video fails, the reply stays as text with a note", async () => {
@@ -3157,9 +4098,15 @@ test("when the voice or video fails, the reply stays as text with a note", async
   expect(note.textContent).not.toContain("ffmpeg");
   expect(note.closest("li")?.textContent).toContain("Hi there.");
   expect(document.querySelector("video.reply-video")).toBeNull();
-  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
   fireEvent.input(promptBox(), { target: { value: "Again" } });
-  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
 });
 
 test("if the conversation can't be loaded, the chat says so", async () => {
@@ -3167,11 +4114,15 @@ test("if the conversation can't be loaded, the chat says so", async () => {
   const fetchMock = vi.mocked(fetch);
   const original = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (input, init) =>
-    input === "/api/chat" ? new Response("", { status: 500 }) : original(input, init),
+    input === "/api/chat"
+      ? new Response("", { status: 500 })
+      : original(input, init),
   );
   await openAt("#/chat");
   expect(
-    await screen.findByText("The conversation couldn't be loaded. Reload the page to try again."),
+    await screen.findByText(
+      "The conversation couldn't be loaded. Reload the page to try again.",
+    ),
   ).toBeTruthy();
 });
 
@@ -3188,7 +4139,9 @@ test("the chat shows the idle video, with the reply's clips over it", async () =
   vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
-  const idle = document.querySelector(".stage video.idle-video") as HTMLVideoElement;
+  const idle = document.querySelector(
+    ".stage video.idle-video",
+  ) as HTMLVideoElement;
   fireEvent.playing(idle);
   await waitFor(() => expect(idle.className).toBe("idle-video")); // the person waits
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
@@ -3196,21 +4149,31 @@ test("the chat shows the idle video, with the reply's clips over it", async () =
   await waitFor(() => expect(shownVideo()).not.toBeNull());
   fireEvent.playing(shownVideo());
   expect(shownVideo().className).toBe("reply-video"); // over the idle video
-  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  const pause = vi
+    .spyOn(HTMLMediaElement.prototype, "pause")
+    .mockImplementation(() => {});
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
   // Stopped: it pauses at once and fades back to the idle video, with no jump (R41c).
   expect(pause).toHaveBeenCalled();
   expect(shownVideo().className).toBe("reply-video resting");
   expect(idle.className).toBe("idle-video");
   await act(async () => {
-    reply(Response.json({ role: "assistant", content: "Once upon a time.", streamed: true }));
+    reply(
+      Response.json({
+        role: "assistant",
+        content: "Once upon a time.",
+        streamed: true,
+      }),
+    );
   });
 });
 
 test("Stop ends the reply's video and its clips, and the text still comes", async () => {
   const [answer, reply] = later();
   const made = clipsMade(["/api/chat/clips/x/1"], false);
-  const fetchMock = chatServer([], answer, undefined, () => Response.json(made));
+  const fetchMock = chatServer([], answer, undefined, () =>
+    Response.json(made),
+  );
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
@@ -3220,8 +4183,12 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   expect(document.querySelector(".sound-controls button")).toBe(stopButton());
   fireEvent.input(promptBox(), { target: { value: "Tell me a story" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(document.querySelector("video.reply-video")).not.toBeNull());
-  const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  await waitFor(() =>
+    expect(document.querySelector("video.reply-video")).not.toBeNull(),
+  );
+  const pause = vi
+    .spyOn(HTMLMediaElement.prototype, "pause")
+    .mockImplementation(() => {});
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
   expect(pause).toHaveBeenCalled(); // the clip stops at once
   expect(shownVideo().autoplay).toBe(false); // and doesn't start again
@@ -3234,18 +4201,29 @@ test("Stop ends the reply's video and its clips, and the text still comes", asyn
   expect(init?.method).toBe("POST");
   expect(info).toHaveBeenCalledWith("Reply stopped (1 clips so far)");
   // The clips are no longer followed, though the server still has them to tell of.
-  const asked = fetchMock.mock.calls.filter(([u]) => u.includes("known=")).length;
+  const asked = fetchMock.mock.calls.filter(([u]) =>
+    u.includes("known="),
+  ).length;
   await act(() => new Promise((done) => setTimeout(done, 50)));
-  expect(fetchMock.mock.calls.filter(([u]) => u.includes("known=")).length).toBe(asked);
+  expect(
+    fetchMock.mock.calls.filter(([u]) => u.includes("known=")).length,
+  ).toBe(asked);
   await act(async () => {
-    reply(Response.json({ role: "assistant", content: "Once upon a time.", streamed: true }));
+    reply(
+      Response.json({
+        role: "assistant",
+        content: "Once upon a time.",
+        streamed: true,
+      }),
+    );
   });
   await screen.findByText("Once upon a time.");
   fireEvent.input(promptBox(), { target: { value: "Again" } });
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(
-      false,
-    ),
+    expect(
+      (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
   ); // the next prompt can be sent
 });
 
@@ -3263,24 +4241,40 @@ test("Stop while it is thinking stops the thinking, and the prompt goes back in 
   expect(stopButton().disabled).toBe(false);
   fireEvent.click(stopButton());
   expect(screen.getByText("Stopping…")).toBeTruthy(); // until the server has cut the LLM off
-  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/stop"))).toHaveLength(1);
+  expect(
+    fetchMock.mock.calls.filter(([url]) => url.endsWith("/stop")),
+  ).toHaveLength(1);
   await act(async () => {
     reply(Response.json({ detail: "Stopped." }, { status: 409 }));
   });
   await waitFor(() => expect(promptBox().value).toBe("Tell me a story"));
   expect(screen.queryByText("Stopping…")).toBeNull();
   expect(screen.queryByText(CANT_ANSWER)).toBeNull(); // nothing went wrong
-  expect(screen.getByText("Ask a question to start the conversation.")).toBeTruthy();
+  expect(
+    screen.getByText("Ask a question to start the conversation."),
+  ).toBeTruthy();
   expect(info).toHaveBeenCalledWith("Prompt stopped while it was answered");
-  expect(error).not.toHaveBeenCalledWith("Could not get a reply", expect.anything());
-  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(error).not.toHaveBeenCalledWith(
+    "Could not get a reply",
+    expect.anything(),
+  );
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
 });
 
 test("Stop frees the chat at once while a reply's one video is still being made", async () => {
   const [speak, spoken] = later();
   const fetchMock = chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "Hello.", turn: 1, streamed: false }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "Hello.",
+        turn: 1,
+        streamed: false,
+      }),
     speak,
   );
   await openAt("#/chat");
@@ -3292,18 +4286,29 @@ test("Stop frees the chat at once while a reply's one video is still being made"
   await screen.findByText("Hello.");
   // The video is asked for with the reply's id, so the server can stop making it.
   const [, init] = await waitFor(() => {
-    const call = fetchMock.mock.calls.find(([url]) => url === "/api/chat/video");
+    const call = fetchMock.mock.calls.find(
+      ([url]) => url === "/api/chat/video",
+    );
     expect(call).toBeDefined();
     return call!;
   });
-  const { reply_id: asked } = JSON.parse(init!.body as string) as { reply_id: string };
+  const { reply_id: asked } = JSON.parse(init!.body as string) as {
+    reply_id: string;
+  };
   vi.spyOn(console, "info").mockImplementation(() => {});
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-  expect(fetchMock).toHaveBeenCalledWith(`/api/chat/clips/${asked}/stop`, { method: "POST" });
+  expect(fetchMock).toHaveBeenCalledWith(`/api/chat/clips/${asked}/stop`, {
+    method: "POST",
+  });
   // Not waiting for the video: the next prompt can go now.
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
   fireEvent.input(promptBox(), { target: { value: "Again" } });
-  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
   await act(async () => {
     spoken(Response.json({ video: null })); // the server stopped making it
   });
@@ -3315,24 +4320,39 @@ test("Stop frees the chat at once while a clip request is still waiting", async 
   // the server) kept the chat waiting after Stop.
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   const [answer, reply] = later();
-  chatServer([], answer, undefined, (/* the long wait */) => new Promise<Response>(() => {}));
+  chatServer(
+    [],
+    answer,
+    undefined,
+    (/* the long wait */) => new Promise<Response>(() => {}),
+  );
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Count" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await act(async () => {
-    reply(Response.json({ role: "assistant", content: "One. Two.", turn: 1, streamed: true }));
+    reply(
+      Response.json({
+        role: "assistant",
+        content: "One. Two.",
+        turn: 1,
+        streamed: true,
+      }),
+    );
   });
   await screen.findByText("One. Two.");
   expect(screen.getByText("Getting ready to say it…")).toBeTruthy(); // still waiting for clips
   vi.spyOn(console, "info").mockImplementation(() => {});
   fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
   fireEvent.input(promptBox(), { target: { value: "Again" } });
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(
-      false,
-    ),
+    expect(
+      (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
   );
 });
 
@@ -3343,14 +4363,19 @@ test("a stop the server refuses is logged", async () => {
   await screen.findByText("Ask a question to start the conversation.");
   const original = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (url, init) =>
-    url.endsWith("/stop") ? new Response("", { status: 500 }) : original(url, init),
+    url.endsWith("/stop")
+      ? new Response("", { status: 500 })
+      : original(url, init),
   );
   fireEvent.input(promptBox(), { target: { value: "Hi" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   vi.spyOn(console, "info").mockImplementation(() => {});
   fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
   await waitFor(() =>
-    expect(console.error).toHaveBeenCalledWith("Could not stop the reply", expect.any(Error)),
+    expect(console.error).toHaveBeenCalledWith(
+      "Could not stop the reply",
+      expect.any(Error),
+    ),
   );
 });
 
@@ -3358,7 +4383,13 @@ test("Stop can be clicked until the last clip has played", async () => {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "One.", turn: 1, streamed: true }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "One.",
+        turn: 1,
+        streamed: true,
+      }),
     undefined,
     () => Response.json(clipsMade(["/api/chat/clips/x/1"], true)),
   );
@@ -3371,7 +4402,9 @@ test("Stop can be clicked until the last clip has played", async () => {
   await screen.findByText("One.");
   await waitFor(() => expect(shownVideo()).not.toBeNull());
   fireEvent.playing(shownVideo());
-  await waitFor(() => expect(screen.queryByText("Getting ready to say it…")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByText("Getting ready to say it…")).toBeNull(),
+  );
   expect(stopButton().disabled).toBe(false); // still playing
   fireEvent.ended(shownVideo());
   expect(stopButton().disabled).toBe(true);
@@ -3381,20 +4414,32 @@ test("mute and volume reach both players and are kept for the next visit", async
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   chatServer(
     [],
-    () => Response.json({ role: "assistant", content: "One. Two.", turn: 1, streamed: true }),
+    () =>
+      Response.json({
+        role: "assistant",
+        content: "One. Two.",
+        turn: 1,
+        streamed: true,
+      }),
     undefined,
-    () => Response.json(clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true)),
+    () =>
+      Response.json(
+        clipsMade(["/api/chat/clips/x/1", "/api/chat/clips/x/2"], true),
+      ),
   );
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
-  const volume = screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement;
+  const volume = screen.getByRole("slider", {
+    name: "Volume",
+  }) as HTMLInputElement;
   expect(volume.value).toBe("100");
   fireEvent.input(volume, { target: { value: "40" } });
   fireEvent.input(promptBox(), { target: { value: "Count" } });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
   });
-  const players = () => document.querySelectorAll(".stage video:not(.idle-video)");
+  const players = () =>
+    document.querySelectorAll(".stage video:not(.idle-video)");
   await waitFor(() => expect(players()).toHaveLength(2));
   for (const video of players() as NodeListOf<HTMLVideoElement>) {
     expect(video.volume).toBeCloseTo(0.4);
@@ -3403,23 +4448,32 @@ test("mute and volume reach both players and are kept for the next visit", async
   const mute = screen.getByRole("button", { name: "Mute" });
   expect(mute.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(mute);
-  for (const video of players() as NodeListOf<HTMLVideoElement>) expect(video.muted).toBe(true);
+  for (const video of players() as NodeListOf<HTMLVideoElement>)
+    expect(video.muted).toBe(true);
   const unmute = screen.getByRole("button", { name: "Unmute" });
   expect(unmute.getAttribute("aria-pressed")).toBe("true");
-  expect((screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement)
+      .disabled,
+  ).toBe(true);
   expect(loadSound()).toEqual({ volume: 0.4, muted: true });
 
   cleanup(); // the next visit starts with the same sound
   await openAt("#/chat");
   expect(await screen.findByRole("button", { name: "Unmute" })).toBeTruthy();
-  expect((screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement).value).toBe("40");
+  expect(
+    (screen.getByRole("slider", { name: "Volume" }) as HTMLInputElement).value,
+  ).toBe("40");
 });
 
 test("the sound starts at full volume when nothing usable was kept", () => {
   expect(loadSound()).toEqual({ volume: 1, muted: false });
   localStorage.setItem("imageskin.sound", "not json");
   expect(loadSound()).toEqual({ volume: 1, muted: false });
-  localStorage.setItem("imageskin.sound", JSON.stringify({ volume: 7, muted: "yes" }));
+  localStorage.setItem(
+    "imageskin.sound",
+    JSON.stringify({ volume: 7, muted: "yes" }),
+  );
   expect(loadSound()).toEqual({ volume: 1, muted: false }); // kept within 0 to 1
   localStorage.setItem("imageskin.sound", JSON.stringify({ volume: "loud" }));
   expect(loadSound()).toEqual({ volume: 1, muted: false });
@@ -3467,10 +4521,14 @@ test("the timing metrics are hidden until turned on on the Settings page", async
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min 5 s left"); // how long is left stays
   expect(screen.queryByText("Done in 31 s")).toBeNull();
-  expect(screen.queryByRole("checkbox", { name: "Show timing metrics" })).toBeNull();
+  expect(
+    screen.queryByRole("checkbox", { name: "Show timing metrics" }),
+  ).toBeNull();
 
   await openSettings();
-  const box = screen.getByRole("checkbox", { name: "Show timing metrics" }) as HTMLInputElement;
+  const box = screen.getByRole("checkbox", {
+    name: "Show timing metrics",
+  }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
     fireEvent.click(box);
@@ -3480,7 +4538,9 @@ test("the timing metrics are hidden until turned on on the Settings page", async
   await returnToApp();
   expect(window.location.hash).toBe("#/setup");
   expect(await screen.findByText("Done in 31 s")).toBeTruthy();
-  expect(screen.queryByRole("checkbox", { name: "Show timing metrics" })).toBeNull();
+  expect(
+    screen.queryByRole("checkbox", { name: "Show timing metrics" }),
+  ).toBeNull();
 
   cleanup(); // a reload: the saved setting is read again
   await openAt("#/setup");
@@ -3488,12 +4548,16 @@ test("the timing metrics are hidden until turned on on the Settings page", async
 });
 
 test("Teach me is off until turned on on the Settings page (Larry, 2026-10-15)", async () => {
-  const saved: { show_metrics: boolean; teach_me?: boolean } = { show_metrics: false };
+  const saved: { show_metrics: boolean; teach_me?: boolean } = {
+    show_metrics: false,
+  };
   settingsServer(saved);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
-  const box = screen.getByRole("checkbox", { name: "Teach me" }) as HTMLInputElement;
+  const box = screen.getByRole("checkbox", {
+    name: "Teach me",
+  }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
     fireEvent.click(box);
@@ -3503,12 +4567,16 @@ test("Teach me is off until turned on on the Settings page (Larry, 2026-10-15)",
 });
 
 test("Quiz me is off until turned on on the Settings page", async () => {
-  const saved: { show_metrics: boolean; quiz_me?: boolean } = { show_metrics: false };
+  const saved: { show_metrics: boolean; quiz_me?: boolean } = {
+    show_metrics: false,
+  };
   settingsServer(saved);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
-  const box = screen.getByRole("checkbox", { name: "Quiz me" }) as HTMLInputElement;
+  const box = screen.getByRole("checkbox", {
+    name: "Quiz me",
+  }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
     fireEvent.click(box);
@@ -3518,12 +4586,16 @@ test("Quiz me is off until turned on on the Settings page", async () => {
 });
 
 test("Assessment is off until turned on on the Settings page", async () => {
-  const saved: { show_metrics: boolean; assessment?: boolean } = { show_metrics: false };
+  const saved: { show_metrics: boolean; assessment?: boolean } = {
+    show_metrics: false,
+  };
   settingsServer(saved);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
-  const box = screen.getByRole("checkbox", { name: "Assessment" }) as HTMLInputElement;
+  const box = screen.getByRole("checkbox", {
+    name: "Assessment",
+  }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
     fireEvent.click(box);
@@ -3538,11 +4610,17 @@ test("a setting that can't be saved says so and stays as it was", async () => {
   await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
   await act(async () => {
-    fireEvent.click(screen.getByRole("checkbox", { name: "Show timing metrics" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Show timing metrics" }),
+    );
   });
-  expect(await screen.findByText("The setting could not be changed. Try again.")).toBeTruthy();
+  expect(
+    await screen.findByText("The setting could not be changed. Try again."),
+  ).toBeTruthy();
   expect(screen.queryByText("Done in 31 s")).toBeNull();
-  const box = screen.getByRole("checkbox", { name: "Show timing metrics" }) as HTMLInputElement;
+  const box = screen.getByRole("checkbox", {
+    name: "Show timing metrics",
+  }) as HTMLInputElement;
   expect(box.checked).toBe(false);
 });
 
@@ -3552,14 +4630,17 @@ test("in the participant view a chat that isn't set up asks for the host, not se
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/settings") return Response.json({ show_metrics: false, view: "participant" });
+      if (url === "/api/settings")
+        return Response.json({ show_metrics: false, view: "participant" });
       if (url === "/api/review") return Response.json({ accepted: false });
       return server(url, init);
     }),
   );
   await openAt("#/chat");
   expect(
-    await screen.findByText("The chat isn't ready yet. Ask your host to finish setting it up."),
+    await screen.findByText(
+      "The chat isn't ready yet. Ask your host to finish setting it up.",
+    ),
   ).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Go to setup" })).toBeNull();
 });
@@ -3585,9 +4666,11 @@ test("the chat as text is the last N exchanges, oldest first", () => {
       "Reply: Hi.",
     ].join("\n\n"),
   );
-  expect(chatText(TALK, 9).startsWith("Chat: the last 3 of 3 exchanges\n\nYou: Quiz me")).toBe(
-    true,
-  );
+  expect(
+    chatText(TALK, 9).startsWith(
+      "Chat: the last 3 of 3 exchanges\n\nYou: Quiz me",
+    ),
+  ).toBe(true);
   // A prompt still waiting for its reply isn't an exchange yet (review on PR #89).
   expect(chatText([...TALK, { role: "user", content: "More?" }], 1)).toBe(
     "Chat: the last 1 of 3 exchanges\n\nYou: Hello\n\nReply: Hi.",
@@ -3599,7 +4682,9 @@ function debugOn() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) =>
-      url === "/api/settings" ? Response.json({ debug: true }) : server(url, init),
+      url === "/api/settings"
+        ? Response.json({ debug: true })
+        : server(url, init),
     ),
   );
 }
@@ -3619,7 +4704,9 @@ test("Copy chat copies every exchange unless fewer are asked for", async () => {
   });
   expect(writeText).toHaveBeenLastCalledWith(chatText(TALK, 3));
   expect(screen.getByText("Copied")).toBeTruthy();
-  expect(info).toHaveBeenCalledWith(expect.stringMatching(/^Chat copied \(3 of 3 exchanges/));
+  expect(info).toHaveBeenCalledWith(
+    expect.stringMatching(/^Chat copied \(3 of 3 exchanges/),
+  );
 
   fireEvent.change(count, { target: { value: "1" } });
   expect(screen.queryByText("Copied")).toBeNull();
@@ -3644,9 +4731,14 @@ test("where the browser won't copy, the chat is shown to copy by hand", async ()
   await act(async () => {
     fireEvent.click(copy);
   });
-  const box = screen.getByRole("textbox", { name: "Chat to copy" }) as HTMLTextAreaElement;
+  const box = screen.getByRole("textbox", {
+    name: "Chat to copy",
+  }) as HTMLTextAreaElement;
   expect(box.value).toBe(chatText(TALK, 3));
-  expect(error).toHaveBeenCalledWith("Could not copy the chat", expect.any(Error));
+  expect(error).toHaveBeenCalledWith(
+    "Could not copy the chat",
+    expect.any(Error),
+  );
 });
 
 test("a copy is no longer shown as done once the chat moves on", async () => {
@@ -3665,7 +4757,9 @@ test("a copy is no longer shown as done once the chat moves on", async () => {
 
   // A question asked: while it waits for its reply, it isn't copied, and the copy before it is
   // no longer the chat as it is.
-  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  const send = screen.getByRole("button", {
+    name: "Send",
+  }) as HTMLButtonElement;
   fireEvent.input(promptBox(), { target: { value: "More?" } });
   await waitFor(() => expect(send.disabled).toBe(false));
   await act(async () => {
@@ -3688,7 +4782,9 @@ test("a copy is no longer shown as done once the chat moves on", async () => {
 });
 
 test("text to copy by hand goes once the chat moves on", async () => {
-  chatServer(TALK, () => Response.json({ role: "assistant", content: "Lots more.", turn: 7 }));
+  chatServer(TALK, () =>
+    Response.json({ role: "assistant", content: "Lots more.", turn: 7 }),
+  );
   const writeText = vi.fn(async () => {
     throw new Error("Not allowed");
   });
@@ -3701,7 +4797,9 @@ test("text to copy by hand goes once the chat moves on", async () => {
     fireEvent.click(copy);
   });
   expect(screen.getByRole("textbox", { name: "Chat to copy" })).toBeTruthy();
-  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  const send = screen.getByRole("button", {
+    name: "Send",
+  }) as HTMLButtonElement;
   fireEvent.input(promptBox(), { target: { value: "More?" } });
   await waitFor(() => expect(send.disabled).toBe(false));
   await act(async () => {
@@ -3712,9 +4810,13 @@ test("text to copy by hand goes once the chat moves on", async () => {
 });
 
 test("a copy that finishes after the chat moved on isn't shown as done", async () => {
-  chatServer(TALK, () => Response.json({ role: "assistant", content: "Lots more.", turn: 7 }));
+  chatServer(TALK, () =>
+    Response.json({ role: "assistant", content: "Lots more.", turn: 7 }),
+  );
   let finish: () => void = () => {};
-  const writeText = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+  const writeText = vi.fn(
+    () => new Promise<void>((resolve) => (finish = resolve)),
+  );
   vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
   vi.spyOn(console, "info").mockImplementation(() => {});
   debugOn();
@@ -3723,7 +4825,9 @@ test("a copy that finishes after the chat moved on isn't shown as done", async (
   await act(async () => {
     fireEvent.click(copy);
   });
-  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  const send = screen.getByRole("button", {
+    name: "Send",
+  }) as HTMLButtonElement;
   fireEvent.input(promptBox(), { target: { value: "More?" } });
   await waitFor(() => expect(send.disabled).toBe(false));
   await act(async () => {
@@ -3750,12 +4854,16 @@ test("Copy chat shows only with Debug on, and once there is something to copy", 
 });
 
 test("Debug is off until turned on on the Settings page", async () => {
-  const saved: { show_metrics: boolean; debug?: boolean } = { show_metrics: false };
+  const saved: { show_metrics: boolean; debug?: boolean } = {
+    show_metrics: false,
+  };
   settingsServer(saved);
   await openAt("#/setup");
   await screen.findByText("52 of 200 · about 12 min 5 s left");
   await openSettings();
-  const box = screen.getByRole("checkbox", { name: "Debug" }) as HTMLInputElement;
+  const box = screen.getByRole("checkbox", {
+    name: "Debug",
+  }) as HTMLInputElement;
   expect(box.checked).toBe(false);
   await act(async () => {
     fireEvent.click(box);
@@ -3784,15 +4892,29 @@ test("the Assessment button asks the questions, and only its own controls show",
     number: 2,
     level: 1,
     question: "How would you explain Rain?",
-    answers: [{ topic: "Rain", level: 0, question: "Q?", verdict: "right", correct: "It falls." }],
+    answers: [
+      {
+        topic: "Rain",
+        level: 0,
+        question: "Q?",
+        verdict: "right",
+        correct: "It falls.",
+      },
+    ],
   };
   const server = teachAndQuizOn(
-    { content: "Let's see. Question 1 of 15: …", assessment: ASSESSMENT, choices: [] },
+    {
+      content: "Let's see. Question 1 of 15: …",
+      assessment: ASSESSMENT,
+      choices: [],
+    },
     { content: "Thanks. Question 2 of 15: …", assessment: second, choices: [] },
     {
       content: "OK, we'll stop the assessment here. Go over Rain again.",
       assessment: null,
-      choices: [{ label: "Teach me about Rain", prompt: "Teach me about Rain" }],
+      choices: [
+        { label: "Teach me about Rain", prompt: "Teach me about Rain" },
+      ],
     },
   );
   const answers = server.getMockImplementation()!;
@@ -3804,7 +4926,9 @@ test("the Assessment button asks the questions, and only its own controls show",
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
-  const start = screen.getByRole("button", { name: "Assessment" }) as HTMLButtonElement;
+  const start = screen.getByRole("button", {
+    name: "Assessment",
+  }) as HTMLButtonElement;
   await waitFor(() => expect(start.disabled).toBe(false));
   await act(async () => {
     fireEvent.click(start);
@@ -3812,18 +4936,27 @@ test("the Assessment button asks the questions, and only its own controls show",
   expect(await screen.findByText("Assessment · question 1 of 15")).toBeTruthy();
   expect(loadAssessment()).toEqual(ASSESSMENT); // kept on this browser
   expect(info).toHaveBeenCalledWith("Assessment: question 1 of 15");
-  for (const name of ["Teach me", "Quiz me", "Assessment", RIEMANN_HINTS.examples[0]]) {
+  for (const name of [
+    "Teach me",
+    "Quiz me",
+    "Assessment",
+    RIEMANN_HINTS.examples[0],
+  ]) {
     expect(screen.queryByRole("button", { name })).toBeNull();
   }
 
-  const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  const send = screen.getByRole("button", {
+    name: "Send",
+  }) as HTMLButtonElement;
   fireEvent.input(promptBox(), { target: { value: "It falls" } });
   await waitFor(() => expect(send.disabled).toBe(false));
   await act(async () => {
     fireEvent.click(send);
   });
   expect(await screen.findByText("Assessment · question 2 of 15")).toBeTruthy();
-  const stop = screen.getByRole("button", { name: "Stop the assessment" }) as HTMLButtonElement;
+  const stop = screen.getByRole("button", {
+    name: "Stop the assessment",
+  }) as HTMLButtonElement;
   await waitFor(() => expect(stop.disabled).toBe(false));
   await act(async () => {
     fireEvent.click(stop);
@@ -3831,7 +4964,9 @@ test("the Assessment button asks the questions, and only its own controls show",
   await waitFor(() => expect(screen.queryByText(/^Assessment ·/)).toBeNull());
   expect(loadAssessment()).toBeNull();
   const choices = within(await screen.findByRole("list", { name: "Choices" }));
-  expect(choices.getByRole("button", { name: "Teach me about Rain" })).toBeTruthy();
+  expect(
+    choices.getByRole("button", { name: "Teach me about Rain" }),
+  ).toBeTruthy();
   expect(sentBodies(server).map((b) => [b.prompt, b.assessment])).toEqual([
     ["Assess me", undefined],
     ["It falls", ASSESSMENT],
@@ -3840,7 +4975,10 @@ test("the Assessment button asks the questions, and only its own controls show",
 });
 
 test("an assessment kept on this browser shows only with Assessment on", async () => {
-  localStorage.setItem("imageskin.assessment", JSON.stringify({ ...ASSESSMENT, number: 4 }));
+  localStorage.setItem(
+    "imageskin.assessment",
+    JSON.stringify({ ...ASSESSMENT, number: 4 }),
+  );
   lessonServer({ content: "Hi" });
   await openAt("#/chat");
   await screen.findByText("Ask a question to start the conversation.");
@@ -3851,7 +4989,9 @@ test("an assessment kept on this browser shows only with Assessment on", async (
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) =>
-      url === "/api/settings" ? Response.json({ assessment: true }) : server(url, init),
+      url === "/api/settings"
+        ? Response.json({ assessment: true })
+        : server(url, init),
     ),
   );
   await openAt("#/chat");
@@ -3860,7 +5000,11 @@ test("an assessment kept on this browser shows only with Assessment on", async (
 
 test("an assessment kept that can't be read is dropped", () => {
   const bad = { ...ASSESSMENT, answers: 1 };
-  for (const kept of ["{", JSON.stringify({ topic: "Rain" }), JSON.stringify(bad)]) {
+  for (const kept of [
+    "{",
+    JSON.stringify({ topic: "Rain" }),
+    JSON.stringify(bad),
+  ]) {
     localStorage.setItem("imageskin.assessment", kept);
     expect(loadAssessment()).toBeNull();
   }
@@ -3871,10 +5015,22 @@ function savedSetupServer() {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: "2026-10-06T20:00:00+00:00" });
-      if (url === "/api/review") return Response.json({ accepted: true, accepted_at: "2026-10-12T08:00:00Z" });
-      if (url === "/api/uploads/photos/chosen") return Response.json({ id: null, chosen_by: "app" });
-      if (url === "/api/chat") return Response.json({ turns: [{ role: "user", content: "My name is Larry." }] });
+      if (url === "/api/consent")
+        return Response.json({
+          agreed: true,
+          agreed_at: "2026-10-06T20:00:00+00:00",
+        });
+      if (url === "/api/review")
+        return Response.json({
+          accepted: true,
+          accepted_at: "2026-10-12T08:00:00Z",
+        });
+      if (url === "/api/uploads/photos/chosen")
+        return Response.json({ id: null, chosen_by: "app" });
+      if (url === "/api/chat")
+        return Response.json({
+          turns: [{ role: "user", content: "My name is Larry." }],
+        });
       if (url === "/api/prepare") return Response.json(IDLE);
       if (url.startsWith("/api/uploads/")) return Response.json([]);
       return Response.json({});
@@ -3888,14 +5044,18 @@ test("a return visit to the app's address goes straight to the chat, with its hi
   await openAt("");
   await waitFor(() => expect(window.location.hash).toBe("#/chat"));
   expect(await screen.findByText("My name is Larry.")).toBeTruthy();
-  expect(console.info).toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
+  expect(console.info).toHaveBeenCalledWith(
+    "Setup is saved, so the visit starts in the chat",
+  );
 });
 
 test("home opened from another page still shows the choices", async () => {
   vi.spyOn(console, "info").mockImplementation(() => {});
   savedSetupServer();
   await openAt("#/content");
-  await waitFor(() => expect(screen.getByRole("link", { name: "Home" })).toBeTruthy());
+  await waitFor(() =>
+    expect(screen.getByRole("link", { name: "Home" })).toBeTruthy(),
+  );
   await act(async () => {
     window.location.hash = "#/";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -3909,7 +5069,8 @@ test("after Delete my data, setup stays at consent until it is given again (R31)
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: "2026-10-18" });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: "2026-10-18" });
       if (url === "/api/data" && init?.method === "DELETE") {
         return Response.json({ files: 9, bytes: 90, left: [] });
       }
@@ -3920,10 +5081,14 @@ test("after Delete my data, setup stays at consent until it is given again (R31)
   await openAt("#/settings");
   await screen.findByRole("heading", { name: "Settings", level: 1 });
   await act(async () => {
-    fireEvent.click(await screen.findByRole("button", { name: "Delete my data" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete my data" }),
+    );
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Yes, delete everything" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, delete everything" }),
+    );
   });
   expect(await screen.findByText("Before you start")).toBeTruthy();
   expect(window.location.hash).toBe("#/consent");
@@ -3941,9 +5106,14 @@ test("after a partial delete, setup stays at consent and the progress is gone (R
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: "2026-10-18" });
+      if (url === "/api/consent")
+        return Response.json({ agreed: true, agreed_at: "2026-10-18" });
       if (url === "/api/data" && init?.method === "DELETE") {
-        return Response.json({ files: 8, bytes: 80, left: ["replies/idle/a.mp4"] });
+        return Response.json({
+          files: 8,
+          bytes: 80,
+          left: ["replies/idle/a.mp4"],
+        });
       }
       if (url === "/api/settings") return Response.json({ view: "host" });
       return new Response("", { status: 404 });
@@ -3953,13 +5123,19 @@ test("after a partial delete, setup stays at consent and the progress is gone (R
   await openAt("#/settings");
   await screen.findByRole("heading", { name: "Settings", level: 1 });
   await act(async () => {
-    fireEvent.click(await screen.findByRole("button", { name: "Delete my data" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete my data" }),
+    );
   });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Yes, delete everything" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, delete everything" }),
+    );
   });
   // The retry message stays on the Settings page.
-  expect(await screen.findByText(/1 file\(s\) could not be deleted/)).toBeTruthy();
+  expect(
+    await screen.findByText(/1 file\(s\) could not be deleted/),
+  ).toBeTruthy();
   expect(loadQuiz()).toBeNull();
   await act(async () => {
     window.location.hash = "#/setup";
@@ -3971,11 +5147,17 @@ test("after a partial delete, setup stays at consent and the progress is gone (R
 
 // --- Avatar Choice from the chat (Larry's test of R32a) ---
 
-function avatarServer(readyMade: boolean, view: "host" | "participant" = "host", ownAccepted = false) {
+function avatarServer(
+  readyMade: boolean,
+  view: "host" | "participant" = "host",
+  ownAccepted = false,
+) {
   const chat = chatServer([], () => Response.json({}));
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/settings") return Response.json({ show_metrics: false, view });
-    if (url === "/api/start-now" && init?.method === "DELETE") return Response.json({ accepted: true });
+    if (url === "/api/settings")
+      return Response.json({ show_metrics: false, view });
+    if (url === "/api/start-now" && init?.method === "DELETE")
+      return Response.json({ accepted: true });
     if (url === "/api/review") {
       return Response.json({
         accepted: true,
@@ -3994,13 +5176,21 @@ function avatarServer(readyMade: boolean, view: "host" | "participant" = "host",
 // given before (Larry's test of PR #131).
 async function chooseOwnFromChat() {
   await openAt("#/chat");
-  const own = await screen.findByRole("link", { name: "Use your own photo and voice" });
+  const own = await screen.findByRole("link", {
+    name: "Use your own photo and voice",
+  });
   expect(own.getAttribute("href")).toBe("#/consent/own");
   await act(async () => {
     fireEvent.click(own);
   });
-  expect(await screen.findByRole("heading", { name: "Before you start" })).toBeTruthy();
-  expect(screen.getByText("Only use images you have the right to use. Ideally, use your own picture.")).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Before you start" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(
+      "Only use images you have the right to use. Ideally, use your own picture.",
+    ),
+  ).toBeTruthy();
   fireEvent.click(screen.getByRole("checkbox"));
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -4011,15 +5201,22 @@ test("from the chat, your own accepted sample is used at once after Before you s
   const fetchMock = avatarServer(true, "host", true);
   await chooseOwnFromChat();
   await waitFor(() => expect(window.location.hash).toBe("#/chat"));
-  expect(fetchMock).toHaveBeenCalledWith("/api/consent", expect.objectContaining({ method: "POST" }));
-  expect(fetchMock).toHaveBeenCalledWith("/api/start-now", { method: "DELETE" });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/consent",
+    expect.objectContaining({ method: "POST" }),
+  );
+  expect(fetchMock).toHaveBeenCalledWith("/api/start-now", {
+    method: "DELETE",
+  });
 });
 
 test("from the chat, Before you start leads to setup when your own sample isn't accepted", async () => {
   const fetchMock = avatarServer(true, "host", false);
   await chooseOwnFromChat();
   await waitFor(() => expect(window.location.hash).toBe("#/setup"));
-  expect(fetchMock).not.toHaveBeenCalledWith("/api/start-now", { method: "DELETE" });
+  expect(fetchMock).not.toHaveBeenCalledWith("/api/start-now", {
+    method: "DELETE",
+  });
 });
 
 test("a failed switch after Before you start opens setup", async () => {
@@ -4032,19 +5229,26 @@ test("a failed switch after Before you start opens setup", async () => {
   );
   await chooseOwnFromChat();
   await waitFor(() => expect(window.location.hash).toBe("#/setup"));
-  expect(console.error).toHaveBeenCalledWith("Could not switch to your own photo and voice", expect.anything());
+  expect(console.error).toHaveBeenCalledWith(
+    "Could not switch to your own photo and voice",
+    expect.anything(),
+  );
 });
 
 test("the chat links to a ready-made avatar or a new photo while the host's own is in use", async () => {
   avatarServer(false);
   const info = vi.spyOn(console, "info");
   await openAt("#/chat");
-  const readyMade = await screen.findByRole("link", { name: "Use a ready-made avatar" });
+  const readyMade = await screen.findByRole("link", {
+    name: "Use a ready-made avatar",
+  });
   expect(readyMade.getAttribute("href")).toBe("#/start-now");
   const photo = screen.getByRole("link", { name: "Change your photo" });
   expect(photo.getAttribute("href")).toBe("#/setup/photos");
   fireEvent.click(readyMade);
-  expect(info).toHaveBeenCalledWith("Choosing a ready-made avatar from the chat");
+  expect(info).toHaveBeenCalledWith(
+    "Choosing a ready-made avatar from the chat",
+  );
   // The click's navigation lands before the next test opens its page.
   await waitFor(() => expect(window.location.hash).toBe("#/start-now"));
 });
@@ -4052,16 +5256,24 @@ test("the chat links to a ready-made avatar or a new photo while the host's own 
 test("the chat links to another avatar or the host's own while a ready-made one is in use", async () => {
   avatarServer(true);
   await openAt("#/chat");
-  const another = await screen.findByRole("link", { name: "Choose another avatar" });
+  const another = await screen.findByRole("link", {
+    name: "Choose another avatar",
+  });
   expect(another.getAttribute("href")).toBe("#/start-now");
-  const own = screen.getByRole("link", { name: "Use your own photo and voice" });
+  const own = screen.getByRole("link", {
+    name: "Use your own photo and voice",
+  });
   expect(own.getAttribute("href")).toBe("#/consent/own");
 });
 
 test("the participant view's chat has no Avatar Choice links", async () => {
   avatarServer(true, "participant");
   await openAt("#/chat");
-  expect(await screen.findByRole("textbox", { name: "Your message" })).toBeTruthy();
+  expect(
+    await screen.findByRole("textbox", { name: "Your message" }),
+  ).toBeTruthy();
   expect(screen.queryByText("Avatar Choice:")).toBeNull();
-  expect(screen.queryByRole("link", { name: "Choose another avatar" })).toBeNull();
+  expect(
+    screen.queryByRole("link", { name: "Choose another avatar" }),
+  ).toBeNull();
 });

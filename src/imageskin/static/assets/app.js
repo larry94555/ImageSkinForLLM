@@ -1979,7 +1979,7 @@ var CHOICES = [
 	["slight", "Slight"],
 	["normal", "Normal"]
 ];
-function FaceMovementChoice() {
+function FaceMovementChoice(props) {
 	const { settings, change } = x(SettingsContext);
 	const [failed, setFailed] = d(false);
 	const [picked, setPicked] = d(null);
@@ -1989,6 +1989,7 @@ function FaceMovementChoice() {
 		setPicked(face_movement);
 		try {
 			await change({ face_movement });
+			props.onChanged?.();
 		} catch (e) {
 			console.error(`Could not change the face movement to ${face_movement}`, e);
 			setFailed(true);
@@ -2011,6 +2012,7 @@ function FaceMovementChoice() {
 						name: "face_movement",
 						value,
 						checked: shown === value,
+						disabled: props.disabled,
 						onChange: () => void choose(value)
 					}),
 					" ",
@@ -2274,7 +2276,8 @@ function SetupPage({ change }) {
 			/* @__PURE__ */ u("p", {
 				className: "notice",
 				children: [
-					"The ready-made avatar is set to speak in your voice, so Prepare makes the avatar's video. ",
+					"The ready-made avatar is set to speak in your voice, so Prepare makes the avatar's video.",
+					" ",
 					/* @__PURE__ */ u("a", {
 						href: "#/avatar-voice",
 						children: "Go to your voice for the avatar"
@@ -2836,7 +2839,10 @@ function PrepareSection(props) {
 				className: "error",
 				children: "Could not read how far preparing has got. Reload the page to try again."
 			}),
-			/* @__PURE__ */ u(FaceMovementChoice, {}),
+			/* @__PURE__ */ u(FaceMovementChoice, {
+				onChanged: () => void read(),
+				disabled: running
+			}),
 			status !== null && !running && /* @__PURE__ */ u("button", {
 				type: "button",
 				className: starting ? "busy" : void 0,

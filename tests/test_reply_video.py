@@ -2,7 +2,7 @@ import logging
 import subprocess
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -16,6 +16,7 @@ from imageskin.chat import Conversation, LlmError
 from imageskin.prepare_job import ClipSteps, PrepareJob, PrepareStatus, steps_clip
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, text_steps
 from imageskin.review import Review
+from imageskin.ui_settings import save_ui_settings
 from imageskin.uploads import PhotoResult, UploadStore, VoiceSample
 from imageskin.video import VideoError
 
@@ -824,6 +825,7 @@ def test_the_sample_keeps_the_photos_size_and_only_reply_clips_are_scaled_down(
     # A review finding: the sample went through the reply clips' scaled-down engine too.
     made: list[int | None] = []
     rendered: list[int | None] = []
+    movements: list[str] = []  # the face movement each clip is rendered with (R128a)
 
     def steps(
         home: Path,
@@ -831,6 +833,7 @@ def test_the_sample_keeps_the_photos_size_and_only_reply_clips_are_scaled_down(
         voice: str = "",
         max_side: int | None = None,
         progressive: bool = False,
+        face_movement: Callable[[], str] = lambda: "unset",
     ) -> object:
         made.append(max_side)
         assert progressive == (max_side is not None)  # only reply clips play while written
@@ -840,6 +843,7 @@ def test_the_sample_keeps_the_photos_size_and_only_reply_clips_are_scaled_down(
 
         def render(photo: Path, wav: Path, output: Path) -> None:
             rendered.append(max_side)
+            movements.append(face_movement())
             tone_clip(0.2, output)
 
         return ClipSteps(speak, render)
@@ -853,12 +857,15 @@ def test_the_sample_keeps_the_photos_size_and_only_reply_clips_are_scaled_down(
     photo = tmp_path / "me.jpg"
     client.app.state.prepare_job._render_clip(photo, "Hello.", tmp_path / "sample.mp4")  # type: ignore[attr-defined]
     assert rendered == [None]  # the sample, at the photo's own size
+    # Chosen after the sample was made: replies keep the prepared one until Prepare again.
+    save_ui_settings(tmp_path, {"face_movement": "slight"})
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
         while not client.get(f"/api/chat/clips/{REPLY_ID}").json()["done"]:
             time.sleep(0.01)
         client.post("/api/chat/video", json={"turn": 1})
     assert rendered[1:] == [720, 720, 720]  # two reply clips and a reply in one video
+    assert movements == ["normal"] * 4
 
 
 def test_replies_are_warmed_up_at_start_once_a_sample_is_accepted(tmp_path: Path) -> None:

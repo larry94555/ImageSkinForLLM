@@ -54,7 +54,6 @@ from imageskin.photoreal_library import (
     prepare_library,
     to_gray,
 )
-from imageskin.ui_settings import load_ui_settings
 from imageskin.video import FPS, VideoError, find_ffmpeg, read_pcm16, write_mp4
 from imageskin.visemes import ShapeTiming, frame_weights
 
@@ -305,11 +304,14 @@ class PhotorealEngine:
         output: Path,
         progressive: bool = False,
         start_frame: int = 0,
+        face_movement: str = "normal",
     ) -> float:
         """Render the speech in `wav` on the library's photo into `output`; `progressive` for an
         MP4 that can be played while it is written (roadmap R22d). The head moves through the
         idle loop from frame `start_frame`, and the voice's movement settles at each end, so a
         clip that starts where the one before it ended joins it without a jump (roadmap R23).
+        The cheeks move with the mouth at `face_movement`'s strength (R128a): the one the
+        prepare job was made with, not the Setup page's now.
         Returns the video's seconds."""
         start = time.perf_counter()
         samples, rate = read_pcm16(wav)
@@ -320,8 +322,7 @@ class PhotorealEngine:
         moves = motion(np.asarray(samples, np.float32) / 32768.0, rate, n_frames, FPS)
         compositor = self._compositor(lib)
         cheek_start = time.perf_counter()
-        setting = load_ui_settings(self._home).face_movement
-        cheeks = tracks(weights, moves.jaw, FPS, strength_of(setting))
+        cheeks = tracks(weights, moves.jaw, FPS, strength_of(face_movement))
         cheek_s = time.perf_counter() - cheek_start
         warp_s = compositor.cheek_s
 
@@ -337,7 +338,7 @@ class PhotorealEngine:
             frames(), (w, h), wav, output, self._timeout_s, pix_fmt="rgb24", progressive=progressive
         )
         elapsed = time.perf_counter() - start
-        log_added(cheeks, setting, cheek_s + compositor.cheek_s - warp_s, n_frames)
+        log_added(cheeks, face_movement, cheek_s + compositor.cheek_s - warp_s, n_frames)
         logger.info(
             "Rendered video",
             extra={

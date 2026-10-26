@@ -969,10 +969,18 @@ def create_app(
     )
     # The sample keeps the photo's own size and reply clips are scaled down (roadmap R22c).
     # Each has its own engine, so a prepare and a reply never share one.
-    steps = clip_steps or photoreal_steps(data_home, prepare_engine, voice)
+    # Both render with the face movement the prepare job was made with (R128a).
+    steps = clip_steps or photoreal_steps(
+        data_home, prepare_engine, voice, face_movement=lambda: job.prepared_face_movement()
+    )
     render = render_clip or steps_clip(steps)
     reply_steps = clip_steps or photoreal_steps(
-        data_home, voice_engine, voice, max_side=REPLY_SIDE, progressive=True
+        data_home,
+        voice_engine,
+        voice,
+        max_side=REPLY_SIDE,
+        progressive=True,
+        face_movement=lambda: job.prepared_face_movement(),
     )
     reply_render = render_clip or steps_clip(reply_steps)
     job = PrepareJob(

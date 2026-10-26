@@ -20,7 +20,6 @@ from imageskin.cheeks import (
 from imageskin.expression import STILL, FrameMotion
 from imageskin.photoreal import Compositor, PhotorealEngine
 from imageskin.photoreal_library import CROP, build_library, load_library
-from imageskin.ui_settings import save_ui_settings
 
 __all__ = ["short_loop"]  # a fixture, used by name
 
@@ -155,14 +154,12 @@ def test_render_follows_the_setting_and_logs(
     setting: str,
     moves: bool,
 ) -> None:
-    home = tmp_path / "home"
-    save_ui_settings(home, {"face_movement": setting})
-    engine = PhotorealEngine(home=home, make_portrait=lambda _: FakePortrait())
+    engine = PhotorealEngine(home=tmp_path / "home", make_portrait=lambda _: FakePortrait())
     lib = engine.prepare(photo_file(tmp_path))
     wav = tmp_path / "speech.wav"
     write_speech(wav, seconds=0.8)
     with caplog.at_level(logging.INFO):
-        engine.render(lib, wav, tmp_path / "reply.mp4")
+        engine.render(lib, wav, tmp_path / "reply.mp4", face_movement=setting)
     record = next(r for r in caplog.records if r.message == "Face movement added")
     assert record.__dict__["strength"] == setting
     assert (record.__dict__["peak_px"] > 0) is moves

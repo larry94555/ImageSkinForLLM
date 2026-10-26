@@ -87,7 +87,10 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
   return (
     <>
       <h1>Before you start</h1>
-      <p>Only use images you have the right to use. Ideally, use your own picture.</p>
+      <p>
+        Only use images you have the right to use. Ideally, use your own
+        picture.
+      </p>
       <form onSubmit={submit}>
         <label className="check">
           <input
@@ -95,12 +98,15 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
             checked={checked}
             onChange={(e) => setChecked(e.currentTarget.checked)}
           />{" "}
-          I have the right to use the photos and recording that will be used by the app.
+          I have the right to use the photos and recording that will be used by
+          the app.
         </label>
         <button type="submit" disabled={!checked || saving}>
           Continue
         </button>
-        {error && <p className="error">Could not save your answer. Please try again.</p>}
+        {error && (
+          <p className="error">Could not save your answer. Please try again.</p>
+        )}
       </form>
     </>
   );
@@ -111,20 +117,26 @@ export function ConsentPage({ onConfirmed }: { onConfirmed: () => void }) {
 type Back = SetupPart;
 
 const BACK_NOTICE: Record<Back, string> = {
-  photos: "You rejected the image. Add new photos and remove the ones you don't want, then Prepare again.",
-  sounds: "You rejected the voice. Add new recordings and remove the ones you don't want, then Prepare again.",
+  photos:
+    "You rejected the image. Add new photos and remove the ones you don't want, then Prepare again.",
+  sounds:
+    "You rejected the voice. Add new recordings and remove the ones you don't want, then Prepare again.",
   accent: "Choose another accent. The sample video is then made again.",
 };
 
 // Changing one from Settings (R28): any change needs a new sample, accepted, before the chat opens.
-const AFTER_CHANGE = " Accept the new sample video at the end of setup to go back to the chat.";
+const AFTER_CHANGE =
+  " Accept the new sample video at the end of setup to go back to the chat.";
 export const CHANGE_NOTICE: Record<Back, string> = {
   photos:
     "Add a new photo, or choose another one, and remove the ones you don't want. Then Prepare again." +
     AFTER_CHANGE,
   sounds:
-    "Add new recordings and remove the ones you don't want. Then Prepare again." + AFTER_CHANGE,
-  accent: "Choose another accent. The sample video is then made again." + AFTER_CHANGE,
+    "Add new recordings and remove the ones you don't want. Then Prepare again." +
+    AFTER_CHANGE,
+  accent:
+    "Choose another accent. The sample video is then made again." +
+    AFTER_CHANGE,
 };
 
 // Setup: upload photos and recordings, see them and play them back (roadmap R7), choose the
@@ -143,7 +155,9 @@ export function SetupPage({ change }: { change?: SetupPart }) {
   function goBack(to: Back, notice = BACK_NOTICE[to]) {
     setBack({ to, notice });
     // After the notice shows, so the page scrolls to where it ends up.
-    window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
+    window.setTimeout(() =>
+      document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }),
+    );
   }
   useEffect(() => {
     if (!change) return;
@@ -155,7 +169,10 @@ export function SetupPage({ change }: { change?: SetupPart }) {
   const [avatarVoice, setAvatarVoice] = useState(false);
   const [undoFailed, setUndoFailed] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
+  const leaveDialog = useLeaveGuard(
+    pending,
+    "The chat keeps the person and voice it has now.",
+  );
   useEffect(() => {
     getReview()
       .then((r) => setAvatarVoice(r.own_voice === true))
@@ -166,7 +183,9 @@ export function SetupPage({ change }: { change?: SetupPart }) {
     setUndoFailed(null);
     try {
       await useAvatarReadyVoice();
-      console.info(`Setting up your own photo instead of the avatar's voice (${Math.round(performance.now() - started)} ms)`);
+      console.info(
+        `Setting up your own photo instead of the avatar's voice (${Math.round(performance.now() - started)} ms)`,
+      );
       setAvatarVoice(false);
       changed();
     } catch (e) {
@@ -180,10 +199,11 @@ export function SetupPage({ change }: { change?: SetupPart }) {
       <div className="host-page">
         <h1>Setup</h1>
         <p className="notice">
-          The ready-made avatar is set to speak in your voice, so Prepare makes the avatar&apos;s
-          video. <a href="#/avatar-voice">Go to your voice for the avatar</a>, or set up your own
-          photo instead: the avatar then speaks in its ready-made voice until you accept your own
-          sample video.
+          The ready-made avatar is set to speak in your voice, so Prepare makes
+          the avatar&apos;s video.{" "}
+          <a href="#/avatar-voice">Go to your voice for the avatar</a>, or set
+          up your own photo instead: the avatar then speaks in its ready-made
+          voice until you accept your own sample video.
         </p>
         <button type="button" onClick={() => void ownPhotoInstead()}>
           Set up my own photo instead
@@ -196,24 +216,27 @@ export function SetupPage({ change }: { change?: SetupPart }) {
     <div className="host-page">
       <h1>Setup</h1>
       <p className="lead">
-        Make the talking person in four steps: add photos, add voice recordings, choose an
-        accent, then prepare a sample video and check it. Without recordings, the person speaks
-        in a ready-made voice.
+        Make the talking person in four steps: add photos, add voice recordings,
+        choose an accent, then prepare a sample video and check it. Without
+        recordings, the person speaks in a ready-made voice.
       </p>
       {/* Avatar Choice (Larry's test of R32a): the ready-made avatars are a click away. */}
       <p className="avatar-instead">
         Rather not use your own photo and voice?{" "}
         <a
           href="#/start-now"
-          onClick={() => console.info("Choosing a ready-made avatar from Setup")}
+          onClick={() =>
+            console.info("Choosing a ready-made avatar from Setup")
+          }
         >
           Use a ready-made avatar instead
         </a>
         . Your photos and recordings are kept.
       </p>
       <p className="notice">
-        New to this? The <a href="#/guide">recording guide</a> walks you step by step through
-        taking the photos and making the voice recordings on a Windows or Mac laptop.
+        New to this? The <a href="#/guide">recording guide</a> walks you step by
+        step through taking the photos and making the voice recordings on a
+        Windows or Mac laptop.
       </p>
       <UploadSection
         kind="photos"
@@ -236,7 +259,11 @@ export function SetupPage({ change }: { change?: SetupPart }) {
         onChange={changed}
       />
       <ReadyVoiceChoice changes={changes} onChange={changed} />
-      <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
+      <AccentSection
+        onChange={changed}
+        preparing={preparing}
+        notice={notice("accent")}
+      />
       <PrepareSection
         changes={changes}
         onRunning={setPreparing}
@@ -259,7 +286,9 @@ function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
         setReady(r);
         console.info(`Ready-made voice: ${r.voice}, in use: ${r.in_use}`);
       })
-      .catch((e: unknown) => console.error("Could not read the ready-made voice", e));
+      .catch((e: unknown) =>
+        console.error("Could not read the ready-made voice", e),
+      );
   }, [props.changes]);
   if (ready === null || !Array.isArray(ready.voices)) return null; // not answered, or not understood
 
@@ -268,7 +297,9 @@ function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
     setFailed(null);
     try {
       setReady(await chooseReadyVoice(voice));
-      console.info(`Ready-made voice chosen: ${voice} (${Math.round(performance.now() - started)} ms)`);
+      console.info(
+        `Ready-made voice chosen: ${voice} (${Math.round(performance.now() - started)} ms)`,
+      );
       props.onChange(); // a sample made in the other voice needs preparing again
     } catch (e) {
       console.error("Could not choose the ready-made voice", e);
@@ -280,12 +311,15 @@ function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
     <section className="panel ready-voice" aria-labelledby="ready-voice">
       <h3 id="ready-voice">No recordings?</h3>
       <p className="muted">
-        Recordings are optional. Until one passes the checks, or if they are all removed, the person
-        speaks in a ready-made voice instead of their own.
+        Recordings are optional. Until one passes the checks, or if they are all
+        removed, the person speaks in a ready-made voice instead of their own.
       </p>
       <label>
         Ready-made voice{" "}
-        <select value={ready.voice} onChange={(e) => void choose(e.currentTarget.value)}>
+        <select
+          value={ready.voice}
+          onChange={(e) => void choose(e.currentTarget.value)}
+        >
           {ready.voices.map(({ voice, label }) => (
             <option key={voice} value={voice}>
               {label}
@@ -403,7 +437,9 @@ export function UploadSection(props: {
     for (const upload of unchecked) {
       try {
         const checked = await checkUpload(kind, upload.id);
-        setItems((current) => (current ?? []).map((i) => (i.id === checked.id ? checked : i)));
+        setItems((current) =>
+          (current ?? []).map((i) => (i.id === checked.id ? checked : i)),
+        );
         if (checked.problems === null) break; // checks are off; the rest would be the same
         if (checked.problems.length === 0) {
           await refreshChoice();
@@ -435,7 +471,10 @@ export function UploadSection(props: {
         }
       } catch (e) {
         console.error(`Upload of ${file.name} refused`, e);
-        setRefused((current) => [...current, { name: file.name, reason: (e as Error).message }]);
+        setRefused((current) => [
+          ...current,
+          { name: file.name, reason: (e as Error).message },
+        ]);
       }
     }
     setSending(null);
@@ -456,7 +495,9 @@ export function UploadSection(props: {
       uploadsChanged();
     } catch (e) {
       console.error(`Could not remove ${item.name}`, e);
-      setRefused([{ name: item.name, reason: "Could not remove it. Please try again." }]);
+      setRefused([
+        { name: item.name, reason: "Could not remove it. Please try again." },
+      ]);
     }
   }
 
@@ -490,14 +531,27 @@ export function UploadSection(props: {
           {r.name}: {r.reason}
         </p>
       ))}
-      {loadFailed && <p className="error">Could not load the list. Reload the page to try again.</p>}
-      {loading && <p className="muted busy">Loading your {props.title.toLowerCase()}…</p>}
+      {loadFailed && (
+        <p className="error">
+          Could not load the list. Reload the page to try again.
+        </p>
+      )}
+      {loading && (
+        <p className="muted busy">Loading your {props.title.toLowerCase()}…</p>
+      )}
       {items?.length === 0 && <p className="muted">None yet.</p>}
       <ul className={kind}>
         {items?.map((item) => (
-          <li key={item.id} className={item.id === choice?.id ? "chosen" : undefined}>
+          <li
+            key={item.id}
+            className={item.id === choice?.id ? "chosen" : undefined}
+          >
             {kind === "photos" ? (
-              <a href={uploadUrl(kind, item.id)} target="_blank" rel="noreferrer">
+              <a
+                href={uploadUrl(kind, item.id)}
+                target="_blank"
+                rel="noreferrer"
+              >
                 <img src={uploadUrl(kind, item.id)} alt={item.name} />
               </a>
             ) : (
@@ -511,19 +565,27 @@ export function UploadSection(props: {
             {kind === "photos" && item.id === choice?.id && (
               <span className="chosen-note">
                 Used for the video
-                {choice.chosen_by === "app" ? " (best score)" : " (your choice)"}
+                {choice.chosen_by === "app"
+                  ? " (best score)"
+                  : " (your choice)"}
               </span>
             )}
-            {kind === "photos" && item.problems?.length === 0 && item.id !== choice?.id && (
-              <button
-                type="button"
-                className={choosing === item.id ? "use busy" : "use"}
-                onClick={() => choose(item)}
-              >
-                {choosing === item.id ? "Saving…" : "Use this photo"}
-              </button>
-            )}
-            <button type="button" className="remove" onClick={() => remove(item)}>
+            {kind === "photos" &&
+              item.problems?.length === 0 &&
+              item.id !== choice?.id && (
+                <button
+                  type="button"
+                  className={choosing === item.id ? "use busy" : "use"}
+                  onClick={() => choose(item)}
+                >
+                  {choosing === item.id ? "Saving…" : "Use this photo"}
+                </button>
+              )}
+            <button
+              type="button"
+              className="remove"
+              onClick={() => remove(item)}
+            >
               Remove
             </button>
           </li>
@@ -546,7 +608,9 @@ function VoiceSampleView({ changes }: { changes: number }) {
       .then((s) => {
         if (newest) setSample(s);
       })
-      .catch((e: unknown) => console.error("Could not get the voice sample", e));
+      .catch((e: unknown) =>
+        console.error("Could not get the voice sample", e),
+      );
     return () => {
       newest = false;
     };
@@ -559,7 +623,11 @@ function VoiceSampleView({ changes }: { changes: number }) {
       {sample.recordings > 0 && (
         <>
           {/* changes in the address, so the player loads the new sample after each change */}
-          <audio controls preload="none" src={`${voiceSampleAudioUrl}?v=${changes}`} />
+          <audio
+            controls
+            preload="none"
+            src={`${voiceSampleAudioUrl}?v=${changes}`}
+          />
           <p className="name">
             {sample.recordings === 1
               ? "Made from the recording that passed the checks"
@@ -571,7 +639,9 @@ function VoiceSampleView({ changes }: { changes: number }) {
       {sample.problem === null ? (
         <p className="done">Enough speech to make the voice.</p>
       ) : (
-        <p className={sample.recordings > 0 ? "error" : "muted"}>{sample.problem}</p>
+        <p className={sample.recordings > 0 ? "error" : "muted"}>
+          {sample.problem}
+        </p>
       )}
     </div>
   );
@@ -624,13 +694,16 @@ export function AccentSection(props: {
       <h2>Accent</h2>
       {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">
-        The person&apos;s voice can keep their own accent or speak with another one. Changing it
-        makes the sample video again.
+        The person&apos;s voice can keep their own accent or speak with another
+        one. Changing it makes the sample video again.
       </p>
       <fieldset disabled={choice === null || saving !== null || preparing}>
         <legend>Speak with</legend>
         {ACCENTS.map(({ accent, label }) => (
-          <label key={accent} className={saving === accent ? "busy" : undefined}>
+          <label
+            key={accent}
+            className={saving === accent ? "busy" : undefined}
+          >
             <input
               type="radio"
               name="accent"
@@ -645,12 +718,15 @@ export function AccentSection(props: {
         ))}
       </fieldset>
       {preparing && (
-        <p className="muted">You can change the accent once Prepare has finished.</p>
+        <p className="muted">
+          You can change the accent once Prepare has finished.
+        </p>
       )}
       {choice?.available === false && (
         <p className="muted">
-          Another accent needs the voice add-on, which isn&apos;t installed on this computer yet.
-          Until then a ready-made voice speaks, with its own accent.
+          Another accent needs the voice add-on, which isn&apos;t installed on
+          this computer yet. Until then a ready-made voice speaks, with its own
+          accent.
         </p>
       )}
       {failed && <p className="error">{failed}</p>}
@@ -716,7 +792,8 @@ export function PrepareSection(props: {
   // (R134b) isn't followed: Try again carries it on.
   const stopped = status?.state === "running" && status.stopped === true;
   const running = status?.state === "running" && !stopped;
-  const slow = running && status.steps?.find((s) => s.done < s.total)?.slow === true;
+  const slow =
+    running && status.steps?.find((s) => s.done < s.total)?.slow === true;
   useEffect(() => onRunning(running), [running]);
   useEffect(() => {
     if (!running) return;
@@ -735,18 +812,19 @@ export function PrepareSection(props: {
       <StepOf n={4} />
       <h2>Prepare the video</h2>
       <p className="muted">
-        Gets the voice and the face ready for the video, then makes a short sample video of the
-        person talking. The first time takes 20 minutes or more.
-        You can leave this page meanwhile; if the app is stopped, it carries on where it left off
-        when the app starts again.
+        Gets the voice and the face ready for the video, then makes a short
+        sample video of the person talking. The first time takes 20 minutes or
+        more. You can leave this page meanwhile; if the app is stopped, it
+        carries on where it left off when the app starts again.
       </p>
       {status === null && !loadFailed && <p className="muted busy">Loading…</p>}
       {loadFailed && (
         <p className="error">
-          Could not read how far preparing has got. Reload the page to try again.
+          Could not read how far preparing has got. Reload the page to try
+          again.
         </p>
       )}
-      <FaceMovementChoice />
+      <FaceMovementChoice onChanged={() => void read()} disabled={running} />
       {status !== null && !running && (
         <button
           type="button"
@@ -760,8 +838,8 @@ export function PrepareSection(props: {
       {refused && <p className="error">{refused}</p>}
       {stopped && (
         <p className="error">
-          Preparing stopped: the app is no longer working on it. Click Try again to carry on where
-          it left off.
+          Preparing stopped: the app is no longer working on it. Click Try again
+          to carry on where it left off.
         </p>
       )}
       {running && (
@@ -770,7 +848,11 @@ export function PrepareSection(props: {
           {status.left_s != null && ` · about ${countdown(status.left_s)} left`}
         </p>
       )}
-      {slow && <p className="muted">This is taking longer than usual. It&apos;s still working.</p>}
+      {slow && (
+        <p className="muted">
+          This is taking longer than usual. It&apos;s still working.
+        </p>
+      )}
       {status?.steps && status.state !== "idle" && (
         <>
           <progress max={100} value={status.percent} aria-label="Preparing">
@@ -779,7 +861,8 @@ export function PrepareSection(props: {
           <ol className="steps">
             {status.steps.map((step, i) => (
               <li key={step.key}>
-                <span>{step.label}</span> <StepState step={step} status={status} index={i} />
+                <span>{step.label}</span>{" "}
+                <StepState step={step} status={status} index={i} />
               </li>
             ))}
           </ol>
@@ -787,7 +870,9 @@ export function PrepareSection(props: {
       )}
       {status?.state === "done" && (
         <div className="sample-video">
-          <p className="done">Done. Watch the sample video, then say whether it is right.</p>
+          <p className="done">
+            Done. Watch the sample video, then say whether it is right.
+          </p>
           <video
             controls
             preload="metadata"
@@ -815,7 +900,10 @@ export function PrepareSection(props: {
 // What a failed prepare tells the customer (roadmap R134): the step, the reason, whether Try
 // again may help and the reference for support, with the details to copy for support. Never
 // "look in the log": a customer can't.
-export function FailureReport(props: { failure: PrepareFailure; at: string | null }) {
+export function FailureReport(props: {
+  failure: PrepareFailure;
+  at: string | null;
+}) {
   const { failure } = props;
   // What the last copy did: copied, or the text to copy by hand when the browser refused.
   const [copied, setCopied] = useState<{ byHand: string | null }>();
@@ -855,11 +943,20 @@ export function FailureReport(props: { failure: PrepareFailure; at: string | nul
       <button type="button" className="secondary" onClick={copy}>
         Copy details for support
       </button>
-      {copied && copied.byHand === null && <span className="done"> Copied.</span>}
+      {copied && copied.byHand === null && (
+        <span className="done"> Copied.</span>
+      )}
       {copied?.byHand && (
         <>
-          <p className="error">The browser didn't allow copying. Select the text below and copy it.</p>
-          <textarea readOnly value={copied.byHand} rows={7} aria-label="Details for support" />
+          <p className="error">
+            The browser didn't allow copying. Select the text below and copy it.
+          </p>
+          <textarea
+            readOnly
+            value={copied.byHand}
+            rows={7}
+            aria-label="Details for support"
+          />
         </>
       )}
       <details>
@@ -903,11 +1000,15 @@ function ReviewChoices(props: {
     setFailed(null);
     try {
       setCurrent(await useAvatarReadyVoice());
-      console.info(`Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`);
+      console.info(
+        `Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`,
+      );
       window.location.hash = "#/chat";
     } catch (e) {
       console.error("Could not use the avatar's default voice again", e);
-      setFailed(`Could not return to the default voice: ${(e as Error).message}`);
+      setFailed(
+        `Could not return to the default voice: ${(e as Error).message}`,
+      );
     }
     setSaving(null);
   }
@@ -931,7 +1032,8 @@ function ReviewChoices(props: {
   // is whether this sample, of the user's own, is accepted (Larry's test of PR #128), or, with
   // the avatar to speak in the user's voice, the avatar's sample in that voice (R24d).
   const avatar = current?.default_person === true;
-  const avatarVoice = props.avatarVoice === true || (avatar && current?.own_voice === true);
+  const avatarVoice =
+    props.avatarVoice === true || (avatar && current?.own_voice === true);
   const accepted = avatarVoice
     ? current?.voice_accepted === true
     : avatar
@@ -943,7 +1045,9 @@ function ReviewChoices(props: {
   useEffect(() => onPending?.(pending), [pending]);
   useEffect(() => () => onPending?.(false), []);
   // The avatar's picture is not the user's to reject (R24d).
-  const rejects = avatarVoice ? REJECTS.filter((r) => r.back !== "photos") : REJECTS;
+  const rejects = avatarVoice
+    ? REJECTS.filter((r) => r.back !== "photos")
+    : REJECTS;
   async function useIt() {
     setSaving("accept");
     setFailed(null);
@@ -961,7 +1065,12 @@ function ReviewChoices(props: {
       {accepted && avatar && !avatarVoice ? (
         <p className="done">
           You accepted this sample, but the chat uses a ready-made avatar.{" "}
-          <button type="button" className="link" disabled={saving !== null} onClick={() => void useIt()}>
+          <button
+            type="button"
+            className="link"
+            disabled={saving !== null}
+            onClick={() => void useIt()}
+          >
             Use your own photo and voice in the chat
           </button>
         </p>
@@ -1002,7 +1111,9 @@ function ReviewChoices(props: {
           // Back to the avatar's default voice, with nothing to accept (Larry's test of #131).
           <button
             type="button"
-            className={saving === "default-voice" ? "secondary busy" : "secondary"}
+            className={
+              saving === "default-voice" ? "secondary busy" : "secondary"
+            }
             disabled={saving !== null}
             onClick={() => void defaultVoice()}
           >
@@ -1056,14 +1167,19 @@ export function ChatPage() {
       return (
         <>
           <h1>Chat</h1>
-          <p>The chat isn't ready yet. Ask your host to finish setting it up.</p>
+          <p>
+            The chat isn't ready yet. Ask your host to finish setting it up.
+          </p>
         </>
       );
     }
     return (
       <>
         <h1>Chat</h1>
-        <p>The chat is locked until you accept a sample video at the end of setup.</p>
+        <p>
+          The chat is locked until you accept a sample video at the end of
+          setup.
+        </p>
         <a className="button" href="#/setup">
           Go to setup
         </a>
@@ -1092,7 +1208,11 @@ function AvatarLinks({ readyMade }: { readyMade: boolean }) {
   const links: [string, string, string][] = readyMade
     ? [
         ["#/start-now", "Choose another avatar", "another ready-made avatar"],
-        [OWN_CONSENT, "Use your own photo and voice", "their own photo and voice"],
+        [
+          OWN_CONSENT,
+          "Use your own photo and voice",
+          "their own photo and voice",
+        ],
       ]
     : [
         ["#/start-now", "Use a ready-made avatar", "a ready-made avatar"],
@@ -1116,14 +1236,18 @@ function AvatarLinks({ readyMade }: { readyMade: boolean }) {
 
 // What the chat says when there is no reply, whatever the reason; the reason goes to the
 // browser console and the server log, not to the participant (R41d).
-export const CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
+export const CANT_ANSWER =
+  "Sorry, I couldn't answer that just now. Please try again in a moment.";
 
 // How often the chat asks for a reply's new clips while they are being made.
 export const CLIP_POLL_MS = 300;
 
 // The fixed lines Prepare makes with the sample (roadmap R29): said on Exit and on Start again.
 export type Line = "goodbye" | "welcome-back";
-const LINE_TEXT: Record<Line, string> = { goodbye: "Goodbye", "welcome-back": "Welcome back" };
+const LINE_TEXT: Record<Line, string> = {
+  goodbye: "Goodbye",
+  "welcome-back": "Welcome back",
+};
 // The longest a fixed line is waited for, should its video never play or end; it is about a
 // second long.
 export const LINE_TIMEOUT_MS = 10_000;
@@ -1162,11 +1286,22 @@ const SOUND_KEY = "imageskin.sound";
 
 export function loadLesson(): Lesson | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(LESSON_KEY) ?? "null") as Partial<Lesson> | null;
-    if (typeof saved?.topic !== "string" || !Number.isInteger(saved.part) || saved.part! < 0)
+    const saved = JSON.parse(
+      localStorage.getItem(LESSON_KEY) ?? "null",
+    ) as Partial<Lesson> | null;
+    if (
+      typeof saved?.topic !== "string" ||
+      !Number.isInteger(saved.part) ||
+      saved.part! < 0
+    )
       return null;
     const parts = Number.isInteger(saved.parts) ? saved.parts : undefined;
-    return { topic: saved.topic, part: saved.part!, active: saved.active !== false, parts };
+    return {
+      topic: saved.topic,
+      part: saved.part!,
+      active: saved.active !== false,
+      parts,
+    };
   } catch {
     return null; // storage blocked, or something else saved there
   }
@@ -1176,7 +1311,9 @@ export function loadLesson(): Lesson | null {
 
 export function loadQuiz(): Quiz | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(QUIZ_KEY) ?? "null") as Partial<Quiz> | null;
+    const saved = JSON.parse(
+      localStorage.getItem(QUIZ_KEY) ?? "null",
+    ) as Partial<Quiz> | null;
     if (
       typeof saved?.topic !== "string" ||
       typeof saved.question !== "string" ||
@@ -1185,7 +1322,9 @@ export function loadQuiz(): Quiz | null {
     )
       return null;
     const strings = (v: unknown) =>
-      Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
+      Array.isArray(v)
+        ? v.filter((s): s is string => typeof s === "string")
+        : [];
     const count = (v: unknown) => (Number.isInteger(v) ? (v as number) : 0);
     return {
       topic: saved.topic,
@@ -1197,7 +1336,9 @@ export function loadQuiz(): Quiz | null {
       partly: count(saved.partly),
       review: strings(saved.review),
       source: typeof saved.source === "string" ? saved.source : "",
-      questions: Number.isInteger(saved.questions) ? saved.questions : undefined,
+      questions: Number.isInteger(saved.questions)
+        ? saved.questions
+        : undefined,
     };
   } catch {
     return null; // storage blocked, or something else saved there
@@ -1208,12 +1349,16 @@ export function loadQuiz(): Quiz | null {
 
 export function loadAssessment(): Assessment | null {
   try {
-    const saved = JSON.parse(localStorage.getItem(ASSESSMENT_KEY) ?? "null") as Assessment | null;
+    const saved = JSON.parse(
+      localStorage.getItem(ASSESSMENT_KEY) ?? "null",
+    ) as Assessment | null;
     const whole =
       typeof saved?.topic === "string" &&
       typeof saved.question === "string" &&
       typeof saved.source === "string" &&
-      [saved.total, saved.number, saved.level, saved.part].every(Number.isInteger) &&
+      [saved.total, saved.number, saved.level, saved.part].every(
+        Number.isInteger,
+      ) &&
       Array.isArray(saved.answers);
     return whole ? saved : null; // the server checks the rest
   } catch {
@@ -1223,7 +1368,8 @@ export function loadAssessment(): Assessment | null {
 
 function saveAssessment(assessment: Assessment | null) {
   try {
-    if (assessment) localStorage.setItem(ASSESSMENT_KEY, JSON.stringify(assessment));
+    if (assessment)
+      localStorage.setItem(ASSESSMENT_KEY, JSON.stringify(assessment));
     else localStorage.removeItem(ASSESSMENT_KEY);
   } catch (e) {
     console.error("Could not keep the assessment", e);
@@ -1250,7 +1396,9 @@ function saveLesson(lesson: Lesson | null) {
 
 export function loadSound(): Sound {
   try {
-    const saved = JSON.parse(localStorage.getItem(SOUND_KEY) ?? "null") as Partial<Sound> | null;
+    const saved = JSON.parse(
+      localStorage.getItem(SOUND_KEY) ?? "null",
+    ) as Partial<Sound> | null;
     const volume = Number(saved?.volume);
     return {
       volume: Number.isFinite(volume) ? Math.min(Math.max(volume, 0), 1) : 1,
@@ -1280,7 +1428,12 @@ function Chat(props: {
   const metrics = useSettings().show_metrics; // the timing readout (R41a)
   // The Teach me, Quiz me and Assessment buttons, lessons, quizzes and assessments (R41h, R41i,
   // R41j), and Copy chat.
-  const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
+  const {
+    teach_me: teachMe,
+    quiz_me: quizMe,
+    assessment: assessOn,
+    debug,
+  } = useSettings();
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
@@ -1315,7 +1468,9 @@ function Chat(props: {
   const [lesson, setLesson] = useState<Lesson | null>(loadLesson); // Teach me (R41h)
   const [quiz, setQuiz] = useState<Quiz | null>(loadQuiz); // Quiz me (R41i)
   const [choices, setChoices] = useState<Choice[]>([]); // offered with the latest reply
-  const [assessment, setAssessment] = useState<Assessment | null>(loadAssessment); // R41j
+  const [assessment, setAssessment] = useState<Assessment | null>(
+    loadAssessment,
+  ); // R41j
   // While a quiz or an assessment is going, whatever is sent is taken as the answer.
   const assessing = assessOn && assessment !== null;
   const quizGoing = (quizMe && quiz !== null) || assessing;
@@ -1325,10 +1480,14 @@ function Chat(props: {
     setChoices([]);
   }, [teachMe, quizMe, assessOn]);
   // "Goodbye." or "Welcome back." being said (R29): nothing can be sent meanwhile.
-  const [saying, setSaying] = useState<Line | null>(props.welcome ? "welcome-back" : null);
-  const line = useRef<{ name: Line; at: number; timer?: ReturnType<typeof setTimeout> } | null>(
-    null,
+  const [saying, setSaying] = useState<Line | null>(
+    props.welcome ? "welcome-back" : null,
   );
+  const line = useRef<{
+    name: Line;
+    at: number;
+    timer?: ReturnType<typeof setTimeout>;
+  } | null>(null);
   const busy = sending || speaking || saying !== null;
   // The prompt being answered, if any: Exit hands it on, so Start again waits for it (R29).
   const inFlight = useRef<Promise<unknown> | null>(null);
@@ -1348,7 +1507,8 @@ function Chat(props: {
       .then(({ url, width, height, idle }) => {
         const ratio = width && height ? width / height : null;
         setPhoto({ url: url ?? null, ratio, idle: idle ?? undefined });
-        if (url && width && height) console.info(`Chat photo ${width}x${height}`);
+        if (url && width && height)
+          console.info(`Chat photo ${width}x${height}`);
       })
       .catch((e: unknown) => {
         console.error("Could not find the photo for the chat", e);
@@ -1369,21 +1529,28 @@ function Chat(props: {
     // conversation once it is answered, so the conversation is read after that (review on
     // PR #106).
     if (props.after) console.info("Waiting for the prompt asked before Exit");
-    const answered = props.after ? props.after.catch(() => {}) : Promise.resolve();
+    const answered = props.after
+      ? props.after.catch(() => {})
+      : Promise.resolve();
     answered
       .then(() => getChat())
       .then(setTurns)
       .catch((e: unknown) => {
         console.error("Could not load the conversation", e);
         setTurns([]);
-        setFailed("The conversation couldn't be loaded. Reload the page to try again.");
+        setFailed(
+          "The conversation couldn't be loaded. Reload the page to try again.",
+        );
       });
   }, []);
 
   // Follow the reply's clips until the last one is made, or until the server has none to tell
   // of once the reply is in: it wasn't streamed, or a newer prompt (from another tab, say) took
   // its clips. Returns how many clips there were; throws when a clip failed.
-  async function followClips(replyId: string, replied: () => boolean): Promise<number> {
+  async function followClips(
+    replyId: string,
+    replied: () => boolean,
+  ): Promise<number> {
     let known = 0;
     while (!gone.current && stopped.current !== replyId) {
       const answered = replied(); // read first: the clips may be dropped once it has replied
@@ -1436,7 +1603,9 @@ function Chat(props: {
     setHalted(false);
     setClips([url]);
     line.current.timer = setTimeout(() => {
-      console.warn(`${LINE_TEXT[name]} didn't finish playing in time, so the chat went on`);
+      console.warn(
+        `${LINE_TEXT[name]} didn't finish playing in time, so the chat went on`,
+      );
       said();
     }, LINE_TIMEOUT_MS);
   }
@@ -1446,7 +1615,9 @@ function Chat(props: {
     if (done === null) return;
     clearTimeout(done.timer);
     line.current = null;
-    console.info(`Said ${LINE_TEXT[done.name]} (${Math.round(performance.now() - done.at)} ms)`);
+    console.info(
+      `Said ${LINE_TEXT[done.name]} (${Math.round(performance.now() - done.at)} ms)`,
+    );
     if (done.name === "goodbye") {
       props.onExit?.(inFlight.current);
       return;
@@ -1465,7 +1636,11 @@ function Chat(props: {
   // The player says when each clip starts and ends, for the timing readout.
   function started(clip: number, at: number) {
     setWaiting(false);
-    setTimes((t) => t.map((c, i) => (i === clip && c.started === null ? { ...c, started: at } : c)));
+    setTimes((t) =>
+      t.map((c, i) =>
+        i === clip && c.started === null ? { ...c, started: at } : c,
+      ),
+    );
   }
   function ended(clip: number, at: number) {
     if (line.current) {
@@ -1474,8 +1649,13 @@ function Chat(props: {
     }
     clipsEnded.current = Math.max(clipsEnded.current, clip + 1);
     // Every clip passed over as broken, without one starting: nothing will be said aloud.
-    if (allMade.current && clipsEnded.current >= clipTotal.current) setWaiting(false);
-    setTimes((t) => t.map((c, i) => (i === clip && c.ended === null ? { ...c, ended: at } : c)));
+    if (allMade.current && clipsEnded.current >= clipTotal.current)
+      setWaiting(false);
+    setTimes((t) =>
+      t.map((c, i) =>
+        i === clip && c.ended === null ? { ...c, ended: at } : c,
+      ),
+    );
   }
 
   // Sends what is typed, or an example question that was clicked (R41g), or what was said with
@@ -1510,7 +1690,10 @@ function Chat(props: {
     // Why the clips failed, if they did, kept until the reply is in: a clip can fail long
     // before, and a rejection with nothing waiting on it would be reported as unhandled.
     let clipCount = 0;
-    const following: Promise<Error | null> = followClips(replyId, () => replied).then(
+    const following: Promise<Error | null> = followClips(
+      replyId,
+      () => replied,
+    ).then(
       (n) => {
         clipCount = n;
         allMade.current = true;
@@ -1551,13 +1734,15 @@ function Chat(props: {
         const next = reply.assessment;
         setAssessment(next);
         saveAssessment(next);
-        if (next) console.info(`Assessment: question ${next.number} of ${next.total}`);
+        if (next)
+          console.info(`Assessment: question ${next.number} of ${next.total}`);
       }
       setChoices(reply.choices ?? []);
       const { role, content } = reply;
       // A spoken prompt shows as it was answered, with any misheard words put back (R24).
       const meant = reply.prompt;
-      if (meant && meant !== text) console.info(`Push-to-talk: "${text}" taken as "${meant}"`);
+      if (meant && meant !== text)
+        console.info(`Push-to-talk: "${text}" taken as "${meant}"`);
       setTurns((t) => [
         ...(t ?? []).map((turn, i, all) =>
           meant && i === all.length - 1 ? { ...turn, content: meant } : turn,
@@ -1567,7 +1752,10 @@ function Chat(props: {
     } catch (e) {
       // Stopped while it was answered: the server cut the LLM off and dropped the prompt
       // (Larry's test of PR #129), so it goes back in the box, with nothing to apologize for.
-      const halt = e instanceof ServerRefusal && e.status === 409 && stopped.current === replyId;
+      const halt =
+        e instanceof ServerRefusal &&
+        e.status === 409 &&
+        stopped.current === replyId;
       if (halt) console.info("Prompt stopped while it was answered");
       else console.error("Could not get a reply", e);
       // The server forgets a prompt that got no reply, so it goes back in the box.
@@ -1575,7 +1763,12 @@ function Chat(props: {
       setPrompt((typed) => (halt && typed ? typed : text));
       // A prompt the server can't use (empty, too long) says why in plain words; any other
       // trouble gets the same short apology (R41d).
-      if (!halt) setFailed(e instanceof ServerRefusal && e.status === 400 ? e.message : CANT_ANSWER);
+      if (!halt)
+        setFailed(
+          e instanceof ServerRefusal && e.status === 400
+            ? e.message
+            : CANT_ANSWER,
+        );
       replied = true;
       await Promise.race([following, stopping]);
       setClips([]); // with any clip made before the LLM failed, and its timing row
@@ -1598,7 +1791,10 @@ function Chat(props: {
       if (!reply.streamed) {
         // Not streamed: the whole reply is spoken in one video (roadmap R17), asked for by the
         // server's count, which another tab's replies may have moved on from this tab's.
-        const url = await Promise.race([speakReply(reply.turn, replyId), stopping]);
+        const url = await Promise.race([
+          speakReply(reply.turn, replyId),
+          stopping,
+        ]);
         if (url === "stopped") return; // stopped while it was made
         // A new address each time, so the same reply number after a restart plays afresh.
         setClips(url ? [`${url}?t=${Date.now()}`] : []);
@@ -1606,7 +1802,14 @@ function Chat(props: {
         if (!url) setWaiting(false); // nothing to say aloud
         if (url) {
           setWhole(true);
-          setTimes([{ text: repliedAt, ready: performance.now(), started: null, ended: null }]);
+          setTimes([
+            {
+              text: repliedAt,
+              ready: performance.now(),
+              started: null,
+              ended: null,
+            },
+          ]);
         }
       }
     } catch (e) {
@@ -1631,7 +1834,9 @@ function Chat(props: {
     setTimes([]);
     setWhole(false);
     console.info(`Reply stopped (${clips.length} clips so far)`);
-    stopReply(replyId).catch((e: unknown) => console.error("Could not stop the reply", e));
+    stopReply(replyId).catch((e: unknown) =>
+      console.error("Could not stop the reply", e),
+    );
   }
 
   function changeSound(change: Partial<Sound>) {
@@ -1641,7 +1846,8 @@ function Chat(props: {
   }
 
   // Something to stop: a reply still being made, or a clip that hasn't finished playing.
-  const stoppable = !halted && (speaking || times.some((t) => t.ended === null));
+  const stoppable =
+    !halted && (speaking || times.some((t) => t.ended === null));
   const stage = (
     <Stage
       idle={idle}
@@ -1701,9 +1907,15 @@ function Chat(props: {
       </div>
       <div className="talk">
         {turns.length === 0 && (
-          <p className="muted hint">Ask a question to start the conversation.</p>
+          <p className="muted hint">
+            Ask a question to start the conversation.
+          </p>
         )}
-        <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
+        <TurnList
+          turns={turns}
+          from={latestExchange(turns)}
+          unspoken={unspoken}
+        />
         <p className="status muted" aria-live="polite">
           {status && <span className="busy">{status}</span>}
         </p>
@@ -1713,97 +1925,105 @@ function Chat(props: {
           </p>
         )}
         <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        <label className="prompt">
-          <span>Your message</span>
-          <textarea
-            rows={2}
-            placeholder="Type your question here"
-            value={prompt}
-            onInput={(e) => setPrompt(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              // Enter sends; Shift+Enter starts a new line.
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-          />
-        </label>
-        <div className="send-buttons">
-          <button type="submit" disabled={busy || !prompt.trim()}>
-            Send
-          </button>
-          <TalkButton
-            disabled={busy}
-            onHearing={setPrompt}
-            onHeard={(text) => void send(text, true)}
-            onProblem={setFailed}
-          />
-          {teachMe && !quizGoing && (
-            <button
-              type="button"
-              className="secondary"
-              disabled={busy}
-              onClick={() => void send(TEACH_ME)}
-            >
-              Teach me
+          onSubmit={(e) => {
+            e.preventDefault();
+            void send();
+          }}
+        >
+          <label className="prompt">
+            <span>Your message</span>
+            <textarea
+              rows={2}
+              placeholder="Type your question here"
+              value={prompt}
+              onInput={(e) => setPrompt(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                // Enter sends; Shift+Enter starts a new line.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+            />
+          </label>
+          <div className="send-buttons">
+            <button type="submit" disabled={busy || !prompt.trim()}>
+              Send
             </button>
-          )}
-          {quizMe && !quizGoing && (
-            <button
-              type="button"
-              className="secondary"
+            <TalkButton
               disabled={busy}
-              onClick={() => void send(QUIZ_ME)}
-            >
-              Quiz me
-            </button>
-          )}
-          {assessOn && !quizGoing && (
-            <button
-              type="button"
-              className="secondary"
-              disabled={busy}
-              onClick={() => void send(ASSESS_ME)}
-            >
-              Assessment
-            </button>
-          )}
-        </div>
-      </form>
-      {/* The choices are a lesson's or a quiz's, so they go with the settings (review on PR
+              onHearing={setPrompt}
+              onHeard={(text) => void send(text, true)}
+              onProblem={setFailed}
+            />
+            {teachMe && !quizGoing && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => void send(TEACH_ME)}
+              >
+                Teach me
+              </button>
+            )}
+            {quizMe && !quizGoing && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => void send(QUIZ_ME)}
+              >
+                Quiz me
+              </button>
+            )}
+            {assessOn && !quizGoing && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => void send(ASSESS_ME)}
+              >
+                Assessment
+              </button>
+            )}
+          </div>
+        </form>
+        {/* The choices are a lesson's or a quiz's, so they go with the settings (review on PR
           #87). While a quiz is going, whatever is sent is taken as the answer, so only the quiz's
           own controls are shown (review on PR #88). */}
-      {(teachMe || quizMe || assessOn) && !quizGoing && (
-        <Choices choices={choices} disabled={busy} onAsk={(q) => void send(q)} />
-      )}
-      {teachMe && lesson?.active && !quizGoing && (
-        <LessonControls
-          lesson={lesson}
-          disabled={busy}
-          onAsk={(q) => void send(q)}
-        />
-      )}
-      {quizGoing && !assessing && quiz && (
-        <QuizControls quiz={quiz} disabled={busy} onAsk={(q) => void send(q)} />
-      )}
-      {assessing && assessment && (
-        <AssessmentControls
-          assessment={assessment}
-          disabled={busy}
-          onAsk={(q) => void send(q)}
-        />
-      )}
-      {!quizGoing && (
-        <Hints hints={hints} disabled={busy} onAsk={(q) => void send(q)} />
-      )}
-      {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
-      {debug && <CopyChat turns={turns} />}
+        {(teachMe || quizMe || assessOn) && !quizGoing && (
+          <Choices
+            choices={choices}
+            disabled={busy}
+            onAsk={(q) => void send(q)}
+          />
+        )}
+        {teachMe && lesson?.active && !quizGoing && (
+          <LessonControls
+            lesson={lesson}
+            disabled={busy}
+            onAsk={(q) => void send(q)}
+          />
+        )}
+        {quizGoing && !assessing && quiz && (
+          <QuizControls
+            quiz={quiz}
+            disabled={busy}
+            onAsk={(q) => void send(q)}
+          />
+        )}
+        {assessing && assessment && (
+          <AssessmentControls
+            assessment={assessment}
+            disabled={busy}
+            onAsk={(q) => void send(q)}
+          />
+        )}
+        {!quizGoing && (
+          <Hints hints={hints} disabled={busy} onAsk={(q) => void send(q)} />
+        )}
+        {turns.length > 0 && <History turns={turns} unspoken={unspoken} />}
+        {debug && <CopyChat turns={turns} />}
       </div>
     </div>
   );
@@ -1847,7 +2067,11 @@ function AssessmentControls(props: {
 
 // While a quiz is going (R41i): its topic, the question being asked, and Stop. The answer is
 // typed in the prompt box.
-function QuizControls(props: { quiz: Quiz; disabled: boolean; onAsk: (prompt: string) => void }) {
+function QuizControls(props: {
+  quiz: Quiz;
+  disabled: boolean;
+  onAsk: (prompt: string) => void;
+}) {
   const { topic, number, questions } = props.quiz;
   return (
     <div className="lesson">
@@ -1870,7 +2094,11 @@ function QuizControls(props: { quiz: Quiz; disabled: boolean; onAsk: (prompt: st
 }
 
 // Buttons offered with the latest reply, such as which topic to learn (R41h).
-function Choices(props: { choices: Choice[]; disabled: boolean; onAsk: (prompt: string) => void }) {
+function Choices(props: {
+  choices: Choice[];
+  disabled: boolean;
+  onAsk: (prompt: string) => void;
+}) {
   if (props.choices.length === 0) return null;
   return (
     <ul className="choices-row" aria-label="Choices">
@@ -1898,7 +2126,11 @@ function LessonControls(props: {
 }) {
   const { topic, part, parts } = props.lesson;
   const where =
-    parts === undefined ? "" : part >= parts ? " · summary" : ` · part ${part + 1} of ${parts}`;
+    parts === undefined
+      ? ""
+      : part >= parts
+        ? " · summary"
+        : ` · part ${part + 1} of ${parts}`;
   return (
     <div className="lesson">
       <p className="muted">
@@ -1924,7 +2156,11 @@ function LessonControls(props: {
 
 // Under the prompt box (R41g): a line naming a few of the topics, and example questions that
 // are sent when clicked.
-function Hints(props: { hints: ChatHints; disabled: boolean; onAsk: (question: string) => void }) {
+function Hints(props: {
+  hints: ChatHints;
+  disabled: boolean;
+  onAsk: (question: string) => void;
+}) {
   const { line, examples } = props.hints;
   if (!line && examples.length === 0) return null;
   return (
@@ -1955,7 +2191,8 @@ function Hints(props: { hints: ChatHints; disabled: boolean; onAsk: (question: s
 
 // Where the latest exchange starts: the last prompt, with the reply after it if there is one.
 export function latestExchange(turns: Turn[]): number {
-  for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === "user") return i;
+  for (let i = turns.length - 1; i >= 0; i--)
+    if (turns[i].role === "user") return i;
   return Math.max(turns.length - 1, 0);
 }
 
@@ -1975,11 +2212,15 @@ function TurnList(props: {
       {turns.slice(from).map((turn, k) => {
         const i = from + k;
         const first = counted;
-        const parts = search ? splitMatches(turn.content, search.query) : [turn.content];
+        const parts = search
+          ? splitMatches(turn.content, search.query)
+          : [turn.content];
         counted += (parts.length - 1) / 2;
         return (
           <li key={i} className={turn.role}>
-            <span className="who">{turn.role === "user" ? "You" : "Reply"}</span>
+            <span className="who">
+              {turn.role === "user" ? "You" : "Reply"}
+            </span>
             {search ? (
               <span>
                 {parts.map((part, p) => {
@@ -2026,7 +2267,10 @@ export function splitMatches(text: string, query: string): string[] {
 
 // How many times `query` is found in the conversation.
 export function countMatches(turns: Turn[], query: string): number {
-  return turns.reduce((n, turn) => n + (splitMatches(turn.content, query).length - 1) / 2, 0);
+  return turns.reduce(
+    (n, turn) => n + (splitMatches(turn.content, query).length - 1) / 2,
+    0,
+  );
 }
 
 // The whole conversation, both the prompts and the replies, closed on every page load so the
@@ -2052,7 +2296,9 @@ export function chatText(turns: Turn[], count: number): string {
   const all = exchanges(turns);
   const kept = all.slice(Math.max(all.length - count, 0));
   const head = `Chat: the last ${kept.length} of ${all.length} exchanges`;
-  const lines = kept.flat().map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`);
+  const lines = kept
+    .flat()
+    .map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`);
   return [head, ...lines].join("\n\n");
 }
 
@@ -2065,17 +2311,24 @@ function CopyChat(props: { turns: Turn[] }) {
   const all = exchanges(props.turns).length;
   const [count, setCount] = useState<number | null>(null); // null: every exchange
   // What the last copy did, and the chat (and count) it copied.
-  const [done, setDone] = useState<{ turns: Turn[]; shown: number; byHand: string | null }>();
+  const [done, setDone] = useState<{
+    turns: Turn[];
+    shown: number;
+    byHand: string | null;
+  }>();
   if (all === 0) return null;
   const shown = Math.min(count ?? all, all);
-  const current = done?.turns === props.turns && done.shown === shown ? done : undefined;
+  const current =
+    done?.turns === props.turns && done.shown === shown ? done : undefined;
 
   async function copy() {
     const { turns } = props;
     const text = chatText(turns, shown);
     try {
       await navigator.clipboard.writeText(text);
-      console.info(`Chat copied (${shown} of ${all} exchanges, ${text.length} characters)`);
+      console.info(
+        `Chat copied (${shown} of ${all} exchanges, ${text.length} characters)`,
+      );
       setDone({ turns, shown, byHand: null });
     } catch (e) {
       console.error("Could not copy the chat", e);
@@ -2102,7 +2355,9 @@ function CopyChat(props: { turns: Turn[] }) {
       <button type="button" className="secondary" onClick={() => void copy()}>
         Copy chat
       </button>
-      {current && current.byHand === null && <span className="muted">Copied</span>}
+      {current && current.byHand === null && (
+        <span className="muted">Copied</span>
+      )}
       {current?.byHand != null && (
         <textarea
           readOnly
@@ -2115,7 +2370,10 @@ function CopyChat(props: { turns: Turn[] }) {
   );
 }
 
-export function History(props: { turns: Turn[]; unspoken: { turn: number } | null }) {
+export function History(props: {
+  turns: Turn[];
+  unspoken: { turn: number } | null;
+}) {
   const { turns, unspoken } = props;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -2135,7 +2393,9 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number } | nul
   }, [open, query, active, total]);
 
   function toggle() {
-    console.info(`Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`);
+    console.info(
+      `Chat history ${open ? "hidden" : "shown"} (${turns.length} turns)`,
+    );
     if (open) search(""); // it opens again without the old search
     setOpen(!open);
   }
@@ -2147,7 +2407,9 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number } | nul
     setCurrent(0);
     if (text.trim()) {
       const ms = Math.round(performance.now() - began);
-      console.info(`History search found ${found} matches in ${turns.length} turns (${ms} ms)`);
+      console.info(
+        `History search found ${found} matches in ${turns.length} turns (${ms} ms)`,
+      );
     }
   }
 
@@ -2158,7 +2420,12 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number } | nul
 
   return (
     <section className="history">
-      <button type="button" className="link" aria-expanded={open} onClick={toggle}>
+      <button
+        type="button"
+        className="link"
+        aria-expanded={open}
+        onClick={toggle}
+      >
         {open ? "Hide history" : "Show history"}
       </button>
       {open && (
@@ -2189,8 +2456,17 @@ export function History(props: { turns: Turn[]; unspoken: { turn: number } | nul
               </span>
             )}
           </div>
-          <div ref={box} className="history-box" tabIndex={0} aria-label="Conversation history">
-            <TurnList turns={turns} unspoken={unspoken} search={{ query, current: active }} />
+          <div
+            ref={box}
+            className="history-box"
+            tabIndex={0}
+            aria-label="Conversation history"
+          >
+            <TurnList
+              turns={turns}
+              unspoken={unspoken}
+              search={{ query, current: active }}
+            />
           </div>
         </>
       )}
@@ -2223,7 +2499,10 @@ export function Stage(props: {
   const idleUrl = props.idleUrl === undefined ? IDLE_VIDEO_URL : props.idleUrl;
   const [still, setStill] = useState(true); // the photo loaded, or is loading
   return (
-    <div className="stage" style={ratio ? { "--ratio": String(ratio) } : undefined}>
+    <div
+      className="stage"
+      style={ratio ? { "--ratio": String(ratio) } : undefined}
+    >
       {photo && still && (
         <img
           className="still"
@@ -2250,7 +2529,9 @@ export function Stage(props: {
             onIdle("ready");
           }}
           onError={() => {
-            console.info("No idle video: the chat holds each reply's last frame");
+            console.info(
+              "No idle video: the chat holds each reply's last frame",
+            );
             onIdle("none");
           }}
         />
@@ -2284,7 +2565,10 @@ export function ClipPlayer(props: {
   const [on, setOn] = useState(false); // a clip is showing, not resting on the idle video
   const [playing, setPlaying] = useState(0); // the clip to play; clips.length once all have
   const [active, setActive] = useState(0); // which of the two players is showing
-  const players = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
+  const players = [
+    useRef<HTMLVideoElement>(null),
+    useRef<HTMLVideoElement>(null),
+  ];
   const [refused, setRefused] = useState(false); // the browser wouldn't play it by itself
   const begun = useRef(new Set<number>()); // clips that have started, told of once each
   const broken = useRef(new Set<string>()); // clips that failed to load while waiting
@@ -2297,7 +2581,8 @@ export function ClipPlayer(props: {
         ?.play()
         ?.then(() => setRefused(false))
         .catch((e: unknown) => {
-          if (e instanceof DOMException && e.name === "NotAllowedError") setRefused(true);
+          if (e instanceof DOMException && e.name === "NotAllowedError")
+            setRefused(true);
         });
     } catch {
       // Not every browser (or test) can play.
@@ -2373,7 +2658,9 @@ export function ClipPlayer(props: {
   // A clip that can't be played is passed over quietly (R41c): the reply's text still shows,
   // and the clips after it still play.
   function skip(url: string) {
-    console.error(`Could not play a clip of the reply, so it was skipped: ${url}`);
+    console.error(
+      `Could not play a clip of the reply, so it was skipped: ${url}`,
+    );
     setOn(false);
     ends(performance.now());
   }
@@ -2409,7 +2696,11 @@ export function ClipPlayer(props: {
         ),
       )}
       {refused && !stopped && (
-        <button type="button" className="play-reply" onClick={() => play(players[active].current)}>
+        <button
+          type="button"
+          className="play-reply"
+          onClick={() => play(players[active].current)}
+        >
           Play the reply
         </button>
       )}
@@ -2431,7 +2722,12 @@ export function SoundControls(props: {
   const { sound, onChange, onStop, onExit, saying } = props;
   return (
     <div className="sound-controls">
-      <button type="button" className="stop" onClick={onStop} disabled={onStop === undefined}>
+      <button
+        type="button"
+        className="stop"
+        onClick={onStop}
+        disabled={onStop === undefined}
+      >
         <span className="stop-icon" aria-hidden="true" />
         Stop
       </button>
@@ -2451,11 +2747,18 @@ export function SoundControls(props: {
           max={100}
           value={Math.round(sound.volume * 100)}
           disabled={sound.muted}
-          onInput={(e) => onChange({ volume: Number(e.currentTarget.value) / 100 })}
+          onInput={(e) =>
+            onChange({ volume: Number(e.currentTarget.value) / 100 })
+          }
         />
       </label>
       {onExit && (
-        <button type="button" className="secondary" onClick={onExit} disabled={saying}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={onExit}
+          disabled={saying}
+        >
           Exit
         </button>
       )}
@@ -2497,7 +2800,11 @@ function average(waits: number[]): number {
 // wait, for this reply and, with `earlier` (the waits of the replies before it since the page
 // was opened), for all of them. A clip is a sentence, except the first, which is the first
 // sentence's first clause (R22b). A reply spoken in one video has one line.
-export function ClipTimes(props: { times: ClipTime[]; whole?: boolean; earlier?: number[] }) {
+export function ClipTimes(props: {
+  times: ClipTime[];
+  whole?: boolean;
+  earlier?: number[];
+}) {
   const { times, whole, earlier = [] } = props;
   const limit = 2000;
   const waits = clipWaits(times);
@@ -2508,10 +2815,14 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean; earlier?:
       <ol>
         {times.map((t, i) => {
           const name = whole ? "Reply" : `Clip ${i + 1}`;
-          if (t.started === null) return <li key={i}>{name}: not spoken yet</li>;
+          if (t.started === null)
+            return <li key={i}>{name}: not spoken yet</li>;
           const after = t.started - t.text;
           const before = times[i - 1];
-          const pause = before?.ended === null || before === undefined ? null : Math.max(0, t.started - before.ended);
+          const pause =
+            before?.ended === null || before === undefined
+              ? null
+              : Math.max(0, t.started - before.ended);
           const late = (clipWait(times, i) ?? 0) > limit;
           return (
             <li key={i} className={late ? "late" : undefined}>
@@ -2535,19 +2846,27 @@ export function ClipTimes(props: { times: ClipTime[]; whole?: boolean; earlier?:
 
 // Next to each step: done (and how long it took), what it is doing and about how long it has left
 // (R134b), or waiting its turn.
-function StepState(props: { step: PrepareStep; status: PrepareStatus; index: number }) {
+function StepState(props: {
+  step: PrepareStep;
+  status: PrepareStatus;
+  index: number;
+}) {
   const { step, status } = props;
   const metrics = useSettings().show_metrics; // how long a step took (R41a)
   if (step.done >= step.total) {
-    const took = metrics && step.seconds !== null ? ` in ${duration(step.seconds)}` : "";
+    const took =
+      metrics && step.seconds !== null ? ` in ${duration(step.seconds)}` : "";
     return <span className="done">Done{took}</span>;
   }
-  const current = status.steps?.findIndex((s) => s.done < s.total) === props.index;
+  const current =
+    status.steps?.findIndex((s) => s.done < s.total) === props.index;
   if (!current) return <span className="muted">Waiting</span>;
-  if (status.state === "failed" || status.stopped) return <span className="error">Stopped</span>;
+  if (status.state === "failed" || status.stopped)
+    return <span className="error">Stopped</span>;
   return (
     <span className="busy">
-      {step.activity ?? (step.total > 1 ? `${step.done} of ${step.total}` : "Working…")}
+      {step.activity ??
+        (step.total > 1 ? `${step.done} of ${step.total}` : "Working…")}
       {step.left_s !== null && ` · about ${countdown(step.left_s)} left`}
     </span>
   );
@@ -2565,7 +2884,9 @@ export function countdown(seconds: number): string {
 
 // 42 -> "42 s", 1034 -> "17 min"
 export function duration(seconds: number): string {
-  return seconds < 90 ? `${Math.round(seconds)} s` : `${Math.round(seconds / 60)} min`;
+  return seconds < 90
+    ? `${Math.round(seconds)} s`
+    : `${Math.round(seconds / 60)} min`;
 }
 
 export function NotFoundPage() {
