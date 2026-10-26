@@ -95,6 +95,7 @@ from imageskin.ready_voice import preset as ready_preset
 from imageskin.replies_first import RepliesFirst
 from imageskin.reply_times import ReplyTimes
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
+from imageskin.resources import ResourceReader
 from imageskin.review import accept, load_review, withdraw
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
@@ -528,6 +529,13 @@ def create_app(
     admin_sign_ins = AdminSignIns(admin_file or data_home / ADMIN_FILENAME)
     admin_routes, app.state.require_admin = admin_router(admin_sign_ins)
     app.include_router(admin_routes)
+
+    # The machine's resources for the admin dashboard (R152), for the administrator only.
+    resource_reader = ResourceReader(data_home)
+
+    @app.get("/api/admin/resources", dependencies=[Depends(app.state.require_admin)])
+    def get_resources() -> dict[str, Any]:
+        return resource_reader.read()
 
     @app.get("/api/consent")
     def get_consent() -> dict[str, object]:

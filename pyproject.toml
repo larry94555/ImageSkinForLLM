@@ -28,6 +28,9 @@ dependencies = [
     # Checks the signature on ChatGPT's sign-in identity (R43; Apache 2.0 or BSD). pdfplumber
     # already installs it.
     "cryptography>=42",
+    # The machine's CPU load, memory and disk for the admin dashboard (R152; BSD), on Linux,
+    # Windows and macOS alike.
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
@@ -72,6 +75,8 @@ dev = [
     # Makes the PDFs the reading tests read (BSD).
     "reportlab>=4",
     "ruff>=0.5",
+    # psutil's types, for mypy (R152).
+    "types-psutil>=5.9",
 ]
 
 [project.scripts]
