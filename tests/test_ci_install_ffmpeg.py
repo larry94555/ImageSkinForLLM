@@ -71,8 +71,15 @@ def test_build_with_wrong_digest_is_never_run(tmp_path: Path, stubs: Path) -> No
     release = tmp_path / "release"
     release.mkdir()
     marker = tmp_path / "ran"
-    for name in ("ffmpeg-linux-x64", "ffprobe-linux-x64"):
-        (release / name).write_text(f"#!/bin/sh\ntouch {marker}\n")
+    staged = tmp_path / "staged" / "ffmpeg" / "bin"
+    staged.mkdir(parents=True)
+    for name in ("ffmpeg", "ffprobe"):
+        (staged / name).write_text(f"#!/bin/sh\ntouch {marker}\n")
+        (staged / name).chmod(0o755)
+    archive = release / "ffmpeg-n8.1.3-9-g29e619e767-linux64-gpl-8.1.tar.xz"
+    subprocess.run(
+        ["tar", "-cJf", str(archive), "-C", str(tmp_path / "staged"), "ffmpeg"], check=True
+    )
 
     result = run_script(tmp_path, stubs, release.as_uri())
 

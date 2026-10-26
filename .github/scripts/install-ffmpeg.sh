@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # Installs ffmpeg and ffprobe for CI. Ubuntu's apt mirrors have stalled or crawled at about
-# 100 kB/s, so this first downloads a pinned static build from GitHub's release storage, which
-# takes seconds, and checks it against the digests below. If the download, the check or a test
-# run (including drawing text) fails, it falls back to apt. To update the build, change the
-# release and both digests.
+# 40-100 kB/s, so this first downloads a pinned static build from GitHub's release storage, which
+# takes seconds, and checks it against the digest below. If the download, the check or a test
+# run (including drawing text) fails, it falls back to apt. BtbN keeps the last build of each
+# month for two years; to update, pick a newer month-end build and change the release, archive
+# and digest together.
 set -euo pipefail
 
-base_url="${FFMPEG_BASE_URL:-https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1}"
-ffmpeg_sha256=e7e7fb30477f717e6f55f9180a70386c62677ef8a4d4d1a5d948f4098aa3eb99
-ffprobe_sha256=4f231a1960d83e403d08f7971e271707bec278a9ae18e21b8b5b03186668450d
-bin_dir="${RUNNER_TEMP:-/tmp}/ffmpeg-bin"
+base_url="${FFMPEG_BASE_URL:-https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08}"
+archive=ffmpeg-n8.1.3-9-g29e619e767-linux64-gpl-8.1.tar.xz
+archive_sha256=97ce978979194b5cf7e06a5e68020dbdaa7a4f3294c5452b6a1bc347100dbb79
+work_dir="${RUNNER_TEMP:-/tmp}/ffmpeg-static"
+bin_dir="$work_dir/bin"
 
 install_static() {
-  mkdir -p "$bin_dir" &&
-    curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o "$bin_dir/ffmpeg" "$base_url/ffmpeg-linux-x64" &&
-    curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o "$bin_dir/ffprobe" "$base_url/ffprobe-linux-x64" &&
-    printf '%s  %s\n%s  %s\n' "$ffmpeg_sha256" "$bin_dir/ffmpeg" "$ffprobe_sha256" "$bin_dir/ffprobe" |
-    sha256sum --check --strict --quiet &&
-    chmod +x "$bin_dir/ffmpeg" "$bin_dir/ffprobe" &&
+  mkdir -p "$work_dir" &&
+    curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 -o "$work_dir/$archive" \
+      "$base_url/$archive" &&
+    printf '%s  %s\n' "$archive_sha256" "$work_dir/$archive" | sha256sum --check --strict --quiet &&
+    tar -xJf "$work_dir/$archive" -C "$work_dir" --strip-components=1 \
+      --wildcards '*/bin/ffmpeg' '*/bin/ffprobe' &&
     "$bin_dir/ffmpeg" -version >/dev/null &&
     "$bin_dir/ffprobe" -version >/dev/null &&
     can_draw_text
