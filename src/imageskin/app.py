@@ -42,6 +42,7 @@ from imageskin.chat import (
     PromptStop,
     StreamLlm,
     Teach,
+    Turn,
     ask_stop,
     estimate,
 )
@@ -99,6 +100,7 @@ from imageskin.start_now import Choice as PersonChoice
 from imageskin.start_now import KokoroVoices, PresetVoice, StartNow, StartStatus
 from imageskin.startup import StartupTimes
 from imageskin.teach import Choice, Explain, Lesson, Say, Tutor, lesson_topics
+from imageskin.topic_replies import TopicReplies, context_of
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
 from imageskin.uploads import (
@@ -969,10 +971,18 @@ def create_app(
     )
     # The sample keeps the photo's own size and reply clips are scaled down (roadmap R22c).
     # Each has its own engine, so a prepare and a reply never share one.
-    steps = clip_steps or photoreal_steps(data_home, prepare_engine, voice)
+    # Both render with the face movement the prepare job was made with (R128a).
+    steps = clip_steps or photoreal_steps(
+        data_home, prepare_engine, voice, face_movement=lambda: job.prepared_face_movement()
+    )
     render = render_clip or steps_clip(steps)
     reply_steps = clip_steps or photoreal_steps(
-        data_home, voice_engine, voice, max_side=REPLY_SIDE, progressive=True
+        data_home,
+        voice_engine,
+        voice,
+        max_side=REPLY_SIDE,
+        progressive=True,
+        face_movement=lambda: job.prepared_face_movement(),
     )
     reply_render = render_clip or steps_clip(reply_steps)
     job = PrepareJob(
@@ -1717,6 +1727,45 @@ def create_app(
         """How many parts the lesson's topic has, its summary not counted."""
         return len(lesson_topics(wiki.contents()).get(lesson.topic, []))
 
+    # The replies to the example questions under the prompt box, kept once made (R130a).
+    topic_replies = TopicReplies(replies.folder / "topics")
+
+    def example_context(prompt: str) -> str | None:
+        """What a reply to this prompt is made with, when it is one of the example questions
+        shown now; None otherwise."""
+        if not content_topics():
+            return None
+        if prompt.strip() not in content_lookup.examples():
+            return None
+        photo = chosen_photo()
+        status = job.status()
+        voice = reply_preset() or job.voice_id()
+        person = None if photo is None else replies.idle_name(photo)
+        return context_of(person, voice, status.finished_at, wiki.contents(), content_only())
+
+    def answer_example(prompt: str, context: str, clips: SentenceClips) -> tuple[Turn, int]:
+        """An example question's reply: the one kept, said at once, or the LLM's, kept once its
+        clips are all rendered."""
+        start = time.perf_counter()
+        kept = topic_replies.get(prompt, context)
+        if kept is None:
+            epoch = topic_replies.epoch  # not kept if the conversation is cleared meanwhile
+            reply, turn = conversation.send(prompt, clips)
+            text = reply.content
+            clips.on_complete = lambda made: topic_replies.keep(prompt, context, text, made, epoch)
+            logger.info("Topic reply not kept yet", extra={"question": prompt})
+            return reply, turn
+        reply, turn = conversation.say(prompt, [kept.text])
+        try:
+            clips.replay(kept.clips)
+        except OSError as e:  # the reply stands; the browser asks for its whole video
+            logger.error("Could not play a kept topic reply", extra={"error": str(e)})
+        logger.info(
+            "Topic reply from the kept one",
+            extra={"question": prompt, "clips": len(kept.clips), "duration_ms": ms_since(start)},
+        )
+        return reply, turn
+
     def chat(body: ChatRequest, stop: PromptStop) -> dict[str, Any]:
         with clips_lock:
             unasked = list(sentence_clips.values())  # only the latest reply is played
@@ -1801,6 +1850,8 @@ def create_app(
                 if step.kind == "summary" and settings.quiz_me:  # a quick quiz on the topic
                     topic = step.lesson.topic
                     choices = [Choice(f"Quiz me on {topic}", f"Quiz me on {topic}")]
+            elif clips is not None and (example := example_context(body.prompt)) is not None:
+                reply, turn = answer_example(body.prompt, example, clips)
             else:
                 reply, turn = conversation.send(body.prompt, clips)
         except (ValueError, LlmError, LlmCancelled) as e:
@@ -2102,6 +2153,9 @@ def create_app(
             threading.Thread(target=cancel_clips, args=(clips,), name="clear-clips").start()
         # After the conversation: a video asked for after replies.clear() reads it empty.
         videos = replies.clear()
+        # The example questions' replies were made with what was said, so they go too (Codex's
+        # review of PR #178).
+        topic_replies.clear()
         logger.info(
             "Reply videos cleared",
             extra={"videos": videos, "streamed_replies": len(streamed)},

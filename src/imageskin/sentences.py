@@ -102,6 +102,17 @@ def _not_an_end(text: str, end: re.Match[str], following: str) -> bool:
     return following[:1].islower() or following[:1].isdigit()
 
 
+# A possessive or a contraction with "s", as in "Trump's", "the students'" or "it's": it leads into
+# the next word, so a clip never ends on it. Ending the first clip on "Trump’s" made the cloned
+# voice say "Trump-s" (Larry's test of PR #178).
+_WITH_S = re.compile(r"\w(?:['’]s|s['’])$")
+
+
+def _leads(word: str) -> bool:
+    """Whether the word, in lower case without closing punctuation, leads into the next."""
+    return word in LEADING or _WITH_S.search(word) is not None
+
+
 def first_clause_cut(text: str) -> int | None:
     """Where the first clause of `text`, an unfinished sentence, ends, or None while it has no
     clause yet. The cut is only made once the next word has started, so "Hi Larry," waits for
@@ -123,7 +134,7 @@ def first_clause_cut(text: str) -> int | None:
         ) and last not in _DASHES:
             cut = words[i - 1].end()
         elif i >= FIRST_CLAUSE_MAX and len(words) >= i + 2:
-            if word.strip(".!?") not in LEADING or i == FIRST_CLAUSE_LIMIT:
+            if not _leads(last.rstrip('"”)]').lower().strip(".!?")) or i == FIRST_CLAUSE_LIMIT:
                 cut = words[i - 1].end()
             elif i == FIRST_CLAUSE_MAX:  # on a leading word: after the last word that isn't
                 for j in range(i - 1, FIRST_CLAUSE_MIN - 1, -1):
@@ -134,7 +145,7 @@ def first_clause_cut(text: str) -> int | None:
                         or inside_whole(text, earlier.end())
                     ):
                         continue
-                    if earlier.group().rstrip("\"'”’)]").lower().strip(".!?") not in LEADING:
+                    if not _leads(earlier.group().rstrip('"”)]').lower().strip(".!?")):
                         cut = earlier.end()
                         break
         # Not inside a picture, link or HTML tag, which are spoken (or left out) whole.

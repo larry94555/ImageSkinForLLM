@@ -239,3 +239,22 @@ def test_a_pdf_formula_is_put_in_words_for_the_llm_and_the_rest_left_as_it_is() 
     assert math_in_words("[n^2](https://example.org/n^2)\n```\ny = x^2\n```") == (
         "[n squared](https://example.org/n^2)\n```\ny = x^2\n```"
     )
+
+
+@pytest.mark.parametrize(
+    ("display", "said"),
+    [
+        ("Trump’s plan.", "Trump's plan."),
+        # Larry's reply, which Kokoro said as "Trump-s" before (PR #178).
+        (
+            "that Trump’s “America First” approach isn’t really realism.",
+            "that Trump's “America First” approach isn't really realism.",
+        ),
+        ("**Trump’s** plan isn‘t new.", "Trump's plan isn't new."),
+        ("Trumpʼs and Trump´s.", "Trump's and Trump's."),
+        ("‘Quoted’ words stay.", "‘Quoted’ words stay."),  # quotes, not apostrophes
+    ],
+)
+def test_an_apostrophe_in_a_word_is_said_as_a_plain_one(display: str, said: str) -> None:
+    """Larry's test of PR #178: with a curly quote after it, Kokoro read "Trump’s" as "Trump-s"."""
+    assert spoken_text(display) == said

@@ -44,6 +44,14 @@ def test_there_is_nothing_to_accept_before_prepare_finishes(tmp_path: Path) -> N
         PrepareStatus("done", "photo2", voice_id="clone:abc", finished_at=DONE.finished_at),
         PrepareStatus("done", "photo1", voice_id="clone-british:abc", finished_at=DONE.finished_at),
         PrepareStatus("done", "photo1", voice_id="clone:abc", finished_at="2026-10-09T16:00:00"),
+        # Made with another face movement (R128a), even within the same second.
+        PrepareStatus(
+            "done",
+            "photo1",
+            voice_id="clone:abc",
+            finished_at=DONE.finished_at,
+            face_movement="off",
+        ),
     ],
 )
 def test_a_sample_made_again_needs_reviewing_again(tmp_path: Path, later: PrepareStatus) -> None:

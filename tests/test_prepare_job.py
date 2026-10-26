@@ -31,8 +31,12 @@ from imageskin.prepare_job import (
     percent,
     photoreal_clip,
     photoreal_face,
+    photoreal_steps,
+    steps_clip,
     voice_fingerprint,
 )
+from imageskin.review import accept, load_review
+from imageskin.ui_settings import save_ui_settings
 from imageskin.uploads import PhotoChoice, PhotoResult, UploadStore, VoiceSample
 from imageskin.video import VideoError
 from imageskin.voice import VoiceError
@@ -522,6 +526,7 @@ def test_a_restart_keeps_the_clips_already_rendered(tmp_path: Path) -> None:
         "voice_id": first_voice_id(tmp_path),
         "percent": 95,
         "steps": steps,
+        "face_movement": "normal",
     }
     (tmp_path / "prepare.json").write_text(json.dumps(saved))
     (tmp_path / "clips").mkdir()
@@ -588,6 +593,119 @@ def test_another_accent_needs_preparing_again(tmp_path: Path) -> None:
     assert job.status().state == "idle"
 
 
+def test_another_face_movement_needs_preparing_and_reviewing_again(tmp_path: Path) -> None:
+    # R128a: the replies use the face movement the reviewed sample was made with, until the
+    # sample is made again with the new one and reviewed.
+    made: list[str] = []
+
+    def clip(photo: Path, text: str, output: Path) -> None:
+        made.append(job.prepared_face_movement())
+        write_clip(photo, text, output)
+
+    job, _ = make_job(tmp_path, clip=clip)
+    job.start()
+    job.wait(5)
+    done = job.status()
+    assert done.state == "done" and done.face_movement == "normal" and made == ["normal"] * 3
+    accept(tmp_path, done)
+    save_ui_settings(tmp_path, {"face_movement": "slight"})
+    assert job.status().state == "idle" and job.clip("sample") is None
+    assert load_review(tmp_path, job.status()).accepted is False  # the chat is locked
+    assert job.prepared_face_movement() == "normal"  # nothing renders with "slight" yet
+    save_ui_settings(tmp_path, {"face_movement": "normal"})  # back as it was
+    assert job.status() == done and load_review(tmp_path, job.status()).accepted
+    save_ui_settings(tmp_path, {"face_movement": "slight"})
+    job.start()
+    job.wait(5)
+    again = job.status()
+    assert again.state == "done" and again.face_movement == "slight"
+    assert made[3:] == ["slight"] * 3
+    assert load_review(tmp_path, again).accepted is False  # a new sample to review
+
+
+def test_a_sample_accepted_before_face_movement_is_prepared_again_for_normal(
+    tmp_path: Path,
+) -> None:
+    # Made and accepted before R128a, so with no cheek movement: after the upgrade, replies
+    # never move the cheeks more than the reviewed sample did (review on PR #174).
+    job, _ = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    saved = json.loads((tmp_path / "prepare.json").read_text())
+    del saved["face_movement"]
+    (tmp_path / "prepare.json").write_text(json.dumps(saved))
+    (tmp_path / "review.json").write_text(
+        json.dumps({"sample": {k: saved[k] for k in ("photo_id", "voice_id", "finished_at")}})
+    )
+    later, _ = make_job(tmp_path)
+    assert later.prepared_face_movement() == "off"  # what its clips were made with
+    # The default, Normal, is chosen: not current, so the chat waits for Prepare and a review.
+    assert later.status().state == "idle" and later.clip("sample") is None
+    assert load_review(tmp_path, later.status()).accepted is False
+    # Off is what it was made with: the sample and its acceptance stand, and replies use Off.
+    save_ui_settings(tmp_path, {"face_movement": "off"})
+    assert later.status().state == "done" and load_review(tmp_path, later.status()).accepted
+    assert later.prepared_face_movement() == "off"
+
+
+def test_a_change_while_preparing_waits_for_the_next_prepare(tmp_path: Path) -> None:
+    made: list[str] = []
+
+    def clip(photo: Path, text: str, output: Path) -> None:
+        made.append(job.prepared_face_movement())
+        save_ui_settings(tmp_path, {"face_movement": "off"})  # chosen while it renders
+        write_clip(photo, text, output)
+
+    job, _ = make_job(tmp_path, clip=clip)
+    job.start()
+    job.wait(5)
+    assert made == ["normal"] * 3  # every clip alike
+    assert job.status().state == "idle"  # and Prepare again shows, for "off"
+
+
+@pytest.mark.parametrize(
+    ("saved_movement", "kept"), [("slight", True), ("normal", False), (None, False)]
+)
+def test_a_restart_after_another_face_movement_renders_every_clip_again(
+    tmp_path: Path,
+    saved_movement: str | None,
+    kept: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Stopped after goodbye.mp4, then "slight" chosen (or saved before R128a): no finished job
+    # has clips of two strengths.
+    steps = [asdict(s) for s in fresh_steps()]
+    for s in steps[:5]:
+        s["done"] = s["total"]
+    saved = {
+        "state": "running",
+        "photo_id": PHOTO_ID,
+        "voice_id": first_voice_id(tmp_path),
+        "steps": steps,
+        "face_movement": saved_movement,
+    }
+    (tmp_path / "prepare.json").write_text(json.dumps(saved))
+    (tmp_path / "clips").mkdir()
+    (tmp_path / "clips" / "goodbye.mp4").write_text("kept")
+    save_ui_settings(tmp_path, {"face_movement": "slight"})
+    made: list[tuple[str, str]] = []
+
+    def clip(photo: Path, text: str, output: Path) -> None:
+        made.append((text, job.prepared_face_movement()))
+        write_clip(photo, text, output)
+
+    job, _ = make_job(tmp_path, clip=clip)
+    with caplog.at_level(logging.INFO):
+        job.resume()
+        job.wait(5)
+    assert {movement for _, movement in made} == {"slight"}
+    assert ((tmp_path / "clips" / "goodbye.mp4").read_text() == "kept") is kept
+    assert len(made) == (2 if kept else 3)
+    assert job.status().state == "done" and job.status().face_movement == "slight"
+    changed = "Face movement changed; rendering the clips again" in caplog.text
+    assert changed is not kept
+
+
 def test_pocket_tts_has_its_own_voice_for_every_accent(tmp_path: Path) -> None:
     accent: list[Accent] = ["own"]
     job, store = make_job(tmp_path, kind="pocket", accent=accent)
@@ -649,6 +767,19 @@ def test_default_clip_speaks_and_renders_photoreal_with_the_shared_voice(
     assert video.render.call_count == 2
     lib, wav, output = video.render.call_args.args
     assert lib is video.prepare.return_value and output == tmp_path / "welcome.mp4"
+    assert video.render.call_args.kwargs["face_movement"] == "normal"  # unless the job says
+
+
+def test_clips_render_with_the_face_movement_they_are_given(tmp_path: Path) -> None:
+    from imageskin.voice import Speech
+
+    voice = MagicMock()
+    voice.speak.return_value = Speech(b"\0\0" * 2400, 24000, [])
+    with patch("imageskin.photoreal.PhotorealEngine") as engine:
+        engine.return_value.render.return_value = 0.1  # seconds
+        steps = photoreal_steps(tmp_path, voice, face_movement=lambda: "slight")
+        steps_clip(steps)(tmp_path / "me.jpg", "Goodbye.", tmp_path / "goodbye.mp4")
+    assert engine.return_value.render.call_args.kwargs["face_movement"] == "slight"
 
 
 def test_clips_can_speak_in_another_voice(tmp_path: Path) -> None:
