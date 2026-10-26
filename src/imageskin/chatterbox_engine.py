@@ -13,6 +13,7 @@ versions of torch and numpy, so it is installed without its pins; see the README
 import importlib.resources
 import importlib.util
 import logging
+import re
 import sys
 import time
 import types
@@ -36,6 +37,28 @@ REFERENCE_S = 10.0  # Chatterbox learns from about this much of the voice sample
 TURBO_REVISION = "749d1c1a46eb10492095d68fbcf55691ccf137cd"  # the weights tested in R25a
 INSTALL_HINT = "see 'Your own voice' in the README"
 NAME = "Chatterbox Turbo"
+
+# "'s" after a word, as in "Trump's" or "Trump’s", which Chatterbox Turbo says apart from the word
+# after a pause, "Trump-s" (Larry's test of PR #178). Written "Trumps", it says one word, which
+# sounds the same. Not after a hissing sound, where "'s" is a syllable of its own ("Bush's"), nor
+# in the few contractions whose spelling without it reads otherwise ("he's" is not "hes").
+_POSSESSIVE = re.compile(r"\b(\w*[A-Za-z])['’]s\b")
+_HISSING = ("s", "x", "z", "ch", "sh", "ce", "ge", "se", "ze")
+_KEEP = frozenset(
+    {"he", "she", "who", "here", "where", "how", "it", "let", "what", "that", "there"}
+)
+
+
+def joined_possessives(text: str) -> str:
+    """The text with "'s" joined to its word where that sounds the same: "Trump's" is "Trumps"."""
+
+    def join(m: re.Match[str]) -> str:
+        word = m.group(1)
+        if word.lower() in _KEEP or word.lower().endswith(_HISSING):
+            return m.group(0)
+        return f"{word}s"
+
+    return _POSSESSIVE.sub(join, text)
 
 
 class Cloner(Protocol):
@@ -179,9 +202,12 @@ class ChatterboxEngine:
         cloner = self._loaded()
         if voice != self._voice:
             self._learn_voice(cloner, voice)
+        said = joined_possessives(text)
+        if said != text:
+            logger.debug("Possessives joined for the cloned voice", extra={"text": said})
         start = time.perf_counter()
         try:
-            samples = np.asarray(cloner(text), dtype=np.float32)
+            samples = np.asarray(cloner(said), dtype=np.float32)
         except Exception as e:  # the model's own errors
             raise VoiceError(f"{self.name} could not speak the text: {e}") from e
         clone_s = time.perf_counter() - start

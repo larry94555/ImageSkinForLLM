@@ -22,8 +22,9 @@ logger = logging.getLogger(__name__)
 
 REPLY_FILE = "reply.json"
 # Raised when the way a reply is cut into clips or spoken changes, so the replies kept before are
-# made again: 2 when a clip stopped ending on a possessive (Larry's test of PR #178).
-MAKING = 2
+# made again: 2 when a clip stopped ending on a possessive, 3 when "'s" was joined to its word for
+# the cloned voice (Larry's tests of PR #178).
+MAKING = 3
 
 
 def context_of(*parts: object) -> str:

@@ -13,6 +13,7 @@ from imageskin.chatterbox_engine import (
     SAMPLE_RATE,
     ChatterboxEngine,
     check_installed,
+    joined_possessives,
     provide_pkg_resources,
     read_voice_sample,
     reference_clip,
@@ -330,3 +331,28 @@ def test_a_forgotten_voice_is_learned_afresh_by_a_new_model(
     clone.speak(str(new_sample), "Hello")
     assert len(loaded) == 2 and loaded[1].voices and loaded[1].texts == ["Hello"]
     assert not np.array_equal(loaded[1].voices[0], old)  # from the new sample only
+
+
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        ("Trump’s plan and Jerry's car.", "Trumps plan and Jerrys car."),
+        ("Bill's, Obama's and the dog's.", "Bills, Obamas and the dogs."),
+        # A hissing sound before it makes "'s" a syllable of its own: left as it is.
+        ("Bush's, Max's, Liz's, Rich's and Grace's.", "Bush's, Max's, Liz's, Rich's and Grace's."),
+        # Contractions that read otherwise joined, and words with no "'s": left as they are.
+        ("He's sure it's fine; that's what's left. Isn't it? Rock 'n' roll.", None),
+    ],
+)
+def test_s_after_a_word_is_joined_to_it_for_the_cloned_voice(text: str, said: str | None) -> None:
+    """Larry's test of PR #178: Chatterbox Turbo said "Trump's" as "Trump-s"."""
+    assert joined_possessives(text) == (text if said is None else said)
+
+
+def test_the_cloned_voice_is_given_the_joined_text_and_the_aligner_the_text_shown(
+    voice_sample: Path,
+) -> None:
+    cloner = FakeCloner()
+    speech = engine(cloner).speak(str(voice_sample), "Jerry's car.")
+    assert cloner.texts == ["Jerrys car."]
+    assert speech.words[0].word == "Jerry's car."  # timed against the words shown
