@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from fake_llm import chunk, paced, pieces, reply_for, serve, tokens_in
 from long_reply import (
+    Misaligned,
     analyze,
     ends_at,
     gap_cause,
@@ -24,6 +25,7 @@ from long_reply import (
 from replies import PROMPTS, REPLIES
 from serve_logged import clip_row, note_clips, silences
 
+from imageskin.mouth_sync import heard
 from imageskin.voice import Speech
 
 RATE = 24000
@@ -51,9 +53,12 @@ def clip(n: int, **kw: Any) -> dict[str, Any]:
 
 
 def note(
-    sentence: str, wav_s: float = 1.9, lead: float = 0.05, trail: float = 0.1
+    sentence: str, n: int = 1, wav_s: float = 1.9, lead: float = 0.05, trail: float = 0.1
 ) -> dict[str, Any]:
+    """A line as serve_logged.py notes it, for clip `n` of reply "r"."""
     return {
+        "reply": "r",
+        "n": n,
         "sentence": sentence,
         "text": sentence,
         "words": len(sentence.split()),
@@ -66,6 +71,7 @@ def note(
 def summary(clips: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "prompt": "p",
+        "reply_id": "r",
         "error": None,
         "first_word_heard_ms": clips[0]["plays_ms"] if clips else None,
         "first_token_ms": 1000,
@@ -117,8 +123,8 @@ def test_analyze_joins_clips_and_finds_the_pauses() -> None:
     ]
     notes = [
         note("The bicycle has a long history,", trail=0.2),
-        note("and it starts in Germany.", lead=0.1),
-        note("It had two wheels and no pedals.", wav_s=2.9),
+        note("and it starts in Germany.", 2, lead=0.1),
+        note("It had two wheels and no pedals.", 3, wav_s=2.9),
     ]
     result = analyze(summary(clips), notes)
     one, two, three = result["clips"]
@@ -147,6 +153,51 @@ def test_analyze_joins_clips_and_finds_the_pauses() -> None:
     assert result["stretch_ms_max"] == 100
     assert result["cut_together"] == 0 and not three["cut_together"]
     assert result["join_silence_s"] == round((200 + 100 + 100 + 50) / 1000, 1)
+
+
+def test_analyze_takes_only_its_reply_s_lines() -> None:
+    other = {**note("Another reply."), "reply": "x"}
+    result = analyze(summary([clip(1), clip(2)]), [other, note("One.", 1), note("Two.", 2)])
+    assert [c["text"] for c in result["clips"]] == ["One.", "Two."]
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        [1, 3],  # a line missing: clip 2's words would be clip 3's
+        [1, 2, 2, 3],  # a line too many
+        [2, 1, 3],  # out of order
+        [1, 2],  # the last clip has no line
+    ],
+)
+def test_analyze_refuses_misaligned_lines(lines: list[int]) -> None:
+    clips = [clip(1), clip(2), clip(3)]
+    with pytest.raises(Misaligned):
+        analyze(summary(clips), [note(f"Clip {n}.", n) for n in lines])
+
+
+def test_run_writes_nothing_from_misaligned_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import long_reply
+
+    from imageskin import time_reply
+
+    noted = tmp_path / "clips.jsonl"
+
+    def measure(base: str, prompt: str) -> str:
+        with noted.open("a", encoding="utf-8") as f:  # clip 2's line was never noted
+            for n in (1, 3):
+                f.write(json.dumps(note(f"Clip {n}.", n)) + "\n")
+        return prompt
+
+    monkeypatch.setattr(time_reply, "ask", lambda url, timeout=30: {"status": "ok"})
+    monkeypatch.setattr(time_reply, "measure", measure)
+    monkeypatch.setattr(time_reply, "summarize", lambda m: summary([clip(1), clip(2), clip(3)]))
+    out = tmp_path / "out"
+    code = long_reply.run("http://x", ["One?"], noted, out, "t", "v", None)
+    assert code == 1 and not out.exists()
+    assert "nothing written" in capsys.readouterr().out
 
 
 def test_analyze_with_nothing_played() -> None:
@@ -183,7 +234,7 @@ def test_markdown_and_timeline(tmp_path: Path) -> None:
         clip(2, sentence_ms=6000, first_byte_ms=5800, plays_ms=5800, gap_ms=800),
     ]
     clips.append(clip(3, sentence_ms=6020, first_byte_ms=8000, plays_ms=8000, gap_ms=0))
-    notes = [note("Hello there,"), note("x " * 40 + "end."), note("Bye.")]
+    notes = [note("Hello there,"), note("x " * 40 + "end.", 2), note("Bye.", 3)]
     result = analyze(summary(clips), notes)
     assert result["cut_together"] == 1
     result["own_rate_wpm"] = 170
@@ -285,6 +336,23 @@ def test_silences(tmp_path: Path) -> None:
     assert silences(path) == (1.0, 1.0, 0.0)
     write_wav(path, np.zeros(10))
     assert silences(path)[1:] == (10 / RATE, 0.0)
+
+
+def test_silences_match_the_app_s_voice_heard(tmp_path: Path) -> None:
+    # Quiet noise, quieter speech and a short loud part: the loud level is the loudest 2 %
+    # (mouth_sync.heard's 98th percentile), so the noise, 49 dB below it, is silence, though
+    # it is only 30 dB below the speech (a 95th percentile would have heard it).
+    def tone(amplitude: float, seconds: float) -> np.ndarray:
+        return amplitude * np.sin(2 * np.pi * 220 * np.arange(int(RATE * seconds)) / RATE)
+
+    samples = np.concatenate([tone(100, 0.2), tone(3000, 1.0), tone(30000, 0.05), tone(100, 0.2)])
+    path = tmp_path / "a.wav"
+    write_wav(path, samples)
+    _, lead, trail = silences(path)
+    windows = np.flatnonzero(heard(samples.astype("<i2") / 32768.0, RATE))
+    assert lead == pytest.approx(windows[0] * 0.005)
+    assert trail == pytest.approx(1.45 - (windows[-1] + 1) * 0.005)
+    assert lead == pytest.approx(0.2, abs=0.006) and trail == pytest.approx(0.2, abs=0.006)
 
 
 def test_clip_row(tmp_path: Path) -> None:

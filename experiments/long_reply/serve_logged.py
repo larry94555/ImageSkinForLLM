@@ -6,9 +6,9 @@ the app.
 The app runs exactly as `imageskin [--config FILE] serve` runs it, except that each reply clip's
 voice step is wrapped: once the clip is spoken, a line is added to CLIPS_JSONL with its folder,
 the clip's number, the text the LLM gave for it and the text spoken, its words, how long the
-speech is and how much silence it starts and ends with (measured as R127 measures when the voice
-is heard). The API doesn't give a clip's text, and the speech is removed once its video is made,
-so long_reply.py reads them from here.
+speech is and how much silence it starts and ends with (where the voice is heard measured by
+the app's `mouth_sync.heard`, as R127 measured it). The API doesn't give a clip's text, and the
+speech is removed once its video is made, so long_reply.py reads them from here.
 """
 
 import json
@@ -21,30 +21,22 @@ from typing import Any
 
 import numpy as np
 
-WINDOW_S = 0.005  # loudness is measured in windows this long (as in R127)
-HEARD_DB = -35.0  # quieter than this below the clip's loud level is silence (as in R127)
+from imageskin.mouth_sync import WINDOW_S, heard
 
 
 def silences(path: Path) -> tuple[float, float, float]:
     """The WAV's length, and the silence before the voice is first heard and after it is last
-    heard, in seconds."""
+    heard, in seconds, with the app's own measure of where the voice is heard (R127, R128's
+    `mouth_sync.heard`)."""
     with wave.open(str(path), "rb") as w:
         rate = w.getframerate()
-        samples = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float64)
+        samples = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2") / 32768.0
     seconds = len(samples) / rate
-    size = max(1, int(rate * WINDOW_S))
-    n = len(samples) // size
-    if n == 0:
+    windows = np.flatnonzero(heard(samples, rate))
+    if len(windows) == 0:
         return seconds, seconds, 0.0
-    rms = np.sqrt(np.mean(samples[: n * size].reshape(n, size) ** 2, axis=1))
-    loud = float(np.percentile(rms, 95))
-    if loud <= 0:
-        return seconds, seconds, 0.0
-    heard = np.flatnonzero(20 * np.log10(np.maximum(rms, 1e-9) / loud) > HEARD_DB)
-    if len(heard) == 0:
-        return seconds, seconds, 0.0
-    lead = float(heard[0] * WINDOW_S)
-    trail = max(0.0, seconds - float((heard[-1] + 1) * WINDOW_S))
+    lead = float(windows[0] * WINDOW_S)
+    trail = max(0.0, seconds - float((windows[-1] + 1) * WINDOW_S))
     return seconds, lead, trail
 
 

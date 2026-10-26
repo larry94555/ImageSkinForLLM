@@ -94,12 +94,30 @@ def ms_or_none(seconds: float | None) -> int | None:
     return None if seconds is None else round(seconds * 1000)
 
 
+class Misaligned(ValueError):
+    """The noted lines don't match the reply's clips one for one."""
+
+
+def aligned(summary: dict[str, Any], noted: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The noted lines of the summary's reply (any other reply's left out), checked to be its
+    clips' lines, clip for clip. Raises Misaligned if a clip has no line, a line no clip, or
+    they are in another order, so no clip is ever joined with another clip's words."""
+    reply = summary.get("reply_id")
+    mine = [r for r in noted if not reply or r.get("reply") == reply]
+    clips = [c["clip"] for c in summary["clips"]]
+    lines = [r.get("n") for r in mine]
+    if lines != clips:
+        raise Misaligned(f"clips {clips}, noted lines {lines}")
+    return mine
+
+
 def analyze(summary: dict[str, Any], noted: list[dict[str, Any]]) -> dict[str, Any]:
-    """One reply's clips from `time_reply.summarize`, joined in order with their lines from
-    serve_logged.py, and the reply's rates."""
+    """One reply's clips from `time_reply.summarize`, joined with their lines from
+    serve_logged.py (checked by `aligned`), and the reply's rates."""
+    noted = aligned(summary, noted)
     clips = []
     previous: dict[str, Any] | None = None
-    for row, note in zip(summary["clips"], noted, strict=False):
+    for row, note in zip(summary["clips"], noted, strict=True):
         seconds = row["seconds"]
         end_ms = (
             None if row["plays_ms"] is None or seconds is None else row["plays_ms"] + seconds * 1000
@@ -508,12 +526,14 @@ def run(
     for prompt in prompts:
         summary = time_reply.summarize(time_reply.measure(base, prompt))
         noted, offset = new_lines(noted_path, offset)
-        if len(noted) != len(summary["clips"]):
-            logger.warning(
-                "Clips and noted lines differ",
-                extra={"clips": len(summary["clips"]), "noted": len(noted)},
-            )
-        result = analyze(summary, noted)
+        try:
+            result = analyze(summary, noted)
+        except Misaligned as e:
+            # A missing or extra line would put every later clip's words and silence on the
+            # wrong clip, so nothing is written from it.
+            logger.error("Clips and noted lines differ; stopping", extra={"error": str(e)})
+            print(f"The clips and the lines serve_logged.py noted differ ({e}); nothing written.")
+            return 1
         logger.info(
             "Long reply measured",
             extra={
