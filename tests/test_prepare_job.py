@@ -153,7 +153,8 @@ def test_reports_progress_and_time_left_while_it_runs(tmp_path: Path) -> None:
     loop = next(s for s in (status.steps or []) if s.key == "loop")
     assert (loop.done, loop.total) == (52, 200) and loop.left_s is not None
     assert loop.seconds is None
-    assert 0 < status.percent < 100
+    # The steps so far took no time, and the percentage is the time so far against the whole.
+    assert status.left_s is not None and 0 <= status.percent < 100
     release.set()
     job.wait(5)
     assert job.status().state == "done"

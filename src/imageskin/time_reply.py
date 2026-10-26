@@ -57,6 +57,7 @@ class Measured:
 
     prompt: str
     spoken: bool
+    reply_id: str = ""  # the reply's clips are in the app's clips-<reply_id> folder
     sent_at: float = 0.0
     answered_at: float | None = None
     status: int | None = None
@@ -141,7 +142,7 @@ def measure(base: str, prompt: str, spoken: bool = False, stop: bool = False) ->
     """Send the prompt and follow its clips until the reply is done. With `stop`, Stop is
     pressed as soon as the first clip is listed."""
     reply_id = uuid.uuid4().hex
-    measured = Measured(prompt, spoken)
+    measured = Measured(prompt, spoken, reply_id)
     body = {"prompt": prompt, "reply_id": reply_id, "spoken": spoken}
 
     def send() -> None:
@@ -297,6 +298,7 @@ def summarize(m: Measured) -> dict[str, Any]:
     llm = times.get("llm") or {}
     return {
         "prompt": m.prompt,
+        "reply_id": m.reply_id,
         "spoken": m.spoken,
         "status": m.status,
         "error": m.error,
