@@ -233,6 +233,8 @@ Added by Larry on 2026-10-25, to build right after the speed-ups (Milestone 10b)
 
 119. **Example questions answered at once.** The example questions under the prompt box (item 53) are the same until the PDFs change, so once one has been answered and its video made, the reply and its video are kept, and picking it again plays them at once, with no wait for the LLM or the video (Larry, 2026-10-26). A kept reply is used only for the same person, voice, prepare and wiki, and whether general prompts are allowed; after any of them changes, it is made again the next time and kept in its place. Delete my data removes them.
 
+120. **Answers from the PDFs start sooner.** The "Thinking…" before an answer from the PDFs is as short as the LLM allows (Larry, 2026-10-26): no question waits for the conversation to be summarized, the LLM doesn't read the same instructions again with every question, and a typed question is read ahead while it is typed. Nothing changes in what the user sees but the speed, and every answer is as good as before.
+
 ## Setup wizard
 
 Added by Larry on 2026-10-25, to build right after items 106 and 107, before the customers' sites (items 61 to 66). A first-time user who wants to use their own photo and voice is walked through setup one step at a time, and can take the photo and make the recordings in the browser, without other apps or files.
