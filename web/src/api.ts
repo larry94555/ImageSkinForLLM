@@ -990,3 +990,36 @@ export async function useChatGptAccount(account: string): Promise<ChatGptStatus>
 export async function signOutChatGpt(): Promise<ChatGptStatus> {
   return json<ChatGptStatus>(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
 }
+
+// Signing in as the administrator (roadmap R149, R150). The password is set in a file on the
+// computer, never in the app; `ended` says once why a sign-in ended by itself.
+export interface AdminSession {
+  signed_in: boolean;
+  password_set: boolean;
+  timeout_minutes: number;
+  ended: "inactive" | "password changed" | null;
+}
+
+export async function getAdminSession(): Promise<AdminSession> {
+  return json<AdminSession>(await fetch("/api/admin/session"));
+}
+
+// Throws a ServerRefusal with the reason (a wrong password, none set, or wait) when refused.
+export async function signInAsAdmin(password: string): Promise<void> {
+  const response = await fetch("/api/admin/sign-in", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+
+export async function signOutAsAdmin(): Promise<void> {
+  await json<unknown>(await fetch("/api/admin/sign-out", { method: "POST" }));
+}
+
+// A click or key press in the admin view or on the Settings page; false once signed out.
+export async function adminActivity(): Promise<boolean> {
+  const response = await fetch("/api/admin/activity", { method: "POST" });
+  return response.ok;
+}

@@ -14,6 +14,7 @@ export type Page =
   | "wiki"
   | "wiki-page"
   | "settings"
+  | "admin"
   | "not-found";
 
 const PAGES: Record<string, Page> = {
@@ -28,6 +29,7 @@ const PAGES: Record<string, Page> = {
   "/guide": "guide",
   "/wiki": "wiki",
   "/settings": "settings", // in both views, so a participant view can be switched back (R27)
+  "/admin": "admin", // the admin view (R150), apart from the host and participant views
 };
 
 // The wiki's addresses (roadmap R37b): #/wiki/<PDF id> is one PDF's table of contents, and

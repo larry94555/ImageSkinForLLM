@@ -6,6 +6,7 @@ import type { ComponentChildren } from "preact";
 import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
+import { AdminSection } from "./admin";
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
 import { ChangeSetup } from "./change-setup";
 import { ChatGptPlanSection } from "./chatgpt-plan";
@@ -221,6 +222,8 @@ export function SettingsPage({
       <VideoAndChat />
       {/* The photos and recordings are the host's (R41b), so only they can delete them. */}
       {settings.view === "host" && <DeleteData onDeleted={onDataDeleted} />}
+      {/* In either view: the admin view is apart from both (R150). */}
+      <AdminSection />
       <p>
         <a className="button" href={back}>
           Return to the app
