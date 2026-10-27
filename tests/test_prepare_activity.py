@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -373,11 +374,14 @@ def test_a_step_carried_on_after_a_restart_saves_its_whole_time(tmp_path: Path) 
     """Codex's review on PR #177: 80% of the clips were there before a restart and the last 20%
     took 30 s, so the next prepare, which makes them all again, should expect 150 s, not 30."""
     job = running_job(tmp_path, {"clips": 400.0})
-    job._progress("clips", 80, 100)  # what was on disk when it carried on
-    # 30 s ago, set on the job rather than by patching the clock every thread shares.
-    started, done_at_start = job._clock["clips"]
-    job._clock["clips"] = (started - 30, done_at_start)
-    job._progress("clips", 100, 100)
+    # A clock of the job's own that only moves when the test says: the time module every
+    # thread shares stays as it is, and saving prepare.json takes no time on it.
+    now = [1000.0]
+    clock = SimpleNamespace(perf_counter=lambda: now[0])
+    with patch("imageskin.prepare_job.time", clock):
+        job._progress("clips", 80, 100)  # what was on disk when it carried on
+        now[0] += 30
+        job._progress("clips", 100, 100)
     assert (job.status().times or {})["clips"] == 150.0
 
 
