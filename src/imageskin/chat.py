@@ -1081,7 +1081,7 @@ class Conversation:
         lookup or it failed (then the prompt is answered, never declined)."""
         if self._find is None:
             return None
-        thinking.stage("Looking through your documents")
+        thinking.stage("Looking through the course material")
         start = time.perf_counter()
         try:
             found = self._find(prompt)
@@ -1105,7 +1105,7 @@ class Conversation:
         """Answer "What can you talk about?" from the topics, without asking the LLM (R41f).
         It is sent to the LLM with later prompts, and the topics named and the one suggested are
         kept, so "Tell me about the first one" and "that one" work."""
-        thinking.stage("Listing the topics")
+        thinking.stage("Listing what we can talk about")
         topics = self._list_topics()
         suggested = random.choice(topics) if topics else None
         content_only = self._content_only()
@@ -1234,7 +1234,7 @@ class Conversation:
                 if on_sentence is not None:
                     on_sentence(None)
             pieces.append(piece)
-            thinking.stage(thinking.WRITING)
+            thinking.stage(thinking.WRITING, thinking.Part(count + 1))  # the sentence it is on
             ready(splitter.feed(piece))
         note_now("last_token_at")
         ready(splitter.flush())
@@ -1252,7 +1252,7 @@ class Conversation:
         """Wait for a summary being made, if any."""
         if self._summarizer is not None:
             if self._summarizer.is_alive():
-                thinking.stage("Remembering our conversation")
+                thinking.stage("Remembering what we talked about")
             self._summarizer.join()
 
     def _summarize(self, budget: int) -> None:

@@ -474,6 +474,8 @@ def create_app(
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     app.state.startup = startup
     data_home = home or default_home()
+    # How long thinking's stages took, to count the parts of a long one next time (R134c).
+    thinking.remember_in(data_home / "thinking_times.json")
     # First, before any thread starts, so every later thread inherits the pin (R22g).
     performance_cores = use_performance_cores()
     # The built browser files are committed unminified so they stay readable; compressing
@@ -1625,7 +1627,7 @@ def create_app(
         try:
             times.waited_warm_up_ms = wait_for_warm_up()
             asked = time.perf_counter()
-            thinking.stage("Finishing the last answer")
+            thinking.stage("Finishing my last answer")
             # One LLM answers the whole prompt, even if it is changed meanwhile (review on
             # PR #115).
             with chat_lock, pinned(client), llm_busy():
@@ -1634,6 +1636,7 @@ def create_app(
                 token = ask_stop.set(stop)  # the LLM is cut off on Stop
                 try:
                     answer = chat(body, stop)
+                    thought.done()  # how long its last stage took, for the next one's parts
                 finally:
                     ask_stop.reset(token)
             times.answered_at = time.perf_counter()
@@ -1679,7 +1682,8 @@ def create_app(
         start = time.perf_counter()
         # A prompt waiting says which of the warm-up's steps it is waiting for (R134c).
         while thread.is_alive():
-            thinking.stage(thinking.ready_step())
+            step = thinking.ready_step()
+            thinking.stage(step.name, step.part, step.since)
             thread.join(0.5)
         waited = ms_since(start)
         logger.info(f"{what} waited for the warm-up", extra={"wait_ms": waited})
@@ -1779,7 +1783,7 @@ def create_app(
         """An example question's reply: the one kept, said at once, or the LLM's, kept once its
         clips are all rendered."""
         start = time.perf_counter()
-        thinking.stage("Finding the answer from before")
+        thinking.stage("Remembering how I answered before")
         kept = topic_replies.get(prompt, context)
         if kept is None:
             epoch = topic_replies.epoch  # not kept if the conversation is cleared meanwhile
@@ -1826,7 +1830,7 @@ def create_app(
                 # Checked and the summary waited for before the correction asks the LLM, as
                 # for a lesson, quiz or assessment (review on PR #91).
                 conversation.check(body.prompt)
-                thinking.stage("Checking what you said")
+                thinking.stage("Making sure I heard you right")
                 meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
                 body = body.model_copy(update={"prompt": meant})
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())
@@ -1849,15 +1853,15 @@ def create_app(
                 conversation.check(body.prompt)  # before any of them asks the LLM
             assessed = None
             if settings.assessment:
-                thinking.stage("Following the assessment")
+                thinking.stage("Following your assessment")
                 assessed = assessor.step(body.prompt, assessment)
             asking = None
             if assessed is None and settings.quiz_me:
-                thinking.stage("Following the quiz")
+                thinking.stage("Following your quiz")
                 asking = quizzer.step(body.prompt, quiz)
             step = None
             if asking is None and settings.teach_me:
-                thinking.stage("Following the lesson")
+                thinking.stage("Following our lesson")
                 step = tutor.step(body.prompt, lesson)
             choices: list[Choice] = []
             if assessed is not None:
@@ -2044,6 +2048,7 @@ def create_app(
             if llm.is_alive():
                 thinking.getting_ready(thinking.INSTRUCTIONS)
             llm.join()
+            thinking.warm_up_ended()
         return photo
 
     # Whether a warm-up worker still has work to do, and whether one was asked for meanwhile:

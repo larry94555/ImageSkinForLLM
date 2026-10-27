@@ -8,13 +8,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from imageskin import thinking
 from imageskin.app import create_app
 from imageskin.chat import Conversation, Message, Turn, load_saved
 from imageskin.review import Review
-from imageskin.thinking import PHRASE_S, PHRASES, STARTING, WRITING, Thinking, phrase
+from imageskin.thinking import PARTS, PHRASE_S, PHRASES, STARTING, WRITING, Part, Thinking, say
 from imageskin.uploads import PhotoResult
 
 
@@ -25,9 +26,18 @@ class Recorded(Thinking):
         super().__init__()
         self.seen: list[str] = []
 
-    def stage(self, name: str) -> None:
+    def stage(self, name: str, since: float | None = None, part: Part | None = None) -> None:
         self.seen.append(name)
-        super().stage(name)
+        super().stage(name, since, part)
+
+
+@pytest.fixture(autouse=True)
+def fresh_times(tmp_path: Path) -> Iterator[None]:
+    """Each test starts knowing no stage's usual time, and the warm-up at its start."""
+    thinking.remember_in(tmp_path / "thinking_times.json")
+    yield
+    thinking.getting_ready(thinking.GETTING_READY)
+    thinking.warm_up_ended()
 
 
 @contextmanager
@@ -74,7 +84,7 @@ def test_a_reply_from_the_pdfs_goes_through_each_stage_and_keeps_its_time() -> N
     thought = Recorded()
     with following(thought):
         reply, turn = conversation.send("Why is the sky blue?")
-    assert thought.seen[:2] == ["Looking through your documents", "Thinking about the answer"]
+    assert thought.seen[:2] == ["Looking through the course material", "Thinking about the answer"]
     assert set(thought.seen[2:]) == {WRITING}
     # Plain words for anyone: no numbers and no technical terms (Larry, testing PR #179).
     assert not any(c.isdigit() for c in "".join(thought.seen))
@@ -92,7 +102,7 @@ def test_a_prompt_waiting_for_the_summary_says_so() -> None:
     threading.Timer(0.05, release.set).start()
     with following(thought):
         conversation.send("Hi")
-    assert thought.seen[0] == "Remembering our conversation"
+    assert thought.seen[0] == "Remembering what we talked about"
 
 
 def test_the_topics_reply_says_it_lists_them() -> None:
@@ -100,7 +110,7 @@ def test_the_topics_reply_says_it_lists_them() -> None:
     thought = Recorded()
     with following(thought):
         conversation.send("What topics can you talk about?")
-    assert "Listing the topics" in thought.seen
+    assert "Listing what we can talk about" in thought.seen
 
 
 def test_the_time_is_saved_and_read_back(tmp_path: Path) -> None:
@@ -168,45 +178,103 @@ def test_the_api_says_what_a_prompt_is_thinking_about(tmp_path: Path) -> None:
     assert client.get("/api/chat/thinking/not-an-id").status_code == 422
 
 
-def test_a_long_stage_says_something_new_every_few_seconds() -> None:
-    """Never the same words for more than 10 seconds (Larry, testing PR #179)."""
+def test_a_long_stage_shows_progress_and_never_says_the_same_twice() -> None:
+    """Never the same words for more than 10 seconds, and never the same words again: a stage
+    that goes on counts its parts (Larry, testing PR #179)."""
     assert 5 <= PHRASE_S <= 10
-    said = [phrase(thinking.ANSWERING, PHRASE_S * n + 1) for n in range(20)]
-    assert said[:3] == ["Reading your question", "Reading what I found", thinking.ANSWERING]
-    # It changes at every step, even later on.
-    assert all(a != b for a, b in zip(said, said[1:], strict=False))
-    assert "Reading your question" not in said[6:]  # once is enough for the first one
-    assert phrase("Listing the topics", 60) == "Listing the topics"  # a quick step keeps its name
+    said = [say(thinking.ANSWERING, PHRASE_S * n + 1) for n in range(20)]
+    assert said[:3] == ["Reading your question", thinking.ANSWERING, "Planning how to explain it"]
+    assert said[3] == "Planning how to explain it, part 4"
+    assert len(set(said)) == len(said)
+    assert say("Listing what we can talk about", 60) == "Listing what we can talk about"
     for phrases in PHRASES.values():
+        assert len(set(phrases)) == len(phrases)
         for words in phrases:
             assert not any(c.isdigit() for c in words) and len(words.split()) <= 6
+            assert not any(w in words.lower() for w in ("voice", "video", "load", "llm", "token"))
 
 
-def test_the_phrase_follows_the_stages_time(monkeypatch: object) -> None:
+def test_the_parts_are_counted_out_of_how_long_it_took_last_time(tmp_path: Path) -> None:
+    times = tmp_path / "thinking_times.json"
     thought = Thinking()
-    thought.stage(WRITING)
+    thought.stage(thinking.ANSWERING)
+    thought._stage = (thinking.ANSWERING, thought._stage[1] - 40, None)
+    thought.stage(WRITING)  # it took 40 seconds: five parts of 8
+    assert json.loads(times.read_text(encoding="utf-8")) == {thinking.ANSWERING: 40.0}
+    thinking.remember_in(times)  # read back, as at the next start
+    assert thinking.usual(thinking.ANSWERING) == 40.0
+    planning = "Planning how to explain it"
+    assert say(thinking.ANSWERING, PHRASE_S * 3 + 1) == f"{planning}, part 4 of about 5"
+    assert say(thinking.ANSWERING, PHRASE_S * 5 + 1) == (
+        "Planning how to explain it, part 6, longer than last time"
+    )
+    thought.stage(STARTING)  # a stage over in a moment isn't remembered
+    assert thinking.usual(WRITING) is None
+    thought.done()
+    assert thinking.usual(STARTING) is None
+
+
+def test_counted_work_says_its_part_all_along() -> None:
+    assert say(WRITING, 1, Part(3)) == "Writing my answer, part 3"
+    assert say(thinking.FACE, 1, Part(1, 300)) == f"{thinking.FACE}, part 1 of {PARTS}"
+    assert say(thinking.FACE, 30, Part(150, 300)) == f"Getting comfortable, part 5 of {PARTS}"
+    assert say(thinking.FACE, 90, Part(300, 300)) == f"Getting comfortable, part {PARTS} of {PARTS}"
+
+
+def test_saved_times_that_are_not_numbers_are_left_out(tmp_path: Path) -> None:
+    times = tmp_path / "thinking_times.json"
+    times.write_text(json.dumps({"a": 9, "b": True, "c": "9", "d": -1}), encoding="utf-8")
+    thinking.remember_in(times)
+    assert [thinking.usual(k) for k in "abcd"] == [9.0, None, None, None]
+    times.write_text("not json", encoding="utf-8")
+    thinking.remember_in(times)
+    assert thinking.usual("a") is None
+    times.write_text("[]", encoding="utf-8")
+    thinking.remember_in(times)
+    assert thinking.usual("a") is None
+
+
+def test_times_that_cant_be_kept_are_logged(tmp_path: Path) -> None:
+    (tmp_path / "file").write_text("", encoding="utf-8")
+    thinking.remember_in(tmp_path / "file" / "thinking_times.json")  # under a file: can't
+    with patch.object(thinking.logger, "warning") as warned:
+        thinking._took(thinking.ANSWERING, 20)
+    assert warned.call_args.args[0] == "Could not keep how long thinking took"
+    assert thinking.usual(thinking.ANSWERING) == 20  # still known until the next start
+    with patch.object(thinking.logger, "warning") as warned:
+        thinking.remember_in(tmp_path)  # a folder: can't be read
+    assert warned.call_args.args[0] == "Could not read how long thinking took"
+
+
+def test_the_phrase_follows_the_stages_time() -> None:
+    thought = Thinking()
+    thought.stage(thinking.ANSWERING)
     started = thought._stage[1]
     with patch("imageskin.thinking.time.perf_counter", return_value=started + PHRASE_S + 1):
-        assert thought.now()["stage"] == "Choosing the words"
+        assert thought.now()["stage"] == thinking.ANSWERING
 
 
 def test_a_prompt_waiting_for_the_warm_up_says_its_steps(tmp_path: Path) -> None:
     """Larry saw "Getting ready" for 154 seconds: that was the replies' warm-up after a start.
-    A prompt waiting for it now says each of its steps."""
-    steps: list[str] = []
+    A prompt waiting for it now says each of its steps, and how far the counted ones have come."""
+    said: list[str] = []
     go = threading.Event()
 
     def warm_up() -> None:
         for step in (thinking.WAKING_VOICE, thinking.FIRST_WORD, thinking.FACE):
             thinking.getting_ready(step)
+            if step == thinking.FACE:
+                thinking.ready_part(30, 100)
             go.wait(5)
             go.clear()
+        thinking.warm_up_ended()
 
     class Seen(Thinking):
-        def stage(self, name: str) -> None:
-            if not steps or steps[-1] != name:
-                steps.append(name)
-            super().stage(name)
+        def stage(self, name: str, since: float | None = None, part: Part | None = None) -> None:
+            super().stage(name, since, part)
+            words = self.now()["stage"]
+            if not said or said[-1] != words:
+                said.append(words)
 
     client = TestClient(
         create_app(
@@ -235,6 +303,36 @@ def test_a_prompt_waiting_for_the_warm_up_says_its_steps(tmp_path: Path) -> None
             reply = client.post("/api/chat", json={"prompt": "Hi", "reply_id": "cd" * 16})
     stepping.join()
     assert reply.json()["content"] == "Hello"
-    assert steps[:3] == [thinking.WAKING_VOICE, thinking.FIRST_WORD, thinking.FACE]
-    assert thinking.ready_step() == thinking.FACE
-    thinking.getting_ready(thinking.GETTING_READY)
+    assert said[:3] == [
+        thinking.WAKING_VOICE,
+        thinking.FIRST_WORD,
+        f"{thinking.FACE}, part 3 of 10",
+    ]
+    assert thinking.ready_step().name == thinking.FACE
+
+
+def test_the_same_work_for_a_reply_says_nothing_to_the_warm_up() -> None:
+    thinking.getting_ready(thinking.FACE)
+    elsewhere = threading.Thread(target=lambda: thinking.ready_part(5, 10))
+    elsewhere.start()
+    elsewhere.join()
+    assert thinking.ready_step().part is None
+    thinking.ready_part(5, 10)
+    assert thinking.ready_step().part == Part(5, 10)
+
+
+def test_the_warm_up_remembers_how_long_its_steps_took() -> None:
+    thinking.getting_ready(thinking.WAKING_VOICE)
+    thinking._ready[0] = thinking._ready[0]._replace(since=time.perf_counter() - 30)
+    thinking.getting_ready(thinking.FIRST_WORD)
+    assert thinking.usual(thinking.WAKING_VOICE) == pytest.approx(30, abs=1)
+    thinking._ready[0] = thinking._ready[0]._replace(since=time.perf_counter() - 12)
+    thinking.warm_up_ended()
+    assert thinking.usual(thinking.FIRST_WORD) == pytest.approx(12, abs=1)
+    thinking.getting_ready(thinking.FACE)  # a warm-up that ended doesn't time the next start
+    assert thinking.usual(thinking.FIRST_WORD) == pytest.approx(12, abs=1)
+    # A prompt that waited for a step doesn't time it too.
+    thought = Thinking()
+    thought.stage(thinking.FACE, since=time.perf_counter() - 50)
+    thought.stage(thinking.ANSWERING)
+    assert thinking.usual(thinking.FACE) is None
