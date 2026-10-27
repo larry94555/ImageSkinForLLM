@@ -15,6 +15,7 @@ from typing import Any
 
 import psutil
 
+from imageskin.llm_model_file import LlmModelFile
 from imageskin.network import FREE_OUTBOUND, NetworkMonth
 
 logger = logging.getLogger(__name__)
@@ -109,11 +110,16 @@ class ResourceReader:
     """Reads the resources; the paths are for tests."""
 
     def __init__(
-        self, data_home: Path, cgroup: Path = CGROUP, network: NetworkMonth | None = None
+        self,
+        data_home: Path,
+        cgroup: Path = CGROUP,
+        network: NetworkMonth | None = None,
+        llm_model: LlmModelFile | None = None,
     ) -> None:
         self.data_home = data_home
         self.cgroup = cgroup
         self.network_month = network
+        self.llm_model = llm_model
         self._errors_logged: set[str] = set()
 
     def read(self, thresholds: Thresholds = RECOMMENDED) -> dict[str, Any]:
@@ -188,14 +194,29 @@ class ResourceReader:
     def disk(self, thresholds: Thresholds) -> Resource:
         """The disk the app's data is on; the free tier's 200 GB is for every disk together."""
         total = used = None
+        details: dict[str, Any] = {"path": str(self.data_home)}
         try:
-            usage = shutil.disk_usage(self.data_home if self.data_home.exists() else Path.home())
+            on = self.data_home if self.data_home.exists() else Path.home()
+            usage = shutil.disk_usage(on)
             # Free, not total less used, as the disk keeps some back: what can still be written.
             total, used = float(usage.total), float(usage.total - usage.free)
+            details |= self._used_by(on, used)
         except OSError as e:
             self._failed("disk", e)
-        details = {"path": str(self.data_home)}
         return resource("disk", "bytes", FREE_DISK, total, used, thresholds, details, capped=False)
+
+    def _used_by(self, on: Path, used: float) -> dict[str, Any]:
+        """Used split into the local LLM's model file and Other (R175), which add up to Used,
+        when the model is on this disk."""
+        model = self.llm_model.get() if self.llm_model else None
+        if model is None or model.device != on.stat().st_dev or model.size > used:
+            return {}
+        return {
+            "llm_model": model.name,
+            "llm_bytes": model.size,
+            "llm_location": model.location,
+            "other_bytes": used - model.size,
+        }
 
     def network(self, month: NetworkMonth, thresholds: Thresholds) -> Resource:
         """Sent this month against the free tier's 10 TB; inbound is free, so only shown (R153)."""

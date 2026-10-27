@@ -1015,7 +1015,10 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .resource .big { font-size: 1.6rem; font-weight: 700; }
 .resource dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 12px 0 8px; }
 .resource dt { color: var(--muted); }
-.resource dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.resource dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The disk's Used split into the LLM model and Other (R175), indented under it. */
+.resource .part { padding-left: 12px; font-size: 0.875rem; }
+.resource dt.part { overflow-wrap: anywhere; }
 .resource .small, .colour-key { font-size: 0.875rem; }
 .resource .small { margin: 2px 0 0; }
 .resource .bar { height: 8px; border-radius: 999px; background: var(--sunken); overflow: hidden; margin-top: 10px; }

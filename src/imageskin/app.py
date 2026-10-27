@@ -69,6 +69,7 @@ from imageskin.llm_choice import (
     pinned,
     save_choice,
 )
+from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages
 from imageskin.network import NetworkMonth
 from imageskin.prepare_job import (
@@ -547,7 +548,11 @@ def create_app(
     # The machine's resources for the admin dashboard (R152), for the administrator only.
     # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
     app.state.network_month = NetworkMonth(data_home)
-    resource_reader = ResourceReader(data_home, network=app.state.network_month)
+    # The local LLM's model file, shown as part of the disk's Used (R175).
+    llm_model = LlmModelFile((llm or LlmSettings()).url)
+    resource_reader = ResourceReader(
+        data_home, network=app.state.network_month, llm_model=llm_model
+    )
 
     @app.get("/api/admin/resources", dependencies=[Depends(app.state.require_admin)])
     def get_resources() -> dict[str, Any]:

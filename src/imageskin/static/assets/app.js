@@ -540,12 +540,25 @@ function detailLines(resource) {
 	}, v);
 	if (resource.name === "cpu" && d.load_15 !== void 0) return [`Load over 1, 5 and 15 minutes: ${d.load_1}, ${d.load_5}, ${d.load_15}`];
 	if (resource.name === "memory" && typeof d.app_cap === "number") return [`The app: ${bytes(d.app_used)} of its ${bytes(d.app_cap)} cap`];
+	if (resource.name === "disk" && typeof d.llm_location === "string") return [`The LLM model is at ${d.llm_location}`];
 	if (resource.name === "network" && d.month !== void 0) {
 		const lines = [`Received: ${bytes(d.received)} (inbound is free)`, `Now: ${bytes(d.sent_per_s)}/s out, ${bytes(d.received_per_s)}/s in`];
 		if (typeof d.projected_sent === "number") lines.push(`At this pace, about ${bytes(d.projected_sent)} out by the month's end`);
 		return lines;
 	}
 	return [];
+}
+function usedBy(resource) {
+	const d = resource.details;
+	if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return [];
+	return [[`LLM model ${d.llm_model}`, tenths(d.llm_bytes)], ["Other", tenths(Number(d.other_bytes))]];
+}
+function tenths(bytes) {
+	return `${(bytes / GB).toFixed(1)} GB`;
+}
+function usedShown(resource) {
+	if (usedBy(resource).length === 0) return amount(resource, resource.used);
+	return tenths(Number(resource.details.llm_bytes) + Number(resource.details.other_bytes));
 }
 function Card({ resource, thresholds }) {
 	const known = resource.colour !== "unknown";
@@ -594,7 +607,14 @@ function Card({ resource, thresholds }) {
 				/* @__PURE__ */ u("dt", { children: "Available" }),
 				/* @__PURE__ */ u("dd", { children: amount(resource, resource.available) }),
 				/* @__PURE__ */ u("dt", { children: "Used" }),
-				/* @__PURE__ */ u("dd", { children: amount(resource, resource.used) }),
+				/* @__PURE__ */ u("dd", { children: usedShown(resource) }),
+				usedBy(resource).map(([label, value]) => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("dt", {
+					className: "part",
+					children: label
+				}), /* @__PURE__ */ u("dd", {
+					className: "part",
+					children: value
+				})] }, label)),
 				/* @__PURE__ */ u("dt", { children: "Remaining" }),
 				/* @__PURE__ */ u("dd", { children: amount(resource, resource.remaining) })
 			] }),

@@ -3,6 +3,7 @@
 // colour and the colour's name, so it never relies on colour alone. It is read every 10 seconds
 // while open; that is not activity, so it doesn't keep the administrator signed in (R150).
 
+import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { useAdmin } from "./admin";
@@ -89,6 +90,9 @@ function detailLines(resource: Resource): string[] {
   if (resource.name === "memory" && typeof d.app_cap === "number") {
     return [`The app: ${bytes(d.app_used)} of its ${bytes(d.app_cap)} cap`];
   }
+  if (resource.name === "disk" && typeof d.llm_location === "string") {
+    return [`The LLM model is at ${d.llm_location}`];
+  }
   if (resource.name === "network" && d.month !== undefined) {
     const lines = [
       `Received: ${bytes(d.received)} (inbound is free)`,
@@ -100,6 +104,26 @@ function detailLines(resource: Resource): string[] {
     return lines;
   }
   return [];
+}
+
+// The disk's Used split into the local LLM's model file and Other, which add up to it (R175).
+// To a tenth of a GB, so the two parts shown add up to the Used shown.
+function usedBy(resource: Resource): [string, string][] {
+  const d = resource.details;
+  if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return [];
+  return [
+    [`LLM model ${d.llm_model}`, tenths(d.llm_bytes)],
+    ["Other", tenths(Number(d.other_bytes))],
+  ];
+}
+
+function tenths(bytes: number): string {
+  return `${(bytes / GB).toFixed(1)} GB`;
+}
+
+function usedShown(resource: Resource): string {
+  if (usedBy(resource).length === 0) return amount(resource, resource.used);
+  return tenths(Number(resource.details.llm_bytes) + Number(resource.details.other_bytes));
 }
 
 function Card({ resource, thresholds }: { resource: Resource; thresholds: Thresholds }) {
@@ -132,7 +156,13 @@ function Card({ resource, thresholds }: { resource: Resource; thresholds: Thresh
         <dt>Available</dt>
         <dd>{amount(resource, resource.available)}</dd>
         <dt>Used</dt>
-        <dd>{amount(resource, resource.used)}</dd>
+        <dd>{usedShown(resource)}</dd>
+        {usedBy(resource).map(([label, value]) => (
+          <Fragment key={label}>
+            <dt className="part">{label}</dt>
+            <dd className="part">{value}</dd>
+          </Fragment>
+        ))}
         <dt>Remaining</dt>
         <dd>{amount(resource, resource.remaining)}</dd>
       </dl>

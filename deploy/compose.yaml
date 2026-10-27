@@ -19,6 +19,9 @@ services:
       # A Hugging Face read token, for Pocket TTS's weights that clone a voice (R160, README.md
       # here, step 6e). Without one, the person's own voice is spoken with Chatterbox, slower.
       HF_TOKEN: ${HF_TOKEN:-}
+      # Where the LLM's models folder (/models below) is on the machine itself, for the admin
+      # dashboard's disk (R175): Docker keeps the llama-models volume there.
+      IMAGESKIN_LLM_MODELS_ON_HOST: /models:/var/lib/docker/volumes/imageskin_llama-models/_data
     volumes:
       - imageskin-data:/data
       - ./config.toml:/etc/imageskin/config.toml:ro
@@ -28,6 +31,9 @@ services:
       # The machine's own network card for the admin dashboard's monthly use (R153): in here the
       # card is the container's, so the host's /proc is read, at /host/proc/1/net/dev.
       - /proc:/host/proc:ro
+      # The LLM's models, read only, at the path llama-server gives, so the dashboard can show the
+      # model's size as part of the disk's Used (R175).
+      - llama-models:/models:ro
     # Not published on any port: only Caddy reaches it, with the password. Sign in with ChatGPT is done on the
     # laptop and imported (README.md here, step 8).
 
