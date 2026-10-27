@@ -44,6 +44,31 @@ def installed() -> bool:
     return importlib.util.find_spec("pocket_tts") is not None
 
 
+def signed_in() -> bool:
+    """Whether a Hugging Face token is set up (HF_TOKEN, or `hf auth login`), which the weights
+    that clone a voice need. Without one, the app speaks with Chatterbox instead of failing
+    Prepare, as on a hosted site (R160) whose deploy/.env has no HF_TOKEN yet."""
+    try:
+        from huggingface_hub import get_token
+    except ImportError:
+        return False
+    return get_token() is not None
+
+
+def usable() -> bool:
+    """Whether Pocket TTS speaks: installed, and signed in to Hugging Face. When installed but
+    not signed in, says so in the log."""
+    if not installed():
+        return False
+    if signed_in():
+        return True
+    logger.warning(
+        "Pocket TTS is installed but not signed in to Hugging Face; speaking with Chatterbox",
+        extra={"terms": TERMS_URL},
+    )
+    return False
+
+
 def check_installed() -> None:
     missing = [name for name in REQUIRED if importlib.util.find_spec(name) is None]
     if missing:

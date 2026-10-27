@@ -391,6 +391,24 @@ def test_clips_speak_in_the_cloned_voice_when_chatterbox_is_installed(
     assert "the person's own voice, cloned with Chatterbox Turbo" in caplog.text
 
 
+def test_pocket_tts_not_signed_in_speaks_with_chatterbox(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R160: the hosted site's image has Pocket TTS, but its gated weights need a Hugging Face
+    token. A site with none yet speaks with Chatterbox, as before, rather than failing Prepare."""
+    sample = tmp_path / "voice-sample.wav"
+    with (
+        caplog.at_level(logging.INFO),
+        patch("imageskin.chatterbox_engine.check_installed"),
+        patch("imageskin.pocket_engine.installed", return_value=True),
+        patch("imageskin.pocket_engine.signed_in", return_value=False),
+    ):
+        _, engine, _, kind = clip_voice(sample, lambda: "own", MagicMock())
+    assert isinstance(engine, AccentEngine) and kind == "clone"
+    assert engine._clone.name == "Chatterbox Turbo"
+    assert "installed but not signed in to Hugging Face; speaking with Chatterbox" in caplog.text
+
+
 def test_clips_speak_in_pocket_tts_when_it_is_installed_too(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -401,6 +419,7 @@ def test_clips_speak_in_pocket_tts_when_it_is_installed_too(
         caplog.at_level(logging.INFO),
         patch("imageskin.chatterbox_engine.check_installed"),
         patch("imageskin.pocket_engine.installed", return_value=True),
+        patch("imageskin.pocket_engine.signed_in", return_value=True),
         patch.object(ChatterboxEngine, "learn_voice") as learn,
     ):
         step, engine, voice, kind = clip_voice(sample, lambda: "own", MagicMock())

@@ -201,6 +201,47 @@ a little off; its gaps, rates heard and times to make are measured the same way 
    "Don't run every day, especially when"): Gemma's reply
    hit the reply's token limit. That is a separate issue from the pauses.
 
+## After R130: cloud session, 2026-10-27
+
+R130 made the fixes below, then the same three replies were measured on one 4-core cloud machine,
+first on main (#192) and then with R130, with the setup samples' photo prepared and Kokoro's
+af_heart (Chatterbox isn't installed here). Both runs used fake_llm.py at Gemma's cloud pace, in
+one app started fresh, so reply 1 waited for the replies' warm-up and was the first reply R130's
+hold could learn from. Full tables: [main](results/long-reply-cloud-kokoro-main-2026-10-27.md)
+and [R130](results/long-reply-cloud-kokoro-r130-2026-10-27.md), with the JSON beside them.
+
+| Run | Reply | Words | Clips | First word heard | Rate heard | Speech rate | Gaps > 300 ms (total) | Pauses heard > 0.3 s | Of them mid-sentence | Silence at joins |
+|---|---|---|---|---|---|---|---|---|---|---|
+| main | 1 | 152 | 18 | 16.5 s | 140 | 189 | 1 (2.2 s) | 17 | 10 | 13.2 s |
+| main | 2 | 220 | 17 | 4.8 s | 174 | 221 | 3 (2.2 s) | 16 | 5 | 12.6 s |
+| main | 3 | 261 | 26 | 4.5 s | 160 | 215 | 4 (3.2 s) | 25 | 8 | 19.7 s |
+| R130 | 1 | 152 | 9 | 17.7 s | 122 | 143 | 2 (7.7 s) | 7 | 0 | 2.5 s |
+| R130 | 2 | 220 | 13 | 12.5 s | 159 | 169 | 1 (0.7 s) | 9 | 0 | 3.5 s |
+| R130 | 3 | 261 | 18 | 12.4 s | 155 | 165 | 0 | 13 | 0 | 5.1 s |
+
+![R130, reply 3](results/timeline-cloud-kokoro-r130-reply3-2026-10-27.png)
+
+![main, reply 3](results/timeline-cloud-kokoro-main-reply3-2026-10-27.png)
+
+1. **The voice speaks at 143 to 169 words a minute** (Kokoro at 0.8 of its own pace), against
+   189 to 221 on main, and replies 2 and 3 were heard at 155 to 159 with at most one gap
+   (0.7 s). On main the pace heard swung between 140 and 174.
+2. **Pauses only where the text has them.** No pause fell mid-sentence (main: 5 to 10 a
+   reply), and the silence at the joins fell from 12.6 to 19.7 s a reply to 2.5 to 5.1 s:
+   each clip keeps 50 ms before its voice and 300 ms after a full stop, 120 ms after a comma.
+3. **Fewer, longer clips:** 9 to 18 a reply instead of 17 to 26, as sentences that queue while
+   the voice is busy are spoken together and a waiting voice gets one cut, at a comma.
+4. **The cost is the wait for the first word.** Reply 1 had 7.7 s of gaps where the LLM's text
+   came later than the voice could speak it, so replies 2 and 3 were held back by that much and
+   their first word came at about 12.5 s instead of 4.5 s. They then played through. The hold
+   is the median of the recent replies' gaps, at most 15 s (`pace.MAX_HOLD_S`), so a slow voice
+   such as Chatterbox (gaps of 2 to 4 minutes a reply in R129) starts at most 15 s later and
+   still has gaps; for it the faster voice path is the fix.
+
+The hosted machine's run is the same as [above](#on-the-hosted-machine), on this PR's branch
+(`git checkout r130-steady-pace`); run it twice, as the first reply after a start has no gaps to
+learn from.
+
 ### What R130 should fix
 
 - **Trim each clip's silence to the pause its text calls for**: the silence Kokoro leaves at a

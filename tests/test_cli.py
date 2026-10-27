@@ -268,7 +268,7 @@ def test_the_clone_is_pocket_tts_when_it_is_installed(pocket: bool, name: str) -
     from imageskin.cli import voice_engine
 
     with (
-        patch("imageskin.pocket_engine.installed", return_value=pocket),
+        patch("imageskin.pocket_engine.usable", return_value=pocket),
         patch("imageskin.chatterbox_engine.ChatterboxEngine.check_voice_sample") as check,
     ):
         engine, voice = voice_engine("af_heart", Path("me.wav"))
