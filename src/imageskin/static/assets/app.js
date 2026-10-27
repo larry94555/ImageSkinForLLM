@@ -244,6 +244,13 @@ async function getClips(replyId, known) {
 async function stopReply(replyId) {
 	return (await json(await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" }))).stopped;
 }
+async function repeatReply(replyId) {
+	return json(await fetch("/api/chat/repeat", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ reply_id: replyId })
+	}));
+}
 async function getChatPhoto() {
 	return json(await fetch("/api/chat/photo"));
 }
@@ -3783,6 +3790,41 @@ function Chat(props) {
 			setSpeaking(false);
 		}
 	}
+	async function repeat() {
+		if (busy) return;
+		const replyId = newReplyId();
+		replying.current = replyId;
+		const stopping = new Promise((resolve) => {
+			wakeOnStop.current = () => resolve("stopped");
+		});
+		const at = (turns ?? []).length - 1;
+		console.info("Repeating the latest reply");
+		setHalted(false);
+		setSpeaking(true);
+		setWaiting(true);
+		clipTotal.current = 0;
+		allMade.current = false;
+		clipsEnded.current = 0;
+		setFailed(null);
+		setUnspoken(null);
+		setClips([]);
+		setEarlier((e) => [...e, ...clipWaits(times)]);
+		setTimes([]);
+		setWhole(false);
+		try {
+			if (await Promise.race([repeatReply(replyId), stopping]) === "stopped") return;
+			const count = await Promise.race([followClips(replyId, () => true), stopping]);
+			if (gone.current || count === "stopped") return;
+			allMade.current = true;
+			if (clipsEnded.current >= count) setWaiting(false);
+		} catch (e) {
+			console.error("Could not repeat the reply", e);
+			setUnspoken({ turn: at });
+			setWaiting(false);
+		} finally {
+			setSpeaking(false);
+		}
+	}
 	function stop() {
 		const replyId = replying.current;
 		if (replyId === null) return;
@@ -3867,6 +3909,10 @@ function Chat(props) {
 					turns,
 					from: latestExchange(turns),
 					unspoken
+				}),
+				turns[turns.length - 1]?.role === "assistant" && /* @__PURE__ */ u(ReplyActions, {
+					disabled: busy,
+					onRepeat: () => void repeat()
 				}),
 				/* @__PURE__ */ u("p", {
 					className: "status muted",
@@ -4022,6 +4068,18 @@ function QuizControls(props) {
 				children: "Stop the quiz"
 			})
 		})]
+	});
+}
+function ReplyActions(props) {
+	return /* @__PURE__ */ u("div", {
+		className: "reply-actions",
+		children: /* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: props.disabled,
+			onClick: props.onRepeat,
+			children: "Repeat"
+		})
 	});
 }
 function Choices(props) {

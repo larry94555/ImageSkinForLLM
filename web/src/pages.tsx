@@ -40,6 +40,7 @@ import {
   type PrepareStep,
   type Reply,
   removeUpload,
+  repeatReply,
   type Review,
   review,
   ServerRefusal,
@@ -1703,6 +1704,44 @@ function Chat(props: {
     }
   }
 
+  // Repeat (roadmap R156): the latest reply is said again from its clips, or spoken again from
+  // its text, with no LLM call; the conversation is unchanged. Stop stops it like a reply.
+  async function repeat() {
+    if (busy) return;
+    const replyId = newReplyId();
+    replying.current = replyId;
+    const stopping = new Promise<"stopped">((resolve) => {
+      wakeOnStop.current = () => resolve("stopped");
+    });
+    const at = (turns ?? []).length - 1;
+    console.info("Repeating the latest reply");
+    setHalted(false);
+    setSpeaking(true);
+    setWaiting(true);
+    clipTotal.current = 0;
+    allMade.current = false;
+    clipsEnded.current = 0;
+    setFailed(null);
+    setUnspoken(null);
+    setClips([]);
+    setEarlier((e) => [...e, ...clipWaits(times)]);
+    setTimes([]);
+    setWhole(false);
+    try {
+      if ((await Promise.race([repeatReply(replyId), stopping])) === "stopped") return;
+      const count = await Promise.race([followClips(replyId, () => true), stopping]);
+      if (gone.current || count === "stopped") return;
+      allMade.current = true;
+      if (clipsEnded.current >= count) setWaiting(false); // nothing to say aloud
+    } catch (e) {
+      console.error("Could not repeat the reply", e);
+      setUnspoken({ turn: at });
+      setWaiting(false);
+    } finally {
+      setSpeaking(false);
+    }
+  }
+
   // Stop (roadmap R19): the person stops speaking at once, and the server stops making the
   // reply's clips. A prompt still being answered is stopped too: the LLM is cut off and the
   // prompt goes back in the box (Larry's test of PR #129); a reply already written still shows.
@@ -1789,6 +1828,9 @@ function Chat(props: {
           <p className="muted hint">Ask a question to start the conversation.</p>
         )}
         <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
+        {turns[turns.length - 1]?.role === "assistant" && (
+          <ReplyActions disabled={busy} onRepeat={() => void repeat()} />
+        )}
         <p className="status muted" aria-live="polite">
           {status && <span className="busy">{status}</span>}
         </p>
@@ -1950,6 +1992,22 @@ function QuizControls(props: { quiz: Quiz; disabled: boolean; onAsk: (prompt: st
           Stop the quiz
         </button>
       </div>
+    </div>
+  );
+}
+
+// Under the latest reply: Repeat says it again (R156).
+function ReplyActions(props: { disabled: boolean; onRepeat: () => void }) {
+  return (
+    <div className="reply-actions">
+      <button
+        type="button"
+        className="secondary"
+        disabled={props.disabled}
+        onClick={props.onRepeat}
+      >
+        Repeat
+      </button>
     </div>
   );
 }
