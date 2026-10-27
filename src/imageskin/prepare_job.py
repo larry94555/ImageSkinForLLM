@@ -1120,7 +1120,8 @@ def clip_voice(
     "clone" or "kokoro"): the person's own, cloned from the voice sample with the chosen accent,
     when Chatterbox is installed (see the README); otherwise Kokoro's. With Pocket TTS installed
     too, Pocket speaks, about ten times faster than Chatterbox on 4 cores, so replies can start
-    within 1 to 2 seconds (roadmap R22f), with every accent (see accent_engine)."""
+    within 1 to 2 seconds (roadmap R22f), with every accent (see accent_engine), once signed in
+    to Hugging Face (pocket_engine.usable)."""
     from imageskin import pocket_engine
     from imageskin.chatterbox_engine import ChatterboxEngine, check_installed
 
@@ -1131,7 +1132,7 @@ def clip_voice(
         logger.warning(message, extra={"reason": str(e)})
         kokoro = KokoroEngine()
         return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE, "kokoro"
-    if pocket_engine.installed():
+    if pocket_engine.usable():
         logger.info("Prepare speaks in the person's own voice, cloned with Pocket TTS")
         clone, kind = pocket_engine.pocket_engine(), "pocket"
     else:

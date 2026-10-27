@@ -136,6 +136,17 @@ LOGIN_PASSWORD_HASH='$2a$14$Xb3k9mQ1vL7pR2sT8uW0yOeZ4aB6cD5fG1hJ2kL3mN4oP5qR6sT7
 
 Save with Ctrl+O and Enter, and close with Ctrl+X. `cat .env` shows it to check.
 
+### 6e. A Hugging Face token, for a fast voice
+
+The person's own voice is spoken with Pocket TTS, which keeps up with the video: each clip is made faster than it plays, so a reply has no long pauses. Without it, the app uses Chatterbox, which took 11 to 32 seconds a clip on this machine, so a reply could pause for half a minute between sentences (roadmap R160). Pocket's weights that clone a voice are free, but Hugging Face asks you to accept their terms once:
+
+1. Make a free account at https://huggingface.co/join, or sign in.
+2. Open https://huggingface.co/kyutai/pocket-tts and accept the terms on that page.
+3. Open https://huggingface.co/settings/tokens, click **Create new token**, pick **Read**, give it any name and click **Create token**. Copy it: it starts with `hf_`.
+4. In `.env` (`nano .env`), paste it after `HF_TOKEN=` on that line, such as `HF_TOKEN=hf_AbCd...`, then save and close as above.
+
+The token stays in `.env` on the server, which is never committed. With `HF_TOKEN` left empty, the site still works, with Chatterbox.
+
 ## 7. Start it
 
 ```
@@ -220,6 +231,7 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 |---|---|
 | Update to the latest version | `git pull`, then `docker compose up -d --build` |
 | Change the password | a new hash in `.env`, then `docker compose up -d` |
+| Speak with Pocket TTS on a site set up before it (R160) | step 6e, then `git pull`, `docker compose up -d --build`, and **Prepare** again on the Setup page; the log then says `cloned with Pocket TTS` (`docker compose logs app \| grep "Prepare speaks"`) |
 | Change the app's settings (`config.toml` here) | edit it, then `docker compose restart app` |
 | See the app's log | `docker compose logs -f app` (Ctrl+C stops watching) |
 | Stop the site | `docker compose down` (the data is kept) |

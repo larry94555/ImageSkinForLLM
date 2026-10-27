@@ -1,4 +1,5 @@
 import logging
+import sys
 import wave
 from pathlib import Path
 from unittest.mock import patch
@@ -85,6 +86,25 @@ def test_pocket_load_failures_name_pocket(voice_sample: Path) -> None:
     assert pocket_engine.TERMS_URL in str(e.value) and "hf auth login" in str(e.value)
     # The engine is picked when the server starts, so going back to Chatterbox needs a restart.
     assert "uninstall pocket-tts and restart imageskin serve" in str(e.value)
+
+
+def test_signed_in_is_a_hugging_face_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    with patch("huggingface_hub.get_token", return_value="hf_x"):
+        assert pocket_engine.signed_in()
+    with patch("huggingface_hub.get_token", return_value=None):
+        assert not pocket_engine.signed_in()
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)  # not installed
+    assert not pocket_engine.signed_in()
+
+
+def test_usable_needs_it_installed_and_signed_in() -> None:
+    with patch.object(pocket_engine, "installed", return_value=False):
+        assert not pocket_engine.usable()
+    with (
+        patch.object(pocket_engine, "installed", return_value=True),
+        patch.object(pocket_engine, "signed_in", return_value=True),
+    ):
+        assert pocket_engine.usable()
 
 
 def test_installed_and_check_installed_look_for_the_packages() -> None:
