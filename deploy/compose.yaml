@@ -16,6 +16,9 @@ services:
     environment:
       # Start now downloads the default people from Caddy inside Docker (roadmap R32a).
       IMAGESKIN_DEFAULT_PEOPLE_URL: http://caddy:8090
+      # A Hugging Face read token, for Pocket TTS's weights that clone a voice (R160, README.md
+      # here, step 6e). Without one, the person's own voice is spoken with Chatterbox, slower.
+      HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - imageskin-data:/data
       - ./config.toml:/etc/imageskin/config.toml:ro

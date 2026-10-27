@@ -205,7 +205,8 @@ def test_stop_is_timed_at_the_first_clip(tmp_path: Path) -> None:
     assert code == 0
     [written] = list((tmp_path / "speed").glob("reply-*.json"))
     counted, stopped = json.loads(written.read_text())["results"]
-    assert counted["error"] is None and len(counted["clips"]) == 3
+    # "Two." and "Three." queue while the first clip is made, so they are one clip (R130).
+    assert counted["error"] is None and len(counted["clips"]) == 2
     assert stopped["error"] is None and stopped["stop_answered_ms"] is not None
     assert stopped["stopped_request_finished_after_stop_ms"] is not None
 

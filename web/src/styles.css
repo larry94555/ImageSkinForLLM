@@ -894,6 +894,8 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 .lesson p { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--fg); }
 .lesson-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .lesson-buttons button { min-height: 36px; padding: 4px 14px; font-size: 0.875rem; }
+.reply-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 0; }
+.reply-actions button { min-height: 32px; padding: 4px 12px; font-size: 0.875rem; }
 .hints button.example {
   min-height: 36px;
   padding: 6px 14px;

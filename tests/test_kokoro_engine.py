@@ -9,6 +9,7 @@ import pytest
 
 from imageskin.kokoro_engine import (
     SAMPLE_RATE,
+    SPEED,
     KokoroEngine,
     _load_pipeline,
     chunk_sounds,
@@ -54,7 +55,7 @@ class Result:
 
 
 def fake_pipeline(results: list[Result]) -> Callable[..., Iterable[Any]]:
-    def pipeline(text: str, voice: str) -> Iterable[Any]:
+    def pipeline(text: str, voice: str, speed: float = 1.0) -> Iterable[Any]:
         return iter(results)
 
     return pipeline
@@ -115,7 +116,7 @@ def test_speak_passes_the_models_phoneme_set() -> None:
     class Pipeline:
         model = type("Model", (), {"vocab": {"h": 1}})()
 
-        def __call__(self, text: str, voice: str) -> Iterable[Any]:
+        def __call__(self, text: str, voice: str, speed: float = 1.0) -> Iterable[Any]:
             return iter([Result(Audio(0.1), phonemes="hx", pred_dur=Steps(1, 2, 1))])
 
     sounds = KokoroEngine(lambda: Pipeline()).speak("af_heart", "Hi").sounds
@@ -127,7 +128,7 @@ def test_speak_loads_model_once() -> None:
 
     def load() -> Callable[..., Iterable[Any]]:
         loads.append(1)
-        return lambda text, voice: iter([Result(Audio(0.1), [Token("Hi", 0.0, 0.1)])])
+        return lambda text, voice, speed=1.0: iter([Result(Audio(0.1), [Token("Hi", 0.0, 0.1)])])
 
     engine = KokoroEngine(load)
     assert engine.speak("af_heart", "Hi").words[0].word == "Hi"
@@ -145,7 +146,7 @@ def test_speak_with_no_audio_reports_no_real_time_factor() -> None:
 
 
 def test_model_errors_become_voice_errors() -> None:
-    def pipeline(text: str, voice: str) -> Iterable[Any]:
+    def pipeline(text: str, voice: str, speed: float = 1.0) -> Iterable[Any]:
         raise RuntimeError("voices/zz_nobody.pt not found")
 
     with pytest.raises(VoiceError, match="zz_nobody"):
@@ -194,3 +195,16 @@ def test_kokoro_for_loads_the_language_asked_for() -> None:
     load = kokoro_for("b")._load
     assert isinstance(load, functools.partial) and load.func is _load_pipeline
     assert load.args == ("b",)
+
+
+def test_kokoro_speaks_at_a_steady_pace() -> None:
+    """R130: at its own pace Kokoro outran the LLM once the pauses at the joins were cut."""
+    asked: list[float] = []
+
+    def pipeline(text: str, voice: str, speed: float = 1.0) -> Iterable[Any]:
+        asked.append(speed)
+        return iter([Result(Audio(0.1), [Token("Hi", 0.0, 0.1)])])
+
+    KokoroEngine(lambda: pipeline).speak("af_heart", "Hi")
+    KokoroEngine(lambda: pipeline, speed=1.0).speak("af_heart", "Hi")
+    assert asked == [SPEED, 1.0] and SPEED == 0.8
