@@ -1830,7 +1830,7 @@ var SWITCHES = [{
 		[
 			"show_thinking",
 			"Show what thinking is doing",
-			"While a reply is thought of, what is being done and the time so far; under each reply, how long it took. Off: only “Thinking…” shows."
+			"While a reply is thought of, the time so far and what is being done; under each reply, how long it took. Off: only “Thinking…” shows."
 		],
 		[
 			"show_metrics",
@@ -3987,14 +3987,10 @@ function ThinkingNow({ replyId, since }) {
 		className: "thinking muted",
 		children: [/* @__PURE__ */ u("span", {
 			className: "thinking-time",
-			children: [seconds, " s so far"]
+			children: seconds === 1 ? "1 second" : `${seconds} seconds`
 		}), now && /* @__PURE__ */ u("span", {
 			className: "thinking-stage",
-			children: [
-				now.stage,
-				now.detail ? `: ${now.detail}` : "",
-				now.stage_s >= 2 ? ` (${Math.floor(now.stage_s)} s)` : ""
-			]
+			children: now.stage
 		})]
 	});
 }

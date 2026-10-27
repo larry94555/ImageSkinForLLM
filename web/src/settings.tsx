@@ -106,7 +106,7 @@ const SWITCHES: { group: string; about: string; items: [Switch, string, string][
       [
         "show_thinking",
         "Show what thinking is doing",
-        "While a reply is thought of, what is being done and the time so far; under each " +
+        "While a reply is thought of, the time so far and what is being done; under each " +
           "reply, how long it took. Off: only “Thinking…” shows.",
       ],
       [

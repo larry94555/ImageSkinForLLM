@@ -1625,7 +1625,7 @@ def create_app(
         try:
             times.waited_warm_up_ms = wait_for_warm_up()
             asked = time.perf_counter()
-            thinking.stage("Waiting for the LLM", "It is finishing another request first")
+            thinking.stage("Waiting for the last answer to finish")
             # One LLM answers the whole prompt, even if it is changed meanwhile (review on
             # PR #115).
             with chat_lock, pinned(client), llm_busy():
@@ -1658,9 +1658,9 @@ def create_app(
 
     @app.get("/api/chat/thinking/{reply_id}", dependencies=needs_person)
     def get_thinking(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, Any]:
-        """What the prompt for this reply is thinking about now (R134c): its stage, a line of
-        detail, and how long the stage and the whole thinking have taken. 404 once the reply is
-        in, or for a prompt that hasn't come."""
+        """What the prompt for this reply is thinking about now (R134c): its stage in a few plain
+        words, and how long the thinking has taken. 404 once the reply is in, or for a prompt that
+        hasn't come."""
         with clips_lock:
             thought = thinking_now.get(reply_id)
         if thought is None:
@@ -1676,7 +1676,7 @@ def create_app(
         thread = app.state.reply_warm_up
         if not thread.is_alive():
             return 0.0
-        thinking.stage("Getting ready", "The app is still loading the voice, video and LLM")
+        thinking.stage("Getting ready")
         start = time.perf_counter()
         thread.join()
         waited = ms_since(start)
@@ -1777,7 +1777,7 @@ def create_app(
         """An example question's reply: the one kept, said at once, or the LLM's, kept once its
         clips are all rendered."""
         start = time.perf_counter()
-        thinking.stage("Looking for the reply kept for this question")
+        thinking.stage("Finding the answer from before")
         kept = topic_replies.get(prompt, context)
         if kept is None:
             epoch = topic_replies.epoch  # not kept if the conversation is cleared meanwhile
@@ -1824,7 +1824,7 @@ def create_app(
                 # Checked and the summary waited for before the correction asks the LLM, as
                 # for a lesson, quiz or assessment (review on PR #91).
                 conversation.check(body.prompt)
-                thinking.stage("Checking the words heard", "Putting back names from the PDFs")
+                thinking.stage("Checking what you said")
                 meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
                 body = body.model_copy(update={"prompt": meant})
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())

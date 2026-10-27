@@ -298,27 +298,6 @@ def latest(turns: list[Turn], budget: int, count: Count = estimate) -> list[Turn
     return list(reversed(kept))
 
 
-def quoted(text: str, most: int = 60) -> str:
-    """The text in quotes, cut at a word to at most `most` characters."""
-    text = " ".join(text.split())
-    if len(text) > most:
-        text = text[:most].rsplit(" ", 1)[0] + "…"
-    return f"\u201c{text}\u201d"
-
-
-def reading(passages: int, turns: list[Turn], summary: str | None) -> str:
-    """What the LLM reads with a prompt, in words (R134c): "your question, 3 passages from the
-    PDFs and 4 earlier messages"."""
-    parts = ["your question"]
-    if passages:
-        parts.append(f"{thinking.plural(passages, 'passage')} from the PDFs")
-    if turns:
-        parts.append(thinking.plural(len(turns), "earlier message"))
-    if summary:
-        parts.append("a summary of the conversation")
-    return ", ".join(parts[:-1]) + " and " + parts[-1] if len(parts) > 1 else parts[0]
-
-
 def checked(prompt: str) -> str:
     """The prompt without the spaces around it; an empty one is refused."""
     prompt = prompt.strip()
@@ -838,7 +817,6 @@ class Conversation:
         self._context_tokens = context_tokens
         self._count = count
         self._transcript: list[Turn] = []  # everything said, as shown in the chat
-        self._passages = 0  # sent with the latest prompt, said while the LLM reads it (R134c)
         self._summary: str | None = None  # of the turns no longer sent word for word
         self._turns: list[Turn] = []  # sent word for word after the summary
         # Guards the turns. Held only briefly, so the chat can be read while a reply is made.
@@ -1005,11 +983,7 @@ class Conversation:
         sent = history_tokens(self._summary, turns, count)
         asked_tokens = tokens({"role": "user", "content": asked}, count)
         note(history_tokens=sent, asked_tokens=asked_tokens)
-        what = reading(self._passages, turns, self._summary)
-        thinking.stage(
-            "Asking the LLM",
-            f"It reads about {sent + asked_tokens} tokens ({what}) before it writes the first word",
-        )
+        thinking.stage("Thinking about the answer")
         logger.info(
             "Chat prompt sent",
             extra={
@@ -1107,7 +1081,7 @@ class Conversation:
         lookup or it failed (then the prompt is answered, never declined)."""
         if self._find is None:
             return None
-        thinking.stage("Looking through the PDFs", f"For {quoted(prompt)}")
+        thinking.stage("Looking through your documents")
         start = time.perf_counter()
         try:
             found = self._find(prompt)
@@ -1131,7 +1105,7 @@ class Conversation:
         """Answer "What can you talk about?" from the topics, without asking the LLM (R41f).
         It is sent to the LLM with later prompts, and the topics named and the one suggested are
         kept, so "Tell me about the first one" and "that one" work."""
-        thinking.stage("Listing the topics in the PDFs")
+        thinking.stage("Listing the topics")
         topics = self._list_topics()
         suggested = random.choice(topics) if topics else None
         content_only = self._content_only()
@@ -1191,7 +1165,6 @@ class Conversation:
         passages found as fit CONTENT_TOKENS and the room left in the context window, best
         first, the last one cut to fit (roadmap R40). Only the prompt is kept in the
         conversation."""
-        self._passages = 0
         if found is None:
             return prompt
         count = self._count
@@ -1212,11 +1185,6 @@ class Conversation:
             "Content sent with the prompt",
             extra={"passages_found": len(found), "passages_sent": len(kept)},
         )
-        thinking.stage(
-            "Looking through the PDFs",
-            f"Found {thinking.plural(len(found), 'passage')}; {len(kept)} fit with the question",
-        )
-        self._passages = len(kept)
         if not kept:
             return prompt
         lines = "".join(f"- {passage}\n" for passage in kept)
@@ -1266,7 +1234,7 @@ class Conversation:
                 if on_sentence is not None:
                     on_sentence(None)
             pieces.append(piece)
-            thinking.wrote(piece)
+            thinking.stage(thinking.WRITING)
             ready(splitter.feed(piece))
         note_now("last_token_at")
         ready(splitter.flush())
@@ -1284,11 +1252,7 @@ class Conversation:
         """Wait for a summary being made, if any."""
         if self._summarizer is not None:
             if self._summarizer.is_alive():
-                thinking.stage(
-                    "Catching up on the conversation",
-                    "Summing up the earlier messages, so the conversation fits what the LLM "
-                    "can read",
-                )
+                thinking.stage("Remembering our conversation")
             self._summarizer.join()
 
     def _summarize(self, budget: int) -> None:

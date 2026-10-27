@@ -36,12 +36,7 @@ function later(): [Answer, (r: Response) => void] {
   return [() => pending, (r) => send(r)];
 }
 
-const ASKING: Thinking = {
-  stage: "Asking the LLM",
-  detail: "It reads about 3200 tokens before it writes",
-  stage_s: 4.2,
-  elapsed_s: 5.1,
-};
+const ASKING: Thinking = { stage: "Thinking about the answer", elapsed_s: 5.1 };
 
 async function ask(text: string) {
   window.location.hash = "#/chat";
@@ -66,18 +61,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("while thinking, the chat shows the stage, its detail and the time so far", async () => {
+test("while thinking, the chat shows one timer and under it the stage in plain words", async () => {
   const [answer, reply] = later();
   const fetchMock = server([], answer, () => Response.json(ASKING));
   await ask("Why is the sky blue?");
   expect(screen.getByText("Thinking…")).toBeTruthy();
-  expect(
-    await screen.findByText(
-      "Asking the LLM: It reads about 3200 tokens before it writes (4 s)",
-    ),
-  ).toBeTruthy();
-  expect(screen.getByText("0 s so far")).toBeTruthy();
-  expect(await screen.findByText("1 s so far", {}, { timeout: 2000 })).toBeTruthy();
+  const stage = await screen.findByText("Thinking about the answer");
+  const timer = screen.getByText("0 seconds");
+  // The one timer is above the stage, and the stage has nothing more.
+  expect(timer.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(stage.textContent).toBe("Thinking about the answer");
+  expect(screen.getAllByText(/second/)).toHaveLength(1);
+  expect(await screen.findByText("1 second", {}, { timeout: 2000 })).toBeTruthy();
   const sent = fetchMock.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
   const { reply_id } = JSON.parse(sent![1]!.body as string) as { reply_id: string };
   expect(fetchMock.mock.calls.some(([url]) => url === `/api/chat/thinking/${reply_id}`)).toBe(
@@ -87,17 +82,16 @@ test("while thinking, the chat shows the stage, its detail and the time so far",
     reply(Response.json({ role: "assistant", content: "Light scatters.", thinking_s: 12.4 }));
   });
   expect(await screen.findByText("Took 12 seconds for thinking")).toBeTruthy();
-  expect(screen.queryByText(/so far/)).toBeNull();
-  expect(screen.queryByText(/Asking the LLM/)).toBeNull();
+  expect(screen.queryByText(/^\d+ seconds?$/)).toBeNull();
+  expect(screen.queryByText(/Thinking about the answer/)).toBeNull();
 });
 
-test("a stage just started shows no time of its own, and one without detail just its name", async () => {
+test("a stage the server sends as anything else is not shown", async () => {
   const [answer] = later();
-  server([], answer, () =>
-    Response.json({ stage: "Looking through the PDFs", detail: null, stage_s: 0.3, elapsed_s: 0.3 }),
-  );
+  server([], answer, () => Response.json([]));
   await ask("What is a cell?");
-  expect(await screen.findByText("Looking through the PDFs")).toBeTruthy();
+  expect(await screen.findByText("1 second", {}, { timeout: 2000 })).toBeTruthy();
+  expect(document.querySelector(".thinking-stage")).toBeNull();
 });
 
 test("with Show what thinking is doing off, only Thinking… shows and no time is said", async () => {
@@ -106,8 +100,8 @@ test("with Show what thinking is doing off, only Thinking… shows and no time i
   await ask("Why is the sky blue?");
   expect(screen.getByText("Thinking…")).toBeTruthy();
   await new Promise((r) => setTimeout(r, 50));
-  expect(screen.queryByText(/Asking the LLM/)).toBeNull();
-  expect(screen.queryByText(/so far/)).toBeNull();
+  expect(screen.queryByText(/Thinking about the answer/)).toBeNull();
+  expect(screen.queryByText(/^\d+ seconds?$/)).toBeNull();
   expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/chat/thinking/"))).toBe(
     false,
   );
@@ -124,7 +118,7 @@ test("a reading that fails is logged once and the time keeps counting", async ()
     throw new TypeError("network down");
   });
   await ask("Why?");
-  expect(await screen.findByText("1 s so far", {}, { timeout: 2000 })).toBeTruthy();
+  expect(await screen.findByText("1 second", {}, { timeout: 2000 })).toBeTruthy();
   await waitFor(() =>
     expect(
       vi.mocked(console.error).mock.calls.filter(([m]) => m === "Could not read what thinking is doing"),

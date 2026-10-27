@@ -512,12 +512,10 @@ export async function sendPrompt(
   return (await response.json()) as Reply;
 }
 
-// What a prompt is thinking about now (R134c): its stage, a line of detail, and the seconds the
-// stage and the whole thinking have taken.
+// What a prompt is thinking about now (R134c): its stage in a few plain words, and the seconds
+// the thinking has taken.
 export interface Thinking {
   stage: string;
-  detail: string | null;
-  stage_s: number;
   elapsed_s: number;
 }
 

@@ -1975,9 +1975,10 @@ export function thinkingTook(seconds: number): string {
   return `Took ${whole} ${whole === 1 ? "second" : "seconds"} for thinking`;
 }
 
-// While a prompt is thought about (R134c): the seconds so far, counted here every second, and
-// what the server says it is doing, asked for every second. Shown with Show what thinking is
-// doing on in the settings, so a long wait says what it is waiting for.
+// While a prompt is thought about (R134c): one timer, the seconds so far, counted here every
+// second, and under it what the server says it is doing in a few plain words, asked for every
+// second, with no numbers or technical terms (Larry, testing PR #179). Shown with Show what
+// thinking is doing on in the settings, so a long wait says what it is waiting for.
 export function ThinkingNow({ replyId, since }: { replyId: string; since: number }) {
   const [now, setNow] = useState<Thinking | null>(null);
   const [seconds, setSeconds] = useState(() => Math.floor((performance.now() - since) / 1000));
@@ -2014,14 +2015,8 @@ export function ThinkingNow({ replyId, since }: { replyId: string; since: number
   }, [replyId, since]);
   return (
     <div className="thinking muted">
-      <span className="thinking-time">{seconds} s so far</span>
-      {now && (
-        <span className="thinking-stage">
-          {now.stage}
-          {now.detail ? `: ${now.detail}` : ""}
-          {now.stage_s >= 2 ? ` (${Math.floor(now.stage_s)} s)` : ""}
-        </span>
-      )}
+      <span className="thinking-time">{seconds === 1 ? "1 second" : `${seconds} seconds`}</span>
+      {now && <span className="thinking-stage">{now.stage}</span>}
     </div>
   );
 }
