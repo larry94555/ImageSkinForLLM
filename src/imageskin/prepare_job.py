@@ -176,6 +176,24 @@ def importing(frame: Any) -> bool:
     return False
 
 
+# CPython's call that raises an exception in another thread; a test stands in for it.
+set_async_exc = ctypes.pythonapi.PyThreadState_SetAsyncExc
+
+
+def send_async(ident: int, exc: type[BaseException]) -> bool:
+    """Raise `exc` in the thread with this id. Whether it was sent to that one thread. Should
+    it reach more than one, it is taken back from all of them at once, as CPython's API asks,
+    so no other thread of the server is ever stopped (Codex's review of PR #191)."""
+    sent = set_async_exc(ctypes.c_ulong(ident), ctypes.py_object(exc))
+    if sent > 1:
+        set_async_exc(ctypes.c_ulong(ident), None)  # NULL: take it back
+        logger.error(
+            "Prepare stop reached more than one thread; taken back", extra={"threads": sent}
+        )
+        return False
+    return bool(sent == 1)
+
+
 def interrupt(thread: threading.Thread) -> bool:
     """Raise PrepareCancelled in the thread as soon as it next runs Python code: within a moment
     even in the middle of an engine's work, as each frame or model call returns to Python
@@ -194,10 +212,7 @@ def interrupt(thread: threading.Thread) -> bool:
         frame = sys._current_frames().get(thread.ident)
         if frame is None or importing(frame):
             return False
-        found = ctypes.pythonapi.PyThreadState_SetAsyncExc(
-            ctypes.c_ulong(thread.ident), ctypes.py_object(PrepareCancelled)
-        )
-        return bool(found == 1)
+        return send_async(thread.ident, PrepareCancelled)
     finally:
         sys.setswitchinterval(switch)
 
@@ -337,8 +352,9 @@ class PrepareJob:
         self._cancel = threading.Event()
         # While the job's thread is in its steps, it may be stopped at once with interrupt().
         self._interruptible = False
-        # A helper thread waits to interrupt it until it has loaded the library it is loading.
-        self._interrupting = False
+        # The run a helper thread waits to interrupt until it has loaded the library it is
+        # loading, if any.
+        self._interrupting: threading.Thread | None = None
         # Stops a part that runs past STOP_AFTER_PART_MAX_S after Stop after this part.
         self._late_stop: threading.Timer | None = None
         self._status = self._load()
@@ -609,23 +625,28 @@ class PrepareJob:
             self._interruptible = False
             logger.info("Prepare interrupted", extra={"waited_s": 0.0})
             return
-        if not self._interrupting:
-            self._interrupting = True
+        if self._interrupting is not self._thread:
+            self._interrupting = self._thread
             logger.info("Prepare stops once the library it is loading is loaded")
-            threading.Thread(target=self._interrupt_soon, name="prepare-stop", daemon=True).start()
+            threading.Thread(
+                target=self._interrupt_soon, args=(self._thread,), name="prepare-stop", daemon=True
+            ).start()
 
-    def _interrupt_soon(self) -> None:
+    def _interrupt_soon(self, thread: threading.Thread) -> None:
+        """Try again to stop `thread`, the run it was started for: never a run resumed since,
+        which is another thread (Codex's review of PR #191)."""
         start = time.perf_counter()
         while True:
             time.sleep(INTERRUPT_RETRY_S)
             with self._lock:
-                thread = self._thread
-                if not self._interruptible or thread is None or not thread.is_alive():
-                    self._interrupting = False
+                current = self._thread is thread and thread.is_alive()
+                if not current or not self._interruptible:
+                    if self._interrupting is thread:
+                        self._interrupting = None
                     return
                 if interrupt(thread):
                     self._interruptible = False
-                    self._interrupting = False
+                    self._interrupting = None
                     waited = round(time.perf_counter() - start, 2)
                     logger.info("Prepare interrupted", extra={"waited_s": waited})
                     return

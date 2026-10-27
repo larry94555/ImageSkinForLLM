@@ -994,8 +994,10 @@ function useSettingGuard() {
 function usePrepareStopGuard(onDiscarded) {
 	const stopped = A(false);
 	const { ask, dialog } = useConfirm();
+	const [failed, setFailed] = d(null);
 	async function confirm(title = "Change this setting?") {
 		if (!stopped.current) return true;
+		setFailed(null);
 		if (!await ask({
 			title,
 			children: /* @__PURE__ */ u("p", { children: "Changing a setting will require restarting the preparation over again." }),
@@ -1007,7 +1009,9 @@ function usePrepareStopGuard(onDiscarded) {
 			await discardPrepare();
 			console.info(`Stopped prepare dropped for a setting change (${Math.round(performance.now() - started)} ms)`);
 		} catch (e) {
-			console.error("Could not drop the stopped prepare", e);
+			console.error("Could not drop the stopped prepare; the setting is left as it was", e);
+			setFailed(`The setting was not changed: the stopped preparation could not be cleared (${e.message}). Try again.`);
+			return false;
 		}
 		stopped.current = false;
 		onDiscarded();
@@ -1019,7 +1023,11 @@ function usePrepareStopGuard(onDiscarded) {
 			confirm
 		},
 		onStopped: (now) => stopped.current = now,
-		dialog
+		dialog: /* @__PURE__ */ u(S, { children: [failed && /* @__PURE__ */ u("p", {
+			className: "error",
+			role: "alert",
+			children: failed
+		}), dialog] })
 	};
 }
 //#endregion

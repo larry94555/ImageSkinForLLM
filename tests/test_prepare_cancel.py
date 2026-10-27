@@ -339,3 +339,64 @@ def test_importing_sees_an_import_anywhere_up_the_stack() -> None:
     )
     assert prepare_job.importing(frame)
     assert not prepare_job.importing(frame.f_back.__class__(f_code=frame.f_code, f_back=None))
+
+
+def test_a_stop_sent_to_more_than_one_thread_is_taken_back(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    calls: list[object] = []
+
+    def set_async_exc(ident: object, exc: object) -> int:
+        calls.append(exc)
+        return 2 if len(calls) == 1 else 1
+
+    monkeypatch.setattr(prepare_job, "set_async_exc", set_async_exc)
+    with caplog.at_level(logging.INFO, logger="imageskin.prepare_job"):
+        assert prepare_job.send_async(threading.get_ident(), prepare_job.PrepareCancelled) is False
+    assert len(calls) == 2 and calls[1] is None  # the second call is NULL: take it back
+    assert "Prepare stop reached more than one thread; taken back" in messages(caplog)
+
+
+def test_a_stop_sent_to_one_thread_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(prepare_job, "set_async_exc", lambda ident, exc: 1)
+    assert prepare_job.send_async(threading.get_ident(), prepare_job.PrepareCancelled) is True
+
+
+def test_the_stop_once_loaded_retry_never_stops_a_run_resumed_since(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_reached, first_release = threading.Event(), threading.Event()
+    second_reached, second_release = threading.Event(), threading.Event()
+    runs: list[threading.Thread] = []
+
+    def face(photo: Path, progress: Progress) -> None:
+        runs.append(threading.current_thread())
+        reached, release = (
+            (first_reached, first_release) if len(runs) == 1 else (second_reached, second_release)
+        )
+        progress("models", 0, 1, "Checking the face models")
+        reached.set()
+        assert release.wait(5)
+        progress("models", 1, 1)
+
+    tried: list[threading.Thread] = []
+
+    def loading(thread: threading.Thread) -> bool:  # as if every run were loading a library
+        tried.append(thread)
+        return False
+
+    monkeypatch.setattr(prepare_job, "interrupt", loading)
+    job, _ = make_job(tmp_path, face)
+    job.start()
+    assert first_reached.wait(5)
+    job.cancel(now=True)  # deferred: the retry helper starts, bound to the first run
+    first_release.set()  # the first run stops by itself at its next report
+    job.wait(5)
+    assert job.status().state == "cancelled"
+    job.start()  # Resume Preparation: a new thread
+    assert second_reached.wait(5)
+    time.sleep(10 * prepare_job.INTERRUPT_RETRY_S)  # the helper would have tried by now
+    second_release.set()
+    job.wait(5)
+    assert len(runs) == 2 and runs[1] not in tried
+    assert job.status().state == "done"

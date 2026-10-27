@@ -1218,12 +1218,14 @@ test("a cancel the server refuses says why (R134c)", async () => {
 });
 
 // A fake server with a prepare stopped part-way (R134c): reads answer `CANCELLED` until
-// POST /api/prepare/discard, then `IDLE`. The accent is the person's own.
-function stoppedServer() {
+// POST /api/prepare/discard, then `IDLE`. The accent is the person's own. With `discardFails`,
+// discard is refused.
+function stoppedServer(discardFails = false) {
   let status: PrepareStatus = CANCELLED;
   const inner = prepareServer([CANCELLED]);
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/prepare/discard") {
+      if (discardFails) return Response.json({ detail: "The server is busy." }, { status: 500 });
       status = IDLE;
       return Response.json(IDLE);
     }
@@ -1269,6 +1271,36 @@ test("changing a setting while stopped warns that preparing starts over (R134c)"
     fireEvent.click(accent.getAllByRole("radio")[1]);
   });
   expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+// Codex's review of PR #191: a setting changed although the stopped prepare is still there
+// would be resumed with the old setting.
+test("a setting is not changed while stopped if starting over fails (R134c)", async () => {
+  const fetchMock = stoppedServer(true);
+  await openAt("#/setup");
+  await screen.findByRole("button", { name: "Resume Preparation" });
+  const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
+  fireEvent.click(choice.getByRole("radio", { name: "Slight" }));
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm change" }));
+  });
+  expect((await screen.findByRole("alert")).textContent).toContain("The setting was not changed");
+  expect(screen.getByRole("alert").textContent).toContain("The server is busy.");
+  await waitFor(() => expect((choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked).toBe(true));
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  expect(screen.getByRole("button", { name: "Resume Preparation" })).toBeTruthy();
+  // Still guarded: adding a photo asks again, and a failed discard sends no upload either.
+  const input = document.querySelector("#photos input[type=file]") as HTMLInputElement;
+  Object.defineProperty(input, "files", { value: [new File(["x"], "new.jpg")], configurable: true });
+  fireEvent.change(input);
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm change" }));
+  });
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/prepare/discard")).toHaveLength(2),
+  );
+  expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/uploads/photos" && init?.method === "POST")).toBe(false);
+  expect((await screen.findByRole("alert")).textContent).toContain("The setting was not changed");
 });
 
 test("an accent change cancelled while stopped keeps the accent (R134c)", async () => {
