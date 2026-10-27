@@ -105,7 +105,7 @@ test("signing in shows the Admin link and the admin view, and signing out hides 
     fireEvent.click(screen.getByRole("link", { name: "Admin" }));
   });
   await screen.findByRole("heading", { name: "Admin", level: 1 });
-  expect(screen.getByText("You are signed in as administrator.")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Resources" })).toBeTruthy();
   expect(screen.getByRole("link", { name: "Admin" }).className).toBe("settings-link current");
 
   window.location.hash = "#/settings";
@@ -139,7 +139,7 @@ test("the admin view opened without a sign-in shows the sign-in", async () => {
   await openAt("#/admin");
   expect(screen.getByRole("heading", { name: "Admin", level: 1 })).toBeTruthy();
   await screen.findByLabelText("Administrator password");
-  expect(screen.queryByText("You are signed in as administrator.")).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Resources" })).toBeNull();
 });
 
 test("a sign-in ended by inactivity says so on any page and leaves the admin view", async () => {
@@ -149,7 +149,7 @@ test("a sign-in ended by inactivity says so on any page and leaves the admin vie
   await screen.findByLabelText("Administrator password");
   await signIn("secret");
   window.location.hash = "#/admin";
-  await screen.findByText("You are signed in as administrator.");
+  await screen.findByRole("heading", { name: "Resources" });
 
   state.signedIn = false;
   state.ended = "inactive";
@@ -161,7 +161,7 @@ test("a sign-in ended by inactivity says so on any page and leaves the admin vie
     "Signed out as administrator after 30 minutes without activity.",
   );
   expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
-  expect(screen.queryByText("You are signed in as administrator.")).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Resources" })).toBeNull();
   expect(console.info).toHaveBeenCalledWith("Admin signed out: inactive");
 
   await act(async () => {
@@ -209,7 +209,7 @@ test("a click on the Settings page or in the admin view is activity, at most onc
     await vi.advanceTimersByTimeAsync(61_000);
   });
   window.location.hash = "#/admin";
-  await screen.findByText("You are signed in as administrator.");
+  await screen.findByRole("heading", { name: "Resources" });
   await act(async () => {
     fireEvent.keyDown(document.body, { key: "a" });
   });
@@ -221,7 +221,7 @@ test("a click on the Settings page or in the admin view is activity, at most onc
   });
   window.location.hash = "#/chat";
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(150);
   });
   await act(async () => {
     fireEvent.click(document.body);
@@ -231,8 +231,9 @@ test("a click on the Settings page or in the admin view is activity, at most onc
   // Activity refused: the sign-in has ended, so it is read again.
   window.location.hash = "#/settings";
   await screen.findByRole("heading", { name: "Settings", level: 1 });
+  // Preact runs effects after the next frame, or 100 ms at most: past that the listener is on.
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(150);
   });
   state.activityOk = false;
   state.signedIn = false;
@@ -241,7 +242,7 @@ test("a click on the Settings page or in the admin view is activity, at most onc
     fireEvent.click(document.body);
   });
   expect(activity()).toBe(3);
-  expect(calls(fetchMock, "/api/admin/session")).toBeGreaterThan(before);
+  await vi.waitFor(() => expect(calls(fetchMock, "/api/admin/session")).toBeGreaterThan(before));
   await screen.findByLabelText("Administrator password");
 });
 

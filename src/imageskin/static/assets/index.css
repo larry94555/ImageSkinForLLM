@@ -1006,3 +1006,35 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .failure details { margin-top: 8px; }
 .failure pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85em; }
 .failure textarea { width: 100%; margin-top: 6px; font-family: inherit; }
+/* The admin view's resource dashboard (R154): a card for each resource, what remains in its */
+/* colour with the colour's name, and a bar of what is used. */
+.admin-page .section-title { margin: 8px 0 4px; }
+.resources { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 12px 0 16px; }
+.resources .panel { margin: 0; border-top: 6px solid var(--line); }
+.resource .remaining { margin: 8px 0 0; }
+.resource .big { font-size: 1.6rem; font-weight: 700; }
+.resource dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 12px 0 8px; }
+.resource dt { color: var(--muted); }
+.resource dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.resource .small, .colour-key { font-size: 0.875rem; }
+.resource .small { margin: 2px 0 0; }
+.resource .bar { height: 8px; border-radius: 999px; background: var(--sunken); overflow: hidden; margin-top: 10px; }
+.resource .bar span { display: block; height: 100%; background: var(--muted); }
+.colour-name { margin: 2px 0 0; font-weight: 600; }
+.colour-key { margin: 6px 0 0; }
+:root { --blue: #1d6fd1; --green: #15803d; --orange: #c2570c; --red: #c4282f; }
+@media (prefers-color-scheme: dark) {
+  :root { --blue: #6aa8ff; --green: #6fdc95; --orange: #ffa25c; --red: #ff8d8d; }
+}
+.resource.blue { border-top-color: var(--blue); }
+.resource.green { border-top-color: var(--green); }
+.resource.orange { border-top-color: var(--orange); }
+.resource.red { border-top-color: var(--red); }
+.resource.blue .big, .colour-name.blue { color: var(--blue); }
+.resource.green .big, .colour-name.green { color: var(--green); }
+.resource.orange .big, .colour-name.orange { color: var(--orange); }
+.resource.red .big, .colour-name.red { color: var(--red); }
+.resource.blue .bar span { background: var(--blue); }
+.resource.green .bar span { background: var(--green); }
+.resource.orange .bar span { background: var(--orange); }
+.resource.red .bar span { background: var(--red); }

@@ -17,6 +17,7 @@ import {
   signInAsAdmin,
   signOutAsAdmin,
 } from "./api";
+import { ResourceDashboard } from "./dashboard";
 
 // Every step of setting the password, on a laptop and on the hosted site (R151).
 export const GUIDE =
@@ -253,19 +254,15 @@ export function AdminSection() {
   );
 }
 
-// The admin view (#/admin). Opened without a sign-in, it shows the sign-in instead. The resource
-// dashboard (R154) and the admin settings (R155) come here.
+// The admin view (#/admin): the resource dashboard (R154). Opened without a sign-in, it shows the
+// sign-in instead. The admin settings (R155) come here too.
 export function AdminPage() {
   const { session } = useAdmin();
   return (
     <div className="host-page admin-page">
       <h1>Admin</h1>
       <p className="lead">Site-wide administration, separate from the host and participant views.</p>
-      {session?.signed_in ? (
-        <p>You are signed in as administrator.</p>
-      ) : (
-        <AdminSection />
-      )}
+      {session?.signed_in ? <ResourceDashboard /> : <AdminSection />}
     </div>
   );
 }
