@@ -61,7 +61,7 @@ import { useConfirm } from "./confirm-dialog";
 import { RESTART_WARNING, SettingGuard, usePrepareStopGuard, useSettingGuard } from "./setting-guard";
 import { ExitScreen } from "./exit";
 import { FaceMovementChoice } from "./face-movement";
-import { useLeaveGuard } from "./leave-guard";
+import { goWithoutAsking, useLeaveGuard } from "./leave-guard";
 import { ASSESSMENT_KEY, LESSON_KEY, QUIZ_KEY } from "./progress";
 import { OWN_CONSENT, type SetupPart } from "./router";
 import { useSettings } from "./settings";
@@ -981,7 +981,7 @@ function ReviewChoices(props: {
     try {
       setCurrent(await useAvatarReadyVoice());
       console.info(`Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`);
-      window.location.hash = "#/chat";
+      goWithoutAsking("#/chat");
     } catch (e) {
       console.error("Could not use the avatar's default voice again", e);
       setFailed(`Could not return to the default voice: ${(e as Error).message}`);
@@ -996,7 +996,7 @@ function ReviewChoices(props: {
       setCurrent(await review(decision));
       if (back) setRejected(props.sample);
       if (back) props.onBack(back);
-      else window.location.hash = "#/chat";
+      else goWithoutAsking("#/chat");
     } catch (e) {
       console.error(`Could not save the review (${decision})`, e);
       setFailed(`Could not save your choice: ${(e as Error).message}`);

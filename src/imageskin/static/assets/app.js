@@ -645,6 +645,12 @@ function useHash() {
 var LEAVE_TITLE = "Your change isn't accepted yet";
 var LEAVE_PROCEED = "Proceed without the change";
 var LEAVE_CANCEL = "Cancel";
+var decided = null;
+function goWithoutAsking(href) {
+	decided = href;
+	window.addEventListener("hashchange", () => decided = null, { once: true });
+	window.location.hash = href;
+}
 function useLeaveGuard(pending, unchanged) {
 	const { ask, dialog } = useConfirm();
 	const now = A({
@@ -673,7 +679,13 @@ function useLeaveGuard(pending, unchanged) {
 				window.location.hash = href;
 			});
 		};
-		const leaving = (from, to) => now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
+		const leaving = (from, to) => {
+			if (decided === to) {
+				decided = null;
+				return false;
+			}
+			return now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
+		};
 		const onClick = (e) => {
 			if (!(e.target instanceof Element)) return;
 			const href = e.target.closest("a[href^='#/']")?.getAttribute("href");
@@ -3166,7 +3178,7 @@ function ReviewChoices(props) {
 		try {
 			setCurrent(await useAvatarReadyVoice());
 			console.info(`Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`);
-			window.location.hash = "#/chat";
+			goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error("Could not use the avatar's default voice again", e);
 			setFailed(`Could not return to the default voice: ${e.message}`);
@@ -3180,7 +3192,7 @@ function ReviewChoices(props) {
 			setCurrent(await review(decision));
 			if (back) setRejected(props.sample);
 			if (back) props.onBack(back);
-			else window.location.hash = "#/chat";
+			else goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error(`Could not save the review (${decision})`, e);
 			setFailed(`Could not save your choice: ${e.message}`);
@@ -4631,7 +4643,7 @@ function AvatarVoicePage() {
 		try {
 			await useAvatarReadyVoice();
 			console.info(`Avatar's ready-made voice used again (${Math.round(performance.now() - started)} ms)`);
-			window.location.hash = "#/chat";
+			goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error("Could not use the avatar's ready-made voice again", e);
 			setFailed(e.message);

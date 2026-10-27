@@ -6,7 +6,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { DEFAULT_PICTURE, getReview, type Review, useAvatarOwnVoice, useAvatarReadyVoice } from "./api";
-import { useLeaveGuard } from "./leave-guard";
+import { goWithoutAsking, useLeaveGuard } from "./leave-guard";
 import { AccentSection, PrepareSection, StepOf, UploadSection } from "./pages";
 import { SettingGuard, usePrepareStopGuard } from "./setting-guard";
 import type { SetupPart } from "./router";
@@ -64,7 +64,7 @@ export function AvatarVoicePage() {
     try {
       await useAvatarReadyVoice();
       console.info(`Avatar's ready-made voice used again (${Math.round(performance.now() - started)} ms)`);
-      window.location.hash = "#/chat";
+      goWithoutAsking("#/chat");
     } catch (e) {
       console.error("Could not use the avatar's ready-made voice again", e);
       setFailed((e as Error).message);
