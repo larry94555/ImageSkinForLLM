@@ -1,5 +1,6 @@
 import logging
 import sys
+import types
 import wave
 from pathlib import Path
 from unittest.mock import patch
@@ -89,10 +90,12 @@ def test_pocket_load_failures_name_pocket(voice_sample: Path) -> None:
 
 
 def test_signed_in_is_a_hugging_face_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    with patch("huggingface_hub.get_token", return_value="hf_x"):
-        assert pocket_engine.signed_in()
-    with patch("huggingface_hub.get_token", return_value=None):
-        assert not pocket_engine.signed_in()
+    hub = types.ModuleType("huggingface_hub")  # CI has no huggingface_hub
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    hub.get_token = lambda: "hf_x"  # type: ignore[attr-defined]
+    assert pocket_engine.signed_in()
+    hub.get_token = lambda: None  # type: ignore[attr-defined]
+    assert not pocket_engine.signed_in()
     monkeypatch.setitem(sys.modules, "huggingface_hub", None)  # not installed
     assert not pocket_engine.signed_in()
 
