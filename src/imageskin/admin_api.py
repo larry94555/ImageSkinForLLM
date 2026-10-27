@@ -17,10 +17,9 @@ Token = Annotated[str | None, Cookie(alias=COOKIE)]
 
 
 def address(request: Request) -> str:
-    """The browser's address: Caddy's X-Forwarded-For on the hosted site, else the client's."""
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """The browser's address, for the log and the wait after wrong passwords. X-Forwarded-For is
+    never read here, as a browser can send any it likes: uvicorn puts the browser's address in
+    its place only for a proxy the config's `trusted_proxies` names (Caddy on the hosted site)."""
     return request.client.host if request.client else "unknown"
 
 
