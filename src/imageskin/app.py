@@ -96,6 +96,8 @@ from imageskin.replies_first import RepliesFirst
 from imageskin.reply_times import ReplyTimes
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
+from imageskin.sentences import clips_of
+from imageskin.simpler import say_simpler
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -160,6 +162,10 @@ class ReadyVoiceRequest(BaseModel):
 
 class PhotoChoiceRequest(BaseModel):
     id: str
+
+
+class CancelRequest(BaseModel):
+    now: bool = False  # stop at once, not after the part it is on (R159)
 
 
 class AccentRequest(BaseModel):
@@ -273,6 +279,11 @@ class ChatRequest(BaseModel):
     spoken: bool = False
 
 
+class RepeatRequest(BaseModel):
+    # Chosen by the browser, as for a prompt, so it can follow the clips and Stop them (R156).
+    reply_id: str = Field(pattern=REPLY_ID_PATTERN)
+
+
 class ReplyVideoRequest(BaseModel):
     turn: int  # the reply's place in the conversation, from 0
     # The reply's id from POST /api/chat, so Stop can stop its video (roadmap R19).
@@ -281,6 +292,8 @@ class ReplyVideoRequest(BaseModel):
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
+NOTHING_TO_REPEAT = "There is no reply to repeat yet."
+CANT_REPEAT = "The reply couldn't be repeated."
 # The longest the clips request waits for the next clip before answering with none new.
 CLIPS_WAIT_S = 10.0
 
@@ -1129,6 +1142,17 @@ def create_app(
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
 
+    @app.post("/api/prepare/cancel", dependencies=needs_consent)
+    def cancel_prepare(body: CancelRequest | None = None) -> PrepareStatus:
+        """Stop preparing (roadmap R159), once the user confirmed it on the page: at once, or
+        once the part it is on is finished (at most 10 seconds)."""
+        return job.cancel(now=body is not None and body.now)
+
+    @app.post("/api/prepare/discard", dependencies=needs_consent)
+    def discard_prepare() -> PrepareStatus:
+        """Prepare over again instead of resuming (R159): a setting is about to change."""
+        return job.discard()
+
     @app.get("/api/accent", dependencies=needs_consent)
     def get_accent() -> AccentChoice:
         # Without the person's own voice, Kokoro speaks in its own accent, so that is the one shown.
@@ -1860,6 +1884,8 @@ def create_app(
                 if step.kind == "summary" and settings.quiz_me:  # a quick quiz on the topic
                     topic = step.lesson.topic
                     choices = [Choice(f"Quiz me on {topic}", f"Quiz me on {topic}")]
+            elif (simpler := say_simpler(body.prompt, conversation.turns())) is not None:
+                reply, turn = conversation.send(body.prompt, clips, simpler)  # R157
             elif clips is not None and (example := example_context(body.prompt)) is not None:
                 reply, turn = answer_example(body.prompt, example, clips)
             else:
@@ -1899,6 +1925,63 @@ def create_app(
             # A spoken prompt as it was answered, so the browser shows it that way (R24).
             **({"prompt": body.prompt} if body.spoken else {}),
         }
+
+    @app.post("/api/chat/repeat", dependencies=[*needs_person, Depends(require_accepted)])
+    def post_repeat(body: RepeatRequest) -> dict[str, Any]:
+        """Say the latest reply again (roadmap R156), with no LLM call: from its clips when they
+        are all still there, or else spoken again from its text. The conversation is unchanged.
+        Its clips are followed and stopped like a reply's, by `reply_id`."""
+        start = time.perf_counter()
+        wait_for_warm_up("Repeat")
+        with chat_lock:
+            turns = conversation.turns()
+            photo = chosen_photo()
+            if not turns or turns[-1].role != "assistant" or photo is None:
+                logger.info("Nothing to repeat", extra={"turns": len(turns)})
+                raise HTTPException(status_code=409, detail=NOTHING_TO_REPEAT)
+            text = turns[-1].content
+            # Not `replies.sentence_clips`, which removes the other replies' clips first: the
+            # ones played last are copied from, then removed with `cancel`.
+            clips = SentenceClips(replies, photo, body.reply_id)
+            last: list[SentenceClips] = []
+            with clips_lock:  # Stop sees either the marker taken or the clips listed
+                early = body.reply_id in stopped_early
+                if early:  # stopped before it came: it isn't said (Codex's review)
+                    stopped_early.discard(body.reply_id)
+                else:
+                    last = list(sentence_clips.values())
+                    sentence_clips.clear()
+                    sentence_clips[body.reply_id] = clips
+            if early:
+                logger.info("Repeat stopped before it began", extra={"reply_id": body.reply_id})
+                raise HTTPException(status_code=409, detail=PROMPT_STOPPED)
+            made = next((m for c in last if (m := c.whole()) is not None), None)
+            try:
+                if made is not None:
+                    clips.replay(made)
+                else:
+                    for piece in clips_of(text):
+                        clips(piece)
+            except OSError as e:
+                logger.error("Could not repeat the reply", extra={"error": str(e)})
+                with clips_lock:
+                    sentence_clips.pop(body.reply_id, None)
+                clips.cancel()
+                raise HTTPException(status_code=500, detail=CANT_REPEAT) from e
+            finally:
+                clips.close()
+                for old in last:
+                    old.cancel()
+        logger.info(
+            "Reply repeated",
+            extra={
+                "reply_id": body.reply_id,
+                "from": "clips" if made is not None else "text",
+                "clips": len(made) if made is not None else clips.sentences,
+                "duration_ms": ms_since(start),
+            },
+        )
+        return {"turn": len(turns) - 1, "streamed": True}
 
     @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_person)
     def stop_clips(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, bool]:
@@ -1972,7 +2055,9 @@ def create_app(
                 "started_at": t.started_at,
                 "whole_at": clips.whole_at[n - 1] if n <= len(clips.whole_at) else None,
             }
-            for n, t in enumerate(clips.times[: len(clips.clips)], 1)
+            # Only those the browser may play yet: playback is held back until the rest keeps
+            # up (R130).
+            for n, t in enumerate(clips.times[: clips.listed()], 1)
         ]
         return {
             "clips": made,
