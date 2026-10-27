@@ -729,7 +729,7 @@ export function PrepareSection(props: {
   }
 
   // Cancel (R159): asks first, in the app's own box, whether to stop now, stop once the part
-  // it is on is finished (at most 10 seconds), or keep preparing.
+  // it is on is finished (usually within 10 seconds), or keep preparing.
   async function cancel() {
     const left = status?.left_s != null ? ` About ${countdown(status.left_s)} is left.` : "";
     const answer = await choose({
@@ -737,7 +737,7 @@ export function PrepareSection(props: {
       children: (
         <p>
           Preparing is {status?.percent ?? 0}% done.{left} You can stop now, or once the part it
-          is working on is finished (at most 10 seconds). Either way, Resume Preparation carries
+          is working on is finished (usually within 10 seconds). Either way, Resume Preparation carries
           on from where it stopped.
         </p>
       ),
@@ -839,7 +839,15 @@ export function PrepareSection(props: {
           {cancelling ? "Stopping…" : "Cancel"}
         </button>
       )}
-      {cancelling && <p className="muted">Stopping, within 10 seconds…</p>}
+      {cancelling && !status.stopping_late && (
+        <p className="muted">Stopping, usually within 10 seconds…</p>
+      )}
+      {cancelling && status.stopping_late && (
+        <p className="muted">
+          Still stopping: the part it is on, such as loading a library, can't be cut short
+          safely. It stops as soon as that part is done.
+        </p>
+      )}
       {cancelled && (
         <p className="muted">
           Preparing stopped at {status.percent}%. Click Resume Preparation to carry on from where

@@ -2937,7 +2937,7 @@ function PrepareSection(props) {
 				status?.percent ?? 0,
 				"% done.",
 				left,
-				" You can stop now, or once the part it is working on is finished (at most 10 seconds). Either way, Resume Preparation carries on from where it stopped."
+				" You can stop now, or once the part it is working on is finished (usually within 10 seconds). Either way, Resume Preparation carries on from where it stopped."
 			] }),
 			keepLabel: "Keep preparing",
 			otherLabel: "Stop after this part",
@@ -3027,9 +3027,13 @@ function PrepareSection(props) {
 				disabled: cancelling,
 				children: cancelling ? "Stopping…" : "Cancel"
 			}),
-			cancelling && /* @__PURE__ */ u("p", {
+			cancelling && !status.stopping_late && /* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Stopping, within 10 seconds…"
+				children: "Stopping, usually within 10 seconds…"
+			}),
+			cancelling && status.stopping_late && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Still stopping: the part it is on, such as loading a library, can't be cut short safely. It stops as soon as that part is done."
 			}),
 			cancelled && /* @__PURE__ */ u("p", {
 				className: "muted",

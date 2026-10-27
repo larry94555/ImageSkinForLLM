@@ -1180,12 +1180,12 @@ test("Stop after this part stops the job, and Resume Preparation carries on (R15
   await openAt("#/setup");
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   const box = within(screen.getByRole("alertdialog", { name: "Stop preparing the video?" }));
-  expect(box.getByText(/once the part it is working on is finished \(at most 10 seconds\)/)).toBeTruthy();
+  expect(box.getByText(/once the part it is working on is finished \(usually within 10 seconds\)/)).toBeTruthy();
   fireEvent.click(box.getByRole("button", { name: "Stop after this part" }));
   // Until it has stopped, it says it is stopping.
   const stopping = (await screen.findByRole("button", { name: "Stopping…" })) as HTMLButtonElement;
   expect(stopping.disabled).toBe(true);
-  expect(screen.getByText("Stopping, within 10 seconds…")).toBeTruthy();
+  expect(screen.getByText("Stopping, usually within 10 seconds…")).toBeTruthy();
   expect(screen.queryByText(/% done/)).toBeNull();
   expect(cancelCall(fetchMock)).toEqual({ now: false });
   // Then it is stopped, and can be resumed.
@@ -1197,6 +1197,16 @@ test("Stop after this part stops the job, and Resume Preparation carries on (R15
   fireEvent.click(screen.getByRole("button", { name: "Resume Preparation" }));
   expect(await screen.findByText(/Preparing… 31% done/)).toBeTruthy();
   expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
+});
+
+test("a stop still under way after 10 seconds says why (R159)", async () => {
+  const late = { ...RUNNING, cancelling: true, stopping_late: true };
+  cancelServer(late, [late]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stop now" }));
+  expect(await screen.findByText(/Still stopping: the part it is on, such as loading a library/)).toBeTruthy();
+  expect(screen.queryByText("Stopping, usually within 10 seconds…")).toBeNull();
 });
 
 test("Stop now stops the job at once (R159)", async () => {

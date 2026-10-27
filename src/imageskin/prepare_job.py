@@ -151,6 +151,9 @@ STOPPING = "Preparing is stopping. Try again in a moment."
 STOP_AFTER_PART_MAX_S = 10.0
 # How often Stop now tries again while the job's thread is loading a library (R159).
 INTERRUPT_RETRY_S = 0.05
+# A stop sent at STOP_AFTER_PART_MAX_S that hasn't taken effect after this long more is shown
+# as late: the thread is in a native call that runs on until it returns to Python.
+LATE_GRACE_S = 2.0
 # Before the avatar's name in a photo id, when the avatar is prepared in the user's voice (R24d).
 AVATAR_PREFIX = "avatar-"
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
@@ -261,6 +264,9 @@ class PrepareStatus:
     # Running, but Cancel was confirmed (R159): it is stopping, and is then "cancelled", which
     # Resume Preparation carries on from where it stopped.
     cancelling: bool = False
+    # Still stopping after STOP_AFTER_PART_MAX_S (R159): the part can't be cut short safely,
+    # as while a library is loaded or a native call runs, so it stops once that is done.
+    stopping_late: bool = False
 
 
 def fresh_steps() -> list[Step]:
@@ -355,7 +361,8 @@ class PrepareJob:
         # The run a helper thread waits to interrupt until it has loaded the library it is
         # loading, if any.
         self._interrupting: threading.Thread | None = None
-        # Stops a part that runs past STOP_AFTER_PART_MAX_S after Stop after this part.
+        # At STOP_AFTER_PART_MAX_S after Cancel: stops a part still running after Stop after
+        # this part, and shows a stop that hasn't taken effect yet as late.
         self._late_stop: threading.Timer | None = None
         self._status = self._load()
 
@@ -598,39 +605,68 @@ class PrepareJob:
                 self._cancel.set()
                 self._status = replace(self._status, cancelling=True)
                 self._save()
-                if not now:
-                    self._late_stop = threading.Timer(STOP_AFTER_PART_MAX_S, self._stop_late)
-                    self._late_stop.daemon = True
-                    self._late_stop.start()
+                self._late_stop = threading.Timer(STOP_AFTER_PART_MAX_S, self._stop_late)
+                self._late_stop.daemon = True
+                self._late_stop.start()
             if now:
                 self._interrupt()
             return self._status
 
     def _stop_late(self) -> None:
+        """STOP_AFTER_PART_MAX_S after Cancel: a part still running is stopped now, and a stop
+        that can't take effect yet is shown as late rather than promised (Codex's review of
+        PR #197)."""
         with self._lock:
-            if self._status.state == "running" and self._status.cancelling:
-                logger.warning(
-                    "Prepare part still running; stopping it now",
-                    extra={"waited_s": STOP_AFTER_PART_MAX_S},
-                )
-                self._interrupt()
+            if self._status.state != "running" or not self._status.cancelling:
+                return
+            logger.warning(
+                "Prepare part still running; stopping it now",
+                extra={"waited_s": STOP_AFTER_PART_MAX_S},
+            )
+            if self._interrupt():  # it takes effect once the part is back in Python
+                self._late_stop = threading.Timer(LATE_GRACE_S, self._show_late)
+                self._late_stop.daemon = True
+                self._late_stop.start()
+            else:
+                self._to_late()
 
-    def _interrupt(self) -> None:
+    def _show_late(self) -> None:
+        with self._lock:
+            self._to_late()
+
+    def _to_late(self) -> None:
+        """Still stopping past the deadline, with the lock held."""
+        if self._status.state != "running" or not self._status.cancelling:
+            return
+        if self._status.stopping_late:
+            return
+        logger.warning(
+            "Prepare still stopping past the deadline",
+            extra={
+                "deadline_s": STOP_AFTER_PART_MAX_S,
+                "loading_library": self._interrupting is not None,
+            },
+        )
+        self._status = replace(self._status, stopping_late=True)
+        self._save()
+
+    def _interrupt(self) -> bool:
         """Stop the job's thread at once, with the lock held. Only while it is in its steps,
         and only once. While it is loading a library, a helper thread tries again until it
-        has finished."""
+        has finished. Whether the stop was sent now."""
         if not self._interruptible or self._thread is None or not self._thread.is_alive():
-            return
+            return False
         if interrupt(self._thread):
             self._interruptible = False
             logger.info("Prepare interrupted", extra={"waited_s": 0.0})
-            return
+            return True
         if self._interrupting is not self._thread:
             self._interrupting = self._thread
             logger.info("Prepare stops once the library it is loading is loaded")
             threading.Thread(
                 target=self._interrupt_soon, args=(self._thread,), name="prepare-stop", daemon=True
             ).start()
+        return False
 
     def _interrupt_soon(self, thread: threading.Thread) -> None:
         """Try again to stop `thread`, the run it was started for: never a run resumed since,
@@ -670,6 +706,7 @@ class PrepareJob:
             state="cancelled",
             steps=steps,
             cancelling=False,
+            stopping_late=False,
             finished_at=now_iso(),
             left_s=None,
         )
@@ -953,7 +990,14 @@ class PrepareJob:
             self._prepare_face(photo, self._progress)
             self._render_clips(photo)  # its report after the last clip stops a late cancel
             with self._lock:
+                # One step with the lock held: a cancel confirmed after the last report is
+                # either seen here or comes once the job is done, never lost in between
+                # (Codex's review of PR #197).
                 self._interruptible = False
+                if self._cancel.is_set():
+                    self._to_cancelled("running")
+                    return
+                self._finished("done", None)
         except PrepareCancelled:
             with self._lock:
                 self._to_cancelled("running")
@@ -971,7 +1015,6 @@ class PrepareJob:
                     return
             self._fail(e, photo_id)
             return
-        self._finish("done", None)
         logger.info(
             "Prepare job finished",
             extra={"photo_id": photo_id, "duration_s": round(time.perf_counter() - start, 1)},
@@ -1013,24 +1056,28 @@ class PrepareJob:
 
     def _finish(self, state: State, error: str | None, failure: Failure | None = None) -> None:
         with self._lock:
-            steps = self._status.steps or []
-            if state == "done":
-                # Steps with nothing to do (a library made before) are complete too.
-                steps = [replace(s, done=s.total, left_s=None) for s in steps]
-            else:
-                steps = [replace(s, left_s=None) for s in steps]
-            steps = [replace(s, activity=None, elapsed_s=None, slow=False) for s in steps]
-            self._status = replace(
-                self._status,
-                state=state,
-                steps=steps,
-                percent=100 if state == "done" else percent(steps),
-                error=error,
-                failure=failure,
-                finished_at=now_iso(),
-                left_s=None,
-            )
-            self._save()
+            self._finished(state, error, failure)
+
+    def _finished(self, state: State, error: str | None, failure: Failure | None = None) -> None:
+        """The job ended, with the lock held."""
+        steps = self._status.steps or []
+        if state == "done":
+            # Steps with nothing to do (a library made before) are complete too.
+            steps = [replace(s, done=s.total, left_s=None) for s in steps]
+        else:
+            steps = [replace(s, left_s=None) for s in steps]
+        steps = [replace(s, activity=None, elapsed_s=None, slow=False) for s in steps]
+        self._status = replace(
+            self._status,
+            state=state,
+            steps=steps,
+            percent=100 if state == "done" else percent(steps),
+            error=error,
+            failure=failure,
+            finished_at=now_iso(),
+            left_s=None,
+        )
+        self._save()
 
 
 def kokoro_voice(engine: VoiceEngine) -> PrepareVoice:

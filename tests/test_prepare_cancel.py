@@ -132,6 +132,29 @@ def test_a_cancel_while_the_last_clip_is_made_still_stops(tmp_path: Path) -> Non
     assert job.status().state == "cancelled"
 
 
+def test_a_cancel_confirmed_after_the_last_report_is_not_lost(tmp_path: Path) -> None:
+    """Codex's review of PR #197: a cancel confirmed once the last clip's report had passed
+    was taken, then the job was saved as done over it."""
+    job, _ = make_job(tmp_path)
+    render = job._render_clips
+
+    def clips_then_cancel(photo: Path) -> None:
+        render(photo)  # its last report has passed: nothing in the steps sees the cancel
+        assert job.cancel().cancelling  # Stop after this part, taken
+
+    job._render_clips = clips_then_cancel  # type: ignore[method-assign]
+    job.start()
+    job.wait(5)
+    assert job.status().state == "cancelled"
+
+
+def test_a_cancel_after_the_job_is_done_leaves_it_done(tmp_path: Path) -> None:
+    job, _ = make_job(tmp_path)
+    job.start()
+    job.wait(5)
+    assert job.cancel().state == "done" and not job.status().cancelling
+
+
 def test_an_engine_failing_while_it_is_stopped_is_still_a_cancel(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -328,6 +351,65 @@ def test_stop_now_waits_for_a_library_being_loaded(
     assert "Prepare stops once the library it is loading is loaded" in messages(caplog)
     interrupted = next(r for r in caplog.records if r.getMessage() == "Prepare interrupted")
     assert getattr(interrupted, "waited_s", 0) > 0
+
+
+def test_a_stop_still_under_way_at_the_deadline_is_shown_as_late(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review of PR #197: a library loading for longer than the deadline can't be cut
+    short, so the stop is shown as late rather than promised within it."""
+    (tmp_path / "libs").mkdir()
+    (tmp_path / "libs" / "slow_library.py").write_text(SLOW_LIBRARY.replace("0.5", "1.0"))
+    monkeypatch.setattr(sys, "path", [str(tmp_path / "libs"), *sys.path])
+    importlib.invalidate_caches()
+    hooks = types.ModuleType("slow_library_hooks")
+    hooks.inside = threading.Event()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "slow_library_hooks", hooks)
+    monkeypatch.delitem(sys.modules, "slow_library", raising=False)
+    monkeypatch.setattr(prepare_job, "STOP_AFTER_PART_MAX_S", 0.2)
+
+    def face(photo: Path, progress: Progress) -> None:
+        importlib.import_module("slow_library")
+        end = time.monotonic() + 5
+        while time.monotonic() < end:
+            time.sleep(0.01)
+
+    job, _ = make_job(tmp_path, face)
+    with caplog.at_level(logging.INFO, logger="imageskin.prepare_job"):
+        job.start()
+        assert hooks.inside.wait(5)
+        job.cancel(now=True)
+        end = time.monotonic() + 3
+        while not job.status().stopping_late and time.monotonic() < end:
+            time.sleep(0.01)
+        status = job.status()
+        assert status.state == "running" and status.cancelling and status.stopping_late
+        job.wait(5)
+    status = job.status()
+    assert status.state == "cancelled" and not status.stopping_late
+    late = next(
+        r for r in caplog.records if r.getMessage() == "Prepare still stopping past the deadline"
+    )
+    assert getattr(late, "loading_library", False)
+
+
+def test_a_stop_sent_at_the_deadline_is_late_only_if_it_has_not_taken_effect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stop after this part with a part running past the deadline: the stop sent then takes
+    effect at once, so it is never shown as late."""
+    monkeypatch.setattr(prepare_job, "STOP_AFTER_PART_MAX_S", 0.1)
+    monkeypatch.setattr(prepare_job, "LATE_GRACE_S", 0.1)
+    reached, release = threading.Event(), threading.Event()
+    after: list[str] = []
+    job, _ = make_job(tmp_path, held_face(reached, release, after))
+    job.start()
+    assert reached.wait(5)
+    job.cancel()
+    job.wait(5)
+    time.sleep(0.2)  # past the grace too
+    status = job.status()
+    assert status.state == "cancelled" and not status.stopping_late and after == []
 
 
 def test_importing_sees_an_import_anywhere_up_the_stack() -> None:
