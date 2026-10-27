@@ -161,6 +161,10 @@ class PhotoChoiceRequest(BaseModel):
     id: str
 
 
+class CancelRequest(BaseModel):
+    now: bool = False  # stop at once, not after the part it is on (R159)
+
+
 class AccentRequest(BaseModel):
     accent: Accent
 
@@ -1128,6 +1132,17 @@ def create_app(
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
 
+    @app.post("/api/prepare/cancel", dependencies=needs_consent)
+    def cancel_prepare(body: CancelRequest | None = None) -> PrepareStatus:
+        """Stop preparing (roadmap R159), once the user confirmed it on the page: at once, or
+        once the part it is on is finished (at most 10 seconds)."""
+        return job.cancel(now=body is not None and body.now)
+
+    @app.post("/api/prepare/discard", dependencies=needs_consent)
+    def discard_prepare() -> PrepareStatus:
+        """Prepare over again instead of resuming (R159): a setting is about to change."""
+        return job.discard()
+
     @app.get("/api/accent", dependencies=needs_consent)
     def get_accent() -> AccentChoice:
         # Without the person's own voice, Kokoro speaks in its own accent, so that is the one shown.
@@ -2023,7 +2038,9 @@ def create_app(
                 "started_at": t.started_at,
                 "whole_at": clips.whole_at[n - 1] if n <= len(clips.whole_at) else None,
             }
-            for n, t in enumerate(clips.times[: len(clips.clips)], 1)
+            # Only those the browser may play yet: playback is held back until the rest keeps
+            # up (R130).
+            for n, t in enumerate(clips.times[: clips.listed()], 1)
         ]
         return {
             "clips": made,

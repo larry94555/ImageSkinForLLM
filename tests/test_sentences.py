@@ -323,6 +323,25 @@ def test_a_clause_too_short_or_none_waits_for_more() -> None:
     assert plain.feed("Hello there Larry, it is a fine day, and the sun") == ["Hello there Larry,"]
 
 
+def test_a_waiting_voice_gets_one_cut_per_feed_and_only_at_punctuation() -> None:
+    """R130: R129 found the text written while the voice was busy chopped at once into pieces
+    of 3 to 5 words ("where the staff can watch / you run and suggest"), as the voice still
+    said it was waiting until the pieces were handed over."""
+    splitter = SentenceSplitter(first_clause=True, voice_waiting=lambda: True)
+    assert splitter.feed("Hello there Larry, it") == ["Hello there Larry,"]
+    text = " is a fine day, the sun is out, the birds sing, and"
+    assert splitter.feed(text) == ["it is a fine day,"]  # one cut, not three
+    assert splitter.feed(" so") == ["the sun is out,"]
+    assert splitter.waiting_cuts == {2, 3}
+    # No cut by word count or before a joining word, however long the clause.
+    words = SentenceSplitter(first_clause=True, voice_waiting=lambda: True)
+    assert words.feed("Hello there Larry, it") == ["Hello there Larry,"]
+    assert words.feed(" is where the staff can watch you run and suggest a pair") == []
+    assert words.feed(" that suits. Next") == [
+        "it is where the staff can watch you run and suggest a pair that suits."
+    ]
+
+
 def test_a_known_reply_s_first_clause_and_long_sentences_are_clips_of_their_own() -> None:
     topics = (
         "I can talk about Prime Number Definition, The Sieve of Eratosthenes, The Zeta"
