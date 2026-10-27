@@ -138,7 +138,15 @@ export function AdminSettingsPage() {
             type="button"
             className="secondary"
             disabled={busy}
-            onClick={() => void save(fieldsOf({ ...settings, thresholds: recommended }))}
+            // Only the thresholds: the minutes as typed, saved or not, stay (Codex's review).
+            onClick={() =>
+              void save({
+                ...fields,
+                blue: String(recommended.blue_above),
+                orange: String(recommended.orange_below),
+                red: String(recommended.red_below),
+              })
+            }
           >
             Use the recommended thresholds
           </button>

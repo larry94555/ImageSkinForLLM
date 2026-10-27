@@ -887,10 +887,12 @@ function AdminSettingsPage() {
 						type: "button",
 						className: "secondary",
 						disabled: busy,
-						onClick: () => void save(fieldsOf({
-							...settings,
-							thresholds: recommended
-						})),
+						onClick: () => void save({
+							...fields,
+							blue: String(recommended.blue_above),
+							orange: String(recommended.orange_below),
+							red: String(recommended.red_below)
+						}),
 						children: "Use the recommended thresholds"
 					}) })
 				]

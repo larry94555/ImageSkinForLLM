@@ -150,6 +150,20 @@ test("the recommended thresholds are put back at once", async () => {
   expect(field(/Minutes without activity/).value).toBe("45"); // only the thresholds
 });
 
+test("the recommended thresholds keep the minutes as typed, not as last saved", async () => {
+  const { puts } = server();
+  await openSettings();
+  await type(/Minutes without activity/, "5");
+  await type(/Red/, "20");
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Use the recommended thresholds" }));
+  });
+  expect(puts()).toEqual([{ timeout_minutes: 5, thresholds: RECOMMENDED }]);
+  await screen.findByRole("status");
+  expect(field(/Minutes without activity/).value).toBe("5");
+  expect(field(/Red/).value).toBe("15");
+});
+
 test("signed out while saving, the sign-in comes back", async () => {
   const { state } = server();
   await openSettings();
