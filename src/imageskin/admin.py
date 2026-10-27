@@ -30,7 +30,8 @@ WAIT_S = 60.0
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
 # The most a hash in the file may ask of scrypt: hashlib's own memory limit, 32 MB a try.
 SCRYPT_MAX_MEMORY = 32 * 1024**2
-# Addresses with wrong passwords kept at most; past this, those whose wait is over are dropped.
+# Addresses with wrong passwords kept at most: past this, those whose wait is over are dropped,
+# then the ones that guessed longest ago, so a flood of addresses can't use up the memory.
 WRONG_KEPT = 1000
 
 NOT_SET = (
@@ -198,9 +199,14 @@ class AdminSignIns:
         return token
 
     def _note_wrong(self, address: str, wrong: int, now: float) -> None:
+        # Moved to the end, so the map runs from the oldest wrong password to the newest.
+        self._wrong.pop(address, None)
         if len(self._wrong) >= WRONG_KEPT:
             # Many addresses guessing: keep only those still counting towards a wait.
             self._wrong = {a: w for a, w in self._wrong.items() if now - w[1] < WAIT_S}
+        while len(self._wrong) >= WRONG_KEPT:
+            # Still too many, all within the minute (Codex's review): the oldest go first.
+            del self._wrong[next(iter(self._wrong))]
         self._wrong[address] = (wrong, now)
 
     def _refuse(self, reason: str, address: str) -> None:
