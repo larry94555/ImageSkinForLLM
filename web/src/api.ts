@@ -212,7 +212,7 @@ export interface PrepareFailure {
 
 // How far the prepare job has got. It runs on the server, and carries on after a restart.
 export interface PrepareStatus {
-  state: "idle" | "running" | "done" | "failed";
+  state: "idle" | "running" | "done" | "failed" | "cancelled"; // cancelled: Resume carries on
   photo_id: string | null;
   percent: number;
   steps: PrepareStep[] | null;
@@ -222,6 +222,8 @@ export interface PrepareStatus {
   finished_at: string | null;
   left_s?: number | null; // while it runs: about how long the whole prepare has left
   stopped?: boolean; // running, but the app is no longer working on it: Try again carries on
+  cancelling?: boolean; // Cancel was confirmed and it is stopping (R159)
+  stopping_late?: boolean; // still stopping after 10 seconds: a part that can't be cut short
 }
 
 // A video the prepare job rendered (roadmap R13). The finish time is added so that the browser
@@ -330,6 +332,26 @@ export async function chooseReadyVoice(voice: string): Promise<ReadyVoice> {
 // Starts the job, or reports on it while it runs. Throws an Error saying what is missing.
 export async function startPrepare(): Promise<PrepareStatus> {
   const response = await fetch("/api/prepare", { method: "POST" });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as PrepareStatus;
+}
+
+// Stops the running job (roadmap R159), once the user confirmed it: `now`, or once the part it
+// is on is finished (usually within 10 seconds). The answer may still be running, with cancelling set.
+export async function cancelPrepare(now: boolean): Promise<PrepareStatus> {
+  const response = await fetch("/api/prepare/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ now }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as PrepareStatus;
+}
+
+// Drops a cancelled job, so Prepare starts over instead of resuming (R159): the user confirmed
+// changing a setting.
+export async function discardPrepare(): Promise<PrepareStatus> {
+  const response = await fetch("/api/prepare/discard", { method: "POST" });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as PrepareStatus;
 }
