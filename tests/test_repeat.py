@@ -151,3 +151,48 @@ def test_a_repeat_that_cant_copy_the_clips_says_so_and_is_logged(
         assert failed.json()["detail"] == "The reply couldn't be repeated."
         assert client.get(f"/api/chat/clips/{AGAIN_ID}").status_code == 404
     assert any(r.message == "Could not repeat the reply" for r in caplog.records)
+
+
+def test_a_repeat_stopped_before_it_came_is_not_said(tmp_path: Path) -> None:
+    rendered: list[str] = []
+    client = chat_app(tmp_path, [], rendered)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Why rain?", "reply_id": REPLY_ID})
+        first = follow(client, REPLY_ID)
+        # Stop wins the race: it reaches the server before the repeat does (Codex's review).
+        assert client.post(f"/api/chat/clips/{AGAIN_ID}/stop").json() == {"stopped": False}
+        refused = client.post("/api/chat/repeat", json={"reply_id": AGAIN_ID})
+        assert refused.status_code == 409 and refused.json()["detail"] == "Stopped."
+        assert client.get(f"/api/chat/clips/{AGAIN_ID}").status_code == 404  # nothing made
+        assert follow(client, REPLY_ID) == first  # the reply's clips are still there
+        # The marker was taken: the same id is said when asked again.
+        assert client.post("/api/chat/repeat", json={"reply_id": AGAIN_ID}).status_code == 200
+        assert follow(client, AGAIN_ID) == first
+
+
+def test_a_reply_spoken_again_from_its_text_says_the_same_words(tmp_path: Path) -> None:
+    """Links and code are said the same way as the first time (Codex's review)."""
+    rendered: list[str] = []
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        rendered.append(text)
+        output.write_text(text)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield "See [the docs](https://example.com/rain) for more. "
+        yield "Run this:\n\n```python\nprint('rain')\n```\n\nThat's it."
+
+    client = video_app(tmp_path, render, stream)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Why rain?", "reply_id": REPLY_ID})
+        follow(client, REPLY_ID)
+        said = list(rendered)
+        made = list((tmp_path / "replies" / f"clips-{REPLY_ID}").glob("*.mp4"))
+        assert made
+        for clip in made:
+            clip.unlink()  # gone, as after a restart: spoken again from the text
+        client.post("/api/chat/repeat", json={"reply_id": AGAIN_ID})
+        follow(client, AGAIN_ID)
+    again = rendered[len(said) :]
+    assert " ".join(again).split() == " ".join(said).split()
+    assert not any("https://" in t or "print(" in t for t in again)
