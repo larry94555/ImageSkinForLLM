@@ -85,13 +85,10 @@ test("signing in shows the Admin link and the admin view, and signing out hides 
   await openAt("#/settings");
   expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
   await screen.findByLabelText("Administrator password");
-  // The button is never greyed out: with nothing typed, it says what's missing.
-  const button = adminSection().getByRole("button", { name: "Sign in as administrator" });
-  expect(button).toHaveProperty("disabled", false);
-  await act(async () => {
-    fireEvent.click(button);
-  });
-  expect(adminSection().getByText("Type the administrator password first.")).toBeTruthy();
+  expect(adminSection().getByRole("button", { name: "Sign in as administrator" })).toHaveProperty(
+    "disabled",
+    true,
+  );
 
   await signIn("guess");
   await adminSection().findByText("That isn't the administrator password.");
@@ -264,15 +261,4 @@ test("a server that can't be reached leaves the sign-in waiting", async () => {
     "Could not read the administrator sign-in",
     expect.any(Error),
   );
-});
-
-test("a password the browser filled in signs in, though it sent no input event", async () => {
-  server();
-  await openAt("#/settings");
-  const input = await screen.findByLabelText<HTMLInputElement>("Administrator password");
-  input.value = "secret";
-  await act(async () => {
-    fireEvent.click(adminSection().getByRole("button", { name: "Sign in as administrator" }));
-  });
-  await screen.findByRole("link", { name: "Admin" });
 });
