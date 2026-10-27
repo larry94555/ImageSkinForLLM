@@ -147,5 +147,7 @@ def test_the_admin_password_folder_is_mounted_where_the_config_looks() -> None:
     # A folder, not the file, so an edit made on the machine is seen with no restart (R149).
     settings = load_settings(DEPLOY / "config.toml")
     assert settings.admin_file == "/etc/imageskin/admin/admin.toml"
+    # Only Caddy reaches the app, so its X-Forwarded-For names each browser for the sign-in's wait.
+    assert settings.trusted_proxies == "*"
     assert "- ./admin:/etc/imageskin/admin:ro" in text(DEPLOY / "compose.yaml")
     assert (DEPLOY / "admin" / "README.md").exists()

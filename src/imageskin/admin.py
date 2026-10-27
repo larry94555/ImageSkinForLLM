@@ -28,6 +28,10 @@ WRONG_IN_A_ROW = 5
 WAIT_S = 60.0
 # scrypt's cost: about 50 ms and 16 MB a try, so guessing a hash taken from the file is slow.
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
+# The most a hash in the file may ask of scrypt: hashlib's own memory limit, 32 MB a try.
+SCRYPT_MAX_MEMORY = 32 * 1024**2
+# Addresses with wrong passwords kept at most; past this, those whose wait is over are dropped.
+WRONG_KEPT = 1000
 
 NOT_SET = (
     "No administrator password is set on this computer, so signing in as the administrator is "
@@ -56,22 +60,34 @@ def hash_password(password: str) -> str:
     return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${b64(salt).decode()}${b64(digest).decode()}"
 
 
+def parse_hash(value: str) -> tuple[int, int, int, bytes, bytes]:
+    """scrypt's N, r and p, the salt and the digest from a `password_hash`; ValueError when it
+    isn't one hash_password could have made, with costs scrypt can run."""
+    parts = value.split("$")
+    if len(parts) != 6 or parts[0] != "scrypt":
+        raise ValueError("expected scrypt$N$r$p$salt$digest")
+    n, r, p = (int(part) for part in parts[1:4])
+    if n < 2 or n & (n - 1) or not 1 <= r <= 32 or not 1 <= p <= 16:
+        raise ValueError("N must be a power of two, r from 1 to 32 and p from 1 to 16")
+    if 128 * n * r > SCRYPT_MAX_MEMORY:
+        raise ValueError("N and r ask for more than 32 MB")
+    salt = base64.b64decode(parts[4], validate=True)
+    digest = base64.b64decode(parts[5], validate=True)
+    if not 8 <= len(salt) <= 64 or not 16 <= len(digest) <= 64:
+        raise ValueError("the salt must be 8 to 64 bytes and the digest 16 to 64")
+    return n, r, p, salt, digest
+
+
 def password_matches(password: str, secret: "Secret") -> bool:
-    """Whether the password is the one in the file, compared in constant time."""
+    """Whether the password is the one in the file, compared in constant time. A hash that
+    can't be used matches nothing, so signing in is refused rather than failing."""
     if secret.kind == "password":
         return hmac.compare_digest(password.encode(), secret.value.encode())
     try:
-        _, n, r, p, salt, digest = secret.value.split("$")
-        expected = base64.b64decode(digest)
-        given = hashlib.scrypt(
-            password.encode(),
-            salt=base64.b64decode(salt),
-            n=int(n),
-            r=int(r),
-            p=int(p),
-            dklen=len(expected),
-        )
-    except ValueError as e:  # a hash that wasn't made by hash_password, or was cut short
+        n, r, p, salt, expected = parse_hash(secret.value)
+        given = hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=len(expected))
+    except (ValueError, TypeError, OverflowError, MemoryError) as e:
+        # A hash that wasn't made by hash_password, was cut short or was edited by hand.
         logger.error("Admin password hash is not valid", extra={"error": str(e)})
         return False
     return hmac.compare_digest(given, expected)
@@ -131,8 +147,9 @@ class AdminSignIns:
         self._signed_in: dict[str, SignIn] = {}
         # Why each ended sign-in ended, so the page can say so; dropped once read.
         self._ended: dict[str, str] = {}
-        self._wrong = 0
-        self._wrong_at = 0.0
+        # Wrong passwords in a row from each address, and when the last came, so one visitor's
+        # guesses make only that visitor wait, never the administrator signing in elsewhere.
+        self._wrong: dict[str, tuple[int, float]] = {}
         self._file_seen: tuple[int, int] | None = None
         self._secret: Secret | None = None
 
@@ -162,7 +179,8 @@ class AdminSignIns:
         """A new sign-in's token; AdminRefused when the password is wrong, not set or waiting."""
         with self._lock:
             now = self.clock()
-            if self._wrong >= WRONG_IN_A_ROW and now - self._wrong_at < WAIT_S:
+            wrong, wrong_at = self._wrong.get(address, (0, 0.0))
+            if wrong >= WRONG_IN_A_ROW and now - wrong_at < WAIT_S:
                 self._refuse("waiting", address)
                 raise AdminRefused("waiting", WAIT, 429)
             secret = self.secret()
@@ -170,20 +188,29 @@ class AdminSignIns:
                 self._refuse("no password set", address)
                 raise AdminRefused("no password set", NOT_SET, 403)
             if not password_matches(password, secret):
-                self._wrong += 1
-                self._wrong_at = now
+                self._note_wrong(address, wrong + 1, now)
                 self._refuse("wrong password", address)
                 raise AdminRefused("wrong password", WRONG, 401)
-            self._wrong = 0
+            self._wrong.pop(address, None)
             token = secrets.token_urlsafe(32)
             self._signed_in[token] = SignIn(now, secret.fingerprint)
         logger.info("Admin signed in", extra={"address": address})
         return token
 
+    def _note_wrong(self, address: str, wrong: int, now: float) -> None:
+        if len(self._wrong) >= WRONG_KEPT:
+            # Many addresses guessing: keep only those still counting towards a wait.
+            self._wrong = {a: w for a, w in self._wrong.items() if now - w[1] < WAIT_S}
+        self._wrong[address] = (wrong, now)
+
     def _refuse(self, reason: str, address: str) -> None:
         logger.warning(
             "Admin sign-in refused",
-            extra={"reason": reason, "address": address, "wrong_in_a_row": self._wrong},
+            extra={
+                "reason": reason,
+                "address": address,
+                "wrong_in_a_row": self._wrong.get(address, (0, 0.0))[0],
+            },
         )
 
     def signed_in(self, token: str | None) -> bool:
