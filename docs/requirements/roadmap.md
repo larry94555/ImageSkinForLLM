@@ -857,7 +857,7 @@ Added by Larry on 2026-10-25, right after Milestone 10b and before Milestone 20,
 - **Can show:** a reply said, then Repeat: the same clips play at once, the log shows `Reply repeated` with `from: clips`, and no request reaches the LLM.
 - **Built:** `POST /api/chat/repeat` in `app.py` with the browser's reply id, so the clips are followed and stopped as a reply's are. `SentenceClips.whole` gives the clips of the reply played last when every one is rendered and none failed or was stopped; `SentenceClips.replay` (R130a) copies them in. Otherwise `sentences.clips_of` cuts the reply's text into clips. In the chat, `ReplyActions` under the latest reply holds the button.
 
-### R157. Say it simpler (Simple) · item 127 · Done in [PR #PRNUM](https://github.com/larry94555/ImageSkinForLLM/pull/PRNUM)
+### R157. Say it simpler (Simple) · item 127 · Done in [PR #194](https://github.com/larry94555/ImageSkinForLLM/pull/194)
 - A **Say it simpler** button beside Repeat asks the LLM to say the latest reply again in simpler terms, with shorter sentences and everyday words and nothing new, and it is spoken and kept like any reply. In a lesson, it is the lesson's own "Say it more simply" (R41h).
 - The log has `Simpler reply asked` with the length of the reply restated.
 - **Can show:** a long reply, then Say it simpler: a shorter, plainer reply is spoken, and the log shows `Simpler reply asked`.
