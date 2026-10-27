@@ -47,8 +47,8 @@ def voice_engine(voice: str, voice_sample: Path | None) -> tuple[VoiceEngine, st
     from imageskin import pocket_engine
     from imageskin.chatterbox_engine import ChatterboxEngine
 
-    # As in the app: Pocket TTS when installed (roadmap R22f), else Chatterbox.
-    engine = pocket_engine.pocket_engine() if pocket_engine.installed() else ChatterboxEngine()
+    # As in the app: Pocket TTS when installed and signed in (roadmap R22f), else Chatterbox.
+    engine = pocket_engine.pocket_engine() if pocket_engine.usable() else ChatterboxEngine()
     engine.check_voice_sample(str(voice_sample))  # before the photo is prepared or models load
     return engine, str(voice_sample)
 

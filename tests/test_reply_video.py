@@ -277,6 +277,7 @@ def test_sentences_are_rendered_in_order(tmp_path: Path, caplog: pytest.LogCaptu
 
     videos = ReplyVideos(tmp_path, render, VoiceReady(lambda: None, lambda: "v"))
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips.join_words = 0  # each sentence a clip of its own, however they queue
     caplog.set_level(logging.INFO)
     clips(None)  # the LLM starts writing
     for sentence in ["**Hello** there.", "🎉", "See https://example.com now."]:
@@ -560,7 +561,12 @@ def test_clips_that_cant_be_removed_are_logged_and_removed_with_the_next_reply(
     with patch.object(Path, "unlink", in_use):
         clips.cancel()
     assert first.exists() and not second.exists()
-    [left] = [r for r in caplog.records if r.levelno == logging.WARNING]
+    # Only this module's: a wiki job another test left running may warn meanwhile.
+    [left] = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and r.name == "imageskin.reply_video"
+    ]
     assert left.message == "Could not remove a reply's clip"
     assert left.clip == "clips-abc123ef/1.mp4"  # type: ignore[attr-defined]
     videos.sentence_clips(Path("me.jpg"), "0123abcd")  # removed with the next reply instead
@@ -655,6 +661,7 @@ def test_each_clip_is_spoken_and_then_rendered(
         tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), ClipSteps(speak, render)
     )
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips.join_words = 0  # each sentence a clip of its own, however they queue
     caplog.set_level(logging.INFO)
     for sentence in ["One.", "🎉", "Two."]:
         clips(sentence)
@@ -1312,7 +1319,12 @@ def test_a_waiting_clips_request_does_not_answer_with_clips_a_newer_prompt_took(
         waiting.start()  # waits while the first clip is still being rendered
         second = threading.Thread(target=post, args=("Second", "b" * 8))
         second.start()
-        time.sleep(0.2)  # the second prompt has taken the first reply's clips
+        # Until the second prompt has taken the first reply's clips: a fixed 0.2 s wasn't
+        # always enough on CI.
+        for _ in range(250):
+            if client.get(f"/api/chat/clips/{'a' * 8}").status_code == 404:
+                break
+            time.sleep(0.02)
         go.set()  # the first clip is rendered now; the reply ends, and wakes the waiting request
         waiting.join(5)
         second.join(5)
@@ -1913,3 +1925,152 @@ def test_a_reply_video_asked_for_while_clearing_is_never_published(tmp_path: Pat
         assert answers["video"] == {"video": None}
         assert client.get("/api/chat/videos/1").status_code == 404
     assert not list((tmp_path / "replies").glob("*.mp4"))
+
+
+# --- A steady pace in long replies (roadmap R130) ---
+
+
+def wav_steps(said: list[str], gates: dict[str, threading.Event] | None = None) -> ClipSteps:
+    """Steps whose voice writes a second of a tone, with Kokoro's silence around it, and
+    whose video writes a stand-in clip. Speaking a text with a gate waits for it first."""
+    from test_pauses import write_speech
+
+    def speak(text: str, wav: Path) -> None:
+        if gates and text in gates:
+            gates[text].wait(10)
+        said.append(text)
+        write_speech(wav, 0.3, 1.0, 0.4)
+
+    def render(photo: Path, wav: Path, output: Path) -> None:
+        output.write_bytes(b"clip")
+
+    return ClipSteps(speak, render)
+
+
+def made(clips: SentenceClips, n: int) -> None:
+    for _ in range(500):
+        if clips.rendered >= n:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"{n} clips not made")
+
+
+def test_sentences_queued_while_the_voice_is_busy_are_one_clip(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R129 found a large fixed cost per clip on the hosted machine, so fewer, longer clips."""
+    said: list[str] = []
+    first = threading.Event()
+    videos = ReplyVideos(
+        tmp_path,
+        write_text,
+        VoiceReady(lambda: None, lambda: "v"),
+        wav_steps(said, {"Hello there Larry,": first}),
+    )
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    caplog.set_level(logging.INFO)
+    clips("Hello there Larry,")  # the first clause, spoken on its own (R22b)
+    for sentence in ["it is a fine day.", "The sun is out.", "- a list item", "Then more."]:
+        clips(sentence)
+    first.set()
+    clips.close()
+    clips.wait(10)
+    assert clips.done and clips.error is None
+    assert said == [
+        "Hello there Larry,",
+        "it is a fine day. The sun is out.",
+        "a list item",  # a list item is spoken on its own
+        "Then more.",
+    ]
+    ready = [r for r in caplog.records if r.message == "Sentence clip ready"]
+    assert [(r.sentence, r.sentences_joined) for r in ready] == [  # type: ignore[attr-defined]
+        (1, 1),
+        (2, 2),
+        (4, 1),
+        (5, 1),
+    ]
+    assert clips.voice_waiting()  # every sentence counted as made
+
+
+def test_sentences_join_only_up_to_the_word_limit() -> None:
+    from imageskin.reply_video import JOIN_WORDS, joins
+
+    assert joins(["One two."], "Three four.")
+    assert not joins(["word " * JOIN_WORDS], "More.")
+    assert not joins(["Run this:"], "```\necho\n```")
+    assert not joins(["Intro."], "## A heading")
+
+
+def test_each_clip_is_cut_to_its_pause_and_the_reply_s_pace_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    said: list[str] = []
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), wav_steps(said)
+    )
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    caplog.set_level(logging.INFO)
+    clips("Hello there.")
+    clips.close()
+    clips.wait(10)
+    spoken = next(r for r in caplog.records if r.message == "Sentence spoken")
+    assert spoken.cut_start_ms == 250 and spoken.cut_end_ms == 100  # type: ignore[attr-defined]
+    paced = next(r for r in caplog.records if r.message == "Reply paced")
+    assert paced.clips == 1 and paced.words == 2 and paced.gaps == []  # type: ignore[attr-defined]
+    assert paced.held_ms < 100  # type: ignore[attr-defined]  # nothing measured yet: not held
+    assert list(videos.recent_gaps) == [0]
+
+
+def test_playback_is_held_by_the_gaps_the_last_replies_had(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    said: list[str] = []
+    second = threading.Event()
+    videos = ReplyVideos(
+        tmp_path,
+        write_text,
+        VoiceReady(lambda: None, lambda: "v"),
+        wav_steps(said, {"Two.": second}),
+    )
+    videos.recent_gaps.extend([0.4, 0.5, 9.0])  # the median: 0.5 s
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips.join_words = 0
+    caplog.set_level(logging.INFO)
+    clips("One.")
+    clips("Two.")
+    made(clips, 1)
+    assert clips.hold_s == 0.5
+    if time.perf_counter() - clips.times[0].ready_at < 0.4:
+        assert clips.listed() == 0  # held
+    clips.wait_for_change(0, 3)  # the hold ends while it waits
+    assert clips.listed() == 1
+    released = next(r for r in caplog.records if r.message == "Reply playback released")
+    assert released.held_ms >= 500 and released.hold_s == 0.5  # type: ignore[attr-defined]
+    time.sleep(1.5)  # the second clip is late: a gap the next reply is held by
+    second.set()
+    clips.close()
+    clips.wait(10)
+    paced = next(r for r in caplog.records if r.message == "Reply paced")
+    assert paced.hold_s == 0.5 and paced.held_ms >= 500  # type: ignore[attr-defined]
+    assert len(videos.recent_gaps) == 4 and videos.recent_gaps[-1] > 0.3
+
+
+def test_a_reply_done_before_its_hold_ends_plays_at_once(tmp_path: Path) -> None:
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), wav_steps([]))
+    videos.recent_gaps.append(60.0)
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    assert clips.hold_s == 15.0
+    clips("One.")
+    clips.close()
+    clips.wait(10)
+    assert clips.listed() == 1
+
+
+def test_a_reply_kept_whole_is_never_held(tmp_path: Path) -> None:
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
+    videos.recent_gaps.append(10.0)
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    kept = tmp_path / "kept.mp4"
+    kept.write_bytes(b"clip")
+    clips.replay([kept])  # R130a's clips, made before
+    assert clips.listed() == 1

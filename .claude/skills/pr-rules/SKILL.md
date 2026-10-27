@@ -98,9 +98,9 @@ The user validates on a Windows 11 laptop, so manual test steps must work there,
 ## 8. The roadmap
 When a PR builds an item in `docs/requirements/roadmap.md` (an `### R...` entry), its branch also updates the roadmap. The PR number is only known once the PR is open, so push one more commit right after opening it:
 - Add ` · Done in [PR #N](https://github.com/larry94555/ImageSkinForLLM/pull/N)` to the item's heading.
-- In the Milestones table, raise the milestone's Done (`k of n`) and the Total row's done count and percentage.
+- In the Milestones table, raise the milestone's Done (`k of n`) and % completed, and the Total row's done count and % completed.
 
-When a PR adds a new roadmap item, add it to its milestone's PRs and Count in the table, the Total, the Sizes line, and recompute every row's % of PRs.
+When a PR adds a new roadmap item, add it to its milestone's PRs and Count in the table, the Total, the Sizes line, recompute every row's % of PRs, and recompute that milestone's % completed.
 
 ## 9. Checklist before reporting done
 - [ ] On a non-main branch, pushed, PR open
