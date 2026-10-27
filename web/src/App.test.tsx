@@ -1079,7 +1079,7 @@ test("prepare starts the job and shows each step's progress until it is ready", 
     await screen.findByText("Done. Watch the sample video, then say whether it is right.", {}, { timeout: 3000 }),
   ).toBeTruthy();
   expect(screen.getByText("Done in 17 min")).toBeTruthy();
-  // Prepared: nothing to prepare until a setting changes (R134c).
+  // Prepared: nothing to prepare until a setting changes (R159).
   expect((screen.getByRole("button", { name: "Prepare Video" }) as HTMLButtonElement).disabled).toBe(true);
   // The sample video plays from the server, fetched afresh each time it is prepared again.
   const video = screen.getByLabelText("Sample video") as HTMLVideoElement;
@@ -1131,7 +1131,7 @@ test("a job the app is no longer working on says so and can be tried again (R134
   expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
 });
 
-// prepareServer with Cancel (R134c): POST /api/prepare/cancel answers with `answer`, and the
+// prepareServer with Cancel (R159): POST /api/prepare/cancel answers with `answer`, and the
 // reads after it come from `after`.
 function cancelServer(answer: PrepareStatus | Response, after: PrepareStatus[]) {
   const reads: PrepareStatus[] = [{ ...RUNNING, left_s: 600 }];
@@ -1147,7 +1147,7 @@ function cancelServer(answer: PrepareStatus | Response, after: PrepareStatus[]) 
   return fetchMock;
 }
 
-test("Cancel asks first, and Keep preparing carries on (R134c)", async () => {
+test("Cancel asks first, and Keep preparing carries on (R159)", async () => {
   const fetchMock = cancelServer(IDLE, [IDLE]);
   await openAt("#/setup");
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
@@ -1161,7 +1161,7 @@ test("Cancel asks first, and Keep preparing carries on (R134c)", async () => {
   expect(fetchMock.mock.calls.some(([url]) => url === "/api/prepare/cancel")).toBe(false);
 });
 
-// Prepare Video can be clicked: nothing prepared for what is set up now (R134c).
+// Prepare Video can be clicked: nothing prepared for what is set up now (R159).
 async function prepareEnabled() {
   await waitFor(() =>
     expect((screen.getByRole("button", { name: "Prepare Video" }) as HTMLButtonElement).disabled).toBe(false),
@@ -1175,7 +1175,7 @@ function cancelCall(fetchMock: ReturnType<typeof vi.fn>) {
   return call && JSON.parse(String((call[1] as RequestInit).body));
 }
 
-test("Stop after this part stops the job, and Resume Preparation carries on (R134c)", async () => {
+test("Stop after this part stops the job, and Resume Preparation carries on (R159)", async () => {
   const fetchMock = cancelServer({ ...RUNNING, cancelling: true }, [{ ...RUNNING, cancelling: true }, CANCELLED]);
   await openAt("#/setup");
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
@@ -1199,7 +1199,7 @@ test("Stop after this part stops the job, and Resume Preparation carries on (R13
   expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
 });
 
-test("Stop now stops the job at once (R134c)", async () => {
+test("Stop now stops the job at once (R159)", async () => {
   const fetchMock = cancelServer(CANCELLED, [CANCELLED]);
   await openAt("#/setup");
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
@@ -1208,7 +1208,7 @@ test("Stop now stops the job at once (R134c)", async () => {
   expect(cancelCall(fetchMock)).toEqual({ now: true });
 });
 
-test("a cancel the server refuses says why (R134c)", async () => {
+test("a cancel the server refuses says why (R159)", async () => {
   cancelServer(new Response(JSON.stringify({ detail: "Not now." }), { status: 409 }), [RUNNING]);
   await openAt("#/setup");
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
@@ -1217,7 +1217,7 @@ test("a cancel the server refuses says why (R134c)", async () => {
   expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
 });
 
-// A fake server with a prepare stopped part-way (R134c): reads answer `CANCELLED` until
+// A fake server with a prepare stopped part-way (R159): reads answer `CANCELLED` until
 // POST /api/prepare/discard, then `IDLE`. The accent is the person's own. With `discardFails`,
 // discard is refused.
 function stoppedServer(discardFails = false) {
@@ -1241,7 +1241,7 @@ function stoppedServer(discardFails = false) {
   return fetchMock;
 }
 
-test("changing a setting while stopped warns that preparing starts over (R134c)", async () => {
+test("changing a setting while stopped warns that preparing starts over (R159)", async () => {
   const fetchMock = stoppedServer();
   await openAt("#/setup");
   await screen.findByRole("button", { name: "Resume Preparation" });
@@ -1275,7 +1275,7 @@ test("changing a setting while stopped warns that preparing starts over (R134c)"
 
 // Codex's review of PR #191: a setting changed although the stopped prepare is still there
 // would be resumed with the old setting.
-test("a setting is not changed while stopped if starting over fails (R134c)", async () => {
+test("a setting is not changed while stopped if starting over fails (R159)", async () => {
   const fetchMock = stoppedServer(true);
   await openAt("#/setup");
   await screen.findByRole("button", { name: "Resume Preparation" });
@@ -1303,7 +1303,7 @@ test("a setting is not changed while stopped if starting over fails (R134c)", as
   expect((await screen.findByRole("alert")).textContent).toContain("The setting was not changed");
 });
 
-test("an accent change cancelled while stopped keeps the accent (R134c)", async () => {
+test("an accent change cancelled while stopped keeps the accent (R159)", async () => {
   const fetchMock = stoppedServer();
   await openAt("#/setup");
   await screen.findByRole("button", { name: "Resume Preparation" });
@@ -1476,7 +1476,7 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
   await prepareEnabled();
 });
 
-test("photos and recordings changed while stopped are confirmed first (R134c)", async () => {
+test("photos and recordings changed while stopped are confirmed first (R159)", async () => {
   const other: Upload = { ...PHOTO, id: "c".repeat(32), name: "side.jpg", score: 80 };
   const sound: Upload = { ...SOUND, problems: [], speech: 40 };
   let status: PrepareStatus = CANCELLED;

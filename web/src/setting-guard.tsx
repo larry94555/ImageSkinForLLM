@@ -1,4 +1,4 @@
-// A setting changed while a prepare is stopped part-way (roadmap R134c) means preparing over
+// A setting changed while a prepare is stopped part-way (roadmap R159) means preparing over
 // again instead of resuming, so the change is confirmed first (Larry, 2026-10-26).
 
 import { createContext } from "preact";

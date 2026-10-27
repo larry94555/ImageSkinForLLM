@@ -458,7 +458,7 @@ export function UploadSection(props: {
 
   async function remove(item: Upload) {
     const title = `Remove ${item.name}?`;
-    // While a prepare is stopped part-way (R134c), one box asks and warns.
+    // While a prepare is stopped part-way (R159), one box asks and warns.
     const yes = guard.needed()
       ? await guard.confirm(title)
       : await ask({ title, keepLabel: "No, keep it", confirmLabel: "Yes, remove it" });
@@ -690,7 +690,7 @@ export function PrepareSection(props: {
   onBack: (to: Back) => void;
   avatarVoice?: boolean; // a ready-made avatar's picture in the user's voice (R24d)
   onPending?: (pending: boolean) => void; // a sample is neither accepted nor rejected
-  onStopped?: (stopped: boolean) => void; // stopped part-way with Cancel, to resume (R134c)
+  onStopped?: (stopped: boolean) => void; // stopped part-way with Cancel, to resume (R159)
 }) {
   const { changes, onRunning } = props;
   // null until the server has answered.
@@ -728,7 +728,7 @@ export function PrepareSection(props: {
     setStarting(false);
   }
 
-  // Cancel (R134c): asks first, in the app's own box, whether to stop now, stop once the part
+  // Cancel (R159): asks first, in the app's own box, whether to stop now, stop once the part
   // it is on is finished (at most 10 seconds), or keep preparing.
   async function cancel() {
     const left = status?.left_s != null ? ` About ${countdown(status.left_s)} is left.` : "";

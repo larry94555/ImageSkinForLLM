@@ -1,4 +1,4 @@
-"""Cancel Prepare (roadmap R134c): a running prepare stops at once, or once the part it is on is
+"""Cancel Prepare (roadmap R159): a running prepare stops at once, or once the part it is on is
 finished (at most 10 seconds), and Resume Preparation carries on from where it stopped."""
 
 import importlib

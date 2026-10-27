@@ -144,12 +144,12 @@ WAIT_TO_DELETE = "Setup is preparing the video. Try again once it has finished."
 # Start now waits for a prepare, which uses the same engines.
 WAIT_TO_START_NOW = "Setup is preparing your own video. Try again once it has finished."
 DEFAULT_PERSON_BEING_READIED = "A default person is being got ready. Try again once they are ready."
-# Prepare clicked while a cancelled job is still stopping (roadmap R134c).
+# Prepare clicked while a cancelled job is still stopping (roadmap R159).
 STOPPING = "Preparing is stopping. Try again in a moment."
-# Stop after this part (R134c) waits at most this many seconds for the part to finish, then
+# Stop after this part (R159) waits at most this many seconds for the part to finish, then
 # stops it at once (Larry: "It should still stop within 10 seconds").
 STOP_AFTER_PART_MAX_S = 10.0
-# How often Stop now tries again while the job's thread is loading a library (R134c).
+# How often Stop now tries again while the job's thread is loading a library (R159).
 INTERRUPT_RETRY_S = 0.05
 # Before the avatar's name in a photo id, when the avatar is prepared in the user's voice (R24d).
 AVATAR_PREFIX = "avatar-"
@@ -162,7 +162,7 @@ class PrepareError(Exception):
 
 
 class PrepareCancelled(BaseException):
-    """Raised in the job's thread when Cancel is confirmed (roadmap R134c): at its next progress
+    """Raised in the job's thread when Cancel is confirmed (roadmap R159): at its next progress
     report, or at once with interrupt(). A BaseException, so an engine that catches Exception
     doesn't swallow it."""
 
@@ -258,7 +258,7 @@ class PrepareStatus:
     # The face movement while speaking the clips are made with (R128a), from the Setup page when
     # the job ran; None if saved before R128a.
     face_movement: str | None = None
-    # Running, but Cancel was confirmed (R134c): it is stopping, and is then "cancelled", which
+    # Running, but Cancel was confirmed (R159): it is stopping, and is then "cancelled", which
     # Resume Preparation carries on from where it stopped.
     cancelling: bool = False
 
@@ -348,7 +348,7 @@ class PrepareJob:
         self._changed = 0.0
         # When each running step's count last went up, for its time left between counts.
         self._counted: dict[str, float] = {}
-        # Set by cancel() (R134c); the job's thread stops at its next progress report.
+        # Set by cancel() (R159); the job's thread stops at its next progress report.
         self._cancel = threading.Event()
         # While the job's thread is in its steps, it may be stopped at once with interrupt().
         self._interruptible = False
@@ -546,7 +546,7 @@ class PrepareJob:
                 self._run_in_background()
             return self._status
         self._refuse_if_busy()
-        if self._current(self._status).state == "cancelled":  # Resume Preparation (R134c)
+        if self._current(self._status).state == "cancelled":  # Resume Preparation (R159)
             logger.info(
                 "Prepare resumed",
                 extra={"photo_id": self._status.photo_id, "percent": self._status.percent},
@@ -578,7 +578,7 @@ class PrepareJob:
         return self._status
 
     def cancel(self, now: bool = False) -> PrepareStatus:
-        """Stop the running job (roadmap R134c): `now` at once, otherwise once the part it is on
+        """Stop the running job (roadmap R159): `now` at once, otherwise once the part it is on
         is finished, or after STOP_AFTER_PART_MAX_S if that comes first. A job no thread is
         working on stops at once. A stopped job is "cancelled": Resume Preparation carries on
         from where it stopped, and the face's frames already made are kept."""
@@ -676,7 +676,7 @@ class PrepareJob:
         self._save()
 
     def discard(self) -> PrepareStatus:
-        """Start again from nothing prepared instead of resuming a cancelled job (R134c), once
+        """Start again from nothing prepared instead of resuming a cancelled job (R159), once
         the user confirmed that changing a setting means preparing over again. Each step's time
         is kept for the next prepare's time left."""
         with self._lock:

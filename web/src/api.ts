@@ -222,7 +222,7 @@ export interface PrepareStatus {
   finished_at: string | null;
   left_s?: number | null; // while it runs: about how long the whole prepare has left
   stopped?: boolean; // running, but the app is no longer working on it: Try again carries on
-  cancelling?: boolean; // Cancel was confirmed and it is stopping (R134c)
+  cancelling?: boolean; // Cancel was confirmed and it is stopping (R159)
 }
 
 // A video the prepare job rendered (roadmap R13). The finish time is added so that the browser
@@ -335,7 +335,7 @@ export async function startPrepare(): Promise<PrepareStatus> {
   return (await response.json()) as PrepareStatus;
 }
 
-// Stops the running job (roadmap R134c), once the user confirmed it: `now`, or once the part it
+// Stops the running job (roadmap R159), once the user confirmed it: `now`, or once the part it
 // is on is finished (at most 10 seconds). The answer may still be running, with cancelling set.
 export async function cancelPrepare(now: boolean): Promise<PrepareStatus> {
   const response = await fetch("/api/prepare/cancel", {
@@ -347,7 +347,7 @@ export async function cancelPrepare(now: boolean): Promise<PrepareStatus> {
   return (await response.json()) as PrepareStatus;
 }
 
-// Drops a cancelled job, so Prepare starts over instead of resuming (R134c): the user confirmed
+// Drops a cancelled job, so Prepare starts over instead of resuming (R159): the user confirmed
 // changing a setting.
 export async function discardPrepare(): Promise<PrepareStatus> {
   const response = await fetch("/api/prepare/discard", { method: "POST" });

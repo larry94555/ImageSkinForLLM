@@ -9,7 +9,7 @@ interface Props {
   children?: ComponentChildren;
   keepLabel: string; // backs out
   confirmLabel: string; // goes ahead
-  otherLabel?: string; // a third choice between the two, such as Stop after this part (R134c)
+  otherLabel?: string; // a third choice between the two, such as Stop after this part (R159)
   onCancel: () => void;
   onConfirm: () => void;
   onOther?: () => void;
