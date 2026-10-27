@@ -15,6 +15,7 @@ import json
 import logging
 import math
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -148,6 +149,8 @@ STOPPING = "Preparing is stopping. Try again in a moment."
 # Stop after this part (R134c) waits at most this many seconds for the part to finish, then
 # stops it at once (Larry: "It should still stop within 10 seconds").
 STOP_AFTER_PART_MAX_S = 10.0
+# How often Stop now tries again while the job's thread is loading a library (R134c).
+INTERRUPT_RETRY_S = 0.05
 # Before the avatar's name in a photo id, when the avatar is prepared in the user's voice (R24d).
 AVATAR_PREFIX = "avatar-"
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
@@ -164,17 +167,39 @@ class PrepareCancelled(BaseException):
     doesn't swallow it."""
 
 
+def importing(frame: Any) -> bool:
+    """Whether the frame is running a module's import, or code called from one."""
+    while frame is not None:
+        if frame.f_code.co_filename.startswith("<frozen importlib"):
+            return True
+        frame = frame.f_back
+    return False
+
+
 def interrupt(thread: threading.Thread) -> bool:
     """Raise PrepareCancelled in the thread as soon as it next runs Python code: within a moment
     even in the middle of an engine's work, as each frame or model call returns to Python
-    quickly. Whether the thread was found. What it was writing is safe: frames and clips are
-    written aside and then moved, and downloads carry on from their .part file."""
+    quickly. Whether it was sent: never while the thread is importing a module, which would
+    leave that library half-loaded for as long as the app runs (Larry's test of PR #191: Perth's
+    watermarker was None when Chatterbox loaded on Resume Preparation), so the caller tries again
+    shortly. What a part was writing is safe: frames and clips are written aside and then moved,
+    and downloads carry on from their .part file."""
     if thread.ident is None:
         return False
-    found = ctypes.pythonapi.PyThreadState_SetAsyncExc(
-        ctypes.c_ulong(thread.ident), ctypes.py_object(PrepareCancelled)
-    )
-    return bool(found == 1)
+    # No other thread runs between looking at where the thread is and sending: this one holds
+    # the interpreter until the switch interval passes or it waits, and it does neither.
+    switch = sys.getswitchinterval()
+    sys.setswitchinterval(1.0)
+    try:
+        frame = sys._current_frames().get(thread.ident)
+        if frame is None or importing(frame):
+            return False
+        found = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(thread.ident), ctypes.py_object(PrepareCancelled)
+        )
+        return bool(found == 1)
+    finally:
+        sys.setswitchinterval(switch)
 
 
 @dataclass(frozen=True)
@@ -312,6 +337,8 @@ class PrepareJob:
         self._cancel = threading.Event()
         # While the job's thread is in its steps, it may be stopped at once with interrupt().
         self._interruptible = False
+        # A helper thread waits to interrupt it until it has loaded the library it is loading.
+        self._interrupting = False
         # Stops a part that runs past STOP_AFTER_PART_MAX_S after Stop after this part.
         self._late_stop: threading.Timer | None = None
         self._status = self._load()
@@ -574,11 +601,34 @@ class PrepareJob:
 
     def _interrupt(self) -> None:
         """Stop the job's thread at once, with the lock held. Only while it is in its steps,
-        and only once."""
-        if self._interruptible and self._thread is not None and self._thread.is_alive():
+        and only once. While it is loading a library, a helper thread tries again until it
+        has finished."""
+        if not self._interruptible or self._thread is None or not self._thread.is_alive():
+            return
+        if interrupt(self._thread):
             self._interruptible = False
-            found = interrupt(self._thread)
-            logger.info("Prepare interrupted", extra={"found": found})
+            logger.info("Prepare interrupted", extra={"waited_s": 0.0})
+            return
+        if not self._interrupting:
+            self._interrupting = True
+            logger.info("Prepare stops once the library it is loading is loaded")
+            threading.Thread(target=self._interrupt_soon, name="prepare-stop", daemon=True).start()
+
+    def _interrupt_soon(self) -> None:
+        start = time.perf_counter()
+        while True:
+            time.sleep(INTERRUPT_RETRY_S)
+            with self._lock:
+                thread = self._thread
+                if not self._interruptible or thread is None or not thread.is_alive():
+                    self._interrupting = False
+                    return
+                if interrupt(thread):
+                    self._interruptible = False
+                    self._interrupting = False
+                    waited = round(time.perf_counter() - start, 2)
+                    logger.info("Prepare interrupted", extra={"waited_s": waited})
+                    return
 
     def _to_cancelled(self, why: str) -> None:
         """The job stopped, with the lock held. Its steps show how far it got."""

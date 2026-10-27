@@ -1,10 +1,13 @@
 """Cancel Prepare (roadmap R134c): a running prepare stops at once, or once the part it is on is
 finished (at most 10 seconds), and Resume Preparation carries on from where it stopped."""
 
+import importlib
 import json
 import logging
+import sys
 import threading
 import time
+import types
 from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
@@ -92,7 +95,7 @@ def test_stop_now_cuts_the_part_short(tmp_path: Path, caplog: pytest.LogCaptureF
     assert time.monotonic() - start < 2  # not the 5 s the part would take
     assert job.status().state == "cancelled" and after == []
     interrupted = next(r for r in caplog.records if r.getMessage() == "Prepare interrupted")
-    assert getattr(interrupted, "found", None) is True
+    assert getattr(interrupted, "waited_s", None) == 0.0
 
 
 def test_stop_after_this_part_stops_at_once_when_the_part_runs_long(
@@ -275,3 +278,64 @@ def test_a_stop_landing_just_as_the_steps_end_still_stops(tmp_path: Path) -> Non
     job._run_steps = interrupted  # type: ignore[method-assign]
     job._run()
     assert job.status().state == "cancelled"
+
+
+SLOW_LIBRARY = """
+import sys
+import time
+
+sys.modules["slow_library_hooks"].inside.set()
+end = time.monotonic() + 0.5
+while time.monotonic() < end:
+    time.sleep(0.01)
+LOADED = True
+"""
+
+
+def test_stop_now_waits_for_a_library_being_loaded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry's test of PR #191: Stop now while the voice step was importing Chatterbox's
+    libraries left Perth half-loaded, so Resume Preparation failed. The stop now waits until
+    the import has finished, then stops the part at once."""
+    (tmp_path / "libs").mkdir()
+    (tmp_path / "libs" / "slow_library.py").write_text(SLOW_LIBRARY)
+    monkeypatch.setattr(sys, "path", [str(tmp_path / "libs"), *sys.path])
+    importlib.invalidate_caches()
+    hooks = types.ModuleType("slow_library_hooks")
+    hooks.inside = threading.Event()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "slow_library_hooks", hooks)
+    monkeypatch.delitem(sys.modules, "slow_library", raising=False)
+    after: list[str] = []
+
+    def face(photo: Path, progress: Progress) -> None:
+        importlib.import_module("slow_library")
+        end = time.monotonic() + 5  # an engine's work with no report
+        while time.monotonic() < end:
+            time.sleep(0.01)
+        after.append("face done")
+
+    job, _ = make_job(tmp_path, face)
+    with caplog.at_level(logging.INFO, logger="imageskin.prepare_job"):
+        job.start()
+        assert hooks.inside.wait(5)
+        start = time.monotonic()
+        job.cancel(now=True)
+        job.wait(5)
+    assert time.monotonic() - start < 3  # not the 5 s the part would take
+    assert job.status().state == "cancelled" and after == []
+    assert sys.modules["slow_library"].LOADED  # loaded whole, not half
+    assert "Prepare stops once the library it is loading is loaded" in messages(caplog)
+    interrupted = next(r for r in caplog.records if r.getMessage() == "Prepare interrupted")
+    assert getattr(interrupted, "waited_s", 0) > 0
+
+
+def test_importing_sees_an_import_anywhere_up_the_stack() -> None:
+    frame = types.SimpleNamespace(
+        f_code=types.SimpleNamespace(co_filename="engine.py"),
+        f_back=types.SimpleNamespace(
+            f_code=types.SimpleNamespace(co_filename="<frozen importlib._bootstrap>"), f_back=None
+        ),
+    )
+    assert prepare_job.importing(frame)
+    assert not prepare_job.importing(frame.f_back.__class__(f_code=frame.f_code, f_back=None))
