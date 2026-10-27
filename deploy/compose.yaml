@@ -25,6 +25,9 @@ services:
       # The administrator's password file (R149): a folder, not the file, so an edit made on the
       # machine is seen at once, with no restart.
       - ./admin:/etc/imageskin/admin:ro
+      # The machine's own network card for the admin dashboard's monthly use (R153): in here the
+      # card is the container's, so the host's /proc is read, at /host/proc/1/net/dev.
+      - /proc:/host/proc:ro
     # Not published on any port: only Caddy reaches it, with the password. Sign in with ChatGPT is done on the
     # laptop and imported (README.md here, step 8).
 

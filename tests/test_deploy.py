@@ -153,6 +153,14 @@ def test_the_admin_password_folder_is_mounted_where_the_config_looks() -> None:
     assert (DEPLOY / "admin" / "README.md").exists()
 
 
+def test_the_machines_network_card_is_readable_in_the_app() -> None:
+    # The container's own card is not the machine's (R153).
+    from imageskin.network import HOST_NET_DEV
+
+    assert "- /proc:/host/proc:ro" in text(DEPLOY / "compose.yaml")
+    assert str(HOST_NET_DEV) == "/host/proc/1/net/dev"
+
+
 def test_the_admin_password_guide_is_there_and_linked() -> None:
     # Every step of setting the administrator password (R151).
     guide = ROOT / "docs" / "guides" / "Admin-Password-Guide.pdf"

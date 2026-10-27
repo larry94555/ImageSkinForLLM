@@ -15,6 +15,8 @@ from typing import Any
 
 import psutil
 
+from imageskin.network import FREE_OUTBOUND, NetworkMonth
+
 logger = logging.getLogger(__name__)
 
 GB = 1000**3
@@ -56,7 +58,7 @@ def colour(percent_remaining: float | None, thresholds: Thresholds = RECOMMENDED
 
 @dataclass
 class Resource:
-    name: str  # "cpu", "memory" or "disk"
+    name: str  # "cpu", "memory", "disk" or "network"
     unit: str  # "cores" or "bytes"
     # None when it couldn't be read: shown as unknown, never as zero.
     available: float | None
@@ -106,14 +108,19 @@ def resource(
 class ResourceReader:
     """Reads the resources; the paths are for tests."""
 
-    def __init__(self, data_home: Path, cgroup: Path = CGROUP) -> None:
+    def __init__(
+        self, data_home: Path, cgroup: Path = CGROUP, network: NetworkMonth | None = None
+    ) -> None:
         self.data_home = data_home
         self.cgroup = cgroup
+        self.network_month = network
         self._errors_logged: set[str] = set()
 
     def read(self, thresholds: Thresholds = RECOMMENDED) -> dict[str, Any]:
         started = time.perf_counter()
         resources = [self.cpu(thresholds), self.memory(thresholds), self.disk(thresholds)]
+        if self.network_month is not None:
+            resources.append(self.network(self.network_month, thresholds))
         logger.debug(
             "Resources read",
             extra={
@@ -189,3 +196,14 @@ class ResourceReader:
             self._failed("disk", e)
         details = {"path": str(self.data_home)}
         return resource("disk", "bytes", FREE_DISK, total, used, thresholds, details, capped=False)
+
+    def network(self, month: NetworkMonth, thresholds: Thresholds) -> Resource:
+        """Sent this month against the free tier's 10 TB; inbound is free, so only shown (R153)."""
+        details: dict[str, Any] = {}
+        sent = None
+        try:
+            details = month.reading()
+            sent = float(details["sent"])
+        except (OSError, RuntimeError, ValueError) as e:
+            self._failed("network", e)
+        return resource("network", "bytes", FREE_OUTBOUND, FREE_OUTBOUND, sent, thresholds, details)
