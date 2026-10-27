@@ -203,6 +203,27 @@ def test_many_guessing_addresses_are_not_all_kept(
     assert list(sign_ins._wrong) == ["10.0.0.9"]
 
 
+def test_a_flood_of_addresses_within_the_minute_stays_within_the_cap(
+    file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Codex's review: without the clock moving on, no wait is over, so none could be dropped.
+    monkeypatch.setattr(admin, "WRONG_KEPT", 50)
+    sign_ins = AdminSignIns(file, clock=Clock())
+    for _ in range(5):
+        with pytest.raises(AdminRefused, match=WRONG):
+            sign_ins.sign_in("guess", "203.0.113.9")
+    for n in range(48):
+        with pytest.raises(AdminRefused):
+            sign_ins.sign_in("guess", f"10.0.{n // 256}.{n % 256}")
+    with pytest.raises(AdminRefused, match=WAIT):  # kept: still waiting
+        sign_ins.sign_in("first secret", "203.0.113.9")
+    for n in range(48, 500):
+        with pytest.raises(AdminRefused):
+            sign_ins.sign_in("guess", f"10.0.{n // 256}.{n % 256}")
+        assert len(sign_ins._wrong) <= 50
+    assert list(sign_ins._wrong)[-1] == "10.0.1.243"  # the newest is kept, the oldest went
+
+
 def test_thirty_minutes_without_activity_signs_out(
     file: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
