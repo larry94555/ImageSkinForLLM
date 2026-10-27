@@ -147,6 +147,8 @@ The person's own voice is spoken with Pocket TTS, which keeps up with the video:
 
 The token stays in `.env` on the server, which is never committed. With `HF_TOKEN` left empty, the site still works, with Chatterbox.
 
+Every Hugging Face model the app uses, and setting all of this up from scratch, is in [Set up Hugging Face models](../docs/guides/Set-up-Hugging-Face-Models.pdf).
+
 ## 7. Start it
 
 ```
