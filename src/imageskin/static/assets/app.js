@@ -3812,7 +3812,7 @@ function Chat(props) {
 		setTimes([]);
 		setWhole(false);
 		try {
-			await repeatReply(replyId);
+			if (await Promise.race([repeatReply(replyId), stopping]) === "stopped") return;
 			const count = await Promise.race([followClips(replyId, () => true), stopping]);
 			if (gone.current || count === "stopped") return;
 			allMade.current = true;

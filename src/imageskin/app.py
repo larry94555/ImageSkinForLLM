@@ -1927,15 +1927,22 @@ def create_app(
                 logger.info("Nothing to repeat", extra={"turns": len(turns)})
                 raise HTTPException(status_code=409, detail=NOTHING_TO_REPEAT)
             text = turns[-1].content
-            with clips_lock:
-                last = list(sentence_clips.values())
-                sentence_clips.clear()
-            made = next((m for c in last if (m := c.whole()) is not None), None)
             # Not `replies.sentence_clips`, which removes the other replies' clips first: the
             # ones played last are copied from, then removed with `cancel`.
             clips = SentenceClips(replies, photo, body.reply_id)
-            with clips_lock:
-                sentence_clips[body.reply_id] = clips
+            last: list[SentenceClips] = []
+            with clips_lock:  # Stop sees either the marker taken or the clips listed
+                early = body.reply_id in stopped_early
+                if early:  # stopped before it came: it isn't said (Codex's review)
+                    stopped_early.discard(body.reply_id)
+                else:
+                    last = list(sentence_clips.values())
+                    sentence_clips.clear()
+                    sentence_clips[body.reply_id] = clips
+            if early:
+                logger.info("Repeat stopped before it began", extra={"reply_id": body.reply_id})
+                raise HTTPException(status_code=409, detail=PROMPT_STOPPED)
+            made = next((m for c in last if (m := c.whole()) is not None), None)
             try:
                 if made is not None:
                     clips.replay(made)

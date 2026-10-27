@@ -96,3 +96,22 @@ test("a repeat that fails says the reply couldn't be said aloud", async () => {
   expect(await screen.findByText(/couldn't say this one aloud/)).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not repeat the reply", expect.anything());
 });
+
+test("Stop before the server begins a repeat ends it quietly", async () => {
+  let answer: (r: Response) => void = () => {};
+  const fetchMock = server(TURNS, () => new Promise<Response>((resolve) => (answer = resolve)));
+  await openChat("It falls from clouds.");
+  fireEvent.click(screen.getByRole("button", { name: "Repeat" }));
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith("/api/chat/repeat", expect.anything()),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+  });
+  expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/stop$/), expect.anything());
+  await act(async () => answer(Response.json({ detail: "Stopped." }, { status: 409 })));
+  const repeat = screen.getByRole("button", { name: "Repeat" }) as HTMLButtonElement;
+  await waitFor(() => expect(repeat.disabled).toBe(false));
+  expect(screen.queryByText(/couldn't say this one aloud/)).toBeNull();
+  expect(console.error).not.toHaveBeenCalledWith("Could not repeat the reply", expect.anything());
+});
