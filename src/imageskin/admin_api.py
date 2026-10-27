@@ -11,7 +11,8 @@ from imageskin.admin import AdminRefused, AdminSignIns
 logger = logging.getLogger(__name__)
 
 COOKIE = "imageskin_admin"
-NOT_SIGNED_IN = "Sign in as administrator first."
+# Says nothing of signing in, so a browser that is not signed in learns nothing of the admin routes.
+NOT_SIGNED_IN = "Not supported at this time."
 
 Token = Annotated[str | None, Cookie(alias=COOKIE)]
 
