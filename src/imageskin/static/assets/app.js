@@ -464,6 +464,20 @@ async function getResources() {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function getAdminSettings() {
+	const response = await fetch("/api/admin/settings");
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+async function saveAdminSettings(changes) {
+	const response = await fetch("/api/admin/settings", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(changes)
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -714,6 +728,184 @@ function ResourceDashboard() {
 	] });
 }
 //#endregion
+//#region src/admin-settings.tsx
+function fieldsOf(settings) {
+	const t = settings.thresholds;
+	return {
+		minutes: String(settings.timeout_minutes),
+		blue: String(t.blue_above),
+		orange: String(t.orange_below),
+		red: String(t.red_below)
+	};
+}
+function AdminSettingsPage() {
+	const { refresh } = useAdmin();
+	const [settings, setSettings] = d(null);
+	const [fields, setFields] = d(null);
+	const [error, setError] = d(null);
+	const [saved, setSaved] = d(false);
+	const [busy, setBusy] = d(false);
+	h(() => {
+		getAdminSettings().then((read) => {
+			console.info("Admin settings shown");
+			setSettings(read);
+			setFields(fieldsOf(read));
+		}).catch(async (e) => {
+			console.error("Could not read the admin settings", e);
+			if (e instanceof ServerRefusal && e.status === 401) return refresh();
+			setError("The admin settings could not be read. Reload the page to try again.");
+		});
+	}, []);
+	async function save(changes) {
+		setBusy(true);
+		setError(null);
+		setSaved(false);
+		const started = performance.now();
+		try {
+			const read = await saveAdminSettings({
+				timeout_minutes: Number(changes.minutes),
+				thresholds: {
+					blue_above: Number(changes.blue),
+					orange_below: Number(changes.orange),
+					red_below: Number(changes.red)
+				}
+			});
+			console.info(`Admin settings saved (${Math.round(performance.now() - started)} ms)`);
+			setSettings(read);
+			setFields(fieldsOf(read));
+			setSaved(true);
+			await refresh();
+		} catch (e) {
+			console.error("Could not save the admin settings", e);
+			if (e instanceof ServerRefusal && e.status === 401) {
+				await refresh();
+				return;
+			}
+			setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	if (!settings || !fields) return error ? /* @__PURE__ */ u("p", {
+		className: "error",
+		children: error
+	}) : /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Reading the admin settings…"
+	});
+	const input = (name, label, min, max) => /* @__PURE__ */ u("label", {
+		className: "admin-number",
+		children: [/* @__PURE__ */ u("span", { children: label }), /* @__PURE__ */ u("input", {
+			type: "number",
+			min,
+			max,
+			step: name === "minutes" ? 1 : "any",
+			value: fields[name],
+			onInput: (e) => {
+				setSaved(false);
+				setFields({
+					...fields,
+					[name]: e.currentTarget.value
+				});
+			}
+		})]
+	});
+	const recommended = settings.recommended.thresholds;
+	return /* @__PURE__ */ u("form", {
+		onSubmit: (e) => {
+			e.preventDefault();
+			save(fields);
+		},
+		children: [
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			saved && /* @__PURE__ */ u("p", {
+				className: "notice",
+				role: "status",
+				children: "Saved. The dashboard and the sign-out use them now."
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "admin-sign-out",
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: "admin-sign-out",
+						children: "Automatic sign-out"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							"The administrator is signed out after this many minutes without a click or key press in the admin view or on the Settings page. Recommended: ",
+							settings.recommended.timeout_minutes,
+							"."
+						]
+					}),
+					input("minutes", "Minutes without activity (5 to 240)", 5, 240)
+				]
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "admin-thresholds",
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: "admin-thresholds",
+						children: "Colours on the dashboard"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							"As the percentage of a resource remaining, for every resource. Green is between orange and blue. Recommended: blue above ",
+							recommended.blue_above,
+							"%, orange below",
+							" ",
+							recommended.orange_below,
+							"%, red below ",
+							recommended.red_below,
+							"%."
+						]
+					}),
+					input("blue", "Blue: more than this % remaining", 1, 99),
+					input("orange", "Orange: less than this % remaining", 1, 99),
+					input("red", "Red: less than this % remaining", 1, 99),
+					MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
+						className: "colour-key",
+						children: [
+							/* @__PURE__ */ u("span", {
+								className: `colour-name ${colour}`,
+								children: colour[0].toUpperCase() + colour.slice(1)
+							}),
+							":",
+							" ",
+							meaning,
+							". ",
+							todo
+						]
+					}, colour)),
+					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						disabled: busy,
+						onClick: () => void save({
+							...fields,
+							blue: String(recommended.blue_above),
+							orange: String(recommended.orange_below),
+							red: String(recommended.red_below)
+						}),
+						children: "Use the recommended thresholds"
+					}) })
+				]
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: busy,
+				children: "Save"
+			}) })
+		]
+	});
+}
+//#endregion
 //#region src/admin.tsx
 var GUIDE = "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides/Admin-Password-Guide.pdf";
 var CHECK_MS = 6e4;
@@ -944,8 +1136,25 @@ function AdminSection() {
 		]
 	});
 }
-function AdminPage() {
+function AdminPage({ section = "resources" }) {
 	const { session } = useAdmin();
+	if (!session?.signed_in) return /* @__PURE__ */ u("div", {
+		className: "host-page admin-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Admin" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Site-wide administration, separate from the host and participant views."
+			}),
+			/* @__PURE__ */ u(AdminSection, {})
+		]
+	});
+	const tab = (to, href, label) => /* @__PURE__ */ u("a", {
+		href,
+		className: section === to ? "current" : void 0,
+		"aria-current": section === to ? "page" : void 0,
+		children: label
+	});
 	return /* @__PURE__ */ u("div", {
 		className: "host-page admin-page",
 		children: [
@@ -954,7 +1163,12 @@ function AdminPage() {
 				className: "lead",
 				children: "Site-wide administration, separate from the host and participant views."
 			}),
-			session?.signed_in ? /* @__PURE__ */ u(ResourceDashboard, {}) : /* @__PURE__ */ u(AdminSection, {})
+			/* @__PURE__ */ u("nav", {
+				className: "admin-tabs",
+				"aria-label": "Admin pages",
+				children: [tab("resources", "#/admin", "Resources"), tab("settings", "#/admin/settings", "Admin settings")]
+			}),
+			section === "settings" ? /* @__PURE__ */ u(AdminSettingsPage, {}) : /* @__PURE__ */ u(ResourceDashboard, {})
 		]
 	});
 }
@@ -1092,7 +1306,8 @@ var PAGES = {
 	"/guide": "guide",
 	"/wiki": "wiki",
 	"/settings": "settings",
-	"/admin": "admin"
+	"/admin": "admin",
+	"/admin/settings": "admin"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -1103,6 +1318,9 @@ function setupTarget(hash) {
 }
 function pathOf(hash) {
 	return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
+}
+function adminTarget(hash) {
+	return pathOf(hash) === "/admin/settings" ? "settings" : "resources";
 }
 function wikiTarget(hash) {
 	const path = pathOf(hash);
@@ -8015,7 +8233,7 @@ function Shell() {
 			back: back.current ?? (participant ? "#/chat" : "#/"),
 			onDataDeleted: () => setConsented(false)
 		}),
-		admin: /* @__PURE__ */ u(AdminPage, {}),
+		admin: /* @__PURE__ */ u(AdminPage, { section: adminTarget(hash) }),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
