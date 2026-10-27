@@ -94,6 +94,7 @@ from imageskin.reply_times import ReplyTimes
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
 from imageskin.sentences import clips_of
+from imageskin.simpler import say_simpler
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -1858,6 +1859,8 @@ def create_app(
                 if step.kind == "summary" and settings.quiz_me:  # a quick quiz on the topic
                     topic = step.lesson.topic
                     choices = [Choice(f"Quiz me on {topic}", f"Quiz me on {topic}")]
+            elif (simpler := say_simpler(body.prompt, conversation.turns())) is not None:
+                reply, turn = conversation.send(body.prompt, clips, simpler)  # R157
             elif clips is not None and (example := example_context(body.prompt)) is not None:
                 reply, turn = answer_example(body.prompt, example, clips)
             else:

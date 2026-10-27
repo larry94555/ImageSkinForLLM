@@ -1,6 +1,6 @@
 // The Preact library (MIT, see preact-LICENSE.txt), copied in by `npm run build` in web/.
 // Not our code; do not edit.
-//#region node_modules/preact/dist/preact.module.js
+//#region ../../imageskinforllm/web/node_modules/preact/dist/preact.module.js
 var n;
 var l$1;
 var u$2;
@@ -290,7 +290,7 @@ n = w$1.slice, l$1 = { __e: function(n, l, u, t) {
 	return n.__v.__b - l.__v.__b;
 }, H.__r = 0, f$2 = Math.random().toString(8), c$1 = "__d" + f$2, a$1 = "__a" + f$2, s$1 = /(PointerCapture)$|Capture$/i, h$1 = 0, p$1 = V(!1), v$1 = V(!0), y$1 = 0;
 //#endregion
-//#region node_modules/preact/hooks/dist/hooks.module.js
+//#region ../../imageskinforllm/web/node_modules/preact/hooks/dist/hooks.module.js
 var t;
 var r;
 var u$1;
@@ -451,7 +451,7 @@ function D(n, t) {
 	return "function" == typeof t ? t(n) : t;
 }
 //#endregion
-//#region node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
+//#region ../../imageskinforllm/web/node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js
 var f = 0;
 Array.isArray;
 function u(e, t, n, o, i, u) {

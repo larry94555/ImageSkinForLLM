@@ -1744,7 +1744,11 @@ function Chat(props: {
         )}
         <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
         {turns[turns.length - 1]?.role === "assistant" && (
-          <ReplyActions disabled={busy} onRepeat={() => void repeat()} />
+          <ReplyActions
+            disabled={busy}
+            onRepeat={() => void repeat()}
+            onSimpler={quizGoing ? undefined : () => void send(SAY_IT_SIMPLER)}
+          />
         )}
         <p className="status muted" aria-live="polite">
           {status && <span className="busy">{status}</span>}
@@ -1911,8 +1915,17 @@ function QuizControls(props: { quiz: Quiz; disabled: boolean; onAsk: (prompt: st
   );
 }
 
-// Under the latest reply: Repeat says it again (R156).
-function ReplyActions(props: { disabled: boolean; onRepeat: () => void }) {
+// What Say it simpler sends (R157); typing it does the same. In a lesson, it is the lesson's own
+// "Say it more simply" (R41h).
+const SAY_IT_SIMPLER = "Say it simpler";
+
+// Under the latest reply: Repeat says it again (R156), and Say it simpler has the LLM say it
+// again in simpler terms (R157). Not while a quiz is going, where whatever is sent is the answer.
+function ReplyActions(props: {
+  disabled: boolean;
+  onRepeat: () => void;
+  onSimpler?: () => void;
+}) {
   return (
     <div className="reply-actions">
       <button
@@ -1923,6 +1936,19 @@ function ReplyActions(props: { disabled: boolean; onRepeat: () => void }) {
       >
         Repeat
       </button>
+      {props.onSimpler && (
+        <button
+          type="button"
+          className="secondary"
+          disabled={props.disabled}
+          onClick={() => {
+            console.info("Say it simpler");
+            props.onSimpler?.();
+          }}
+        >
+          {SAY_IT_SIMPLER}
+        </button>
+      )}
     </div>
   );
 }
