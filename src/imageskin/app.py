@@ -1627,7 +1627,7 @@ def create_app(
         try:
             times.waited_warm_up_ms = wait_for_warm_up()
             asked = time.perf_counter()
-            thinking.stage("Finishing my last answer")
+            thinking.stage("Finishing last answer")
             # One LLM answers the whole prompt, even if it is changed meanwhile (review on
             # PR #115).
             with chat_lock, pinned(client), llm_busy():
@@ -1783,7 +1783,7 @@ def create_app(
         """An example question's reply: the one kept, said at once, or the LLM's, kept once its
         clips are all rendered."""
         start = time.perf_counter()
-        thinking.stage("Remembering how I answered before")
+        thinking.stage("Recalling an earlier answer")
         kept = topic_replies.get(prompt, context)
         if kept is None:
             epoch = topic_replies.epoch  # not kept if the conversation is cleared meanwhile
@@ -1830,7 +1830,7 @@ def create_app(
                 # Checked and the summary waited for before the correction asks the LLM, as
                 # for a lesson, quiz or assessment (review on PR #91).
                 conversation.check(body.prompt)
-                thinking.stage("Making sure I heard you right")
+                thinking.stage("Checking what was said")
                 meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
                 body = body.model_copy(update={"prompt": meant})
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())
@@ -1853,15 +1853,15 @@ def create_app(
                 conversation.check(body.prompt)  # before any of them asks the LLM
             assessed = None
             if settings.assessment:
-                thinking.stage("Following your assessment")
+                thinking.stage("Following the assessment")
                 assessed = assessor.step(body.prompt, assessment)
             asking = None
             if assessed is None and settings.quiz_me:
-                thinking.stage("Following your quiz")
+                thinking.stage("Following the quiz")
                 asking = quizzer.step(body.prompt, quiz)
             step = None
             if asking is None and settings.teach_me:
-                thinking.stage("Following our lesson")
+                thinking.stage("Following the lesson")
                 step = tutor.step(body.prompt, lesson)
             choices: list[Choice] = []
             if assessed is not None:

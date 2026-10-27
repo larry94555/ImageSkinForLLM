@@ -24,16 +24,16 @@ logger = logging.getLogger(__name__)
 # What the stage says before any step has said what it is doing.
 STARTING = "Getting started"
 # While the LLM reads the prompt, and once it has started writing.
-ANSWERING = "Thinking about the answer"
-WRITING = "Writing my answer"
+ANSWERING = "Thinking it through"
+WRITING = "Writing the answer"
 # Waiting for the replies' warm-up, before it has said which step it is at.
-GETTING_READY = "Getting ready for our lesson"
-# The warm-up's steps (`getting_ready`): the voice loaded, a first word said, the face at rest
-# made (the idle video), and the LLM reading the system prompt.
-WAKING_VOICE = "Getting ready to talk with you"
-FIRST_WORD = "Practising my first words"
-FACE = "Getting settled in front of you"
-INSTRUCTIONS = "Reviewing my lesson notes"
+GETTING_READY = "Getting ready"
+# The warm-up's steps (`getting_ready`): the voice made ready, a first word said, the face at
+# rest made (the idle video), and the LLM reading the system prompt.
+WAKING_VOICE = "Getting ready to answer"
+FIRST_WORD = "Practising first words"
+FACE = "Getting settled"
+INSTRUCTIONS = "Reviewing lesson notes"
 # The warm-up remembers how long its own steps take; a prompt waiting for one doesn't.
 WARM_UP_STEPS = {GETTING_READY, WAKING_VOICE, FIRST_WORD, FACE, INSTRUCTIONS}
 
@@ -42,31 +42,39 @@ WARM_UP_STEPS = {GETTING_READY, WAKING_VOICE, FIRST_WORD, FACE, INSTRUCTIONS}
 PHRASE_S = 8.0
 # Work that can be counted, as the frames of a video, is shown in this many parts.
 PARTS = 10
-# The phrases each stage says in turn while it lasts, said once each. A stage not listed keeps
-# its name, which is fine for a step that takes a moment.
+# The phrases each stage says in turn while it lasts, said once each: short, with no "you",
+# which is understood (Larry, testing PR #179). A stage not listed keeps its name, which is fine
+# for a step that takes a moment.
 PHRASES: dict[str, list[str]] = {
-    GETTING_READY: [GETTING_READY, "Setting up my desk", "Getting my things together"],
-    WAKING_VOICE: [WAKING_VOICE, "Getting ready to answer you"],
-    FIRST_WORD: [FIRST_WORD, "Warming up to talk"],
+    GETTING_READY: [GETTING_READY, "Setting up"],
+    WAKING_VOICE: [WAKING_VOICE, "Preparing to speak"],
+    FIRST_WORD: [FIRST_WORD, "Warming up"],
     FACE: [FACE, "Getting comfortable"],
-    INSTRUCTIONS: [INSTRUCTIONS, "Going over today's plan"],
-    "Finishing my last answer": ["Finishing my last answer", "You're next in line"],
-    "Remembering what we talked about": [
-        "Remembering what we talked about",
-        "Going over our lesson so far",
-    ],
-    "Looking through the course material": [
-        "Looking through the course material",
-        "Finding the right pages",
-    ],
-    ANSWERING: ["Reading your question", ANSWERING, "Planning how to explain it"],
+    INSTRUCTIONS: [INSTRUCTIONS, "Going over the plan"],
+    "Finishing last answer": ["Finishing last answer", "Next in line"],
+    "Recalling the conversation": ["Recalling the conversation", "Reviewing earlier points"],
+    "Searching the material": ["Searching the material", "Finding the right pages"],
+    ANSWERING: ["Reading the question", "Recalling what I know", ANSWERING, "Planning the answer"],
     WRITING: [WRITING],
+}
+# How long a stage whose work can't be counted usually takes, in seconds, until it has taken
+# its own time here once: so its parts are always out of a number, never a bare count (Larry).
+TYPICAL_S: dict[str, float] = {
+    GETTING_READY: 15,
+    WAKING_VOICE: 120,
+    FIRST_WORD: 40,
+    FACE: 60,
+    INSTRUCTIONS: 60,
+    "Finishing last answer": 30,
+    "Recalling the conversation": 30,
+    "Searching the material": 20,
+    ANSWERING: 40,
 }
 
 
 class Part(NamedTuple):
-    """How far a stage's work has come: `done` of `total`, or `done` so far when the total
-    isn't known."""
+    """How far a stage's work has come: `done` of `total`, or the sentences `done` so far of an
+    answer being written, whose total isn't known."""
 
     done: int
     total: int | None = None
@@ -127,26 +135,28 @@ def _took(stage: str, seconds: float) -> None:
 
 def say(stage: str, seconds: float, part: Part | None = None) -> str:
     """What to say `seconds` into a stage: its phrases in turn, `PHRASE_S` each and each once.
-    Counted work says its part all along; other work, once its phrases are said, says the part
-    of the time it took last time it has reached."""
+    Counted work says how far it has come all along; other work, once its phrases are said,
+    says the part it has reached of how long it took last time (or usually takes), so a number
+    always has its total."""
     phrases = PHRASES.get(stage, [stage])
     n = int(seconds // PHRASE_S)
     words = phrases[min(n, len(phrases) - 1)]
     if part is not None:
         if part.total:
             shown = min(PARTS, max(1, math.ceil(part.done / part.total * PARTS)))
-            return f"{words}, part {shown} of {PARTS}"
-        return f"{words}, part {max(1, part.done)}"
+            return f"{words} ({shown} of {PARTS})"
+        if part.done:
+            return f"{words} ({part.done} sentence{'' if part.done == 1 else 's'} done)"
+        return words
     if n < len(phrases) or stage not in PHRASES:
         return words
-    k = n + 1
-    took = usual(stage)
-    expected = None if took is None else math.ceil(took / PHRASE_S)
-    if expected is not None and k <= expected:
-        return f"{words}, part {k} of about {expected}"
-    if expected is not None:
-        return f"{words}, part {k}, longer than last time"
-    return f"{words}, part {k}"
+    took = usual(stage) or TYPICAL_S.get(stage)
+    if took is None:
+        return words
+    k, expected = n + 1, math.ceil(took / PHRASE_S)
+    if k <= expected:
+        return f"{words} ({k} of about {expected})"
+    return f"{words} (longer than usual)"
 
 
 class Thinking:

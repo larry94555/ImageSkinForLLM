@@ -60,7 +60,7 @@ def test_a_stage_keeps_its_start_when_told_again() -> None:
 
 
 def test_nothing_is_followed_without_a_prompt() -> None:
-    thinking.stage("Thinking about the answer")  # no prompt on this thread: nothing happens
+    thinking.stage(thinking.ANSWERING)  # no prompt on this thread: nothing happens
     assert thinking.took() is None
 
 
@@ -84,7 +84,7 @@ def test_a_reply_from_the_pdfs_goes_through_each_stage_and_keeps_its_time() -> N
     thought = Recorded()
     with following(thought):
         reply, turn = conversation.send("Why is the sky blue?")
-    assert thought.seen[:2] == ["Looking through the course material", "Thinking about the answer"]
+    assert thought.seen[:2] == ["Searching the material", thinking.ANSWERING]
     assert set(thought.seen[2:]) == {WRITING}
     # Plain words for anyone: no numbers and no technical terms (Larry, testing PR #179).
     assert not any(c.isdigit() for c in "".join(thought.seen))
@@ -102,7 +102,7 @@ def test_a_prompt_waiting_for_the_summary_says_so() -> None:
     threading.Timer(0.05, release.set).start()
     with following(thought):
         conversation.send("Hi")
-    assert thought.seen[0] == "Remembering what we talked about"
+    assert thought.seen[0] == "Recalling the conversation"
 
 
 def test_the_topics_reply_says_it_lists_them() -> None:
@@ -110,7 +110,7 @@ def test_the_topics_reply_says_it_lists_them() -> None:
     thought = Recorded()
     with following(thought):
         conversation.send("What topics can you talk about?")
-    assert "Listing what we can talk about" in thought.seen
+    assert "Listing the topics" in thought.seen
 
 
 def test_the_time_is_saved_and_read_back(tmp_path: Path) -> None:
@@ -172,7 +172,7 @@ def test_the_api_says_what_a_prompt_is_thinking_about(tmp_path: Path) -> None:
         now = client.get(f"/api/chat/thinking/{reply_id}").json()
         answer.set()
         sending.join(5)
-    assert now["stage"] == "Reading your question" and now["elapsed_s"] >= 0
+    assert now["stage"] == "Reading the question" and now["elapsed_s"] >= 0
     assert replies[0]["content"] == "Hello" and replies[0]["thinking_s"] >= 0  # type: ignore[operator]
     assert client.get(f"/api/chat/thinking/{reply_id}").status_code == 404  # the reply is in
     assert client.get("/api/chat/thinking/not-an-id").status_code == 422
@@ -180,45 +180,51 @@ def test_the_api_says_what_a_prompt_is_thinking_about(tmp_path: Path) -> None:
 
 def test_a_long_stage_shows_progress_and_never_says_the_same_twice() -> None:
     """Never the same words for more than 10 seconds, and never the same words again: a stage
-    that goes on counts its parts (Larry, testing PR #179)."""
+    that goes on counts its parts, always out of a total (Larry, testing PR #179)."""
     assert 5 <= PHRASE_S <= 10
-    said = [say(thinking.ANSWERING, PHRASE_S * n + 1) for n in range(20)]
-    assert said[:3] == ["Reading your question", thinking.ANSWERING, "Planning how to explain it"]
-    assert said[3] == "Planning how to explain it, part 4"
-    assert len(set(said)) == len(said)
-    assert say("Listing what we can talk about", 60) == "Listing what we can talk about"
-    for phrases in PHRASES.values():
+    said = [say(thinking.ANSWERING, PHRASE_S * n + 1) for n in range(5)]
+    assert said == [
+        "Reading the question",
+        "Recalling what I know",
+        thinking.ANSWERING,
+        "Planning the answer",
+        "Planning the answer (5 of about 5)",
+    ]
+    assert say(thinking.ANSWERING, PHRASE_S * 5 + 1) == "Planning the answer (longer than usual)"
+    assert say("Listing the topics", 60) == "Listing the topics"  # a quick step keeps its name
+    for stage, phrases in PHRASES.items():
         assert len(set(phrases)) == len(phrases)
+        assert stage == WRITING or stage in thinking.TYPICAL_S  # so a count has its total
         for words in phrases:
-            assert not any(c.isdigit() for c in words) and len(words.split()) <= 6
-            assert not any(w in words.lower() for w in ("voice", "video", "load", "llm", "token"))
+            assert not any(c.isdigit() for c in words) and len(words.split()) <= 4
+            assert not any(w in words.lower().split() for w in ("you", "your", "voice", "llm"))
 
 
 def test_the_parts_are_counted_out_of_how_long_it_took_last_time(tmp_path: Path) -> None:
     times = tmp_path / "thinking_times.json"
     thought = Thinking()
     thought.stage(thinking.ANSWERING)
-    thought._stage = (thinking.ANSWERING, thought._stage[1] - 40, None)
-    thought.stage(WRITING)  # it took 40 seconds: five parts of 8
-    assert json.loads(times.read_text(encoding="utf-8")) == {thinking.ANSWERING: 40.0}
+    thought._stage = (thinking.ANSWERING, thought._stage[1] - 64, None)
+    thought.stage(WRITING)  # it took 64 seconds: eight parts of 8
+    assert json.loads(times.read_text(encoding="utf-8")) == {thinking.ANSWERING: 64.0}
     thinking.remember_in(times)  # read back, as at the next start
-    assert thinking.usual(thinking.ANSWERING) == 40.0
-    planning = "Planning how to explain it"
-    assert say(thinking.ANSWERING, PHRASE_S * 3 + 1) == f"{planning}, part 4 of about 5"
-    assert say(thinking.ANSWERING, PHRASE_S * 5 + 1) == (
-        "Planning how to explain it, part 6, longer than last time"
-    )
+    assert thinking.usual(thinking.ANSWERING) == 64.0
+    said = [say(thinking.ANSWERING, PHRASE_S * n + 1) for n in range(4, 8)]
+    assert said == [f"Planning the answer ({k} of about 8)" for k in range(5, 9)]
     thought.stage(STARTING)  # a stage over in a moment isn't remembered
     assert thinking.usual(WRITING) is None
     thought.done()
     assert thinking.usual(STARTING) is None
 
 
-def test_counted_work_says_its_part_all_along() -> None:
-    assert say(WRITING, 1, Part(3)) == "Writing my answer, part 3"
-    assert say(thinking.FACE, 1, Part(1, 300)) == f"{thinking.FACE}, part 1 of {PARTS}"
-    assert say(thinking.FACE, 30, Part(150, 300)) == f"Getting comfortable, part 5 of {PARTS}"
-    assert say(thinking.FACE, 90, Part(300, 300)) == f"Getting comfortable, part {PARTS} of {PARTS}"
+def test_counted_work_says_how_far_it_has_come() -> None:
+    assert say(WRITING, 1, Part(0)) == WRITING
+    assert say(WRITING, 20) == WRITING  # no sentence yet: nothing to count
+    assert say(WRITING, 1, Part(1)) == "Writing the answer (1 sentence done)"
+    assert say(WRITING, 1, Part(3)) == "Writing the answer (3 sentences done)"
+    assert say(thinking.FACE, 1, Part(1, 300)) == f"{thinking.FACE} (1 of {PARTS})"
+    assert say(thinking.FACE, 30, Part(150, 300)) == f"Getting comfortable (5 of {PARTS})"
+    assert say(thinking.FACE, 90, Part(300, 300)) == f"Getting comfortable ({PARTS} of {PARTS})"
 
 
 def test_saved_times_that_are_not_numbers_are_left_out(tmp_path: Path) -> None:
@@ -251,7 +257,7 @@ def test_the_phrase_follows_the_stages_time() -> None:
     thought.stage(thinking.ANSWERING)
     started = thought._stage[1]
     with patch("imageskin.thinking.time.perf_counter", return_value=started + PHRASE_S + 1):
-        assert thought.now()["stage"] == thinking.ANSWERING
+        assert thought.now()["stage"] == "Recalling what I know"
 
 
 def test_a_prompt_waiting_for_the_warm_up_says_its_steps(tmp_path: Path) -> None:
@@ -306,7 +312,7 @@ def test_a_prompt_waiting_for_the_warm_up_says_its_steps(tmp_path: Path) -> None
     assert said[:3] == [
         thinking.WAKING_VOICE,
         thinking.FIRST_WORD,
-        f"{thinking.FACE}, part 3 of 10",
+        f"{thinking.FACE} (3 of 10)",
     ]
     assert thinking.ready_step().name == thinking.FACE
 

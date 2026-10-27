@@ -983,7 +983,7 @@ class Conversation:
         sent = history_tokens(self._summary, turns, count)
         asked_tokens = tokens({"role": "user", "content": asked}, count)
         note(history_tokens=sent, asked_tokens=asked_tokens)
-        thinking.stage("Thinking about the answer")
+        thinking.stage(thinking.ANSWERING)
         logger.info(
             "Chat prompt sent",
             extra={
@@ -1081,7 +1081,7 @@ class Conversation:
         lookup or it failed (then the prompt is answered, never declined)."""
         if self._find is None:
             return None
-        thinking.stage("Looking through the course material")
+        thinking.stage("Searching the material")
         start = time.perf_counter()
         try:
             found = self._find(prompt)
@@ -1105,7 +1105,7 @@ class Conversation:
         """Answer "What can you talk about?" from the topics, without asking the LLM (R41f).
         It is sent to the LLM with later prompts, and the topics named and the one suggested are
         kept, so "Tell me about the first one" and "that one" work."""
-        thinking.stage("Listing what we can talk about")
+        thinking.stage("Listing the topics")
         topics = self._list_topics()
         suggested = random.choice(topics) if topics else None
         content_only = self._content_only()
@@ -1234,7 +1234,7 @@ class Conversation:
                 if on_sentence is not None:
                     on_sentence(None)
             pieces.append(piece)
-            thinking.stage(thinking.WRITING, thinking.Part(count + 1))  # the sentence it is on
+            thinking.stage(thinking.WRITING, thinking.Part(count))  # the sentences written so far
             ready(splitter.feed(piece))
         note_now("last_token_at")
         ready(splitter.flush())
@@ -1252,7 +1252,7 @@ class Conversation:
         """Wait for a summary being made, if any."""
         if self._summarizer is not None:
             if self._summarizer.is_alive():
-                thinking.stage("Remembering what we talked about")
+                thinking.stage("Recalling the conversation")
             self._summarizer.join()
 
     def _summarize(self, budget: int) -> None:
