@@ -1319,7 +1319,12 @@ def test_a_waiting_clips_request_does_not_answer_with_clips_a_newer_prompt_took(
         waiting.start()  # waits while the first clip is still being rendered
         second = threading.Thread(target=post, args=("Second", "b" * 8))
         second.start()
-        time.sleep(0.2)  # the second prompt has taken the first reply's clips
+        # Until the second prompt has taken the first reply's clips: a fixed 0.2 s wasn't
+        # always enough on CI.
+        for _ in range(250):
+            if client.get(f"/api/chat/clips/{'a' * 8}").status_code == 404:
+                break
+            time.sleep(0.02)
         go.set()  # the first clip is rendered now; the reply ends, and wakes the waiting request
         waiting.join(5)
         second.join(5)
