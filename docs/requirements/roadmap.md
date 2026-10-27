@@ -109,6 +109,16 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 1: Sample video from the command line
 
+| PR | Description | Status |
+|---|---|---|
+| [R1. Project skeleton](#r1-project-skeleton-simple--done-in-pr-3) | The Python package, a `/health` endpoint, the `imageskin` command, logging and CI. | Done in [PR #3](https://github.com/larry94555/ImageSkinForLLM/pull/3) |
+| [R2. Audio conversion and the voice sample](#r2-audio-conversion-and-the-voice-sample-simple--items-1-3-partial--done-in-pr-5) | Converts M4A and MP3 recordings to WAV and joins them into one voice sample. | Done in [PR #5](https://github.com/larry94555/ImageSkinForLLM/pull/5) |
+| [R3. Voice engine and speech](#r3-voice-engine-and-speech-medium--item-11-timings--done-in-pr-6) | The voice engine interface and Kokoro, speaking any sentence in a ready-made voice with word timings. | Done in [PR #6](https://github.com/larry94555/ImageSkinForLLM/pull/6) |
+| [R4. Video engine and the sample video](#r4-video-engine-and-the-sample-video-medium--item-6--done-in-pr-7) | The video engine interface and a first engine that renders the sample video from one photo. | Done in [PR #7](https://github.com/larry94555/ImageSkinForLLM/pull/7) |
+| [R4a. Photoreal mouth alignment and tuning](#r4a-photoreal-mouth-alignment-and-tuning-medium--item-6--done-in-pr-13) | Opens the photoreal mouth straight down and re-tunes every mouth shape. | Done in [PR #13](https://github.com/larry94555/ImageSkinForLLM/pull/13) |
+| [R4b. Sound timings from the voice](#r4b-sound-timings-from-the-voice-simple--items-6-11--done-in-pr-14) | Times each sound of the voice and maps it to a mouth shape. | Done in [PR #14](https://github.com/larry94555/ImageSkinForLLM/pull/14) |
+| [R4c. Photoreal video engine](#r4c-photoreal-video-engine-medium--item-6--done-in-pr-15-and-pr-16) | The photoreal LivePortrait engine: prepares the face once, then renders lip-synced video. | Done in [PR #15](https://github.com/larry94555/ImageSkinForLLM/pull/15) and [PR #16](https://github.com/larry94555/ImageSkinForLLM/pull/16) |
+
 ### R1. Project skeleton (Simple) · Done in [PR #3](https://github.com/larry94555/ImageSkinForLLM/pull/3)
 - Python package with FastAPI app, a `/health` endpoint, and an `imageskin` command-line entry point.
 - Structured logging setup, config file loading, lint, format, type check and unit tests wired into CI.
@@ -155,6 +165,18 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Built:** `imageskin prepare --photo me.jpg` renders, once per photo, the 10 mouth shapes on the still head with Larry's accepted settings and an 8-second idle loop with a slight head drift (a degree or two) and two blinks, saved under `~/.imageskin/photoreal/` (about 170 MB) and resumed after an interruption. It takes about 17 minutes on a 4-core CPU, not hours: the mouth shapes are rendered on the still head only, and each reply moves the mouth with the head (a shift and slight turn measured from the loop frames, accurate to under half a pixel), instead of rendering every mouth shape at every head position. `imageskin sample --photo me.jpg --engine photoreal [--text ...]` renders from R4b's sound timings with no model run. One neutral loop for now; moods come with the settings that use them. The experiments in `experiments/` were removed: the app now does what they tested.
 
 ## Milestone 2: Setup in the browser
+
+| PR | Description | Status |
+|---|---|---|
+| [R5. Browser app and consent](#r5-browser-app-and-consent-medium--item-22--done-in-pr-17) | The browser app, served by the server, with setup blocked until consent is given. | Done in [PR #17](https://github.com/larry94555/ImageSkinForLLM/pull/17) |
+| [R6. Upload API with safe storage](#r6-upload-api-with-safe-storage-medium--item-1--done-in-pr-18) | Server endpoints to upload, list, fetch and remove photos and recordings safely. | Done in [PR #18](https://github.com/larry94555/ImageSkinForLLM/pull/18) |
+| [R7. Upload screen](#r7-upload-screen-medium--item-1--done-in-pr-19) | A browser screen to upload, view and play the photos and recordings. | Done in [PR #19](https://github.com/larry94555/ImageSkinForLLM/pull/19) |
+| [R8. Face checks](#r8-face-checks-medium--item-2-part-1--done-in-pr-20) | Checks each photo has one large, front-facing, uncovered face, with plain messages. | Done in [PR #20](https://github.com/larry94555/ImageSkinForLLM/pull/20) |
+| [R9. Photo quality checks and best photo](#r9-photo-quality-checks-and-best-photo-medium--item-2-part-2--done-in-pr-21) | Checks photos are sharp and evenly lit, and picks the best one. | Done in [PR #21](https://github.com/larry94555/ImageSkinForLLM/pull/21) |
+| [R10. Sound checks](#r10-sound-checks-medium--item-3-part-1--done-in-pr-22) | Checks recordings are long enough, not clipped and not noisy. | Done in [PR #22](https://github.com/larry94555/ImageSkinForLLM/pull/22) |
+| [R11. One-speaker check](#r11-one-speaker-check-medium--item-3-part-2--done-in-pr-23) | Flags a recording with a second voice in it. | Done in [PR #23](https://github.com/larry94555/ImageSkinForLLM/pull/23) |
+| [R12. Prepare job with progress](#r12-prepare-job-with-progress-medium--item-5--done-in-pr-24) | Prepare runs as a background job with a progress bar and survives a restart. | Done in [PR #24](https://github.com/larry94555/ImageSkinForLLM/pull/24) |
+| [R13. Sample video in the browser](#r13-sample-video-in-the-browser-medium--items-5-6--done-in-pr-26) | After prepare, the sample video plays in the browser. | Done in [PR #26](https://github.com/larry94555/ImageSkinForLLM/pull/26) |
 
 ### R5. Browser app and consent (Medium) · item 22 · Done in [PR #17](https://github.com/larry94555/ImageSkinForLLM/pull/17)
 - TypeScript browser app served by FastAPI, with page routing and a shared layout.
@@ -207,6 +229,15 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 3: The person's voice, reviewed
 
+| PR | Description | Status |
+|---|---|---|
+| [R25a. Voice cloning test](#r25a-voice-cloning-test-medium--items-3-4--done-in-pr-30) | An experiment proving the person's voice can be cloned from their recordings. | Done in [PR #30](https://github.com/larry94555/ImageSkinForLLM/pull/30) |
+| [R25. The person's voice by cloning](#r25-the-persons-voice-by-cloning-medium--items-3-4--done-in-pr-31) | Speaks any text in the person's cloned voice with Chatterbox Turbo. | Done in [PR #31](https://github.com/larry94555/ImageSkinForLLM/pull/31) |
+| [R25b. The person's voice in prepare and the sample video](#r25b-the-persons-voice-in-prepare-and-the-sample-video-medium--items-5-6--done-in-pr-34) | Prepare readies the person's voice, and the sample video speaks in it. | Done in [PR #34](https://github.com/larry94555/ImageSkinForLLM/pull/34) |
+| [R26a. Accent test](#r26a-accent-test-medium--item-4--done-in-pr-36) | An experiment testing which accents can be given to the cloned voice. | Done in [PR #36](https://github.com/larry94555/ImageSkinForLLM/pull/36) |
+| [R26. Accent choice in setup](#r26-accent-choice-in-setup-medium--item-4--done-in-pr-37) | Setup asks whether to keep the person's own accent or use American or British. | Done in [PR #37](https://github.com/larry94555/ImageSkinForLLM/pull/37) |
+| [R14. Review screen](#r14-review-screen-medium--item-7--done-in-pr-38) | The review screen: accept, reject the image or voice, or change the accent. | Done in [PR #38](https://github.com/larry94555/ImageSkinForLLM/pull/38) |
+
 ### R25a. Voice cloning test (Medium) · items 3, 4 · Done in [PR #30](https://github.com/larry94555/ImageSkinForLLM/pull/30)
 - **Why first:** if the person's voice can't be cloned convincingly, the project fails, so this is proven before any chat work (Larry, 2026-10-07). Done so far: R2 and R10 turn the recordings into a checked voice sample, R11 checks there is one speaker, and R13 renders the sample video, but every clip so far uses a ready-made Kokoro voice; nothing has been made in the person's voice yet.
 - An experiment in `experiments/voice/`, like the photoreal test in GitHub PR #8: take Larry's voice sample (the R10 `voice-sample.wav`) and make the sample script (item 6) and a few chat-like replies in his voice with at least two candidate tools that are free per use, run on the CPU and allow hosted use (licenses checked first). Candidates: voice conversion of Kokoro's output (for example OpenVoice v2's tone-color converter, Seed-VC or kNN-VC), which gives an American accent, and, for keeping the person's own accent, a cloning TTS if one meets the limits.
@@ -246,6 +277,17 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Built:** four buttons under the sample video. Accept saves `review.json` with the sample it was given for (the photo, the voice and when the sample was made), so a sample Prepare makes again, for any reason, needs accepting again (Run the video test again in Settings, R27b, is the exception: same photo and voice, so the acceptance stays); it then opens the new Chat page. Reject image, Reject voice and Change accent withdraw an acceptance and scroll back to the photos, the recordings or the accent, which show what to do there. Uploads are kept: the user removes the ones they don't want. The Chat page says it is locked until a sample is accepted (`GET /api/review`); the chat itself comes in R15.
 
 ## Milestone 4: Talking chat
+
+| PR | Description | Status |
+|---|---|---|
+| [R15. Text chat with the LLM](#r15-text-chat-with-the-llm-medium--items-10-15-16--done-in-pr-39) | Typed chat with the local LLM, remembering earlier turns. | Done in [PR #39](https://github.com/larry94555/ImageSkinForLLM/pull/39) |
+| [R16. Text cleaning for speech](#r16-text-cleaning-for-speech-simple--item-11--done-in-pr-42) | Removes Markdown, code, links and emoji from a reply before it is spoken. | Done in [PR #42](https://github.com/larry94555/ImageSkinForLLM/pull/42) |
+| [R16a. Saying what was left out](#r16a-saying-what-was-left-out-simple--item-11--done-in-pr-43) | Says briefly what was left out, such as a link or code, in whole sentences. | Done in [PR #43](https://github.com/larry94555/ImageSkinForLLM/pull/43) |
+| [R16b. Saying math](#r16b-saying-math-simple--item-11--done-in-pr-79) | Speaks math such as ζ(s) or LaTeX in words. | Done in [PR #79](https://github.com/larry94555/ImageSkinForLLM/pull/79) |
+| [R17. Spoken video replies](#r17-spoken-video-replies-medium--items-11-20--done-in-pr-45) | Each LLM reply is spoken in the person's voice on video in the chat. | Done in [PR #45](https://github.com/larry94555/ImageSkinForLLM/pull/45) |
+| [R18a. Video in focus, history panel](#r18a-video-in-focus-history-panel-simple--item-11--done-in-pr-58) | Keeps the video at the top, with the full conversation in a history panel. | Done in [PR #58](https://github.com/larry94555/ImageSkinForLLM/pull/58) |
+| [R18. Reply text panel](#r18-reply-text-panel-medium--item-11--done-in-pr-59) | Adds a search box to the reply text panel. | Done in [PR #59](https://github.com/larry94555/ImageSkinForLLM/pull/59) |
+| [R19. Stop, volume and mute](#r19-stop-volume-and-mute-simple--items-18-21--done-in-pr-60) | Stop, volume and mute controls for a reply. | Done in [PR #60](https://github.com/larry94555/ImageSkinForLLM/pull/60) |
 
 ### R15. Text chat with the LLM (Medium) · items 10, 15, 16 · Done in [PR #39](https://github.com/larry94555/ImageSkinForLLM/pull/39)
 - OpenAI-compatible client pointed at local llama.cpp, with the short-reply system prompt.
@@ -294,6 +336,20 @@ The PRs below are written for either kind of video engine, but these are the one
 - **Built:** under the video, **Stop** (shown only while a reply is being made or playing), **Mute** / **Unmute** and a **Volume** slider (`SoundControls` in `pages.tsx`). Stop takes the video away at once and asks the server to stop the reply's clips (`POST /api/chat/clips/<reply id>/stop`): no more are made, the one under way is dropped after its step, and the files are removed; a reply already written still shows. **Stop while it is thinking** (Larry, 2026-10-21, testing PR #129) also stops the thinking: the local LLM is cut off at once by closing its connection, a provider's stream at its next piece, and the prompt is dropped and goes back in the box ("Stopping…" shows until the server has let go). A prompt stopped before it reaches the server, or while it waits for the one before it, is not answered. The server log has `Prompt stopped` with the time it took. Volume and mute apply to both players and are kept in the browser for the next visit. The server log has `Reply stopped` and `Reply clips stopped` with the time it took; the browser console has `Reply stopped (N clips so far)`.
 
 ## Milestone 5: Real-time replies
+
+| PR | Description | Status |
+|---|---|---|
+| [R20. Streaming LLM text and sentence splitting](#r20-streaming-llm-text-and-sentence-splitting-simple--item-12--done-in-pr-46) | Streams the LLM's text and splits it into sentences as they finish. | Done in [PR #46](https://github.com/larry94555/ImageSkinForLLM/pull/46) |
+| [R21. Sentence-by-sentence rendering on the server](#r21-sentence-by-sentence-rendering-on-the-server-medium--item-12--done-in-pr-47) | Voices and animates each sentence on the server while later ones are still being written. | Done in [PR #47](https://github.com/larry94555/ImageSkinForLLM/pull/47) |
+| [R22. Ordered playback in the browser](#r22-ordered-playback-in-the-browser-medium--item-12--done-in-pr-48) | The browser plays sentence clips in order as soon as each is ready. | Done in [PR #48](https://github.com/larry94555/ImageSkinForLLM/pull/48) |
+| [R22a. Quick clips: shared cores, warm start and the timing readout](#r22a-quick-clips-shared-cores-warm-start-and-the-timing-readout-medium--item-12--done-in-pr-49) | Shares the CPU cores between the LLM and voice, warms them up, and adds a timing readout. | Done in [PR #49](https://github.com/larry94555/ImageSkinForLLM/pull/49) |
+| [R22b. Quick clips: the first clause first](#r22b-quick-clips-the-first-clause-first-medium--item-12--done-in-pr-50) | Speaks the first clause of a reply while the LLM writes the rest of the sentence. | Done in [PR #50](https://github.com/larry94555/ImageSkinForLLM/pull/50) |
+| [R22c. Quick clips: cheaper frames](#r22c-quick-clips-cheaper-frames-medium--item-12--done-in-pr-51) | Makes each video frame cheaper to compose, so clips are ready sooner. | Done in [PR #51](https://github.com/larry94555/ImageSkinForLLM/pull/51) |
+| [R22d. Quick clips: play each clip while it is written](#r22d-quick-clips-play-each-clip-while-it-is-written-medium--item-12--done-in-pr-52) | Plays each clip while its video is still being written. | Done in [PR #52](https://github.com/larry94555/ImageSkinForLLM/pull/52) |
+| [R22e. Quick clips: a shorter first clause](#r22e-quick-clips-a-shorter-first-clause-simple--item-12--done-in-pr-53) | Cuts the first clause shorter, so the first words are heard sooner. | Done in [PR #53](https://github.com/larry94555/ImageSkinForLLM/pull/53) |
+| [R22f. Quick clips: a fast clone of the person's voice](#r22f-quick-clips-a-fast-clone-of-the-persons-voice-medium--items-4-12--done-in-pr-55) | A fast clone of the person's voice with Pocket TTS. | Done in [PR #55](https://github.com/larry94555/ImageSkinForLLM/pull/55) |
+| [R22g. Quick clips: the performance cores](#r22g-quick-clips-the-performance-cores-simple--item-12--done-in-pr-56) | Keeps the app on a laptop's performance cores. | Done in [PR #56](https://github.com/larry94555/ImageSkinForLLM/pull/56) |
+| [R23. Idle video and smooth joins](#r23-idle-video-and-smooth-joins-medium--item-17--done-in-pr-61) | The person blinks and moves slightly between replies, with smooth joins between clips. | Done in [PR #61](https://github.com/larry94555/ImageSkinForLLM/pull/61) |
 
 ### R20. Streaming LLM text and sentence splitting (Simple) · item 12 · Done in [PR #46](https://github.com/larry94555/ImageSkinForLLM/pull/46)
 - The LLM client streams text; a splitter turns it into sentences as they complete, handling abbreviations, numbers and decimals.
@@ -369,6 +425,17 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 6: Content and the wiki
 
+| PR | Description | Status |
+|---|---|---|
+| [R34. PDF storage and content API](#r34-pdf-storage-and-content-api-medium--item-24--done-in-pr-62) | A server API to add, remove and replace PDFs, stored safely. | Done in [PR #62](https://github.com/larry94555/ImageSkinForLLM/pull/62) |
+| [R35. Manage Content page](#r35-manage-content-page-medium--item-24--done-in-pr-63) | A Manage Content page to add, remove and replace PDFs. | Done in [PR #63](https://github.com/larry94555/ImageSkinForLLM/pull/63) |
+| [R36. Reading text, slides and tables](#r36-reading-text-slides-and-tables-medium--item-25--done-in-pr-64) | Reads the text, slides and tables out of each PDF, keeping page numbers. | Done in [PR #64](https://github.com/larry94555/ImageSkinForLLM/pull/64) |
+| [R37. Building the wiki](#r37-building-the-wiki-medium--item-26--done-in-pr-67) | The LLM builds wiki pages from the PDFs, linking back to their pages. | Done in [PR #67](https://github.com/larry94555/ImageSkinForLLM/pull/67) |
+| [R37a. The wiki as an outline](#r37a-the-wiki-as-an-outline-medium--item-26--done-in-pr-68) | Builds the wiki as an outline of topics and detail pages. | Done in [PR #68](https://github.com/larry94555/ImageSkinForLLM/pull/68) |
+| [R37b. Reading the wiki in the browser](#r37b-reading-the-wiki-in-the-browser-medium--item-26--done-in-pr-69) | Readable wiki pages in the browser, with an outline that opens and closes. | Done in [PR #69](https://github.com/larry94555/ImageSkinForLLM/pull/69) |
+| [R38. Editing the wiki](#r38-editing-the-wiki-medium--item-26--done-in-pr-70) | Edit and save wiki entries, with edits kept when the wiki is rebuilt. | Done in [PR #70](https://github.com/larry94555/ImageSkinForLLM/pull/70) |
+| [R38a. Wiki versions and saving it to a file](#r38a-wiki-versions-and-saving-it-to-a-file-medium--item-26--done-in-pr-71) | Wiki versions to go back to, and saving the wiki to a file and loading it. | Done in [PR #71](https://github.com/larry94555/ImageSkinForLLM/pull/71) |
+
 ### R34. PDF storage and content API (Medium) · item 24 · Done in [PR #62](https://github.com/larry94555/ImageSkinForLLM/pull/62)
 - Server API to add, remove and replace PDFs, stored apart from the image and sound files, with the same safe-storage rules as R6 (size limit, type check, safe names).
 - **Can show:** add, replace and remove a PDF with API calls, and the logs and folder showing each change.
@@ -417,6 +484,12 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 7: Answers from the content
 
+| PR | Description | Status |
+|---|---|---|
+| [R39. Looking up questions in the wiki and PDFs](#r39-looking-up-questions-in-the-wiki-and-pdfs-medium--item-27--done-in-pr-72) | Finds the wiki pages and PDF passages that match a question. | Done in [PR #72](https://github.com/larry94555/ImageSkinForLLM/pull/72) |
+| [R40. Answering from the content](#r40-answering-from-the-content-medium--item-27--done-in-pr-73) | The LLM answers questions from the passages found in the content. | Done in [PR #73](https://github.com/larry94555/ImageSkinForLLM/pull/73) |
+| [R41. Question scope setting](#r41-question-scope-setting-simple--item-28--done-in-pr-74) | A setting for whether questions outside the content are answered. | Done in [PR #74](https://github.com/larry94555/ImageSkinForLLM/pull/74) |
+
 ### R39. Looking up questions in the wiki and PDFs (Medium) · item 27 · Done in [PR #72](https://github.com/larry94555/ImageSkinForLLM/pull/72)
 - Finds the wiki pages and PDF passages that match a question, using the method decided before this PR.
 - **Can show:** a command that prints the passages found for a few sample questions, with the time the lookup took.
@@ -434,7 +507,14 @@ The PRs below are written for either kind of video engine, but these are the one
 
 ## Milestone 7a: A professional look
 
-Added by Larry on 2026-10-13. The chat must be clean and professional enough to use in a commercial setting. The host view must be usable by a non-technical host and the participant view by a non-technical participant. At the end of this milestone, judged only on how it looks and on answering typed questions, the app is clearly of professional quality. For now anyone can change the settings at will; R44's sign-on restricts them later. Settings come before the Settings page (R27), so these two live in a small Settings menu in the top bar that R27 later takes over.
+| PR | Description | Status |
+|---|---|---|
+| [R41a. Settings menu: show metrics](#r41a-settings-menu-show-metrics-medium--items-49-51--done-in-pr-76) | A Settings menu whose first setting shows or hides the timing metrics. | Done in [PR #76](https://github.com/larry94555/ImageSkinForLLM/pull/76) |
+| [R41b. Participant view and host view](#r41b-participant-view-and-host-view-medium--items-50-51--done-in-pr-77) | A setting to switch between the host view and the simpler participant view. | Done in [PR #77](https://github.com/larry94555/ImageSkinForLLM/pull/77) |
+| [R41c. Clean video playback](#r41c-clean-video-playback-medium--items-11-17-48--done-in-pr-78) | The video looks like one steady picture, with no flashes, jumps or empty frames. | Done in [PR #78](https://github.com/larry94555/ImageSkinForLLM/pull/78) |
+| [R41d. A professional chat screen](#r41d-a-professional-chat-screen-medium--items-9-11-20-48--done-in-pr-80) | One consistent, calm look for the chat screen. | Done in [PR #80](https://github.com/larry94555/ImageSkinForLLM/pull/80) |
+| [R41e. Professional host pages](#r41e-professional-host-pages-medium--items-24-26-48-50--done-in-pr-82) | The same look and plain wording on the Setup, Manage Content and Wiki pages. | Done in [PR #82](https://github.com/larry94555/ImageSkinForLLM/pull/82) |
+| [R41e2. A designed look](#r41e2-a-designed-look-medium--items-48-50--done-in-pr-83) | One professional design across every page, including phones and dark mode. | Done in [PR #83](https://github.com/larry94555/ImageSkinForLLM/pull/83) |
 
 ### R41a. Settings menu: show metrics (Medium) · items 49, 51 · Done in [PR #76](https://github.com/larry94555/ImageSkinForLLM/pull/76)
 - A **Settings** menu in the top bar of every page, open to anyone for now. Its first setting, **Show timing metrics**, is off by default: the timing readout under the video (R22a) and the other timings and counts shown on the pages (such as how long a step or a search took) appear only when it is on. The log keeps every timing either way.
@@ -477,7 +557,13 @@ Added by Larry on 2026-10-13. The chat must be clean and professional enough to 
 
 ## Milestone 7b: Knowing what to ask, teach me, quiz me and the assessment
 
-Added by Larry on 2026-10-14, to build after the professional look. Today nothing tells a participant which topics they can ask about and which they can't, and the app only answers questions. Larry added the assessment (R41j) later that day: Teach me should prepare a participant to score 100% on it. The topics are the wiki's main entries, as item 38 later uses them for tagging.
+| PR | Description | Status |
+|---|---|---|
+| [R41f. "What can you talk about?"](#r41f-what-can-you-talk-about-medium--items-52-53--done-in-pr-85) | Answers "What can you talk about?" with the content's topics. | Done in [PR #85](https://github.com/larry94555/ImageSkinForLLM/pull/85) |
+| [R41g. Topic hints in the chat](#r41g-topic-hints-in-the-chat-simple--item-53--done-in-pr-86) | Topic hints and clickable example questions under the prompt box. | Done in [PR #86](https://github.com/larry94555/ImageSkinForLLM/pull/86) |
+| [R41h. Teach me](#r41h-teach-me-medium--item-54--done-in-pr-87) | A Teach me lesson that walks through a topic, or all of them in order. | Done in [PR #87](https://github.com/larry94555/ImageSkinForLLM/pull/87) |
+| [R41i. Quiz me](#r41i-quiz-me-medium--item-54--done-in-pr-88) | A Quiz me button that asks and judges questions on a topic. | Done in [PR #88](https://github.com/larry94555/ImageSkinForLLM/pull/88) |
+| [R41j. Assessment](#r41j-assessment-medium--item-55--done-in-pr-90) | An assessment across all the content, with an evaluation at the end. | Done in [PR #90](https://github.com/larry94555/ImageSkinForLLM/pull/90) |
 
 ### R41f. "What can you talk about?" (Medium) · items 52, 53 · Done in [PR #85](https://github.com/larry94555/ImageSkinForLLM/pull/85)
 - A list of the content's topics, taken from the wiki's main entries and named in plain words, kept up to date as PDFs are added, removed or replaced.
@@ -510,6 +596,10 @@ Added by Larry on 2026-10-14, to build after the professional look. Today nothin
 
 ## Milestone 8: Spoken prompts
 
+| PR | Description | Status |
+|---|---|---|
+| [R24. Push-to-talk microphone](#r24-push-to-talk-microphone-medium--item-9--done-in-pr-91) | Hold a microphone button to ask a question out loud. | Done in [PR #91](https://github.com/larry94555/ImageSkinForLLM/pull/91) |
+
 ### R24. Push-to-talk microphone (Medium) · item 9 · Done in [PR #91](https://github.com/larry94555/ImageSkinForLLM/pull/91)
 - Microphone button, push-to-talk, transcribed with browser speech recognition (whisper.cpp can be added later as a separate PR if needed); the transcribed prompt is shown as sent.
 - **Can show:** hold the button, ask a question out loud, and the person answers on video.
@@ -517,7 +607,13 @@ Added by Larry on 2026-10-14, to build after the professional look. Today nothin
 
 ## Milestone 8a: The default people, made and packed
 
-Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today nothing can be tried until a photo is uploaded, recordings are made and the photo is prepared, which takes a while. A default person lets a user start chatting at once and replace the picture or voice with their own later (items 56 to 59). After seeing R24a's people, Larry asked for a wider range of people to choose from, without labelling anyone's ethnicity (2026-10-16), so R24a2, R24b2 and R24c2 first planned eight faces for each choice, one of each of eight broad heritages, so that anyone can find a default person who looks like them (Larry, 2026-10-17) (item 60). Later that day Larry asked for red heads, blondes, older people, people with disabilities and people with glasses as well, then asked to keep it to 60 people at most for now, so R24b2 adds 24 people to R24b's 36 that cover these looks and the eight heritages, as a second face for 24 of the 36 choices.
+| PR | Description | Status |
+|---|---|---|
+| [R24a. Default person test](#r24a-default-person-test-medium--items-57-58--done-in-pr-96) | A test making a few default people and checking they pass the photo checks and animate. | Done in [PR #96](https://github.com/larry94555/ImageSkinForLLM/pull/96) |
+| [R24a2. More varied default people test](#r24a2-more-varied-default-people-test-medium--items-57-60--done-in-pr-97) | A test of a second, more varied face for each default person. | Done in [PR #97](https://github.com/larry94555/ImageSkinForLLM/pull/97) |
+| [R24b. The default pictures](#r24b-the-default-pictures-medium--item-57--done-in-pr-98) | All 36 default people made, prepared and packed as downloads. | Done in [PR #98](https://github.com/larry94555/ImageSkinForLLM/pull/98) |
+| [R24b2. More varied default people](#r24b2-more-varied-default-people-medium--items-57-60--done-in-pr-112) | 24 more default people with a wider range of looks, 60 in all. | Done in [PR #112](https://github.com/larry94555/ImageSkinForLLM/pull/112) |
+| [R24b4. Only adults as default people](#r24b4-only-adults-as-default-people-medium--items-57-60--done-in-pr-165) | Makes every default person an adult who looks 18 or over. | Done in [PR #165](https://github.com/larry94555/ImageSkinForLLM/pull/165) |
 
 ### R24a. Default person test (Medium) · items 57, 58 · Done in [PR #96](https://github.com/larry94555/ImageSkinForLLM/pull/96)
 - Make a few default pictures, photoreal and animated, male and female, for different roles, with the tool picked for this PR, and check that each passes the photo checks and animates with the photoreal engine. Pick a ready-made Kokoro voice for each gender and accent (Kokoro has American and British voices, male and female). Record the exact voice names chosen and, for each, where it came from and its license, attribution and use terms, in the docs.
@@ -553,6 +649,17 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 - **Can show:** a contact sheet of the 14 new faces beside the old ones, every one passing the photo checks and the render check, every pack within 50 MB, the looks counts still met, and a unit test that no role, name or prompt is a teenager's.
 
 ## Milestone 9: Settings, exit and return
+
+| PR | Description | Status |
+|---|---|---|
+| [R27. Settings page](#r27-settings-page-medium--items-8-part-1-28--done-in-pr-100) | A Settings page reached from every screen, replacing the Settings menu. | Done in [PR #100](https://github.com/larry94555/ImageSkinForLLM/pull/100) |
+| [R27a. Your photos and recordings in Settings](#r27a-your-photos-and-recordings-in-settings-medium--item-8-part-1--done-in-pr-101) | Settings lists the photos and recordings in use, with Check again on each. | Done in [PR #101](https://github.com/larry94555/ImageSkinForLLM/pull/101) |
+| [R27b. Run the video test again and clear conversation](#r27b-run-the-video-test-again-and-clear-conversation-simple--item-8-part-1--done-in-pr-103) | Settings can run the sample video again and clear the conversation. | Done in [PR #103](https://github.com/larry94555/ImageSkinForLLM/pull/103) |
+| [R28. Changing photos, voice or accent](#r28-changing-photos-voice-or-accent-medium--item-8-part-2--done-in-pr-105) | Change the photos, the recordings or the accent from Settings. | Done in [PR #105](https://github.com/larry94555/ImageSkinForLLM/pull/105) |
+| [R29. Exit and Start again](#r29-exit-and-start-again-simple--items-13-14--done-in-pr-106) | Exit says goodbye; Start again says welcome back and keeps the history. | Done in [PR #106](https://github.com/larry94555/ImageSkinForLLM/pull/106) |
+| [R30. Saved setup and history](#r30-saved-setup-and-history-medium--item-19--done-in-pr-108) | The setup and chat history are saved, so a return visit goes straight to the chat. | Done in [PR #108](https://github.com/larry94555/ImageSkinForLLM/pull/108) |
+| [R31. Delete my data](#r31-delete-my-data-simple--item-23--done-in-pr-109) | One action deletes all the user's uploads, prepared face and voice, and history. | Done in [PR #109](https://github.com/larry94555/ImageSkinForLLM/pull/109) |
+| [R31a. Delete my data includes the PDFs](#r31a-delete-my-data-includes-the-pdfs-simple--item-23--done-in-pr-164) | Delete my data also deletes the PDFs and everything made from them. | Done in [PR #164](https://github.com/larry94555/ImageSkinForLLM/pull/164) |
 
 ### R27. Settings page (Medium) · items 8 (part 1), 28 · Done in [PR #100](https://github.com/larry94555/ImageSkinForLLM/pull/100)
 - A **Settings** link at the right of the top bar on every screen opens a Settings page, which takes over R41a's Settings menu: the view (R41b), the timing metrics (R41a), Teach me, Quiz me, Assessment and Debug, grouped under View, Chat and Display, and **Return to the app**, back to the page it was opened from. The page is in both views, so a participant view can be switched back.
@@ -598,7 +705,12 @@ Added by Larry on 2026-10-16, for testing, to build after spoken prompts. Today 
 
 ## Milestone 11: Choice of LLM
 
-Moved by Larry on 2026-10-18 to right after Milestone 9, before hosting (Milestone 10), as the next priority. It runs on the local app until hosting.
+| PR | Description | Status |
+|---|---|---|
+| [R33. Cloud LLMs with the user's key](#r33-cloud-llms-with-the-users-key-medium--item-16-later--done-in-pr-111) | Answers from Claude or OpenAI with the user's API key in the config file. | Done in [PR #111](https://github.com/larry94555/ImageSkinForLLM/pull/111) |
+| [R42. LLM setting with API keys](#r42-llm-setting-with-api-keys-medium--item-29--done-in-pr-115) | An LLM setting with API keys for Claude, OpenAI, Grok or OpenRouter. | Done in [PR #115](https://github.com/larry94555/ImageSkinForLLM/pull/115) |
+| [R43. Sign in with ChatGPT](#r43-sign-in-with-chatgpt-medium--item-29--done-in-pr-117) | Signs in with a ChatGPT account on the Settings page. | Done in [PR #117](https://github.com/larry94555/ImageSkinForLLM/pull/117) |
+| [R43a. Answers through the ChatGPT plan](#r43a-answers-through-the-chatgpt-plan-medium--item-29--done-in-pr-118) | Answers through the signed-in ChatGPT plan. | Done in [PR #118](https://github.com/larry94555/ImageSkinForLLM/pull/118) |
 
 ### R33. Cloud LLMs with the user's key (Medium) · item 16 (later) · Done in [PR #111](https://github.com/larry94555/ImageSkinForLLM/pull/111)
 - OpenAI by config, and a small Claude adapter; the user's API key is set in the config file, on the server only. Entering it on the Settings page moved to R42, which adds the LLM setting there (2026-10-18).
@@ -621,7 +733,9 @@ Moved by Larry on 2026-10-18 to right after Milestone 9, before hosting (Milesto
 
 ## Milestone 10: Hosted
 
-On 2026-10-18 Larry moved Milestone 11 to right after Milestone 9, before this one, so R33 (cloud LLMs with the user's key) moved into Milestone 11, which builds on it.
+| PR | Description | Status |
+|---|---|---|
+| [R32. Hosted deployment](#r32-hosted-deployment-medium--deployment--done-in-pr-120) | A container image and step-by-step guide to host the app on Oracle Cloud's free tier. | Done in [PR #120](https://github.com/larry94555/ImageSkinForLLM/pull/120) |
 
 ### R32. Hosted deployment (Medium) · Deployment · Done in [PR #120](https://github.com/larry94555/ImageSkinForLLM/pull/120)
 - Container image and deployment guide for an HTTPS host, with secrets kept on the server, set up step by step on Oracle Cloud's free tier (Larry, 2026-10-20).
@@ -631,7 +745,15 @@ On 2026-10-18 Larry moved Milestone 11 to right after Milestone 9, before this o
 
 ## Milestone 10a: Start now with a default person
 
-Split from Milestone 8a by Larry on 2026-10-19: the 60 packs R24b and R24b2 made are hosted on the Oracle free-tier machine R32 sets up, so a default person can't be downloaded before then. R24c was built and merged before the split; until R32a hosts the packs, **Start now** says each person "isn't available to download yet".
+| PR | Description | Status |
+|---|---|---|
+| [R24c. Start now with a default person](#r24c-start-now-with-a-default-person-medium--items-56-58--done-in-pr-113) | Start now with a default person, downloaded the first time it is chosen. | Done in [PR #113](https://github.com/larry94555/ImageSkinForLLM/pull/113) |
+| [R32a. Host the default people](#r32a-host-the-default-people-simple--item-57--done-in-pr-122) | Serves the 60 default people's packs from the hosted machine. | Done in [PR #122](https://github.com/larry94555/ImageSkinForLLM/pull/122) |
+| [R24c2. Pick a face](#r24c2-pick-a-face-simple--item-60--done-in-pr-124) | Pick between two faces when a choice has a second one. | Done in [PR #124](https://github.com/larry94555/ImageSkinForLLM/pull/124) |
+| [R24c4. No gender to pick](#r24c4-no-gender-to-pick-simple--items-56-60--done-in-pr-136) | Drops the gender question and shows every person of the chosen look. | Done in [PR #136](https://github.com/larry94555/ImageSkinForLLM/pull/136) |
+| [R24b3. Nonbinary people](#r24b3-nonbinary-people-medium--items-57-58-60--done-in-pr-139) | Adds eight nonbinary default people. | Done in [PR #139](https://github.com/larry94555/ImageSkinForLLM/pull/139) |
+| [R24c3. A ready-made voice until you add recordings](#r24c3-a-ready-made-voice-until-you-add-recordings-simple--item-59--done-in-pr-128) | The user's own photo speaks in a ready-made voice until recordings are added. | Done in [PR #128](https://github.com/larry94555/ImageSkinForLLM/pull/128) |
+| [R24d. A ready-made avatar in your own voice](#r24d-a-ready-made-avatar-in-your-own-voice-medium--item-59--done-in-pr-131) | A ready-made avatar speaking in the user's own voice. | Done in [PR #131](https://github.com/larry94555/ImageSkinForLLM/pull/131) |
 
 ### R24c. Start now with a default person (Medium) · items 56, 58 · Done in [PR #113](https://github.com/larry94555/ImageSkinForLLM/pull/113)
 - **Start now with a default person** on the first setup screen, with the four choices (the roles shown as Father or Mother and Son or Daughter by gender); it downloads only the chosen person the first time, with progress and **Try again** if it fails, then skips consent, the uploads, prepare, the sample video and review, and goes to the chat with that picture and voice. Goodbye and Welcome back are spoken in the default voice.
@@ -670,9 +792,23 @@ Split from Milestone 8a by Larry on 2026-10-19: the 60 packs R24b and R24b2 made
 
 ## Milestone 10b: Speed up and simplify
 
-Added by Larry on 2026-10-21 after testing the wiki's progress in PR #123: a PDF takes a very long time to process. This milestone makes PDFs process faster, makes the local LLM answer sooner, and shortens the time between the LLM's reply and the video saying it. Each PR is Simple or Medium, and some are experiments whose results decide the next PR. It starts with these eight PRs and will be refined as it goes (Larry, 2026-10-21).
+| PR | Description | Status |
+|---|---|---|
+| [R96. Where the time goes: a reply](#r96-where-the-time-goes-a-reply-medium--speed--done-in-pr-138) | An experiment measuring where the time goes in a reply. | Done in [PR #138](https://github.com/larry94555/ImageSkinForLLM/pull/138) |
+| [R96d. A spoken question checked sooner](#r96d-a-spoken-question-checked-sooner-simple--items-9-12--done-in-pr-140) | Corrects a spoken question's misheard words sooner. | Done in [PR #140](https://github.com/larry94555/ImageSkinForLLM/pull/140) |
+| [R24e. Voices that fit the faces](#r24e-voices-that-fit-the-faces-medium--items-58-60--done-in-pr-142) | Gives each default person a voice that fits their face. | Done in [PR #142](https://github.com/larry94555/ImageSkinForLLM/pull/142) |
+| [R96a. Where the time goes: the wiki and answers from it](#r96a-where-the-time-goes-the-wiki-and-answers-from-it-medium--speed--done-in-pr-145) | An experiment measuring where the time goes in building the wiki and answering from it. | Done in [PR #145](https://github.com/larry94555/ImageSkinForLLM/pull/145) |
+| [R96b. Where the time goes: setup](#r96b-where-the-time-goes-setup-medium--speed--done-in-pr-147) | An experiment measuring where the time goes in setup. | Done in [PR #147](https://github.com/larry94555/ImageSkinForLLM/pull/147) |
+| [R96c. Where the time goes: start-up and the first load](#r96c-where-the-time-goes-start-up-and-the-first-load-medium--speed--done-in-pr-150) | An experiment measuring where the time goes at start-up and the first load. | Done in [PR #150](https://github.com/larry94555/ImageSkinForLLM/pull/150) |
+| [R97. Faster settings for llama-server](#r97-faster-settings-for-llama-server-medium--speed--done-in-pr-151) | Faster llama-server settings for the wiki and replies. | Done in [PR #151](https://github.com/larry94555/ImageSkinForLLM/pull/151) |
+| [R98. Fewer, shorter wiki requests](#r98-fewer-shorter-wiki-requests-medium--items-25-26--done-in-pr-156) | Fewer and shorter LLM requests when building the wiki. | Done in [PR #156](https://github.com/larry94555/ImageSkinForLLM/pull/156) |
+| [R99. Replies don't wait behind the wiki](#r99-replies-dont-wait-behind-the-wiki-simple--items-12-26--done-in-pr-154) | A reply no longer waits behind the wiki's LLM requests. | Done in [PR #154](https://github.com/larry94555/ImageSkinForLLM/pull/154) |
+| [R100. From the reply to the spoken word sooner](#r100-from-the-reply-to-the-spoken-word-sooner-medium--item-12--done-in-pr-146-first-part-and-pr-155-second-part) | Cuts the wait between the LLM's first sentence and the video saying it. | Done in [PR #146](https://github.com/larry94555/ImageSkinForLLM/pull/146) (first part) and [PR #155](https://github.com/larry94555/ImageSkinForLLM/pull/155) (second part) |
+| [R96e. A quicker video of the person listening](#r96e-a-quicker-video-of-the-person-listening-medium--items-5-17--speed--done-in-pr-153) | Makes the video of the person listening much quicker to prepare. | Done in [PR #153](https://github.com/larry94555/ImageSkinForLLM/pull/153) |
+| [R98a. Each topic's first lesson ready ahead](#r98a-each-topics-first-lesson-ready-ahead-medium--items-12-54--speed--done-in-pr-160) | Writes each topic's first lesson ahead, so a picked topic starts at once. | Done in [PR #160](https://github.com/larry94555/ImageSkinForLLM/pull/160) |
+| [R98b. Every paragraph of the PDF in the wiki](#r98b-every-paragraph-of-the-pdf-in-the-wiki-simple--items-25-26--content--done-in-pr-161) | Puts back every PDF paragraph the wiki left out. | Done in [PR #161](https://github.com/larry94555/ImageSkinForLLM/pull/161) |
 
-Later on 2026-10-21 Larry listed ten timings the checks must cover, so R96 was split into R96 to R96c, one experiment each for a reply, the wiki, setup, and start-up, too much for one Medium PR. Each of Larry's ten is named below as "Larry's timing N" in the PR that measures it:
+Larry's ten timings, each named as "Larry's timing N" in the PR that measures it:
 
 | # | Larry's timing | PR |
 |---|---|---|
@@ -687,7 +823,7 @@ Later on 2026-10-21 Larry listed ten timings the checks must cover, so R96 was s
 | 9 | Processing each recording when it is added | R96b |
 | 10 | From the app starting to the LLM being ready | R96c |
 
-Bullets marked **Added (from the code)** are further waits found in the code that a user notices; Larry didn't list them. R97 to R100 speed up the reply and the wiki; PRs that speed up setup and start-up are added here from R96b's and R96c's results: R96e, from R96b's. R98a and R98b, added by Larry on 2026-10-24 after PR #156, make a picked topic start at once and keep every paragraph of the PDF in the wiki.
+Bullets marked **Added (from the code)** are further waits found in the code that a user notices; Larry didn't list them.
 
 ### R96. Where the time goes: a reply (Medium) · Speed · Done in [PR #138](https://github.com/larry94555/ImageSkinForLLM/pull/138)
 - An experiment that measures, on Larry's hosted machine (4 Ampere cores, llama-server with Gemma 3 4B on 2 threads) and in a cloud session, where the time goes in a reply, from the prompt sent to the last word heard. The existing timing readout gives these numbers without the browser; the results are kept in `experiments/speed/`, as for R96a to R96c.
@@ -791,7 +927,25 @@ Bullets marked **Added (from the code)** are further waits found in the code tha
 
 ## Milestone 10c: Bug fixing
 
-Added by Larry on 2026-10-25, right after Milestone 10b and before Milestone 20, as "Speaking in step and smoothly" (items 106 and 107): two bugs seen with the default people. The mouth opens before the voice starts, and a long reply is spoken slowly, then pauses, then goes on. Later that day Larry renamed it Bug fixing and added R134 (item 112): while testing on the hosted machine, prepare failed with his own photo and voice, and the page only said to look in the log, which a customer can't do. Its cause was found the same day, a new release of preshed that spaCy can't load Kokoro's English model with, and R134a pins the version that works. R134a comes first, as it unblocks prepare, then R134, which lets any later failure be reported. Larry then added R134b the same day: prepare should show regular status and activity, so it never looks frozen while it works. Later still he added R128a: the cheeks and face should move with the mouth, in a human way, smooth and slight rather than sharp and rigid. On 2026-10-26, while testing PR #174, Larry added R130a: an example question under the prompt box was answered by the LLM and its video made again every time it was picked, when the answer is the same until the PDFs change, so it should be kept once made and played at once after that. On 2026-10-27, after testing PR #179 (rolled back), he added R134c, R134d and R134e: find and time every step of a long thinking, build a set of descriptions of each stage from it, then show them every 5 to 10 seconds as clear progress. The same day, while testing PR #179, he added R156 and R157: Repeat, to say the latest reply again exactly as before with no thinking, and Say it simpler, to have it said again in simpler terms. Each bug starts with an experiment that finds where it comes from, measured on a default person and on Larry's own photo and voice, and its result decides the fix; the milestone is refined as it goes, as Milestone 10b was. Also on 2026-10-27 Larry added R158 (item 128), a Clear conversation link in the history, and later that day, reviewing PR #201, took it out again: managing the conversation history is now Milestone 13d's. Later that day, testing PR #196 on the hosted site, he found a 28-second pause after a reply's first clause, and R160 puts Pocket TTS in the site's image so the person's own voice keeps up there. Later that day, after Pocket TTS on the hosted site (PR #198) greatly shortened the pauses in a reply, he added R161: smoothen the voice further, so there is less of a pause, in a PR of its own. Later still that day he added R162 to R165 (items 132 and 133) for the admin sign-in, and moved them to Milestone 27, Admin view, the same evening.
+| PR | Description | Status |
+|---|---|---|
+| [R134a. Prepare works again with the new preshed](#r134a-prepare-works-again-with-the-new-preshed-simple--item-5--bug--done-in-pr-168) | Pins preshed to a version that works, so prepare works again. | Done in [PR #168](https://github.com/larry94555/ImageSkinForLLM/pull/168) |
+| [R134b. Prepare shows it is still working](#r134b-prepare-shows-it-is-still-working-medium--items-5-113--bug--done-in-pr-170) | Prepare shows regular status and activity, so it never looks frozen. | Done in [PR #170](https://github.com/larry94555/ImageSkinForLLM/pull/170) |
+| [R134. A reason and a reference when prepare fails](#r134-a-reason-and-a-reference-when-prepare-fails-medium--item-112--bug--done-in-pr-171) | A failed prepare gives a plain reason and a reference to look up in the log. | Done in [PR #171](https://github.com/larry94555/ImageSkinForLLM/pull/171) |
+| [R127. Where the mouth runs ahead of the voice](#r127-where-the-mouth-runs-ahead-of-the-voice-medium--item-106--bug--done-in-pr-172) | An experiment finding where the mouth opens before the voice starts. | Done in [PR #172](https://github.com/larry94555/ImageSkinForLLM/pull/172) |
+| [R128. The mouth in step with the voice](#r128-the-mouth-in-step-with-the-voice-simple--item-106--bug--done-in-pr-175) | Keeps the mouth in step with the voice. | Done in [PR #175](https://github.com/larry94555/ImageSkinForLLM/pull/175) |
+| [R128a. Cheeks and face that move with the mouth](#r128a-cheeks-and-face-that-move-with-the-mouth-medium--item-114--bug--done-in-pr-174) | The cheeks and face move slightly with the mouth. | Done in [PR #174](https://github.com/larry94555/ImageSkinForLLM/pull/174) |
+| [R129. Where the pauses come from in a long reply](#r129-where-the-pauses-come-from-in-a-long-reply-medium--item-107--bug--done-in-pr-176) | An experiment finding where the pauses in a long reply come from. | Done in [PR #176](https://github.com/larry94555/ImageSkinForLLM/pull/176) |
+| [R130. A steady pace in long replies](#r130-a-steady-pace-in-long-replies-medium--item-107--bug--done-in-pr-196) | Long replies are spoken at a steady pace without gaps. | Done in [PR #196](https://github.com/larry94555/ImageSkinForLLM/pull/196) |
+| [R130a. Example questions answered at once](#r130a-example-questions-answered-at-once-medium--item-119--bug--done-in-pr-178) | Keeps the answer to an example question, so it plays at once the next time. | Done in [PR #178](https://github.com/larry94555/ImageSkinForLLM/pull/178) |
+| [R134c. Every step of a long thinking, with its time](#r134c-every-step-of-a-long-thinking-with-its-time-medium--item-120--bug) | Finds and times every step of a long thinking. | Not started |
+| [R134d. A model of what is happening at each stage](#r134d-a-model-of-what-is-happening-at-each-stage-simple--item-126--bug) | A set of plain descriptions of what is happening at each stage of thinking. | Not started |
+| [R134e. Show what thinking is doing](#r134e-show-what-thinking-is-doing-medium--item-127--bug) | Shows a new description of what thinking is doing every 5 to 10 seconds. | Not started |
+| [R159. Cancel Prepare](#r159-cancel-prepare-medium--item-129--bug--done-in-pr-197) | Cancel a prepare part-way, and resume it later. | Done in [PR #197](https://github.com/larry94555/ImageSkinForLLM/pull/197) |
+| [R160. A fast own voice on the hosted site](#r160-a-fast-own-voice-on-the-hosted-site-simple--item-107--bug--done-in-pr-198) | Puts Pocket TTS in the hosted site's image, so the person's own voice keeps up there. | Done in [PR #198](https://github.com/larry94555/ImageSkinForLLM/pull/198) |
+| [R161. Smoothen Voice](#r161-smoothen-voice-medium--item-107--bug) | Smooths the person's voice so a reply has fewer pauses between clips. | Not started |
+| [R156. Repeat](#r156-repeat-medium--item-130--done-in-pr-193) | A Repeat button that says the latest reply again exactly as before. | Done in [PR #193](https://github.com/larry94555/ImageSkinForLLM/pull/193) |
+| [R157. Say it simpler](#r157-say-it-simpler-simple--item-131--done-in-pr-194) | A Say it simpler button that says the latest reply again in simpler terms. | Done in [PR #194](https://github.com/larry94555/ImageSkinForLLM/pull/194) |
 
 ### R134a. Prepare works again with the new preshed (Simple) · item 5 · Bug · Done in [PR #168](https://github.com/larry94555/ImageSkinForLLM/pull/168)
 - Found on 2026-10-25 while Larry tested prepare with his own photo and voice on the hosted machine: preshed 3.0.14, a new release, breaks spaCy 3.8.16 when it loads `en_core_web_sm`, so Kokoro's pipeline (through misaki) can't start, the voice step fails and the page shows `ENGINE_FAILED`. preshed 3.0.13 loads fine. Nothing in the app pins preshed: it comes in with spaCy through Kokoro (the `voice` extra in `pyproject.toml`), so a fresh image or install picks up the newest one.
@@ -905,7 +1059,19 @@ Added by Larry on 2026-10-25, right after Milestone 10b and before Milestone 20,
 
 ## Milestone 27: Admin view
 
-Added by Larry on 2026-10-26, right after Milestone 10c and before Milestone 10d (items 121 to 125): a third view, separate from the host and participant views, for running the site as a whole. The administrator signs in on the Settings page with a password set in a file on the computer (never in git, never changed in the app, read again at each sign-in so a change needs no restart), is signed out after 30 minutes without activity, and sees a dashboard of the machine's CPU, memory, disk and network against Oracle Cloud's Always Free limits, with what is available, used and remaining, the remaining amount coloured blue, green, orange or red by thresholds the administrator can change. The sign-in comes first, with its guide, then the readings and the dashboard, then the admin settings. This is the admin of item 89: Milestone 23's R101 builds its dispute pages on it. On 2026-10-27 Larry added R162 to R165 (items 132 and 133), first in Bug fixing and moved here the same evening: a failed sign-in says only "admin login failed" with an error code, never that the password was wrong, and only the laptops listed in a permissions file on the host can sign in, without the message ever saying a laptop was the cause; only the log says why, looked up by the code. They come last, after the admin settings, and build on R149 and R150 (PR #184).
+| PR | Description | Status |
+|---|---|---|
+| [R149. The admin password file and signing in on the server](#r149-the-admin-password-file-and-signing-in-on-the-server-medium--items-121-122--done-in-pr-183) | The admin password file, read at each sign-in, and signing in on the server. | Done in [PR #183](https://github.com/larry94555/ImageSkinForLLM/pull/183) |
+| [R150. Sign in and out on the Settings page](#r150-sign-in-and-out-on-the-settings-page-medium--items-121-123--done-in-pr-184) | Signing in and out as administrator on the Settings page, with a timeout. | Done in [PR #184](https://github.com/larry94555/ImageSkinForLLM/pull/184) |
+| [R151. The admin password guide](#r151-the-admin-password-guide-simple--item-122--done-in-pr-185) | A guide to setting the admin password on a laptop and the hosted site. | Done in [PR #185](https://github.com/larry94555/ImageSkinForLLM/pull/185) |
+| [R152. Reading the machine's resources](#r152-reading-the-machines-resources-medium--item-124--done-in-pr-186) | Reads the machine's CPU, memory and disk use against the free-tier limits. | Done in [PR #186](https://github.com/larry94555/ImageSkinForLLM/pull/186) |
+| [R153. Network use this month](#r153-network-use-this-month-medium--item-124--done-in-pr-187) | Adds up this month's network use, kept across restarts. | Done in [PR #187](https://github.com/larry94555/ImageSkinForLLM/pull/187) |
+| [R154. The resource dashboard](#r154-the-resource-dashboard-medium--item-124--done-in-pr-188) | The admin's dashboard of CPU, memory, disk and network, coloured by what remains. | Done in [PR #188](https://github.com/larry94555/ImageSkinForLLM/pull/188) |
+| [R155. Admin settings](#r155-admin-settings-medium--items-123-125) | Admin settings for the sign-out minutes and the colour thresholds. | In review in [PR #189](https://github.com/larry94555/ImageSkinForLLM/pull/189) |
+| [R162. One message for every failed admin sign-in](#r162-one-message-for-every-failed-admin-sign-in-medium--item-132) | Every failed admin sign-in gets the same message with an error code. | Not started |
+| [R163. The allowed laptops file and checking the laptop at sign-in](#r163-the-allowed-laptops-file-and-checking-the-laptop-at-sign-in-medium--item-133) | Only laptops listed in a file on the host can sign in as admin. | Not started |
+| [R164. This laptop's ID, and proving it at sign-in](#r164-this-laptops-id-and-proving-it-at-sign-in-medium--item-133) | Shows this laptop's ID and proves it at sign-in. | Not started |
+| [R165. Allowed laptops in the guide and the FAQ](#r165-allowed-laptops-in-the-guide-and-the-faq-simple--items-132-133) | The allowed laptops in the admin guide and the FAQ. | Not started |
 
 ### R149. The admin password file and signing in on the server (Medium) · items 121, 122 · Done in [PR #183](https://github.com/larry94555/ImageSkinForLLM/pull/183)
 - `admin.py` reads the admin file, `admin.toml` in the app's home folder or the path given by `admin_file` in the config file, at each sign-in, so a password written there works at once with no restart. The file has `password = "..."`, or `password_hash = "..."` made by a new command, `imageskin admin-password-hash`, which asks for the password twice and prints the line to paste *(default)*; with neither, signing in is off. The repository has an empty template, `admin.example.toml`, and `.gitignore` keeps `admin.toml` out of git. On the hosted site `compose.yaml` mounts `deploy/admin/` read-only, as a folder so an edited file is seen at once, and `config.toml` points `admin_file` at it.
@@ -983,7 +1149,11 @@ Added by Larry on 2026-10-26, right after Milestone 10c and before Milestone 10d
 
 ## Milestone 10d: Setup wizard
 
-Added by Larry on 2026-10-25, right after Milestone 10c and before Milestone 20 (items 108 to 111): a first-time user is walked through setup with their own photo and voice one step at a time, from a link on the home page or the Setup page, and takes the photo with the laptop's camera and makes the recordings with its microphone in the browser, when allowed, or picks files when not. It uses the setup that is already built (R5 to R14 and R25 to R26), and R111 later brings the same camera and recording steps to phones.
+| PR | Description | Status |
+|---|---|---|
+| [R131. Setup one step at a time](#r131-setup-one-step-at-a-time-medium--items-108-111) | A setup wizard, one step per screen with Back and Next. | Not started |
+| [R132. Take the photo with the camera](#r132-take-the-photo-with-the-camera-medium--items-109-111) | Takes the photo with the laptop's camera. | Not started |
+| [R133. Record the voice in the browser](#r133-record-the-voice-in-the-browser-medium--items-110-111) | Records the voice in the browser. | Not started |
 
 ### R131. Setup one step at a time (Medium) · items 108, 111
 - A wizard page, reached from **Set up with your own photo and voice** on the home page and the Setup page, with one step per screen and Back and Next: what is needed and the consent (R5), the photo, the recordings, the accent (R26), Prepare (R12), the sample video (R13) and the review (R14). Photos and recordings are picked as files in this PR, with the recording guide's instructions on the screen. Each step's checks (R8, R10, R11) are shown as soon as they are known and Next waits for them. The step reached is saved with the setup's progress, so leaving and coming back opens it there.
@@ -1002,7 +1172,21 @@ Added by Larry on 2026-10-25, right after Milestone 10c and before Milestone 20 
 
 ## Milestone 20: Many customers on me0.ai
 
-Added by Larry on 2026-10-17, to build after R60; on 2026-10-18 Larry moved it to right after Milestone 12 (R47), before Contexts, and on 2026-10-19 to right after Milestone 10a, before Sign-on and accounts, as the next priority once the default person is finished (on 2026-10-25 Larry added Milestones 10c and 10d before it): a customer signs up for a membership, gets their own subdomain, and manages the settings of that subdomain alone. Later that day Larry added that a free trial runs at a path of random characters, and the subdomain is picked only when the customer signs up for the $1 membership and is charged, pointing to the same site the trial path did. Customers were called teachers until 2026-10-19. Each site works as the whole app does after Milestone 10a, for its own customer and visitors. Since Milestone 12 now comes after it, R44 (administrator sign-on) moved into this milestone, where the administrator of each site is its customer, and R45 to R47 build visitors and participant accounts per site from the start. What is built after it (Sign-on and accounts, Support, Contexts, Identity and guidelines, and Milestones 14 to 19's history, topics, statistics and profiles) keeps its data in the site's folder (R61) and gets R65's checks that nothing crosses between sites.
+| PR | Description | Status |
+|---|---|---|
+| [R61. One store per site](#r61-one-store-per-site-medium--item-66) | Keeps every site's files and settings in a folder of its own. | Not started |
+| [R62. Customer sign-up and sign-in](#r62-customer-sign-up-and-sign-in-medium--item-61) | Customer sign-up and sign-in, creating a new site on a free trial. | Not started |
+| [R62a. Forgot password and change email](#r62a-forgot-password-and-change-email-simple--item-61) | Forgot password and changing the email address. | Not started |
+| [R44. A site's settings for its customer only](#r44-a-sites-settings-for-its-customer-only-medium--items-30-66) | A site's settings pages work only for its own signed-in customer. | Not started |
+| [R65. Each site's own visitors and history](#r65-each-sites-own-visitors-and-history-medium--item-66) | Each site keeps its own visitors' history, with tests that nothing crosses between sites. | Not started |
+| [R66. Free trial](#r66-free-trial-simple--item-62) | A one-week free trial per email address. | Not started |
+| [R67. Plans and payment](#r67-plans-and-payment-medium--item-63) | A plans page with monthly payment for Light, Moderate and Power. | Not started |
+| [R63. Picking a subdomain at the first payment](#r63-picking-a-subdomain-at-the-first-payment-simple--item-65) | Picks the site's subdomain at its first payment. | Not started |
+| [R64. Changing the subdomain](#r64-changing-the-subdomain-simple--item-65) | Changes a site's subdomain. | Not started |
+| [R68. Upgrade](#r68-upgrade-simple--item-63) | Upgrades a site's plan. | Not started |
+| [R69. Cancel, a failed payment, and a paused site](#r69-cancel-a-failed-payment-and-a-paused-site-medium--item-64) | Cancelling, a failed payment, and what a paused site shows. | Not started |
+| [R70. Plan limits](#r70-plan-limits-medium--item-63) | Counts each site's use against its plan's limits. | Not started |
+| [R71. Many sites on me0.ai](#r71-many-sites-on-me0ai-medium--deployment) | Deploys many sites on me0.ai, each over HTTPS. | Not started |
 
 ### R61. One store per site (Medium) · item 66
 - Every file and setting the app keeps (person or default person, content, wiki, settings including the LLM choice and its keys from R42, accounts, history) moves under a folder for its site, and each request is matched to its site by its address: its subdomain, or, during a free trial, its trial path (R62). Locally, `name.localhost` addresses stand in for subdomains. The existing data becomes the first site.
@@ -1060,7 +1244,11 @@ Added by Larry on 2026-10-17, to build after R60; on 2026-10-18 Larry moved it t
 
 ## Milestone 12: Sign-on and accounts
 
-On 2026-10-19 Larry moved Milestone 20 to before this one, so R44, the administrator sign-on, moved into it as a site's settings for its customer only. R45 to R47 are built on each customer's site, for that site's visitors and participants.
+| PR | Description | Status |
+|---|---|---|
+| [R45. Question and answer screen for visitors](#r45-question-and-answer-screen-for-visitors-simple--item-31) | A question and answer screen for visitors who aren't signed in. | Not started |
+| [R46. Participant sign-up and login](#r46-participant-sign-up-and-login-medium--item-32) | Participant sign-up and login, kept per site. | Not started |
+| [R47. Require sign-up setting](#r47-require-sign-up-setting-simple--item-33) | A setting that requires visitors to sign up before asking. | Not started |
 
 ### R45. Question and answer screen for visitors (Simple) · item 31
 - Without sign-on, the app shows only the question box and the person's spoken answers, with no links to setup, content or settings.
@@ -1079,7 +1267,15 @@ On 2026-10-19 Larry moved Milestone 20 to before this one, so R44, the administr
 
 ## Milestone 21: Support at support.me0.ai
 
-Added by Larry on 2026-10-17, to build after Milestone 20. Since 2026-10-19 Milestone 20 comes before Sign-on and accounts, and this milestone stays after Milestone 12, before Contexts.
+| PR | Description | Status |
+|---|---|---|
+| [R72. Support site and support staff sign-in](#r72-support-site-and-support-staff-sign-in-medium--item-67) | The support site and sign-in for support staff. | Not started |
+| [R73. Support guide](#r73-support-guide-simple--item-68) | The support guide, to read or download, and as the support site's content. | Not started |
+| [R74. Support person and asking the AI](#r74-support-person-and-asking-the-ai-medium--items-69-70) | A talking support person and Ask the AI, answering from the guide. | Not started |
+| [R75. Opening tickets and the public ticket list](#r75-opening-tickets-and-the-public-ticket-list-medium--item-71) | Opening tickets and a public, searchable ticket list. | Not started |
+| [R76. Ticket status, staff replies and moderation](#r76-ticket-status-staff-replies-and-moderation-medium--item-71) | Staff change a ticket's status, reply and moderate. | Not started |
+| [R77. Email when a ticket changes](#r77-email-when-a-ticket-changes-simple--item-71) | Email when a followed ticket changes. | Not started |
+| [R78. Feedback](#r78-feedback-simple--item-72) | A feedback form seen only by support staff. | Not started |
 
 ### R72. Support site and support staff sign-in (Medium) · item 67
 - `support.me0.ai` is a reserved site with a first page linking to the guide, the support person, asking the AI, tickets and feedback, open to anyone. Support staff sign in to manage it.
@@ -1111,7 +1307,18 @@ Added by Larry on 2026-10-17, to build after Milestone 20. Since 2026-10-19 Mile
 
 ## Milestone 13: Contexts
 
-Added by Larry on 2026-10-17, numbered before Interaction history. It was first placed after Milestone 9; on 2026-10-18 Larry moved it to after Milestone 12, Sign-on and accounts, to work out its details then, and later that day to after Milestones 20 and 21. Since the sites exist by then, contexts belong to a site (item 66). Depending on the prompt, different contexts are relevant, and they decide how the AI responds (items 77 to 83). The app already has two without naming them, and this milestone makes them explicit before adding more:
+| PR | Description | Status |
+|---|---|---|
+| [R84. What a context is](#r84-what-a-context-is-simple--items-77-79) | Defines a context as data, with Teacher/Student and Meta built in. | Not started |
+| [R85. Choosing the context for each prompt](#r85-choosing-the-context-for-each-prompt-medium--items-78-79) | Chooses which context responds to each prompt. | Not started |
+| [R86. Which context responded](#r86-which-context-responded-simple--item-82) | With Debug on, shows which context responded to each reply and why. | Not started |
+| [R87. Contexts page: which are available](#r87-contexts-page-which-are-available-medium--item-80) | A Contexts page to turn contexts on and off and pick the primary one. | Not started |
+| [R88. Changing a context's guidelines and criteria](#r88-changing-a-contexts-guidelines-and-criteria-medium--item-81) | Edit a context's guidelines and criteria. | Not started |
+| [R89. Adding a context](#r89-adding-a-context-medium--item-81) | Add a context of your own. | Not started |
+| [R90. Criteria described in words](#r90-criteria-described-in-words-medium--item-81) | A context's criteria can be described in words. | Not started |
+| [R91. Sample contexts](#r91-sample-contexts-simple--item-83) | Three sample contexts, off by default. | Not started |
+
+The two contexts the app already has:
 
 | Context | Kind | What it does today | Where it is built |
 |---|---|---|---|
@@ -1157,7 +1364,12 @@ Today the order is fixed in the chat's code: an assessment going takes the promp
 
 ## Milestone 13a: Identity and guidelines
 
-Added by Larry on 2026-10-18, right after Contexts (items 84 to 88), and moved with it to after Milestone 21. The identity says who the AI is and what it is for; the guidelines hold its goals and the rules for each context, which are the context guidelines R88 made editable. Both are generated at first, edited on a **Customization** page, and kept with a history of every change. Like the Contexts page, the Customization page is in the host view, which only the signed-on administrator gets (R44).
+| PR | Description | Status |
+|---|---|---|
+| [R92. Identity and goals in every reply](#r92-identity-and-goals-in-every-reply-medium--items-84-85) | The AI's identity and goals are sent with every reply. | Not started |
+| [R93. Generating the default identity and guidelines](#r93-generating-the-default-identity-and-guidelines-medium--item-86) | The LLM drafts the default identity and guidelines. | Not started |
+| [R94. Customization page](#r94-customization-page-medium--items-85-87) | A Customization page to edit the identity and guidelines. | Not started |
+| [R95. Change history: compare, go back and edit](#r95-change-history-compare-go-back-and-edit-medium--item-88) | A history of customization changes to compare, go back to and edit. | Not started |
 
 ### R92. Identity and goals in every reply (Medium) · items 84, 85
 - The identity (name, who it speaks as, purpose, who it is for, what it can help with), the goals and every context's guidelines are kept in `customization.json`, with a fixed default shipped for when the file is missing or can't be read (the error goes in the log). The first time this version starts, each context's guidelines move out of `contexts.json` into it, keyed by the context's id, edits included; from then on `customization.json` is their only copy, and `contexts.json` keeps name, kind, criteria, availability and priority. The Contexts page's guideline editor (R88), **Set back to how it shipped** and adding or deleting a context (R89) read and write them there. Each save writes the whole file to a temporary file and renames it over the old one, so a reader never sees half a save. What the file holds after the move is written as its first version. `GET /api/customization` returns all of it.
@@ -1182,7 +1394,12 @@ Added by Larry on 2026-10-18, right after Contexts (items 84 to 88), and moved w
 
 ## Milestone 13b: Safe photos
 
-Added by Larry on 2026-10-24, right after Identity and guidelines (items 102 to 105). R8 already refuses a photo without exactly one face; this milestone also refuses nudity or sexual content and anything that isn't a photograph of a real person's face, and makes sure only the head and shoulders are ever animated. The checks run on the hosted machine's 4 ARM cores with small on-device models, beside R8's MediaPipe checks, so photos never leave the server and there is no per-use cost *(default)*.
+| PR | Description | Status |
+|---|---|---|
+| [R123. Safe photo test](#r123-safe-photo-test-medium--items-102-103) | A test picking the models for safe photo checks. | Not started |
+| [R124. Nudity check on upload](#r124-nudity-check-on-upload-medium--item-102) | Refuses a nude or sexual photo on upload. | Not started |
+| [R125. Only a real person's face, head and shoulders](#r125-only-a-real-persons-face-head-and-shoulders-medium--items-103-104) | Refuses anything that isn't a real person's face, head and shoulders. | Not started |
+| [R126. Safe photos everywhere](#r126-safe-photos-everywhere-simple--item-105) | The same safe photo checks on every way a photo comes in. | Not started |
 
 ### R123. Safe photo test (Medium) · items 102, 103
 - An experiment, like R25a, picks the models before any app change. For nudity it compares NudeNet's detector (ONNX, about 12 MB, finds exposed body parts) with a safe/unsafe image classifier such as Falconsai's nsfw_image_detection (a ViT of about 330 MB), each only if its licence allows hosted use. For a real face it tries a small zero-shot image and text model (CLIP-style) asked whether the picture is a photograph of a person or a drawing, cartoon, painting, statue, doll, mask, animal or photo of a screen.
@@ -1205,7 +1422,19 @@ Added by Larry on 2026-10-24, right after Identity and guidelines (items 102 to 
 
 ## Milestone 13c: UI simplification
 
-Added by Larry on 2026-10-25, right after Milestone 13b (items 115 to 118). The pages so far were built to be complete, showing every step, state and number, which helped with debugging. For release, those details are hidden behind a setting or removed, and each page is redesigned for ease of use, simplicity and a professional look. The milestone succeeds when every page is easier to use and less complex than it is today, measured by R135's count of each page's words, controls and sections before and R145's after. Each page PR keeps every feature working, moves rather than deletes anything a host may still need, and shows before and after screenshots. The setup wizard (Milestone 10d) is already built by then, so R138 simplifies the Setup page that stays beside it.
+| PR | Description | Status |
+|---|---|---|
+| [R135. What each page shows, and what it should](#r135-what-each-page-shows-and-what-it-should-simple--items-115-118) | A review of what each page shows and what it should, with counts of words and controls. | Not started |
+| [R136. One Show details setting](#r136-one-show-details-setting-medium--items-115-116) | One Show details setting for the details hidden from the pages. | Not started |
+| [R137. A simpler home page, header and short pages](#r137-a-simpler-home-page-header-and-short-pages-medium--items-116-117) | A simpler home page, header and short pages. | Not started |
+| [R138. A simpler Setup page](#r138-a-simpler-setup-page-medium--items-116-117) | A simpler Setup page. | Not started |
+| [R139. A simpler Avatar Choice](#r139-a-simpler-avatar-choice-medium--items-116-117) | A simpler Avatar Choice page. | Not started |
+| [R140. A simpler chat page](#r140-a-simpler-chat-page-medium--items-116-117) | A simpler chat page. | Not started |
+| [R141. A simpler Manage Content page](#r141-a-simpler-manage-content-page-medium--items-116-117) | A simpler Manage Content page. | Not started |
+| [R142. Simpler wiki pages](#r142-simpler-wiki-pages-medium--items-116-117) | Simpler wiki pages. | Not started |
+| [R143. A simpler Settings page](#r143-a-simpler-settings-page-medium--items-116-117) | A simpler Settings page. | Not started |
+| [R144. A simpler recording guide](#r144-a-simpler-recording-guide-medium--items-116-117) | A simpler recording guide. | Not started |
+| [R145. One look on every page, and the counts after](#r145-one-look-on-every-page-and-the-counts-after-medium--items-117-118) | One look on every page, and the counts after the changes. | Not started |
 
 ### R135. What each page shows, and what it should (Simple) · items 115, 118
 - A written review, like R123's test, before any page changes: for every page (home, Before you start, Setup, Avatar Choice and Your voice for the avatar, Chat, Manage Content, the wiki list and a wiki page, Settings, the recording guide, Goodbye and Page not found), a screenshot in the host and participant views, and each thing on it marked **keep**, **behind Show details**, **move** (to another page or a menu) or **remove**, with the reason. A small script counts each page's visible words, buttons and links, and sections, in both views, and saves the counts to `docs/ui-counts.json`.
@@ -1254,7 +1483,19 @@ Added by Larry on 2026-10-25, right after Milestone 13b (items 115 to 118). The 
 
 ## Milestone 13d: Conversation history management
 
-Added by Larry on 2026-10-27, while reviewing PR #201, right after Milestone 13c and before Milestone 14 (items 134 to 140). It replaces R158 (a Clear conversation link in the chat's history, item 128), which he took out of Bug fixing, and R51 and R52 (save before clear, and load, item 37), which were in Milestone 14: the user manages the conversation on a page of its own. Today the conversation is a list of questions and replies with no ids or times, cleared only from Settings (R27b), and read in the chat's Show history box with a word search (R18a, R18). The page comes first, with Save, then loading, clearing, deleting and the deleted items, then search and Ask again. In this milestone an **exchange** is one question with its reply.
+| PR | Description | Status |
+|---|---|---|
+| [R166. An id and a time for every exchange](#r166-an-id-and-a-time-for-every-exchange-simple--items-134-138) | Gives every exchange an id and a time. | Not started |
+| [R167. The Conversation history page, with Save](#r167-the-conversation-history-page-with-save-medium--items-134-136) | A Conversation history page, with Save. | Not started |
+| [R168. Load from computer](#r168-load-from-computer-medium--item-134) | Load a saved conversation from the computer. | Not started |
+| [R169. Clear, with the choice to save first](#r169-clear-with-the-choice-to-save-first-simple--item-135) | Clear the conversation, with the choice to save first. | Not started |
+| [R170. Deleting an exchange, and restoring or destroying it, on the server](#r170-deleting-an-exchange-and-restoring-or-destroying-it-on-the-server-medium--item-138) | Delete, restore or destroy an exchange on the server. | Not started |
+| [R171. Delete, restore or destroy on the page](#r171-delete-restore-or-destroy-on-the-page-simple--item-138) | Delete, restore or destroy an exchange on the page. | Not started |
+| [R172. Show deleted items](#r172-show-deleted-items-simple--item-139) | A Show deleted items checkbox. | Not started |
+| [R173. Search for words or topics](#r173-search-for-words-or-topics-medium--item-137) | Search the conversation for words or topics. | Not started |
+| [R174. Ask again](#r174-ask-again-simple--item-140) | Ask again: puts an earlier question back in the prompt box. | Not started |
+
+In this milestone an **exchange** is one question with its reply.
 
 ### R166. An id and a time for every exchange (Simple) · items 134, 138
 - Each turn of the conversation gets a lasting id and the time it was said, saved with it; a conversation saved before this gets ids and its file's time once, when it is first read. `GET /api/chat` gives them, so later PRs can name one exchange. Nothing on the page changes.
@@ -1305,6 +1546,12 @@ Added by Larry on 2026-10-27, while reviewing PR #201, right after Milestone 13c
 
 ## Milestone 14: Interaction history
 
+| PR | Description | Status |
+|---|---|---|
+| [R48. Saving every interaction](#r48-saving-every-interaction-simple--item-34) | Saves every question and answer with its time and who asked. | Not started |
+| [R49. My history, with deleting when allowed](#r49-my-history-with-deleting-when-allowed-medium--item-35) | A participant sees their own history, and can delete when allowed. | Not started |
+| [R50. User history page](#r50-user-history-page-medium--item-36) | A host page with every question and answer, by date or participant. | Not started |
+
 ### R48. Saving every interaction (Simple) · item 34
 - Every question and answer is saved with its date and time, and the participant's account or "anonymous".
 - **Can show:** ask questions anonymously and as a participant, and see both saved in the logs and the store.
@@ -1319,6 +1566,11 @@ Added by Larry on 2026-10-27, while reviewing PR #201, right after Milestone 13c
 
 ## Milestone 15: Topics and understanding
 
+| PR | Description | Status |
+|---|---|---|
+| [R53. Tagging questions with topics](#r53-tagging-questions-with-topics-medium--items-38-39) | Tags each question with its topics. | Not started |
+| [R54. Rating the understanding a question shows](#r54-rating-the-understanding-a-question-shows-medium--item-40) | Rates the understanding each question shows. | Not started |
+
 ### R53. Tagging questions with topics (Medium) · items 38, 39
 - Each new question keeps the wiki page ids the R39 lookup already found for it as its topics (none, one or several); there is no second classification. A one-off job runs the R39 lookup over the existing history, with progress like R12, and history loaded through R168 is tagged the same way. Tags are never rewritten when the wiki changes; a removed topic is shown as removed.
 - **Can show:** ask a question on one topic, one spanning two topics and a general one, and see one, two and no topics in the store; then the backfill job's run time in the logs.
@@ -1329,11 +1581,20 @@ Added by Larry on 2026-10-27, while reviewing PR #201, right after Milestone 13c
 
 ## Milestone 16: Search
 
+| PR | Description | Status |
+|---|---|---|
+| [R55. Search on the user history page](#r55-search-on-the-user-history-page-medium--items-42-43) | Search on the user history page. | Not started |
+
 ### R55. Search on the user history page (Medium) · items 42, 43
 - Adds search to the R50 user history page rather than a second page: words to find in questions and answers, plus filters for topic and date range alongside R50's existing participant and anonymous views. Deleted questions are never found.
 - **Can show:** find a phrase across all participants, then narrow it to one participant and one topic, with the search time in the logs.
 
 ## Milestone 17: Statistics and summaries
+
+| PR | Description | Status |
+|---|---|---|
+| [R56. Topic statistics page](#r56-topic-statistics-page-medium--item-44) | A page of question counts and ratings for each topic. | Not started |
+| [R57. Participant summary page](#r57-participant-summary-page-medium--items-41-45) | A summary page for each participant. | Not started |
 
 ### R56. Topic statistics page (Medium) · item 44
 - An administrator page listing every topic with its question count and its counts of strong, weak and unrated questions (no single score), with topics nobody asked about listed separately.
@@ -1345,11 +1606,20 @@ Added by Larry on 2026-10-27, while reviewing PR #201, right after Milestone 13c
 
 ## Milestone 18: Heads-up before deleting
 
+| PR | Description | Status |
+|---|---|---|
+| [R58. Heads-up before deleting a question](#r58-heads-up-before-deleting-a-question-simple--item-46) | Asks to confirm before deleting a question. | Not started |
+
 ### R58. Heads-up before deleting a question (Simple) · item 46
 - The delete in R49 and R50 asks to confirm first, saying the question and its answer are removed from the record for everyone and can't be brought back (changed by Larry on 2026-10-17). It also checks that a deleted question leaves no trace in the topics, ratings, statistics, summaries and profile (R53 to R57).
 - **Can show:** a participant clicks delete, reads the notice and cancels, keeping the question; then confirms and sees it gone from their history, the host's user history page and the topic statistics. Save a conversation, delete one question, load the old file, and see that question and its answer stay gone from the history, search, topics, ratings, statistics and the LLM's context.
 
 ## Milestone 19: Interests and personality
+
+| PR | Description | Status |
+|---|---|---|
+| [R59. Working out interests and personality](#r59-working-out-interests-and-personality-medium--item-47) | Works out each participant's interests and how they respond. | Not started |
+| [R60. Profile on the participant summary page, with corrections](#r60-profile-on-the-participant-summary-page-with-corrections-simple--item-47) | Shows the profile on the participant summary page, with corrections. | Not started |
 
 ### R59. Working out interests and personality (Medium) · item 47
 - For each signed-in participant, a job reads their questions, the answers and their next message after each answer, and keeps a short profile: interests, and how they respond to answers, each with its one-line evidence and the questions it came from. Uses the method decided before this PR. Runs per the R59 decision and keeps the previous profile until a new one is ready; anonymous questions are not used. Participants with too few questions get no profile.
@@ -1361,7 +1631,13 @@ Added by Larry on 2026-10-27, while reviewing PR #201, right after Milestone 13c
 
 ## Milestone 22: Gathering information from visitors and tickets
 
-Added by Larry on 2026-10-17, as its own milestone after Milestone 21. It works on the support site, and on a customer's site when a setting turns it on. What is gathered on a customer's site stays with that site, private to its customer; what is gathered on the support site stays there.
+| PR | Description | Status |
+|---|---|---|
+| [R79. Gathering feedback in conversation](#r79-gathering-feedback-in-conversation-medium--item-73) | Notices feedback in conversation and passes it on when the visitor agrees. | Not started |
+| [R80. Collecting contact information with consent](#r80-collecting-contact-information-with-consent-medium--item-74) | Collects a name and email with consent. | Not started |
+| [R81. Opening a ticket from a conversation](#r81-opening-a-ticket-from-a-conversation-medium--item-75) | Drafts and opens a ticket from a conversation. | Not started |
+| [R82. Answers that use open tickets](#r82-answers-that-use-open-tickets-medium--items-70-76) | Answers on the support site that use open tickets. | Not started |
+| [R83. Asking about what was gathered](#r83-asking-about-what-was-gathered-medium--item-76) | A page to ask the AI about the feedback, contacts and tickets gathered. | Not started |
 
 ### R79. Gathering feedback in conversation (Medium) · item 73
 - After a reply, feedback in what the visitor said is noticed (by the method decided before this PR); the AI asks whether to pass it on and, if they agree, saves it as feedback with its conversation. A site setting turns this on for a customer's site, and adds a feedback page for its customer showing only that site's feedback.
@@ -1385,7 +1661,16 @@ Added by Larry on 2026-10-17, as its own milestone after Milestone 21. It works 
 
 ## Milestone 23: Handling disputes
 
-Added by Larry on 2026-10-21, at the very end of the roadmap, after Milestone 22. Someone may dispute a photo or a voice that a site uses without the right to it (items 89 to 95). The app has hosts and participants today; the admin, a third role who runs the service and is distinct from every site's host, comes from Milestone 27; this milestone gives the admin the disputes and messages. A dispute is made from a clear link, verified by email or phone, and turns the custom image or voice off at once in favour of a default person; the admin and the host are told by message, and the host can dispute it offline with the admin.
+| PR | Description | Status |
+|---|---|---|
+| [R101. Admin role and admin sign-in](#r101-admin-role-and-admin-sign-in-medium--item-89) | An admin role for disputes and messages across every site. | Not started |
+| [R102. Messages and the notification mark](#r102-messages-and-the-notification-mark-medium--item-90) | Messages between the admin and users, with an unread mark. | Not started |
+| [R103. Contact admin](#r103-contact-admin-simple--item-90) | A Contact admin link for anyone. | Not started |
+| [R104. Dispute link and form](#r104-dispute-link-and-form-medium--item-91) | A link and form to dispute an image or voice. | Not started |
+| [R105. Verifying the disputer's email or phone](#r105-verifying-the-disputers-email-or-phone-medium--item-92) | Verifies the disputer's email or phone with a code. | Not started |
+| [R106. A dispute turns off the image or voice](#r106-a-dispute-turns-off-the-image-or-voice-medium--items-91-93) | A verified dispute turns off the disputed image or voice. | Not started |
+| [R107. Disputing the dispute: the admin's dispute page](#r107-disputing-the-dispute-the-admins-dispute-page-medium--item-94) | The admin's dispute page, to turn an image or voice back on. | Not started |
+| [R108. Cancelling a dispute](#r108-cancelling-a-dispute-simple--item-95) | Cancelling a dispute. | Not started |
 
 ### R101. Admin role and admin sign-in (Medium) · item 89
 - A third role beside host and participant: the admin, who signs in as Milestone 27 built (R149, R150), reaches every site, but only for disputes and messages, never a site's settings, content or history. Hosts and participants never get the admin's pages.
@@ -1422,7 +1707,13 @@ Added by Larry on 2026-10-21, at the very end of the roadmap, after Milestone 22
 
 ## Milestone 24: Phones in the browser
 
-Added by Larry on 2026-10-22, with Milestones 25 and 26, after Milestone 23 at the very end of the roadmap: support for iOS and Android (items 96 to 101).
+| PR | Description | Status |
+|---|---|---|
+| [R109. A phone-sized screen](#r109-a-phone-sized-screen-medium--item-96) | Every page fits a phone held upright. | Not started |
+| [R110. Video and sound on phones](#r110-video-and-sound-on-phones-medium--items-11-17-96) | Replies and the idle video play with sound on phones. | Not started |
+| [R111. Photos and recordings from the phone](#r111-photos-and-recordings-from-the-phone-medium--items-1-96) | Take a photo and record the voice on a phone. | Not started |
+| [R112. Hold to talk on phones](#r112-hold-to-talk-on-phones-simple--items-9-96) | Hold to talk on phones. | Not started |
+| [R113. Add to the home screen](#r113-add-to-the-home-screen-simple--item-96) | Add the site to the phone's home screen. | Not started |
 
 **The approach: phones are clients of the hosted server** *(default)*. Everything heavy stays where it runs today, on the hosted server at app.me0.ai and the customers' sites (R32, R71): llama.cpp's LLM, Kokoro and Chatterbox for the voice, and LivePortrait for the video, which the server renders sentence by sentence and streams to the screen (R21, R22d). A phone only does what the browser does now: it uploads photos and recordings, sends prompts and plays the clips. Rendering on the phone was ruled out, since preparing a face takes about 17 minutes on 4 server cores and the voice clone takes 1.5 to 2 seconds per second of speech on a CPU, which a phone could not do at reply speed or without draining its battery. So the first step is the web app itself working well in a phone's browser (this milestone), which every later step reuses; then the apps wrap the same Preact build with Capacitor (Milestone 25), so there is still one codebase for the screens, and the stores come last (Milestone 26).
 
@@ -1447,6 +1738,15 @@ Added by Larry on 2026-10-22, with Milestones 25 and 26, after Milestone 23 at t
 - **Can show:** add the site to the home screen on both phones and open it from the icon, full screen; with flight mode on, see the plain message.
 
 ## Milestone 25: iOS and Android apps
+
+| PR | Description | Status |
+|---|---|---|
+| [R114. The app shell](#r114-the-app-shell-medium--item-97) | The iOS and Android app shell with Capacitor. | Not started |
+| [R115. Signing in from an app: the server](#r115-signing-in-from-an-app-the-server-medium--item-98) | The server side of signing in from an app. | Not started |
+| [R116. Signing in from an app: the screens](#r116-signing-in-from-an-app-the-screens-simple--item-98) | The app's sign-in screens. | Not started |
+| [R117. Microphone, camera and speech in the apps](#r117-microphone-camera-and-speech-in-the-apps-medium--items-9-99) | The microphone, camera and speech recognition in the apps. | Not started |
+| [R118. Behaving like a phone app](#r118-behaving-like-a-phone-app-simple--item-100) | The apps behave like phone apps: sound, screen and calls. | Not started |
+| [R119. The apps built on every change](#r119-the-apps-built-on-every-change-medium--item-97) | CI builds both apps on every change. | Not started |
 
 ### R114. The app shell (Medium) · item 97
 - A `mobile/` folder with Capacitor's iOS and Android projects, which bundle the web build (R5) and open it as the app, with the app's name and icon. The address of the site it connects to is set when it is built (app.me0.ai by default), and every request goes to it over HTTPS.
@@ -1473,6 +1773,12 @@ Added by Larry on 2026-10-22, with Milestones 25 and 26, after Milestone 23 at t
 - **Can show:** a CI run with both builds passing, and one where a broken native setting fails it.
 
 ## Milestone 26: In the App Store and Google Play
+
+| PR | Description | Status |
+|---|---|---|
+| [R120. What the stores require](#r120-what-the-stores-require-medium--item-101) | The privacy policy and other things the stores require. | Not started |
+| [R121. Signed builds for testing](#r121-signed-builds-for-testing-medium--item-101) | Signed builds for TestFlight and Play internal testing. | Not started |
+| [R122. The store listings](#r122-the-store-listings-simple--item-101) | The store listings, sent for review. | Not started |
 
 ### R120. What the stores require (Medium) · item 101
 - Before sending the apps for review: a privacy policy page on the site, Apple's privacy manifest and Google Play's data safety answers for the photos, recordings and conversations sent to the server, the age rating, and, inside the app, **Delete my data** (R31), deleting the account, **Dispute this image or voice** and **Contact admin** (Milestone 23), which the stores ask of apps that make content from people's faces and voices.
