@@ -65,6 +65,8 @@ def test_example_config_loads() -> None:
         ("llm_context_tokens = 512", "llm_context_tokens"),
         ('llm_context_tokens = "4096"', "llm_context_tokens"),
         ('general_prompts = "yes"', "general_prompts"),
+        ("trusted_proxies = 1", "trusted_proxies"),
+        ('trusted_proxies = " "', "trusted_proxies"),
     ],
 )
 def test_invalid_files_are_rejected(tmp_path: Path, text: str, message: str) -> None:
