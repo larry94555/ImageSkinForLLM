@@ -3912,7 +3912,8 @@ function Chat(props) {
 				}),
 				turns[turns.length - 1]?.role === "assistant" && /* @__PURE__ */ u(ReplyActions, {
 					disabled: busy,
-					onRepeat: () => void repeat()
+					onRepeat: () => void repeat(),
+					onSimpler: quizGoing ? void 0 : () => void send(SAY_IT_SIMPLER)
 				}),
 				/* @__PURE__ */ u("p", {
 					className: "status muted",
@@ -4070,16 +4071,26 @@ function QuizControls(props) {
 		})]
 	});
 }
+var SAY_IT_SIMPLER = "Say it simpler";
 function ReplyActions(props) {
 	return /* @__PURE__ */ u("div", {
 		className: "reply-actions",
-		children: /* @__PURE__ */ u("button", {
+		children: [/* @__PURE__ */ u("button", {
 			type: "button",
 			className: "secondary",
 			disabled: props.disabled,
 			onClick: props.onRepeat,
 			children: "Repeat"
-		})
+		}), props.onSimpler && /* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: props.disabled,
+			onClick: () => {
+				console.info("Say it simpler");
+				props.onSimpler?.();
+			},
+			children: SAY_IT_SIMPLER
+		})]
 	});
 }
 function Choices(props) {
