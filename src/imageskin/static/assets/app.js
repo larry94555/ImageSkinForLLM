@@ -442,6 +442,256 @@ async function useChatGptAccount(account) {
 async function signOutChatGpt() {
 	return json(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
 }
+async function getAdminSession() {
+	return json(await fetch("/api/admin/session"));
+}
+async function signInAsAdmin(password) {
+	const response = await fetch("/api/admin/sign-in", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ password })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+async function signOutAsAdmin() {
+	await json(await fetch("/api/admin/sign-out", { method: "POST" }));
+}
+async function adminActivity() {
+	return (await fetch("/api/admin/activity", { method: "POST" })).ok;
+}
+//#endregion
+//#region src/admin.tsx
+var CHECK_MS = 6e4;
+var AdminContext = X({
+	session: null,
+	ended: null,
+	refresh: async () => {},
+	signIn: async () => {},
+	signOut: async () => {},
+	dismiss: () => {}
+});
+function useAdmin() {
+	return x(AdminContext);
+}
+function minutes$1(n) {
+	return `${n} minute${n === 1 ? "" : "s"}`;
+}
+function endedMessage(session) {
+	if (session.ended === "password changed") return "Signed out as administrator because the administrator password was changed.";
+	return `Signed out as administrator after ${minutes$1(session.timeout_minutes)} without activity.`;
+}
+function AdminProvider({ children }) {
+	const [session, setSession] = d(null);
+	const [ended, setEnded] = d(null);
+	async function refresh() {
+		try {
+			const read = await getAdminSession();
+			setSession(read);
+			if (read.ended) {
+				console.info(`Admin signed out: ${read.ended}`);
+				setEnded(endedMessage(read));
+			}
+		} catch (e) {
+			console.error("Could not read the administrator sign-in", e);
+		}
+	}
+	h(() => {
+		refresh();
+	}, []);
+	const signedIn = session?.signed_in === true;
+	h(() => {
+		if (!signedIn) return;
+		const timer = setInterval(() => void refresh(), CHECK_MS);
+		return () => clearInterval(timer);
+	}, [signedIn]);
+	async function signIn(password) {
+		const started = performance.now();
+		await signInAsAdmin(password);
+		console.info(`Admin signed in (${Math.round(performance.now() - started)} ms)`);
+		setEnded(null);
+		await refresh();
+	}
+	async function signOut() {
+		await signOutAsAdmin();
+		console.info("Admin signed out: signed out");
+		await refresh();
+	}
+	const shared = {
+		session,
+		ended,
+		refresh,
+		signIn,
+		signOut,
+		dismiss: () => setEnded(null)
+	};
+	return /* @__PURE__ */ u(AdminContext.Provider, {
+		value: shared,
+		children
+	});
+}
+function useAdminActivity(active) {
+	const { session, refresh } = useAdmin();
+	const last = A(0);
+	const on = active && session?.signed_in === true;
+	h(() => {
+		if (!on) return;
+		function activity() {
+			const now = Date.now();
+			if (now - last.current < 6e4) return;
+			last.current = now;
+			adminActivity().then(async (still) => {
+				if (!still) await refresh();
+			}).catch((e) => console.error("Could not tell the server of admin activity", e));
+		}
+		document.addEventListener("click", activity);
+		document.addEventListener("keydown", activity);
+		return () => {
+			document.removeEventListener("click", activity);
+			document.removeEventListener("keydown", activity);
+		};
+	}, [on]);
+}
+function AdminLink({ current }) {
+	const { session } = useAdmin();
+	if (!session?.signed_in) return null;
+	return /* @__PURE__ */ u("a", {
+		href: "#/admin",
+		className: current ? "settings-link current" : "settings-link",
+		children: "Admin"
+	});
+}
+function AdminEndedNotice() {
+	const { ended, dismiss } = useAdmin();
+	if (!ended) return null;
+	return /* @__PURE__ */ u("p", {
+		className: "notice",
+		role: "status",
+		children: [
+			ended,
+			" ",
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: dismiss,
+				children: "OK"
+			})
+		]
+	});
+}
+function AdminSection() {
+	const { session, signIn, signOut } = useAdmin();
+	const [password, setPassword] = d("");
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d(null);
+	h(() => console.info("Admin sign-in shown"), []);
+	async function submit(e) {
+		e.preventDefault();
+		setBusy(true);
+		setError(null);
+		try {
+			await signIn(password);
+			setPassword("");
+		} catch (err) {
+			console.error("Could not sign in as administrator", err);
+			setError(err instanceof ServerRefusal ? err.message : "Could not sign in. Try again in a moment.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	async function leave() {
+		setBusy(true);
+		try {
+			await signOut();
+		} catch (err) {
+			console.error("Could not sign out as administrator", err);
+			setError("Could not sign out. Try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	let body = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Checking…"
+	});
+	if (session?.signed_in) body = /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: [
+		"Signed in as administrator. You are signed out after ",
+		minutes$1(session.timeout_minutes),
+		" ",
+		"without activity."
+	] }), /* @__PURE__ */ u("p", { children: [
+		/* @__PURE__ */ u("a", {
+			className: "button",
+			href: "#/admin",
+			children: "Open the admin view"
+		}),
+		" ",
+		/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: busy,
+			onClick: () => void leave(),
+			children: "Sign out as administrator"
+		})
+	] })] });
+	else if (session && !session.password_set) body = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Signing in as the administrator is off, as no administrator password is set on this computer. Whoever runs the computer sets it in the file admin.toml."
+	});
+	else if (session) body = /* @__PURE__ */ u("form", {
+		onSubmit: (e) => void submit(e),
+		children: [
+			/* @__PURE__ */ u("label", { children: [
+				"Administrator password",
+				" ",
+				/* @__PURE__ */ u("input", {
+					type: "password",
+					autoComplete: "current-password",
+					value: password,
+					onInput: (e) => setPassword(e.currentTarget.value)
+				})
+			] }),
+			" ",
+			/* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: busy || password === "",
+				children: "Sign in as administrator"
+			})
+		]
+	});
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-admin",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-admin",
+				children: "Administrator"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Running the site as a whole, apart from the host and participant views."
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			body
+		]
+	});
+}
+function AdminPage() {
+	const { session } = useAdmin();
+	return /* @__PURE__ */ u("div", {
+		className: "host-page admin-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Admin" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Site-wide administration, separate from the host and participant views."
+			}),
+			session?.signed_in ? /* @__PURE__ */ u("p", { children: "You are signed in as administrator." }) : /* @__PURE__ */ u(AdminSection, {})
+		]
+	});
+}
 //#endregion
 //#region src/confirm-dialog.tsx
 var FOCUSABLE = "button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
@@ -575,7 +825,8 @@ var PAGES = {
 	"/content": "content",
 	"/guide": "guide",
 	"/wiki": "wiki",
-	"/settings": "settings"
+	"/settings": "settings",
+	"/admin": "admin"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -2064,6 +2315,7 @@ function SettingsPage({ back, onDataDeleted }) {
 			settings.view === "host" && /* @__PURE__ */ u(ChangeSetup, {}),
 			/* @__PURE__ */ u(VideoAndChat, {}),
 			settings.view === "host" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted }),
+			/* @__PURE__ */ u(AdminSection, {}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
 				href: back,
@@ -7442,7 +7694,7 @@ function current(page, view) {
 	return page;
 }
 function App() {
-	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(Shell, {}) });
+	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(Shell, {}) }) });
 }
 function Shell() {
 	const hash = useHash();
@@ -7464,6 +7716,7 @@ function Shell() {
 	}, [route?.redirect]);
 	const landing = A(pageFor(window.location.hash) === "home");
 	if (route && route.page !== "home") landing.current = false;
+	useAdminActivity(route?.page === "admin" || route?.page === "settings");
 	const header = useHeaderHeight();
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
@@ -7496,6 +7749,7 @@ function Shell() {
 			back: back.current ?? (participant ? "#/chat" : "#/"),
 			onDataDeleted: () => setConsented(false)
 		}),
+		admin: /* @__PURE__ */ u(AdminPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
@@ -7512,10 +7766,13 @@ function Shell() {
 					className: current(route?.page, view) === item.page ? "current" : void 0,
 					children: item.label
 				}, item.page)) }),
-				settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })
+				/* @__PURE__ */ u("span", {
+					className: "header-end",
+					children: [/* @__PURE__ */ u(AdminLink, { current: route?.page === "admin" }), settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })]
+				})
 			]
 		}),
-		/* @__PURE__ */ u("main", { children: content }),
+		/* @__PURE__ */ u("main", { children: [/* @__PURE__ */ u(AdminEndedNotice, {}), content] }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
 	] });
 }

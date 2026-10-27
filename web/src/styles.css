@@ -771,6 +771,8 @@ ol.steps { gap: 6px; margin-top: 12px; }
 .sample-video video { border-radius: 14px; box-shadow: var(--shadow); }
 ul.photos li.chosen { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-sm); }
 ul.photos img { border-radius: 8px; }
+/* Admin, while signed in as the administrator (R150), and Settings, at the end of the top bar. */
+.header-end { display: inline-flex; align-items: center; gap: 4px; }
 /* The Settings link: a sliders icon and the word, at the end of the top bar. */
 .settings-link {
   display: inline-flex;

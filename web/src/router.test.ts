@@ -58,6 +58,9 @@ test("the Settings page is in both views (R27)", () => {
   expect(pageFor("#/settings")).toBe("settings");
   expect(resolve("#/settings", false)).toEqual({ page: "settings" });
   expect(resolve("#/settings", true, true)).toEqual({ page: "settings" }); // to switch back
+  // The admin view is apart from both views (R150), so neither sends it elsewhere.
+  expect(resolve("#/admin", false)).toEqual({ page: "admin" });
+  expect(resolve("#/admin", true, true)).toEqual({ page: "admin" });
 });
 
 test("setup opens at what to change from Settings (R28)", () => {

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { AdminEndedNotice, AdminLink, AdminPage, AdminProvider, useAdminActivity } from "./admin";
 import { getConsent, getStartNow, type View } from "./api";
 import { AvatarVoicePage } from "./avatar-voice";
 import { ownAfterConsent } from "./change-setup";
@@ -42,7 +43,9 @@ function current(page: Page | undefined, view: View): Page | undefined {
 export function App() {
   return (
     <SettingsProvider>
-      <Shell />
+      <AdminProvider>
+        <Shell />
+      </AdminProvider>
     </SettingsProvider>
   );
 }
@@ -82,6 +85,10 @@ function Shell() {
   // then goes straight to the chat.
   const landing = useRef(pageFor(window.location.hash) === "home");
   if (route && route.page !== "home") landing.current = false;
+
+  // A click or key press in the admin view or on the Settings page keeps the administrator
+  // signed in (R150).
+  useAdminActivity(route?.page === "admin" || route?.page === "settings");
 
   const header = useHeaderHeight();
   // The page the Settings page was opened from, for Return to the app (R27). Opened by its
@@ -123,6 +130,7 @@ function Shell() {
           onDataDeleted={() => setConsented(false)}
         />
       ),
+      admin: <AdminPage />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }
@@ -145,9 +153,15 @@ function Shell() {
             </a>
           ))}
         </nav>
-        {settingsLoaded && <SettingsLink current={route?.page === "settings"} />}
+        <span className="header-end">
+          <AdminLink current={route?.page === "admin"} />
+          {settingsLoaded && <SettingsLink current={route?.page === "settings"} />}
+        </span>
       </header>
-      <main>{content}</main>
+      <main>
+        <AdminEndedNotice />
+        {content}
+      </main>
       <footer>Photos and recordings stay on the computer that runs this app.</footer>
     </>
   );
