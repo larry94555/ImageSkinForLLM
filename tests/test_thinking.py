@@ -222,7 +222,13 @@ def test_a_prompt_waiting_for_the_warm_up_says_its_steps(tmp_path: Path) -> None
     app = client.app
     app.state.reply_warm_up = threading.Thread(target=warm_up)  # type: ignore[attr-defined]
     app.state.reply_warm_up.start()  # type: ignore[attr-defined]
-    stepping = threading.Thread(target=lambda: [time.sleep(0.7) or go.set() for _ in range(3)])
+
+    def step_on() -> None:
+        for _ in range(3):
+            time.sleep(0.7)
+            go.set()
+
+    stepping = threading.Thread(target=step_on)
     stepping.start()
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         with patch("imageskin.app.thinking.Thinking", Seen):
