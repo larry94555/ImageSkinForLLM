@@ -17,6 +17,7 @@ import {
   signInAsAdmin,
   signOutAsAdmin,
 } from "./api";
+import { AdminSettingsPage } from "./admin-settings";
 import { ResourceDashboard } from "./dashboard";
 
 // Every step of setting the password, on a laptop and on the hosted site (R151).
@@ -254,15 +255,33 @@ export function AdminSection() {
   );
 }
 
-// The admin view (#/admin): the resource dashboard (R154). Opened without a sign-in, it shows the
-// sign-in instead. The admin settings (R155) come here too.
-export function AdminPage() {
+// The admin view: the resource dashboard (R154) at #/admin and the admin settings (R155) at
+// #/admin/settings. Opened without a sign-in, it shows the sign-in instead.
+export function AdminPage({ section = "resources" }: { section?: "resources" | "settings" }) {
   const { session } = useAdmin();
+  if (!session?.signed_in) {
+    return (
+      <div className="host-page admin-page">
+        <h1>Admin</h1>
+        <p className="lead">Site-wide administration, separate from the host and participant views.</p>
+        <AdminSection />
+      </div>
+    );
+  }
+  const tab = (to: "resources" | "settings", href: string, label: string) => (
+    <a href={href} className={section === to ? "current" : undefined} aria-current={section === to ? "page" : undefined}>
+      {label}
+    </a>
+  );
   return (
     <div className="host-page admin-page">
       <h1>Admin</h1>
       <p className="lead">Site-wide administration, separate from the host and participant views.</p>
-      {session?.signed_in ? <ResourceDashboard /> : <AdminSection />}
+      <nav className="admin-tabs" aria-label="Admin pages">
+        {tab("resources", "#/admin", "Resources")}
+        {tab("settings", "#/admin/settings", "Admin settings")}
+      </nav>
+      {section === "settings" ? <AdminSettingsPage /> : <ResourceDashboard />}
     </div>
   );
 }

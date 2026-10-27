@@ -11,7 +11,16 @@ import { GuidePage } from "./guide";
 import { HomePage, setupLink } from "./home";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { StartNowPage } from "./start-now";
-import { OWN_CONSENT, type Page, pageFor, resolve, setupTarget, useHash, wikiTarget } from "./router";
+import {
+  adminTarget,
+  OWN_CONSENT,
+  type Page,
+  pageFor,
+  resolve,
+  setupTarget,
+  useHash,
+  wikiTarget,
+} from "./router";
 import {
   SettingsLink,
   SettingsPage,
@@ -130,7 +139,7 @@ function Shell() {
           onDataDeleted={() => setConsented(false)}
         />
       ),
-      admin: <AdminPage />,
+      admin: <AdminPage section={adminTarget(hash)} />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }
