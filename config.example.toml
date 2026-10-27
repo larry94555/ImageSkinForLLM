@@ -19,3 +19,13 @@ llm_context_tokens = 4096
 # This is only the starting value: once "Answer questions outside the content" is changed on the
 # Settings page, the page decides.
 general_prompts = false
+
+# The administrator's password file (roadmap R149). Left empty, it is admin.toml in the app's home
+# folder (~/.imageskin, or IMAGESKIN_HOME). Copy admin.example.toml there to start.
+admin_file = ""
+
+# The proxies trusted to name the browser in X-Forwarded-For, such as Caddy in front of the hosted
+# site (roadmap R149): addresses or networks separated by commas, or "*" when nothing but a proxy
+# can reach the app. Requests from anywhere else count as coming from where they connect from, so
+# a visitor can't pretend to be someone else to dodge the wait after wrong admin passwords.
+trusted_proxies = "127.0.0.1"

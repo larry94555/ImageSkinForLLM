@@ -35,6 +35,13 @@ class Settings:
     # Whether the chat answers prompts the PDFs have nothing on, or politely declines them
     # (roadmap R41, item 28). Declining is the default.
     general_prompts: bool = False
+    # The administrator's password file (roadmap R149, item 122); empty for admin.toml in the
+    # app's home folder.
+    admin_file: str = ""
+    # The proxies whose X-Forwarded-For names the browser (uvicorn's forwarded_allow_ips): a
+    # comma-separated list of addresses or networks, or "*" when only a proxy can reach the app,
+    # as on the hosted site. Others' requests are taken to come from where they connect from.
+    trusted_proxies: str = "127.0.0.1"
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -76,6 +83,10 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"llm_context_tokens in {path} must be a number of at least 1024")
     if not isinstance(settings.general_prompts, bool):
         raise ConfigError(f"general_prompts in {path} must be true or false")
+    if not isinstance(settings.admin_file, str):
+        raise ConfigError(f"admin_file in {path} must be a string")
+    if not isinstance(settings.trusted_proxies, str) or not settings.trusted_proxies.strip():
+        raise ConfigError(f'trusted_proxies in {path} must be a list of addresses, or "*"')
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
     logger.info("Loaded config", extra={"path": str(path)})

@@ -28,6 +28,9 @@ from pydantic import BaseModel, Field, model_validator
 
 from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
+from imageskin.admin import FILENAME as ADMIN_FILENAME
+from imageskin.admin import AdminSignIns
+from imageskin.admin_api import admin_router
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
@@ -481,6 +484,8 @@ def create_app(
     # Whether each topic's first lesson part is written ahead (R98a); left out, it is with the
     # app's own LLM and not with a test's `ask_llm`, whose replies the tests count.
     lessons_ahead: bool | None = None,
+    # The administrator's password file (R149); left out, admin.toml in the home folder.
+    admin_file: Path | None = None,
 ) -> FastAPI:
     startup = startup or StartupTimes()
     startup.begin("app made")
@@ -531,6 +536,11 @@ def create_app(
     def get_startup() -> dict[str, Any]:
         """When each part of the start began and ended, for `imageskin time-startup` (R96c)."""
         return startup.snapshot()
+
+    # Signing in as the administrator (R149). Every admin route later depends on require_admin.
+    admin_sign_ins = AdminSignIns(admin_file or data_home / ADMIN_FILENAME)
+    admin_routes, app.state.require_admin = admin_router(admin_sign_ins)
+    app.include_router(admin_routes)
 
     @app.get("/api/consent")
     def get_consent() -> dict[str, object]:

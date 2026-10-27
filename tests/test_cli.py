@@ -47,6 +47,8 @@ def test_serve_runs_uvicorn_with_config(tmp_path: Path) -> None:
     assert create_app.call_args.kwargs["general_prompts"] is True
     config_used = server.call_args.args[0]
     assert (config_used.host, config_used.port) == ("127.0.0.1", 9123)
+    # Only a proxy on this computer names the browser in X-Forwarded-For (R149).
+    assert config_used.proxy_headers and config_used.forwarded_allow_ips == "127.0.0.1"
     server.return_value.run.assert_called_once()
 
 
