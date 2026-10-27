@@ -18,6 +18,10 @@ import {
   signOutAsAdmin,
 } from "./api";
 
+// Every step of setting the password, on a laptop and on the hosted site (R151).
+export const GUIDE =
+  "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides/Admin-Password-Guide.pdf";
+
 export const CHECK_MS = 60_000;
 export const ACTIVITY_MS = 60_000;
 
@@ -213,7 +217,11 @@ export function AdminSection() {
     body = (
       <p className="muted">
         Signing in as the administrator is off, as no administrator password is set on this
-        computer. Whoever runs the computer sets it in the file admin.toml.
+        computer. Whoever runs the computer sets it in the file admin.toml, as the{" "}
+        <a href={GUIDE} target="_blank" rel="noreferrer">
+          admin password guide
+        </a>{" "}
+        says.
       </p>
     );
   } else if (session) {

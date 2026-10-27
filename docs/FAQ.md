@@ -133,6 +133,14 @@ llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 
 
 **What to expect on 4 CPU cores:** a reply's first words come after a few seconds, and building the wiki takes about 20 to 40 seconds for each part of a PDF, longer with this 4B model. A smaller model is faster but forgets the conversation more often, so use one of about 4B parameters or more (see the README's chat section).
 
+## How do I set or change the administrator password?
+
+**Where:** in a file on the computer that runs the app, never in the app: `admin.toml` in the app's home folder (`%USERPROFILE%\.imageskin` on Windows, `~/.imageskin` on a Mac), or `deploy/admin/admin.toml` on the hosted machine. Copy `admin.example.toml` from the top of the project there, and paste in the line `imageskin admin-password-hash` prints (or write `password = "..."`). The file is never committed.
+
+**No restart:** the app reads the file again when it changes, so a new password works at once and signs out anyone signed in with the old one. Emptying both lines, or deleting the file, turns signing in as the administrator off. A forgotten password can't be recovered; set a new one.
+
+**Every step:** [docs/guides/Admin-Password-Guide.pdf](guides/Admin-Password-Guide.pdf).
+
 ## Preparing the video failed. How does tech support find out why?
 
 **What the customer sees:** setup stops and says which step failed and why, in plain words, for example "“Make the mouth shapes and the blinking eyes” failed. Out of memory.", and "Please give support the reference `P-7K3F9Q`." (when Try again may help, it says so first: "Try again may help. If it keeps failing, please give support the reference …"). **Copy details for support** copies the reference, the step, the reason, the time, the app's version, the browser and the error (without the server's folders and file names); ask the customer to paste it into the ticket. The same reference is shown, in one line, when making the sample video again from Settings or getting a default person ready fails. The reasons are: a program or add-on missing, out of memory, not enough disk space, a model that couldn't be downloaded, a photo or recording that couldn't be read, a step that took too long, or something unexpected.

@@ -461,6 +461,7 @@ async function adminActivity() {
 }
 //#endregion
 //#region src/admin.tsx
+var GUIDE = "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides/Admin-Password-Guide.pdf";
 var CHECK_MS = 6e4;
 var AdminContext = X({
 	session: null,
@@ -635,7 +636,18 @@ function AdminSection() {
 	] })] });
 	else if (session && !session.password_set) body = /* @__PURE__ */ u("p", {
 		className: "muted",
-		children: "Signing in as the administrator is off, as no administrator password is set on this computer. Whoever runs the computer sets it in the file admin.toml."
+		children: [
+			"Signing in as the administrator is off, as no administrator password is set on this computer. Whoever runs the computer sets it in the file admin.toml, as the",
+			" ",
+			/* @__PURE__ */ u("a", {
+				href: GUIDE,
+				target: "_blank",
+				rel: "noreferrer",
+				children: "admin password guide"
+			}),
+			" ",
+			"says."
+		]
 	});
 	else if (session) body = /* @__PURE__ */ u("form", {
 		onSubmit: (e) => void submit(e),
