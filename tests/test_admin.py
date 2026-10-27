@@ -366,7 +366,7 @@ def test_require_admin_guards_a_route(tmp_path: Path) -> None:
     app.router.routes.insert(0, app.router.routes.pop())
     browser = TestClient(app)
     refused = browser.get("/api/admin/test-only")
-    assert refused.status_code == 401 and "Sign in as administrator" in refused.json()["detail"]
+    assert refused.status_code == 401 and refused.json()["detail"] == "Not supported at this time."
     browser.post("/api/admin/sign-in", json={"password": "first secret"})
     assert browser.get("/api/admin/test-only").json() == {"ok": True}
     browser.cookies.clear()
