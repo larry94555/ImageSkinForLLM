@@ -380,8 +380,10 @@ def test_note_clips_wraps_the_voice_step(tmp_path: Path, monkeypatch: pytest.Mon
     spoken = reply_video.SentenceClips._speak(clips, 1, "Hello *there*.", 0.0)  # type: ignore[arg-type]
     assert spoken is not None and spoken.wav == wav
     assert reply_video.SentenceClips._speak(clips, 2, "😀", 0.0) is None  # type: ignore[arg-type]
+    # Sentences 3 and 4 spoken as one clip (R130): its line is clip 2's.
+    reply_video.SentenceClips._speak(clips, 3, "Three. Four.", 0.0)  # type: ignore[arg-type]
     rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
-    assert len(rows) == 1
+    assert [r["n"] for r in rows] == [1, 2]
     assert (
         rows[0]["reply"] == "r1" and rows[0]["text"] == "Hello there." and rows[0]["wav_s"] == 1.0
     )
