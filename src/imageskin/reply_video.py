@@ -7,26 +7,50 @@ item 12), and the browser plays each sentence's clip as soon as it is ready (roa
 clip is two steps, the voice and then the video (roadmap R22b), one after the other: on a 4-core
 CPU, speaking one sentence while the one before it is rendered made both steps about twice as
 slow, so nothing was gained.
+
+Sentences that queue while the voice is busy are spoken as one clip, up to JOIN_WORDS (roadmap
+R130): R129 measured a large fixed cost per clip on Larry's hosted machine (2 s of speech took
+6 to 12 s to make, 9 s took 17 to 20 s), so fewer, longer clips are made faster per word, with
+fewer joins. Each clip's silence is cut to the pause its text calls for (imageskin.pauses).
 """
 
 import hashlib
 import logging
 import os
 import queue
+import re
 import shutil
 import tempfile
 import threading
 import time
+import wave
+from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from imageskin import pace
+from imageskin.pauses import fit_pause
 from imageskin.prepare_job import ClipSteps, PrepareVoice, RenderClip
-from imageskin.speech_text import spoken_text
+from imageskin.speech_text import CODE_FENCE, spoken_text
 from imageskin.video import discard
 
 logger = logging.getLogger(__name__)
+
+HOLD_CHECK_S = 0.25  # how often a request waiting on held-back clips looks again
+
+# The most words a clip of sentences joined while the voice was busy may have: about 10 s of
+# speech, well under the 40 s at which Chatterbox stops.
+JOIN_WORDS = 30
+_BLOCK = re.compile(r"[ \t]*(?:\d+[.)]|[-*+]|#{1,6})[ \t]")  # a list item or heading
+
+
+def joins(batch: list[str], sentence: str, most: int = JOIN_WORDS) -> bool:
+    """Whether `sentence` may be spoken in one clip with the sentences in `batch`: plain text
+    only, as a code block, list item or heading is spoken on its own, and up to `most` words."""
+    plain = all(not CODE_FENCE.search(t) and not _BLOCK.match(t) for t in [*batch, sentence])
+    return plain and sum(len(t.split()) for t in [*batch, sentence]) <= most
 
 
 class VoiceReady:
@@ -96,6 +120,17 @@ class Spoken:
     wav: Path
     sentence_at: float
     started_at: float | None = None  # when it began to be spoken
+    seconds: float | None = None  # its speech's length, when it is a WAV (R130)
+    words: int = 0
+
+
+def speech_seconds(wav: Path) -> float | None:
+    """The WAV's length, or None when it isn't one (`text_steps` keeps the text in it)."""
+    try:
+        with wave.open(str(wav), "rb") as w:
+            return w.getnframes() / w.getframerate()
+    except (OSError, EOFError, wave.Error):
+        return None
 
 
 def text_steps(render_clip: RenderClip) -> ClipSteps:
@@ -133,6 +168,12 @@ class SentenceClips:
         self._closed = False
         self.done = False  # every clip is rendered, or rendering stopped
         self._changed = threading.Condition()  # a clip was added, a clip failed or it is done
+        self.join_words = JOIN_WORDS  # sentences queued are joined up to this many words
+        # Playback is held back this long after the first clip is ready, by the gaps the
+        # recent replies would have had if played at once, so the rest keeps up (R130).
+        self.hold_s = pace.hold_s(videos.recent_gaps)
+        self.released_at: float | None = None  # when the clips were first listed to play
+        self.plays: list[pace.ClipPlay] = []  # each whole clip's times, for the pace log
         # Given the clips once every one is rendered and none failed or was stopped, before they
         # can be removed (roadmap R130a). Set before close().
         self.on_complete: Callable[[list[Path]], None] | None = None
@@ -160,7 +201,18 @@ class SentenceClips:
                 self.times.append(ClipTime(now, now, now))
                 self.whole_at.append(now)
             self.rendered = self.sentences = self._handled = len(kept)
+            self.released_at = now  # all made: nothing to wait for
             self._changed.notify_all()
+
+    def whole(self) -> list[Path] | None:
+        """Every clip, once all are rendered and none failed or was stopped, so the reply can be
+        said again from them (roadmap R156); None otherwise."""
+        with self._changed:
+            if not self.done or self._stopped() or not self.clips:
+                return None
+            if self.rendered < len(self.clips) or not all(c.is_file() for c in self.clips):
+                return None
+            return list(self.clips)
 
     def close(self) -> None:
         """The reply is complete: the clips' thread ends after the last sentence, so it never
@@ -175,20 +227,73 @@ class SentenceClips:
         with self._changed:
             self.done = True
             self._changed.notify_all()
+            if self._stopped() or not self.plays:
+                return
+            self.listed()  # released now, if it was still held
+            # The gaps it would have had if played at once, for the next reply's hold.
+            unheld = pace.heard(self.plays, self.times[0].ready_at)
+            self._videos.recent_gaps.append(sum(g.seconds for g in unheld.gaps))
+            self._log_pace()
+
+    def _log_pace(self) -> None:
+        """Log the pace the reply is heard at, its wait and every gap over pace.GAP_S (R130)."""
+        assert self.released_at is not None
+        heard = pace.heard(self.plays, self.released_at)
+        first = self.times[0].sentence_at
+        logger.info(
+            "Reply paced",
+            extra={
+                "clips": len(self.plays),
+                "words": heard.words,
+                "heard_s": heard.heard_s,
+                "words_a_minute": heard.wpm,
+                # From the first sentence arriving to the first clip playing, and of it, the
+                # time held back so the rest keeps up.
+                "wait_ms": round((self.released_at - first) * 1000),
+                "held_ms": round((self.released_at - self.times[0].ready_at) * 1000),
+                "hold_s": round(self.hold_s, 2),
+                "gaps": [
+                    {"clip": g.clip, "seconds": g.seconds, "cause": g.cause} for g in heard.gaps
+                ],
+            },
+        )
+
+    def listed(self) -> int:
+        """How many clips the browser may play: none while playback is held back (R130), for
+        `hold_s` after the first clip is ready or until the reply is done; then every clip
+        listed so far."""
+        with self._changed:
+            if self.released_at is None and self.clips:
+                now = time.perf_counter()
+                held_s = now - self.times[0].ready_at
+                if held_s >= self.hold_s or self.done or self._stopped():
+                    self.released_at = now
+                    if self.hold_s > 0:
+                        logger.info(
+                            "Reply playback released",
+                            extra={
+                                "held_ms": round(held_s * 1000),
+                                "hold_s": round(self.hold_s, 2),
+                                "clips_ready": self.rendered,
+                            },
+                        )
+            return len(self.clips) if self.released_at is not None else 0
 
     def wait_for_change(self, known: int, timeout: float) -> None:
-        """Wait, at most `timeout` seconds, until there are more than `known` clips, a clip
-        has failed or the reply is done, so the browser needn't ask again and again."""
+        """Wait, at most `timeout` seconds, until more than `known` clips may be played, a clip
+        has failed or the reply is done, so the browser needn't ask again and again. While
+        playback is held back, it looks again every HOLD_CHECK_S, as the hold ends in time."""
+        end = time.perf_counter() + timeout
         with self._changed:
-            self._changed.wait_for(
-                lambda: (
-                    len(self.clips) > known
-                    or self.done
-                    or self._error is not None
-                    or self._cancelled
-                ),
-                timeout,
-            )
+            while not (
+                self.listed() > known or self.done or self._error is not None or self._cancelled
+            ):
+                left = end - time.perf_counter()
+                if left <= 0:
+                    return
+                self._changed.wait(
+                    left if self.released_at is not None else min(left, HOLD_CHECK_S)
+                )
 
     @property
     def error(self) -> str | None:
@@ -223,11 +328,22 @@ class SentenceClips:
 
     def _run(self) -> None:
         with self._videos._voice_lock, self._videos._video_lock:
-            n = 0
-            while (item := self._queue.get()) is not None:
-                n += 1
-                self._make(n, *item)
-                self._handled += 1
+            n = 0  # sentences taken so far
+            held: list[tuple[str, float] | None] = []  # taken from the queue but not joined
+            while (item := held.pop() if held else self._queue.get()) is not None:
+                batch = [item]
+                while n > 0:  # the first clip is kept short (R22b)
+                    try:
+                        more = self._queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if more is None or not joins([t for t, _ in batch], more[0], self.join_words):
+                        held.append(more)
+                        break
+                    batch.append(more)
+                self._make(n + 1, " ".join(t for t, _ in batch), batch[0][1], len(batch))
+                n += len(batch)
+                self._handled += len(batch)
             if self.on_complete is not None and not self._stopped() and self.clips:
                 try:
                     self.on_complete(list(self.clips))
@@ -241,8 +357,8 @@ class SentenceClips:
         rather than the next full stop. Asked on the LLM's thread, which gives the sentences."""
         return self._handled == self.sentences and not self._stopped()
 
-    def _make(self, n: int, sentence: str, sentence_at: float) -> None:
-        """Speak and render sentence `n`'s clip."""
+    def _make(self, n: int, sentence: str, sentence_at: float, joined: int = 1) -> None:
+        """Speak and render the clip of `joined` sentences from sentence `n` on."""
         if self._stopped():
             return  # let the rest go by
         start = time.perf_counter()
@@ -266,6 +382,7 @@ class SentenceClips:
             "Sentence clip ready",
             extra={
                 "sentence": n,
+                "sentences_joined": joined,
                 "render_ms": ms_since(start),
                 # How far the mouth opened before the voice, in ms, at most 80 (roadmap R128).
                 "mouth_lead_ms": mouth_lead,
@@ -293,6 +410,11 @@ class SentenceClips:
         self.folder.mkdir(parents=True, exist_ok=True)
         wav = self.folder / f"{n}.wav"
         self._videos._steps.speak(text, wav)
+        try:
+            fitted = fit_pause(wav, sentence)
+        except Exception as e:  # the clip is still spoken, with the voice's own silence
+            fitted = None
+            logger.warning("Could not fit a clip's pause", extra={"sentence": n, "error": str(e)})
         logger.info(
             "Sentence spoken",
             extra={
@@ -300,9 +422,12 @@ class SentenceClips:
                 "chars": len(text),
                 "speak_ms": ms_since(start),
                 "since_sentence_ms": ms_since(sentence_at),
+                # The silence cut from its start and end to fit the pause (R130).
+                "cut_start_ms": None if fitted is None else round(fitted[0] * 1000),
+                "cut_end_ms": None if fitted is None else round(fitted[1] * 1000),
             },
         )
-        return Spoken(n, wav, sentence_at, start)
+        return Spoken(n, wav, sentence_at, start, speech_seconds(wav), len(text.split()))
 
     def _render(self, spoken: Spoken) -> tuple[float, float | None]:
         """Render the spoken sentence's clip, listed as soon as the video step starts so the
@@ -325,9 +450,21 @@ class SentenceClips:
         finally:
             spoken.wav.unlink(missing_ok=True)
             spoken.wav.with_suffix(".json").unlink(missing_ok=True)
+        whole_at = time.perf_counter()
         with self._changed:
             self.rendered += 1
-            self.whole_at.append(time.perf_counter())
+            self.whole_at.append(whole_at)
+            if spoken.seconds is not None:
+                self.plays.append(
+                    pace.ClipPlay(
+                        spoken.sentence_at,
+                        spoken.started_at,
+                        listed_at,
+                        whole_at,
+                        spoken.seconds,
+                        spoken.words,
+                    )
+                )
             self._changed.notify_all()
         return listed_at, mouth_lead
 
@@ -395,6 +532,9 @@ class ReplyVideos:
         # only those are served, even when a cleared one's file couldn't be removed.
         self.generation = 0
         self._published: set[int] = set()
+        # The seconds of gaps each recent reply would have had on this machine if played at
+        # once, for how long to hold the next one back (R130).
+        self.recent_gaps: deque[float] = deque(maxlen=5)
         # Each photo's SHA-256, by its path, change time and size, for its idle video's name.
         self._digests: dict[tuple[str, int, int], str] = {}
 

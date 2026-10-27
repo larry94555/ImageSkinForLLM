@@ -153,6 +153,20 @@ async function startPrepare() {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function cancelPrepare(now) {
+	const response = await fetch("/api/prepare/cancel", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ now })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
+async function discardPrepare() {
+	const response = await fetch("/api/prepare/discard", { method: "POST" });
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 async function useAvatarOwnVoice() {
 	const response = await fetch("/api/start-now/own-voice", {
 		method: "PUT",
@@ -229,6 +243,13 @@ async function getClips(replyId, known) {
 }
 async function stopReply(replyId) {
 	return (await json(await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" }))).stopped;
+}
+async function repeatReply(replyId) {
+	return json(await fetch("/api/chat/repeat", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ reply_id: replyId })
+	}));
 }
 async function getChatPhoto() {
 	return json(await fetch("/api/chat/photo"));
@@ -1210,18 +1231,27 @@ function ConfirmDialog(props) {
 				}),
 				/* @__PURE__ */ u("div", {
 					className: "confirm-buttons",
-					children: [/* @__PURE__ */ u("button", {
-						type: "button",
-						className: "secondary",
-						ref: keep,
-						onClick: onCancel,
-						children: props.keepLabel
-					}), /* @__PURE__ */ u("button", {
-						type: "button",
-						className: "danger",
-						onClick: props.onConfirm,
-						children: props.confirmLabel
-					})]
+					children: [
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							ref: keep,
+							onClick: onCancel,
+							children: props.keepLabel
+						}),
+						props.otherLabel && /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							onClick: props.onOther,
+							children: props.otherLabel
+						}),
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "danger",
+							onClick: props.onConfirm,
+							children: props.confirmLabel
+						})
+					]
 				})
 			]
 		})
@@ -1229,24 +1259,34 @@ function ConfirmDialog(props) {
 }
 function useConfirm() {
 	const [asking, setAsking] = d(null);
-	function ask(question) {
+	function choose(question) {
 		return new Promise((resolve) => {
 			setAsking({
 				question,
-				answer: (yes) => {
-					console.info(`${question.title} ${yes ? "confirmed" : "cancelled"}`);
+				answer: (answer) => {
+					const said = {
+						cancel: "cancelled",
+						other: question.otherLabel,
+						confirm: "confirmed"
+					};
+					console.info(`${question.title} ${said[answer]}`);
 					setAsking(null);
-					resolve(yes);
+					resolve(answer);
 				}
 			});
 		});
 	}
+	async function ask(question) {
+		return await choose(question) === "confirm";
+	}
 	return {
 		ask,
+		choose,
 		dialog: asking && /* @__PURE__ */ u(ConfirmDialog, {
 			...asking.question,
-			onCancel: () => asking.answer(false),
-			onConfirm: () => asking.answer(true)
+			onCancel: () => asking.answer("cancel"),
+			onConfirm: () => asking.answer("confirm"),
+			onOther: () => asking.answer("other")
 		})
 	};
 }
@@ -1345,6 +1385,12 @@ function useHash() {
 var LEAVE_TITLE = "Your change isn't accepted yet";
 var LEAVE_PROCEED = "Proceed without the change";
 var LEAVE_CANCEL = "Cancel";
+var decided = null;
+function goWithoutAsking(href) {
+	decided = href;
+	window.addEventListener("hashchange", () => decided = null, { once: true });
+	window.location.hash = href;
+}
 function useLeaveGuard(pending, unchanged) {
 	const { ask, dialog } = useConfirm();
 	const now = A({
@@ -1373,7 +1419,13 @@ function useLeaveGuard(pending, unchanged) {
 				window.location.hash = href;
 			});
 		};
-		const leaving = (from, to) => now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
+		const leaving = (from, to) => {
+			if (decided === to) {
+				decided = null;
+				return false;
+			}
+			return now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
+		};
 		const onClick = (e) => {
 			if (!(e.target instanceof Element)) return;
 			const href = e.target.closest("a[href^='#/']")?.getAttribute("href");
@@ -1669,6 +1721,54 @@ function Checks({ item, queue }) {
 function minutes(seconds) {
 	const whole = Math.round(seconds);
 	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+//#endregion
+//#region src/setting-guard.tsx
+var SettingGuard = X({
+	needed: () => false,
+	confirm: async () => true
+});
+function useSettingGuard() {
+	return x(SettingGuard);
+}
+function usePrepareStopGuard(onDiscarded) {
+	const stopped = A(false);
+	const { ask, dialog } = useConfirm();
+	const [failed, setFailed] = d(null);
+	async function confirm(title = "Change this setting?") {
+		if (!stopped.current) return true;
+		setFailed(null);
+		if (!await ask({
+			title,
+			children: /* @__PURE__ */ u("p", { children: "Changing a setting will require restarting the preparation over again." }),
+			keepLabel: "Cancel change",
+			confirmLabel: "Confirm change"
+		})) return false;
+		const started = performance.now();
+		try {
+			await discardPrepare();
+			console.info(`Stopped prepare dropped for a setting change (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error("Could not drop the stopped prepare; the setting is left as it was", e);
+			setFailed(`The setting was not changed: the stopped preparation could not be cleared (${e.message}). Try again.`);
+			return false;
+		}
+		stopped.current = false;
+		onDiscarded();
+		return true;
+	}
+	return {
+		guard: {
+			needed: () => stopped.current,
+			confirm
+		},
+		onStopped: (now) => stopped.current = now,
+		dialog: /* @__PURE__ */ u(S, { children: [failed && /* @__PURE__ */ u("p", {
+			className: "error",
+			role: "alert",
+			children: failed
+		}), dialog] })
+	};
 }
 //#endregion
 //#region src/exit.tsx
@@ -2718,9 +2818,14 @@ function FaceMovementChoice(props) {
 	const [failed, setFailed] = d(false);
 	const [picked, setPicked] = d(null);
 	const shown = picked ?? settings.face_movement;
+	const guard = useSettingGuard();
 	async function choose(face_movement) {
 		setFailed(false);
 		setPicked(face_movement);
+		if (!await guard.confirm()) {
+			setPicked(null);
+			return;
+		}
 		try {
 			await change({ face_movement });
 			props.onChanged?.();
@@ -2986,6 +3091,7 @@ function SetupPage({ change }) {
 	const [undoFailed, setUndoFailed] = d(null);
 	const [pending, setPending] = d(false);
 	const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
+	const stopGuard = usePrepareStopGuard(changed);
 	h(() => {
 		getReview().then((r) => setAvatarVoice(r.own_voice === true)).catch((e) => console.error("Could not get the review", e));
 	}, []);
@@ -3029,79 +3135,85 @@ function SetupPage({ change }) {
 			})
 		]
 	});
-	return /* @__PURE__ */ u("div", {
-		className: "host-page",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "Setup" }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it. Without recordings, the person speaks in a ready-made voice."
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "avatar-instead",
-				children: [
-					"Rather not use your own photo and voice?",
-					" ",
-					/* @__PURE__ */ u("a", {
-						href: "#/start-now",
-						onClick: () => console.info("Choosing a ready-made avatar from Setup"),
-						children: "Use a ready-made avatar instead"
-					}),
-					". Your photos and recordings are kept."
-				]
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "notice",
-				children: [
-					"New to this? The ",
-					/* @__PURE__ */ u("a", {
-						href: "#/guide",
-						children: "recording guide"
-					}),
-					" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop."
-				]
-			}),
-			/* @__PURE__ */ u(UploadSection, {
-				kind: "photos",
-				step: 1,
-				title: "Photos",
-				button: "Add photos",
-				hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
-				accept: "image/jpeg,image/png,image/heic,.heic",
-				notice: notice("photos"),
-				onChange: changed
-			}),
-			/* @__PURE__ */ u(UploadSection, {
-				kind: "sounds",
-				step: 2,
-				title: "Voice recordings",
-				button: "Add recordings",
-				hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
-				accept: "audio/*,.m4a,.wav,.mp3",
-				notice: notice("sounds"),
-				onChange: changed
-			}),
-			/* @__PURE__ */ u(ReadyVoiceChoice, {
-				changes,
-				onChange: changed
-			}),
-			/* @__PURE__ */ u(AccentSection, {
-				onChange: changed,
-				preparing,
-				notice: notice("accent")
-			}),
-			/* @__PURE__ */ u(PrepareSection, {
-				changes,
-				onRunning: setPreparing,
-				onBack: goBack,
-				onPending: setPending
-			}),
-			leaveDialog
-		]
+	return /* @__PURE__ */ u(SettingGuard.Provider, {
+		value: stopGuard.guard,
+		children: /* @__PURE__ */ u("div", {
+			className: "host-page",
+			children: [
+				/* @__PURE__ */ u("h1", { children: "Setup" }),
+				/* @__PURE__ */ u("p", {
+					className: "lead",
+					children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it. Without recordings, the person speaks in a ready-made voice."
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "avatar-instead",
+					children: [
+						"Rather not use your own photo and voice?",
+						" ",
+						/* @__PURE__ */ u("a", {
+							href: "#/start-now",
+							onClick: () => console.info("Choosing a ready-made avatar from Setup"),
+							children: "Use a ready-made avatar instead"
+						}),
+						". Your photos and recordings are kept."
+					]
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "notice",
+					children: [
+						"New to this? The ",
+						/* @__PURE__ */ u("a", {
+							href: "#/guide",
+							children: "recording guide"
+						}),
+						" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop."
+					]
+				}),
+				/* @__PURE__ */ u(UploadSection, {
+					kind: "photos",
+					step: 1,
+					title: "Photos",
+					button: "Add photos",
+					hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
+					accept: "image/jpeg,image/png,image/heic,.heic",
+					notice: notice("photos"),
+					onChange: changed
+				}),
+				/* @__PURE__ */ u(UploadSection, {
+					kind: "sounds",
+					step: 2,
+					title: "Voice recordings",
+					button: "Add recordings",
+					hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
+					accept: "audio/*,.m4a,.wav,.mp3",
+					notice: notice("sounds"),
+					onChange: changed
+				}),
+				/* @__PURE__ */ u(ReadyVoiceChoice, {
+					changes,
+					onChange: changed
+				}),
+				/* @__PURE__ */ u(AccentSection, {
+					onChange: changed,
+					preparing,
+					notice: notice("accent")
+				}),
+				/* @__PURE__ */ u(PrepareSection, {
+					changes,
+					onRunning: setPreparing,
+					onBack: goBack,
+					onPending: setPending,
+					onStopped: stopGuard.onStopped
+				}),
+				leaveDialog,
+				stopGuard.dialog
+			]
+		})
 	});
 }
 function ReadyVoiceChoice(props) {
 	const [ready, setReady] = d(null);
+	const guard = useSettingGuard();
 	const [failed, setFailed] = d(null);
 	h(() => {
 		getReadyVoice().then((r) => {
@@ -3111,6 +3223,10 @@ function ReadyVoiceChoice(props) {
 	}, [props.changes]);
 	if (ready === null || !Array.isArray(ready.voices)) return null;
 	async function choose(voice) {
+		if (!await guard.confirm()) {
+			setReady((r) => r && { ...r });
+			return;
+		}
 		const started = performance.now();
 		setFailed(null);
 		try {
@@ -3173,6 +3289,7 @@ function UploadSection(props) {
 	const [loadFailed, setLoadFailed] = d(false);
 	const [sending, setSending] = d(null);
 	const { ask, dialog } = useConfirm();
+	const guard = useSettingGuard();
 	const [refused, setRefused] = d([]);
 	const [toCheck, setToCheck] = d([]);
 	const [soundChanges, setSoundChanges] = d(0);
@@ -3191,6 +3308,7 @@ function UploadSection(props) {
 	}
 	async function choose(item) {
 		if (choosing !== null) return;
+		if (!await guard.confirm(`Use ${item.name} instead?`)) return;
 		const sent = ++choiceRequests.current;
 		setChoosing(item.id);
 		setRefused([]);
@@ -3249,6 +3367,7 @@ function UploadSection(props) {
 		const files = Array.from(input.files ?? []);
 		input.value = "";
 		setRefused([]);
+		if (files.length && !await guard.confirm(`Add ${files.length === 1 ? files[0].name : `${files.length} files`}?`)) return;
 		for (const file of files) {
 			setSending(file.name);
 			try {
@@ -3269,11 +3388,12 @@ function UploadSection(props) {
 		setSending(null);
 	}
 	async function remove(item) {
-		if (!await ask({
-			title: `Remove ${item.name}?`,
+		const title = `Remove ${item.name}?`;
+		if (!(guard.needed() ? await guard.confirm(title) : await ask({
+			title,
 			keepLabel: "No, keep it",
 			confirmLabel: "Yes, remove it"
-		})) return;
+		}))) return;
 		try {
 			await removeUpload(kind, item.id);
 			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
@@ -3446,6 +3566,7 @@ function AccentSection(props) {
 	const [choice, setChoice] = d(null);
 	const [saving, setSaving] = d(null);
 	const [failed, setFailed] = d(null);
+	const guard = useSettingGuard();
 	h(() => {
 		getAccent().then(setChoice).catch((e) => {
 			console.error("Could not get the accent", e);
@@ -3454,6 +3575,10 @@ function AccentSection(props) {
 	}, []);
 	async function choose(accent) {
 		setSaving(accent);
+		if (!await guard.confirm()) {
+			setSaving(null);
+			return;
+		}
 		setFailed(null);
 		try {
 			setChoice(await chooseAccent(accent));
@@ -3518,6 +3643,7 @@ function PrepareSection(props) {
 	const [loadFailed, setLoadFailed] = d(false);
 	const [starting, setStarting] = d(false);
 	const [refused, setRefused] = d(null);
+	const { choose, dialog } = useConfirm();
 	const requests = A(0);
 	async function read() {
 		const request = ++requests.current;
@@ -3543,13 +3669,42 @@ function PrepareSection(props) {
 		}
 		setStarting(false);
 	}
+	async function cancel() {
+		const left = status?.left_s != null ? ` About ${countdown(status.left_s)} is left.` : "";
+		const answer = await choose({
+			title: "Stop preparing the video?",
+			children: /* @__PURE__ */ u("p", { children: [
+				"Preparing is ",
+				status?.percent ?? 0,
+				"% done.",
+				left,
+				" You can stop now, or once the part it is working on is finished (usually within 10 seconds). Either way, Resume Preparation carries on from where it stopped."
+			] }),
+			keepLabel: "Keep preparing",
+			otherLabel: "Stop after this part",
+			confirmLabel: "Stop now"
+		});
+		if (answer === "cancel") return;
+		const request = ++requests.current;
+		setRefused(null);
+		try {
+			const stopping = await cancelPrepare(answer === "confirm");
+			if (request === requests.current) setStatus(stopping);
+		} catch (e) {
+			console.error("Could not stop preparing", e);
+			setRefused(e.message);
+		}
+	}
 	h(() => {
 		read();
 	}, [changes]);
 	const stopped = status?.state === "running" && status.stopped === true;
 	const running = status?.state === "running" && !stopped;
-	const slow = running && status.steps?.find((s) => s.done < s.total)?.slow === true;
+	const cancelling = running && status.cancelling === true;
+	const slow = running && !cancelling && status.steps?.find((s) => s.done < s.total)?.slow === true;
+	const cancelled = status?.state === "cancelled";
 	h(() => onRunning(running), [running]);
+	_(() => props.onStopped?.(cancelled), [cancelled]);
 	h(() => {
 		if (!running) return;
 		const timer = window.setInterval(() => void read(), PREPARE_POLL_MS);
@@ -3580,12 +3735,13 @@ function PrepareSection(props) {
 				type: "button",
 				className: starting ? "busy" : void 0,
 				onClick: start,
-				disabled: starting,
+				disabled: starting || status.state === "done",
 				children: starting ? "Starting…" : stopped ? "Try again" : {
-					idle: "Prepare the video",
+					idle: "Prepare Video",
 					running: "Preparing…",
-					done: "Prepare again",
-					failed: "Try again"
+					done: "Prepare Video",
+					failed: "Try again",
+					cancelled: "Resume Preparation"
 				}[status.state]
 			}),
 			refused && /* @__PURE__ */ u("p", {
@@ -3596,13 +3752,37 @@ function PrepareSection(props) {
 				className: "error",
 				children: "Preparing stopped: the app is no longer working on it. Click Try again to carry on where it left off."
 			}),
-			running && /* @__PURE__ */ u("p", {
+			running && !cancelling && /* @__PURE__ */ u("p", {
 				className: "busy",
 				children: [
 					"Preparing… ",
 					status.percent,
 					"% done",
 					status.left_s != null && ` · about ${countdown(status.left_s)} left`
+				]
+			}),
+			running && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: cancelling ? "secondary busy" : "secondary",
+				onClick: () => void cancel(),
+				disabled: cancelling,
+				children: cancelling ? "Stopping…" : "Cancel"
+			}),
+			cancelling && !status.stopping_late && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Stopping, usually within 10 seconds…"
+			}),
+			cancelling && status.stopping_late && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Still stopping: the part it is on, such as loading a library, can't be cut short safely. It stops as soon as that part is done."
+			}),
+			cancelled && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Preparing stopped at ",
+					status.percent,
+					"%. Click Resume Preparation to carry on from where it stopped. ",
+					"Changing a setting will require restarting the preparation over again."
 				]
 			}),
 			slow && /* @__PURE__ */ u("p", {
@@ -3653,7 +3833,8 @@ function PrepareSection(props) {
 			}) : /* @__PURE__ */ u("p", {
 				className: "error",
 				children: status.error
-			}))
+			})),
+			dialog
 		]
 	});
 }
@@ -3750,7 +3931,7 @@ function ReviewChoices(props) {
 		try {
 			setCurrent(await useAvatarReadyVoice());
 			console.info(`Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`);
-			window.location.hash = "#/chat";
+			goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error("Could not use the avatar's default voice again", e);
 			setFailed(`Could not return to the default voice: ${e.message}`);
@@ -3764,7 +3945,7 @@ function ReviewChoices(props) {
 			setCurrent(await review(decision));
 			if (back) setRejected(props.sample);
 			if (back) props.onBack(back);
-			else window.location.hash = "#/chat";
+			else goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error(`Could not save the review (${decision})`, e);
 			setFailed(`Could not save your choice: ${e.message}`);
@@ -4343,6 +4524,41 @@ function Chat(props) {
 			setSpeaking(false);
 		}
 	}
+	async function repeat() {
+		if (busy) return;
+		const replyId = newReplyId();
+		replying.current = replyId;
+		const stopping = new Promise((resolve) => {
+			wakeOnStop.current = () => resolve("stopped");
+		});
+		const at = (turns ?? []).length - 1;
+		console.info("Repeating the latest reply");
+		setHalted(false);
+		setSpeaking(true);
+		setWaiting(true);
+		clipTotal.current = 0;
+		allMade.current = false;
+		clipsEnded.current = 0;
+		setFailed(null);
+		setUnspoken(null);
+		setClips([]);
+		setEarlier((e) => [...e, ...clipWaits(times)]);
+		setTimes([]);
+		setWhole(false);
+		try {
+			if (await Promise.race([repeatReply(replyId), stopping]) === "stopped") return;
+			const count = await Promise.race([followClips(replyId, () => true), stopping]);
+			if (gone.current || count === "stopped") return;
+			allMade.current = true;
+			if (clipsEnded.current >= count) setWaiting(false);
+		} catch (e) {
+			console.error("Could not repeat the reply", e);
+			setUnspoken({ turn: at });
+			setWaiting(false);
+		} finally {
+			setSpeaking(false);
+		}
+	}
 	function stop() {
 		const replyId = replying.current;
 		if (replyId === null) return;
@@ -4427,6 +4643,11 @@ function Chat(props) {
 					turns,
 					from: latestExchange(turns),
 					unspoken
+				}),
+				turns[turns.length - 1]?.role === "assistant" && /* @__PURE__ */ u(ReplyActions, {
+					disabled: busy,
+					onRepeat: () => void repeat(),
+					onSimpler: quizGoing ? void 0 : () => void send(SAY_IT_SIMPLER)
 				}),
 				/* @__PURE__ */ u("p", {
 					className: "status muted",
@@ -4581,6 +4802,28 @@ function QuizControls(props) {
 				onClick: () => props.onAsk("Stop the quiz"),
 				children: "Stop the quiz"
 			})
+		})]
+	});
+}
+var SAY_IT_SIMPLER = "Say it simpler";
+function ReplyActions(props) {
+	return /* @__PURE__ */ u("div", {
+		className: "reply-actions",
+		children: [/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: props.disabled,
+			onClick: props.onRepeat,
+			children: "Repeat"
+		}), props.onSimpler && /* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: props.disabled,
+			onClick: () => {
+				console.info("Say it simpler");
+				props.onSimpler?.();
+			},
+			children: SAY_IT_SIMPLER
 		})]
 	});
 }
@@ -5132,6 +5375,10 @@ function StepState(props) {
 		className: "muted",
 		children: "Waiting"
 	});
+	if (status.state === "cancelled") return /* @__PURE__ */ u("span", {
+		className: "muted",
+		children: "Stopped"
+	});
 	if (status.state === "failed" || status.stopped) return /* @__PURE__ */ u("span", {
 		className: "error",
 		children: "Stopped"
@@ -5176,6 +5423,7 @@ function AvatarVoicePage() {
 	const [back, setBack] = d(null);
 	const [pending, setPending] = d(false);
 	const leaveDialog = useLeaveGuard(pending, "The avatar keeps the voice it has now.");
+	const stopGuard = usePrepareStopGuard(changed);
 	h(() => {
 		const started = performance.now();
 		getReview().then((r) => {
@@ -5210,83 +5458,88 @@ function AvatarVoicePage() {
 		try {
 			await useAvatarReadyVoice();
 			console.info(`Avatar's ready-made voice used again (${Math.round(performance.now() - started)} ms)`);
-			window.location.hash = "#/chat";
+			goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error("Could not use the avatar's ready-made voice again", e);
 			setFailed(e.message);
 		}
 	}
 	const notice = (part) => back === part ? BACK_NOTICE[part] ?? null : null;
-	return /* @__PURE__ */ u("div", {
-		className: "host-page",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "Your voice for the avatar" }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: "The avatar keeps its picture and speaks in a voice made from your recordings. Add them, choose an accent, then prepare a sample video and check it. Until you accept it, the avatar speaks in its ready-made voice."
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "avatar-instead",
-				children: [
-					"Rather keep its ready-made voice?",
-					" ",
-					/* @__PURE__ */ u("button", {
-						type: "button",
-						className: "link",
-						onClick: () => void readyVoice(),
-						children: "Use the avatar's ready-made voice"
-					}),
-					". Your recordings are kept."
-				]
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: failed
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				id: "photos",
-				children: [
-					/* @__PURE__ */ u(StepOf, { n: 1 }),
-					/* @__PURE__ */ u("h2", { children: "Picture" }),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: "The ready-made avatar's picture, already prepared."
-					}),
-					/* @__PURE__ */ u("img", {
-						className: "avatar-picture",
-						src: DEFAULT_PICTURE,
-						alt: "The ready-made avatar"
-					})
-				]
-			}),
-			/* @__PURE__ */ u(UploadSection, {
-				kind: "sounds",
-				step: 2,
-				title: "Voice recordings",
-				button: "Add recordings",
-				hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
-				accept: "audio/*,.m4a,.wav,.mp3",
-				notice: notice("sounds"),
-				onChange: changed
-			}),
-			/* @__PURE__ */ u(AccentSection, {
-				onChange: changed,
-				preparing,
-				notice: notice("accent")
-			}),
-			/* @__PURE__ */ u(PrepareSection, {
-				changes,
-				onRunning: setPreparing,
-				onPending: setPending,
-				avatarVoice: true,
-				onBack: (to) => {
-					setBack(to);
-					window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
-				}
-			}),
-			leaveDialog
-		]
+	return /* @__PURE__ */ u(SettingGuard.Provider, {
+		value: stopGuard.guard,
+		children: /* @__PURE__ */ u("div", {
+			className: "host-page",
+			children: [
+				/* @__PURE__ */ u("h1", { children: "Your voice for the avatar" }),
+				/* @__PURE__ */ u("p", {
+					className: "lead",
+					children: "The avatar keeps its picture and speaks in a voice made from your recordings. Add them, choose an accent, then prepare a sample video and check it. Until you accept it, the avatar speaks in its ready-made voice."
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "avatar-instead",
+					children: [
+						"Rather keep its ready-made voice?",
+						" ",
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "link",
+							onClick: () => void readyVoice(),
+							children: "Use the avatar's ready-made voice"
+						}),
+						". Your recordings are kept."
+					]
+				}),
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: failed
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					id: "photos",
+					children: [
+						/* @__PURE__ */ u(StepOf, { n: 1 }),
+						/* @__PURE__ */ u("h2", { children: "Picture" }),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "The ready-made avatar's picture, already prepared."
+						}),
+						/* @__PURE__ */ u("img", {
+							className: "avatar-picture",
+							src: DEFAULT_PICTURE,
+							alt: "The ready-made avatar"
+						})
+					]
+				}),
+				/* @__PURE__ */ u(UploadSection, {
+					kind: "sounds",
+					step: 2,
+					title: "Voice recordings",
+					button: "Add recordings",
+					hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
+					accept: "audio/*,.m4a,.wav,.mp3",
+					notice: notice("sounds"),
+					onChange: changed
+				}),
+				/* @__PURE__ */ u(AccentSection, {
+					onChange: changed,
+					preparing,
+					notice: notice("accent")
+				}),
+				/* @__PURE__ */ u(PrepareSection, {
+					changes,
+					onRunning: setPreparing,
+					onPending: setPending,
+					onStopped: stopGuard.onStopped,
+					avatarVoice: true,
+					onBack: (to) => {
+						setBack(to);
+						window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
+					}
+				}),
+				leaveDialog,
+				stopGuard.dialog
+			]
+		})
 	});
 }
 function VoiceConsent({ onAgreed }) {

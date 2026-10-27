@@ -33,6 +33,14 @@ RUN pip install --no-cache-dir --retries 10 ".[voice,photoreal,faces,heic]" \
     && pip install --no-cache-dir --no-deps chatterbox-tts==0.1.7 \
     && python -m spacy download en_core_web_sm \
     && python -c "import spacy; spacy.load('en_core_web_sm'); print('spaCy English model loads')"
+# Pocket TTS (roadmap R22f) speaks the person's own voice about ten times faster than Chatterbox,
+# faster than the clips play, so a reply has no long pauses (R160: Chatterbox took 11 to 32 s a
+# clip on the hosted machine). Installed under a constraint of everything above, so nothing else
+# changes. Its weights that clone a voice are gated: HF_TOKEN in deploy/.env (deploy/README.md).
+RUN pip freeze --all > /tmp/app-constraints.txt \
+    && pip install --no-cache-dir --retries 10 pocket-tts==3.3.0 -c /tmp/app-constraints.txt \
+    && rm /tmp/app-constraints.txt \
+    && python -c "import pocket_tts; print('Pocket TTS installed')"
 
 COPY deploy/config.toml /etc/imageskin/config.toml
 # Ubuntu's image already has a user 1000 (ubuntu); the app runs as it, not as root.
