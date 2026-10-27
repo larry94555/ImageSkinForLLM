@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import wave
 from pathlib import Path
 
@@ -99,6 +100,40 @@ def test_speech_without_timings_or_voice_is_left_as_it_is(tmp_path: Path) -> Non
     before = silent.read_bytes()
     assert fit_pause(silent, "Hello.") is None
     assert silent.read_bytes() == before
+
+
+def test_bad_timings_leave_the_speech_and_timings_as_they_were(tmp_path: Path) -> None:
+    """Codex's review of PR #196: the speech was cut before the timings were read, so timings
+    that couldn't be read left a cut clip with uncut timings, out of step with the mouth."""
+    wav = tmp_path / "1.wav"
+    write_speech(wav, 0.4, 1.0, 0.5)
+    wav.with_suffix(".json").write_text("{not json")
+    before = wav.read_bytes()
+    with pytest.raises(json.JSONDecodeError):
+        fit_pause(wav, "Hello.")
+    assert wav.read_bytes() == before
+    assert wav.with_suffix(".json").read_text() == "{not json"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["1.json", "1.wav"]
+
+
+def test_timings_that_cant_be_written_leave_both_as_they_were(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wav = tmp_path / "1.wav"
+    write_speech(wav, 0.4, 1.0, 0.5)
+    before = wav.read_bytes(), wav.with_suffix(".json").read_text()
+    replace = os.replace
+
+    def fail_on_timings(src: Path, dst: Path) -> None:
+        if Path(dst).suffix == ".json":
+            raise OSError("disk full")
+        replace(src, dst)
+
+    monkeypatch.setattr("imageskin.pauses.os.replace", fail_on_timings)
+    with pytest.raises(OSError, match="disk full"):
+        fit_pause(wav, "Hello.")
+    assert (wav.read_bytes(), wav.with_suffix(".json").read_text()) == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["1.json", "1.wav"]
 
 
 def test_a_clip_whose_pause_cant_be_fitted_is_still_made(

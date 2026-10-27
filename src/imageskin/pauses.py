@@ -10,6 +10,7 @@ with it, so the mouth (R128) follows the speech.
 
 import json
 import logging
+import os
 import re
 import wave
 from pathlib import Path
@@ -74,15 +75,33 @@ def fit_pause(wav: Path, text: str) -> tuple[float, float] | None:
     kept = samples[first : min(last, len(samples))]
     if last > len(samples):  # less silence than the pause: pad it
         kept = np.concatenate([kept, np.zeros(last - len(samples), dtype="<i2")])
-    with wave.open(str(wav), "wb") as w:
-        w.setparams(params)
-        w.writeframes(kept.tobytes())
 
+    # Both files are made in full aside, then put in place together, so the speech and the
+    # timings never disagree (Codex's review of PR #196): an error leaves both as they were.
     cut = first / rate
     seconds = len(kept) / rate
     data = json.loads(timings.read_text(encoding="utf-8"))
     data["seconds"] = round(seconds, 3)
     for key in ("words", "sounds", "shapes"):
         data[key] = _shifted(data.get(key, []), cut, seconds)
-    timings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    new_wav = wav.with_name(f"{wav.name}.fit")
+    new_timings = timings.with_name(f"{timings.name}.fit")
+    try:
+        _write_wav(new_wav, params, kept.tobytes())
+        new_timings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(new_wav, wav)
+        try:
+            os.replace(new_timings, timings)
+        except OSError:
+            _write_wav(wav, params, pcm)  # the timings stayed as they were: so does the speech
+            raise
+    finally:
+        new_wav.unlink(missing_ok=True)
+        new_timings.unlink(missing_ok=True)
     return round(cut, 3), round((len(samples) - last) / rate, 3)
+
+
+def _write_wav(wav: Path, params: "wave._wave_params", pcm: bytes) -> None:
+    with wave.open(str(wav), "wb") as w:
+        w.setparams(params)
+        w.writeframes(pcm)
