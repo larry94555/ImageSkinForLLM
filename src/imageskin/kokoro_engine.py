@@ -25,6 +25,10 @@ SAMPLE_RATE = 24000
 DEFAULT_VOICE = "af_heart"
 STEP_S = 600 / SAMPLE_RATE  # one step of Kokoro's sound durations: 25 ms
 INSTALL_HINT = 'Kokoro is not installed; run: pip install -e ".[voice]"'
+# Kokoro's pace, against its own (1.0). R129 measured its voices at 181 to 219 words a minute,
+# faster than Gemma writes on the hosted machine (190 to 234) once the silence at each join was
+# cut, so a reply ran out of text and paused; at 0.8 it speaks at about 150 to 170 (roadmap R130).
+SPEED = 0.8
 
 
 def to_pcm16(samples: Sequence[float]) -> bytes:
@@ -103,8 +107,13 @@ def _load_pipeline(lang_code: str = LANG_CODE) -> Callable[..., Iterable[Any]]:
 
 
 class KokoroEngine:
-    def __init__(self, load: Callable[[], Callable[..., Iterable[Any]]] = _load_pipeline) -> None:
+    def __init__(
+        self,
+        load: Callable[[], Callable[..., Iterable[Any]]] = _load_pipeline,
+        speed: float = SPEED,
+    ) -> None:
         self._load = load
+        self._speed = speed
         self._pipeline: Callable[..., Iterable[Any]] | None = None
 
     def speak(self, voice: str, text: str) -> Speech:
@@ -114,7 +123,7 @@ class KokoroEngine:
         start = time.perf_counter()
         try:
             vocab = getattr(getattr(pipeline, "model", None), "vocab", None)
-            speech = speech_from_results(pipeline(text, voice=voice), vocab)
+            speech = speech_from_results(pipeline(text, voice=voice, speed=self._speed), vocab)
         except Exception as e:  # the model's own errors (unknown voice, download failure)
             raise VoiceError(f"Kokoro could not speak with voice {voice!r}: {e}") from e
         elapsed = time.perf_counter() - start
@@ -123,6 +132,7 @@ class KokoroEngine:
             "Spoke text",
             extra={
                 "voice": voice,
+                "speed": self._speed,
                 "chars": len(text),
                 "words": len(speech.words),
                 "sounds": len(speech.sounds),

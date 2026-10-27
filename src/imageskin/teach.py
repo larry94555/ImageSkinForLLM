@@ -112,6 +112,11 @@ def plain(prompt: str) -> str:
     return " ".join(text.split()).strip(" ,")
 
 
+def asks_simpler(prompt: str) -> bool:
+    """Whether the prompt asks for what was just said, said more simply (R41h, R157)."""
+    return _SIMPLER.fullmatch(plain(prompt)) is not None
+
+
 def lesson_topics(contents: list[dict[str, Any]]) -> dict[str, list[Part]]:
     """Each topic's parts, in the order the wiki has them: the topic's own entry (its main
     ideas), then every entry under it, depth first. A topic several PDFs have (the same title,
@@ -224,7 +229,7 @@ class Tutor:
         if _STOP.fullmatch(text):
             logger.info("Lesson stopped", extra={"topic": lesson.topic, "part": part})
             return Say([STOPPED], replace(here, active=False), [])
-        if _SIMPLER.fullmatch(text):
+        if asks_simpler(text):
             return self._explain(here, parts, "simpler")
         if _NEXT.fullmatch(text):
             if part < len(parts):

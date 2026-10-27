@@ -62,13 +62,18 @@ def note_clips(out: Path) -> None:
 
     speak = reply_video.SentenceClips._speak
     lock = threading.Lock()
+    spoken_in: dict[str, int] = {}  # clips spoken so far, by reply
 
     def noted(
         self: reply_video.SentenceClips, n: int, sentence: str, sentence_at: float
     ) -> reply_video.Spoken | None:
         spoken = speak(self, n, sentence, sentence_at)
         if spoken is not None:
-            row = clip_row(self.folder.name, n, sentence, spoken_text(sentence), spoken.wav)
+            # Numbered by clip, not by sentence: since R130 sentences that queue while the
+            # voice is busy are spoken as one clip.
+            with lock:
+                clip = spoken_in[self.folder.name] = spoken_in.get(self.folder.name, 0) + 1
+            row = clip_row(self.folder.name, clip, sentence, spoken_text(sentence), spoken.wav)
             with lock, out.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(row) + "\n")
         return spoken
