@@ -159,6 +159,10 @@ class PhotoChoiceRequest(BaseModel):
     id: str
 
 
+class CancelRequest(BaseModel):
+    now: bool = False  # stop at once, not after the part it is on (R134c)
+
+
 class AccentRequest(BaseModel):
     accent: Accent
 
@@ -1118,6 +1122,17 @@ def create_app(
             return job.start()
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
+
+    @app.post("/api/prepare/cancel", dependencies=needs_consent)
+    def cancel_prepare(body: CancelRequest | None = None) -> PrepareStatus:
+        """Stop preparing (roadmap R134c), once the user confirmed it on the page: at once, or
+        once the part it is on is finished (at most 10 seconds)."""
+        return job.cancel(now=body is not None and body.now)
+
+    @app.post("/api/prepare/discard", dependencies=needs_consent)
+    def discard_prepare() -> PrepareStatus:
+        """Prepare over again instead of resuming (R134c): a setting is about to change."""
+        return job.discard()
 
     @app.get("/api/accent", dependencies=needs_consent)
     def get_accent() -> AccentChoice:
