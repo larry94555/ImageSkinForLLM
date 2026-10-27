@@ -1625,7 +1625,7 @@ def create_app(
         try:
             times.waited_warm_up_ms = wait_for_warm_up()
             asked = time.perf_counter()
-            thinking.stage("Waiting for the last answer to finish")
+            thinking.stage("Finishing the last answer")
             # One LLM answers the whole prompt, even if it is changed meanwhile (review on
             # PR #115).
             with chat_lock, pinned(client), llm_busy():
@@ -1676,9 +1676,11 @@ def create_app(
         thread = app.state.reply_warm_up
         if not thread.is_alive():
             return 0.0
-        thinking.stage("Getting ready")
         start = time.perf_counter()
-        thread.join()
+        # A prompt waiting says which of the warm-up's steps it is waiting for (R134c).
+        while thread.is_alive():
+            thinking.stage(thinking.ready_step())
+            thread.join(0.5)
         waited = ms_since(start)
         logger.info(f"{what} waited for the warm-up", extra={"wait_ms": waited})
         return waited
@@ -2032,12 +2034,15 @@ def create_app(
         photo = chosen_photo()
         if photo is not None and accepted():
             logger.info("Warming up replies")
+            thinking.getting_ready(thinking.GETTING_READY)
             # On its own thread: an LLM that accepts the request but doesn't answer would
             # otherwise hold the engines' warm-up back for its whole timeout.
             warm_llm = startup.timed("LLM warm-up", conversation.warm_up)
             llm = threading.Thread(target=warm_llm, name="llm-warm-up", daemon=True)
             llm.start()
             startup.timed("voice and video warm-up", lambda: replies.warm_up(photo))()
+            if llm.is_alive():
+                thinking.getting_ready(thinking.INSTRUCTIONS)
             llm.join()
         return photo
 

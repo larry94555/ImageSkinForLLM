@@ -14,7 +14,7 @@ from imageskin import thinking
 from imageskin.app import create_app
 from imageskin.chat import Conversation, Message, Turn, load_saved
 from imageskin.review import Review
-from imageskin.thinking import STARTING, WRITING, Thinking
+from imageskin.thinking import PHRASE_S, PHRASES, STARTING, WRITING, Thinking, phrase
 from imageskin.uploads import PhotoResult
 
 
@@ -162,7 +162,73 @@ def test_the_api_says_what_a_prompt_is_thinking_about(tmp_path: Path) -> None:
         now = client.get(f"/api/chat/thinking/{reply_id}").json()
         answer.set()
         sending.join(5)
-    assert now["stage"] == "Thinking about the answer" and now["elapsed_s"] >= 0
+    assert now["stage"] == "Reading your question" and now["elapsed_s"] >= 0
     assert replies[0]["content"] == "Hello" and replies[0]["thinking_s"] >= 0  # type: ignore[operator]
     assert client.get(f"/api/chat/thinking/{reply_id}").status_code == 404  # the reply is in
     assert client.get("/api/chat/thinking/not-an-id").status_code == 422
+
+
+def test_a_long_stage_says_something_new_every_few_seconds() -> None:
+    """Never the same words for more than 10 seconds (Larry, testing PR #179)."""
+    assert 5 <= PHRASE_S <= 10
+    said = [phrase(thinking.ANSWERING, PHRASE_S * n + 1) for n in range(20)]
+    assert said[:3] == ["Reading your question", "Reading what I found", thinking.ANSWERING]
+    # It changes at every step, even later on.
+    assert all(a != b for a, b in zip(said, said[1:], strict=False))
+    assert "Reading your question" not in said[6:]  # once is enough for the first one
+    assert phrase("Listing the topics", 60) == "Listing the topics"  # a quick step keeps its name
+    for phrases in PHRASES.values():
+        for words in phrases:
+            assert not any(c.isdigit() for c in words) and len(words.split()) <= 6
+
+
+def test_the_phrase_follows_the_stages_time(monkeypatch: object) -> None:
+    thought = Thinking()
+    thought.stage(WRITING)
+    started = thought._stage[1]
+    with patch("imageskin.thinking.time.perf_counter", return_value=started + PHRASE_S + 1):
+        assert thought.now()["stage"] == "Choosing the words"
+
+
+def test_a_prompt_waiting_for_the_warm_up_says_its_steps(tmp_path: Path) -> None:
+    """Larry saw "Getting ready" for 154 seconds: that was the replies' warm-up after a start.
+    A prompt waiting for it now says each of its steps."""
+    steps: list[str] = []
+    go = threading.Event()
+
+    def warm_up() -> None:
+        for step in (thinking.WAKING_VOICE, thinking.FIRST_WORD, thinking.FACE):
+            thinking.getting_ready(step)
+            go.wait(5)
+            go.clear()
+
+    class Seen(Thinking):
+        def stage(self, name: str) -> None:
+            if not steps or steps[-1] != name:
+                steps.append(name)
+            super().stage(name)
+
+    client = TestClient(
+        create_app(
+            tmp_path,
+            check_photo=lambda p: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=lambda photo, text, output: None,
+            ask_llm=lambda messages: "Hello",
+        )
+    )
+    client.post("/api/consent", json={"agreed": True})
+    app = client.app
+    app.state.reply_warm_up = threading.Thread(target=warm_up)  # type: ignore[attr-defined]
+    app.state.reply_warm_up.start()  # type: ignore[attr-defined]
+    stepping = threading.Thread(target=lambda: [time.sleep(0.7) or go.set() for _ in range(3)])
+    stepping.start()
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        with patch("imageskin.app.thinking.Thinking", Seen):
+            reply = client.post("/api/chat", json={"prompt": "Hi", "reply_id": "cd" * 16})
+    stepping.join()
+    assert reply.json()["content"] == "Hello"
+    assert steps[:3] == [thinking.WAKING_VOICE, thinking.FIRST_WORD, thinking.FACE]
+    assert thinking.ready_step() == thinking.FACE
+    thinking.getting_ready(thinking.GETTING_READY)
