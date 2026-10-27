@@ -561,7 +561,12 @@ def test_clips_that_cant_be_removed_are_logged_and_removed_with_the_next_reply(
     with patch.object(Path, "unlink", in_use):
         clips.cancel()
     assert first.exists() and not second.exists()
-    [left] = [r for r in caplog.records if r.levelno == logging.WARNING]
+    # Only this module's: a wiki job another test left running may warn meanwhile.
+    [left] = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and r.name == "imageskin.reply_video"
+    ]
     assert left.message == "Could not remove a reply's clip"
     assert left.clip == "clips-abc123ef/1.mp4"  # type: ignore[attr-defined]
     videos.sentence_clips(Path("me.jpg"), "0123abcd")  # removed with the next reply instead
