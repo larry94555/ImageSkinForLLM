@@ -48,9 +48,6 @@ class UiSettings:
     # It is chosen on the Setup page beside Prepare, not the Settings page, since the prepared
     # clips are made with it (Larry, 2026-10-26).
     face_movement: str = "normal"
-    # While the LLM thinks about a prompt, what it is doing and for how long, and under each
-    # reply how long it took (R134c); on unless turned off for a simpler chat (Larry, 2026-10-26).
-    show_thinking: bool = True
 
 
 DEFAULTS = UiSettings()
@@ -65,7 +62,6 @@ CHOICES: dict[str, tuple[object, ...]] = {
     "debug": (True, False),
     "general_prompts": (True, False),
     "face_movement": ("off", "slight", "normal"),
-    "show_thinking": (True, False),
 }
 
 

@@ -23,11 +23,10 @@ import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, nullcontext
 from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
 
-from imageskin import thinking
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.json_grammar import compact_grammar
 from imageskin.reply_times import note, note_llm, note_now, note_request
@@ -138,17 +137,6 @@ class LlmSettings:
 class Turn:
     role: Literal["user", "assistant"]
     content: str
-    # How long the reply took to think of, in seconds, from its prompt's arrival (R134c);
-    # None for a prompt, and for a reply made before it was kept.
-    thinking_s: float | None = None
-
-    def shown(self) -> dict[str, Any]:
-        """The turn as the chat and the saved conversation have it: the time is left out when
-        there is none."""
-        data: dict[str, Any] = {"role": self.role, "content": self.content}
-        if self.thinking_s is not None:
-            data["thinking_s"] = self.thinking_s
-        return data
 
 
 Message = dict[str, str]
@@ -691,10 +679,7 @@ def turn_list(data: object) -> list[Turn]:
             raise ValueError("not a turn")
         if not isinstance(item.get("content"), str):
             raise ValueError("a turn without text")
-        took = item.get("thinking_s")
-        if not isinstance(took, (int, float)) or isinstance(took, bool):
-            took = None  # saved before it was kept (R134c)
-        turns.append(Turn(item["role"], item["content"], took))
+        turns.append(Turn(item["role"], item["content"]))
     return turns
 
 
@@ -767,7 +752,7 @@ def save(path: Path, saved: Saved) -> None:
     """Save the conversation so that an interrupted write never leaves a broken file."""
     named, suggested = saved.told
     data = {
-        "transcript": [t.shown() for t in saved.transcript],
+        "transcript": [as_message(t) for t in saved.transcript],
         "turns": [as_message(t) for t in saved.turns],
         "summary": saved.summary,
         "told": {"named": named, "suggested": suggested},
@@ -980,10 +965,10 @@ class Conversation:
             *map(as_message, turns),
             {"role": "user", "content": asked},
         ]
-        sent = history_tokens(self._summary, turns, count)
-        asked_tokens = tokens({"role": "user", "content": asked}, count)
-        note(history_tokens=sent, asked_tokens=asked_tokens)
-        thinking.stage(thinking.ANSWERING)
+        note(
+            history_tokens=history_tokens(self._summary, turns, count),
+            asked_tokens=tokens({"role": "user", "content": asked}, count),
+        )
         logger.info(
             "Chat prompt sent",
             extra={
@@ -991,7 +976,7 @@ class Conversation:
                 "turns_sent": len(turns),
                 "turns_dropped": len(self._turns) - len(turns),
                 "summary": self._summary is not None,
-                "history_tokens": sent,
+                "history_tokens": history_tokens(self._summary, turns, count),
                 "context_tokens": window,
             },
         )
@@ -1022,7 +1007,7 @@ class Conversation:
                 for sentence in more:
                     on_sentence(sentence)
             reply = Turn("assistant", " ".join([reply.content, *more]))
-        return self._record(prompt, reply, turns, budget)
+        return reply, self._record(prompt, reply, turns, budget)
 
     def write(self, instruction: str, material: list[str]) -> str:
         """A one-off answer from the LLM to `instruction`, with the material quoted before it
@@ -1045,17 +1030,13 @@ class Conversation:
         asked = self._with_content(teach.instruction, teach.material, room)
         return [system_message(None), {"role": "user", "content": asked}]
 
-    def _record(
-        self, prompt: str, reply: Turn, turns: list[Turn] | None, budget: int
-    ) -> tuple[Turn, int]:
-        """Keep the prompt and its reply, with how long the reply took to think of (R134c), and
-        return the reply as kept and its place. With `turns` (the ones
+    def _record(self, prompt: str, reply: Turn, turns: list[Turn] | None, budget: int) -> int:
+        """Keep the prompt and its reply, and return the reply's place. With `turns` (the ones
         sent with this prompt), they are also sent with later prompts, and the older ones are
         summarized once the history passes the budget, whether the LLM wrote the reply or it
         was made here (review on PR #85). A prompt stopped meanwhile (`ask_stop`) is not kept:
         LlmCancelled, as when it was cut off, since a provider's answer can't be."""
         stop = ask_stop.get()
-        reply = replace(reply, thinking_s=thinking.took())
         said = [Turn("user", prompt), reply]
         with self._lock:
             if stop is not None and not (
@@ -1074,14 +1055,13 @@ class Conversation:
                 target=self._summarize, args=(budget,), name="chat-summary", daemon=True
             )
             self._summarizer.start()
-        return reply, place
+        return place
 
     def _look_up(self, prompt: str) -> list[str] | None:
         """The passages the content has on the prompt, best first, or None when there is no
         lookup or it failed (then the prompt is answered, never declined)."""
         if self._find is None:
             return None
-        thinking.stage("Searching the material")
         start = time.perf_counter()
         try:
             found = self._find(prompt)
@@ -1105,7 +1085,6 @@ class Conversation:
         """Answer "What can you talk about?" from the topics, without asking the LLM (R41f).
         It is sent to the LLM with later prompts, and the topics named and the one suggested are
         kept, so "Tell me about the first one" and "that one" work."""
-        thinking.stage("Listing the topics")
         topics = self._list_topics()
         suggested = random.choice(topics) if topics else None
         content_only = self._content_only()
@@ -1158,7 +1137,7 @@ class Conversation:
             for clip in spoken:
                 on_sentence(clip)
         reply = Turn("assistant", " ".join(sentences))
-        return self._record(prompt, reply, turns, budget)
+        return reply, self._record(prompt, reply, turns, budget)
 
     def _with_content(self, prompt: str, found: list[str] | None, room: int) -> str:
         """The prompt with what the content has on it quoted before it: as many of the
@@ -1234,7 +1213,6 @@ class Conversation:
                 if on_sentence is not None:
                     on_sentence(None)
             pieces.append(piece)
-            thinking.stage(thinking.WRITING, thinking.Part(count))  # the sentences written so far
             ready(splitter.feed(piece))
         note_now("last_token_at")
         ready(splitter.flush())
@@ -1251,8 +1229,6 @@ class Conversation:
     def wait(self) -> None:
         """Wait for a summary being made, if any."""
         if self._summarizer is not None:
-            if self._summarizer.is_alive():
-                thinking.stage("Recalling the conversation")
             self._summarizer.join()
 
     def _summarize(self, budget: int) -> None:

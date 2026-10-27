@@ -22,7 +22,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from imageskin import thinking
 from imageskin.prepare_job import ClipSteps, PrepareVoice, RenderClip
 from imageskin.speech_text import spoken_text
 from imageskin.video import discard
@@ -408,9 +407,7 @@ class ReplyVideos:
             start = time.perf_counter()
             try:
                 self._before_engines()
-                thinking.getting_ready(thinking.WAKING_VOICE)  # said to a prompt waiting (R134c)
                 self._voice.ensure()
-                thinking.getting_ready(thinking.FIRST_WORD)
                 with tempfile.TemporaryDirectory() as tmp:
                     self._render_clip(photo, "Hello.", Path(tmp) / "warm-up.mp4")
             except Exception as e:
@@ -467,7 +464,6 @@ class ReplyVideos:
             self._remove_other_idles(made)  # one that couldn't be removed before
             return
         start = time.perf_counter()
-        thinking.getting_ready(thinking.FACE)
         folder = self.folder / "idle"
         name = self.idle_name(photo)
         path = folder / f"{name}.mp4"

@@ -129,9 +129,9 @@ def test_the_app_keeps_the_conversation_after_a_restart(tmp_path: Path) -> None:
         client.post("/api/chat", json={"prompt": "Hi"})
     assert (tmp_path / "conversation.json").is_file()
     restarted = chat_app(tmp_path, lambda messages: "Hello")
-    turns = restarted.get("/api/chat").json()["turns"]
-    assert turns[1].pop("thinking_s") >= 0  # how long it took to think of is kept too (R134c)
-    assert turns == [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello"}]
+    assert restarted.get("/api/chat").json() == {
+        "turns": [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello"}]
+    }
 
 
 TOPICS = ["Rain", "Snow", "Hail"]
@@ -203,8 +203,8 @@ def test_a_clear_that_cant_empty_the_saved_copy_clears_nothing(
     assert refused.status_code == 500
     assert refused.json()["detail"] == CLEAR_FAILED
     assert "Could not clear the saved conversation; nothing was cleared" in caplog.text
-    said = client.get("/api/chat").json()["turns"]
-    assert [t["content"] for t in said] == ["Hi", "Hello"]
+    said = [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello"}]
+    assert client.get("/api/chat").json() == {"turns": said}
     assert chat_app(tmp_path, lambda messages: "Hello").get("/api/chat").json() == {"turns": said}
     # Once the file can be changed, clearing works and holds after a restart.
     assert client.delete("/api/chat").json() == {"cleared": 2}

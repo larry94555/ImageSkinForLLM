@@ -878,8 +878,7 @@ def test_the_api_chats_once_the_sample_is_accepted(tmp_path: Path) -> None:
         answer = client.post("/api/chat", json={"prompt": "Hi"})
         times = answer.json().pop("timings")  # where the time went (R96): not streamed, no tokens
         assert times["first_token_at"] is None and times["answered_at"] >= times["received_at"]
-        assert answer.json()["thinking_s"] >= 0  # how long it took to think of (R134c)
-        assert {k: v for k, v in answer.json().items() if k not in ("timings", "thinking_s")} == {
+        assert {k: v for k, v in answer.json().items() if k != "timings"} == {
             "role": "assistant",
             "content": "You said Hi",
             "turn": 1,
@@ -890,9 +889,7 @@ def test_the_api_chats_once_the_sample_is_accepted(tmp_path: Path) -> None:
             "assessment": None,
         }
         assert client.post("/api/chat", json={"prompt": " "}).status_code == 400
-    turns = client.get("/api/chat").json()["turns"]
-    assert turns[1].pop("thinking_s") == answer.json()["thinking_s"]  # kept with it (R134c)
-    assert turns == [
+    assert client.get("/api/chat").json()["turns"] == [
         {"role": "user", "content": "Hi"},
         {"role": "assistant", "content": "You said Hi"},
     ]

@@ -67,14 +67,7 @@ const VIEWS: [View, string, string][] = [
 ];
 
 // The on and off settings, in the order shown, each with what it does.
-type Switch =
-  | "general_prompts"
-  | "teach_me"
-  | "quiz_me"
-  | "assessment"
-  | "show_thinking"
-  | "show_metrics"
-  | "debug";
+type Switch = "general_prompts" | "teach_me" | "quiz_me" | "assessment" | "show_metrics" | "debug";
 const SWITCHES: { group: string; about: string; items: [Switch, string, string][] }[] = [
   {
     group: "Chat",
@@ -103,12 +96,6 @@ const SWITCHES: { group: string; about: string; items: [Switch, string, string][
     group: "Display",
     about: "What else is shown on the pages.",
     items: [
-      [
-        "show_thinking",
-        "Show what thinking is doing",
-        "While a reply is thought of, the time so far and what is being done; under each " +
-          "reply, how long it took. Off: only “Thinking…” shows.",
-      ],
       [
         "show_metrics",
         "Show timing metrics",

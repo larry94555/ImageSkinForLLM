@@ -26,7 +26,6 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from imageskin import thinking
 from imageskin.cheeks import fields, limit, log_added, strength_of, tracks
 from imageskin.config import default_home
 from imageskin.expression import (
@@ -334,7 +333,6 @@ class PhotorealEngine:
 
         def frames() -> Iterator[bytes]:
             for i, w in enumerate(weights):
-                thinking.ready_part(i + 1, n_frames)  # a prompt waiting for the warm-up (R134c)
                 lift, draw, stretch = cheeks.at(i)
                 move = moves.at(i)._replace(lift=lift, draw=draw, stretch=stretch)
                 move = settled(move, i, n_frames)
@@ -374,7 +372,6 @@ class PhotorealEngine:
 
         def frames() -> Iterator[bytes]:
             for i in range(n_frames):
-                thinking.ready_part(i + 1, n_frames)  # a prompt waiting for the warm-up (R134c)
                 yield compositor.frame(rest, i, eyes[i]).tobytes()
 
         h, w = lib.photo.shape[:2]

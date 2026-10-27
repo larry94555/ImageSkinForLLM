@@ -26,7 +26,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from imageskin import __version__, pdf_reading, reply_times, server_timing, thinking
+from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
@@ -474,8 +474,6 @@ def create_app(
     app = FastAPI(title="ImageSkinForLLM", version=__version__)
     app.state.startup = startup
     data_home = home or default_home()
-    # How long thinking's stages took, to count the parts of a long one next time (R134c).
-    thinking.remember_in(data_home / "thinking_times.json")
     # First, before any thread starts, so every later thread inherits the pin (R22g).
     performance_cores = use_performance_cores()
     # The built browser files are committed unminified so they stay readable; compressing
@@ -1526,7 +1524,7 @@ def create_app(
 
     @app.get("/api/chat", dependencies=needs_person)
     def get_chat() -> dict[str, object]:
-        return {"turns": [t.shown() for t in conversation.turns()]}
+        return {"turns": [asdict(t) for t in conversation.turns()]}
 
     @app.get("/api/chat/summary", dependencies=needs_person)
     def chat_summary() -> dict[str, bool]:
@@ -1559,9 +1557,6 @@ def create_app(
     # Prompts being answered, each with the event Stop sets to cut the LLM off (Larry's test of
     # PR #129: Stop left it thinking). Guarded by clips_lock.
     prompts: dict[str, PromptStop] = {}
-    # What each prompt being answered is thinking about (R134c), by its reply's id. Guarded by
-    # clips_lock.
-    thinking_now: dict[str, thinking.Thinking] = {}
     # One prompt at a time, from dropping the last reply's clips to keeping this one's, so a
     # prompt waiting on another always drops that one's clips.
     chat_lock = threading.Lock()
@@ -1614,20 +1609,15 @@ def create_app(
         the whole video."""
         # Listed before it waits for the warm-up or another prompt, so Stop reaches it there.
         stop = PromptStop()
-        # Where the time goes, returned with the reply for `imageskin time-reply` (R96).
-        times = ReplyTimes(received_at=time.perf_counter())
-        timing = reply_times.current.set(times)
-        # What it is thinking about, for the chat to show while it waits (R134c).
-        thought = thinking.Thinking(times.received_at)
-        following = thinking.current.set(thought)
         if body.reply_id is not None:
             with clips_lock:
                 prompts[body.reply_id] = stop
-                thinking_now[body.reply_id] = thought
+        # Where the time goes, returned with the reply for `imageskin time-reply` (R96).
+        times = ReplyTimes(received_at=time.perf_counter())
+        timing = reply_times.current.set(times)
         try:
             times.waited_warm_up_ms = wait_for_warm_up()
             asked = time.perf_counter()
-            thinking.stage("Finishing last answer")
             # One LLM answers the whole prompt, even if it is changed meanwhile (review on
             # PR #115).
             with chat_lock, pinned(client), llm_busy():
@@ -1636,39 +1626,17 @@ def create_app(
                 token = ask_stop.set(stop)  # the LLM is cut off on Stop
                 try:
                     answer = chat(body, stop)
-                    thought.done()  # how long its last stage took, for the next one's parts
                 finally:
                     ask_stop.reset(token)
             times.answered_at = time.perf_counter()
             log_reply_times(times)
-            logger.info(
-                "Thinking done",
-                extra={
-                    "thinking_s": answer.get("thinking_s"),
-                    "last_stage": thought.now()["stage"],
-                },
-            )
             return {**answer, "timings": times.as_dict()}
         finally:
             reply_times.current.reset(timing)
-            thinking.current.reset(following)
             if body.reply_id is not None:
                 with clips_lock:
                     if prompts.get(body.reply_id) is stop:
                         del prompts[body.reply_id]
-                    if thinking_now.get(body.reply_id) is thought:
-                        del thinking_now[body.reply_id]
-
-    @app.get("/api/chat/thinking/{reply_id}", dependencies=needs_person)
-    def get_thinking(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, Any]:
-        """What the prompt for this reply is thinking about now (R134c): its stage in a few plain
-        words, and how long the thinking has taken. 404 once the reply is in, or for a prompt that
-        hasn't come."""
-        with clips_lock:
-            thought = thinking_now.get(reply_id)
-        if thought is None:
-            raise HTTPException(status_code=404, detail="Not thinking about that reply.")
-        return thought.now()
 
     def wait_for_warm_up(what: str = "Prompt") -> float:
         """A prompt sent right after the sample was accepted waits for the warm-up to finish,
@@ -1680,11 +1648,7 @@ def create_app(
         if not thread.is_alive():
             return 0.0
         start = time.perf_counter()
-        # A prompt waiting says which of the warm-up's steps it is waiting for (R134c).
-        while thread.is_alive():
-            step = thinking.ready_step()
-            thinking.stage(step.name, step.part, step.since)
-            thread.join(0.5)
+        thread.join()
         waited = ms_since(start)
         logger.info(f"{what} waited for the warm-up", extra={"wait_ms": waited})
         return waited
@@ -1783,7 +1747,6 @@ def create_app(
         """An example question's reply: the one kept, said at once, or the LLM's, kept once its
         clips are all rendered."""
         start = time.perf_counter()
-        thinking.stage("Recalling an earlier answer")
         kept = topic_replies.get(prompt, context)
         if kept is None:
             epoch = topic_replies.epoch  # not kept if the conversation is cleared meanwhile
@@ -1830,7 +1793,6 @@ def create_app(
                 # Checked and the summary waited for before the correction asks the LLM, as
                 # for a lesson, quiz or assessment (review on PR #91).
                 conversation.check(body.prompt)
-                thinking.stage("Checking what was said")
                 meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
                 body = body.model_copy(update={"prompt": meant})
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())
@@ -1853,15 +1815,12 @@ def create_app(
                 conversation.check(body.prompt)  # before any of them asks the LLM
             assessed = None
             if settings.assessment:
-                thinking.stage("Following the assessment")
                 assessed = assessor.step(body.prompt, assessment)
             asking = None
             if assessed is None and settings.quiz_me:
-                thinking.stage("Following the quiz")
                 asking = quizzer.step(body.prompt, quiz)
             step = None
             if asking is None and settings.teach_me:
-                thinking.stage("Following the lesson")
                 step = tutor.step(body.prompt, lesson)
             choices: list[Choice] = []
             if assessed is not None:
@@ -1917,7 +1876,7 @@ def create_app(
         # The lesson after this prompt, for the browser to keep, with how many parts its topic
         # has, and any choices to show as buttons (R41h).
         return {
-            **reply.shown(),
+            **asdict(reply),
             "turn": turn,
             "streamed": streamed,
             "lesson": None if lesson is None else {**asdict(lesson), "parts": lesson_parts(lesson)},
@@ -2038,17 +1997,13 @@ def create_app(
         photo = chosen_photo()
         if photo is not None and accepted():
             logger.info("Warming up replies")
-            thinking.getting_ready(thinking.GETTING_READY)
             # On its own thread: an LLM that accepts the request but doesn't answer would
             # otherwise hold the engines' warm-up back for its whole timeout.
             warm_llm = startup.timed("LLM warm-up", conversation.warm_up)
             llm = threading.Thread(target=warm_llm, name="llm-warm-up", daemon=True)
             llm.start()
             startup.timed("voice and video warm-up", lambda: replies.warm_up(photo))()
-            if llm.is_alive():
-                thinking.getting_ready(thinking.INSTRUCTIONS)
             llm.join()
-            thinking.warm_up_ended()
         return photo
 
     # Whether a warm-up worker still has work to do, and whether one was asked for meanwhile:

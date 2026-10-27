@@ -26,8 +26,6 @@ import {
   clipUrl,
   getPrepare,
   getReview,
-  getThinking,
-  type Thinking,
   getReadyVoice,
   chooseReadyVoice,
   type ReadyVoice,
@@ -1283,10 +1281,7 @@ function Chat(props: {
   // The Teach me, Quiz me and Assessment buttons, lessons, quizzes and assessments (R41h, R41i,
   // R41j), and Copy chat.
   const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
-  const showThinking = useSettings().show_thinking; // what thinking is doing (R134c)
   const [turns, setTurns] = useState<Turn[] | null>(null);
-  // The prompt being thought about: its reply's id and when it was sent (R134c).
-  const [thinkingOf, setThinkingOf] = useState<{ id: string; since: number } | null>(null);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -1498,7 +1493,6 @@ function Chat(props: {
     });
     setHalted(false);
     setSending(true);
-    setThinkingOf({ id: replyId, since: performance.now() });
     setSpeaking(true);
     setWaiting(true);
     clipTotal.current = 0;
@@ -1560,7 +1554,7 @@ function Chat(props: {
         if (next) console.info(`Assessment: question ${next.number} of ${next.total}`);
       }
       setChoices(reply.choices ?? []);
-      const { role, content, thinking_s } = reply;
+      const { role, content } = reply;
       // A spoken prompt shows as it was answered, with any misheard words put back (R24).
       const meant = reply.prompt;
       if (meant && meant !== text) console.info(`Push-to-talk: "${text}" taken as "${meant}"`);
@@ -1568,7 +1562,7 @@ function Chat(props: {
         ...(t ?? []).map((turn, i, all) =>
           meant && i === all.length - 1 ? { ...turn, content: meant } : turn,
         ),
-        thinking_s === undefined ? { role, content } : { role, content, thinking_s },
+        { role, content },
       ]);
     } catch (e) {
       // Stopped while it was answered: the server cut the LLM off and dropped the prompt
@@ -1713,9 +1707,6 @@ function Chat(props: {
         <p className="status muted" aria-live="polite">
           {status && <span className="busy">{status}</span>}
         </p>
-        {sending && !halted && showThinking && thinkingOf && (
-          <ThinkingNow key={thinkingOf.id} replyId={thinkingOf.id} since={thinkingOf.since} />
-        )}
         {failed && (
           <p className="error" role="alert">
             {failed}
@@ -1968,59 +1959,6 @@ export function latestExchange(turns: Turn[]): number {
   return Math.max(turns.length - 1, 0);
 }
 
-// How long a reply took to think of (R134c), as said under it.
-export function thinkingTook(seconds: number): string {
-  if (seconds < 1) return "Took less than a second for thinking";
-  const whole = Math.round(seconds);
-  return `Took ${whole} ${whole === 1 ? "second" : "seconds"} for thinking`;
-}
-
-// While a prompt is thought about (R134c): one timer, the seconds so far, counted here every
-// second, and under it what the server says it is doing in a few plain words, asked for every
-// second, with no numbers or technical terms (Larry, testing PR #179). Shown with Show what
-// thinking is doing on in the settings, so a long wait says what it is waiting for.
-export function ThinkingNow({ replyId, since }: { replyId: string; since: number }) {
-  const [now, setNow] = useState<Thinking | null>(null);
-  const [seconds, setSeconds] = useState(() => Math.floor((performance.now() - since) / 1000));
-  useEffect(() => {
-    let gone = false;
-    let next: ReturnType<typeof setTimeout> | undefined;
-    let failures = 0;
-    let shown = "";
-    async function ask() {
-      try {
-        const read = await getThinking(replyId);
-        failures = 0;
-        if (!gone && read && typeof read.stage === "string") {
-          setNow(read);
-          if (read.stage !== shown) console.debug(`Thinking: ${read.stage} (${read.elapsed_s} s)`);
-          shown = read.stage;
-        }
-      } catch (e) {
-        // Said once, not every second; the time still counts and the next ask may work.
-        if (failures++ === 0) console.error("Could not read what thinking is doing", e);
-      }
-      if (!gone) next = setTimeout(() => void ask(), 1000);
-    }
-    void ask();
-    const tick = setInterval(
-      () => setSeconds(Math.floor((performance.now() - since) / 1000)),
-      1000,
-    );
-    return () => {
-      gone = true;
-      clearTimeout(next);
-      clearInterval(tick);
-    };
-  }, [replyId, since]);
-  return (
-    <div className="thinking muted">
-      <span className="thinking-time">{seconds === 1 ? "1 second" : `${seconds} seconds`}</span>
-      {now && <span className="thinking-stage">{now.stage}</span>}
-    </div>
-  );
-}
-
 // The turns from `from` on, numbered by their place in the whole conversation so a note on a
 // reply that couldn't be spoken stays with it. With `search`, the matches of its query are
 // marked, numbered in order, and the current one stands out.
@@ -2031,7 +1969,6 @@ function TurnList(props: {
   search?: { query: string; current: number };
 }) {
   const { turns, from = 0, unspoken, search } = props;
-  const showThinking = useSettings().show_thinking; // how long each reply took (R134c)
   let counted = 0; // matches marked in the turns before this one
   return (
     <ol className="turns">
@@ -2063,9 +2000,6 @@ function TurnList(props: {
               <span className="note">
                 I couldn&apos;t say this one aloud, so here it is as text.
               </span>
-            )}
-            {showThinking && turn.thinking_s !== undefined && (
-              <span className="took">{thinkingTook(turn.thinking_s)}</span>
             )}
           </li>
         );
@@ -2118,12 +2052,7 @@ export function chatText(turns: Turn[], count: number): string {
   const all = exchanges(turns);
   const kept = all.slice(Math.max(all.length - count, 0));
   const head = `Chat: the last ${kept.length} of ${all.length} exchanges`;
-  const lines = kept
-    .flat()
-    .map((t) => {
-      const took = t.thinking_s === undefined ? "" : ` (${thinkingTook(t.thinking_s).toLowerCase()})`;
-      return `${t.role === "user" ? "You" : "Reply"}: ${t.content}${took}`;
-    });
+  const lines = kept.flat().map((t) => `${t.role === "user" ? "You" : "Reply"}: ${t.content}`);
   return [head, ...lines].join("\n\n");
 }
 

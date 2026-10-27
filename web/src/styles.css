@@ -379,10 +379,6 @@ ol.turns .who { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
   z-index: 1;
 }
 ol.turns .note { display: block; margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
-/* How long a reply took to think of, and what thinking is doing meanwhile (R134c). */
-ol.turns .took { display: block; margin-top: 6px; font-size: 0.8rem; color: var(--muted); }
-.thinking { display: grid; gap: 2px; margin-top: -8px; font-size: 0.85rem; }
-.thinking-time { font-variant-numeric: tabular-nums; }
 .chat form button[type="submit"] { padding: 10px 22px; }
 .chat .prompt { display: grid; gap: 4px; width: 100%; font-weight: 600; font-size: 0.9rem; }
 .chat textarea {

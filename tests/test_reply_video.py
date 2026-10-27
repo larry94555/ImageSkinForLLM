@@ -797,7 +797,6 @@ def test_the_api_speaks_a_reply_and_serves_its_video(tmp_path: Path) -> None:
     with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
         reply = client.post("/api/chat", json={"prompt": "Hi"}).json()
         assert reply.pop("timings")["llm"] is None  # where the time went (R96)
-        assert reply.pop("thinking_s") >= 0  # how long it took to think of (R134c)
         assert reply == {
             "role": "assistant",
             "content": "You said **Hi**",
