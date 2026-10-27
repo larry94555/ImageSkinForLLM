@@ -207,7 +207,10 @@ def test_the_api_is_for_the_administrator_only(
     machine(monkeypatch)
     (tmp_path / "admin.toml").write_text('password = "secret"\n')
     browser = TestClient(create_app(tmp_path))
-    assert browser.get("/api/admin/resources").status_code == 401
+    refused = browser.get("/api/admin/resources")
+    # No hint of how to get in (Larry's review of #186).
+    assert refused.status_code == 401
+    assert refused.json() == {"detail": "Not supported at this time."}
     browser.post("/api/admin/sign-in", json={"password": "secret"})
     reading = browser.get("/api/admin/resources").json()
     assert [r["name"] for r in reading["resources"]] == ["cpu", "memory", "disk", "network"]
