@@ -162,6 +162,7 @@ export function AdminEndedNotice() {
 export function AdminSection() {
   const { session, signIn, signOut } = useAdmin();
   const [password, setPassword] = useState("");
+  const field = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -169,10 +170,16 @@ export function AdminSection() {
 
   async function submit(e: Event) {
     e.preventDefault();
+    // Read from the field too: a password the browser filled in sends no input event.
+    const typed = field.current?.value || password;
+    if (typed === "") {
+      setError("Type the administrator password first.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await signIn(password);
+      await signIn(typed);
       setPassword("");
     } catch (err) {
       console.error("Could not sign in as administrator", err);
@@ -233,11 +240,12 @@ export function AdminSection() {
           <input
             type="password"
             autoComplete="current-password"
+            ref={field}
             value={password}
             onInput={(e) => setPassword(e.currentTarget.value)}
           />
         </label>{" "}
-        <button type="submit" disabled={busy || password === ""}>
+        <button type="submit" disabled={busy}>
           Sign in as administrator
         </button>
       </form>
