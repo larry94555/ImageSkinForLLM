@@ -229,6 +229,26 @@ test("an accepted sample doesn't ask", async () => {
   expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
+test("accepting the sample goes to the chat without asking (Larry's test of PR #191)", async () => {
+  server();
+  await page("setup");
+  await waiting();
+  await click("Accept", "button");
+  await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  await settled();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+test("accepting the avatar's sample goes to the chat without asking", async () => {
+  server({ avatar: true });
+  await page("avatar");
+  await waiting();
+  await click("Accept", "button");
+  await waitFor(() => expect(window.location.hash).toBe("#/chat"));
+  await settled();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
 test("a rejected sample doesn't ask", async () => {
   server();
   await page("setup");
