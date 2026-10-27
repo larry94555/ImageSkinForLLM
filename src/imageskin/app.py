@@ -1962,7 +1962,9 @@ def create_app(
                 "started_at": t.started_at,
                 "whole_at": clips.whole_at[n - 1] if n <= len(clips.whole_at) else None,
             }
-            for n, t in enumerate(clips.times[: len(clips.clips)], 1)
+            # Only those the browser may play yet: playback is held back until the rest keeps
+            # up (R130).
+            for n, t in enumerate(clips.times[: clips.listed()], 1)
         ]
         return {
             "clips": made,
