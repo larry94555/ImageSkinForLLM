@@ -581,15 +581,21 @@ function AdminEndedNotice() {
 function AdminSection() {
 	const { session, signIn, signOut } = useAdmin();
 	const [password, setPassword] = d("");
+	const field = A(null);
 	const [busy, setBusy] = d(false);
 	const [error, setError] = d(null);
 	h(() => console.info("Admin sign-in shown"), []);
 	async function submit(e) {
 		e.preventDefault();
+		const typed = field.current?.value || password;
+		if (typed === "") {
+			setError("Type the administrator password first.");
+			return;
+		}
 		setBusy(true);
 		setError(null);
 		try {
-			await signIn(password);
+			await signIn(typed);
 			setPassword("");
 		} catch (err) {
 			console.error("Could not sign in as administrator", err);
@@ -646,6 +652,7 @@ function AdminSection() {
 				/* @__PURE__ */ u("input", {
 					type: "password",
 					autoComplete: "current-password",
+					ref: field,
 					value: password,
 					onInput: (e) => setPassword(e.currentTarget.value)
 				})
@@ -653,7 +660,7 @@ function AdminSection() {
 			" ",
 			/* @__PURE__ */ u("button", {
 				type: "submit",
-				disabled: busy || password === "",
+				disabled: busy,
 				children: "Sign in as administrator"
 			})
 		]
