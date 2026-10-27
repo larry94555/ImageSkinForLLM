@@ -491,7 +491,16 @@ def serve(settings: Settings) -> None:
     app = create_app(llm=llm, general_prompts=settings.general_prompts, admin_file=admin_file)
     # This month's network use for the admin dashboard, kept through restarts (R153).
     app.state.network_month.keep_sampling()
-    config = uvicorn.Config(app, host=host, port=port, log_config=None, access_log=False)
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_config=None,
+        access_log=False,
+        # Whose X-Forwarded-For to believe, so the admin sign-in sees each browser's address.
+        proxy_headers=True,
+        forwarded_allow_ips=settings.trusted_proxies,
+    )
     server = uvicorn.Server(config)
     url = f"http://{host}:{port}"
     threading.Thread(
