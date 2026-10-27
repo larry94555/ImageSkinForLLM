@@ -9,8 +9,10 @@ interface Props {
   children?: ComponentChildren;
   keepLabel: string; // backs out
   confirmLabel: string; // goes ahead
+  otherLabel?: string; // a third choice between the two, such as Stop after this part (R159)
   onCancel: () => void;
   onConfirm: () => void;
+  onOther?: () => void;
 }
 
 // What Tab can reach inside the box.
@@ -79,6 +81,11 @@ export function ConfirmDialog(props: Props) {
           <button type="button" className="secondary" ref={keep} onClick={onCancel}>
             {props.keepLabel}
           </button>
+          {props.otherLabel && (
+            <button type="button" className="secondary" onClick={props.onOther}>
+              {props.otherLabel}
+            </button>
+          )}
           <button type="button" className="danger" onClick={props.onConfirm}>
             {props.confirmLabel}
           </button>
@@ -88,35 +95,43 @@ export function ConfirmDialog(props: Props) {
   );
 }
 
-export type Question = Omit<Props, "onCancel" | "onConfirm">;
+export type Question = Omit<Props, "onCancel" | "onConfirm" | "onOther">;
+export type Answer = "cancel" | "other" | "confirm";
 
-// For a click handler that asks first: `if (!(await ask({...}))) return;`. Render `dialog`
-// somewhere in the component; it is null until something is asked.
+// For a click handler that asks first: `if (!(await ask({...}))) return;`, or `choose` for a
+// question with a third choice (`otherLabel`). Render `dialog` somewhere in the component; it is
+// null until something is asked.
 export function useConfirm() {
   const [asking, setAsking] = useState<{
     question: Question;
-    answer: (yes: boolean) => void;
+    answer: (answer: Answer) => void;
   } | null>(null);
 
-  function ask(question: Question): Promise<boolean> {
+  function choose(question: Question): Promise<Answer> {
     return new Promise((resolve) => {
       setAsking({
         question,
-        answer: (yes) => {
-          console.info(`${question.title} ${yes ? "confirmed" : "cancelled"}`);
+        answer: (answer) => {
+          const said = { cancel: "cancelled", other: question.otherLabel, confirm: "confirmed" };
+          console.info(`${question.title} ${said[answer]}`);
           setAsking(null);
-          resolve(yes);
+          resolve(answer);
         },
       });
     });
   }
 
+  async function ask(question: Question): Promise<boolean> {
+    return (await choose(question)) === "confirm";
+  }
+
   const dialog = asking && (
     <ConfirmDialog
       {...asking.question}
-      onCancel={() => asking.answer(false)}
-      onConfirm={() => asking.answer(true)}
+      onCancel={() => asking.answer("cancel")}
+      onConfirm={() => asking.answer("confirm")}
+      onOther={() => asking.answer("other")}
     />
   );
-  return { ask, dialog };
+  return { ask, choose, dialog };
 }

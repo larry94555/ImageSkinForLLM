@@ -23,6 +23,11 @@ of it, and a gap of 2 to 3 s was heard before it. A sentence already complete is
 whole, as is every sentence while the voice is busy, so the clips stay as long as before when
 the voice can't keep up anyway.
 
+A waiting cut falls only at a comma, semicolon, colon or dash, never by word count, and at most
+one is made in each `feed` (roadmap R130): R129 found the voice still waiting while the cut
+pieces were being handed over, so the text written meanwhile was chopped at once into clips of
+3 to 5 words ("where the staff can watch / you run and suggest"), each with a pause around it.
+
 `clips` cuts a reply made without the LLM, whose sentences are all known at once, such as the
 answer to "What can you talk about?" (roadmap R100): its first sentence at the first clause, as
 above but only at punctuation, and any longer than LONG_CLIP_WORDS at its clauses too. Its first
@@ -113,13 +118,16 @@ def _leads(word: str) -> bool:
     return word in LEADING or _WITH_S.search(word) is not None
 
 
-def first_clause_cut(text: str) -> int | None:
+def first_clause_cut(text: str, punctuation_only: bool = False) -> int | None:
     """Where the first clause of `text`, an unfinished sentence, ends, or None while it has no
     clause yet. The cut is only made once the next word has started, so "Hi Larry," waits for
     what follows (it may be the end of the sentence); a cut by word count waits for the word
-    after that too, so a sentence that ends on the next word stays whole."""
+    after that too, so a sentence that ends on the next word stays whole. With
+    `punctuation_only`, only a comma, semicolon, colon or dash cuts, however many words come
+    first (roadmap R130)."""
     words = list(_WORD.finditer(text))
-    for i in range(FIRST_CLAUSE_MIN, min(len(words) - 1, FIRST_CLAUSE_LIMIT) + 1):
+    last_i = len(words) - 1 if punctuation_only else min(len(words) - 1, FIRST_CLAUSE_LIMIT)
+    for i in range(FIRST_CLAUSE_MIN, last_i + 1):
         last = words[i - 1].group()
         if _in_code(text, words[i - 1].end() - 1):
             continue
@@ -130,10 +138,12 @@ def first_clause_cut(text: str) -> int | None:
         if dash > 0:  # a dash joined to the word before it, as in "a leader—a great one"
             cut = words[i - 1].start() + dash
         elif (
-            word.endswith((",", ";", ":")) or following in JOINING or following in _DASHES
+            word.endswith((",", ";", ":"))
+            or (following in JOINING and not punctuation_only)
+            or following in _DASHES
         ) and last not in _DASHES:
             cut = words[i - 1].end()
-        elif i >= FIRST_CLAUSE_MAX and len(words) >= i + 2:
+        elif not punctuation_only and i >= FIRST_CLAUSE_MAX and len(words) >= i + 2:
             if not _leads(last.rstrip('"”)]').lower().strip(".!?")) or i == FIRST_CLAUSE_LIMIT:
                 cut = words[i - 1].end()
             elif i == FIRST_CLAUSE_MAX:  # on a leading word: after the last word that isn't
@@ -226,11 +236,13 @@ class SentenceSplitter:
         self._count = 0  # sentences handed back so far
         self.waiting_cuts: set[int] = set()  # the numbers of those cut for the waiting voice
         self._waiting_cut = False  # whether the cut being made is one
+        self._waited = False
 
     def feed(self, chunk: str) -> list[str]:
         """Add text; return the sentences now complete, in order."""
         self._text += chunk
         sentences: list[str] = []
+        self._waited = False  # whether this feed has made its one waiting cut
         while (cut := self._next_cut()) is not None:
             sentence, self._text = self._text[:cut].strip(), self._text[cut:]
             if sentence:
@@ -238,6 +250,7 @@ class SentenceSplitter:
                 self._count += 1
                 if self._waiting_cut:
                     self.waiting_cuts.add(self._count)
+                    self._waited = True
         return sentences
 
     def flush(self) -> list[str]:
@@ -251,12 +264,17 @@ class SentenceSplitter:
         cut = self._next_sentence_cut()
         first = self._first_clause and self._count == 0
         waiting = (
-            not first and cut is None and self._voice_waiting is not None and self._voice_waiting()
+            not first
+            and cut is None
+            and not self._waited
+            and self._voice_waiting is not None
+            and self._voice_waiting()
         )
         if first or waiting:
             text = self._text if cut is None else self._text[:cut]
             fence = CODE_FENCE.search(text)
-            clause = first_clause_cut(text[: fence.start()] if fence else text)
+            head = text[: fence.start()] if fence else text
+            clause = first_clause_cut(head, punctuation_only=not first)
             if clause is not None:
                 self._waiting_cut = not first
                 return clause
