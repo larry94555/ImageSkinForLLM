@@ -559,6 +559,17 @@ export async function stopReply(replyId: string): Promise<boolean> {
   return (await json<{ stopped: boolean }>(response)).stopped;
 }
 
+// Says the latest reply again (roadmap R156), with no LLM call: its clips are then followed by
+// `replyId` like a streamed reply's, and stopped the same way.
+export async function repeatReply(replyId: string): Promise<{ turn: number }> {
+  const response = await fetch("/api/chat/repeat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reply_id: replyId }),
+  });
+  return json<{ turn: number }>(response);
+}
+
 // The photo the chat's videos are made from, with its size as shown (roadmap R41d); url null
 // when there is none, and width and height null when its size couldn't be read.
 export interface ChatPhoto {

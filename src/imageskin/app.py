@@ -93,6 +93,7 @@ from imageskin.replies_first import RepliesFirst
 from imageskin.reply_times import ReplyTimes
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
 from imageskin.review import accept, load_review, withdraw
+from imageskin.sentences import clips_of
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -270,6 +271,11 @@ class ChatRequest(BaseModel):
     spoken: bool = False
 
 
+class RepeatRequest(BaseModel):
+    # Chosen by the browser, as for a prompt, so it can follow the clips and Stop them (R156).
+    reply_id: str = Field(pattern=REPLY_ID_PATTERN)
+
+
 class ReplyVideoRequest(BaseModel):
     turn: int  # the reply's place in the conversation, from 0
     # The reply's id from POST /api/chat, so Stop can stop its video (roadmap R19).
@@ -278,6 +284,8 @@ class ReplyVideoRequest(BaseModel):
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
+NOTHING_TO_REPEAT = "There is no reply to repeat yet."
+CANT_REPEAT = "The reply couldn't be repeated."
 # The longest the clips request waits for the next clip before answering with none new.
 CLIPS_WAIT_S = 10.0
 
@@ -1889,6 +1897,56 @@ def create_app(
             # A spoken prompt as it was answered, so the browser shows it that way (R24).
             **({"prompt": body.prompt} if body.spoken else {}),
         }
+
+    @app.post("/api/chat/repeat", dependencies=[*needs_person, Depends(require_accepted)])
+    def post_repeat(body: RepeatRequest) -> dict[str, Any]:
+        """Say the latest reply again (roadmap R156), with no LLM call: from its clips when they
+        are all still there, or else spoken again from its text. The conversation is unchanged.
+        Its clips are followed and stopped like a reply's, by `reply_id`."""
+        start = time.perf_counter()
+        wait_for_warm_up("Repeat")
+        with chat_lock:
+            turns = conversation.turns()
+            photo = chosen_photo()
+            if not turns or turns[-1].role != "assistant" or photo is None:
+                logger.info("Nothing to repeat", extra={"turns": len(turns)})
+                raise HTTPException(status_code=409, detail=NOTHING_TO_REPEAT)
+            text = turns[-1].content
+            with clips_lock:
+                last = list(sentence_clips.values())
+                sentence_clips.clear()
+            made = next((m for c in last if (m := c.whole()) is not None), None)
+            # Not `replies.sentence_clips`, which removes the other replies' clips first: the
+            # ones played last are copied from, then removed with `cancel`.
+            clips = SentenceClips(replies, photo, body.reply_id)
+            with clips_lock:
+                sentence_clips[body.reply_id] = clips
+            try:
+                if made is not None:
+                    clips.replay(made)
+                else:
+                    for piece in clips_of(text):
+                        clips(piece)
+            except OSError as e:
+                logger.error("Could not repeat the reply", extra={"error": str(e)})
+                with clips_lock:
+                    sentence_clips.pop(body.reply_id, None)
+                clips.cancel()
+                raise HTTPException(status_code=500, detail=CANT_REPEAT) from e
+            finally:
+                clips.close()
+                for old in last:
+                    old.cancel()
+        logger.info(
+            "Reply repeated",
+            extra={
+                "reply_id": body.reply_id,
+                "from": "clips" if made is not None else "text",
+                "clips": len(made) if made is not None else clips.sentences,
+                "duration_ms": ms_since(start),
+            },
+        )
+        return {"turn": len(turns) - 1, "streamed": True}
 
     @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_person)
     def stop_clips(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, bool]:

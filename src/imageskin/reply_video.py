@@ -162,6 +162,16 @@ class SentenceClips:
             self.rendered = self.sentences = self._handled = len(kept)
             self._changed.notify_all()
 
+    def whole(self) -> list[Path] | None:
+        """Every clip, once all are rendered and none failed or was stopped, so the reply can be
+        said again from them (roadmap R156); None otherwise."""
+        with self._changed:
+            if not self.done or self._stopped() or not self.clips:
+                return None
+            if self.rendered < len(self.clips) or not all(c.is_file() for c in self.clips):
+                return None
+            return list(self.clips)
+
     def close(self) -> None:
         """The reply is complete: the clips' thread ends after the last sentence, so it never
         holds the engines while waiting for sentences that won't come."""

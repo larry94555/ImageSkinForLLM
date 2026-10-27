@@ -205,6 +205,13 @@ def clips(sentences: list[str]) -> list[str]:
     return pieces
 
 
+def clips_of(text: str) -> list[str]:
+    """A whole reply's text as the clips to speak, cut as a streamed reply's are: said again
+    with Repeat (roadmap R156)."""
+    splitter = SentenceSplitter()
+    return clips(splitter.feed(text) + splitter.flush())
+
+
 class SentenceSplitter:
     """Feed it text as it arrives; it hands back each sentence once it is complete. With
     `first_clause`, the first sentence's first clause is handed back as a sentence of its own;
