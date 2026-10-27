@@ -489,7 +489,16 @@ def serve(settings: Settings) -> None:
     llm = llm_settings(settings)
     admin_file = Path(settings.admin_file).expanduser() if settings.admin_file else None
     app = create_app(llm=llm, general_prompts=settings.general_prompts, admin_file=admin_file)
-    config = uvicorn.Config(app, host=host, port=port, log_config=None, access_log=False)
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_config=None,
+        access_log=False,
+        # Whose X-Forwarded-For to believe, so the admin sign-in sees each browser's address.
+        proxy_headers=True,
+        forwarded_allow_ips=settings.trusted_proxies,
+    )
     server = uvicorn.Server(config)
     url = f"http://{host}:{port}"
     threading.Thread(

@@ -133,7 +133,27 @@ def test_a_hash_signs_in_with_its_password(tmp_path: Path) -> None:
         sign_ins.sign_in("plain", "1.2.3.4")
 
 
-@pytest.mark.parametrize("value", ["scrypt$bad", "scrypt$16384$8$1$!!$!!", "plain text"])
+GOOD_SALT, GOOD_DIGEST = "c2FsdHNhbHRzYWx0c2FsdA==", "ZGlnZXN0ZGlnZXN0ZGlnZXN0ZGlnZXN0"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "scrypt$bad",
+        "scrypt$16384$8$1$!!$!!",
+        "plain text",
+        # Codex's review: an N too big for scrypt raised TypeError, a server error.
+        "scrypt$18446744073709551616$8$1$cw==$cw==",
+        f"scrypt$16385$8$1${GOOD_SALT}${GOOD_DIGEST}",  # N not a power of two
+        f"scrypt$1048576$8$1${GOOD_SALT}${GOOD_DIGEST}",  # more than 32 MB a try
+        f"scrypt$16384$0$1${GOOD_SALT}${GOOD_DIGEST}",
+        f"scrypt$16384$8$99${GOOD_SALT}${GOOD_DIGEST}",
+        f"scrypt$-16384$8$1${GOOD_SALT}${GOOD_DIGEST}",
+        f"scrypt$16384$8$1$cw==${GOOD_DIGEST}",  # a salt too short
+        f"scrypt$16384$8$1${GOOD_SALT}$cw==",  # a digest too short
+        f"bcrypt$16384$8$1${GOOD_SALT}${GOOD_DIGEST}",
+    ],
+)
 def test_a_hash_that_is_not_valid_matches_nothing(
     value: str, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -155,6 +175,32 @@ def test_after_five_wrong_passwords_the_next_try_waits_a_minute(file: Path) -> N
     assert sign_ins.signed_in(token)
     with pytest.raises(AdminRefused, match=WRONG):  # counting starts again
         sign_ins.sign_in("guess", "1.2.3.4")
+
+
+def test_one_addresss_wrong_passwords_never_make_another_wait(file: Path) -> None:
+    # Codex's review: anyone could lock the administrator out with five wrong passwords.
+    sign_ins = AdminSignIns(file, clock=Clock())
+    for _ in range(10):
+        with pytest.raises(AdminRefused):
+            sign_ins.sign_in("guess", "203.0.113.9")
+    with pytest.raises(AdminRefused, match=WAIT):
+        sign_ins.sign_in("first secret", "203.0.113.9")
+    assert sign_ins.signed_in(sign_ins.sign_in("first secret", "198.51.100.7"))
+
+
+def test_many_guessing_addresses_are_not_all_kept(
+    file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(admin, "WRONG_KEPT", 3)
+    clock = Clock()
+    sign_ins = AdminSignIns(file, clock=clock)
+    for n in range(3):
+        with pytest.raises(AdminRefused):
+            sign_ins.sign_in("guess", f"10.0.0.{n}")
+    clock.now += 61  # their waits are over
+    with pytest.raises(AdminRefused):
+        sign_ins.sign_in("guess", "10.0.0.9")
+    assert list(sign_ins._wrong) == ["10.0.0.9"]
 
 
 def test_thirty_minutes_without_activity_signs_out(
@@ -240,6 +286,30 @@ def test_the_api_says_why_a_sign_in_was_refused(tmp_path: Path) -> None:
         assert wrong.status_code == 401 and wrong.json()["detail"] == WRONG
     waiting = browser.post("/api/admin/sign-in", json={"password": "x"})
     assert waiting.status_code == 429 and waiting.headers["retry-after"] == "60"
+
+
+def test_the_api_makes_only_the_guessing_browser_wait(tmp_path: Path) -> None:
+    write(tmp_path / "admin.toml", 'password = "first secret"\n')
+    app = create_app(tmp_path)
+    guesser = TestClient(app, client=("203.0.113.9", 40000))
+    for n in range(6):
+        # Its own X-Forwarded-For changes nothing: it isn't a trusted proxy.
+        guesser.post(
+            "/api/admin/sign-in", json={"password": "x"}, headers={"X-Forwarded-For": f"1.1.1.{n}"}
+        )
+    assert guesser.post("/api/admin/sign-in", json={"password": "x"}).status_code == 429
+    administrator = TestClient(app, client=("198.51.100.7", 40001))
+    assert administrator.post("/api/admin/sign-in", json={"password": "first secret"}).json() == {
+        "signed_in": True
+    }
+
+
+def test_a_hash_that_cant_be_used_refuses_the_sign_in_without_a_server_error(
+    tmp_path: Path,
+) -> None:
+    write(tmp_path / "admin.toml", 'password_hash = "scrypt$18446744073709551616$8$1$cw==$cw=="\n')
+    refused = client(tmp_path).post("/api/admin/sign-in", json={"password": "anything"})
+    assert refused.status_code == 401 and refused.json()["detail"] == WRONG
 
 
 def test_the_api_says_when_the_password_changed(tmp_path: Path) -> None:

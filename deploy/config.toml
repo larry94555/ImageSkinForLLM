@@ -14,3 +14,8 @@ llm_url = "http://llama:8080/v1"
 
 # The administrator's password file (roadmap R149), mounted from deploy/admin/ by compose.yaml.
 admin_file = "/etc/imageskin/admin/admin.toml"
+
+# Only Caddy reaches the app (compose.yaml publishes no port for it), so its X-Forwarded-For,
+# which it sets afresh for each request, names the browser. The wait after wrong admin passwords
+# is then per browser, not shared by everyone behind Caddy.
+trusted_proxies = "*"
