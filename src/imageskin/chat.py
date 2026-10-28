@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
 
+from imageskin import reply_times
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.json_grammar import compact_grammar
 from imageskin.reply_times import note, note_llm, note_now, note_request
@@ -174,6 +175,10 @@ API_ERRORS = {
     404: "{name} doesn't know the model. Check it on the Settings page.",
     429: "{name} is getting too many requests, or the account is out of credit. Try again shortly.",
 }
+
+
+# A question typed with fewer words than this isn't read ahead (R148): too little to look up.
+READ_AHEAD_WORDS = 3
 
 
 class ClearFailed(Exception):
@@ -833,8 +838,12 @@ class Conversation:
         topics_complete: Callable[[], bool] = lambda: True,
         # Where the conversation is saved after each change and read from at the start (R30).
         saved: Path | None = None,
+        # Asks the local LLM to read a question typed so far, for one token, so its prompt is in
+        # llama-server's cache on Send (R148); None when it can't, or the LLM isn't local.
+        read_ahead: Callable[[list[Message]], str | None] | None = None,
     ) -> None:
         self._saved = saved
+        self._read_ahead = read_ahead
         self._find = find
         self._topics = topics
         self._topics_complete = topics_complete
@@ -945,6 +954,77 @@ class Conversation:
         with self._busy:
             self._fit(prompt)
 
+    def read_ahead(self, draft: str) -> str:
+        """Have the LLM read the question typed so far as `send` would send it, with the
+        conversation and the passages found on it, for one token, so on Send most of the prompt
+        is already in llama-server's cache (R148). Nothing is kept. Returns "read", or why it
+        was skipped."""
+        draft = draft.strip()
+        reason = self._read_ahead_skipped(draft)
+        if reason is not None:
+            logger.info("Prompt not read ahead", extra={"reason": reason})
+            return reason
+        assert self._read_ahead is not None
+        try:
+            fit = self._fit(draft)
+        except ValueError:
+            logger.info("Prompt not read ahead", extra={"reason": "too long"})
+            return "too long"
+        found = self._look_up(referred_topic(draft, *self._told) or draft)
+        if found == [] and self._content_only():
+            logger.info("Prompt not read ahead", extra={"reason": "declined"})
+            return "declined"
+        messages = [
+            system_message(fit.summary),
+            *map(as_message, fit.turns),
+            {"role": "user", "content": self._with_content(draft, found, fit.room, quiet=True)},
+        ]
+        start = time.perf_counter()
+        kept: list[dict[str, Any]] = []  # llama-server's timings for the request
+        token = reply_times.requests.set(kept)
+        try:
+            asked = self._read_ahead(messages)
+        except EmptyReply:
+            asked = ""  # its one token was a space: the prompt was still read
+        except LlmError as e:
+            logger.warning(
+                "Could not read the prompt ahead",
+                extra={"error": str(e), "duration_ms": ms_since(start)},
+            )
+            return "failed"
+        except LlmCancelled:
+            logger.info("Prompt read ahead cut off", extra={"duration_ms": ms_since(start)})
+            return "cut off"
+        finally:
+            reply_times.requests.reset(token)
+        if asked is None:
+            logger.info("Prompt not read ahead", extra={"reason": "busy"})
+            return "busy"
+        timings = kept[-1] if kept else {}
+        logger.info(
+            "Prompt read ahead",
+            extra={
+                "prompt_chars": len(draft),
+                "turns_sent": len(fit.turns),
+                "tokens_read": timings.get("prompt_n"),
+                "tokens_reused": timings.get("cache_n"),
+                "duration_ms": ms_since(start),
+            },
+        )
+        return "read"
+
+    def _read_ahead_skipped(self, draft: str) -> str | None:
+        """Why a question typed so far isn't read ahead, if it isn't (R148)."""
+        if self._read_ahead is None:
+            return "no local LLM"
+        if len(draft.split()) < READ_AHEAD_WORDS:
+            return "too short"
+        if self._busy.locked():
+            return "busy"
+        if asks_for_topics(draft) or asks_for_example(draft):
+            return "not asked as typed"  # answered from the topics, or about an earlier question
+        return None
+
     def _fit(self, prompt: str) -> _Fit:
         """How the prompt fits the context window, with the turns sent before it. A prompt that
         doesn't leave room for a reply is refused."""
@@ -1043,11 +1123,17 @@ class Conversation:
                 extra={"error": str(e), "duration_ms": round((time.perf_counter() - start) * 1000)},
             )
             raise
+        # llama-server's own count of the tokens it read and reused from its cache, known once
+        # it has answered: a prompt read ahead (R148) reuses most of them.
+        timed = reply_times.current.get()
+        llm = (timed.llm if timed is not None else None) or {}
         logger.info(
             "Chat reply received",
             extra={
                 "reply_chars": len(reply.content),
                 "duration_ms": round((time.perf_counter() - start) * 1000),
+                "tokens_read": llm.get("prompt_n"),
+                "tokens_reused": llm.get("cache_n"),
             },
         )
         if then is not None:
@@ -1193,7 +1279,9 @@ class Conversation:
         reply = Turn("assistant", " ".join(sentences))
         return reply, self._record(prompt, reply, turns, budget)
 
-    def _with_content(self, prompt: str, found: list[str] | None, room: int) -> str:
+    def _with_content(
+        self, prompt: str, found: list[str] | None, room: int, quiet: bool = False
+    ) -> str:
         """The prompt with what the content has on it quoted before it: as many of the
         passages found as fit CONTENT_TOKENS and the room left in the context window, best
         first, the last one cut to fit (roadmap R40). Only the prompt is kept in the
@@ -1214,10 +1302,11 @@ class Conversation:
                 break  # nothing more fits
             kept.append(passage)
             left -= cost
-        logger.info(
-            "Content sent with the prompt",
-            extra={"passages_found": len(found), "passages_sent": len(kept)},
-        )
+        if not quiet:  # a prompt read ahead (R148) isn't sent
+            logger.info(
+                "Content sent with the prompt",
+                extra={"passages_found": len(found), "passages_sent": len(kept)},
+            )
         if not kept:
             return prompt
         lines = "".join(f"- {passage}\n" for passage in kept)

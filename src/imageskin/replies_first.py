@@ -60,6 +60,7 @@ class RepliesFirst:
         self._changed = threading.Condition()
         self._replies = 0
         self._asking: set[_CutOff] = set()  # the wiki's requests being answered now
+        self._ahead: set[_CutOff] = set()  # questions being read ahead as they are typed (R148)
 
     @contextmanager
     def reply(self) -> Iterator[None]:
@@ -67,13 +68,17 @@ class RepliesFirst:
         with self._changed:
             self._replies += 1
             cut = [request for request in self._asking if not request.is_set()]
-            for request in cut:
+            ahead = [request for request in self._ahead if not request.is_set()]
+            for request in [*cut, *ahead]:
                 request.set()
         try:
             # Inside the try, so a settle that fails still lets the wiki go on after the reply
             # (Codex's review).
             if cut:
                 logger.info("Wiki request cut off for a reply", extra={"requests": len(cut)})
+            if ahead:
+                logger.info("Prompt read ahead cut off for a reply")
+            if cut or ahead:
                 if self._settle is not None:
                     start = time.perf_counter()
                     self._settle()
@@ -106,6 +111,36 @@ class RepliesFirst:
                 yield from stream(*args, **kwargs)
 
         return streamed
+
+    def ahead(self, ask: Callable[..., T], local: Callable[[], bool]) -> Callable[..., T | None]:
+        """`ask` for a question read ahead while it is typed (R148): asked only of the local LLM
+        and when no reply is being written (None otherwise), cut off by the next reply, as the
+        wiki's requests are, and by the next question read ahead, but never asked again."""
+
+        def asked(*args: Any, **kwargs: Any) -> T | None:
+            if not local():
+                return None
+            request = _CutOff(None)
+            with self._changed:
+                if self._replies:
+                    return None
+                older = [r for r in self._ahead if not r.is_set()]
+                for r in older:
+                    r.set()
+                self._ahead.add(request)
+            token = ask_stop.set(request)
+            try:
+                if older and self._settle is not None:
+                    self._settle()  # so it goes to the slot the older one read into
+                if request.is_set():
+                    raise LlmCancelled("Cut off before it was sent.")
+                return ask(*args, **kwargs)
+            finally:
+                ask_stop.reset(token)
+                with self._changed:
+                    self._ahead.discard(request)
+
+        return asked
 
     def wiki(self, ask: Callable[..., T]) -> Callable[..., T]:
         """`ask` for the wiki: it waits while a reply is written, and a request cut off by a
