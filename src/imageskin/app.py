@@ -103,7 +103,7 @@ from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_sin
 from imageskin.resources import ResourceReader
 from imageskin.review import accept, load_review, withdraw
 from imageskin.sentences import clips_of
-from imageskin.simpler import say_simpler
+from imageskin.simpler import SimplerCheck, say_simpler
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -1692,6 +1692,7 @@ def create_app(
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
         browser follows those, even once a newer prompt has taken them, rather than asking for
         the whole video."""
+        simpler_check.forget()  # the conversation changes: a simpler version is out of date
         # Listed before it waits for the warm-up or another prompt, so Stop reaches it there.
         stop = PromptStop()
         if body.reply_id is not None:
@@ -1771,6 +1772,10 @@ def create_app(
         # topic said from its saved part is spoken while the next one is written.
         with pinned(client), llm_busy():
             return lesson_ask(conversation.asked_alone(teach))
+
+    # Say it simpler is offered only when the simpler version, written ahead after the chat's
+    # requests as a lesson part is, says something new (R177).
+    simpler_check = SimplerCheck(write_lesson)
 
     lessons = None
     if lessons_ahead or (lessons_ahead is None and ask_llm is None):
@@ -1937,7 +1942,12 @@ def create_app(
                     topic = step.lesson.topic
                     choices = [Choice(f"Quiz me on {topic}", f"Quiz me on {topic}")]
             elif (simpler := say_simpler(body.prompt, conversation.turns())) is not None:
-                reply, turn = conversation.send(body.prompt, clips, simpler)  # R157
+                ready = simpler_check.ready(conversation.turns())  # written ahead (R177)
+                if ready is not None:
+                    logger.info("Simpler reply from the check", extra={"sentences": len(ready)})
+                    reply, turn = conversation.say(body.prompt, ready, clips)
+                else:
+                    reply, turn = conversation.send(body.prompt, clips, simpler)  # R157
             elif clips is not None and (example := example_context(body.prompt)) is not None:
                 reply, turn = answer_example(body.prompt, example, clips)
             else:
@@ -1989,6 +1999,14 @@ def create_app(
         with pinned(client), llm_busy():
             outcome = conversation.read_ahead(body.prompt)
         return {"read": outcome == "read", "reason": outcome}
+
+    @app.post("/api/chat/simpler", dependencies=[*needs_person, Depends(require_accepted)])
+    def post_simpler_check() -> dict[str, bool]:
+        """Whether Say it simpler would say something new for the latest reply (R177): its
+        simpler version is written ahead, after the chat's requests, and cut off by the next
+        prompt. Said once it is written, so the button shows only when it can do something."""
+        wait_for_warm_up("Simpler reply check")
+        return {"simpler": simpler_check.check(conversation.turns())}
 
     @app.post("/api/chat/repeat", dependencies=[*needs_person, Depends(require_accepted)])
     def post_repeat(body: RepeatRequest) -> dict[str, Any]:

@@ -45,6 +45,7 @@ import {
   review,
   ServerRefusal,
   readAhead,
+  checkSimpler,
   sendPrompt,
   speakReply,
   startPrepare,
@@ -1422,6 +1423,27 @@ function Chat(props: {
     null,
   );
   const busy = sending || speaking || saying !== null;
+  // Say it simpler shows only once the server has found that it would say something new for
+  // the latest reply (R177): after a few presses the LLM may give the same reply back. Checked
+  // once each reply is said, not while a quiz is going.
+  const last = turns?.[turns.length - 1];
+  const latestReply = last?.role === "assistant" ? last.content : null;
+  const [simplerFor, setSimplerFor] = useState<string | null>(null); // the reply it can simplify
+  const simplerChecked = useRef<string | null>(null);
+  useEffect(() => {
+    if (busy || quizGoing || latestReply === null || simplerChecked.current === latestReply) return;
+    simplerChecked.current = latestReply;
+    checkSimpler().then(
+      (simpler) => {
+        console.info(`Say it simpler ${simpler ? "offered" : "not offered"}`);
+        if (simpler && simplerChecked.current === latestReply) setSimplerFor(latestReply);
+      },
+      (e: unknown) => {
+        console.error("Could not check for a simpler reply", e);
+        if (simplerChecked.current === latestReply) simplerChecked.current = null;
+      },
+    );
+  }, [busy, quizGoing, latestReply]);
   // The question typed so far is read ahead by the LLM once typing pauses (R148), so most of it
   // is in the LLM's cache on Send. Not while a reply is made, nor for an answer to a quiz.
   const readAheadOf = useRef("");
@@ -1855,7 +1877,9 @@ function Chat(props: {
           <ReplyActions
             disabled={busy}
             onRepeat={() => void repeat()}
-            onSimpler={quizGoing ? undefined : () => void send(SAY_IT_SIMPLER)}
+            onSimpler={
+              quizGoing || simplerFor !== latestReply ? undefined : () => void send(SAY_IT_SIMPLER)
+            }
           />
         )}
         <p className="status muted" aria-live="polite">
@@ -2028,7 +2052,8 @@ function QuizControls(props: { quiz: Quiz; disabled: boolean; onAsk: (prompt: st
 const SAY_IT_SIMPLER = "Say it simpler";
 
 // Under the latest reply: Repeat says it again (R156), and Say it simpler has the LLM say it
-// again in simpler terms (R157). Not while a quiz is going, where whatever is sent is the answer.
+// again in simpler terms (R157), only when that says something new (R177). Not while a quiz is
+// going, where whatever is sent is the answer.
 function ReplyActions(props: {
   disabled: boolean;
   onRepeat: () => void;
