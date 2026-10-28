@@ -1,0 +1,51 @@
+INFO imageskin.default_people: Packed default person {}
+--- first person on this machine: usual times
+ 0.0 s  downloading     0%  left_s=39
+ 1.0 s  downloading    24%  left_s=32
+ 2.0 s  downloading    50%  left_s=31
+ 3.0 s  downloading    74%  left_s=31
+ 4.0 s  downloading    99%  left_s=31
+INFO imageskin.start_now: Downloaded default person {'duration_s': 4.0}
+INFO imageskin.start_now: Default person stage finished {'stage': 'download', 'duration_s': 4.0}
+INFO imageskin.default_people: Unpacked default person {}
+INFO imageskin.start_now: Default person stage finished {'stage': 'unpack', 'duration_s': 0.0}
+ 5.0 s  getting-ready 100%  left_s=24
+ 6.0 s  getting-ready 100%  left_s=23
+ 7.0 s  getting-ready 100%  left_s=22
+INFO imageskin.start_now: Rendered default person's line {'duration_s': 3.0}
+ 8.0 s  getting-ready 100%  left_s=21
+ 9.0 s  getting-ready 100%  left_s=20
+10.0 s  getting-ready 100%  left_s=19
+INFO imageskin.start_now: Rendered default person's line {'duration_s': 3.0}
+INFO imageskin.ready_voice: Ready-made voice chosen {}
+INFO imageskin.start_now: Default person stage finished {'stage': 'lines', 'duration_s': 6.0}
+INFO imageskin.start_now: Default person ready {'duration_s': 10.0}
+11.0 s  ready         100%  left_s=9
+INFO imageskin.start_now: Default person stage finished {'stage': 'chat', 'duration_s': 3.0}
+13.0 s  chat shown    left_s=None
+times kept: {"download": 4.0, "lines": 6.0, "chat": 3.0}
+--- next person: this machine's own times
+ 0.0 s  downloading     0%  left_s=17
+ 1.0 s  downloading    24%  left_s=16
+ 2.0 s  downloading    50%  left_s=15
+ 3.0 s  downloading    74%  left_s=15
+ 4.0 s  downloading    99%  left_s=15
+INFO imageskin.start_now: Downloaded default person {'duration_s': 4.0}
+INFO imageskin.start_now: Default person stage finished {'stage': 'download', 'duration_s': 4.0}
+INFO imageskin.default_people: Unpacked default person {}
+INFO imageskin.start_now: Default person stage finished {'stage': 'unpack', 'duration_s': 0.0}
+ 5.0 s  getting-ready 100%  left_s=8
+ 6.0 s  getting-ready 100%  left_s=7
+ 7.0 s  getting-ready 100%  left_s=7
+INFO imageskin.start_now: Rendered default person's line {'duration_s': 3.0}
+ 8.0 s  getting-ready 100%  left_s=6
+ 9.0 s  getting-ready 100%  left_s=6
+10.0 s  getting-ready 100%  left_s=5
+INFO imageskin.start_now: Rendered default person's line {'duration_s': 3.0}
+INFO imageskin.ready_voice: Ready-made voice chosen {}
+INFO imageskin.start_now: Default person stage finished {'stage': 'lines', 'duration_s': 6.0}
+INFO imageskin.start_now: Default person ready {'duration_s': 10.0}
+11.0 s  ready         100%  left_s=2
+INFO imageskin.start_now: Default person stage finished {'stage': 'chat', 'duration_s': 3.0}
+13.0 s  chat shown    left_s=None
+times kept: {"download": 4.0, "lines": 6.0, "chat": 3.0}
