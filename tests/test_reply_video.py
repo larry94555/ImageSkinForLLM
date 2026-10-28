@@ -1063,9 +1063,14 @@ def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) 
     # for, rather than starting another that would do nothing (a review finding).
     assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
     answers: list[int] = []
-    prompt = threading.Thread(
-        target=lambda: answers.append(client.post("/api/chat", json={"prompt": "Hi"}).status_code)
-    )
+    replies: list[dict[str, Any]] = []
+
+    def send() -> None:
+        sent = client.post("/api/chat", json={"prompt": "Hi"})
+        answers.append(sent.status_code)
+        replies.append(sent.json())
+
+    prompt = threading.Thread(target=send)
     prompt.start()
     time.sleep(0.3)
     assert order == ["rendered Hello."] and answers == []  # the prompt waits for the LLM's
@@ -1078,6 +1083,13 @@ def test_the_first_prompt_after_accepting_waits_for_the_warm_up(tmp_path: Path) 
     # Each part of the warm-up is timed for time-startup (R96c).
     parts = {p["name"] for p in client.get("/api/startup").json()["parts"]}
     assert {"app made", "reply warm-up", "LLM warm-up", "voice and video warm-up"} <= parts
+    # R134c: the wait is a step of the thinking, with the warm-up's part it waited for.
+    steps = {s["step"]: s for s in replies[0]["timings"]["steps"]}
+    wait = steps["waiting for the warm-up"]
+    assert wait["duration_ms"] >= 900 and wait["start_ms"] >= 0
+    llm = steps["warm-up: LLM reading the system prompt"]
+    assert wait["start_ms"] <= llm["start_ms"] <= llm["end_ms"] <= wait["end_ms"]
+    assert llm["duration_ms"] >= 900  # the LLM's warm-up is what it waited for
 
 
 REPLY_ID = "0123456789abcdef0123456789abcdef"
@@ -1118,6 +1130,18 @@ def test_the_api_serves_a_streamed_replys_clips_as_they_are_made(tmp_path: Path)
         assert times["first_token_at"] <= times["first_sentence_at"] <= times["last_token_at"]
         assert times["last_token_at"] <= times["answered_at"]
         assert status["clips"][0]["sentence_at"] >= times["first_sentence_at"]
+        # R134c: every step of the thinking, with its start, end and duration.
+        # Under load, a wait for the LLM to be free can come first.
+        steps = [s["step"] for s in times["steps"] if not s["step"].startswith("waiting")]
+        assert steps[:4] == [
+            "searching the PDFs and the wiki",
+            "LLM reading the prompt",
+            "LLM writing the first sentence",
+            "LLM writing the rest of the reply",
+        ]
+        for step in times["steps"]:
+            assert 0 <= step["start_ms"] <= step["end_ms"]
+            assert step["duration_ms"] == pytest.approx(step["end_ms"] - step["start_ms"], abs=0.2)
         assert said == ["Hi Larry.", "How are you?"]
         clip = client.get(f"{clips_api}/2")
         assert clip.headers["content-type"] == "video/mp4" and clip.content[4:8] == b"ftyp"
@@ -1128,6 +1152,58 @@ def test_the_api_serves_a_streamed_replys_clips_as_they_are_made(tmp_path: Path)
         assert client.get(clips_api).status_code == 404  # only the latest reply's are kept
         assert not (tmp_path / "replies" / f"clips-{REPLY_ID}").exists()
         assert client.post("/api/chat", json={"prompt": "x", "reply_id": "../x"}).status_code == 422
+
+
+def test_the_first_clips_voice_and_video_are_steps_of_the_thinking(tmp_path: Path) -> None:
+    """R134c: when the first sentence's clip has started by the time the reply is written, its
+    wait for the voice and its voice and first video are steps too."""
+    rendering = threading.Event()
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        rendering.set()
+        tone_clip(0.5, output)
+
+    def stream(messages: list[dict[str, str]]) -> Iterator[str]:
+        yield "Hi Larry. Bye"  # the first sentence ends where the next begins
+        assert rendering.wait(5)  # the first clip's video is being written
+        yield " now."
+
+    client = video_app(tmp_path, render, stream)
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        sent = client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
+    steps = {s["step"]: s for s in sent.json()["timings"]["steps"]}
+    waited = steps["first sentence waiting for the voice"]
+    spoken = steps["first sentence spoken and its video started"]
+    assert waited["end_ms"] == spoken["start_ms"] <= spoken["end_ms"]
+    assert waited["start_ms"] >= steps["LLM writing the first sentence"]["start_ms"]
+
+
+def test_a_prompt_behind_another_has_its_wait_as_a_step(tmp_path: Path) -> None:
+    """R134c: the time a prompt waits for the LLM to be free is a step of its thinking."""
+    asking, answer = threading.Event(), threading.Event()
+
+    def ask(messages: list[dict[str, str]]) -> str:
+        if not asking.is_set():
+            asking.set()
+            assert answer.wait(5)
+        return "Hi."
+
+    client = video_app(tmp_path, lambda photo, text, output: None, ask_llm=ask)
+    replies: list[dict[str, Any]] = []
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        first = threading.Thread(target=lambda: client.post("/api/chat", json={"prompt": "Hi"}))
+        first.start()
+        assert asking.wait(5)
+        second = threading.Thread(
+            target=lambda: replies.append(client.post("/api/chat", json={"prompt": "Yo"}).json())
+        )
+        second.start()
+        time.sleep(0.2)
+        answer.set()
+        first.join(5)
+        second.join(5)
+    [waited] = [s for s in replies[0]["timings"]["steps"] if s["step"].startswith("waiting for")]
+    assert waited["step"] == "waiting for the LLM to be free" and waited["duration_ms"] >= 150
 
 
 def test_the_api_answers_as_soon_as_there_is_a_new_clip(tmp_path: Path) -> None:

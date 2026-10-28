@@ -168,6 +168,9 @@ def test_a_spoken_prompt_is_answered_and_shown_as_meant(tmp_path: Path) -> None:
     reply = chat(client, "What are Crime Number Basics?", spoken=True)
     assert reply["prompt"] == "What are Prime Number Basics?"
     assert reply["content"] == "Two moons."
+    # R134c: the correction is a step of the thinking, with the LLM's one-off answer in it.
+    steps = [s["step"] for s in reply["timings"]["steps"] if not s["step"].startswith("waiting")]
+    assert steps[:2] == ["LLM writing a one-off answer", "correcting the spoken question"]
     turns: list[dict[str, Any]] = client.get("/api/chat").json()["turns"]
     assert turns[-2] == {"role": "user", "content": "What are Prime Number Basics?"}
 

@@ -36,6 +36,7 @@ from imageskin.chat import (
     Message,
     PromptStop,
     StoppableResponse,
+    Teach,
     Turn,
     ask_stop,
     estimate,
@@ -684,6 +685,71 @@ def test_a_streamed_replys_times_are_kept_for_the_prompt() -> None:
     finally:
         reply_times.current.reset(token)
     assert again.history_tokens is not None and again.history_tokens > 0
+
+
+def test_each_step_of_a_streamed_reply_is_timed() -> None:
+    """R134c: the LLM reading the prompt, with llama-server's tokens, then writing the first
+    sentence and the rest, end to end; and the search of the content before them."""
+
+    def stream(messages: list[Message]) -> Iterator[str]:
+        yield from ["Hi there. ", "Bye"]
+        reply_times.note_llm({"prompt_n": 30, "cache_n": 200, "predicted_n": 6})
+        yield " now."
+
+    conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream, find=lambda p: ["x"])
+    times = reply_times.ReplyTimes(received_at=time.perf_counter())
+    token = reply_times.current.set(times)
+    try:
+        conversation.send("Hi")
+    finally:
+        reply_times.current.reset(token)
+    steps = {s["step"]: s for s in times.steps}
+    assert list(steps) == [
+        "searching the PDFs and the wiki",
+        "LLM reading the prompt",
+        "LLM writing the first sentence",
+        "LLM writing the rest of the reply",
+    ]
+    reading = steps["LLM reading the prompt"]
+    assert reading["tokens_read"] == 30 and reading["tokens_reused"] == 200
+    assert steps["LLM writing the rest of the reply"]["tokens_written"] == 6
+    assert reading["end_ms"] == steps["LLM writing the first sentence"]["start_ms"]
+    first = steps["LLM writing the first sentence"]
+    assert first["end_ms"] == steps["LLM writing the rest of the reply"]["start_ms"]
+
+
+def test_an_unstreamed_reply_a_one_off_answer_and_what_follows_are_timed() -> None:
+    """R134c: a reply that isn't streamed is one step, as are a one-off answer (a spoken
+    question's correction, a quiz question) and what is said after a reply."""
+    conversation = Conversation(FakeLlm2(), lambda: 4096)
+    times = reply_times.ReplyTimes(received_at=time.perf_counter())
+    token = reply_times.current.set(times)
+    try:
+        conversation.write("Correct this.", [])
+        conversation.send("Quiz me", teach=Teach("Judge it.", [], then=lambda reply: ["Next?"]))
+    finally:
+        reply_times.current.reset(token)
+    assert [s["step"] for s in times.steps] == [
+        "LLM writing a one-off answer",
+        "LLM answering",
+        "adding what follows the reply",
+    ]
+
+
+def test_a_reply_timed_from_another_replys_first_token_has_no_llm_steps() -> None:
+    """A first token kept from an earlier stream in the same prompt isn't this reply's."""
+
+    def stream(messages: list[Message]) -> Iterator[str]:
+        yield "Hi."
+
+    conversation = Conversation(FakeLlm2(), lambda: 4096, stream=stream)
+    times = reply_times.ReplyTimes(received_at=time.perf_counter(), first_token_at=0.0)
+    token = reply_times.current.set(times)
+    try:
+        conversation.send("Hi")
+    finally:
+        reply_times.current.reset(token)
+    assert times.steps == []
 
 
 @pytest.mark.parametrize(
