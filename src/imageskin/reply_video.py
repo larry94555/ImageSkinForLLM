@@ -449,17 +449,18 @@ class SentenceClips:
             self._making = (start, len(sentence.split()))
         try:
             spoken = self._speak(n, sentence, sentence_at)
-            if spoken is None:
-                return
-            if self._stopped():  # cancelled while it was spoken: no video for it
-                spoken.wav.unlink(missing_ok=True)
-                spoken.wav.with_suffix(".json").unlink(missing_ok=True)
-                return
         except Exception as e:
+            self._begun()
             self._fail(n, "voice", e)
             return
-        finally:
-            self._begun()  # unless its clip was listed
+        if spoken is None or self._stopped():  # nothing to say, or cancelled while spoken
+            self._begun()
+            if spoken is not None:
+                spoken.wav.unlink(missing_ok=True)
+                spoken.wav.with_suffix(".json").unlink(missing_ok=True)
+            return
+        # Still being made until _render lists it, under the same lock, so the hold never sees
+        # it gone from the clips being made before it is among those ready (R161).
         try:
             listed_at, mouth_lead = self._render(spoken)
         except Exception as e:

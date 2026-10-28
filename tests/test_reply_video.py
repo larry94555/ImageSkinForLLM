@@ -2074,6 +2074,29 @@ def test_playback_waits_until_the_reply_can_play_through(
     assert released.make_per_speech_s == 10.0  # type: ignore[attr-defined]
 
 
+def test_a_clip_spoken_is_still_being_made_until_it_is_listed(tmp_path: Path) -> None:
+    # The hold must never see a spoken clip as neither being made nor ready (R161, Codex on
+    # PR #206): its words and time count as being made until _render lists it.
+    said: list[str] = []
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), wav_steps(said)
+    )
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    seen: list[tuple[float, int] | None] = []
+    render = clips._render
+
+    def watched(spoken: Any) -> tuple[float, float | None]:
+        seen.append(clips._making)
+        return render(spoken)
+
+    clips._render = watched  # type: ignore[method-assign]
+    clips("One two three.")
+    clips.close()
+    clips.wait(10)
+    assert seen and seen[0] is not None and seen[0][1] == 3
+    assert clips._making is None and clips._words_begun == 3
+
+
 def test_a_reply_that_can_play_through_starts_at_once(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
