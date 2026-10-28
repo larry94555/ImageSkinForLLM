@@ -155,6 +155,20 @@ def test_analyze_joins_clips_and_finds_the_pauses() -> None:
     assert result["join_silence_s"] == round((200 + 100 + 100 + 50) / 1000, 1)
 
 
+def test_analyze_leaves_the_opener_out_of_the_reply() -> None:
+    clips = [
+        clip(1, opener=True, first_byte_ms=1500, plays_ms=1500, seconds=1.5),  # R161's opener
+        clip(2, first_byte_ms=3000, plays_ms=3200, gap_ms=200),
+        clip(3, sentence_ms=2500, first_byte_ms=4000, plays_ms=5200, gap_ms=0),
+    ]
+    result = analyze(summary(clips), [note("One two.", 1), note("Three four.", 2)])
+    assert [c["clip"] for c in result["clips"]] == [1, 2]  # the reply's own numbers
+    assert result["opener_heard_ms"] == 1500 and result["first_word_heard_ms"] == 3200
+    assert result["words"] == 4
+    assert result["after_opener_ms"] == 200 and result["gaps_over"] == 0  # its wait, not a gap
+    assert "| Opener heard | Silence after it |" in markdown([result], "x")
+
+
 def test_analyze_takes_only_its_reply_s_lines() -> None:
     other = {**note("Another reply."), "reply": "x"}
     result = analyze(summary([clip(1), clip(2)]), [other, note("One.", 1), note("Two.", 2)])
@@ -240,7 +254,7 @@ def test_markdown_and_timeline(tmp_path: Path) -> None:
     result["own_rate_wpm"] = 170
     report = markdown([result, {**result, "error": "boom"}], "test")
     assert "# Where the pauses come from in a long reply (test)" in report
-    assert "| 1 | 44 | 3000 |" in report
+    assert "| 1 | 44 | - | - | 3000 |" in report  # no opener (R161)
     assert "text late 1" in report and "Error: boom" in report
     assert "…" in report  # the long text is cut
     pytest.importorskip("matplotlib")

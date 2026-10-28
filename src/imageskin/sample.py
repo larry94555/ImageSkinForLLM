@@ -12,6 +12,10 @@ from imageskin.voice import VoiceEngine, write_speech
 
 logger = logging.getLogger(__name__)
 
+# Said as soon as a prompt is sent, while the reply is held back until it can play through
+# (roadmap R161), so the person answers at once. Rendered with the fixed lines.
+OPENER = "Let me think about that."
+
 SAMPLE_SCRIPT = (
     "This is a test. How do I sound? I'm speaking in my own voice, or as close to it as a "
     "computer can get. Let me try a few things. Numbers: one, two, three, forty-five, and nine "

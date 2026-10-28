@@ -22,6 +22,7 @@ from imageskin.app import create_app
 from imageskin.download import DownloadError, sha256_of
 from imageskin.prepare_job import ClipSteps, PrepareError
 from imageskin.reply_video import ReplyVideos, VoiceReady
+from imageskin.sample import OPENER
 from imageskin.voice import Speech
 
 CHOICE = sn.Choice("female", "British", "animated", "Professor")
@@ -155,7 +156,7 @@ def test_start_downloads_unpacks_and_says_the_lines(
     assert start.chosen() == CHOICE
     assert start.picture() == tmp_path / "default-people" / f"{CHOICE.name}.png"
     assert start.voice() == ("b", "bf_emma")
-    assert said == ["Goodbye.", "Welcome back."]
+    assert said == ["Goodbye.", "Welcome back.", OPENER]
     assert start.clip("goodbye") is not None and start.clip("welcome-back") is not None
     assert start.clip("sample") is None
     # Kept, so the library can be unpacked again after Delete my data without a download.
@@ -187,7 +188,7 @@ def test_the_other_accent_needs_only_its_lines(tmp_path: Path, pack: Path) -> No
     again.start(american)
     again.wait(10)
     assert again.status().state == "ready" and fetch.urls == []
-    assert said == ["Goodbye.", "Welcome back."] and again.voice() == ("a", "af_heart")
+    assert said == ["Goodbye.", "Welcome back.", OPENER] and again.voice() == ("a", "af_heart")
 
 
 def test_a_changed_voice_says_the_lines_again_at_start_up(
@@ -211,7 +212,10 @@ def test_a_changed_voice_says_the_lines_again_at_start_up(
     assert again.refresh() is True
     again.wait(10)
     assert again.status().state == "ready" and fetch.urls == []
-    assert said == ["Goodbye.", "Welcome back."] and again.voice() == ("b", "bf_emma,af_kore")
+    assert said == ["Goodbye.", "Welcome back.", OPENER] and again.voice() == (
+        "b",
+        "bf_emma,af_kore",
+    )
     goodbye = again.clip("goodbye")
     assert goodbye is not None and goodbye.parent.name.endswith("_british_bf_emma+af_kore")
 
@@ -261,7 +265,7 @@ def test_a_remade_pack_replaces_the_old_face_before_the_person_is_ready(
     assert again.status().state == "ready" and len(fetch.urls) == 1
     picture = again.picture()
     assert picture is not None and picture.read_bytes() == b"the new face"
-    assert said == ["Goodbye.", "Welcome back."]  # said again by the new face
+    assert said == ["Goodbye.", "Welcome back.", OPENER]  # said again by the new face
     assert second_face.is_dir()  # the second face's lines are its own
     assert any(r.getMessage() == "Default person's pack changed" for r in caplog.records)
     assert started(tmp_path, new, fetch=fetch).start(CHOICE).state == "ready"
@@ -282,7 +286,7 @@ def test_a_remade_pack_is_got_at_start_up_keeping_the_choice(tmp_path: Path, pac
     assert again.own_voice() is True and again.chosen() == CHOICE
     picture = again.picture()
     assert picture is not None and picture.read_bytes() == b"the new face"
-    assert said == ["Goodbye.", "Welcome back."] and again.refresh() is False
+    assert said == ["Goodbye.", "Welcome back.", OPENER] and again.refresh() is False
 
 
 @pytest.mark.parametrize("held_open", [False, True])
@@ -493,7 +497,7 @@ def test_the_lines_are_spoken_in_the_persons_voice_only_while_rendered(
     assert start.rendering_voice() is None
     start.start(CHOICE)
     start.wait(10)
-    assert voices == [CHOICE.voice, CHOICE.voice]
+    assert voices == [CHOICE.voice] * 3
     assert start.rendering_voice() is None
 
 
@@ -516,6 +520,7 @@ def test_getting_a_person_ready_holds_the_prepare_job(tmp_path: Path, pack: Path
         "claim",
         "render Goodbye.",
         "render Welcome back.",
+        f"render {OPENER}",
         "release when getting-ready",
     ]
     assert start.status().state == "ready"

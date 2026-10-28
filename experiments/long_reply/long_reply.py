@@ -113,7 +113,18 @@ def aligned(summary: dict[str, Any], noted: list[dict[str, Any]]) -> list[dict[s
 
 def analyze(summary: dict[str, Any], noted: list[dict[str, Any]]) -> dict[str, Any]:
     """One reply's clips from `time_reply.summarize`, joined with their lines from
-    serve_logged.py (checked by `aligned`), and the reply's rates."""
+    serve_logged.py (checked by `aligned`), and the reply's rates. The opener said before the
+    reply (R161) is left out of the clips, and noted when it was heard."""
+    openers = [c for c in summary["clips"] if c.get("opener")]
+    # Numbered from 1 again, as serve_logged.py numbers the reply's clips.
+    rest = [
+        {**c, "clip": c["clip"] - len(openers)} for c in summary["clips"] if not c.get("opener")
+    ]
+    # The silence between the opener and the reply is its wait, not a gap in the reply.
+    after_opener_ms = rest[0]["gap_ms"] if openers and rest else None
+    if openers and rest:
+        rest[0] = {**rest[0], "gap_ms": None, "late": False}
+    summary = {**summary, "clips": rest}
     noted = aligned(summary, noted)
     clips = []
     previous: dict[str, Any] | None = None
@@ -177,7 +188,12 @@ def analyze(summary: dict[str, Any], noted: list[dict[str, Any]]) -> dict[str, A
     return {
         "prompt": summary["prompt"],
         "error": summary["error"],
-        "first_word_heard_ms": summary["first_word_heard_ms"],
+        # The reply's first word, after the opener if there was one.
+        "first_word_heard_ms": (
+            clips[0]["plays_ms"] if openers and clips else summary["first_word_heard_ms"]
+        ),
+        "opener_heard_ms": openers[0]["plays_ms"] if openers else None,
+        "after_opener_ms": after_opener_ms,
         "first_token_ms": summary["first_token_ms"],
         "last_token_ms": summary["last_token_ms"],
         "clips": clips,
@@ -297,6 +313,8 @@ def markdown(results: list[dict[str, Any]], label: str) -> str:
         [
             "Reply",
             "Words",
+            "Opener heard",
+            "Silence after it",
             "First word heard",
             "Heard for (s)",
             "Rate heard",
@@ -319,6 +337,8 @@ def markdown(results: list[dict[str, Any]], label: str) -> str:
             [
                 i,
                 r["words"],
+                r.get("opener_heard_ms"),
+                r.get("after_opener_ms"),
                 r["first_word_heard_ms"],
                 r["heard_s"],
                 r["rate_heard_wpm"],

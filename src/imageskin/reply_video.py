@@ -38,6 +38,8 @@ from imageskin.video import discard
 logger = logging.getLogger(__name__)
 
 HOLD_CHECK_S = 0.25  # how often a request waiting on held-back clips looks again
+# The opener (R161) plays once the reply has had nothing to play for this long after Send.
+OPENER_AFTER_S = 1.0
 
 JOIN_WORDS = pace.JOIN_WORDS  # the most words a clip of sentences joined may have
 _BLOCK = re.compile(r"[ \t]*(?:\d+[.)]|[-*+]|#{1,6})[ \t]")  # a list item or heading
@@ -176,6 +178,11 @@ class SentenceClips:
         self._making: tuple[float, int] | None = None  # the clip being spoken: began, words
         self._last_sentence_at = 0.0
         self._ready_speech_s = 0.0  # the speech in clips listed so far
+        # The person saying "Let me think about that", played first while the reply is held
+        # back (R161), when given. Set before the first sentence.
+        self.opener: Path | None = None
+        self._opened = 0  # 1 once the opener is the first clip; the reply's clips follow it
+        self._created_at = time.perf_counter()
         self.plays: list[pace.ClipPlay] = []  # each whole clip's times, for the pace log
         # Given the clips once every one is rendered and none failed or was stopped, before they
         # can be removed (roadmap R130a). Set before close().
@@ -199,13 +206,14 @@ class SentenceClips:
         self.folder.mkdir(parents=True, exist_ok=True)
         now = time.perf_counter()
         with self._changed:
-            for n, clip in enumerate(kept, 1):
-                path = self.folder / f"{n}.mp4"
+            for clip in kept:  # after the opener, if it is playing (R161)
+                path = self.folder / f"{len(self.clips) + 1}.mp4"
                 shutil.copyfile(clip, path)
                 self.clips.append(path)
                 self.times.append(ClipTime(now, now, now))
                 self.whole_at.append(now)
-            self.rendered = self.sentences = self._handled = len(kept)
+            self.rendered = len(self.clips)
+            self.sentences = self._handled = len(kept)
             self.released_at = now  # all made: nothing to wait for
             self._changed.notify_all()
 
@@ -213,11 +221,12 @@ class SentenceClips:
         """Every clip, once all are rendered and none failed or was stopped, so the reply can be
         said again from them (roadmap R156); None otherwise."""
         with self._changed:
-            if not self.done or self._stopped() or not self.clips:
+            reply = self.clips[self._opened :]  # the opener isn't said again (R161)
+            if not self.done or self._stopped() or not reply:
                 return None
-            if self.rendered < len(self.clips) or not all(c.is_file() for c in self.clips):
+            if self.rendered < len(self.clips) or not all(c.is_file() for c in reply):
                 return None
-            return list(self.clips)
+            return reply
 
     def close(self) -> None:
         """The reply is complete: the clips' thread ends after the last sentence, so it never
@@ -252,7 +261,7 @@ class SentenceClips:
         """Log the pace the reply is heard at, its wait and every gap over pace.GAP_S (R130)."""
         assert self.released_at is not None
         heard = pace.heard(self.plays, self.released_at)
-        first = self.times[0].sentence_at
+        first = self.times[self._opened].sentence_at
         logger.info(
             "Reply paced",
             extra={
@@ -263,8 +272,9 @@ class SentenceClips:
                 # From the first sentence arriving to the first clip playing, and of it, the
                 # time held back so the rest keeps up.
                 "wait_ms": round((self.released_at - first) * 1000),
-                "held_ms": round((self.released_at - self.times[0].ready_at) * 1000),
+                "held_ms": round((self.released_at - self.times[self._opened].ready_at) * 1000),
                 "gaps_foreseen_s": self.gaps_foreseen_s,
+                "opener": bool(self._opened),
                 "gaps": [
                     {"clip": g.clip, "seconds": g.seconds, "cause": g.cause} for g in heard.gaps
                 ],
@@ -276,9 +286,11 @@ class SentenceClips:
         until the rest of the reply can play through, at most pace.MAX_HOLD_S after the first
         clip is ready, or until the reply is done; then every clip listed so far."""
         with self._changed:
-            if self.released_at is None and self.clips:
-                now = time.perf_counter()
-                held_s = now - self.times[0].ready_at
+            now = time.perf_counter()
+            if not self.clips and now - self._created_at >= OPENER_AFTER_S:
+                self._open("nothing to play yet")
+            if self.released_at is None and len(self.clips) > self._opened:
+                held_s = now - self.times[self._opened].ready_at
                 done = self.done or self._stopped()
                 foreseen = None if done else self._gaps_ahead(now)
                 through = foreseen is not None and foreseen <= pace.PLAY_THROUGH_GAP_S
@@ -297,11 +309,35 @@ class SentenceClips:
                             "make_per_speech_s": round(self.machine.per_speech_s, 2),
                         },
                     )
-            return len(self.clips) if self.released_at is not None else 0
+            return len(self.clips) if self.released_at is not None else self._opened
+
+    @property
+    def openers(self) -> int:
+        """How many of the first clips are the opener, not the reply: 0 or 1 (R161)."""
+        return self._opened
+
+    def _open(self, why: str) -> None:
+        """Make the opener the first clip, playable at once, if there is one and playback is
+        still held back. Under `_changed`, before the reply's first clip is listed."""
+        if self.opener is None or self._opened or self.clips or self.released_at is not None:
+            return
+        if self.done or self._stopped() or not self.opener.is_file():
+            return
+        now = time.perf_counter()
+        self.clips.append(self.opener)
+        self.times.append(ClipTime(now, now, now))
+        self.whole_at.append(now)
+        self.rendered += 1
+        self._opened = 1
+        self._changed.notify_all()
+        logger.info(
+            "Reply opener played",
+            extra={"why": why, "since_send_ms": round((now - self._created_at) * 1000)},
+        )
 
     def _llm_words_per_s(self) -> float | None:
         """How fast the LLM has written this reply, once it has written for a second."""
-        if self._first_words is None or not self.times:
+        if self._first_words is None or len(self.times) <= self._opened:
             return None
         start = self._first_words
         end = time.perf_counter() if not self._closed else self._last_sentence_at
@@ -390,9 +426,10 @@ class SentenceClips:
                 self._make(n + 1, " ".join(t for t, _ in batch), batch[0][1], len(batch))
                 n += len(batch)
                 self._handled += len(batch)
-            if self.on_complete is not None and not self._stopped() and self.clips:
+            reply = self.clips[self._opened :]  # kept without the opener (R161)
+            if self.on_complete is not None and not self._stopped() and reply:
                 try:
-                    self.on_complete(list(self.clips))
+                    self.on_complete(reply)
                 except Exception:
                     logger.exception("Could not hand on a reply's clips")
         self._finish()
@@ -494,6 +531,11 @@ class SentenceClips:
         path = self.folder / f"{len(self.clips) + 1}.mp4"
         listed_at = time.perf_counter()
         with self._changed:
+            if not self.clips and self.opener is not None:  # with this clip ready
+                self._ready_speech_s += spoken.seconds or 0.0
+                if self._gaps_ahead(listed_at) > pace.PLAY_THROUGH_GAP_S:
+                    self._open("reply held back")
+                self._ready_speech_s -= spoken.seconds or 0.0
             self.times.append(ClipTime(spoken.sentence_at, listed_at, spoken.started_at))
             self.clips.append(path)
             self._begun(spoken.seconds or 0.0)

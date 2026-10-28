@@ -127,7 +127,7 @@ def test_prepares_the_voice_then_the_face_and_saves_the_result(
     # Mouth shapes from before: done, with no time, since nothing was rendered.
     assert [s.seconds is None for s in status.steps] == [False, False, True, False, False, False]
     assert caplog.text.count("Prepare step finished") == 5
-    assert caplog.text.count("Rendered clip") == 3
+    assert caplog.text.count("Rendered clip") == 4
     assert caplog.text.count("Prepare step already done") == 1
     assert "Prepare job finished" in caplog.text
     saved = json.loads((tmp_path / "prepare.json").read_text())
@@ -532,7 +532,7 @@ def test_renders_the_sample_and_the_fixed_lines_after_the_face(tmp_path: Path) -
     said.clear()
     job.start()
     job.wait(5)
-    assert len(said) == 3
+    assert len(said) == 4
 
 
 def test_a_restart_keeps_the_clips_already_rendered(tmp_path: Path) -> None:
@@ -560,7 +560,7 @@ def test_a_restart_keeps_the_clips_already_rendered(tmp_path: Path) -> None:
     job, _ = make_job(tmp_path, clip=clip)
     job.resume()
     job.wait(5)
-    assert said[0] == "Welcome back." and len(said) == 2
+    assert said[0] == "Welcome back." and len(said) == 3
     assert (tmp_path / "clips" / "goodbye.mp4").read_text() == "kept"
     assert job.status().state == "done"
 
@@ -625,7 +625,7 @@ def test_another_face_movement_needs_preparing_and_reviewing_again(tmp_path: Pat
     job.start()
     job.wait(5)
     done = job.status()
-    assert done.state == "done" and done.face_movement == "normal" and made == ["normal"] * 3
+    assert done.state == "done" and done.face_movement == "normal" and made == ["normal"] * 4
     accept(tmp_path, done)
     save_ui_settings(tmp_path, {"face_movement": "slight"})
     assert job.status().state == "idle" and job.clip("sample") is None
@@ -638,7 +638,7 @@ def test_another_face_movement_needs_preparing_and_reviewing_again(tmp_path: Pat
     job.wait(5)
     again = job.status()
     assert again.state == "done" and again.face_movement == "slight"
-    assert made[3:] == ["slight"] * 3
+    assert made[4:] == ["slight"] * 4
     assert load_review(tmp_path, again).accepted is False  # a new sample to review
 
 
@@ -678,7 +678,7 @@ def test_a_change_while_preparing_waits_for_the_next_prepare(tmp_path: Path) -> 
     job, _ = make_job(tmp_path, clip=clip)
     job.start()
     job.wait(5)
-    assert made == ["normal"] * 3  # every clip alike
+    assert made == ["normal"] * 4  # every clip alike
     assert job.status().state == "idle"  # and Prepare again shows, for "off"
 
 
@@ -719,7 +719,7 @@ def test_a_restart_after_another_face_movement_renders_every_clip_again(
         job.wait(5)
     assert {movement for _, movement in made} == {"slight"}
     assert ((tmp_path / "clips" / "goodbye.mp4").read_text() == "kept") is kept
-    assert len(made) == (2 if kept else 3)
+    assert len(made) == (3 if kept else 4)
     assert job.status().state == "done" and job.status().face_movement == "slight"
     changed = "Face movement changed; rendering the clips again" in caplog.text
     assert changed is not kept

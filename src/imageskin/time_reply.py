@@ -290,6 +290,7 @@ def summarize(m: Measured) -> dict[str, Any]:
                 and first_byte is not None
                 and first_byte > previous_end,
                 "error": clip.error,
+                "opener": bool(s.get("opener")),  # said before the reply (R161)
             }
         )
         if first_play is None:

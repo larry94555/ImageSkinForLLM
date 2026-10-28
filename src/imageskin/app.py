@@ -1012,6 +1012,13 @@ def create_app(
         to, and its sample in that voice is accepted."""
         return start_now.own_voice() and load_review(data_home, job.peek()).accepted
 
+    def person_line(name: ClipName) -> Path | None:
+        """A fixed line said by whoever is chatting now: the default person, or the user's own
+        photo and voice as Prepare made them (and the avatar in the user's voice, R24d)."""
+        if start_now.chosen() is not None and not avatar_in_own_voice():
+            return start_now.clip(name)
+        return job.clip(name)
+
     def reply_preset() -> tuple[str, str] | None:
         """The ready-made voice the replies speak in, or None for the user's own."""
         if avatar_in_own_voice():
@@ -1860,6 +1867,7 @@ def create_app(
         clips = None
         if photo is not None and body.reply_id is not None:
             clips = replies.sentence_clips(photo, body.reply_id)
+            clips.opener = person_line("opener")  # said while the reply is held back (R161)
             with clips_lock:
                 if stop.is_set():  # stopped meanwhile: no clips
                     clips = None
@@ -2099,6 +2107,8 @@ def create_app(
                 # When its voice step began and when its video was whole (R96).
                 "started_at": t.started_at,
                 "whole_at": clips.whole_at[n - 1] if n <= len(clips.whole_at) else None,
+                # The person's "Let me think about that" before the reply (R161).
+                "opener": n <= clips.openers,
             }
             # Only those the browser may play yet: playback is held back until the rest keeps
             # up (R130).

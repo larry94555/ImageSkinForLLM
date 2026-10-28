@@ -29,7 +29,7 @@ from imageskin.accent import OWN, Accent, AccentEngine
 from imageskin.download import sha256_of
 from imageskin.failure import Failure, report
 from imageskin.kokoro_engine import DEFAULT_VOICE, KokoroEngine
-from imageskin.sample import SAMPLE_SCRIPT
+from imageskin.sample import OPENER, SAMPLE_SCRIPT
 from imageskin.ui_settings import DEFAULTS, load_ui_settings
 from imageskin.uploads import UploadStore
 from imageskin.video import INSTALL_HINT, VideoError, find_ffmpeg
@@ -89,13 +89,15 @@ def steps_clip(steps: ClipSteps) -> RenderClip:
     return render
 
 
-ClipName = Literal["sample", "goodbye", "welcome-back"]
+ClipName = Literal["sample", "goodbye", "welcome-back", "opener"]
 
 # The videos rendered after the face (features.md items 5 and 6): the sample video the user
-# reviews, and the fixed lines said on exit and on return.
+# reviews, the fixed lines said on exit and on return, and the opener said as a reply starts
+# (roadmap R161).
 CLIPS: tuple[tuple[ClipName, str], ...] = (
     ("goodbye", "Goodbye."),
     ("welcome-back", "Welcome back."),
+    ("opener", OPENER),
     ("sample", SAMPLE_SCRIPT),
 )
 
@@ -128,6 +130,7 @@ NO_OP_S = 1.0
 CLIP_ACTIVITY: dict[str, str] = {
     "goodbye": "Making the video of “Goodbye.”",
     "welcome-back": "Making the video of “Welcome back.”",
+    "opener": f"Making the video of “{OPENER}”",
     "sample": "Making the sample video",
 }
 NO_PHOTO = "Add a photo that passes the checks first."

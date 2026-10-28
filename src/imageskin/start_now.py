@@ -43,6 +43,7 @@ from imageskin.download import DownloadError, download, sha256_of
 from imageskin.failure import report
 from imageskin.photoreal_library import library_key
 from imageskin.ready_voice import save_ready_voice
+from imageskin.sample import OPENER
 from imageskin.voice import Speech, VoiceEngine
 
 logger = logging.getLogger(__name__)
@@ -61,8 +62,9 @@ CHOICE_FILE = "default-person.json"
 CHOICE_SAVING_FILE = "default-person.saving.json"
 FOLDER = "default-people"
 ACCENTS = ("American", "British")
-# The fixed lines said on exit and on return (roadmap R29), as Prepare renders them.
-LINES = (("goodbye", "Goodbye."), ("welcome-back", "Welcome back."))
+# The fixed lines said on exit and on return (roadmap R29) and as a reply starts (R161), as
+# Prepare renders them.
+LINES = (("goodbye", "Goodbye."), ("welcome-back", "Welcome back."), ("opener", OPENER))
 
 State = Literal["idle", "downloading", "unpacking", "getting-ready", "ready", "failed"]
 # While a person is being got ready, on the background thread.

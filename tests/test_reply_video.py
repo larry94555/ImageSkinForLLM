@@ -2144,3 +2144,99 @@ def test_a_reply_kept_whole_is_never_held(tmp_path: Path) -> None:
     kept.write_bytes(b"clip")
     clips.replay([kept])  # R130a's clips, made before
     assert clips.listed() == 1
+
+
+def opener_clips(tmp_path: Path, gates: dict[str, threading.Event]) -> SentenceClips:
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), wav_steps([], gates)
+    )
+    slow(videos)
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips.opener = tmp_path / "opener.mp4"
+    clips.opener.write_bytes(b"opener")
+    return clips
+
+
+def test_the_opener_plays_while_the_reply_is_held_back(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from imageskin import reply_video
+
+    monkeypatch.setattr(reply_video, "OPENER_AFTER_S", 0.0)
+    second = threading.Event()
+    clips = opener_clips(tmp_path, {"Two.": second})
+    clips.join_words = 0
+    caplog.set_level(logging.INFO)
+    assert clips.listed() == 1  # nothing written yet: the opener plays at once
+    assert clips.clip(1) == (tmp_path / "opener.mp4", True)
+    clips("One.")
+    clips("Two.")
+    made(clips, 2)  # the opener and the first clip
+    assert clips.listed() == 1  # the reply is still held back behind the opener
+    clips.close()
+    second.set()
+    clips.wait(10)
+    assert clips.listed() == 3
+    assert clips.whole() == clips.clips[1:]  # Repeat leaves the opener out
+    opened = next(r for r in caplog.records if r.message == "Reply opener played")
+    assert opened.why == "nothing to play yet"  # type: ignore[attr-defined]
+    paced = next(r for r in caplog.records if r.message == "Reply paced")
+    assert paced.opener and paced.clips == 2  # type: ignore[attr-defined]
+
+
+def test_the_opener_plays_when_the_first_clip_must_wait(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    second = threading.Event()
+    clips = opener_clips(tmp_path, {"Two.": second})
+    clips.join_words = 0
+    caplog.set_level(logging.INFO)
+    kept: list[list[Path]] = []
+    clips.on_complete = kept.append
+    clips("One.")
+    clips("Two.")
+    made(clips, 2)
+    assert clips.clips[0] == tmp_path / "opener.mp4" and clips.listed() == 1
+    opened = next(r for r in caplog.records if r.message == "Reply opener played")
+    assert opened.why == "reply held back"  # type: ignore[attr-defined]
+    second.set()
+    clips.close()
+    clips.wait(10)
+    assert kept == [clips.clips[1:]]  # kept for a question asked again, without the opener
+
+
+def test_no_opener_when_the_reply_plays_at_once_or_there_is_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), wav_steps([]))
+    fast(videos)
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips.opener = tmp_path / "opener.mp4"
+    clips.opener.write_bytes(b"opener")
+    clips("One.")
+    clips.close()
+    clips.wait(10)
+    assert clips.listed() == 1 and clips.clips[0] != clips.opener  # it could play through
+
+    missing = opener_clips(tmp_path / "missing", {})
+    missing.opener = tmp_path / "gone.mp4"  # not made: Prepare was before R161
+    from imageskin import reply_video
+
+    monkeypatch.setattr(reply_video, "OPENER_AFTER_S", 0.0)
+    assert missing.listed() == 0  # nothing to play while it waits
+    missing("One.")
+    missing.close()
+    missing.wait(10)
+    assert missing.listed() == 1 and missing.clips[0] != missing.opener
+
+
+def test_kept_clips_follow_the_opener(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from imageskin import reply_video
+
+    monkeypatch.setattr(reply_video, "OPENER_AFTER_S", 0.0)
+    clips = opener_clips(tmp_path, {})
+    assert clips.listed() == 1
+    kept = tmp_path / "kept.mp4"
+    kept.write_bytes(b"clip")
+    clips.replay([kept])  # an example question's answer, made before (R130a)
+    assert clips.listed() == 2 and clips.clips[1].name == "2.mp4" and clips.rendered == 2
