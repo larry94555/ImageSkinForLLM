@@ -161,6 +161,21 @@ def test_the_machines_network_card_is_readable_in_the_app() -> None:
     assert str(HOST_NET_DEV) == "/host/proc/1/net/dev"
 
 
+def test_the_llms_model_file_is_readable_in_the_app() -> None:
+    # The disk's Used split into the LLM's model and Other (R175): llama-server names its file
+    # under /models, so the app sees the same volume at the same path, and where it is on the host.
+    compose = text(DEPLOY / "compose.yaml")
+    app = compose.split("\n  app:")[1].split("\n  llama:")[0]
+    llama = compose.split("\n  llama:")[1].split("\n  caddy:")[0]
+    assert "- llama-models:/models:ro" in app
+    assert "LLAMA_CACHE: /models" in llama and "- llama-models:/models" in llama
+    assert (
+        "IMAGESKIN_LLM_MODELS_ON_HOST: /models:/var/lib/docker/volumes/imageskin_llama-models/_data"
+        in app
+    )
+    assert "name: imageskin" in compose  # the volume's name on the host starts with it
+
+
 def test_the_admin_password_guide_is_there_and_linked() -> None:
     # Every step of setting the administrator password (R151).
     guide = ROOT / "docs" / "guides" / "Admin-Password-Guide.pdf"

@@ -3,6 +3,7 @@
 // colour and the colour's name, so it never relies on colour alone. It is read every 10 seconds
 // while open; that is not activity, so it doesn't keep the administrator signed in (R150).
 
+import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import { useAdmin } from "./admin";
@@ -89,6 +90,9 @@ function detailLines(resource: Resource): string[] {
   if (resource.name === "memory" && typeof d.app_cap === "number") {
     return [`The app: ${bytes(d.app_used)} of its ${bytes(d.app_cap)} cap`];
   }
+  if (resource.name === "disk" && typeof d.llm_location === "string") {
+    return [`The LLM model: ${d.llm_location}`];
+  }
   if (resource.name === "network" && d.month !== undefined) {
     const lines = [
       `Received: ${bytes(d.received)} (inbound is free)`,
@@ -100,6 +104,35 @@ function detailLines(resource: Resource): string[] {
     return lines;
   }
   return [];
+}
+
+// The disk's Used split into the local LLM's model file and Other, which add up to it (R175).
+// To a tenth of a GB, so the two parts shown add up to the Used shown.
+// Used and its two parts in whole tenths of a GB, Other being Used less the model, so the
+// figures shown always add up (rounding each part on its own can be a tenth off).
+function usedTenths(resource: Resource): { used: number; model: number } | null {
+  const d = resource.details;
+  if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return null;
+  const used = Math.round(((d.llm_bytes + Number(d.other_bytes)) / GB) * 10);
+  return { used, model: Math.round((d.llm_bytes / GB) * 10) };
+}
+
+function usedBy(resource: Resource): [string, string][] {
+  const split = usedTenths(resource);
+  if (split === null) return [];
+  return [
+    [`LLM model ${resource.details.llm_model}`, tenths(split.model)],
+    ["Other", tenths(split.used - split.model)],
+  ];
+}
+
+function tenths(n: number): string {
+  return `${(n / 10).toFixed(1)} GB`;
+}
+
+function usedShown(resource: Resource): string {
+  const split = usedTenths(resource);
+  return split === null ? amount(resource, resource.used) : tenths(split.used);
 }
 
 function Card({ resource, thresholds }: { resource: Resource; thresholds: Thresholds }) {
@@ -132,7 +165,13 @@ function Card({ resource, thresholds }: { resource: Resource; thresholds: Thresh
         <dt>Available</dt>
         <dd>{amount(resource, resource.available)}</dd>
         <dt>Used</dt>
-        <dd>{amount(resource, resource.used)}</dd>
+        <dd>{usedShown(resource)}</dd>
+        {usedBy(resource).map(([label, value]) => (
+          <Fragment key={label}>
+            <dt className="part">{label}</dt>
+            <dd className="part">{value}</dd>
+          </Fragment>
+        ))}
         <dt>Remaining</dt>
         <dd>{amount(resource, resource.remaining)}</dd>
       </dl>
