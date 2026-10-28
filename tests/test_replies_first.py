@@ -346,3 +346,31 @@ def test_a_reply_with_nothing_to_cut_off_does_not_wait() -> None:
     with RepliesFirst(lambda: settled.append("settled")).reply():
         pass
     assert settled == []
+
+
+def test_a_settle_that_fails_still_lets_the_wiki_go_on_after_the_reply() -> None:
+    """Codex's review on PR #181: the reply's count is taken back even when settling raises."""
+
+    def settle() -> None:
+        raise TypeError("an unexpected /slots answer")
+
+    replies = RepliesFirst(settle)
+    started = threading.Event()
+    calls: list[int] = []
+
+    def ask(*args: object, **kwargs: object) -> str:
+        calls.append(1)
+        if len(calls) == 1:
+            stop = ask_stop.get()
+            assert stop is not None
+            started.set()
+            assert stop.wait(5)
+            raise LlmCancelled("Cut off while the LLM was answering.")
+        return "topics"
+
+    thread, got = in_wiki_thread(replies, ask)
+    assert started.wait(2)
+    with pytest.raises(TypeError), replies.reply():
+        pass
+    thread.join(2)
+    assert got == ["topics"]

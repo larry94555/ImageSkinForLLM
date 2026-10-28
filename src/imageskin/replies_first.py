@@ -69,16 +69,18 @@ class RepliesFirst:
             cut = [request for request in self._asking if not request.is_set()]
             for request in cut:
                 request.set()
-        if cut:
-            logger.info("Wiki request cut off for a reply", extra={"requests": len(cut)})
-            if self._settle is not None:
-                start = time.perf_counter()
-                self._settle()
-                logger.info(
-                    "Reply waited for the requests cut off to stop",
-                    extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
-                )
         try:
+            # Inside the try, so a settle that fails still lets the wiki go on after the reply
+            # (Codex's review).
+            if cut:
+                logger.info("Wiki request cut off for a reply", extra={"requests": len(cut)})
+                if self._settle is not None:
+                    start = time.perf_counter()
+                    self._settle()
+                    logger.info(
+                        "Reply waited for the requests cut off to stop",
+                        extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
+                    )
             yield
         finally:
             with self._changed:
