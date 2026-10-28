@@ -1037,7 +1037,7 @@ test("the face movement is chosen on the Setup page, beside Prepare (R128a)", as
   // Prepared with Normal; once another is chosen, the sample is no longer current.
   const fetchMock = prepareServer([DONE, IDLE]);
   await openAt("#/setup");
-  await screen.findByRole("button", { name: "Prepare again" });
+  await screen.findByRole("button", { name: "Prepare Video" });
   const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
   expect((choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked).toBe(true);
   await act(async () => {
@@ -1046,7 +1046,7 @@ test("the face movement is chosen on the Setup page, beside Prepare (R128a)", as
   const patch = fetchMock.mock.calls.find(([url, init]) => url === "/api/settings" && init?.method === "PATCH");
   expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ face_movement: "slight" });
   // The job is read again: the sample made with Normal is gone, to be prepared again.
-  expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
+  await prepareEnabled();
   expect(screen.queryByLabelText("Sample video")).toBeNull();
 });
 
@@ -1064,7 +1064,7 @@ test("prepare starts the job and shows each step's progress until it is ready", 
   const fetchMock = prepareServer([IDLE, RUNNING, DONE]);
   showMetrics();
   await openAt("#/setup");
-  fireEvent.click(await screen.findByRole("button", { name: "Prepare the video" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare Video" }));
   expect(await screen.findByText("Preparing… 31% done")).toBeTruthy();
   expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
   const bar = screen.getByRole("progressbar", { name: "Preparing" }) as HTMLProgressElement;
@@ -1079,7 +1079,8 @@ test("prepare starts the job and shows each step's progress until it is ready", 
     await screen.findByText("Done. Watch the sample video, then say whether it is right.", {}, { timeout: 3000 }),
   ).toBeTruthy();
   expect(screen.getByText("Done in 17 min")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Prepare again" })).toBeTruthy();
+  // Prepared: nothing to prepare until a setting changes (R159).
+  expect((screen.getByRole("button", { name: "Prepare Video" }) as HTMLButtonElement).disabled).toBe(true);
   // The sample video plays from the server, fetched afresh each time it is prepared again.
   const video = screen.getByLabelText("Sample video") as HTMLVideoElement;
   expect(video.getAttribute("src")).toBe(
@@ -1130,15 +1131,210 @@ test("a job the app is no longer working on says so and can be tried again (R134
   expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
 });
 
+// prepareServer with Cancel (R159): POST /api/prepare/cancel answers with `answer`, and the
+// reads after it come from `after`.
+function cancelServer(answer: PrepareStatus | Response, after: PrepareStatus[]) {
+  const reads: PrepareStatus[] = [{ ...RUNNING, left_s: 600 }];
+  const inner = prepareServer(reads);
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/prepare/cancel") {
+      reads.splice(0, reads.length, ...after);
+      return answer instanceof Response ? answer : Response.json(answer);
+    }
+    return inner(url, init);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("Cancel asks first, and Keep preparing carries on (R159)", async () => {
+  const fetchMock = cancelServer(IDLE, [IDLE]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  const box = within(screen.getByRole("alertdialog", { name: "Stop preparing the video?" }));
+  expect(box.getByText(/Preparing is 31% done\. About 10 min 0 s is left\./)).toBeTruthy();
+  // Keep preparing has the focus, so Enter or Escape never stops it by mistake.
+  expect(document.activeElement).toBe(box.getByRole("button", { name: "Keep preparing" }));
+  fireEvent.click(box.getByRole("button", { name: "Keep preparing" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.getByText(/Preparing… 31% done/)).toBeTruthy();
+  expect(fetchMock.mock.calls.some(([url]) => url === "/api/prepare/cancel")).toBe(false);
+});
+
+// Prepare Video can be clicked: nothing prepared for what is set up now (R159).
+async function prepareEnabled() {
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Prepare Video" }) as HTMLButtonElement).disabled).toBe(false),
+  );
+}
+
+const CANCELLED: PrepareStatus = { ...RUNNING, state: "cancelled", finished_at: "2026-10-07T09:10:00+00:00" };
+
+function cancelCall(fetchMock: ReturnType<typeof vi.fn>) {
+  const call = fetchMock.mock.calls.find(([url]) => url === "/api/prepare/cancel");
+  return call && JSON.parse(String((call[1] as RequestInit).body));
+}
+
+test("Stop after this part stops the job, and Resume Preparation carries on (R159)", async () => {
+  const fetchMock = cancelServer({ ...RUNNING, cancelling: true }, [{ ...RUNNING, cancelling: true }, CANCELLED]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  const box = within(screen.getByRole("alertdialog", { name: "Stop preparing the video?" }));
+  expect(box.getByText(/once the part it is working on is finished \(usually within 10 seconds\)/)).toBeTruthy();
+  fireEvent.click(box.getByRole("button", { name: "Stop after this part" }));
+  // Until it has stopped, it says it is stopping.
+  const stopping = (await screen.findByRole("button", { name: "Stopping…" })) as HTMLButtonElement;
+  expect(stopping.disabled).toBe(true);
+  expect(screen.getByText("Stopping, usually within 10 seconds…")).toBeTruthy();
+  expect(screen.queryByText(/% done/)).toBeNull();
+  expect(cancelCall(fetchMock)).toEqual({ now: false });
+  // Then it is stopped, and can be resumed.
+  expect(
+    await screen.findByText(/Preparing stopped at 31%\. Click Resume Preparation/, {}, { timeout: 3000 }),
+  ).toBeTruthy();
+  expect(screen.getByText("Stopped")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Resume Preparation" }));
+  expect(await screen.findByText(/Preparing… 31% done/)).toBeTruthy();
+  expect(fetchMock).toHaveBeenCalledWith("/api/prepare", { method: "POST" });
+});
+
+test("a stop still under way after 10 seconds says why (R159)", async () => {
+  const late = { ...RUNNING, cancelling: true, stopping_late: true };
+  cancelServer(late, [late]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stop now" }));
+  expect(await screen.findByText(/Still stopping: the part it is on, such as loading a library/)).toBeTruthy();
+  expect(screen.queryByText("Stopping, usually within 10 seconds…")).toBeNull();
+});
+
+test("Stop now stops the job at once (R159)", async () => {
+  const fetchMock = cancelServer(CANCELLED, [CANCELLED]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stop now" }));
+  expect(await screen.findByRole("button", { name: "Resume Preparation" })).toBeTruthy();
+  expect(cancelCall(fetchMock)).toEqual({ now: true });
+});
+
+test("a cancel the server refuses says why (R159)", async () => {
+  cancelServer(new Response(JSON.stringify({ detail: "Not now." }), { status: 409 }), [RUNNING]);
+  await openAt("#/setup");
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Stop now" }));
+  expect(await screen.findByText("Not now.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+});
+
+// A fake server with a prepare stopped part-way (R159): reads answer `CANCELLED` until
+// POST /api/prepare/discard, then `IDLE`. The accent is the person's own. With `discardFails`,
+// discard is refused.
+function stoppedServer(discardFails = false) {
+  let status: PrepareStatus = CANCELLED;
+  const inner = prepareServer([CANCELLED]);
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/prepare/discard") {
+      if (discardFails) return Response.json({ detail: "The server is busy." }, { status: 500 });
+      status = IDLE;
+      return Response.json(IDLE);
+    }
+    if (url === "/api/prepare" && init?.method !== "POST") return Response.json(status);
+    if (url === "/api/accent") {
+      const accent = init?.method === "PUT" ? JSON.parse(String(init.body)).accent : "own";
+      return Response.json({ accent, available: true });
+    }
+    if (url === "/api/settings" && init?.method === "PATCH") return Response.json({ face_movement: "slight" });
+    return inner(url, init);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+test("changing a setting while stopped warns that preparing starts over (R159)", async () => {
+  const fetchMock = stoppedServer();
+  await openAt("#/setup");
+  await screen.findByRole("button", { name: "Resume Preparation" });
+  const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
+  fireEvent.click(choice.getByRole("radio", { name: "Slight" }));
+  const box = within(await screen.findByRole("alertdialog", { name: "Change this setting?" }));
+  expect(box.getByText("Changing a setting will require restarting the preparation over again.")).toBeTruthy();
+  expect(document.activeElement).toBe(box.getByRole("button", { name: "Cancel change" }));
+  // Cancel change: nothing is changed, and it can still be resumed.
+  await act(async () => {
+    fireEvent.click(box.getByRole("button", { name: "Cancel change" }));
+  });
+  await waitFor(() => expect((choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked).toBe(true));
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  expect(screen.getByRole("button", { name: "Resume Preparation" })).toBeTruthy();
+  // Confirm change: the stopped prepare is dropped, and Prepare starts over.
+  fireEvent.click(choice.getByRole("radio", { name: "Slight" }));
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm change" }));
+  });
+  await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
+  expect(fetchMock).toHaveBeenCalledWith("/api/prepare/discard", { method: "POST" });
+  await prepareEnabled();
+  // No more warnings once it is to start over.
+  const accent = within(screen.getByRole("group", { name: "Speak with" }));
+  await act(async () => {
+    fireEvent.click(accent.getAllByRole("radio")[1]);
+  });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+// Codex's review of PR #191: a setting changed although the stopped prepare is still there
+// would be resumed with the old setting.
+test("a setting is not changed while stopped if starting over fails (R159)", async () => {
+  const fetchMock = stoppedServer(true);
+  await openAt("#/setup");
+  await screen.findByRole("button", { name: "Resume Preparation" });
+  const choice = within(screen.getByRole("group", { name: "Face movement while speaking" }));
+  fireEvent.click(choice.getByRole("radio", { name: "Slight" }));
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm change" }));
+  });
+  expect((await screen.findByRole("alert")).textContent).toContain("The setting was not changed");
+  expect(screen.getByRole("alert").textContent).toContain("The server is busy.");
+  await waitFor(() => expect((choice.getByRole("radio", { name: "Normal" }) as HTMLInputElement).checked).toBe(true));
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+  expect(screen.getByRole("button", { name: "Resume Preparation" })).toBeTruthy();
+  // Still guarded: adding a photo asks again, and a failed discard sends no upload either.
+  const input = document.querySelector("#photos input[type=file]") as HTMLInputElement;
+  Object.defineProperty(input, "files", { value: [new File(["x"], "new.jpg")], configurable: true });
+  fireEvent.change(input);
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm change" }));
+  });
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/prepare/discard")).toHaveLength(2),
+  );
+  expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/uploads/photos" && init?.method === "POST")).toBe(false);
+  expect((await screen.findByRole("alert")).textContent).toContain("The setting was not changed");
+});
+
+test("an accent change cancelled while stopped keeps the accent (R159)", async () => {
+  const fetchMock = stoppedServer();
+  await openAt("#/setup");
+  await screen.findByRole("button", { name: "Resume Preparation" });
+  const accent = within(screen.getByRole("group", { name: "Speak with" }));
+  fireEvent.click(accent.getAllByRole("radio")[1]);
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel change" }));
+  });
+  await waitFor(() => expect((accent.getAllByRole("radio")[0] as HTMLInputElement).checked).toBe(true));
+  expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/accent" && init?.method === "PUT")).toBe(false);
+});
+
 test("prepare says what is missing when it can't start", async () => {
   prepareServer(
     [IDLE],
     Response.json({ detail: "Add a photo that passes the checks first." }, { status: 409 }),
   );
   await openAt("#/setup");
-  fireEvent.click(await screen.findByRole("button", { name: "Prepare the video" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare Video" }));
   expect(await screen.findByText("Add a photo that passes the checks first.")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Prepare the video" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Prepare Video" })).toBeTruthy();
 });
 
 test("a failed job says why, marks where it stopped and can be tried again", async () => {
@@ -1279,7 +1475,7 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
   expect(await screen.findByText("Done. Watch the sample video, then say whether it is right.")).toBeTruthy();
 
   fireEvent.click(await screen.findByRole("button", { name: "Use this photo" }));
-  expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
+  await prepareEnabled();
   expect(screen.queryByText("Done. Watch the sample video, then say whether it is right.")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Use this photo" })); // back to the first
@@ -1287,7 +1483,63 @@ test("Prepare is asked again after the chosen photo or the recordings change", a
 
   const recording = (await screen.findByText(/voice1\.m4a/)).closest("li") as HTMLElement;
   await removeConfirmed(within(recording).getByRole("button", { name: "Remove" }));
-  expect(await screen.findByRole("button", { name: "Prepare the video" })).toBeTruthy();
+  await prepareEnabled();
+});
+
+test("photos and recordings changed while stopped are confirmed first (R159)", async () => {
+  const other: Upload = { ...PHOTO, id: "c".repeat(32), name: "side.jpg", score: 80 };
+  const sound: Upload = { ...SOUND, problems: [], speech: 40 };
+  let status: PrepareStatus = CANCELLED;
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
+    if (url === "/api/uploads/photos/chosen") return Response.json({ id: PHOTO.id, chosen_by: "app" });
+    if (url === "/api/voice-sample") return Response.json(NO_VOICE);
+    if (url === "/api/prepare") return Response.json(status);
+    if (url === "/api/prepare/discard") {
+      status = IDLE;
+      return Response.json(IDLE);
+    }
+    if (url === "/api/uploads/photos" && init?.method === "POST") return Response.json(other);
+    if (url === "/api/uploads/photos") return Response.json([PHOTO, other]);
+    if (url === "/api/uploads/sounds") return Response.json([sound]);
+    if (url === "/api/ready-voice") return Response.json({ voice: "af_heart", in_use: false, voices: [{ voice: "af_heart", label: "Heart" }, { voice: "am_adam", label: "Adam" }] });
+    if (init?.method === "DELETE") return Response.json({ removed: true });
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await openAt("#/setup");
+  await screen.findByRole("button", { name: "Resume Preparation" });
+  const cancelChange = async () =>
+    act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel change" }));
+    });
+
+  // Another photo, a new file and another ready-made voice, each cancelled: nothing is sent.
+  fireEvent.click(await screen.findByRole("button", { name: "Use this photo" }));
+  expect(await screen.findByRole("alertdialog", { name: "Use side.jpg instead?" })).toBeTruthy();
+  await cancelChange();
+  const input = document.querySelector("#photos input[type=file]") as HTMLInputElement;
+  Object.defineProperty(input, "files", { value: [new File(["x"], "new.jpg")], configurable: true });
+  fireEvent.change(input);
+  expect(await screen.findByRole("alertdialog", { name: "Add new.jpg?" })).toBeTruthy();
+  await cancelChange();
+  const voice = (await screen.findByRole("combobox")) as HTMLSelectElement;
+  fireEvent.change(voice, { target: { value: "am_adam" } });
+  await cancelChange();
+  const sent = fetchMock.mock.calls.filter(([, init]) => init?.method && init.method !== "GET");
+  expect(sent).toEqual([]);
+
+  // Removing a recording asks once, with the warning, and then starts over.
+  const recording = (await screen.findByText(/voice1\.m4a/)).closest("li") as HTMLElement;
+  fireEvent.click(within(recording).getByRole("button", { name: "Remove" }));
+  const box = within(await screen.findByRole("alertdialog", { name: "Remove voice1.m4a?" }));
+  expect(box.getByText("Changing a setting will require restarting the preparation over again.")).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(box.getByRole("button", { name: "Confirm change" }));
+  });
+  await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(true));
+  expect(fetchMock).toHaveBeenCalledWith("/api/prepare/discard", { method: "POST" });
+  await prepareEnabled();
 });
 
 // --- Accent (R26) ---

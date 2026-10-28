@@ -63,6 +63,7 @@ test("the page groups the settings and shows each one as saved", async () => {
     "Avatar Choice",
     "Video and conversation",
     "Your data",
+    "Administrator",
   ]);
   // Face movement is on the Setup page, beside Prepare, since it needs preparing again (R128a).
   expect(screen.queryByRole("radio", { name: "Slight" })).toBeNull();

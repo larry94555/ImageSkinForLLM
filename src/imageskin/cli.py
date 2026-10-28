@@ -1,6 +1,7 @@
 """The `imageskin` command."""
 
 import argparse
+import getpass
 import logging
 import os
 import sys
@@ -46,8 +47,8 @@ def voice_engine(voice: str, voice_sample: Path | None) -> tuple[VoiceEngine, st
     from imageskin import pocket_engine
     from imageskin.chatterbox_engine import ChatterboxEngine
 
-    # As in the app: Pocket TTS when installed (roadmap R22f), else Chatterbox.
-    engine = pocket_engine.pocket_engine() if pocket_engine.installed() else ChatterboxEngine()
+    # As in the app: Pocket TTS when installed and signed in (roadmap R22f), else Chatterbox.
+    engine = pocket_engine.pocket_engine() if pocket_engine.usable() else ChatterboxEngine()
     engine.check_voice_sample(str(voice_sample))  # before the photo is prepared or models load
     return engine, str(voice_sample)
 
@@ -150,6 +151,11 @@ def build_parser() -> argparse.ArgumentParser:
         "chatgpt-import", help="use a ChatGPT sign-in from imageskin chatgpt-export here"
     )
     imported.add_argument("file", help="the exported file, or - to read it from standard input")
+    # The administrator's password is set only in a file on the computer (roadmap R149).
+    commands.add_parser(
+        "admin-password-hash",
+        help="make the password_hash line for the admin password file (admin.toml)",
+    )
     check_packs = commands.add_parser(
         "check-packs",
         help="download every default person's pack from the hosted site and check it",
@@ -481,8 +487,20 @@ def serve(settings: Settings) -> None:
     logger.info("App data folder", extra={"path": str(default_home().resolve())})
     # access_log=False: the app's own middleware logs each request with its duration.
     llm = llm_settings(settings)
-    app = create_app(llm=llm, general_prompts=settings.general_prompts)
-    config = uvicorn.Config(app, host=host, port=port, log_config=None, access_log=False)
+    admin_file = Path(settings.admin_file).expanduser() if settings.admin_file else None
+    app = create_app(llm=llm, general_prompts=settings.general_prompts, admin_file=admin_file)
+    # This month's network use for the admin dashboard, kept through restarts (R153).
+    app.state.network_month.keep_sampling()
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_config=None,
+        access_log=False,
+        # Whose X-Forwarded-For to believe, so the admin sign-in sees each browser's address.
+        proxy_headers=True,
+        forwarded_allow_ips=settings.trusted_proxies,
+    )
     server = uvicorn.Server(config)
     url = f"http://{host}:{port}"
     threading.Thread(
@@ -492,6 +510,23 @@ def serve(settings: Settings) -> None:
         server.run()
     except KeyboardInterrupt:  # Ctrl+C stops the server quietly, as uvicorn.run() does
         pass
+
+
+def print_admin_password_hash() -> int:
+    """Ask for the password twice and print the line to paste in admin.toml (R149)."""
+    from imageskin.admin import hash_password
+
+    password = getpass.getpass("Admin password: ")
+    if not password:
+        print("No password given; nothing to write.", file=sys.stderr)
+        return 1
+    if getpass.getpass("The same again: ") != password:
+        print("The two passwords are different; nothing to write.", file=sys.stderr)
+        return 1
+    print("Paste this line in admin.toml, in place of any password line:")
+    print(f'password_hash = "{hash_password(password)}"')
+    logger.info("Admin password hash made")
+    return 0
 
 
 def print_pack_checks(url: str | None) -> int:
@@ -555,6 +590,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return chatgpt_export(args.output)
     if args.command == "chatgpt-import":
         return chatgpt_import(args.file)
+    if args.command == "admin-password-hash":
+        return print_admin_password_hash()
     if args.command == "check-packs":
         return print_pack_checks(args.url)
     if args.command == "lookup":

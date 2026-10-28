@@ -10,10 +10,12 @@ when the server stops mid-way, the next start carries on: frames and clips alrea
 are kept. The clips are saved in <data folder>/clips/<name>.mp4.
 """
 
+import ctypes
 import json
 import logging
 import math
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -39,7 +41,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-State = Literal["idle", "running", "done", "failed"]
+State = Literal["idle", "running", "done", "failed", "cancelled"]
 T = TypeVar("T")
 
 
@@ -56,7 +58,9 @@ PrepareVoice = Callable[[], None]
 PrepareFace = Callable[[Path, Progress], None]
 RenderClip = Callable[[Path, str, Path], None]  # photo, what to say, MP4 to write
 SpeakClip = Callable[[str, Path], None]  # what to say, WAV to write (its timings JSON beside it)
-RenderVideo = Callable[[Path, Path, Path], None]  # photo, the WAV spoken, MP4 to write
+# photo, the WAV spoken, MP4 to write; returns how far the mouth opened before the voice in
+# ms, when the engine measures it (roadmap R128)
+RenderVideo = Callable[[Path, Path, Path], float | None]
 RenderIdle = Callable[[Path, Path], None]  # photo, MP4 to write
 
 
@@ -114,6 +118,12 @@ BEAT_S = 1.0
 SLOW_FACTOR = 2
 # The range this run's pace against the usual times is kept in, for the time left.
 PACE_MIN, PACE_MAX = 0.5, 5.0
+# The last part of a step's expected time, as a share of it, over which its time left counts
+# down ever more slowly instead of reaching 0 while the step still runs, and at least this many
+# seconds of it, so the page keeps moving when a step takes longer than expected.
+TAIL_SHARE, TAIL_MIN_S = 0.25, 10.0
+# A step that took less than this last time had nothing to do then (the face kept, say).
+NO_OP_S = 1.0
 # What each clip's activity line says while it is made.
 CLIP_ACTIVITY: dict[str, str] = {
     "goodbye": "Making the video of “Goodbye.”",
@@ -134,6 +144,16 @@ WAIT_TO_DELETE = "Setup is preparing the video. Try again once it has finished."
 # Start now waits for a prepare, which uses the same engines.
 WAIT_TO_START_NOW = "Setup is preparing your own video. Try again once it has finished."
 DEFAULT_PERSON_BEING_READIED = "A default person is being got ready. Try again once they are ready."
+# Prepare clicked while a cancelled job is still stopping (roadmap R159).
+STOPPING = "Preparing is stopping. Try again in a moment."
+# Stop after this part (R159) waits at most this many seconds for the part to finish, then
+# stops it at once (Larry: "It should still stop within 10 seconds").
+STOP_AFTER_PART_MAX_S = 10.0
+# How often Stop now tries again while the job's thread is loading a library (R159).
+INTERRUPT_RETRY_S = 0.05
+# A stop sent at STOP_AFTER_PART_MAX_S that hasn't taken effect after this long more is shown
+# as late: the thread is in a native call that runs on until it returns to Python.
+LATE_GRACE_S = 2.0
 # Before the avatar's name in a photo id, when the avatar is prepared in the user's voice (R24d).
 AVATAR_PREFIX = "avatar-"
 # The voice kinds that speak in the person's own voice: Pocket TTS or Chatterbox Turbo.
@@ -142,6 +162,62 @@ CLONES = ("pocket", "clone")
 
 class PrepareError(Exception):
     """The job can't start yet; the message says what is missing."""
+
+
+class PrepareCancelled(BaseException):
+    """Raised in the job's thread when Cancel is confirmed (roadmap R159): at its next progress
+    report, or at once with interrupt(). A BaseException, so an engine that catches Exception
+    doesn't swallow it."""
+
+
+def importing(frame: Any) -> bool:
+    """Whether the frame is running a module's import, or code called from one."""
+    while frame is not None:
+        if frame.f_code.co_filename.startswith("<frozen importlib"):
+            return True
+        frame = frame.f_back
+    return False
+
+
+# CPython's call that raises an exception in another thread; a test stands in for it.
+set_async_exc = ctypes.pythonapi.PyThreadState_SetAsyncExc
+
+
+def send_async(ident: int, exc: type[BaseException]) -> bool:
+    """Raise `exc` in the thread with this id. Whether it was sent to that one thread. Should
+    it reach more than one, it is taken back from all of them at once, as CPython's API asks,
+    so no other thread of the server is ever stopped (Codex's review of PR #191)."""
+    sent = set_async_exc(ctypes.c_ulong(ident), ctypes.py_object(exc))
+    if sent > 1:
+        set_async_exc(ctypes.c_ulong(ident), None)  # NULL: take it back
+        logger.error(
+            "Prepare stop reached more than one thread; taken back", extra={"threads": sent}
+        )
+        return False
+    return bool(sent == 1)
+
+
+def interrupt(thread: threading.Thread) -> bool:
+    """Raise PrepareCancelled in the thread as soon as it next runs Python code: within a moment
+    even in the middle of an engine's work, as each frame or model call returns to Python
+    quickly. Whether it was sent: never while the thread is importing a module, which would
+    leave that library half-loaded for as long as the app runs (Larry's test of PR #191: Perth's
+    watermarker was None when Chatterbox loaded on Resume Preparation), so the caller tries again
+    shortly. What a part was writing is safe: frames and clips are written aside and then moved,
+    and downloads carry on from their .part file."""
+    if thread.ident is None:
+        return False
+    # No other thread runs between looking at where the thread is and sending: this one holds
+    # the interpreter until the switch interval passes or it waits, and it does neither.
+    switch = sys.getswitchinterval()
+    sys.setswitchinterval(1.0)
+    try:
+        frame = sys._current_frames().get(thread.ident)
+        if frame is None or importing(frame):
+            return False
+        return send_async(thread.ident, PrepareCancelled)
+    finally:
+        sys.setswitchinterval(switch)
 
 
 @dataclass(frozen=True)
@@ -177,11 +253,20 @@ class PrepareStatus:
     started_at: str | None = None  # ISO 8601, UTC
     finished_at: str | None = None
     left_s: int | None = None  # while it runs: about how many seconds the whole prepare has left
+    # How many seconds each step took the last time it ran on this machine (0: it had nothing
+    # to do, as the face on Prepare again), for the time left of the next prepare.
+    times: dict[str, float] | None = None
     # Running, but the app is no longer working on it (its thread has gone): Try again carries on.
     stopped: bool = False
     # The face movement while speaking the clips are made with (R128a), from the Setup page when
     # the job ran; None if saved before R128a.
     face_movement: str | None = None
+    # Running, but Cancel was confirmed (R159): it is stopping, and is then "cancelled", which
+    # Resume Preparation carries on from where it stopped.
+    cancelling: bool = False
+    # Still stopping after STOP_AFTER_PART_MAX_S (R159): the part can't be cut short safely,
+    # as while a library is loaded or a native call runs, so it stops once that is done.
+    stopping_late: bool = False
 
 
 def fresh_steps() -> list[Step]:
@@ -200,6 +285,18 @@ def share(step: Step, usual_s: float) -> float:
     if step.total == 1 and step.done == 0 and step.elapsed_s:
         return 0.9 * (1 - math.exp(-step.elapsed_s / usual_s))
     return step.done / step.total
+
+
+def remaining(expected: float, elapsed: float) -> float:
+    """About how many seconds are left of a step expected to take `expected` seconds, `elapsed`
+    seconds in. It counts down a second a second, then, over the last part (TAIL_SHARE, at least
+    TAIL_MIN_S), ever more slowly, so it never stands at 0 while the step still runs."""
+    tail = min(max(TAIL_SHARE * expected, TAIL_MIN_S), expected) if expected > 0 else 0.0
+    if expected - elapsed >= tail:
+        return expected - elapsed
+    if tail <= 0:
+        return 0.0
+    return tail * math.exp((expected - tail - elapsed) / tail)
 
 
 def voice_fingerprint(path: Path) -> str | None:
@@ -257,6 +354,16 @@ class PrepareJob:
         self._changed = 0.0
         # When each running step's count last went up, for its time left between counts.
         self._counted: dict[str, float] = {}
+        # Set by cancel() (R159); the job's thread stops at its next progress report.
+        self._cancel = threading.Event()
+        # While the job's thread is in its steps, it may be stopped at once with interrupt().
+        self._interruptible = False
+        # The run a helper thread waits to interrupt until it has loaded the library it is
+        # loading, if any.
+        self._interrupting: threading.Thread | None = None
+        # At STOP_AFTER_PART_MAX_S after Cancel: stops a part still running after Stop after
+        # this part, and shows a stop that hasn't taken effect yet as late.
+        self._late_stop: threading.Timer | None = None
         self._status = self._load()
 
     def _load(self) -> PrepareStatus:
@@ -302,7 +409,7 @@ class PrepareJob:
         return self._thread is not None and self._thread.is_alive()
 
     def _current(self, status: PrepareStatus) -> PrepareStatus:
-        if status.state in ("done", "failed"):
+        if status.state in ("done", "failed", "cancelled"):
             if status.photo_id != self._photo_id():
                 return PrepareStatus("idle")
             if self._voice_problem():
@@ -436,6 +543,8 @@ class PrepareJob:
 
     def _start(self) -> PrepareStatus:
         if self._status.state == "running":
+            if self._status.cancelling:
+                raise PrepareError(STOPPING)
             if not self._working():  # stopped (R134b): carry on where it left off
                 logger.warning(
                     "Prepare job had stopped; carrying on",
@@ -444,6 +553,15 @@ class PrepareJob:
                 self._run_in_background()
             return self._status
         self._refuse_if_busy()
+        if self._current(self._status).state == "cancelled":  # Resume Preparation (R159)
+            logger.info(
+                "Prepare resumed",
+                extra={"photo_id": self._status.photo_id, "percent": self._status.percent},
+            )
+            self._status = replace(self._status, state="running", finished_at=None)
+            self._save()
+            self._run_in_background()
+            return self._status
         photo_id = self._photo_id()
         if photo_id is None:
             raise PrepareError(NO_PHOTO)
@@ -453,10 +571,157 @@ class PrepareJob:
         # Clips from before were made from other uploads; the face's frames are kept per
         # photo by the library, so only the clips are removed.
         self._remove_clips()
-        self._status = PrepareStatus("running", photo_id, steps=fresh_steps(), started_at=now_iso())
+        times = dict(self._status.times or {})
+        if self._status.photo_id != photo_id:  # another face: its steps have work to do again
+            times = {key: s for key, s in times.items() if s > 0}
+        if self._status.voice_id != self.voice_id():  # another voice: timed afresh
+            times.pop("voice", None)
+            times.pop("clips", None)
+        self._status = PrepareStatus(
+            "running", photo_id, steps=fresh_steps(), started_at=now_iso(), times=times
+        )
         self._save()
         self._run_in_background()
         return self._status
+
+    def cancel(self, now: bool = False) -> PrepareStatus:
+        """Stop the running job (roadmap R159): `now` at once, otherwise once the part it is on
+        is finished, or after STOP_AFTER_PART_MAX_S if that comes first. A job no thread is
+        working on stops at once. A stopped job is "cancelled": Resume Preparation carries on
+        from where it stopped, and the face's frames already made are kept."""
+        with self._lock:
+            if self._status.state != "running":
+                logger.info(
+                    "Cancel asked with no prepare running", extra={"state": self._status.state}
+                )
+                return self._status
+            if not self._working():
+                self._to_cancelled("stopped")
+                return self._status
+            if not self._status.cancelling:
+                logger.info(
+                    "Prepare cancelling", extra={"photo_id": self._status.photo_id, "now": now}
+                )
+                self._cancel.set()
+                self._status = replace(self._status, cancelling=True)
+                self._save()
+                self._late_stop = threading.Timer(STOP_AFTER_PART_MAX_S, self._stop_late)
+                self._late_stop.daemon = True
+                self._late_stop.start()
+            if now:
+                self._interrupt()
+            return self._status
+
+    def _stop_late(self) -> None:
+        """STOP_AFTER_PART_MAX_S after Cancel: a part still running is stopped now, and a stop
+        that can't take effect yet is shown as late rather than promised (Codex's review of
+        PR #197)."""
+        with self._lock:
+            if self._status.state != "running" or not self._status.cancelling:
+                return
+            logger.warning(
+                "Prepare part still running; stopping it now",
+                extra={"waited_s": STOP_AFTER_PART_MAX_S},
+            )
+            if self._interrupt():  # it takes effect once the part is back in Python
+                self._late_stop = threading.Timer(LATE_GRACE_S, self._show_late)
+                self._late_stop.daemon = True
+                self._late_stop.start()
+            else:
+                self._to_late()
+
+    def _show_late(self) -> None:
+        with self._lock:
+            self._to_late()
+
+    def _to_late(self) -> None:
+        """Still stopping past the deadline, with the lock held."""
+        if self._status.state != "running" or not self._status.cancelling:
+            return
+        if self._status.stopping_late:
+            return
+        logger.warning(
+            "Prepare still stopping past the deadline",
+            extra={
+                "deadline_s": STOP_AFTER_PART_MAX_S,
+                "loading_library": self._interrupting is not None,
+            },
+        )
+        self._status = replace(self._status, stopping_late=True)
+        self._save()
+
+    def _interrupt(self) -> bool:
+        """Stop the job's thread at once, with the lock held. Only while it is in its steps,
+        and only once. While it is loading a library, a helper thread tries again until it
+        has finished. Whether the stop was sent now."""
+        if not self._interruptible or self._thread is None or not self._thread.is_alive():
+            return False
+        if interrupt(self._thread):
+            self._interruptible = False
+            logger.info("Prepare interrupted", extra={"waited_s": 0.0})
+            return True
+        if self._interrupting is not self._thread:
+            self._interrupting = self._thread
+            logger.info("Prepare stops once the library it is loading is loaded")
+            threading.Thread(
+                target=self._interrupt_soon, args=(self._thread,), name="prepare-stop", daemon=True
+            ).start()
+        return False
+
+    def _interrupt_soon(self, thread: threading.Thread) -> None:
+        """Try again to stop `thread`, the run it was started for: never a run resumed since,
+        which is another thread (Codex's review of PR #191)."""
+        start = time.perf_counter()
+        while True:
+            time.sleep(INTERRUPT_RETRY_S)
+            with self._lock:
+                current = self._thread is thread and thread.is_alive()
+                if not current or not self._interruptible:
+                    if self._interrupting is thread:
+                        self._interrupting = None
+                    return
+                if interrupt(thread):
+                    self._interruptible = False
+                    self._interrupting = None
+                    waited = round(time.perf_counter() - start, 2)
+                    logger.info("Prepare interrupted", extra={"waited_s": waited})
+                    return
+
+    def _to_cancelled(self, why: str) -> None:
+        """The job stopped, with the lock held. Its steps show how far it got."""
+        if self._late_stop is not None:
+            self._late_stop.cancel()
+            self._late_stop = None
+        self._interruptible = False
+        logger.info(
+            "Prepare cancelled",
+            extra={"photo_id": self._status.photo_id, "percent": self._status.percent, "when": why},
+        )
+        steps = [
+            replace(s, left_s=None, activity=None, elapsed_s=None, slow=False)
+            for s in self._status.steps or []
+        ]
+        self._status = replace(
+            self._status,
+            state="cancelled",
+            steps=steps,
+            cancelling=False,
+            stopping_late=False,
+            finished_at=now_iso(),
+            left_s=None,
+        )
+        self._save()
+
+    def discard(self) -> PrepareStatus:
+        """Start again from nothing prepared instead of resuming a cancelled job (R159), once
+        the user confirmed that changing a setting means preparing over again. Each step's time
+        is kept for the next prepare's time left."""
+        with self._lock:
+            if self._current(self._status).state == "cancelled":
+                logger.info("Stopped prepare discarded", extra={"photo_id": self._status.photo_id})
+                self._status = PrepareStatus("idle", times=self._status.times)
+                self._save()
+            return self._current(self._status)
 
     def _photo_id(self) -> str | None:
         """What is prepared: the chosen photo, or the avatar to speak in the user's voice."""
@@ -507,11 +772,15 @@ class PrepareJob:
         with self._lock:
             if self._status.state != "running":
                 return
+            if self._status.cancelling:  # the server stopped before the cancel was done
+                self._to_cancelled("at start")
+                return
             # The steps keep showing how far it had got until each one reports again.
             logger.info("Resuming prepare job", extra={"photo_id": self._status.photo_id})
             self._run_in_background()
 
     def _run_in_background(self) -> None:
+        self._cancel.clear()
         self._thread = threading.Thread(target=self._run, name="prepare", daemon=True)
         self._thread.start()
 
@@ -521,6 +790,8 @@ class PrepareJob:
             self._thread.join(timeout)
 
     def _progress(self, key: str, done: int, total: int, activity: str | None = None) -> None:
+        if self._cancel.is_set():
+            raise PrepareCancelled()
         now = time.perf_counter()
         with self._lock:
             steps = self._status.steps or []
@@ -540,15 +811,23 @@ class PrepareJob:
                 return
             if activity is not None:
                 logger.debug("Prepare activity", extra={"step": key, "activity": activity})
+            times = dict(self._status.times or {})
+            if key not in self._clock and done < total and times.get(key, NO_OP_S) < NO_OP_S:
+                # It had nothing to do last time (the face kept, say) but has work now, such
+                # as new mouth settings: its usual time, or how fast it counts, instead.
+                del times[key]
             started, done_at_start = self._clock.setdefault(key, (now, done))
             self._counted[key] = now
             elapsed = now - started
             seconds, left = None, None
             if done >= total and done_at_start >= total:
                 logger.info("Prepare step already done", extra={"step": key})  # kept from before
+                times[key] = 0.0
             elif done >= total:
                 seconds = round(elapsed, 1)
                 logger.info("Prepare step finished", extra={"step": key, "duration_s": seconds})
+                # Carried on after a restart: what the whole step would have taken at this pace.
+                times[key] = round(seconds * total / (total - done_at_start), 1)
             elif done > done_at_start:
                 left = round(elapsed / (done - done_at_start) * (total - done))
             new = replace(
@@ -562,60 +841,72 @@ class PrepareJob:
                 slow=False,
             )
             steps = [new if s.key == key else s for s in steps]
-            self._status = replace(self._status, steps=steps, percent=percent(steps))
+            self._status = replace(self._status, steps=steps, times=times)
+            self._estimate(now)
             self._save()  # a small file, and a frame takes seconds
 
     def _beat(self, now: float) -> None:
         """Tell the page the job is still working (roadmap R134b): about how long the running
         step and the whole prepare have left, and whether nothing new has come for longer than
-        usual."""
-        usual = {key: weight for key, _, weight in STEPS}
+        expected. Each step is expected to take as long as it did the last time it ran on this
+        machine, or else its usual time at this run's pace. The time left counts down every
+        second and the percentage, the time so far against the time so far and left, moves
+        with it: never back, and never standing still while a step runs longer than expected."""
         with self._lock:
-            if self._status.state != "running":
-                return
-            steps = self._status.steps or []
-            pace = self._pace(steps)
-            step = next((s for s in steps if s.done < s.total and s.key in self._clock), None)
-            left = None
-            if step is not None:
-                started, done_at_start = self._clock[step.key]
-                elapsed = now - started
-                quiet = now - self._changed
-                slow = quiet > SLOW_FACTOR * usual[step.key]
-                if slow and not step.slow:
-                    logger.warning(
-                        "Prepare step slow",
-                        extra={
-                            "step": step.key,
-                            "elapsed_s": round(elapsed),
-                            "quiet_s": round(quiet),
-                        },
-                    )
-                if step.done > done_at_start:  # from how fast it counts
-                    counted = self._counted[step.key]
-                    per = (counted - started) / (step.done - done_at_start)
-                    left = per * (step.total - step.done) - (now - counted)
-                else:  # from its usual time, at this run's pace
-                    left = usual[step.key] * pace - elapsed
-                left = left if left > 0 else None
-                new = replace(
-                    step,
-                    elapsed_s=round(elapsed),
-                    slow=slow,
-                    left_s=None if left is None else round(left),
+            if self._status.state == "running":
+                self._estimate(now)
+
+    def _estimate(self, now: float) -> None:
+        """_beat()'s work, with the job's lock held."""
+        usual = {key: weight for key, _, weight in STEPS}
+        steps = self._status.steps or []
+        pace = self._pace(steps)
+        times = self._status.times or {}
+
+        def expected(key: str) -> float:
+            return times[key] if key in times else usual[key] * pace
+
+        step = next((s for s in steps if s.done < s.total and s.key in self._clock), None)
+        left = 0.0
+        spent = sum(s.seconds or 0 for s in steps if s.done >= s.total)
+        if step is not None:
+            started, done_at_start = self._clock[step.key]
+            elapsed = now - started
+            spent += elapsed
+            quiet = now - self._changed
+            slow = quiet > SLOW_FACTOR * max(expected(step.key), usual[step.key])
+            if slow and not step.slow:
+                logger.warning(
+                    "Prepare step slow",
+                    extra={
+                        "step": step.key,
+                        "elapsed_s": round(elapsed),
+                        "quiet_s": round(quiet),
+                    },
                 )
-                steps = [new if s.key == step.key else s for s in steps]
-            rest = sum(
-                usual[s.key] * pace * (1 - s.done / s.total)
-                for s in steps
-                if s.done < s.total and (step is None or s.key != step.key)
-            )
-            self._status = replace(
-                self._status,
-                steps=steps,
-                percent=percent(steps),
-                left_s=round((left or 0) + rest),
-            )
+            if step.done > done_at_start and (step.key not in times or done_at_start):
+                # From how fast it counts, when this machine's time for it isn't known.
+                counted = self._counted[step.key]
+                per = (counted - started) / (step.done - done_at_start)
+                left = remaining(per * (step.total - step.done), now - counted)
+            else:  # what was left of it when it started, at its expected time
+                share_left = 1 - done_at_start / step.total
+                left = remaining(expected(step.key) * share_left, elapsed)
+            new = replace(step, elapsed_s=round(elapsed), slow=slow, left_s=round(left))
+            steps = [new if s.key == step.key else s for s in steps]
+        rest = sum(
+            expected(s.key) * (1 - s.done / s.total)
+            for s in steps
+            if s.done < s.total and (step is None or s.key != step.key)
+        )
+        whole = spent + left + rest
+        done_share = int(100 * spent / whole) if whole > 0 else 0
+        self._status = replace(
+            self._status,
+            steps=steps,
+            percent=min(max(done_share, self._status.percent), 99),
+            left_s=round(left + rest),
+        )
 
     @staticmethod
     def _pace(steps: list[Step]) -> float:
@@ -642,6 +933,10 @@ class PrepareJob:
         beats.start()
         try:
             self._run_steps()
+        except PrepareCancelled:  # interrupted just as the steps ended
+            with self._lock:
+                if self._status.state == "running":
+                    self._to_cancelled("late")
         finally:
             finished.set()
 
@@ -674,6 +969,7 @@ class PrepareJob:
                     logger.info(message, extra={"clips": removed, "face_movement": movement})
                 self._status = replace(self._status, face_movement=movement)
                 self._save()
+            self._interruptible = True
         try:
             photo = self._photo(photo_id)
             if photo is None:
@@ -692,11 +988,33 @@ class PrepareJob:
                 self._prepare_voice()
             self._progress("voice", 1, 1)
             self._prepare_face(photo, self._progress)
-            self._render_clips(photo)
+            self._render_clips(photo)  # its report after the last clip stops a late cancel
+            with self._lock:
+                # One step with the lock held: a cancel confirmed after the last report is
+                # either seen here or comes once the job is done, never lost in between
+                # (Codex's review of PR #197).
+                self._interruptible = False
+                if self._cancel.is_set():
+                    self._to_cancelled("running")
+                    return
+                self._finished("done", None)
+        except PrepareCancelled:
+            with self._lock:
+                self._to_cancelled("running")
+            logger.info(
+                "Prepare job stopped",
+                extra={"photo_id": photo_id, "duration_s": round(time.perf_counter() - start, 1)},
+            )
+            return
         except Exception as e:
+            with self._lock:
+                self._interruptible = False
+                if self._cancel.is_set():  # an engine failed while it was being stopped
+                    logger.warning("Prepare failed while cancelling", extra={"error": str(e)})
+                    self._to_cancelled("running")
+                    return
             self._fail(e, photo_id)
             return
-        self._finish("done", None)
         logger.info(
             "Prepare job finished",
             extra={"photo_id": photo_id, "duration_s": round(time.perf_counter() - start, 1)},
@@ -738,24 +1056,28 @@ class PrepareJob:
 
     def _finish(self, state: State, error: str | None, failure: Failure | None = None) -> None:
         with self._lock:
-            steps = self._status.steps or []
-            if state == "done":
-                # Steps with nothing to do (a library made before) are complete too.
-                steps = [replace(s, done=s.total, left_s=None) for s in steps]
-            else:
-                steps = [replace(s, left_s=None) for s in steps]
-            steps = [replace(s, activity=None, elapsed_s=None, slow=False) for s in steps]
-            self._status = replace(
-                self._status,
-                state=state,
-                steps=steps,
-                percent=100 if state == "done" else percent(steps),
-                error=error,
-                failure=failure,
-                finished_at=now_iso(),
-                left_s=None,
-            )
-            self._save()
+            self._finished(state, error, failure)
+
+    def _finished(self, state: State, error: str | None, failure: Failure | None = None) -> None:
+        """The job ended, with the lock held."""
+        steps = self._status.steps or []
+        if state == "done":
+            # Steps with nothing to do (a library made before) are complete too.
+            steps = [replace(s, done=s.total, left_s=None) for s in steps]
+        else:
+            steps = [replace(s, left_s=None) for s in steps]
+        steps = [replace(s, activity=None, elapsed_s=None, slow=False) for s in steps]
+        self._status = replace(
+            self._status,
+            state=state,
+            steps=steps,
+            percent=100 if state == "done" else percent(steps),
+            error=error,
+            failure=failure,
+            finished_at=now_iso(),
+            left_s=None,
+        )
+        self._save()
 
 
 def kokoro_voice(engine: VoiceEngine) -> PrepareVoice:
@@ -798,7 +1120,8 @@ def clip_voice(
     "clone" or "kokoro"): the person's own, cloned from the voice sample with the chosen accent,
     when Chatterbox is installed (see the README); otherwise Kokoro's. With Pocket TTS installed
     too, Pocket speaks, about ten times faster than Chatterbox on 4 cores, so replies can start
-    within 1 to 2 seconds (roadmap R22f), with every accent (see accent_engine)."""
+    within 1 to 2 seconds (roadmap R22f), with every accent (see accent_engine), once signed in
+    to Hugging Face (pocket_engine.usable)."""
     from imageskin import pocket_engine
     from imageskin.chatterbox_engine import ChatterboxEngine, check_installed
 
@@ -809,7 +1132,7 @@ def clip_voice(
         logger.warning(message, extra={"reason": str(e)})
         kokoro = KokoroEngine()
         return kokoro_voice(kokoro), kokoro, DEFAULT_VOICE, "kokoro"
-    if pocket_engine.installed():
+    if pocket_engine.usable():
         logger.info("Prepare speaks in the person's own voice, cloned with Pocket TTS")
         clone, kind = pocket_engine.pocket_engine(), "pocket"
     else:
@@ -899,7 +1222,7 @@ def photoreal_steps(
             kept.update(photo=photo, video=video, lib=lib, frame=0)
         return kept["video"], kept["lib"]
 
-    def render(photo: Path, wav: Path, output: Path) -> None:
+    def render(photo: Path, wav: Path, output: Path) -> float | None:
         from imageskin.video import FPS
 
         video, lib = load(photo)
@@ -913,6 +1236,8 @@ def photoreal_steps(
             face_movement=face_movement(),
         )
         kept["frame"] = start + max(1, round(seconds * FPS))  # the loop wraps it
+        lead: float | None = video.mouth_lead_ms
+        return lead
 
     def idle(photo: Path, output: Path) -> None:
         video, lib = load(photo)

@@ -6,6 +6,7 @@ from imageskin.visemes import (
     ShapeTiming,
     SoundTiming,
     frame_weights,
+    openings,
     shape_timings,
     sound_timings,
 )
@@ -81,7 +82,7 @@ def test_shapes_blend_between_sounds() -> None:
 
 def test_lips_lead_the_sound() -> None:
     # With a lead, the frame just before the sound starts already leans toward it.
-    shapes = [ShapeTiming("rest", 0.0, 0.5), ShapeTiming("OO", 0.5, 1.0)]
+    shapes = [ShapeTiming("AA", 0.0, 0.5), ShapeTiming("OO", 0.5, 1.0)]
     no_lead = frame_weights(shapes, 30, 30.0, smooth_s=0.03, lead_s=0.0)
     lead = frame_weights(shapes, 30, 30.0, smooth_s=0.03, lead_s=0.06)
     assert lead[14].get("OO", 0.0) > no_lead[14].get("OO", 0.0) + 0.3
@@ -99,3 +100,36 @@ def test_lip_contact_frame_moves_with_the_lead() -> None:
 def test_r_keeps_the_mouth_neutral() -> None:
     # Rounding r between ee sounds pulsed the mouth corners in "three green trees".
     assert SHAPE_OF["ɹ"] == SHAPE_OF["r"] == "IH"
+
+
+def test_the_mouth_opens_from_rest_at_the_start_and_after_each_pause() -> None:
+    shapes = [
+        ShapeTiming("rest", 0.0, 0.3),
+        ShapeTiming("AA", 0.3, 0.5),  # the first sound
+        ShapeTiming("OO", 0.5, 0.6),  # straight after it
+        ShapeTiming("rest", 0.6, 0.65),
+        ShapeTiming("EE", 0.65, 0.8),  # a rest too short to close the mouth
+        ShapeTiming("rest", 0.8, 1.0),
+        ShapeTiming("EH", 1.0, 1.2),  # after a pause
+        ShapeTiming("IH", 1.35, 1.5),  # after a gap in the timings
+    ]
+    assert openings(shapes) == [1, 6, 7]
+    assert openings([ShapeTiming("rest", 0.0, 1.0)]) == []
+
+
+def test_the_mouth_stays_at_rest_until_the_first_sound_after_a_pause() -> None:
+    # Before R128 the 30 ms lead, the blend and sampling each frame at its middle opened the
+    # mouth 60 to 120 ms before the sound (R127).
+    shapes = [
+        ShapeTiming("rest", 0.0, 0.5),
+        ShapeTiming("AA", 0.5, 1.0),
+        ShapeTiming("rest", 1.0, 2.0),
+    ]
+    frames = frame_weights(shapes, 60, 30.0)
+    assert all(f == {"rest": pytest.approx(1.0)} for f in frames[:15])  # up to 0.5 s
+    assert frames[15]["AA"] > 0.5  # the frame that starts with the sound opens the mouth
+    assert frames[31].get("AA", 0) > 0.1  # it still closes smoothly after the sound
+    later = [ShapeTiming("rest", 0.0, 1.2), ShapeTiming("OO", 1.2, 1.5)]
+    after = frame_weights(shapes[:2] + later[1:], 60, 30.0)
+    assert after[31].get("AA", 0) == pytest.approx(frames[31].get("AA", 0))  # the close is kept
+    assert all("OO" not in f for f in after[:36])  # and the next word waits for its sound

@@ -6,7 +6,7 @@
 For each clip the app makes (three reply sentences, "Goodbye.", "Welcome back." and the sample
 video's script) it speaks the text with the app's own voice engine, writes the WAV and timings
 JSON as the app does (`write_speech`), and works out the mouth's weights per frame as the
-photoreal engine does (`frame_weights` on the JSON's shapes). Then, at the start of the clip and
+photoreal engine does (`mouth_weights` on the JSON's shapes). Then, at the start of the clip and
 at each word that starts after a pause:
 
 - the voice is heard at the first 5 ms window no more than HEARD_DB below the clip's loud level
@@ -32,7 +32,6 @@ and writes its table to FOLDER/browser.md. The tables go to <out>/mouth-lead-<vo
 import argparse
 import json
 import logging
-import math
 import subprocess
 import tempfile
 import time
@@ -46,10 +45,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 from imageskin.expression import openness
+from imageskin.mouth_sync import mouth_opens as app_mouth_opens
+from imageskin.mouth_sync import mouth_weights
 from imageskin.photoreal import read_shapes
 from imageskin.sample import SAMPLE_SCRIPT
 from imageskin.video import FPS, find_ffmpeg, write_mp4
-from imageskin.visemes import SoundTiming, frame_weights
+from imageskin.visemes import SoundTiming
 from imageskin.voice import Speech, WordTiming, write_speech
 
 logger = logging.getLogger("mouth_lead")
@@ -157,18 +158,12 @@ def openness_track(weights: Sequence[dict[str, float]]) -> list[float]:
 def mouth_opens(
     track: Sequence[float], fps: float, quiet_from: float, heard: float
 ) -> float | None:
-    """When the mouth opens for a voice heard at `heard` after silence from `quiet_from`: the
-    start of the first frame at or over OPEN_AT after one under it, looking from the silence's
-    start. None if the mouth stays open from the silence until well after the voice."""
-    first = max(0, math.floor(quiet_from * fps))
-    last = min(len(track), math.ceil((heard + 0.5) * fps))
-    closed = False
-    for f in range(first, last):
-        if track[f] < OPEN_AT:
-            closed = True
-        elif closed:
-            return round(f / fps, 3)
-    return None
+    """When the mouth opens for a voice heard at `heard` after silence from `quiet_from`, as
+    the app measures it (`mouth_sync.mouth_opens`): the start of the first frame at or over
+    OPEN_AT after one under it, or the silence's start if it never closes in it, so a mouth
+    left open through a pause shows a lead of the whole pause. None if it never opens."""
+    opens = app_mouth_opens(track, fps, quiet_from, heard)
+    return None if opens is None else round(opens, 3)
 
 
 def first_sound(
@@ -322,7 +317,9 @@ def measure_clip(
     wav = folder / f"{name.replace(' ', '-')}.wav"
     seconds = write_speech(speech, wav, wav.with_suffix(".json"))
     n_frames = max(1, round(seconds * FPS))
-    weights = frame_weights(read_shapes(wav.with_suffix(".json")), n_frames, FPS)
+    # As the photoreal engine draws them (R128 moved each word after a pause to its voice).
+    shapes = read_shapes(wav.with_suffix(".json"))
+    weights = mouth_weights(shapes, to_float(speech.pcm), speech.sample_rate, n_frames, FPS)
     result = ClipResult(name, text, round(seconds, 2), measure_onsets(speech, weights))
     if mp4:
         result.whole_mp4_ms, result.progressive_mp4_ms = mp4_delays(wav, speech, folder)

@@ -212,7 +212,7 @@ export interface PrepareFailure {
 
 // How far the prepare job has got. It runs on the server, and carries on after a restart.
 export interface PrepareStatus {
-  state: "idle" | "running" | "done" | "failed";
+  state: "idle" | "running" | "done" | "failed" | "cancelled"; // cancelled: Resume carries on
   photo_id: string | null;
   percent: number;
   steps: PrepareStep[] | null;
@@ -222,6 +222,8 @@ export interface PrepareStatus {
   finished_at: string | null;
   left_s?: number | null; // while it runs: about how long the whole prepare has left
   stopped?: boolean; // running, but the app is no longer working on it: Try again carries on
+  cancelling?: boolean; // Cancel was confirmed and it is stopping (R159)
+  stopping_late?: boolean; // still stopping after 10 seconds: a part that can't be cut short
 }
 
 // A video the prepare job rendered (roadmap R13). The finish time is added so that the browser
@@ -330,6 +332,26 @@ export async function chooseReadyVoice(voice: string): Promise<ReadyVoice> {
 // Starts the job, or reports on it while it runs. Throws an Error saying what is missing.
 export async function startPrepare(): Promise<PrepareStatus> {
   const response = await fetch("/api/prepare", { method: "POST" });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as PrepareStatus;
+}
+
+// Stops the running job (roadmap R159), once the user confirmed it: `now`, or once the part it
+// is on is finished (usually within 10 seconds). The answer may still be running, with cancelling set.
+export async function cancelPrepare(now: boolean): Promise<PrepareStatus> {
+  const response = await fetch("/api/prepare/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ now }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return (await response.json()) as PrepareStatus;
+}
+
+// Drops a cancelled job, so Prepare starts over instead of resuming (R159): the user confirmed
+// changing a setting.
+export async function discardPrepare(): Promise<PrepareStatus> {
+  const response = await fetch("/api/prepare/discard", { method: "POST" });
   if (!response.ok) throw new Error(await refusal(response));
   return (await response.json()) as PrepareStatus;
 }
@@ -557,6 +579,17 @@ export async function getClips(replyId: string, known?: number): Promise<Clips |
 export async function stopReply(replyId: string): Promise<boolean> {
   const response = await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" });
   return (await json<{ stopped: boolean }>(response)).stopped;
+}
+
+// Says the latest reply again (roadmap R156), with no LLM call: its clips are then followed by
+// `replyId` like a streamed reply's, and stopped the same way.
+export async function repeatReply(replyId: string): Promise<{ turn: number }> {
+  const response = await fetch("/api/chat/repeat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reply_id: replyId }),
+  });
+  return json<{ turn: number }>(response);
 }
 
 // The photo the chat's videos are made from, with its size as shown (roadmap R41d); url null
@@ -989,4 +1022,99 @@ export async function useChatGptAccount(account: string): Promise<ChatGptStatus>
 
 export async function signOutChatGpt(): Promise<ChatGptStatus> {
   return json<ChatGptStatus>(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
+}
+
+// Signing in as the administrator (roadmap R149, R150). The password is set in a file on the
+// computer, never in the app; `ended` says once why a sign-in ended by itself.
+export interface AdminSession {
+  signed_in: boolean;
+  password_set: boolean;
+  timeout_minutes: number;
+  ended: "inactive" | "password changed" | null;
+}
+
+export async function getAdminSession(): Promise<AdminSession> {
+  return json<AdminSession>(await fetch("/api/admin/session"));
+}
+
+// Throws a ServerRefusal with the reason (a wrong password, none set, or wait) when refused.
+export async function signInAsAdmin(password: string): Promise<void> {
+  const response = await fetch("/api/admin/sign-in", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+
+export async function signOutAsAdmin(): Promise<void> {
+  await json<unknown>(await fetch("/api/admin/sign-out", { method: "POST" }));
+}
+
+// A click or key press in the admin view or on the Settings page; false once signed out.
+export async function adminActivity(): Promise<boolean> {
+  const response = await fetch("/api/admin/activity", { method: "POST" });
+  return response.ok;
+}
+
+// The machine's resources for the admin dashboard (roadmap R152 to R154). A figure that couldn't
+// be read is null, with the colour "unknown".
+export type ResourceColour = "blue" | "green" | "orange" | "red" | "unknown";
+
+export interface Resource {
+  name: "cpu" | "memory" | "disk" | "network";
+  unit: "cores" | "bytes";
+  available: number | null;
+  used: number | null;
+  remaining: number | null;
+  percent_remaining: number | null;
+  colour: ResourceColour;
+  free_tier: number;
+  basis: "free tier" | "machine" | "";
+  details: Record<string, number | string | null | undefined>;
+}
+
+export interface Thresholds {
+  blue_above: number;
+  orange_below: number;
+  red_below: number;
+}
+
+export interface Resources {
+  read_at: string;
+  thresholds: Thresholds;
+  resources: Resource[];
+}
+
+// Throws a ServerRefusal with status 401 once the administrator is signed out.
+export async function getResources(): Promise<Resources> {
+  const response = await fetch("/api/admin/resources");
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as Resources;
+}
+
+// The settings only the administrator can change (roadmap R155), with the recommended ones.
+export interface AdminSettings {
+  timeout_minutes: number;
+  thresholds: Thresholds;
+  recommended: { timeout_minutes: number; thresholds: Thresholds };
+}
+
+export async function getAdminSettings(): Promise<AdminSettings> {
+  const response = await fetch("/api/admin/settings");
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as AdminSettings;
+}
+
+// Throws a ServerRefusal saying why when a setting is refused (400) or signed out (401).
+export async function saveAdminSettings(
+  changes: Partial<Pick<AdminSettings, "timeout_minutes" | "thresholds">>,
+): Promise<AdminSettings> {
+  const response = await fetch("/api/admin/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as AdminSettings;
 }
