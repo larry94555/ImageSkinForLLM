@@ -562,17 +562,25 @@ function detailLines(resource) {
 	}
 	return [];
 }
-function usedBy(resource) {
+function usedTenths(resource) {
 	const d = resource.details;
-	if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return [];
-	return [[`LLM model ${d.llm_model}`, tenths(d.llm_bytes)], ["Other", tenths(Number(d.other_bytes))]];
+	if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return null;
+	return {
+		used: Math.round((d.llm_bytes + Number(d.other_bytes)) / GB * 10),
+		model: Math.round(d.llm_bytes / GB * 10)
+	};
 }
-function tenths(bytes) {
-	return `${(bytes / GB).toFixed(1)} GB`;
+function usedBy(resource) {
+	const split = usedTenths(resource);
+	if (split === null) return [];
+	return [[`LLM model ${resource.details.llm_model}`, tenths(split.model)], ["Other", tenths(split.used - split.model)]];
+}
+function tenths(n) {
+	return `${(n / 10).toFixed(1)} GB`;
 }
 function usedShown(resource) {
-	if (usedBy(resource).length === 0) return amount(resource, resource.used);
-	return tenths(Number(resource.details.llm_bytes) + Number(resource.details.other_bytes));
+	const split = usedTenths(resource);
+	return split === null ? amount(resource, resource.used) : tenths(split.used);
 }
 function Card({ resource, thresholds }) {
 	const known = resource.colour !== "unknown";

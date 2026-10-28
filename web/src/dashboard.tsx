@@ -108,22 +108,31 @@ function detailLines(resource: Resource): string[] {
 
 // The disk's Used split into the local LLM's model file and Other, which add up to it (R175).
 // To a tenth of a GB, so the two parts shown add up to the Used shown.
-function usedBy(resource: Resource): [string, string][] {
+// Used and its two parts in whole tenths of a GB, Other being Used less the model, so the
+// figures shown always add up (rounding each part on its own can be a tenth off).
+function usedTenths(resource: Resource): { used: number; model: number } | null {
   const d = resource.details;
-  if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return [];
+  if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return null;
+  const used = Math.round(((d.llm_bytes + Number(d.other_bytes)) / GB) * 10);
+  return { used, model: Math.round((d.llm_bytes / GB) * 10) };
+}
+
+function usedBy(resource: Resource): [string, string][] {
+  const split = usedTenths(resource);
+  if (split === null) return [];
   return [
-    [`LLM model ${d.llm_model}`, tenths(d.llm_bytes)],
-    ["Other", tenths(Number(d.other_bytes))],
+    [`LLM model ${resource.details.llm_model}`, tenths(split.model)],
+    ["Other", tenths(split.used - split.model)],
   ];
 }
 
-function tenths(bytes: number): string {
-  return `${(bytes / GB).toFixed(1)} GB`;
+function tenths(n: number): string {
+  return `${(n / 10).toFixed(1)} GB`;
 }
 
 function usedShown(resource: Resource): string {
-  if (usedBy(resource).length === 0) return amount(resource, resource.used);
-  return tenths(Number(resource.details.llm_bytes) + Number(resource.details.other_bytes));
+  const split = usedTenths(resource);
+  return split === null ? amount(resource, resource.used) : tenths(split.used);
 }
 
 function Card({ resource, thresholds }: { resource: Resource; thresholds: Thresholds }) {

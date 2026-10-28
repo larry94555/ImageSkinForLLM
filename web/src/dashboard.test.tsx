@@ -285,6 +285,28 @@ test("the disk's Used is split into the LLM model and Other, with where the mode
   expect(disk.getByText(`The LLM model: ${LOCATION}`)).toBeTruthy();
 });
 
+test("the parts shown add up to Used even when each rounds up on its own", async () => {
+  // 2.46 + 1.46 = 3.92: rounded on their own the parts would show 2.5 + 1.5 = 4.0, not 3.9.
+  server(() => {
+    const read = hosted();
+    const disk = read.resources.find((r) => r.name === "disk")!;
+    disk.details = {
+      path: "/data",
+      llm_model: "gemma-3-4b-it-Q4_0.gguf",
+      llm_bytes: 2.46 * GB,
+      llm_location: "/models",
+      other_bytes: 1.46 * GB,
+    };
+    return read;
+  });
+  await openDashboard();
+  const disk = within(await screen.findByRole("region", { name: "Disk" }));
+  expect(disk.getByText("Used").nextElementSibling?.textContent).toBe("3.9 GB");
+  const model = disk.getByText("LLM model gemma-3-4b-it-Q4_0.gguf");
+  expect(model.nextElementSibling?.textContent).toBe("2.5 GB");
+  expect(disk.getByText("Other").nextElementSibling?.textContent).toBe("1.4 GB");
+});
+
 test("without a local LLM model the disk's Used is not split", async () => {
   server(hosted);
   await openDashboard();
