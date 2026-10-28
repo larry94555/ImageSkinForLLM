@@ -50,6 +50,7 @@ from imageskin.chat import (
     Turn,
     ask_stop,
     estimate,
+    wait_until_idle,
 )
 from imageskin.chatgpt_signin import CALLBACK_PATH, ChatGptSignIn, SignInError
 from imageskin.config import default_home
@@ -783,8 +784,11 @@ def create_app(
     signin = chatgpt or ChatGptSignIn(data_home)
     switchable = SwitchableLlm(llm, load_choice(data_home), signin.plan_session)
     client = switchable if ask_llm is None else None
-    # A chat reply goes before the wiki's requests to the LLM (R99).
-    replies_first = RepliesFirst()
+    # A chat reply goes before the wiki's requests to the LLM (R99), once llama-server has
+    # stopped the ones cut off for it (R147).
+    replies_first = RepliesFirst(
+        lambda: wait_until_idle(switchable.settings.url) if switchable.local else None
+    )
     if build_wiki is None:
         build_wiki = wiki_builder(llm, client, ask_llm, replies_first)
         build_outline = build_outline or outline_builder(llm, client, ask_llm, replies_first)
@@ -1390,6 +1394,8 @@ def create_app(
             replies_first.streaming(client.stream, local),
             client.warm_up,
             llm_busy=llm_busy,
+            # The summary after a reply waits while the next reply is written (R147).
+            summarize=replies_first.wiki(client.ask),
             find=find_content,
             content_only=content_only,
             topics=content_topics,
@@ -1404,6 +1410,7 @@ def create_app(
             stream=stream_llm and replies_first.streaming(stream_llm, local),
             warm_up=warm_up_llm,
             llm_busy=llm_busy,
+            summarize=replies_first.wiki(ask_llm),
             find=find_content,
             content_only=content_only,
             topics=content_topics,
@@ -1861,8 +1868,9 @@ def create_app(
         start = time.perf_counter()
         try:
             if body.spoken:
-                # Checked and the summary waited for before the correction asks the LLM, as
-                # for a lesson, quiz or assessment (review on PR #91).
+                # Checked before the correction asks the LLM, as for a lesson, quiz or
+                # assessment (review on PR #91). A summary being made isn't waited for: the
+                # correction asks as a reply does, so the summary waits for it instead (R147).
                 conversation.check(body.prompt)
                 meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
                 body = body.model_copy(update={"prompt": meant})

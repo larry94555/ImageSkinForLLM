@@ -180,14 +180,16 @@ def test_a_typed_prompt_is_not_checked(tmp_path: Path) -> None:
     assert not any(m[-1]["content"].startswith(INSTRUCTION) for m in llm.sent)
 
 
-def test_a_spoken_prompt_waits_for_the_summary_before_it_is_corrected(tmp_path: Path) -> None:
-    """Review on PR #91: the correction asked the LLM while the summary was still being made."""
+def test_a_spoken_prompt_is_corrected_without_waiting_for_the_summary(tmp_path: Path) -> None:
+    """R147: a summary took about 2 minutes on the hosted machine, so nothing waits for it. The
+    correction asks as a reply does, so in the app the summary's request waits for it instead
+    (review on PR #91: the two had asked the LLM at once)."""
     release = threading.Event()
     asked: list[str] = []
 
     class Slow(Hearing):
         def __call__(self, messages: list[Message]) -> str:
-            if messages[0]["content"] == SUMMARY_PROMPT:
+            if messages[-1]["content"] == SUMMARY_PROMPT:
                 asked.append("summary")
                 assert release.wait(5)
                 return "SUMMARY"
@@ -205,8 +207,6 @@ def test_a_spoken_prompt_waits_for_the_summary_before_it_is_corrected(tmp_path: 
         target=chat, args=(client, "What are Crime Number Basics?"), kwargs={"spoken": True}
     )
     spoken.start()
-    spoken.join(0.3)
-    assert asked == ["summary"]  # the correction waits
-    release.set()
     spoken.join(5)
-    assert asked == ["summary", "correction"]
+    assert asked == ["summary", "correction"]  # corrected while the summary is being made
+    release.set()

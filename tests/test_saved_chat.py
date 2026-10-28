@@ -57,7 +57,7 @@ def test_the_summary_is_saved_and_sent_after_a_restart(tmp_path: Path) -> None:
     assert len(again.turns()) == 10  # the chat still shows everything
     again.send("Hello")
     assert llm.sent[-1][0] == system_message(summary)
-    assert all(m[0]["content"] != SUMMARY_PROMPT for m in llm.sent)
+    assert all(m[-1]["content"] != SUMMARY_PROMPT for m in llm.sent)
 
 
 def test_clearing_saves_an_empty_conversation(tmp_path: Path) -> None:

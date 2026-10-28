@@ -53,7 +53,10 @@ class RepliesFirst:
     requests to the LLM count (`asking`, `streaming`): a reply made without it, such as the
     topics, doesn't cut the wiki off."""
 
-    def __init__(self) -> None:
+    def __init__(self, settle: Callable[[], object] | None = None) -> None:
+        # Called after requests are cut off for a reply, before it is sent: waits until the LLM
+        # has stopped them, so the reply doesn't share it with them (R147).
+        self._settle = settle
         self._changed = threading.Condition()
         self._replies = 0
         self._asking: set[_CutOff] = set()  # the wiki's requests being answered now
@@ -66,9 +69,18 @@ class RepliesFirst:
             cut = [request for request in self._asking if not request.is_set()]
             for request in cut:
                 request.set()
-        if cut:
-            logger.info("Wiki request cut off for a reply", extra={"requests": len(cut)})
         try:
+            # Inside the try, so a settle that fails still lets the wiki go on after the reply
+            # (Codex's review).
+            if cut:
+                logger.info("Wiki request cut off for a reply", extra={"requests": len(cut)})
+                if self._settle is not None:
+                    start = time.perf_counter()
+                    self._settle()
+                    logger.info(
+                        "Reply waited for the requests cut off to stop",
+                        extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
+                    )
             yield
         finally:
             with self._changed:

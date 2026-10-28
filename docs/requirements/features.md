@@ -242,6 +242,8 @@ Added by Larry on 2026-10-25, to build right after the speed-ups (Milestone 10b)
 
 131. **Say it simpler.** Beside Repeat, **Say it simpler** has the latest reply said again in simpler terms: shorter sentences and everyday words, saying the same and nothing new. It asks the LLM, so it shows "Thinking…" first, and the new reply is kept in the conversation like any other (Larry, 2026-10-27).
 
+142. **Answers from the PDFs start sooner.** The "Thinking…" before an answer from the PDFs is as short as the LLM allows (Larry, 2026-10-26): no question waits for the conversation to be summarized, the LLM doesn't read the same instructions again with every question, and a typed question is read ahead while it is typed. Nothing changes in what the user sees but the speed, and every answer is as good as before.
+
 ## Admin view
 
 Added by Larry on 2026-10-26, to build right after the bug fixes (items 106, 107, 112 to 114 and 119), before the setup wizard (items 108 to 111). The app has a host view and a participant view (item 50); this adds a third view, the **admin view**, for running the site as a whole rather than using it, with a sign-in of its own, a dashboard of the machine's resources against the limits of Oracle Cloud's free tier, where the hosted site runs, and settings only the admin can change. It is the admin of item 89, built before the disputes so that the disputes add to it. Larry added items 132 and 133 on 2026-10-27, first under Bug fixing and moved here the same evening: a failed sign-in said why it failed, such as a wrong password, which tells someone guessing more than it should, and anyone who learned the password could sign in from any computer. Later that evening he added item 141, the LLM model's share of the disk.
