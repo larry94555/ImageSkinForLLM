@@ -37,8 +37,16 @@ def test_clips_all_alike_are_fitted_as_a_cost_per_second() -> None:
     fixed, per_speech, per_word = fit([(3.0, 2.0, 6), (3.0, 2.0, 6)])
     assert (fixed, per_speech) == (0.0, 1.5) and per_word == pytest.approx(2 / 6)
     # A fit with a negative fixed cost (a large one per second) is all per second too.
-    fixed, per_speech, _ = fit([(1.0, 2.0, 6), (5.0, 4.0, 12)])
-    assert fixed == 0.0 and per_speech == 1.0
+    fixed, per_speech, _ = fit([(1.0, 2.0, 6), (9.0, 6.0, 18)])
+    assert fixed == 0.0 and per_speech == 1.25
+
+
+def test_clips_too_alike_in_length_are_fitted_as_a_cost_per_second() -> None:
+    # The hosted machine's first reply with Pocket (R161): a line through these two gives
+    # 1.72 s and 0.4 s a second of speech, so a 5.35 s clip foreseen at 3.9 s took 7.4 s.
+    fixed, per_speech, _ = fit([(2.301, 1.435, 4), (2.723, 2.485, 6)])
+    assert fixed == 0.0 and per_speech == pytest.approx(5.024 / 3.92)
+    assert Machine(fixed, per_speech, 0.392, 1.0, 10).make_s(12) == pytest.approx(6.03, abs=0.01)
 
 
 def test_the_pace_is_kept_across_restarts(tmp_path: Path) -> None:

@@ -38,6 +38,10 @@ CLIP_WORDS = 25
 # The most words a clip of sentences joined while the voice was busy may have: about 10 s of
 # speech, well under the 40 s at which Chatterbox stops (reply_video.JOIN_WORDS).
 JOIN_WORDS = 30
+# Clips whose speech spans less than this are too alike to fit a fixed cost and a cost per second
+# by: on the hosted machine, two short clips (1.4 s and 2.5 s) gave 0.4 s a second of speech where
+# the next clip took 1.4 (R161), and the reply broke up. Then the cost is all per second.
+MIN_SPREAD_S = 3.0
 KEEP_CLIPS = 40  # clips measured, for how fast this machine makes them
 KEEP_REPLIES = 5  # replies measured, for their length and the LLM's pace
 
@@ -67,12 +71,12 @@ def fit(clips: Sequence[tuple[float, float, int]]) -> tuple[float, float, float]
     per_word = sum(speech) / words if words else SPEECH_S_PER_WORD
     mean_s, mean_m = statistics.fmean(speech), statistics.fmean(make)
     var = sum((s - mean_s) ** 2 for s in speech)
-    if var > 1e-6:
+    if max(speech) - min(speech) >= MIN_SPREAD_S:
         slope = sum((s - mean_s) * (m - mean_m) for s, m in zip(speech, make, strict=True)) / var
         fixed = mean_m - slope * mean_s
         if slope > 0 and fixed >= 0:
             return fixed, slope, per_word
-    # Clips all alike, or a fit that makes no sense: all of a clip's time per second of speech.
+    # Clips too alike, or a fit that makes no sense: all of a clip's time per second of speech.
     return 0.0, sum(make) / sum(speech), per_word
 
 
