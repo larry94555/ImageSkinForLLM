@@ -44,6 +44,7 @@ import {
   type Review,
   review,
   ServerRefusal,
+  readAhead,
   sendPrompt,
   speakReply,
   startPrepare,
@@ -1355,6 +1356,11 @@ function saveSound(sound: Sound) {
   }
 }
 
+// How long typing pauses before the question so far is read ahead, and the fewest words read
+// (R148).
+export const READ_AHEAD_PAUSE_MS = 600;
+const READ_AHEAD_WORDS = 3;
+
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
 // (roadmap R22); if that fails, the reply stays as text with a short note.
@@ -1416,6 +1422,23 @@ function Chat(props: {
     null,
   );
   const busy = sending || speaking || saying !== null;
+  // The question typed so far is read ahead by the LLM once typing pauses (R148), so most of it
+  // is in the LLM's cache on Send. Not while a reply is made, nor for an answer to a quiz.
+  const readAheadOf = useRef("");
+  useEffect(() => {
+    const text = prompt.trim();
+    if (busy) readAheadOf.current = ""; // the conversation changes: read it again after
+    if (busy || quizGoing || text === readAheadOf.current) return;
+    if (text.split(/\s+/).length < READ_AHEAD_WORDS) return;
+    const timer = setTimeout(() => {
+      readAheadOf.current = text;
+      readAhead(text).then(
+        (read) => console.debug(`Question read ahead: ${read}`),
+        (e: unknown) => console.debug("Could not read the question ahead", e),
+      );
+    }, READ_AHEAD_PAUSE_MS);
+    return () => clearTimeout(timer);
+  }, [prompt, busy, quizGoing]);
   // The prompt being answered, if any: Exit hands it on, so Start again waits for it (R29).
   const inFlight = useRef<Promise<unknown> | null>(null);
   const clipTotal = useRef(0); // how many clips the latest reply has so far

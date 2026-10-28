@@ -285,6 +285,10 @@ class ChatRequest(BaseModel):
     spoken: bool = False
 
 
+class ReadAheadRequest(BaseModel):
+    prompt: str  # the question typed so far (R148)
+
+
 class RepeatRequest(BaseModel):
     # Chosen by the browser, as for a prompt, so it can follow the clips and Stop them (R156).
     reply_id: str = Field(pattern=REPLY_ID_PATTERN)
@@ -1401,6 +1405,8 @@ def create_app(
             topics=content_topics,
             topics_complete=topics_complete,
             saved=data_home / CONVERSATION_FILE,
+            # A question typed so far, read for one token (R148).
+            read_ahead=replies_first.ahead(functools.partial(client.ask, max_tokens=1), local),
         )
     else:
         assert ask_llm is not None
@@ -1416,6 +1422,7 @@ def create_app(
             topics=content_topics,
             topics_complete=topics_complete,
             saved=data_home / CONVERSATION_FILE,
+            read_ahead=replies_first.ahead(ask_llm, local),
         )
 
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.
@@ -1970,6 +1977,18 @@ def create_app(
             # A spoken prompt as it was answered, so the browser shows it that way (R24).
             **({"prompt": body.prompt} if body.spoken else {}),
         }
+
+    @app.post("/api/chat/ahead", dependencies=[*needs_person, Depends(require_accepted)])
+    def post_read_ahead(body: ReadAheadRequest) -> dict[str, Any]:
+        """Has the local LLM read the question typed so far, as it would be sent, so the answer
+        starts sooner once it is (R148). Nothing is shown or kept; it is skipped while the
+        replies are warming up or a reply is being made, and Send cuts it off."""
+        if app.state.reply_warm_up.is_alive():
+            logger.info("Prompt not read ahead", extra={"reason": "warming up"})
+            return {"read": False, "reason": "warming up"}
+        with pinned(client), llm_busy():
+            outcome = conversation.read_ahead(body.prompt)
+        return {"read": outcome == "read", "reason": outcome}
 
     @app.post("/api/chat/repeat", dependencies=[*needs_person, Depends(require_accepted)])
     def post_repeat(body: RepeatRequest) -> dict[str, Any]:

@@ -223,6 +223,15 @@ async function sendPrompt(prompt, replyId, lesson, quiz, assessment, spoken) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function readAhead(prompt) {
+	const response = await fetch("/api/chat/ahead", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ prompt })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).read;
+}
 async function speakReply(turn, replyId) {
 	const response = await fetch("/api/chat/video", {
 		method: "POST",
@@ -4252,6 +4261,7 @@ function saveSound(sound) {
 		localStorage.setItem(SOUND_KEY, JSON.stringify(sound));
 	} catch {}
 }
+var READ_AHEAD_WORDS = 3;
 function Chat(props) {
 	const metrics = useSettings().show_metrics;
 	const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
@@ -4294,6 +4304,22 @@ function Chat(props) {
 	const [saying, setSaying] = d(props.welcome ? "welcome-back" : null);
 	const line = A(null);
 	const busy = sending || speaking || saying !== null;
+	const readAheadOf = A("");
+	h(() => {
+		const text = prompt.trim();
+		if (busy) readAheadOf.current = "";
+		if (busy || quizGoing || text === readAheadOf.current) return;
+		if (text.split(/\s+/).length < READ_AHEAD_WORDS) return;
+		const timer = setTimeout(() => {
+			readAheadOf.current = text;
+			readAhead(text).then((read) => console.debug(`Question read ahead: ${read}`), (e) => console.debug("Could not read the question ahead", e));
+		}, 600);
+		return () => clearTimeout(timer);
+	}, [
+		prompt,
+		busy,
+		quizGoing
+	]);
 	const inFlight = A(null);
 	const clipTotal = A(0);
 	const allMade = A(false);

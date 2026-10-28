@@ -531,6 +531,18 @@ export async function sendPrompt(
   return (await response.json()) as Reply;
 }
 
+// Has the LLM read the question typed so far, so its answer starts sooner once it is sent
+// (roadmap R148). Nothing is shown or kept; says whether it was read.
+export async function readAhead(prompt: string): Promise<boolean> {
+  const response = await fetch("/api/chat/ahead", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { read: boolean }).read;
+}
+
 // Speaks a reply in the person's voice on their photo (roadmap R17); turn is its place in the
 // conversation. Returns the video's address, or null when the reply has nothing to say aloud.
 // Throws an Error saying why when the voice or the video fails.
