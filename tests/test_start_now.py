@@ -6,6 +6,7 @@ import json
 import logging
 import shutil
 import threading
+import time
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -1014,5 +1015,10 @@ def test_times_that_cant_be_read_or_saved(
 
 def test_the_page_is_told_no_time_left_once_the_chat_shows_the_person(client: TestClient) -> None:
     status = choose(client)
-    assert status["state"] == "ready" and status["chat_ready"] is True
-    assert status["left_s"] is None
+    for _ in range(100):  # the warm-up makes the chat's video on its own thread
+        if status["chat_ready"]:
+            break
+        assert status["state"] == "ready" and isinstance(status["left_s"], int)
+        time.sleep(0.05)
+        status = client.get("/api/start-now").json()
+    assert status["chat_ready"] is True and status["left_s"] is None
