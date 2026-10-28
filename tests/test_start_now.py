@@ -20,7 +20,7 @@ from imageskin import default_people as dp
 from imageskin import start_now as sn
 from imageskin.app import create_app
 from imageskin.download import DownloadError, sha256_of
-from imageskin.prepare_job import ClipSteps, PrepareError
+from imageskin.prepare_job import ClipSteps, PrepareError, remaining
 from imageskin.reply_video import ReplyVideos, VoiceReady
 from imageskin.voice import Speech
 
@@ -148,7 +148,8 @@ def test_start_downloads_unpacks_and_says_the_lines(
         first = start.start(CHOICE)
         start.wait(10)
     assert first.state == "downloading" and first.person == CHOICE.name
-    assert start.status() == sn.StartStatus("ready", CHOICE.name, 100)
+    # Ready, with about the chat's usual time left for its video (R176).
+    assert start.status() == sn.StartStatus("ready", CHOICE.name, 100, left_s=10)
     assert ready.is_set()
     assert fetch.urls == [f"https://x/rel/{CHOICE.name}.zip"]
     assert fetch.kwargs["retries"] == 1  # the user is waiting: give up soon, Try again resumes
@@ -564,7 +565,7 @@ def test_progress_follows_the_download(tmp_path: Path, pack: Path) -> None:
     start._fetch = fetch_and_look
     start.start(CHOICE)
     start.wait(10)
-    assert seen[0] == sn.StartStatus("downloading", CHOICE.name, 50)
+    assert (seen[0].state, seen[0].percent) == ("downloading", 50)
     assert seen[1].state == "getting-ready"
 
 
@@ -656,6 +657,7 @@ def test_the_chat_is_locked_until_a_person_is_chosen(client: TestClient) -> None
         "person": None,
         "percent": 0,
         "error": None,
+        "left_s": None,
         "chosen": None,
         "chat_ready": False,
     }
@@ -948,3 +950,69 @@ def test_the_app_says_the_lines_again_at_start_up_in_a_changed_voice(
         assert app().get("/api/start-now").status_code == 200
     logged = [r.getMessage() for r in caplog.records]
     assert "Default person's lines not rendered again" in logged
+
+
+def test_time_left_counts_down_to_the_chat(tmp_path: Path, pack: Path) -> None:
+    """R176: about how long is left, from the download's pace and each stage's time, which the
+    next person on this machine is then expected to take."""
+    now = [0.0]
+    start = started(tmp_path, pack, clock=lambda: now[0])
+    assert start.status().left_s is None  # nothing being got ready
+    start._set("downloading")
+    assert start.status().left_s == 10 + 4 + 15 + 10  # every stage's usual time
+    now[0] = 2.0
+    start._set("downloading", 50)  # half of it in 2 s
+    assert start.status().left_s == round(remaining(4, 2) + 4 + 15 + 10)
+    now[0] = 3.0
+    start._set("unpacking", 100)
+    assert start.status().left_s == 4 + 15 + 10
+    now[0] = 3.5
+    start._set("getting-ready", 100)  # unpacked in 0.5 s: too quick to time
+    now[0] = 23.5
+    start._set("ready", 100)
+    assert start.status().left_s == 10  # the chat's video
+    now[0] = 25.5
+    assert start.status().left_s == round(remaining(10, 2))
+    start.chat_shown()
+    start.chat_shown()  # timed once
+    assert start.status().left_s is None
+    times = json.loads((tmp_path / sn.TIMES_FILE).read_text())
+    assert times == {"download": 3.0, "lines": 20.0, "chat": 2.0}
+    again = started(tmp_path, pack, clock=lambda: now[0])
+    again._set("downloading")
+    assert again.status().left_s == 3 + 4 + 20 + 2
+
+
+def test_no_time_left_once_failed_or_from_a_stage_skipped(tmp_path: Path, pack: Path) -> None:
+    start = started(tmp_path, pack)
+    start._set("getting-ready", 100)
+    start._set("failed", error="No")
+    assert start.status().left_s is None
+    start._set("unpacking", 100)
+    start._set("downloading")  # back to an earlier stage: nothing timed
+    assert not (tmp_path / sn.TIMES_FILE).exists()
+
+
+def test_times_that_cant_be_read_or_saved(
+    tmp_path: Path, pack: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / sn.TIMES_FILE).write_text("[1, 2]")
+    assert started(tmp_path, pack)._times == {}
+    (tmp_path / sn.TIMES_FILE).write_text('{"lines": 7, "other": 1, "chat": "x"}')
+    assert started(tmp_path, pack)._times == {"lines": 7.0}
+    (tmp_path / sn.TIMES_FILE).write_text("{")
+    with caplog.at_level(logging.ERROR, logger="imageskin.start_now"):
+        start = started(tmp_path, pack)
+        (tmp_path / sn.TIMES_FILE).unlink()
+        (tmp_path / sn.TIMES_FILE).mkdir()  # can't be written
+        start._timed("lines", 5.0)
+    assert start._times == {"lines": 5.0}
+    messages = [r.getMessage() for r in caplog.records]
+    assert "Could not read the default person's times" in messages
+    assert "Could not save the default person's times" in messages
+
+
+def test_the_page_is_told_no_time_left_once_the_chat_shows_the_person(client: TestClient) -> None:
+    status = choose(client)
+    assert status["state"] == "ready" and status["chat_ready"] is True
+    assert status["left_s"] is None

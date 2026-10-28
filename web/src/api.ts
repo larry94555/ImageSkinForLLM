@@ -285,6 +285,7 @@ export interface StartNowStatus {
   person: string | null;
   percent: number; // of the download
   error: string | null; // in plain words
+  left_s?: number | null; // while it is got ready: about how long is left until the chat (R176)
   chosen?: PersonChoice | null; // the person the chat uses now, if a default one
   // Ready, and the chat would show this person: their idle video is made, or can't be.
   chat_ready?: boolean;

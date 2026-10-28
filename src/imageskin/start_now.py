@@ -24,7 +24,7 @@ import threading
 import time
 import urllib.error
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -42,6 +42,7 @@ from imageskin.default_people import (
 from imageskin.download import DownloadError, download, sha256_of
 from imageskin.failure import report
 from imageskin.photoreal_library import library_key
+from imageskin.prepare_job import remaining
 from imageskin.ready_voice import save_ready_voice
 from imageskin.voice import Speech, VoiceEngine
 
@@ -63,6 +64,16 @@ FOLDER = "default-people"
 ACCENTS = ("American", "British")
 # The fixed lines said on exit and on return (roadmap R29), as Prepare renders them.
 LINES = (("goodbye", "Goodbye."), ("welcome-back", "Welcome back."))
+# How long each stage of getting a person ready took the last time on this machine, so the page
+# can say about how long is left (R176), as Prepare does.
+TIMES_FILE = "default-person-times.json"
+# Until this machine has timed a stage: about what Larry's hosted machine took (R96b, 22 s from
+# Start now to the chat), the lines with Kokoro's first load.
+USUAL_S = {"download": 10.0, "unpack": 4.0, "lines": 15.0, "chat": 10.0}
+STAGE_OF = {"downloading": "download", "unpacking": "unpack", "getting-ready": "lines"}
+# A stage done this fast had nothing to do (the pack kept, the lines there): not timed, as it
+# says nothing about one that has work.
+MIN_TIMED_S = 1.0
 
 State = Literal["idle", "downloading", "unpacking", "getting-ready", "ready", "failed"]
 # While a person is being got ready, on the background thread.
@@ -121,6 +132,7 @@ class StartStatus:
     person: str | None = None
     percent: int = 0  # of the download
     error: str | None = None  # in plain words, for the user
+    left_s: int | None = None  # while it is got ready: about how many seconds are left (R176)
 
 
 def faces(gender: str, realism: str, role: str) -> dict[int, str]:
@@ -160,6 +172,7 @@ class StartNow:
         # Makes the chosen person the one the chat uses: with the reply engines paused, so a
         # reply being rendered doesn't change voice or face partway (review on PR #113).
         activate: Callable[[Callable[[], None]], None] = lambda choose: choose(),
+        clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self._home = home
         self._folder = home / FOLDER
@@ -177,6 +190,10 @@ class StartNow:
         self._lock = threading.Lock()
         self._status = StartStatus("idle")
         self._thread: threading.Thread | None = None
+        self._clock = clock
+        self._stage_at = clock()  # when the state it is in now began
+        self._ready_at: float | None = None  # ready, until the chat shows the person
+        self._times = self._load_times()
 
     # The choice
 
@@ -295,7 +312,74 @@ class StartNow:
 
     def status(self) -> StartStatus:
         with self._lock:
-            return self._status
+            return replace(self._status, left_s=self._left(self._clock()))
+
+    def chat_shown(self) -> None:
+        """The chat shows the person got ready: the last stage, their idle video, is timed."""
+        with self._lock:
+            if self._ready_at is not None:
+                self._timed("chat", self._clock() - self._ready_at)
+                self._ready_at = None
+
+    def _left(self, now: float) -> int | None:
+        """About how many seconds are left until the chat opens: the stage it is in, from how
+        fast the download goes or the stage's expected time, then the stages after it."""
+        state = self._status.state
+        if state == "ready" and self._ready_at is not None:
+            stage, elapsed = "chat", now - self._ready_at
+        elif state in STAGE_OF:
+            stage, elapsed = STAGE_OF[state], now - self._stage_at
+        else:
+            return None
+        percent = self._status.percent
+        if stage == "download" and percent > 0:
+            left = remaining(elapsed * 100 / percent, elapsed)
+        else:
+            left = remaining(self._expected(stage), elapsed)
+        later = list(USUAL_S)[list(USUAL_S).index(stage) + 1 :]
+        return round(left + sum(self._expected(s) for s in later))
+
+    def _expected(self, stage: str) -> float:
+        return self._times.get(stage, USUAL_S[stage])
+
+    def _timed(self, stage: str, seconds: float) -> None:
+        """Keep how long a stage took, for the next time a person is got ready."""
+        logger.info(
+            "Default person stage finished", extra={"stage": stage, "duration_s": round(seconds, 1)}
+        )
+        if seconds < MIN_TIMED_S:
+            return
+        self._times[stage] = round(seconds, 1)
+        try:
+            (self._home / TIMES_FILE).write_text(json.dumps(self._times), encoding="utf-8")
+        except OSError as e:
+            logger.error("Could not save the default person's times", extra={"error": str(e)})
+
+    def _load_times(self) -> dict[str, float]:
+        try:
+            data = json.loads((self._home / TIMES_FILE).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as e:
+            logger.error("Could not read the default person's times", extra={"error": str(e)})
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {k: float(v) for k, v in data.items() if k in USUAL_S and isinstance(v, int | float)}
+
+    def _enter(self, status: StartStatus) -> None:
+        """Move to `status`, with the lock held: a stage finished in order is timed, and
+        "ready" starts the wait for the chat."""
+        now = self._clock()
+        old = self._status
+        stages = list(STAGE_OF) + ["ready"]
+        if old.state in STAGE_OF and status.state in stages:
+            if stages.index(status.state) > stages.index(old.state):
+                self._timed(STAGE_OF[old.state], now - self._stage_at)
+        if status.state != old.state:
+            self._stage_at = now
+            self._ready_at = now if status.state == "ready" else None
+        self._status = status
 
     def start(self, choice: Choice) -> StartStatus:
         """Get the chosen person ready, unless a person is being got ready now: then report on
@@ -308,12 +392,12 @@ class StartNow:
             )
             if self._ready(choice):
                 self._activate(lambda: self._save(choice))
-                self._status = StartStatus("ready", choice.name, 100)
+                self._enter(StartStatus("ready", choice.name, 100))
                 logger.info("Default person already downloaded", extra={"person": choice.name})
                 self._on_ready()
                 return self._status
             self._claim()  # refused while Prepare runs or the sample is made again
-            self._status = StartStatus("downloading", choice.name)
+            self._enter(StartStatus("downloading", choice.name))
             self._thread = threading.Thread(
                 target=self._run, args=(choice,), name="start-now", daemon=True
             )
@@ -337,7 +421,7 @@ class StartNow:
                     "Default person's pack changed: downloaded again", extra={"person": choice.name}
                 )
                 self._claim()  # refused while Prepare runs
-                self._status = StartStatus("downloading", choice.name)
+                self._enter(StartStatus("downloading", choice.name))
                 self._thread = threading.Thread(
                     target=self._run, args=(choice, False), name="start-now", daemon=True
                 )
@@ -350,7 +434,7 @@ class StartNow:
                 extra={"person": choice.name, "voice": choice.voice[1]},
             )
             self._claim()  # refused while Prepare runs
-            self._status = StartStatus("getting-ready", choice.name, 100)
+            self._enter(StartStatus("getting-ready", choice.name, 100))
             self._thread = threading.Thread(
                 target=self._run_refresh, args=(choice,), name="start-now-lines", daemon=True
             )
@@ -435,7 +519,7 @@ class StartNow:
 
     def _set(self, state: State, percent: int = 0, error: str | None = None) -> None:
         with self._lock:
-            self._status = StartStatus(state, self._status.person, percent, error)
+            self._enter(StartStatus(state, self._status.person, percent, error))
 
     def _run(self, choice: Choice, save: bool = True) -> None:
         start = time.perf_counter()

@@ -7096,6 +7096,10 @@ function progressText(status) {
 	if (status.state === "getting-ready") return "Step 2 of 3: Getting the avatar's voice ready…";
 	return "Step 3 of 3: Making the avatar's video for the chat…";
 }
+function timeText(status, seconds) {
+	if (status.left_s != null) return ` · about ${countdown(status.left_s)} left`;
+	return finishing(status) && seconds > 0 ? ` ${seconds} s` : "";
+}
 function useSeconds(on) {
 	const [seconds, setSeconds] = d(0);
 	h(() => {
@@ -7270,7 +7274,7 @@ function StartNowPage() {
 			}),
 			working && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", {
 				className: "busy",
-				children: [progressText(status), finishing(status) && seconds > 0 && ` ${seconds} s`]
+				children: [progressText(status), timeText(status, seconds)]
 			}), status.state === "downloading" ? /* @__PURE__ */ u("progress", {
 				max: 100,
 				value: status.percent,
