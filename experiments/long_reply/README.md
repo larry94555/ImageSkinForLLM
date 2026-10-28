@@ -242,6 +242,46 @@ The hosted machine's run is the same as [above](#on-the-hosted-machine), on this
 (`git checkout r130-steady-pace`); run it twice, as the first reply after a start has no gaps to
 learn from.
 
+## After R161 part 1: cloud session, 2026-10-28
+
+R161's first part starts a reply once the rest can play through, worked out from how fast this
+machine makes clips and the LLM writes, kept across restarts in `replies/pace.json`. The same
+three replies were measured on one 4-core cloud machine with the setup samples' photo prepared
+and Kokoro's af_heart, fake_llm.py at Gemma's cloud pace: with R161 in an app started fresh with
+no pace file (so reply 1 starts from the defaults), on main (#181) in an app started fresh, and
+with R161 again after a restart, with the pace file from the first run. Full tables:
+[R161, fresh](results/long-reply-cloud-r161-first-2026-10-28.md),
+[main](results/long-reply-cloud-main-2026-10-28.md) and
+[R161, restarted](results/long-reply-cloud-r161-restarted-2026-10-28.md), with the JSON beside
+them. First word heard is from Send; reply 1 of the restarted run also waited for the replies'
+warm-up (37.4 s from Send, 20.3 s from its first sentence).
+
+| Run | Reply | Words | First word heard | Rate heard | Make/play | Gaps > 300 ms (total) | Longest gap |
+|---|---|---|---|---|---|---|---|
+| main | 1 | 152 | 15.5 s | 111 | 1.13 | 5 (14.9 s) | 7.9 s |
+| main | 2 | 220 | 20.3 s | 159 | 1.07 | 1 (0.4 s) | 0.4 s |
+| main | 3 | 261 | 20.1 s | 154 | 1.03 | 0 | - |
+| R161, fresh | 1 | 152 | 23.9 s | 136 | 1.11 | 0 | - |
+| R161, fresh | 2 | 220 | 21.9 s | 156 | 1.15 | 1 (1.8 s) | 1.8 s |
+| R161, fresh | 3 | 261 | 22.5 s | 154 | 1.03 | 0 | - |
+| R161, restarted | 1 | 152 | 37.4 s | 136 | 1.05 | 0 | - |
+| R161, restarted | 2 | 220 | 21.9 s | 159 | 1.03 | 0 | - |
+| R161, restarted | 3 | 261 | 22.7 s | 153 | 1.09 | 1 (0.7 s) | 0.7 s |
+
+![main, reply 1](results/timeline-cloud-main-reply1-2026-10-28.png)
+
+![R161, reply 1](results/timeline-cloud-r161-reply1-2026-10-28.png)
+
+1. **The first reply after a start no longer breaks up.** On main it had 5 gaps, 14.9 s in all
+   and up to 7.9 s, as R130's hold had nothing to learn from yet. With R161 it had none, both
+   with no pace file and after a restart with one, and ended about 6 s sooner than on main.
+2. **No pause over 3 s in any of the six replies with R161**, R161's goal: the longest was
+   1.8 s. Here clips took 1.03 to 1.15 times as long to make as they play, so slower than real
+   time, and the reply was held 16.7 to 18.1 s after its first clip was ready.
+3. **The cost is the wait**: the first word came at 21.9 to 23.9 s from Send against 20.1 to
+   20.3 s for main's held replies (main's first reply started at 15.5 s, then broke up). Part 2's
+   opener is meant to fill that wait.
+
 ### What R130 should fix
 
 - **Trim each clip's silence to the pause its text calls for**: the silence Kokoro leaves at a
