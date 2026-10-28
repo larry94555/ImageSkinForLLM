@@ -9,7 +9,7 @@ import pytest
 from test_resources import Disk, by_name, machine
 
 from imageskin import llm_model_file
-from imageskin.llm_model_file import CHECK_S, ON_HOST, LlmModelFile, on_machine
+from imageskin.llm_model_file import CHECK_S, ON_HOST, LlmModelFile, model_folder, on_machine
 from imageskin.resources import GB, ResourceReader
 
 
@@ -43,7 +43,11 @@ def test_the_file_llama_server_loaded_with_its_size(
     found = LlmModelFile("http://127.0.0.1:8080/v1", ask=server).get()
     assert server.urls == ["http://127.0.0.1:8080/props"]
     assert found is not None
-    assert (found.name, found.size, found.location) == ("gemma-3-4b-it-Q4_0.gguf", 2_500, str(path))
+    assert (found.name, found.size, found.location) == (
+        "gemma-3-4b-it-Q4_0.gguf",
+        2_500,
+        str(path.parent),
+    )
     assert found.device == path.stat().st_dev
     assert "Local LLM model file found" in caplog.text
 
@@ -93,11 +97,19 @@ def test_where_it_is_on_the_machine() -> None:
     assert on_machine(file, "no colon") == file
 
 
+def test_the_location_is_the_models_folder() -> None:
+    cache = "/models/models--unsloth--gemma-3-4b-it-GGUF"
+    assert model_folder(f"{cache}/snapshots/5a3566e7/gemma-3-4b-it-Q4_0.gguf") == cache
+    assert model_folder("/srv/models/gemma.gguf") == "/srv/models"
+    assert model_folder("C:\\models\\gemma.gguf") == "C:/models"
+    assert model_folder("/gemma.gguf") == "/"
+
+
 def test_the_location_follows_the_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = model(tmp_path)
     monkeypatch.setenv(ON_HOST, f"{tmp_path}:/srv/host")
     found = LlmModelFile("http://x/v1", ask=Server(str(path))).get()
-    assert found is not None and found.location == "/srv/host/models/gemma-3-4b-it-Q4_0.gguf"
+    assert found is not None and found.location == "/srv/host/models"
 
 
 def reader(tmp_path: Path, server: Server) -> ResourceReader:
@@ -112,7 +124,7 @@ def test_the_disks_used_is_the_model_and_other(
     disk = by_name(reader(tmp_path, Server(str(path))).read())["disk"]
     details = disk["details"]
     assert details["llm_model"] == "gemma-3-4b-it-Q4_0.gguf"
-    assert details["llm_location"] == str(path)
+    assert details["llm_location"] == str(path.parent)
     assert details["llm_bytes"] + details["other_bytes"] == disk["used"]
     assert details["other_bytes"] == disk["used"] - 3_000
 

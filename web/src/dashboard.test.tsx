@@ -262,7 +262,7 @@ test("amounts are shown in cores, GB and TB", () => {
 });
 
 test("the disk's Used is split into the LLM model and Other, with where the model is", async () => {
-  const LOCATION = "/var/lib/docker/volumes/imageskin_llama-models/_data/gemma-3-4b-it-Q4_0.gguf";
+  const LOCATION = "/var/lib/docker/volumes/imageskin_llama-models/_data/models--unsloth--gemma-3-4b-it-GGUF";
   server(() => {
     const read = hosted();
     const disk = read.resources.find((r) => r.name === "disk")!;
@@ -282,7 +282,7 @@ test("the disk's Used is split into the LLM model and Other, with where the mode
   const model = disk.getByText("LLM model gemma-3-4b-it-Q4_0.gguf");
   expect(model.nextElementSibling?.textContent).toBe("2.4 GB");
   expect(disk.getByText("Other").nextElementSibling?.textContent).toBe("83.6 GB");
-  expect(disk.getByText(`The LLM model is at ${LOCATION}`)).toBeTruthy();
+  expect(disk.getByText(`The LLM model: ${LOCATION}`)).toBeTruthy();
 });
 
 test("without a local LLM model the disk's Used is not split", async () => {

@@ -30,7 +30,7 @@ ON_HOST = "IMAGESKIN_LLM_MODELS_ON_HOST"
 class ModelFile:
     name: str
     size: int
-    location: str  # on the machine
+    location: str  # the model's folder on the machine
     device: int  # the disk it is on (st_dev), to check it is the data's
 
 
@@ -45,6 +45,15 @@ def on_machine(path: str, mapping: str | None) -> str:
     if inside and host and (path == inside or path.startswith(inside.rstrip("/") + "/")):
         return host.rstrip("/") + path[len(inside.rstrip("/")) :]
     return path
+
+
+def model_folder(path: str) -> str:
+    """The model's own folder: in the -hf download cache that is models--<owner>--<name>, above
+    its snapshots/<hash>/ folders; otherwise the folder the file is in."""
+    path = path.replace("\\", "/")
+    if "/snapshots/" in path:
+        return path.split("/snapshots/", 1)[0]
+    return path.rsplit("/", 1)[0] or "/"
 
 
 class LlmModelFile:
@@ -88,7 +97,7 @@ class LlmModelFile:
         found = ModelFile(
             name=path.replace("\\", "/").rsplit("/", 1)[-1],
             size=stat.st_size,
-            location=on_machine(path, os.environ.get(ON_HOST)),
+            location=model_folder(on_machine(path, os.environ.get(ON_HOST))),
             device=stat.st_dev,
         )
         if self._file != found:

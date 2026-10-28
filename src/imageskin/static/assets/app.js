@@ -554,7 +554,7 @@ function detailLines(resource) {
 	}, v);
 	if (resource.name === "cpu" && d.load_15 !== void 0) return [`Load over 1, 5 and 15 minutes: ${d.load_1}, ${d.load_5}, ${d.load_15}`];
 	if (resource.name === "memory" && typeof d.app_cap === "number") return [`The app: ${bytes(d.app_used)} of its ${bytes(d.app_cap)} cap`];
-	if (resource.name === "disk" && typeof d.llm_location === "string") return [`The LLM model is at ${d.llm_location}`];
+	if (resource.name === "disk" && typeof d.llm_location === "string") return [`The LLM model: ${d.llm_location}`];
 	if (resource.name === "network" && d.month !== void 0) {
 		const lines = [`Received: ${bytes(d.received)} (inbound is free)`, `Now: ${bytes(d.sent_per_s)}/s out, ${bytes(d.received_per_s)}/s in`];
 		if (typeof d.projected_sent === "number") lines.push(`At this pace, about ${bytes(d.projected_sent)} out by the month's end`);

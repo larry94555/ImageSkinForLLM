@@ -91,7 +91,7 @@ function detailLines(resource: Resource): string[] {
     return [`The app: ${bytes(d.app_used)} of its ${bytes(d.app_cap)} cap`];
   }
   if (resource.name === "disk" && typeof d.llm_location === "string") {
-    return [`The LLM model is at ${d.llm_location}`];
+    return [`The LLM model: ${d.llm_location}`];
   }
   if (resource.name === "network" && d.month !== undefined) {
     const lines = [
