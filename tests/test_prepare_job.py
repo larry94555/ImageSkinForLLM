@@ -153,7 +153,8 @@ def test_reports_progress_and_time_left_while_it_runs(tmp_path: Path) -> None:
     loop = next(s for s in (status.steps or []) if s.key == "loop")
     assert (loop.done, loop.total) == (52, 200) and loop.left_s is not None
     assert loop.seconds is None
-    assert 0 < status.percent < 100
+    # The steps so far took no time, and the percentage is the time so far against the whole.
+    assert status.left_s is not None and 0 <= status.percent < 100
     release.set()
     job.wait(5)
     assert job.status().state == "done"
@@ -390,6 +391,24 @@ def test_clips_speak_in_the_cloned_voice_when_chatterbox_is_installed(
     assert "the person's own voice, cloned with Chatterbox Turbo" in caplog.text
 
 
+def test_pocket_tts_not_signed_in_speaks_with_chatterbox(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R160: the hosted site's image has Pocket TTS, but its gated weights need a Hugging Face
+    token. A site with none yet speaks with Chatterbox, as before, rather than failing Prepare."""
+    sample = tmp_path / "voice-sample.wav"
+    with (
+        caplog.at_level(logging.INFO),
+        patch("imageskin.chatterbox_engine.check_installed"),
+        patch("imageskin.pocket_engine.installed", return_value=True),
+        patch("imageskin.pocket_engine.signed_in", return_value=False),
+    ):
+        _, engine, _, kind = clip_voice(sample, lambda: "own", MagicMock())
+    assert isinstance(engine, AccentEngine) and kind == "clone"
+    assert engine._clone.name == "Chatterbox Turbo"
+    assert "installed but not signed in to Hugging Face; speaking with Chatterbox" in caplog.text
+
+
 def test_clips_speak_in_pocket_tts_when_it_is_installed_too(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -400,6 +419,7 @@ def test_clips_speak_in_pocket_tts_when_it_is_installed_too(
         caplog.at_level(logging.INFO),
         patch("imageskin.chatterbox_engine.check_installed"),
         patch("imageskin.pocket_engine.installed", return_value=True),
+        patch("imageskin.pocket_engine.signed_in", return_value=True),
         patch.object(ChatterboxEngine, "learn_voice") as learn,
     ):
         step, engine, voice, kind = clip_voice(sample, lambda: "own", MagicMock())

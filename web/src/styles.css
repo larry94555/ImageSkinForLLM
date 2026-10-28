@@ -771,6 +771,8 @@ ol.steps { gap: 6px; margin-top: 12px; }
 .sample-video video { border-radius: 14px; box-shadow: var(--shadow); }
 ul.photos li.chosen { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-sm); }
 ul.photos img { border-radius: 8px; }
+/* Admin, while signed in as the administrator (R150), and Settings, at the end of the top bar. */
+.header-end { display: inline-flex; align-items: center; gap: 4px; }
 /* The Settings link: a sliders icon and the word, at the end of the top bar. */
 .settings-link {
   display: inline-flex;
@@ -892,6 +894,8 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 .lesson p { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--fg); }
 .lesson-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .lesson-buttons button { min-height: 36px; padding: 4px 14px; font-size: 0.875rem; }
+.reply-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 0; }
+.reply-actions button { min-height: 32px; padding: 4px 12px; font-size: 0.875rem; }
 .hints button.example {
   min-height: 36px;
   padding: 6px 14px;
@@ -1002,3 +1006,45 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .failure details { margin-top: 8px; }
 .failure pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85em; }
 .failure textarea { width: 100%; margin-top: 6px; font-family: inherit; }
+/* The admin view's resource dashboard (R154): a card for each resource, what remains in its */
+/* colour with the colour's name, and a bar of what is used. */
+.admin-page .section-title { margin: 8px 0 4px; }
+.resources { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 12px 0 16px; }
+.resources .panel { margin: 0; border-top: 6px solid var(--line); }
+.resource .remaining { margin: 8px 0 0; }
+.resource .big { font-size: 1.6rem; font-weight: 700; }
+.resource dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 12px 0 8px; }
+.resource dt { color: var(--muted); }
+.resource dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The disk's Used split into the LLM model and Other (R175), indented under it. */
+.resource .part { padding-left: 12px; font-size: 0.875rem; }
+.resource dt.part { overflow-wrap: anywhere; }
+.resource .small, .colour-key { font-size: 0.875rem; }
+.resource .small { margin: 2px 0 0; }
+.resource .bar { height: 8px; border-radius: 999px; background: var(--sunken); overflow: hidden; margin-top: 10px; }
+.resource .bar span { display: block; height: 100%; background: var(--muted); }
+.colour-name { margin: 2px 0 0; font-weight: 600; }
+.colour-key { margin: 6px 0 0; }
+:root { --blue: #1d6fd1; --green: #15803d; --orange: #c2570c; --red: #c4282f; }
+@media (prefers-color-scheme: dark) {
+  :root { --blue: #6aa8ff; --green: #6fdc95; --orange: #ffa25c; --red: #ff8d8d; }
+}
+.resource.blue { border-top-color: var(--blue); }
+.resource.green { border-top-color: var(--green); }
+.resource.orange { border-top-color: var(--orange); }
+.resource.red { border-top-color: var(--red); }
+.resource.blue .big, .colour-name.blue { color: var(--blue); }
+.resource.green .big, .colour-name.green { color: var(--green); }
+.resource.orange .big, .colour-name.orange { color: var(--orange); }
+.resource.red .big, .colour-name.red { color: var(--red); }
+.resource.blue .bar span { background: var(--blue); }
+.resource.green .bar span { background: var(--green); }
+.resource.orange .bar span { background: var(--orange); }
+.resource.red .bar span { background: var(--red); }
+/* The admin view's two pages (R155), and the admin settings' number boxes. */
+.admin-tabs { display: flex; gap: 4px; margin: 0 0 12px; }
+.admin-tabs a { padding: 6px 14px; border-radius: 999px; color: var(--muted); font-weight: 500; text-decoration: none; }
+.admin-tabs a:hover { background: var(--sunken); color: var(--fg); }
+.admin-tabs a.current { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.admin-number { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 8px 0; max-width: 480px; }
+.admin-number input { width: 7em; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); color: var(--fg); font: inherit; }

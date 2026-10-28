@@ -28,6 +28,11 @@ from pydantic import BaseModel, Field, model_validator
 
 from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
+from imageskin.admin import FILENAME as ADMIN_FILENAME
+from imageskin.admin import AdminSignIns
+from imageskin.admin_api import admin_router
+from imageskin.admin_settings import DEFAULTS as ADMIN_DEFAULTS
+from imageskin.admin_settings import AdminSettingsStore
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
@@ -67,7 +72,9 @@ from imageskin.llm_choice import (
     pinned,
     save_choice,
 )
+from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages
+from imageskin.network import NetworkMonth
 from imageskin.prepare_job import (
     CLONES,
     NOT_PREPARED,
@@ -93,7 +100,10 @@ from imageskin.ready_voice import preset as ready_preset
 from imageskin.replies_first import RepliesFirst
 from imageskin.reply_times import ReplyTimes
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_since
+from imageskin.resources import ResourceReader
 from imageskin.review import accept, load_review, withdraw
+from imageskin.sentences import clips_of
+from imageskin.simpler import say_simpler
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -158,6 +168,10 @@ class ReadyVoiceRequest(BaseModel):
 
 class PhotoChoiceRequest(BaseModel):
     id: str
+
+
+class CancelRequest(BaseModel):
+    now: bool = False  # stop at once, not after the part it is on (R159)
 
 
 class AccentRequest(BaseModel):
@@ -271,6 +285,11 @@ class ChatRequest(BaseModel):
     spoken: bool = False
 
 
+class RepeatRequest(BaseModel):
+    # Chosen by the browser, as for a prompt, so it can follow the clips and Stop them (R156).
+    reply_id: str = Field(pattern=REPLY_ID_PATTERN)
+
+
 class ReplyVideoRequest(BaseModel):
     turn: int  # the reply's place in the conversation, from 0
     # The reply's id from POST /api/chat, so Stop can stop its video (roadmap R19).
@@ -279,6 +298,8 @@ class ReplyVideoRequest(BaseModel):
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
+NOTHING_TO_REPEAT = "There is no reply to repeat yet."
+CANT_REPEAT = "The reply couldn't be repeated."
 # The longest the clips request waits for the next clip before answering with none new.
 CLIPS_WAIT_S = 10.0
 
@@ -469,6 +490,8 @@ def create_app(
     # Whether each topic's first lesson part is written ahead (R98a); left out, it is with the
     # app's own LLM and not with a test's `ask_llm`, whose replies the tests count.
     lessons_ahead: bool | None = None,
+    # The administrator's password file (R149); left out, admin.toml in the home folder.
+    admin_file: Path | None = None,
 ) -> FastAPI:
     startup = startup or StartupTimes()
     startup.begin("app made")
@@ -519,6 +542,43 @@ def create_app(
     def get_startup() -> dict[str, Any]:
         """When each part of the start began and ended, for `imageskin time-startup` (R96c)."""
         return startup.snapshot()
+
+    # Signing in as the administrator (R149). Every admin route later depends on require_admin.
+    # The minutes before an inactive administrator is signed out, and the dashboard's colours,
+    # are admin settings (R155), read at each check so a change applies at once.
+    admin_settings = AdminSettingsStore(data_home)
+    admin_sign_ins = AdminSignIns(
+        admin_file or data_home / ADMIN_FILENAME,
+        timeout_minutes=lambda: admin_settings.current.timeout_minutes,
+    )
+    admin_routes, app.state.require_admin = admin_router(admin_sign_ins)
+    app.include_router(admin_routes)
+
+    # The machine's resources for the admin dashboard (R152), for the administrator only.
+    # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
+    app.state.network_month = NetworkMonth(data_home)
+    # The local LLM's model file, shown as part of the disk's Used (R175).
+    llm_model = LlmModelFile((llm or LlmSettings()).url)
+    resource_reader = ResourceReader(
+        data_home, network=app.state.network_month, llm_model=llm_model
+    )
+
+    @app.get("/api/admin/resources", dependencies=[Depends(app.state.require_admin)])
+    def get_resources() -> dict[str, Any]:
+        return resource_reader.read(admin_settings.current.thresholds)
+
+    @app.get("/api/admin/settings", dependencies=[Depends(app.state.require_admin)])
+    def get_admin_settings() -> dict[str, Any]:
+        return {**admin_settings.current.as_dict(), "recommended": ADMIN_DEFAULTS.as_dict()}
+
+    @app.put("/api/admin/settings", dependencies=[Depends(app.state.require_admin)])
+    def put_admin_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, Any]:
+        try:
+            saved = admin_settings.change(changes)
+        except ValueError as e:
+            logger.warning("Admin settings refused", extra={"error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return {**saved.as_dict(), "recommended": ADMIN_DEFAULTS.as_dict()}
 
     @app.get("/api/consent")
     def get_consent() -> dict[str, object]:
@@ -1122,6 +1182,17 @@ def create_app(
             return job.start()
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
+
+    @app.post("/api/prepare/cancel", dependencies=needs_consent)
+    def cancel_prepare(body: CancelRequest | None = None) -> PrepareStatus:
+        """Stop preparing (roadmap R159), once the user confirmed it on the page: at once, or
+        once the part it is on is finished (at most 10 seconds)."""
+        return job.cancel(now=body is not None and body.now)
+
+    @app.post("/api/prepare/discard", dependencies=needs_consent)
+    def discard_prepare() -> PrepareStatus:
+        """Prepare over again instead of resuming (R159): a setting is about to change."""
+        return job.discard()
 
     @app.get("/api/accent", dependencies=needs_consent)
     def get_accent() -> AccentChoice:
@@ -1858,6 +1929,8 @@ def create_app(
                 if step.kind == "summary" and settings.quiz_me:  # a quick quiz on the topic
                     topic = step.lesson.topic
                     choices = [Choice(f"Quiz me on {topic}", f"Quiz me on {topic}")]
+            elif (simpler := say_simpler(body.prompt, conversation.turns())) is not None:
+                reply, turn = conversation.send(body.prompt, clips, simpler)  # R157
             elif clips is not None and (example := example_context(body.prompt)) is not None:
                 reply, turn = answer_example(body.prompt, example, clips)
             else:
@@ -1897,6 +1970,63 @@ def create_app(
             # A spoken prompt as it was answered, so the browser shows it that way (R24).
             **({"prompt": body.prompt} if body.spoken else {}),
         }
+
+    @app.post("/api/chat/repeat", dependencies=[*needs_person, Depends(require_accepted)])
+    def post_repeat(body: RepeatRequest) -> dict[str, Any]:
+        """Say the latest reply again (roadmap R156), with no LLM call: from its clips when they
+        are all still there, or else spoken again from its text. The conversation is unchanged.
+        Its clips are followed and stopped like a reply's, by `reply_id`."""
+        start = time.perf_counter()
+        wait_for_warm_up("Repeat")
+        with chat_lock:
+            turns = conversation.turns()
+            photo = chosen_photo()
+            if not turns or turns[-1].role != "assistant" or photo is None:
+                logger.info("Nothing to repeat", extra={"turns": len(turns)})
+                raise HTTPException(status_code=409, detail=NOTHING_TO_REPEAT)
+            text = turns[-1].content
+            # Not `replies.sentence_clips`, which removes the other replies' clips first: the
+            # ones played last are copied from, then removed with `cancel`.
+            clips = SentenceClips(replies, photo, body.reply_id)
+            last: list[SentenceClips] = []
+            with clips_lock:  # Stop sees either the marker taken or the clips listed
+                early = body.reply_id in stopped_early
+                if early:  # stopped before it came: it isn't said (Codex's review)
+                    stopped_early.discard(body.reply_id)
+                else:
+                    last = list(sentence_clips.values())
+                    sentence_clips.clear()
+                    sentence_clips[body.reply_id] = clips
+            if early:
+                logger.info("Repeat stopped before it began", extra={"reply_id": body.reply_id})
+                raise HTTPException(status_code=409, detail=PROMPT_STOPPED)
+            made = next((m for c in last if (m := c.whole()) is not None), None)
+            try:
+                if made is not None:
+                    clips.replay(made)
+                else:
+                    for piece in clips_of(text):
+                        clips(piece)
+            except OSError as e:
+                logger.error("Could not repeat the reply", extra={"error": str(e)})
+                with clips_lock:
+                    sentence_clips.pop(body.reply_id, None)
+                clips.cancel()
+                raise HTTPException(status_code=500, detail=CANT_REPEAT) from e
+            finally:
+                clips.close()
+                for old in last:
+                    old.cancel()
+        logger.info(
+            "Reply repeated",
+            extra={
+                "reply_id": body.reply_id,
+                "from": "clips" if made is not None else "text",
+                "clips": len(made) if made is not None else clips.sentences,
+                "duration_ms": ms_since(start),
+            },
+        )
+        return {"turn": len(turns) - 1, "streamed": True}
 
     @app.post("/api/chat/clips/{reply_id}/stop", dependencies=needs_person)
     def stop_clips(reply_id: str = PathParam(pattern=REPLY_ID_PATTERN)) -> dict[str, bool]:
@@ -1970,7 +2100,9 @@ def create_app(
                 "started_at": t.started_at,
                 "whole_at": clips.whole_at[n - 1] if n <= len(clips.whole_at) else None,
             }
-            for n, t in enumerate(clips.times[: len(clips.clips)], 1)
+            # Only those the browser may play yet: playback is held back until the rest keeps
+            # up (R130).
+            for n, t in enumerate(clips.times[: clips.listed()], 1)
         ]
         return {
             "clips": made,

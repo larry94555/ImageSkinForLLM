@@ -10,3 +10,6 @@ app-constraints.txt
 node_modules/
 deploy/.env
 deploy/default-people/
+
+# The administrator password file (roadmap R149): only admin.example.toml is committed.
+admin.toml

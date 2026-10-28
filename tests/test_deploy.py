@@ -141,3 +141,46 @@ def test_the_image_stops_building_if_kokoros_english_model_cant_load() -> None:
     assert "python -m spacy download en_core_web_sm" in dockerfile
     assert "spacy.load('en_core_web_sm')" in dockerfile
     assert '"preshed<3.0.14"' in text(ROOT / "pyproject.toml")
+
+
+def test_the_admin_password_folder_is_mounted_where_the_config_looks() -> None:
+    # A folder, not the file, so an edit made on the machine is seen with no restart (R149).
+    settings = load_settings(DEPLOY / "config.toml")
+    assert settings.admin_file == "/etc/imageskin/admin/admin.toml"
+    # Only Caddy reaches the app, so its X-Forwarded-For names each browser for the sign-in's wait.
+    assert settings.trusted_proxies == "*"
+    assert "- ./admin:/etc/imageskin/admin:ro" in text(DEPLOY / "compose.yaml")
+    assert (DEPLOY / "admin" / "README.md").exists()
+
+
+def test_the_machines_network_card_is_readable_in_the_app() -> None:
+    # The container's own card is not the machine's (R153).
+    from imageskin.network import HOST_NET_DEV
+
+    assert "- /proc:/host/proc:ro" in text(DEPLOY / "compose.yaml")
+    assert str(HOST_NET_DEV) == "/host/proc/1/net/dev"
+
+
+def test_the_llms_model_file_is_readable_in_the_app() -> None:
+    # The disk's Used split into the LLM's model and Other (R175): llama-server names its file
+    # under /models, so the app sees the same volume at the same path, and where it is on the host.
+    compose = text(DEPLOY / "compose.yaml")
+    app = compose.split("\n  app:")[1].split("\n  llama:")[0]
+    llama = compose.split("\n  llama:")[1].split("\n  caddy:")[0]
+    assert "- llama-models:/models:ro" in app
+    assert "LLAMA_CACHE: /models" in llama and "- llama-models:/models" in llama
+    assert (
+        "IMAGESKIN_LLM_MODELS_ON_HOST: /models:/var/lib/docker/volumes/imageskin_llama-models/_data"
+        in app
+    )
+    assert "name: imageskin" in compose  # the volume's name on the host starts with it
+
+
+def test_the_admin_password_guide_is_there_and_linked() -> None:
+    # Every step of setting the administrator password (R151).
+    guide = ROOT / "docs" / "guides" / "Admin-Password-Guide.pdf"
+    assert guide.read_bytes().startswith(b"%PDF")
+    assert "docs/guides/Admin-Password-Guide.pdf" in text(ROOT / "README.md")
+    assert "../docs/guides/Admin-Password-Guide.pdf" in text(DEPLOY / "README.md")
+    assert "guides/Admin-Password-Guide.pdf" in text(ROOT / "docs" / "FAQ.md")
+    assert "../../docs/guides/Admin-Password-Guide.pdf" in text(DEPLOY / "admin" / "README.md")

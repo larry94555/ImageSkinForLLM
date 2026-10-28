@@ -14,6 +14,7 @@ export type Page =
   | "wiki"
   | "wiki-page"
   | "settings"
+  | "admin"
   | "not-found";
 
 const PAGES: Record<string, Page> = {
@@ -28,6 +29,8 @@ const PAGES: Record<string, Page> = {
   "/guide": "guide",
   "/wiki": "wiki",
   "/settings": "settings", // in both views, so a participant view can be switched back (R27)
+  "/admin": "admin", // the admin view (R150), apart from the host and participant views
+  "/admin/settings": "admin", // its second page, the admin settings (R155)
 };
 
 // The wiki's addresses (roadmap R37b): #/wiki/<PDF id> is one PDF's table of contents, and
@@ -51,6 +54,11 @@ export function setupTarget(hash: string): SetupPart | undefined {
 
 function pathOf(hash: string): string {
   return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
+}
+
+// Which page of the admin view an address opens (R155): the resources, or the admin settings.
+export function adminTarget(hash: string): "resources" | "settings" {
+  return pathOf(hash) === "/admin/settings" ? "settings" : "resources";
 }
 
 // Which PDF or detail page a wiki address names. A part that isn't valid percent-encoding (a

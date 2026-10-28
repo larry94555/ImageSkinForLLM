@@ -5,6 +5,7 @@
 import { useContext, useState } from "preact/hooks";
 
 import type { FaceMovement } from "./api";
+import { useSettingGuard } from "./setting-guard";
 import { SettingsContext } from "./settings";
 
 // Weakest first.
@@ -23,10 +24,15 @@ export function FaceMovementChoice(props: { onChanged?: () => void; disabled?: b
   // Shown at once, and put back if the server doesn't save it.
   const [picked, setPicked] = useState<FaceMovement | null>(null);
   const shown = picked ?? settings.face_movement;
+  const guard = useSettingGuard();
 
   async function choose(face_movement: FaceMovement) {
     setFailed(false);
     setPicked(face_movement);
+    if (!(await guard.confirm())) {
+      setPicked(null); // shows the one it has again
+      return;
+    }
     try {
       await change({ face_movement });
       props.onChanged?.();

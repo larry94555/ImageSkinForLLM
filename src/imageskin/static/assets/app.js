@@ -153,6 +153,20 @@ async function startPrepare() {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
+async function cancelPrepare(now) {
+	const response = await fetch("/api/prepare/cancel", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ now })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
+async function discardPrepare() {
+	const response = await fetch("/api/prepare/discard", { method: "POST" });
+	if (!response.ok) throw new Error(await refusal(response));
+	return await response.json();
+}
 async function useAvatarOwnVoice() {
 	const response = await fetch("/api/start-now/own-voice", {
 		method: "PUT",
@@ -229,6 +243,13 @@ async function getClips(replyId, known) {
 }
 async function stopReply(replyId) {
 	return (await json(await fetch(`/api/chat/clips/${replyId}/stop`, { method: "POST" }))).stopped;
+}
+async function repeatReply(replyId) {
+	return json(await fetch("/api/chat/repeat", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ reply_id: replyId })
+	}));
 }
 async function getChatPhoto() {
 	return json(await fetch("/api/chat/photo"));
@@ -421,6 +442,764 @@ async function useChatGptAccount(account) {
 async function signOutChatGpt() {
 	return json(await fetch("/api/chatgpt/sign-out", { method: "POST" }));
 }
+async function getAdminSession() {
+	return json(await fetch("/api/admin/session"));
+}
+async function signInAsAdmin(password) {
+	const response = await fetch("/api/admin/sign-in", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ password })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+async function signOutAsAdmin() {
+	await json(await fetch("/api/admin/sign-out", { method: "POST" }));
+}
+async function adminActivity() {
+	return (await fetch("/api/admin/activity", { method: "POST" })).ok;
+}
+async function getResources() {
+	const response = await fetch("/api/admin/resources");
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+async function getAdminSettings() {
+	const response = await fetch("/api/admin/settings");
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+async function saveAdminSettings(changes) {
+	const response = await fetch("/api/admin/settings", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(changes)
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+//#endregion
+//#region src/dashboard.tsx
+var REFRESH_MS = 1e4;
+var TITLES = {
+	cpu: "CPU",
+	memory: "Memory",
+	disk: "Disk",
+	network: "Network this month"
+};
+var MEANINGS = [
+	[
+		"blue",
+		"More than enough",
+		"The site could take on more work, or reserve less."
+	],
+	[
+		"green",
+		"Enough",
+		"No action needed."
+	],
+	[
+		"orange",
+		"Getting close",
+		"Act now, before it runs out."
+	],
+	[
+		"red",
+		"Running out",
+		"Act at once: the site may slow down or fail."
+	]
+];
+var NAMES = {
+	blue: "Blue",
+	green: "Green",
+	orange: "Orange",
+	red: "Red",
+	unknown: "Unknown"
+};
+var GB = 1e3 ** 3;
+var GIB = 1024 ** 3;
+function amount(resource, value) {
+	if (value === null || value === void 0) return "unknown";
+	if (resource.unit === "cores") return `${value.toFixed(value >= 10 ? 0 : 2)} cores`;
+	const binary = resource.name === "memory";
+	const gb = value / (binary ? GIB : GB);
+	if (gb >= 1e3) return `${(gb / 1e3).toFixed(2)} TB`;
+	if (gb >= 10) return `${gb.toFixed(0)} GB`;
+	if (gb >= 1) return `${gb.toFixed(1)} GB`;
+	const mb = value / (binary ? 1024 ** 2 : 1e3 ** 2);
+	if (mb >= 1) return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+	return `${Math.round(value / (binary ? 1024 : 1e3))} KB`;
+}
+function rangeOf(colour, t) {
+	return {
+		blue: `more than ${t.blue_above}% left`,
+		green: `${t.orange_below}% to ${t.blue_above}% left`,
+		orange: `${t.red_below}% to ${t.orange_below}% left`,
+		red: `less than ${t.red_below}% left`,
+		unknown: ""
+	}[colour];
+}
+function basisLine(resource) {
+	const limit = amount(resource, resource.free_tier);
+	if (resource.name === "disk") return `This disk's own size. Oracle's free tier allows ${limit} of disks in all.`;
+	if (resource.name === "network") return `Oracle's free tier allows ${limit} out each month.`;
+	if (resource.basis === "machine") return `This machine's own, less than the free tier's ${limit}.`;
+	return `Oracle's free tier limit.`;
+}
+function detailLines(resource) {
+	const d = resource.details;
+	const bytes = (v) => amount({
+		...resource,
+		unit: "bytes"
+	}, v);
+	if (resource.name === "cpu" && d.load_15 !== void 0) return [`Load over 1, 5 and 15 minutes: ${d.load_1}, ${d.load_5}, ${d.load_15}`];
+	if (resource.name === "memory" && typeof d.app_cap === "number") return [`The app: ${bytes(d.app_used)} of its ${bytes(d.app_cap)} cap`];
+	if (resource.name === "disk" && typeof d.llm_location === "string") return [`The LLM model: ${d.llm_location}`];
+	if (resource.name === "network" && d.month !== void 0) {
+		const lines = [`Received: ${bytes(d.received)} (inbound is free)`, `Now: ${bytes(d.sent_per_s)}/s out, ${bytes(d.received_per_s)}/s in`];
+		if (typeof d.projected_sent === "number") lines.push(`At this pace, about ${bytes(d.projected_sent)} out by the month's end`);
+		return lines;
+	}
+	return [];
+}
+function usedTenths(resource) {
+	const d = resource.details;
+	if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return null;
+	return {
+		used: Math.round((d.llm_bytes + Number(d.other_bytes)) / GB * 10),
+		model: Math.round(d.llm_bytes / GB * 10)
+	};
+}
+function usedBy(resource) {
+	const split = usedTenths(resource);
+	if (split === null) return [];
+	return [[`LLM model ${resource.details.llm_model}`, tenths(split.model)], ["Other", tenths(split.used - split.model)]];
+}
+function tenths(n) {
+	return `${(n / 10).toFixed(1)} GB`;
+}
+function usedShown(resource) {
+	const split = usedTenths(resource);
+	return split === null ? amount(resource, resource.used) : tenths(split.used);
+}
+function Card({ resource, thresholds }) {
+	const known = resource.colour !== "unknown";
+	const usedShare = known && resource.available ? 100 * (resource.used ?? 0) / resource.available : 0;
+	const name = TITLES[resource.name];
+	return /* @__PURE__ */ u("section", {
+		className: `panel resource ${resource.colour}`,
+		"aria-labelledby": `resource-${resource.name}`,
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: `resource-${resource.name}`,
+				children: name
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "remaining",
+				children: [
+					/* @__PURE__ */ u("span", {
+						className: "big",
+						children: amount(resource, resource.remaining)
+					}),
+					" remaining",
+					known && /* @__PURE__ */ u("span", {
+						className: "muted",
+						children: [
+							" · ",
+							resource.percent_remaining,
+							"%"
+						]
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: `colour-name ${resource.colour}`,
+				children: [NAMES[resource.colour], known ? ` · ${rangeOf(resource.colour, thresholds)}` : " · couldn't be read"]
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "bar",
+				role: "meter",
+				"aria-label": `${name} used`,
+				"aria-valuemin": 0,
+				"aria-valuemax": 100,
+				"aria-valuenow": Math.round(usedShare),
+				children: /* @__PURE__ */ u("span", { style: { width: `${Math.min(usedShare, 100)}%` } })
+			}),
+			/* @__PURE__ */ u("dl", { children: [
+				/* @__PURE__ */ u("dt", { children: "Available" }),
+				/* @__PURE__ */ u("dd", { children: amount(resource, resource.available) }),
+				/* @__PURE__ */ u("dt", { children: "Used" }),
+				/* @__PURE__ */ u("dd", { children: usedShown(resource) }),
+				usedBy(resource).map(([label, value]) => /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("dt", {
+					className: "part",
+					children: label
+				}), /* @__PURE__ */ u("dd", {
+					className: "part",
+					children: value
+				})] }, label)),
+				/* @__PURE__ */ u("dt", { children: "Remaining" }),
+				/* @__PURE__ */ u("dd", { children: amount(resource, resource.remaining) })
+			] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted small",
+				children: basisLine(resource)
+			}),
+			detailLines(resource).map((line) => /* @__PURE__ */ u("p", {
+				className: "muted small",
+				children: line
+			}, line))
+		]
+	});
+}
+function ResourceDashboard() {
+	const { refresh } = useAdmin();
+	const [reading, setReading] = d(null);
+	const [failed, setFailed] = d(false);
+	const colours = A(null);
+	h(() => {
+		let active = true;
+		async function read() {
+			const started = performance.now();
+			try {
+				const read = await getResources();
+				if (!active) return;
+				setReading(read);
+				setFailed(false);
+				logColours(read, Math.round(performance.now() - started));
+			} catch (e) {
+				if (!active) return;
+				if (e instanceof ServerRefusal && e.status === 401) {
+					await refresh();
+					return;
+				}
+				console.error("Could not read the resources", e);
+				setFailed(true);
+			}
+		}
+		function logColours(read, took) {
+			const now = Object.fromEntries(read.resources.map((r) => [r.name, r.colour]));
+			const before = colours.current;
+			colours.current = now;
+			if (!before) {
+				console.info(`Resources shown: ${JSON.stringify(now)} (${took} ms)`);
+				return;
+			}
+			for (const [name, colour] of Object.entries(now)) if (before[name] !== colour) console.info(`Resource colour changed: ${name} ${before[name]} to ${colour}`);
+		}
+		read();
+		const timer = setInterval(() => void read(), REFRESH_MS);
+		return () => {
+			active = false;
+			clearInterval(timer);
+		};
+	}, []);
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u("h2", {
+			className: "section-title",
+			children: "Resources"
+		}),
+		failed && /* @__PURE__ */ u("p", {
+			className: "error",
+			children: "The resources could not be read. Trying again…"
+		}),
+		!reading && !failed && /* @__PURE__ */ u("p", {
+			className: "muted",
+			children: "Reading the resources…"
+		}),
+		reading && /* @__PURE__ */ u(S, { children: [
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Read at ",
+					new Date(reading.read_at).toLocaleTimeString(),
+					", every 10 seconds while this page is open."
+				]
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "resources",
+				children: reading.resources.map((resource) => /* @__PURE__ */ u(Card, {
+					resource,
+					thresholds: reading.thresholds
+				}, resource.name))
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "resource-colours",
+				children: [/* @__PURE__ */ u("h2", {
+					id: "resource-colours",
+					children: "What the colours mean"
+				}), MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
+					className: "colour-key",
+					children: [
+						/* @__PURE__ */ u("span", {
+							className: `colour-name ${colour}`,
+							children: NAMES[colour]
+						}),
+						" ",
+						/* @__PURE__ */ u("span", {
+							className: "muted",
+							children: [
+								"(",
+								rangeOf(colour, reading.thresholds),
+								")"
+							]
+						}),
+						": ",
+						meaning,
+						".",
+						" ",
+						todo
+					]
+				}, colour))]
+			})
+		] })
+	] });
+}
+//#endregion
+//#region src/admin-settings.tsx
+function fieldsOf(settings) {
+	const t = settings.thresholds;
+	return {
+		minutes: String(settings.timeout_minutes),
+		blue: String(t.blue_above),
+		orange: String(t.orange_below),
+		red: String(t.red_below)
+	};
+}
+function AdminSettingsPage() {
+	const { refresh } = useAdmin();
+	const [settings, setSettings] = d(null);
+	const [fields, setFields] = d(null);
+	const [error, setError] = d(null);
+	const [saved, setSaved] = d(false);
+	const [busy, setBusy] = d(false);
+	h(() => {
+		getAdminSettings().then((read) => {
+			console.info("Admin settings shown");
+			setSettings(read);
+			setFields(fieldsOf(read));
+		}).catch(async (e) => {
+			console.error("Could not read the admin settings", e);
+			if (e instanceof ServerRefusal && e.status === 401) return refresh();
+			setError("The admin settings could not be read. Reload the page to try again.");
+		});
+	}, []);
+	async function save(changes) {
+		setBusy(true);
+		setError(null);
+		setSaved(false);
+		const started = performance.now();
+		try {
+			const read = await saveAdminSettings({
+				timeout_minutes: Number(changes.minutes),
+				thresholds: {
+					blue_above: Number(changes.blue),
+					orange_below: Number(changes.orange),
+					red_below: Number(changes.red)
+				}
+			});
+			console.info(`Admin settings saved (${Math.round(performance.now() - started)} ms)`);
+			setSettings(read);
+			setFields(fieldsOf(read));
+			setSaved(true);
+			await refresh();
+		} catch (e) {
+			console.error("Could not save the admin settings", e);
+			if (e instanceof ServerRefusal && e.status === 401) {
+				await refresh();
+				return;
+			}
+			setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	if (!settings || !fields) return error ? /* @__PURE__ */ u("p", {
+		className: "error",
+		children: error
+	}) : /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Reading the admin settings…"
+	});
+	const input = (name, label, min, max) => /* @__PURE__ */ u("label", {
+		className: "admin-number",
+		children: [/* @__PURE__ */ u("span", { children: label }), /* @__PURE__ */ u("input", {
+			type: "number",
+			min,
+			max,
+			step: name === "minutes" ? 1 : "any",
+			value: fields[name],
+			onInput: (e) => {
+				setSaved(false);
+				setFields({
+					...fields,
+					[name]: e.currentTarget.value
+				});
+			}
+		})]
+	});
+	const recommended = settings.recommended.thresholds;
+	return /* @__PURE__ */ u("form", {
+		onSubmit: (e) => {
+			e.preventDefault();
+			save(fields);
+		},
+		children: [
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			saved && /* @__PURE__ */ u("p", {
+				className: "notice",
+				role: "status",
+				children: "Saved. The dashboard and the sign-out use them now."
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "admin-sign-out",
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: "admin-sign-out",
+						children: "Automatic sign-out"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							"The administrator is signed out after this many minutes without a click or key press in the admin view or on the Settings page. Recommended: ",
+							settings.recommended.timeout_minutes,
+							"."
+						]
+					}),
+					input("minutes", "Minutes without activity (5 to 240)", 5, 240)
+				]
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "admin-thresholds",
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: "admin-thresholds",
+						children: "Colours on the dashboard"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							"As the percentage of a resource remaining, for every resource. Green is between orange and blue. Recommended: blue above ",
+							recommended.blue_above,
+							"%, orange below",
+							" ",
+							recommended.orange_below,
+							"%, red below ",
+							recommended.red_below,
+							"%."
+						]
+					}),
+					input("blue", "Blue: more than this % remaining", 1, 99),
+					input("orange", "Orange: less than this % remaining", 1, 99),
+					input("red", "Red: less than this % remaining", 1, 99),
+					MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
+						className: "colour-key",
+						children: [
+							/* @__PURE__ */ u("span", {
+								className: `colour-name ${colour}`,
+								children: colour[0].toUpperCase() + colour.slice(1)
+							}),
+							":",
+							" ",
+							meaning,
+							". ",
+							todo
+						]
+					}, colour)),
+					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						disabled: busy,
+						onClick: () => void save({
+							...fields,
+							blue: String(recommended.blue_above),
+							orange: String(recommended.orange_below),
+							red: String(recommended.red_below)
+						}),
+						children: "Use the recommended thresholds"
+					}) })
+				]
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: busy,
+				children: "Save"
+			}) })
+		]
+	});
+}
+//#endregion
+//#region src/admin.tsx
+var GUIDE = "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides/Admin-Password-Guide.pdf";
+var CHECK_MS = 6e4;
+var AdminContext = X({
+	session: null,
+	ended: null,
+	refresh: async () => {},
+	signIn: async () => {},
+	signOut: async () => {},
+	dismiss: () => {}
+});
+function useAdmin() {
+	return x(AdminContext);
+}
+function minutes$1(n) {
+	return `${n} minute${n === 1 ? "" : "s"}`;
+}
+function endedMessage(session) {
+	if (session.ended === "password changed") return "Signed out as administrator because the administrator password was changed.";
+	return `Signed out as administrator after ${minutes$1(session.timeout_minutes)} without activity.`;
+}
+function AdminProvider({ children }) {
+	const [session, setSession] = d(null);
+	const [ended, setEnded] = d(null);
+	async function refresh() {
+		try {
+			const read = await getAdminSession();
+			setSession(read);
+			if (read.ended) {
+				console.info(`Admin signed out: ${read.ended}`);
+				setEnded(endedMessage(read));
+			}
+		} catch (e) {
+			console.error("Could not read the administrator sign-in", e);
+		}
+	}
+	h(() => {
+		refresh();
+	}, []);
+	const signedIn = session?.signed_in === true;
+	h(() => {
+		if (!signedIn) return;
+		const timer = setInterval(() => void refresh(), CHECK_MS);
+		return () => clearInterval(timer);
+	}, [signedIn]);
+	async function signIn(password) {
+		const started = performance.now();
+		await signInAsAdmin(password);
+		console.info(`Admin signed in (${Math.round(performance.now() - started)} ms)`);
+		setEnded(null);
+		await refresh();
+	}
+	async function signOut() {
+		await signOutAsAdmin();
+		console.info("Admin signed out: signed out");
+		await refresh();
+	}
+	const shared = {
+		session,
+		ended,
+		refresh,
+		signIn,
+		signOut,
+		dismiss: () => setEnded(null)
+	};
+	return /* @__PURE__ */ u(AdminContext.Provider, {
+		value: shared,
+		children
+	});
+}
+function useAdminActivity(active) {
+	const { session, refresh } = useAdmin();
+	const last = A(0);
+	const on = active && session?.signed_in === true;
+	h(() => {
+		if (!on) return;
+		function activity() {
+			const now = Date.now();
+			if (now - last.current < 6e4) return;
+			last.current = now;
+			adminActivity().then(async (still) => {
+				if (!still) await refresh();
+			}).catch((e) => console.error("Could not tell the server of admin activity", e));
+		}
+		document.addEventListener("click", activity);
+		document.addEventListener("keydown", activity);
+		return () => {
+			document.removeEventListener("click", activity);
+			document.removeEventListener("keydown", activity);
+		};
+	}, [on]);
+}
+function AdminLink({ current }) {
+	const { session } = useAdmin();
+	if (!session?.signed_in) return null;
+	return /* @__PURE__ */ u("a", {
+		href: "#/admin",
+		className: current ? "settings-link current" : "settings-link",
+		children: "Admin"
+	});
+}
+function AdminEndedNotice() {
+	const { ended, dismiss } = useAdmin();
+	if (!ended) return null;
+	return /* @__PURE__ */ u("p", {
+		className: "notice",
+		role: "status",
+		children: [
+			ended,
+			" ",
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: dismiss,
+				children: "OK"
+			})
+		]
+	});
+}
+function AdminSection() {
+	const { session, signIn, signOut } = useAdmin();
+	const [password, setPassword] = d("");
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d(null);
+	h(() => console.info("Admin sign-in shown"), []);
+	async function submit(e) {
+		e.preventDefault();
+		setBusy(true);
+		setError(null);
+		try {
+			await signIn(password);
+			setPassword("");
+		} catch (err) {
+			console.error("Could not sign in as administrator", err);
+			setError(err instanceof ServerRefusal ? err.message : "Could not sign in. Try again in a moment.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	async function leave() {
+		setBusy(true);
+		try {
+			await signOut();
+		} catch (err) {
+			console.error("Could not sign out as administrator", err);
+			setError("Could not sign out. Try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	let body = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Checking…"
+	});
+	if (session?.signed_in) body = /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: [
+		"Signed in as administrator. You are signed out after ",
+		minutes$1(session.timeout_minutes),
+		" ",
+		"without activity."
+	] }), /* @__PURE__ */ u("p", { children: [
+		/* @__PURE__ */ u("a", {
+			className: "button",
+			href: "#/admin",
+			children: "Open the admin view"
+		}),
+		" ",
+		/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: busy,
+			onClick: () => void leave(),
+			children: "Sign out as administrator"
+		})
+	] })] });
+	else if (session && !session.password_set) body = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: [
+			"Signing in as the administrator is off, as no administrator password is set on this computer. Whoever runs the computer sets it in the file admin.toml, as the",
+			" ",
+			/* @__PURE__ */ u("a", {
+				href: GUIDE,
+				target: "_blank",
+				rel: "noreferrer",
+				children: "admin password guide"
+			}),
+			" ",
+			"says."
+		]
+	});
+	else if (session) body = /* @__PURE__ */ u("form", {
+		onSubmit: (e) => void submit(e),
+		children: [
+			/* @__PURE__ */ u("label", { children: [
+				"Administrator password",
+				" ",
+				/* @__PURE__ */ u("input", {
+					type: "password",
+					autoComplete: "current-password",
+					value: password,
+					onInput: (e) => setPassword(e.currentTarget.value)
+				})
+			] }),
+			" ",
+			/* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: busy || password === "",
+				children: "Sign in as administrator"
+			})
+		]
+	});
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-admin",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-admin",
+				children: "Administrator"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Running the site as a whole, apart from the host and participant views."
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			body
+		]
+	});
+}
+function AdminPage({ section = "resources" }) {
+	const { session } = useAdmin();
+	if (!session?.signed_in) return /* @__PURE__ */ u("div", {
+		className: "host-page admin-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Admin" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Site-wide administration, separate from the host and participant views."
+			}),
+			/* @__PURE__ */ u(AdminSection, {})
+		]
+	});
+	const tab = (to, href, label) => /* @__PURE__ */ u("a", {
+		href,
+		className: section === to ? "current" : void 0,
+		"aria-current": section === to ? "page" : void 0,
+		children: label
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page admin-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Admin" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Site-wide administration, separate from the host and participant views."
+			}),
+			/* @__PURE__ */ u("nav", {
+				className: "admin-tabs",
+				"aria-label": "Admin pages",
+				children: [tab("resources", "#/admin", "Resources"), tab("settings", "#/admin/settings", "Admin settings")]
+			}),
+			section === "settings" ? /* @__PURE__ */ u(AdminSettingsPage, {}) : /* @__PURE__ */ u(ResourceDashboard, {})
+		]
+	});
+}
 //#endregion
 //#region src/confirm-dialog.tsx
 var FOCUSABLE = "button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
@@ -482,18 +1261,27 @@ function ConfirmDialog(props) {
 				}),
 				/* @__PURE__ */ u("div", {
 					className: "confirm-buttons",
-					children: [/* @__PURE__ */ u("button", {
-						type: "button",
-						className: "secondary",
-						ref: keep,
-						onClick: onCancel,
-						children: props.keepLabel
-					}), /* @__PURE__ */ u("button", {
-						type: "button",
-						className: "danger",
-						onClick: props.onConfirm,
-						children: props.confirmLabel
-					})]
+					children: [
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							ref: keep,
+							onClick: onCancel,
+							children: props.keepLabel
+						}),
+						props.otherLabel && /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							onClick: props.onOther,
+							children: props.otherLabel
+						}),
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "danger",
+							onClick: props.onConfirm,
+							children: props.confirmLabel
+						})
+					]
 				})
 			]
 		})
@@ -501,24 +1289,34 @@ function ConfirmDialog(props) {
 }
 function useConfirm() {
 	const [asking, setAsking] = d(null);
-	function ask(question) {
+	function choose(question) {
 		return new Promise((resolve) => {
 			setAsking({
 				question,
-				answer: (yes) => {
-					console.info(`${question.title} ${yes ? "confirmed" : "cancelled"}`);
+				answer: (answer) => {
+					const said = {
+						cancel: "cancelled",
+						other: question.otherLabel,
+						confirm: "confirmed"
+					};
+					console.info(`${question.title} ${said[answer]}`);
 					setAsking(null);
-					resolve(yes);
+					resolve(answer);
 				}
 			});
 		});
 	}
+	async function ask(question) {
+		return await choose(question) === "confirm";
+	}
 	return {
 		ask,
+		choose,
 		dialog: asking && /* @__PURE__ */ u(ConfirmDialog, {
 			...asking.question,
-			onCancel: () => asking.answer(false),
-			onConfirm: () => asking.answer(true)
+			onCancel: () => asking.answer("cancel"),
+			onConfirm: () => asking.answer("confirm"),
+			onOther: () => asking.answer("other")
 		})
 	};
 }
@@ -535,7 +1333,9 @@ var PAGES = {
 	"/content": "content",
 	"/guide": "guide",
 	"/wiki": "wiki",
-	"/settings": "settings"
+	"/settings": "settings",
+	"/admin": "admin",
+	"/admin/settings": "admin"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -546,6 +1346,9 @@ function setupTarget(hash) {
 }
 function pathOf(hash) {
 	return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
+}
+function adminTarget(hash) {
+	return pathOf(hash) === "/admin/settings" ? "settings" : "resources";
 }
 function wikiTarget(hash) {
 	const path = pathOf(hash);
@@ -612,6 +1415,12 @@ function useHash() {
 var LEAVE_TITLE = "Your change isn't accepted yet";
 var LEAVE_PROCEED = "Proceed without the change";
 var LEAVE_CANCEL = "Cancel";
+var decided = null;
+function goWithoutAsking(href) {
+	decided = href;
+	window.addEventListener("hashchange", () => decided = null, { once: true });
+	window.location.hash = href;
+}
 function useLeaveGuard(pending, unchanged) {
 	const { ask, dialog } = useConfirm();
 	const now = A({
@@ -640,7 +1449,13 @@ function useLeaveGuard(pending, unchanged) {
 				window.location.hash = href;
 			});
 		};
-		const leaving = (from, to) => now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
+		const leaving = (from, to) => {
+			if (decided === to) {
+				decided = null;
+				return false;
+			}
+			return now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
+		};
 		const onClick = (e) => {
 			if (!(e.target instanceof Element)) return;
 			const href = e.target.closest("a[href^='#/']")?.getAttribute("href");
@@ -936,6 +1751,54 @@ function Checks({ item, queue }) {
 function minutes(seconds) {
 	const whole = Math.round(seconds);
 	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+//#endregion
+//#region src/setting-guard.tsx
+var SettingGuard = X({
+	needed: () => false,
+	confirm: async () => true
+});
+function useSettingGuard() {
+	return x(SettingGuard);
+}
+function usePrepareStopGuard(onDiscarded) {
+	const stopped = A(false);
+	const { ask, dialog } = useConfirm();
+	const [failed, setFailed] = d(null);
+	async function confirm(title = "Change this setting?") {
+		if (!stopped.current) return true;
+		setFailed(null);
+		if (!await ask({
+			title,
+			children: /* @__PURE__ */ u("p", { children: "Changing a setting will require restarting the preparation over again." }),
+			keepLabel: "Cancel change",
+			confirmLabel: "Confirm change"
+		})) return false;
+		const started = performance.now();
+		try {
+			await discardPrepare();
+			console.info(`Stopped prepare dropped for a setting change (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error("Could not drop the stopped prepare; the setting is left as it was", e);
+			setFailed(`The setting was not changed: the stopped preparation could not be cleared (${e.message}). Try again.`);
+			return false;
+		}
+		stopped.current = false;
+		onDiscarded();
+		return true;
+	}
+	return {
+		guard: {
+			needed: () => stopped.current,
+			confirm
+		},
+		onStopped: (now) => stopped.current = now,
+		dialog: /* @__PURE__ */ u(S, { children: [failed && /* @__PURE__ */ u("p", {
+			className: "error",
+			role: "alert",
+			children: failed
+		}), dialog] })
+	};
 }
 //#endregion
 //#region src/exit.tsx
@@ -1964,6 +2827,7 @@ function SettingsPage({ back, onDataDeleted }) {
 			settings.view === "host" && /* @__PURE__ */ u(ChangeSetup, {}),
 			/* @__PURE__ */ u(VideoAndChat, {}),
 			settings.view === "host" && /* @__PURE__ */ u(DeleteData, { onDeleted: onDataDeleted }),
+			/* @__PURE__ */ u(AdminSection, {}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
 				href: back,
@@ -1984,9 +2848,14 @@ function FaceMovementChoice(props) {
 	const [failed, setFailed] = d(false);
 	const [picked, setPicked] = d(null);
 	const shown = picked ?? settings.face_movement;
+	const guard = useSettingGuard();
 	async function choose(face_movement) {
 		setFailed(false);
 		setPicked(face_movement);
+		if (!await guard.confirm()) {
+			setPicked(null);
+			return;
+		}
 		try {
 			await change({ face_movement });
 			props.onChanged?.();
@@ -2252,6 +3121,7 @@ function SetupPage({ change }) {
 	const [undoFailed, setUndoFailed] = d(null);
 	const [pending, setPending] = d(false);
 	const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
+	const stopGuard = usePrepareStopGuard(changed);
 	h(() => {
 		getReview().then((r) => setAvatarVoice(r.own_voice === true)).catch((e) => console.error("Could not get the review", e));
 	}, []);
@@ -2295,79 +3165,85 @@ function SetupPage({ change }) {
 			})
 		]
 	});
-	return /* @__PURE__ */ u("div", {
-		className: "host-page",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "Setup" }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it. Without recordings, the person speaks in a ready-made voice."
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "avatar-instead",
-				children: [
-					"Rather not use your own photo and voice?",
-					" ",
-					/* @__PURE__ */ u("a", {
-						href: "#/start-now",
-						onClick: () => console.info("Choosing a ready-made avatar from Setup"),
-						children: "Use a ready-made avatar instead"
-					}),
-					". Your photos and recordings are kept."
-				]
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "notice",
-				children: [
-					"New to this? The ",
-					/* @__PURE__ */ u("a", {
-						href: "#/guide",
-						children: "recording guide"
-					}),
-					" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop."
-				]
-			}),
-			/* @__PURE__ */ u(UploadSection, {
-				kind: "photos",
-				step: 1,
-				title: "Photos",
-				button: "Add photos",
-				hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
-				accept: "image/jpeg,image/png,image/heic,.heic",
-				notice: notice("photos"),
-				onChange: changed
-			}),
-			/* @__PURE__ */ u(UploadSection, {
-				kind: "sounds",
-				step: 2,
-				title: "Voice recordings",
-				button: "Add recordings",
-				hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
-				accept: "audio/*,.m4a,.wav,.mp3",
-				notice: notice("sounds"),
-				onChange: changed
-			}),
-			/* @__PURE__ */ u(ReadyVoiceChoice, {
-				changes,
-				onChange: changed
-			}),
-			/* @__PURE__ */ u(AccentSection, {
-				onChange: changed,
-				preparing,
-				notice: notice("accent")
-			}),
-			/* @__PURE__ */ u(PrepareSection, {
-				changes,
-				onRunning: setPreparing,
-				onBack: goBack,
-				onPending: setPending
-			}),
-			leaveDialog
-		]
+	return /* @__PURE__ */ u(SettingGuard.Provider, {
+		value: stopGuard.guard,
+		children: /* @__PURE__ */ u("div", {
+			className: "host-page",
+			children: [
+				/* @__PURE__ */ u("h1", { children: "Setup" }),
+				/* @__PURE__ */ u("p", {
+					className: "lead",
+					children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it. Without recordings, the person speaks in a ready-made voice."
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "avatar-instead",
+					children: [
+						"Rather not use your own photo and voice?",
+						" ",
+						/* @__PURE__ */ u("a", {
+							href: "#/start-now",
+							onClick: () => console.info("Choosing a ready-made avatar from Setup"),
+							children: "Use a ready-made avatar instead"
+						}),
+						". Your photos and recordings are kept."
+					]
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "notice",
+					children: [
+						"New to this? The ",
+						/* @__PURE__ */ u("a", {
+							href: "#/guide",
+							children: "recording guide"
+						}),
+						" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop."
+					]
+				}),
+				/* @__PURE__ */ u(UploadSection, {
+					kind: "photos",
+					step: 1,
+					title: "Photos",
+					button: "Add photos",
+					hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
+					accept: "image/jpeg,image/png,image/heic,.heic",
+					notice: notice("photos"),
+					onChange: changed
+				}),
+				/* @__PURE__ */ u(UploadSection, {
+					kind: "sounds",
+					step: 2,
+					title: "Voice recordings",
+					button: "Add recordings",
+					hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
+					accept: "audio/*,.m4a,.wav,.mp3",
+					notice: notice("sounds"),
+					onChange: changed
+				}),
+				/* @__PURE__ */ u(ReadyVoiceChoice, {
+					changes,
+					onChange: changed
+				}),
+				/* @__PURE__ */ u(AccentSection, {
+					onChange: changed,
+					preparing,
+					notice: notice("accent")
+				}),
+				/* @__PURE__ */ u(PrepareSection, {
+					changes,
+					onRunning: setPreparing,
+					onBack: goBack,
+					onPending: setPending,
+					onStopped: stopGuard.onStopped
+				}),
+				leaveDialog,
+				stopGuard.dialog
+			]
+		})
 	});
 }
 function ReadyVoiceChoice(props) {
 	const [ready, setReady] = d(null);
+	const guard = useSettingGuard();
 	const [failed, setFailed] = d(null);
 	h(() => {
 		getReadyVoice().then((r) => {
@@ -2377,6 +3253,10 @@ function ReadyVoiceChoice(props) {
 	}, [props.changes]);
 	if (ready === null || !Array.isArray(ready.voices)) return null;
 	async function choose(voice) {
+		if (!await guard.confirm()) {
+			setReady((r) => r && { ...r });
+			return;
+		}
 		const started = performance.now();
 		setFailed(null);
 		try {
@@ -2439,6 +3319,7 @@ function UploadSection(props) {
 	const [loadFailed, setLoadFailed] = d(false);
 	const [sending, setSending] = d(null);
 	const { ask, dialog } = useConfirm();
+	const guard = useSettingGuard();
 	const [refused, setRefused] = d([]);
 	const [toCheck, setToCheck] = d([]);
 	const [soundChanges, setSoundChanges] = d(0);
@@ -2457,6 +3338,7 @@ function UploadSection(props) {
 	}
 	async function choose(item) {
 		if (choosing !== null) return;
+		if (!await guard.confirm(`Use ${item.name} instead?`)) return;
 		const sent = ++choiceRequests.current;
 		setChoosing(item.id);
 		setRefused([]);
@@ -2515,6 +3397,7 @@ function UploadSection(props) {
 		const files = Array.from(input.files ?? []);
 		input.value = "";
 		setRefused([]);
+		if (files.length && !await guard.confirm(`Add ${files.length === 1 ? files[0].name : `${files.length} files`}?`)) return;
 		for (const file of files) {
 			setSending(file.name);
 			try {
@@ -2535,11 +3418,12 @@ function UploadSection(props) {
 		setSending(null);
 	}
 	async function remove(item) {
-		if (!await ask({
-			title: `Remove ${item.name}?`,
+		const title = `Remove ${item.name}?`;
+		if (!(guard.needed() ? await guard.confirm(title) : await ask({
+			title,
 			keepLabel: "No, keep it",
 			confirmLabel: "Yes, remove it"
-		})) return;
+		}))) return;
 		try {
 			await removeUpload(kind, item.id);
 			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
@@ -2712,6 +3596,7 @@ function AccentSection(props) {
 	const [choice, setChoice] = d(null);
 	const [saving, setSaving] = d(null);
 	const [failed, setFailed] = d(null);
+	const guard = useSettingGuard();
 	h(() => {
 		getAccent().then(setChoice).catch((e) => {
 			console.error("Could not get the accent", e);
@@ -2720,6 +3605,10 @@ function AccentSection(props) {
 	}, []);
 	async function choose(accent) {
 		setSaving(accent);
+		if (!await guard.confirm()) {
+			setSaving(null);
+			return;
+		}
 		setFailed(null);
 		try {
 			setChoice(await chooseAccent(accent));
@@ -2784,6 +3673,7 @@ function PrepareSection(props) {
 	const [loadFailed, setLoadFailed] = d(false);
 	const [starting, setStarting] = d(false);
 	const [refused, setRefused] = d(null);
+	const { choose, dialog } = useConfirm();
 	const requests = A(0);
 	async function read() {
 		const request = ++requests.current;
@@ -2809,13 +3699,42 @@ function PrepareSection(props) {
 		}
 		setStarting(false);
 	}
+	async function cancel() {
+		const left = status?.left_s != null ? ` About ${countdown(status.left_s)} is left.` : "";
+		const answer = await choose({
+			title: "Stop preparing the video?",
+			children: /* @__PURE__ */ u("p", { children: [
+				"Preparing is ",
+				status?.percent ?? 0,
+				"% done.",
+				left,
+				" You can stop now, or once the part it is working on is finished (usually within 10 seconds). Either way, Resume Preparation carries on from where it stopped."
+			] }),
+			keepLabel: "Keep preparing",
+			otherLabel: "Stop after this part",
+			confirmLabel: "Stop now"
+		});
+		if (answer === "cancel") return;
+		const request = ++requests.current;
+		setRefused(null);
+		try {
+			const stopping = await cancelPrepare(answer === "confirm");
+			if (request === requests.current) setStatus(stopping);
+		} catch (e) {
+			console.error("Could not stop preparing", e);
+			setRefused(e.message);
+		}
+	}
 	h(() => {
 		read();
 	}, [changes]);
 	const stopped = status?.state === "running" && status.stopped === true;
 	const running = status?.state === "running" && !stopped;
-	const slow = running && status.steps?.find((s) => s.done < s.total)?.slow === true;
+	const cancelling = running && status.cancelling === true;
+	const slow = running && !cancelling && status.steps?.find((s) => s.done < s.total)?.slow === true;
+	const cancelled = status?.state === "cancelled";
 	h(() => onRunning(running), [running]);
+	_(() => props.onStopped?.(cancelled), [cancelled]);
 	h(() => {
 		if (!running) return;
 		const timer = window.setInterval(() => void read(), PREPARE_POLL_MS);
@@ -2846,12 +3765,13 @@ function PrepareSection(props) {
 				type: "button",
 				className: starting ? "busy" : void 0,
 				onClick: start,
-				disabled: starting,
+				disabled: starting || status.state === "done",
 				children: starting ? "Starting…" : stopped ? "Try again" : {
-					idle: "Prepare the video",
+					idle: "Prepare Video",
 					running: "Preparing…",
-					done: "Prepare again",
-					failed: "Try again"
+					done: "Prepare Video",
+					failed: "Try again",
+					cancelled: "Resume Preparation"
 				}[status.state]
 			}),
 			refused && /* @__PURE__ */ u("p", {
@@ -2862,13 +3782,37 @@ function PrepareSection(props) {
 				className: "error",
 				children: "Preparing stopped: the app is no longer working on it. Click Try again to carry on where it left off."
 			}),
-			running && /* @__PURE__ */ u("p", {
+			running && !cancelling && /* @__PURE__ */ u("p", {
 				className: "busy",
 				children: [
 					"Preparing… ",
 					status.percent,
 					"% done",
 					status.left_s != null && ` · about ${countdown(status.left_s)} left`
+				]
+			}),
+			running && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: cancelling ? "secondary busy" : "secondary",
+				onClick: () => void cancel(),
+				disabled: cancelling,
+				children: cancelling ? "Stopping…" : "Cancel"
+			}),
+			cancelling && !status.stopping_late && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Stopping, usually within 10 seconds…"
+			}),
+			cancelling && status.stopping_late && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Still stopping: the part it is on, such as loading a library, can't be cut short safely. It stops as soon as that part is done."
+			}),
+			cancelled && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					"Preparing stopped at ",
+					status.percent,
+					"%. Click Resume Preparation to carry on from where it stopped. ",
+					"Changing a setting will require restarting the preparation over again."
 				]
 			}),
 			slow && /* @__PURE__ */ u("p", {
@@ -2919,7 +3863,8 @@ function PrepareSection(props) {
 			}) : /* @__PURE__ */ u("p", {
 				className: "error",
 				children: status.error
-			}))
+			})),
+			dialog
 		]
 	});
 }
@@ -3016,7 +3961,7 @@ function ReviewChoices(props) {
 		try {
 			setCurrent(await useAvatarReadyVoice());
 			console.info(`Avatar's default voice used again from the review (${Math.round(performance.now() - started)} ms)`);
-			window.location.hash = "#/chat";
+			goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error("Could not use the avatar's default voice again", e);
 			setFailed(`Could not return to the default voice: ${e.message}`);
@@ -3030,7 +3975,7 @@ function ReviewChoices(props) {
 			setCurrent(await review(decision));
 			if (back) setRejected(props.sample);
 			if (back) props.onBack(back);
-			else window.location.hash = "#/chat";
+			else goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error(`Could not save the review (${decision})`, e);
 			setFailed(`Could not save your choice: ${e.message}`);
@@ -3609,6 +4554,41 @@ function Chat(props) {
 			setSpeaking(false);
 		}
 	}
+	async function repeat() {
+		if (busy) return;
+		const replyId = newReplyId();
+		replying.current = replyId;
+		const stopping = new Promise((resolve) => {
+			wakeOnStop.current = () => resolve("stopped");
+		});
+		const at = (turns ?? []).length - 1;
+		console.info("Repeating the latest reply");
+		setHalted(false);
+		setSpeaking(true);
+		setWaiting(true);
+		clipTotal.current = 0;
+		allMade.current = false;
+		clipsEnded.current = 0;
+		setFailed(null);
+		setUnspoken(null);
+		setClips([]);
+		setEarlier((e) => [...e, ...clipWaits(times)]);
+		setTimes([]);
+		setWhole(false);
+		try {
+			if (await Promise.race([repeatReply(replyId), stopping]) === "stopped") return;
+			const count = await Promise.race([followClips(replyId, () => true), stopping]);
+			if (gone.current || count === "stopped") return;
+			allMade.current = true;
+			if (clipsEnded.current >= count) setWaiting(false);
+		} catch (e) {
+			console.error("Could not repeat the reply", e);
+			setUnspoken({ turn: at });
+			setWaiting(false);
+		} finally {
+			setSpeaking(false);
+		}
+	}
 	function stop() {
 		const replyId = replying.current;
 		if (replyId === null) return;
@@ -3693,6 +4673,11 @@ function Chat(props) {
 					turns,
 					from: latestExchange(turns),
 					unspoken
+				}),
+				turns[turns.length - 1]?.role === "assistant" && /* @__PURE__ */ u(ReplyActions, {
+					disabled: busy,
+					onRepeat: () => void repeat(),
+					onSimpler: quizGoing ? void 0 : () => void send(SAY_IT_SIMPLER)
 				}),
 				/* @__PURE__ */ u("p", {
 					className: "status muted",
@@ -3847,6 +4832,28 @@ function QuizControls(props) {
 				onClick: () => props.onAsk("Stop the quiz"),
 				children: "Stop the quiz"
 			})
+		})]
+	});
+}
+var SAY_IT_SIMPLER = "Say it simpler";
+function ReplyActions(props) {
+	return /* @__PURE__ */ u("div", {
+		className: "reply-actions",
+		children: [/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: props.disabled,
+			onClick: props.onRepeat,
+			children: "Repeat"
+		}), props.onSimpler && /* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: props.disabled,
+			onClick: () => {
+				console.info("Say it simpler");
+				props.onSimpler?.();
+			},
+			children: SAY_IT_SIMPLER
 		})]
 	});
 }
@@ -4398,6 +5405,10 @@ function StepState(props) {
 		className: "muted",
 		children: "Waiting"
 	});
+	if (status.state === "cancelled") return /* @__PURE__ */ u("span", {
+		className: "muted",
+		children: "Stopped"
+	});
 	if (status.state === "failed" || status.stopped) return /* @__PURE__ */ u("span", {
 		className: "error",
 		children: "Stopped"
@@ -4442,6 +5453,7 @@ function AvatarVoicePage() {
 	const [back, setBack] = d(null);
 	const [pending, setPending] = d(false);
 	const leaveDialog = useLeaveGuard(pending, "The avatar keeps the voice it has now.");
+	const stopGuard = usePrepareStopGuard(changed);
 	h(() => {
 		const started = performance.now();
 		getReview().then((r) => {
@@ -4476,83 +5488,88 @@ function AvatarVoicePage() {
 		try {
 			await useAvatarReadyVoice();
 			console.info(`Avatar's ready-made voice used again (${Math.round(performance.now() - started)} ms)`);
-			window.location.hash = "#/chat";
+			goWithoutAsking("#/chat");
 		} catch (e) {
 			console.error("Could not use the avatar's ready-made voice again", e);
 			setFailed(e.message);
 		}
 	}
 	const notice = (part) => back === part ? BACK_NOTICE[part] ?? null : null;
-	return /* @__PURE__ */ u("div", {
-		className: "host-page",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "Your voice for the avatar" }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: "The avatar keeps its picture and speaks in a voice made from your recordings. Add them, choose an accent, then prepare a sample video and check it. Until you accept it, the avatar speaks in its ready-made voice."
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "avatar-instead",
-				children: [
-					"Rather keep its ready-made voice?",
-					" ",
-					/* @__PURE__ */ u("button", {
-						type: "button",
-						className: "link",
-						onClick: () => void readyVoice(),
-						children: "Use the avatar's ready-made voice"
-					}),
-					". Your recordings are kept."
-				]
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: failed
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				id: "photos",
-				children: [
-					/* @__PURE__ */ u(StepOf, { n: 1 }),
-					/* @__PURE__ */ u("h2", { children: "Picture" }),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: "The ready-made avatar's picture, already prepared."
-					}),
-					/* @__PURE__ */ u("img", {
-						className: "avatar-picture",
-						src: DEFAULT_PICTURE,
-						alt: "The ready-made avatar"
-					})
-				]
-			}),
-			/* @__PURE__ */ u(UploadSection, {
-				kind: "sounds",
-				step: 2,
-				title: "Voice recordings",
-				button: "Add recordings",
-				hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
-				accept: "audio/*,.m4a,.wav,.mp3",
-				notice: notice("sounds"),
-				onChange: changed
-			}),
-			/* @__PURE__ */ u(AccentSection, {
-				onChange: changed,
-				preparing,
-				notice: notice("accent")
-			}),
-			/* @__PURE__ */ u(PrepareSection, {
-				changes,
-				onRunning: setPreparing,
-				onPending: setPending,
-				avatarVoice: true,
-				onBack: (to) => {
-					setBack(to);
-					window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
-				}
-			}),
-			leaveDialog
-		]
+	return /* @__PURE__ */ u(SettingGuard.Provider, {
+		value: stopGuard.guard,
+		children: /* @__PURE__ */ u("div", {
+			className: "host-page",
+			children: [
+				/* @__PURE__ */ u("h1", { children: "Your voice for the avatar" }),
+				/* @__PURE__ */ u("p", {
+					className: "lead",
+					children: "The avatar keeps its picture and speaks in a voice made from your recordings. Add them, choose an accent, then prepare a sample video and check it. Until you accept it, the avatar speaks in its ready-made voice."
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "avatar-instead",
+					children: [
+						"Rather keep its ready-made voice?",
+						" ",
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "link",
+							onClick: () => void readyVoice(),
+							children: "Use the avatar's ready-made voice"
+						}),
+						". Your recordings are kept."
+					]
+				}),
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: failed
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					id: "photos",
+					children: [
+						/* @__PURE__ */ u(StepOf, { n: 1 }),
+						/* @__PURE__ */ u("h2", { children: "Picture" }),
+						/* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "The ready-made avatar's picture, already prepared."
+						}),
+						/* @__PURE__ */ u("img", {
+							className: "avatar-picture",
+							src: DEFAULT_PICTURE,
+							alt: "The ready-made avatar"
+						})
+					]
+				}),
+				/* @__PURE__ */ u(UploadSection, {
+					kind: "sounds",
+					step: 2,
+					title: "Voice recordings",
+					button: "Add recordings",
+					hint: "Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each).",
+					accept: "audio/*,.m4a,.wav,.mp3",
+					notice: notice("sounds"),
+					onChange: changed
+				}),
+				/* @__PURE__ */ u(AccentSection, {
+					onChange: changed,
+					preparing,
+					notice: notice("accent")
+				}),
+				/* @__PURE__ */ u(PrepareSection, {
+					changes,
+					onRunning: setPreparing,
+					onPending: setPending,
+					onStopped: stopGuard.onStopped,
+					avatarVoice: true,
+					onBack: (to) => {
+						setBack(to);
+						window.setTimeout(() => document.getElementById(to)?.scrollIntoView?.({ behavior: "smooth" }));
+					}
+				}),
+				leaveDialog,
+				stopGuard.dialog
+			]
+		})
 	});
 }
 function VoiceConsent({ onAgreed }) {
@@ -7189,7 +8206,7 @@ function current(page, view) {
 	return page;
 }
 function App() {
-	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(Shell, {}) });
+	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(Shell, {}) }) });
 }
 function Shell() {
 	const hash = useHash();
@@ -7211,6 +8228,7 @@ function Shell() {
 	}, [route?.redirect]);
 	const landing = A(pageFor(window.location.hash) === "home");
 	if (route && route.page !== "home") landing.current = false;
+	useAdminActivity(route?.page === "admin" || route?.page === "settings");
 	const header = useHeaderHeight();
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
@@ -7243,6 +8261,7 @@ function Shell() {
 			back: back.current ?? (participant ? "#/chat" : "#/"),
 			onDataDeleted: () => setConsented(false)
 		}),
+		admin: /* @__PURE__ */ u(AdminPage, { section: adminTarget(hash) }),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
@@ -7259,10 +8278,13 @@ function Shell() {
 					className: current(route?.page, view) === item.page ? "current" : void 0,
 					children: item.label
 				}, item.page)) }),
-				settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })
+				/* @__PURE__ */ u("span", {
+					className: "header-end",
+					children: [/* @__PURE__ */ u(AdminLink, { current: route?.page === "admin" }), settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })]
+				})
 			]
 		}),
-		/* @__PURE__ */ u("main", { children: content }),
+		/* @__PURE__ */ u("main", { children: [/* @__PURE__ */ u(AdminEndedNotice, {}), content] }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
 	] });
 }

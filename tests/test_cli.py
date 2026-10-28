@@ -47,6 +47,8 @@ def test_serve_runs_uvicorn_with_config(tmp_path: Path) -> None:
     assert create_app.call_args.kwargs["general_prompts"] is True
     config_used = server.call_args.args[0]
     assert (config_used.host, config_used.port) == ("127.0.0.1", 9123)
+    # Only a proxy on this computer names the browser in X-Forwarded-For (R149).
+    assert config_used.proxy_headers and config_used.forwarded_allow_ips == "127.0.0.1"
     server.return_value.run.assert_called_once()
 
 
@@ -268,7 +270,7 @@ def test_the_clone_is_pocket_tts_when_it_is_installed(pocket: bool, name: str) -
     from imageskin.cli import voice_engine
 
     with (
-        patch("imageskin.pocket_engine.installed", return_value=pocket),
+        patch("imageskin.pocket_engine.usable", return_value=pocket),
         patch("imageskin.chatterbox_engine.ChatterboxEngine.check_voice_sample") as check,
     ):
         engine, voice = voice_engine("af_heart", Path("me.wav"))
