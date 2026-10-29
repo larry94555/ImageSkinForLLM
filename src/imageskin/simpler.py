@@ -19,8 +19,9 @@ from imageskin.teach import asks_simpler
 logger = logging.getLogger(__name__)
 
 # Two replies whose words are at least this alike say the same thing, so neither is a simpler
-# way of saying the other: a word or two changed reads as the same reply (Larry, PR #211).
-SAME_WORDS = 0.9
+# way of saying the other: a word or two changed reads as the same reply (Larry, PR #211). At 0.75
+# a simpler version changes at least about a quarter of the words.
+SAME_WORDS = 0.75
 
 INSTRUCTION = (
     "Say your last answer again in simpler terms, for someone new to the subject: in short"
@@ -57,6 +58,15 @@ def same(a: str, b: str) -> bool:
     return SequenceMatcher(None, words(a), words(b), autojunk=False).ratio() >= SAME_WORDS
 
 
+def plainer(simpler: str, reply: str) -> bool:
+    """Whether `simpler` is shorter than `reply`, or uses shorter words: a version that is only
+    different isn't simpler (Larry's test of PR #211)."""
+    a, b = words(simpler), words(reply)
+    if not a or not b:
+        return False
+    return len(a) < len(b) or sum(map(len, a)) / len(a) < sum(map(len, b)) / len(b)
+
+
 class _NotChecked(Exception):
     """The simpler version wasn't written: cut off, or the LLM failed."""
 
@@ -64,10 +74,10 @@ class _NotChecked(Exception):
 class SimplerCheck:
     """Whether Say it simpler would say something new for the latest reply (R177), from a
     simpler version written ahead by `write` (the LLM's answer to a `Teach`, after the chat's
-    requests). It is new unless its words are those of a reply already in the conversation, or
-    nearly (`same`); a latest reply that is itself one said before has none. Only the latest
-    reply's check is kept, and `forget` cuts off one being written, as a new prompt makes it out
-    of date."""
+    requests). It is new only when it is shorter or plainer than the reply (`plainer`) and its
+    words aren't those of a reply already in the conversation, or nearly (`same`); a latest
+    reply that is itself one said before has none. Only the latest reply's check is kept, and
+    `forget` cuts off one being written, as a new prompt makes it out of date."""
 
     def __init__(self, write: Callable[[Teach], str]) -> None:
         self._write = write
@@ -112,7 +122,7 @@ class SimplerCheck:
         finally:
             ask_stop.reset(token)
         said = [t.content for t in turns if t.role == "assistant"]
-        new = bool(words(text)) and not any(same(text, s) for s in said)
+        new = plainer(text, last) and not any(same(text, s) for s in said)
         logger.info(
             "Simpler reply checked",
             extra={

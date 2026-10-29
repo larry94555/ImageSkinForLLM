@@ -10,7 +10,7 @@ from test_reply_video import REPLY_ID, stop_patches, video_app  # noqa: F401 (a 
 
 from imageskin.chat import LlmCancelled, LlmError, Teach, Turn, ask_stop
 from imageskin.review import Review
-from imageskin.simpler import INSTRUCTION, SimplerCheck, same, say_simpler
+from imageskin.simpler import INSTRUCTION, SimplerCheck, plainer, same, say_simpler
 
 TURNS = [Turn("user", "Why rain?"), Turn("assistant", "Condensation nucleates droplets.")]
 
@@ -92,6 +92,7 @@ def test_a_simpler_version_that_says_something_new_is_offered_and_kept(
         "condensation NUCLEATES droplets",  # the reply again, in other case and punctuation
         "Rain falls.",  # an earlier reply
         "  ",
+        "Condensation nucleates precipitation.",  # different, but no plainer
     ],
 )
 def test_a_simpler_version_that_says_nothing_new_is_not_offered(written: str) -> None:
@@ -169,8 +170,10 @@ def test_curly_and_straight_quotes_read_the_same() -> None:
     reply = "Okay, so the “America First” plan wouldn’t really help Ukraine, right?"
     assert same(reply, 'Okay, so the "America First" plan wouldn\'t really help Ukraine, right?')
     assert not same(reply, "So that plan would not help Ukraine much.")
-    # A word changed in a long reply is still the same reply.
+    # A word or two changed is still the same reply (Larry's test of PR #211).
     assert same(reply, reply.replace("really", "truly"))
+    assert same("Small drops join and fall.", "Small drops merge and fall.")
+    assert not same("Small drops join and fall.", "Tiny drops stick together, then drop.")
     check = SimplerCheck(lambda teach: reply.replace("’", "'"))
     assert not check.check([Turn("user", "And America First?"), Turn("assistant", reply)])
 
@@ -182,3 +185,11 @@ def test_a_reply_said_before_is_not_asked_more_simply(caplog: pytest.LogCaptureF
         assert not check.check(turns)
     logged = next(r for r in caplog.records if r.message == "Simpler reply not offered")
     assert logged.reason == "said before"  # type: ignore[attr-defined]
+
+
+def test_a_simpler_version_is_shorter_or_uses_shorter_words() -> None:
+    reply = "Precipitation occurs when condensation accumulates."
+    assert plainer("Rain falls when drops build up.", reply)  # shorter words
+    assert plainer("Condensation accumulates.", reply)  # fewer words
+    assert not plainer("Precipitation happens whenever condensation accumulates.", reply)
+    assert not plainer("", reply)
