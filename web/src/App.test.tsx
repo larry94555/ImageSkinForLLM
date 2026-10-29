@@ -2007,6 +2007,51 @@ test("a question Hold to talk isn't sure of, sent unchanged, is still spoken", a
   expect(sent).toMatchObject({ prompt: "Who is Joe Budden?", spoken: true });
 });
 
+test("Edit while Hold to talk listens leaves the question in the box, sent as spoken", async () => {
+  let recognition: { onresult: (e: object) => void; onend: () => void } | null = null;
+  vi.stubGlobal(
+    "webkitSpeechRecognition",
+    class {
+      onresult = (_: object) => {};
+      onend = () => {};
+      constructor() {
+        recognition = this;
+      }
+      start() {}
+      stop() {
+        this.onend();
+      }
+    },
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  const fetchMock = chatServer([], () => Response.json({ role: "assistant", content: "Hi!" }));
+  await openAt("#/chat");
+  const talk = await screen.findByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(talk);
+    fireEvent.pointerUp(talk); // a tap: listening until clicked again
+  });
+  await act(async () => {
+    recognition!.onresult({ results: [[{ transcript: "Who was Oiler?", confidence: 0.95 }]] });
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  });
+  const chats = () =>
+    fetchMock.mock.calls.filter(([url, init]) => url === "/api/chat" && init?.method);
+  expect(chats()).toHaveLength(0);
+  expect(promptBox().value).toBe("Who was Oiler?");
+  expect(document.activeElement).toBe(promptBox());
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByText("Hi!")).toBeTruthy();
+  expect(JSON.parse(chats()[0]![1]!.body as string)).toMatchObject({
+    prompt: "Who was Oiler?",
+    spoken: true,
+  });
+  vi.unstubAllGlobals();
+});
+
 // --- Topic hints (R41g) ---
 
 // The chat's server, answering the hints with `hints`, one per call and then the last again.

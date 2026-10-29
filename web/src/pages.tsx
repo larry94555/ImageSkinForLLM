@@ -1396,8 +1396,8 @@ function Chat(props: {
   const [unspoken, setUnspoken] = useState<{ turn: number } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const promptBox = useRef<HTMLTextAreaElement>(null);
-  // What Hold to talk heard but wasn't sure of, left in the box (R179): sent unchanged, it is
-  // still a spoken question, so misheard names are put back (R24).
+  // What Hold to talk heard but wasn't sure of, or was stopped with Edit, left in the box (R179):
+  // sent unchanged, it is still a spoken question, so misheard names are put back (R24).
   const unsure = useRef<string | null>(null);
   const gone = useRef(false); // the page was left: stop following clips
   const replying = useRef<string | null>(null); // the latest reply's id
@@ -1952,6 +1952,10 @@ function Chat(props: {
             onUnsure={(text) => {
               unsure.current = text;
               setFailed(CHECK_HEARD);
+              promptBox.current?.focus();
+            }}
+            onEdit={(text) => {
+              unsure.current = text;
               promptBox.current?.focus();
             }}
             onProblem={setFailed}

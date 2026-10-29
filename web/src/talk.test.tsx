@@ -51,6 +51,7 @@ function talk(disabled = false) {
     hearing: [] as string[],
     heard: [] as string[],
     unsure: [] as string[],
+    edited: [] as string[],
     problems: [] as (string | null)[],
   };
   render(
@@ -59,6 +60,7 @@ function talk(disabled = false) {
       onHearing={(t) => calls.hearing.push(t)}
       onHeard={(t) => calls.heard.push(t)}
       onUnsure={(t) => calls.unsure.push(t)}
+      onEdit={(t) => calls.edited.push(t)}
       onProblem={(p) => calls.problems.push(p)}
     />,
   );
@@ -94,7 +96,7 @@ test("holding the button listens, and letting go sends what was heard", async ()
   });
   const r = FakeRecognition.made[0]!;
   expect([r.started, r.continuous, r.interimResults]).toEqual([true, true, true]);
-  expect(button.textContent).toBe("Listening… let go to send");
+  expect(button.textContent).toBe("Let go to send…");
   expect(button.getAttribute("aria-pressed")).toBe("true");
   expect(console.info).toHaveBeenCalledWith("Push-to-talk: listening");
   await act(async () => {
@@ -271,7 +273,7 @@ test("a quick click or tap keeps listening until the button is clicked again", a
     fireEvent.pointerUp(button);
   });
   const r = FakeRecognition.made[0]!;
-  expect(button.textContent).toBe("Listening… click to send");
+  expect(button.textContent).toBe("Click to send…");
   expect(console.info).toHaveBeenCalledWith(
     "Push-to-talk: let go after 80 ms; listening until clicked again",
   );
@@ -304,7 +306,7 @@ test("the pointer is kept while held, so moving off the button doesn't end liste
     vi.advanceTimersByTime(TAIL_MS * 2);
   });
   expect(captured).toHaveBeenCalledWith(7);
-  expect(button.textContent).toBe("Listening… let go to send");
+  expect(button.textContent).toBe("Let go to send…");
 });
 
 test("a pointer the browser cancels stops listening, rather than keeping it on as a tap", async () => {
@@ -316,7 +318,7 @@ test("a pointer the browser cancels stops listening, rather than keeping it on a
     FakeRecognition.made[0]!.say("What is");
     fireEvent.pointerCancel(button);
   });
-  expect(button.textContent).not.toBe("Listening… click to send");
+  expect(button.textContent).not.toBe("Click to send…");
   await act(async () => {
     vi.advanceTimersByTime(TAIL_MS);
   });
@@ -373,4 +375,73 @@ test("with no confidence from the browser, what was heard is sent as before", as
   await holdAndSay(["What is a prime number?", 0]);
   expect(calls.heard).toEqual(["What is a prime number?"]);
   expect(console.info).toHaveBeenCalledWith("Push-to-talk: sent (confidence not given)");
+});
+
+// --- Edit while listening (R179) ---
+
+test("Edit shows only while listening, and after a tap stops it without sending", async () => {
+  const calls = talk();
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button); // a tap: listening until clicked again
+  });
+  expect(button.textContent).toBe("Click to send…");
+  await act(async () => {
+    FakeRecognition.made[0]!.say("Who is Joe Budden?");
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  });
+  expect(calls.heard).toEqual([]);
+  expect(calls.edited).toEqual(["Who is Joe Budden?"]);
+  expect(button.textContent).toBe("Hold to talk");
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  expect(console.info).toHaveBeenCalledWith(
+    "Push-to-talk: Edit chosen; left in the box to change",
+  );
+});
+
+test("a held button let go over Edit edits instead of sending", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  const link = screen.getByRole("button", { name: "Edit" });
+  link.getBoundingClientRect = () => new DOMRect(10, 20, 40, 24);
+  await act(async () => {
+    FakeRecognition.made[0]!.say("Who is Bill Biden?");
+    vi.advanceTimersByTime(TAP_MS);
+    fireEvent.pointerUp(button, { clientX: 30, clientY: 30 }); // slid onto Edit
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(calls.heard).toEqual([]);
+  expect(calls.edited).toEqual(["Who is Bill Biden?"]);
+});
+
+test("let go off Edit, it sends; Edit with nothing heard does nothing", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  screen.getByRole("button", { name: "Edit" }).getBoundingClientRect = () =>
+    new DOMRect(10, 20, 40, 24);
+  await act(async () => {
+    FakeRecognition.made[0]!.say("Hello");
+    vi.advanceTimersByTime(TAP_MS);
+    fireEvent.pointerUp(button, { clientX: 300, clientY: 30 });
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(calls.heard).toEqual(["Hello"]);
+  await act(async () => {
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  });
+  expect(calls.edited).toEqual([]);
 });

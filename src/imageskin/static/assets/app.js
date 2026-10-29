@@ -2937,6 +2937,8 @@ function TalkButton(props) {
 	const sending = A(false);
 	const [tapped, setTapped] = d(false);
 	const latched = A(false);
+	const editLink = A(null);
+	const editing = A(false);
 	function clearTail() {
 		if (stopping.current !== null) window.clearTimeout(stopping.current);
 		stopping.current = null;
@@ -2957,6 +2959,7 @@ function TalkButton(props) {
 		sure.current = null;
 		failed.current = false;
 		sending.current = false;
+		editing.current = false;
 		latched.current = false;
 		started.current = performance.now();
 		r.onresult = (e) => {
@@ -2986,6 +2989,7 @@ function TalkButton(props) {
 			console.info(`Push-to-talk: heard ${words} words in ${ms} ms`);
 			if (!send) {
 				if (text) console.info("Push-to-talk: ended without sending");
+				if (editing.current && text) props.onEdit(text);
 				return;
 			}
 			if (!text) {
@@ -3033,6 +3037,22 @@ function TalkButton(props) {
 			stop();
 		}
 	}
+	function edit() {
+		if (!recognition.current) return;
+		clearTail();
+		sending.current = false;
+		editing.current = true;
+		latched.current = false;
+		setTapped(false);
+		console.info("Push-to-talk: Edit chosen; left in the box to change");
+		recognition.current.stop();
+	}
+	function overEdit(e) {
+		const box = editLink.current?.getBoundingClientRect();
+		if (!box || box.width === 0) return false;
+		const { clientX: x, clientY: y } = e;
+		return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+	}
 	function release() {
 		if (!recognition.current || latched.current || stopping.current !== null) return;
 		const ms = Math.round(performance.now() - started.current);
@@ -3044,28 +3064,37 @@ function TalkButton(props) {
 		}
 		stop();
 	}
-	return /* @__PURE__ */ u("button", {
-		type: "button",
-		className: listening ? "secondary talk listening" : "secondary talk",
-		disabled: props.disabled && !listening,
-		"aria-pressed": listening,
-		onPointerDown: (e) => {
-			e.preventDefault();
-			e.currentTarget.setPointerCapture?.(e.pointerId);
-			press();
-		},
-		onPointerUp: release,
-		onPointerCancel: stop,
-		onKeyDown: (e) => {
-			if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+	return /* @__PURE__ */ u("div", {
+		className: "talk-row",
+		children: [listening && /* @__PURE__ */ u("button", {
+			ref: editLink,
+			type: "button",
+			className: "link",
+			onClick: edit,
+			children: "Edit"
+		}), /* @__PURE__ */ u("button", {
+			type: "button",
+			className: listening ? "secondary talk listening" : "secondary talk",
+			disabled: props.disabled && !listening,
+			"aria-pressed": listening,
+			onPointerDown: (e) => {
 				e.preventDefault();
+				e.currentTarget.setPointerCapture?.(e.pointerId);
 				press();
-			}
-		},
-		onKeyUp: (e) => {
-			if (e.key === " " || e.key === "Enter") release();
-		},
-		children: !listening ? "Hold to talk" : tapped ? "Listening… click to send" : "Listening… let go to send"
+			},
+			onPointerUp: (e) => overEdit(e) ? edit() : release(),
+			onPointerCancel: stop,
+			onKeyDown: (e) => {
+				if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+					e.preventDefault();
+					press();
+				}
+			},
+			onKeyUp: (e) => {
+				if (e.key === " " || e.key === "Enter") release();
+			},
+			children: !listening ? "Hold to talk" : tapped ? "Click to send…" : "Let go to send…"
+		})]
 	});
 }
 //#endregion
@@ -4804,6 +4833,10 @@ function Chat(props) {
 								onUnsure: (text) => {
 									unsure.current = text;
 									setFailed(CHECK_HEARD);
+									promptBox.current?.focus();
+								},
+								onEdit: (text) => {
+									unsure.current = text;
 									promptBox.current?.focus();
 								},
 								onProblem: setFailed
