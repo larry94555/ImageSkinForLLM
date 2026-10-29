@@ -14,7 +14,7 @@ from imageskin.lookup import EXAMPLES, ContentLookup, example_subjects
 from imageskin.topics import HINT_TOPICS, STILL_READING, STILL_READING_REST, hint_line
 
 
-def test_the_hint_names_a_few_topics_and_says_how_many_more() -> None:
+def test_without_example_links_the_hint_names_a_few_topics_and_says_how_many_more() -> None:
     assert hint_line([], content_only=True) is None
     assert hint_line(["Rain"], content_only=False) == "You can ask me about Rain."
     topics = ["Rain", "Snow", "Hail", "Fog", "Wind"]
@@ -24,6 +24,20 @@ def test_the_hint_names_a_few_topics_and_says_how_many_more() -> None:
     assert hint_line(topics[:HINT_TOPICS], content_only=False) == (
         "You can ask me about Rain, Snow and Hail."
     )
+
+
+def test_with_example_links_the_hint_only_leads_into_them() -> None:
+    """Larry (2026-10-29): naming the topics and then linking the same ones said them twice."""
+    topics = ["Rain", "Snow", "Hail", "Fog", "Wind"]
+    assert hint_line(topics, content_only=False, linked=True) == "You can ask me about:"
+    assert hint_line(topics, content_only=True, linked=True) == (
+        "Questions must be about these topics:"
+    )
+    assert hint_line([], content_only=False, linked=True) is None
+    assert hint_line(topics, content_only=True, complete=False, linked=True) == (
+        f"{STILL_READING_REST} So far you can ask me about:"
+    )
+    assert hint_line([], content_only=True, complete=False, linked=True) == STILL_READING
 
 
 def test_examples_ask_about_each_topic_s_first_part_then_the_topics() -> None:
@@ -60,13 +74,29 @@ def test_examples_are_asked_in_turn_and_only_those_that_find_something() -> None
             ],
         }
     ]
-    assert lookup_over(contents).examples() == [
+    assert lookup_over(contents).examples(limit=3) == [
         "What can you tell me about Rain?",
         "Can you explain Snow?",
         "Tell me about Hail.",
     ]
+    assert lookup_over(contents).examples() == [
+        "What can you tell me about Rain?",
+        "Can you explain Snow?",
+        "Tell me about Hail.",
+        "What can you tell me about Fog?",
+    ]
+
+
+def test_up_to_EXAMPLES_examples_are_given_for_other_topics_to_cycle_through() -> None:
+    """R182: the chat shows three at a time, so it is given more for "other topics..."."""
+    contents = [
+        {
+            "pdf_id": "p",
+            "pdf_name": "many.pdf",
+            "entries": [page(f"Topic{n}", f"Topic{n} text.") for n in range(EXAMPLES + 5)],
+        }
+    ]
     assert len(lookup_over(contents).examples()) == EXAMPLES
-    assert lookup_over(contents).examples(limit=5)[-1] == "What can you tell me about Fog?"
 
 
 def hints(client: Any) -> dict[str, Any]:
@@ -83,8 +113,8 @@ def test_before_any_pdf_there_are_no_hints(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("general_prompts", "line"),
     [
-        (False, "Questions must be about these topics: Moons of Mars."),
-        (True, "You can ask me about Moons of Mars."),
+        (False, "Questions must be about these topics:"),
+        (True, "You can ask me about:"),
     ],
 )
 def test_the_hint_says_questions_must_be_about_the_topics_when_general_prompts_are_off(
@@ -105,8 +135,7 @@ def test_a_clicked_example_question_is_answered_from_the_content(
     with caplog.at_level(logging.INFO, logger="imageskin.app"):
         shown = hints(client)
     assert shown == {
-        "line": "Questions must be about these topics: Prime Number Basics and Zeta Function "
-        "Integral.",
+        "line": "Questions must be about these topics:",
         "examples": [
             "What can you tell me about Prime Number Basics?",
             "Can you explain Zeta Function Integral?",
@@ -114,6 +143,7 @@ def test_a_clicked_example_question_is_answered_from_the_content(
     }
     logged = next(r for r in caplog.records if r.message == "Topic hints")
     assert (logged.topics, logged.examples) == (2, 2)  # type: ignore[attr-defined]
+    assert logged.duration_ms >= 0  # type: ignore[attr-defined]
     for question, passage in zip(
         shown["examples"], ["Primes are counted.", "The zeta function as an integral."], strict=True
     ):
@@ -123,9 +153,9 @@ def test_a_clicked_example_question_is_answered_from_the_content(
 
 def test_the_hints_follow_the_pdfs(tmp_path: Path) -> None:
     client = app_with_topics(tmp_path, Llm(), ["Rain", "Snow"], "Rain and snow fall.", pdfs=2)
-    assert hints(client)["line"] == (
-        "Questions must be about these topics: Rain, Snow, Rain 2 and 1 more on the Wiki page."
-    )
+    shown = hints(client)
+    assert shown["line"] == "Questions must be about these topics:"
+    assert len(shown["examples"]) == 4  # Rain, Snow, Rain 2 and Snow 2: all for "other topics..."
     for pdf in client.get("/api/content").json():
         client.delete(f"/api/content/{pdf['id']}")
     assert hints(client) == {"line": None, "examples": []}
@@ -147,7 +177,7 @@ def test_with_one_pdf_ready_and_one_pending_the_hints_are_only_so_far(
     try:
         with caplog.at_level(logging.INFO, logger="imageskin.app"):
             shown = hints(client)
-        assert shown["line"] == f"So far I can talk about Rain. {STILL_READING_REST}"
+        assert shown["line"] == f"{STILL_READING_REST} So far you can ask me about:"
         assert "must be about" not in shown["line"]
         assert shown["examples"] == ["What can you tell me about Rain?"]  # still answerable
         logged = next(r for r in caplog.records if r.message == "Topic hints")
@@ -155,4 +185,4 @@ def test_with_one_pdf_ready_and_one_pending_the_hints_are_only_so_far(
     finally:
         hold.set()
     client.app.state.wiki.wait()
-    assert hints(client)["line"] == "Questions must be about these topics: Rain and Rain 2."
+    assert hints(client)["line"] == "Questions must be about these topics:"

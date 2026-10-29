@@ -33,9 +33,10 @@ Source = Literal["wiki", "pdf"]
 # How many of each kind are found for a question.
 WIKI_LIMIT = 3
 PDF_LIMIT = 5
-# How many example questions the chat shows under the prompt box (R41g), and how they are asked:
-# each in turn, all opening with words ASKING_ABOUT takes off, so only the subject is looked up.
-EXAMPLES = 3
+# How many example questions the chat is given for under the prompt box (R41g), which it shows
+# three at a time, the next three with "other topics..." (R182), and how they are asked: each in
+# turn, all opening with words ASKING_ABOUT takes off, so only the subject is looked up.
+EXAMPLES = 24
 EXAMPLE_ASKS = ("What can you tell me about {}?", "Can you explain {}?", "Tell me about {}.")
 # The most of a passage the LLM is given to answer from (R40).
 PASSAGE_CHARS = 400

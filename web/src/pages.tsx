@@ -2157,17 +2157,22 @@ function LessonControls(props: {
   );
 }
 
-// Under the prompt box (R41g): a line naming a few of the topics, and example questions that
-// are sent when clicked.
+// Under the prompt box (R41g): a line leading into the topics, and example questions about them
+// that are sent when clicked, three at a time. "other topics..." shows the next three, wrapping
+// round to the first, when there are more (R182).
+export const SHOWN_EXAMPLES = 3;
+
 function Hints(props: { hints: ChatHints; disabled: boolean; onAsk: (question: string) => void }) {
   const { line, examples } = props.hints;
+  const [first, setFirst] = useState(0);
   if (!line && examples.length === 0) return null;
+  const shown = shownExamples(examples, first);
   return (
     <div className="hints">
       {line && <p className="muted">{line}</p>}
       {examples.length > 0 && (
         <ul aria-label="Example questions">
-          {examples.map((question) => (
+          {shown.map((question) => (
             <li key={question}>
               <button
                 type="button"
@@ -2182,9 +2187,34 @@ function Hints(props: { hints: ChatHints; disabled: boolean; onAsk: (question: s
               </button>
             </li>
           ))}
+          {examples.length > SHOWN_EXAMPLES && (
+            <li>
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  const next = (first + SHOWN_EXAMPLES) % examples.length;
+                  console.info(`Other topics shown, from ${next + 1} of ${examples.length}`);
+                  setFirst(next);
+                }}
+              >
+                other topics...
+              </button>
+            </li>
+          )}
         </ul>
       )}
     </div>
+  );
+}
+
+// The example questions shown, starting at `first` and wrapping round to the start, so there
+// are always SHOWN_EXAMPLES of them when there are that many (R182).
+export function shownExamples(examples: string[], first: number): string[] {
+  if (examples.length <= SHOWN_EXAMPLES) return examples;
+  return Array.from(
+    { length: SHOWN_EXAMPLES },
+    (_, i) => examples[(first + i) % examples.length],
   );
 }
 
