@@ -1057,3 +1057,59 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .admin-tabs a.current { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
 .admin-number { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 8px 0; max-width: 480px; }
 .admin-number input { width: 7em; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); color: var(--fg); font: inherit; }
+
+/* The setup wizard (R131): the steps in a row, a placeholder where the camera and the
+   microphone will go (R132, R133), and Back and Next at the bottom. */
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+.wizard-steps li {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--sunken);
+  color: var(--muted);
+}
+.wizard-steps li.done { opacity: 0.75; }
+.wizard-steps li.current {
+  background: var(--accent);
+  color: var(--on-button);
+  font-weight: 600;
+}
+.capture-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 160px;
+  margin: 0 0 12px;
+  padding: 16px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 12px;
+  background: var(--accent-soft);
+  text-align: center;
+}
+.wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+.wizard ul.tips, .wizard ul.needs {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  list-style: disc;
+}
+.wizard ul.tips li, .wizard ul.needs li {
+  display: list-item;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+}
+.wizard-link { margin-top: 16px; text-align: center; }

@@ -498,6 +498,26 @@ async function saveAdminSettings(changes) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+var WIZARD_STEPS = [
+	"start",
+	"photo",
+	"voice",
+	"accent",
+	"prepare",
+	"review"
+];
+async function getWizardStep() {
+	return (await json(await fetch("/api/wizard"))).step;
+}
+async function saveWizardStep(step) {
+	const response = await fetch("/api/wizard", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ step })
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+	return (await response.json()).step;
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -1347,6 +1367,7 @@ var PAGES = {
 	"/consent": "consent",
 	"/consent/own": "consent",
 	"/setup": "setup",
+	"/setup/wizard": "wizard",
 	"/start-now": "start-now",
 	"/avatar-voice": "avatar-voice",
 	"/chat": "chat",
@@ -1397,6 +1418,7 @@ var HOST_PAGES = [
 	"home",
 	"consent",
 	"setup",
+	"wizard",
 	"start-now",
 	"avatar-voice",
 	"guide",
@@ -3215,7 +3237,7 @@ function ConsentPage({ onConfirmed }) {
 		})
 	] });
 }
-var BACK_NOTICE$1 = {
+var BACK_NOTICE$2 = {
 	photos: "You rejected the image. Add new photos and remove the ones you don't want, then Prepare again.",
 	sounds: "You rejected the voice. Add new recordings and remove the ones you don't want, then Prepare again.",
 	accent: "Choose another accent. The sample video is then made again."
@@ -3231,7 +3253,7 @@ function SetupPage({ change }) {
 	const changed = () => setChanges((n) => n + 1);
 	const [preparing, setPreparing] = d(false);
 	const [back, setBack] = d(null);
-	function goBack(to, notice = BACK_NOTICE$1[to]) {
+	function goBack(to, notice = BACK_NOTICE$2[to]) {
 		setBack({
 			to,
 			notice
@@ -3322,7 +3344,13 @@ function SetupPage({ change }) {
 							href: "#/guide",
 							children: "recording guide"
 						}),
-						" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop."
+						" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop. Or",
+						" ",
+						/* @__PURE__ */ u("a", {
+							href: "#/setup/wizard",
+							children: "set up with your own photo and voice"
+						}),
+						" one step at a time."
 					]
 				}),
 				/* @__PURE__ */ u(UploadSection, {
@@ -3466,6 +3494,7 @@ function UploadSection(props) {
 		if (choosing !== null) return;
 		if (!await guard.confirm(`Use ${item.name} instead?`)) return;
 		const sent = ++choiceRequests.current;
+		props.onChanging?.(true);
 		setChoosing(item.id);
 		setRefused([]);
 		try {
@@ -3483,6 +3512,7 @@ function UploadSection(props) {
 			}]);
 		}
 		setChoosing(null);
+		props.onChanging?.(false);
 	}
 	h(() => {
 		listUploads(kind).then((list) => {
@@ -3524,6 +3554,7 @@ function UploadSection(props) {
 		input.value = "";
 		setRefused([]);
 		if (files.length && !await guard.confirm(`Add ${files.length === 1 ? files[0].name : `${files.length} files`}?`)) return;
+		if (files.length) props.onChanging?.(true);
 		for (const file of files) {
 			setSending(file.name);
 			try {
@@ -3542,6 +3573,7 @@ function UploadSection(props) {
 			}
 		}
 		setSending(null);
+		if (files.length) props.onChanging?.(false);
 	}
 	async function remove(item) {
 		const title = `Remove ${item.name}?`;
@@ -3550,6 +3582,7 @@ function UploadSection(props) {
 			keepLabel: "No, keep it",
 			confirmLabel: "Yes, remove it"
 		}))) return;
+		props.onChanging?.(true);
 		try {
 			await removeUpload(kind, item.id);
 			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
@@ -3562,6 +3595,7 @@ function UploadSection(props) {
 				reason: "Could not remove it. Please try again."
 			}]);
 		}
+		props.onChanging?.(false);
 	}
 	const ready = sending === null && (items !== null || loadFailed);
 	const loading = items === null && !loadFailed;
@@ -3569,7 +3603,7 @@ function UploadSection(props) {
 		id: kind,
 		className: "panel",
 		children: [
-			/* @__PURE__ */ u(StepOf, { n: props.step }),
+			props.step !== null && /* @__PURE__ */ u(StepOf, { n: props.step }),
 			/* @__PURE__ */ u("h2", { children: props.title }),
 			props.notice && /* @__PURE__ */ u("p", {
 				className: "notice",
@@ -3749,7 +3783,7 @@ function AccentSection(props) {
 		className: "accent panel",
 		id: "accent",
 		children: [
-			/* @__PURE__ */ u(StepOf, { n: 3 }),
+			props.numbered !== false && /* @__PURE__ */ u(StepOf, { n: 3 }),
 			/* @__PURE__ */ u("h2", { children: "Accent" }),
 			props.notice && /* @__PURE__ */ u("p", {
 				className: "notice",
@@ -3794,7 +3828,7 @@ function AccentSection(props) {
 }
 var PREPARE_POLL_MS = 1e3;
 function PrepareSection(props) {
-	const { changes, onRunning } = props;
+	const { changes, onRunning, wizard } = props;
 	const [status, setStatus] = d(null);
 	const [loadFailed, setLoadFailed] = d(false);
 	const [starting, setStarting] = d(false);
@@ -3860,6 +3894,8 @@ function PrepareSection(props) {
 	const slow = running && !cancelling && status.steps?.find((s) => s.done < s.total)?.slow === true;
 	const cancelled = status?.state === "cancelled";
 	h(() => onRunning(running), [running]);
+	const done = status?.state === "done";
+	h(() => wizard?.onDone(done), [done]);
 	_(() => props.onStopped?.(cancelled), [cancelled]);
 	h(() => {
 		if (!running) return;
@@ -3869,7 +3905,7 @@ function PrepareSection(props) {
 	return /* @__PURE__ */ u("section", {
 		className: "prepare panel",
 		children: [
-			/* @__PURE__ */ u(StepOf, { n: 4 }),
+			!wizard && /* @__PURE__ */ u(StepOf, { n: 4 }),
 			/* @__PURE__ */ u("h2", { children: "Prepare the video" }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
@@ -3962,7 +3998,11 @@ function PrepareSection(props) {
 					})
 				] }, step.key))
 			})] }),
-			status?.state === "done" && /* @__PURE__ */ u("div", {
+			status?.state === "done" && wizard && /* @__PURE__ */ u("p", {
+				className: "done",
+				children: "Done. Click Next to watch the sample video."
+			}),
+			status?.state === "done" && !wizard && /* @__PURE__ */ u("div", {
 				className: "sample-video",
 				children: [
 					/* @__PURE__ */ u("p", {
@@ -5658,7 +5698,7 @@ function NotFoundPage() {
 }
 //#endregion
 //#region src/avatar-voice.tsx
-var BACK_NOTICE = {
+var BACK_NOTICE$1 = {
 	sounds: "You rejected the voice. Add new recordings and remove the ones you don't want, then Prepare again.",
 	accent: "Choose another accent. The sample video is then made again."
 };
@@ -5712,7 +5752,7 @@ function AvatarVoicePage() {
 			setFailed(e.message);
 		}
 	}
-	const notice = (part) => back === part ? BACK_NOTICE[part] ?? null : null;
+	const notice = (part) => back === part ? BACK_NOTICE$1[part] ?? null : null;
 	return /* @__PURE__ */ u(SettingGuard.Provider, {
 		value: stopGuard.guard,
 		children: /* @__PURE__ */ u("div", {
@@ -7097,8 +7137,6 @@ function GuidePage() {
 		]
 	});
 }
-//#endregion
-//#region src/home.tsx
 async function loadHome(consented) {
 	try {
 		if ((await getStartNow()).chosen) {
@@ -7196,33 +7234,43 @@ function HomePage({ consented, landing = false }) {
 	});
 	return /* @__PURE__ */ u("section", {
 		className: "home",
-		children: [/* @__PURE__ */ u("div", {
-			className: "hero",
-			children: [state.photo && /* @__PURE__ */ u("img", {
-				className: "portrait",
-				src: state.photo,
-				alt: "The person in the video"
-			}), /* @__PURE__ */ u("div", { children: [/* @__PURE__ */ u("h1", { children: state.done ? "Welcome back" : "Welcome" }), /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: state.done ? "Setup is done. Pick up where you left off." : "Make a talking video of a person from a few photos and voice recordings. The person then speaks the chatbot's replies."
-			})] })]
-		}), /* @__PURE__ */ u("ul", {
-			className: state.done ? "choices three" : "choices two",
-			children: choices(state.done, consented, state.defaultPerson).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
-				href: c.href,
-				children: [
-					/* @__PURE__ */ u(ChoiceIcon, { href: c.href }),
-					/* @__PURE__ */ u("span", {
-						className: "title",
-						children: c.title
-					}),
-					/* @__PURE__ */ u("span", {
-						className: "text",
-						children: c.text
-					})
-				]
-			}) }, c.title))
-		})]
+		children: [
+			/* @__PURE__ */ u("div", {
+				className: "hero",
+				children: [state.photo && /* @__PURE__ */ u("img", {
+					className: "portrait",
+					src: state.photo,
+					alt: "The person in the video"
+				}), /* @__PURE__ */ u("div", { children: [/* @__PURE__ */ u("h1", { children: state.done ? "Welcome back" : "Welcome" }), /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: state.done ? "Setup is done. Pick up where you left off." : "Make a talking video of a person from a few photos and voice recordings. The person then speaks the chatbot's replies."
+				})] })]
+			}),
+			/* @__PURE__ */ u("ul", {
+				className: state.done ? "choices three" : "choices two",
+				children: choices(state.done, consented, state.defaultPerson).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
+					href: c.href,
+					children: [
+						/* @__PURE__ */ u(ChoiceIcon, { href: c.href }),
+						/* @__PURE__ */ u("span", {
+							className: "title",
+							children: c.title
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "text",
+							children: c.text
+						})
+					]
+				}) }, c.title))
+			}),
+			!state.done && /* @__PURE__ */ u("p", {
+				className: "wizard-link",
+				children: [/* @__PURE__ */ u("a", {
+					href: "#/setup/wizard",
+					children: "Set up with your own photo and voice"
+				}), ", one step at a time."]
+			})
+		]
 	});
 }
 var ICONS = {
@@ -8389,6 +8437,370 @@ function HostTrail() {
 	});
 }
 //#endregion
+//#region src/wizard.tsx
+var STEP_TITLES = {
+	start: "Before you start",
+	photo: "Your photo",
+	voice: "Your voice",
+	accent: "Accent",
+	prepare: "Prepare the video",
+	review: "Watch the sample video"
+};
+var BACK_STEP = {
+	photos: "photo",
+	sounds: "voice",
+	accent: "accent"
+};
+function nextStep(step, by) {
+	const i = WIZARD_STEPS.indexOf(step) + by;
+	return WIZARD_STEPS[Math.min(Math.max(i, 0), WIZARD_STEPS.length - 1)];
+}
+function WizardPage(props) {
+	const [step, setStep] = d(null);
+	const opened = A(performance.now());
+	const [ready, setReady] = d(false);
+	const [failed, setFailed] = d(null);
+	const [changes, setChanges] = d(0);
+	const changed = () => setChanges((n) => n + 1);
+	const [preparing, setPreparing] = d(false);
+	const [pending, setPending] = d(false);
+	const [notice, setNotice] = d(null);
+	const [moving, setMoving] = d(false);
+	const movingNow = A(false);
+	const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
+	const stopGuard = usePrepareStopGuard(changed);
+	h(() => {
+		const started = performance.now();
+		getWizardStep().then((saved) => {
+			const first = props.consented ? saved : "start";
+			console.info(`Wizard opened at ${first} (read in ${Math.round(performance.now() - started)} ms)`);
+			opened.current = performance.now();
+			setStep(first);
+		}).catch((e) => {
+			console.error("Could not read the wizard's step; starting at the beginning", e);
+			setStep("start");
+		});
+	}, []);
+	async function go(to, why = null) {
+		if (step === null || movingNow.current) return;
+		movingNow.current = true;
+		setMoving(true);
+		console.info(`Wizard step: ${to} (${Math.round((performance.now() - opened.current) / 1e3)} s on ${step})`);
+		setFailed(null);
+		try {
+			await saveWizardStep(to);
+		} catch (e) {
+			console.error(`Could not save the wizard's step (${to})`, e);
+		}
+		opened.current = performance.now();
+		setReady(false);
+		setNotice(why);
+		setStep(to);
+		movingNow.current = false;
+		setMoving(false);
+		window.scrollTo?.({ top: 0 });
+	}
+	if (step === null) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Loading…"
+	});
+	const index = WIZARD_STEPS.indexOf(step);
+	const last = index === WIZARD_STEPS.length - 1;
+	let body;
+	switch (step) {
+		case "start":
+			body = /* @__PURE__ */ u(StartStep, {
+				consented: props.consented,
+				onReady: setReady,
+				onConsented: props.onConsented,
+				onFailed: setFailed
+			});
+			break;
+		case "photo":
+			body = /* @__PURE__ */ u(PhotoStep, {
+				notice,
+				onReady: setReady,
+				onChange: changed
+			});
+			break;
+		case "voice":
+			body = /* @__PURE__ */ u(VoiceStep, {
+				notice,
+				onReady: setReady,
+				onChange: changed
+			});
+			break;
+		case "accent":
+			body = /* @__PURE__ */ u(AccentStep, {
+				notice,
+				preparing,
+				onReady: setReady,
+				onChange: changed
+			});
+			break;
+		case "prepare":
+			body = /* @__PURE__ */ u(PrepareSection, {
+				changes,
+				onRunning: setPreparing,
+				onBack: (to) => void go(BACK_STEP[to]),
+				onStopped: stopGuard.onStopped,
+				wizard: { onDone: setReady }
+			});
+			break;
+		case "review": body = /* @__PURE__ */ u(ReviewStep, {
+			onBack: (to, why) => void go(BACK_STEP[to], why),
+			onPending: setPending
+		});
+	}
+	return /* @__PURE__ */ u(SettingGuard.Provider, {
+		value: stopGuard.guard,
+		children: /* @__PURE__ */ u("div", {
+			className: "host-page wizard",
+			children: [
+				/* @__PURE__ */ u("h1", { children: "Set up with your own photo and voice" }),
+				/* @__PURE__ */ u("ol", {
+					className: "wizard-steps",
+					"aria-label": "Steps",
+					children: WIZARD_STEPS.map((s, i) => /* @__PURE__ */ u("li", {
+						className: i === index ? "current" : i < index ? "done" : void 0,
+						"aria-current": i === index ? "step" : void 0,
+						children: STEP_TITLES[s]
+					}, s))
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "step-of",
+					children: [
+						"Step ",
+						index + 1,
+						" of ",
+						WIZARD_STEPS.length
+					]
+				}),
+				body,
+				failed && /* @__PURE__ */ u("p", {
+					className: "error",
+					children: failed
+				}),
+				/* @__PURE__ */ u("div", {
+					className: "wizard-nav",
+					children: [/* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						disabled: index === 0 || moving,
+						onClick: () => void go(nextStep(step, -1)),
+						children: "Back"
+					}), !last && /* @__PURE__ */ u("button", {
+						type: "button",
+						disabled: !ready || moving,
+						onClick: () => void go(nextStep(step, 1)),
+						children: "Next"
+					})]
+				}),
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [
+						"Prefer everything on one page? ",
+						/* @__PURE__ */ u("a", {
+							href: "#/setup",
+							children: "Open the Setup page"
+						}),
+						"."
+					]
+				}),
+				leaveDialog,
+				stopGuard.dialog
+			]
+		})
+	});
+}
+function StartStep(props) {
+	const [checked, setChecked] = d(props.consented);
+	const [saving, setSaving] = d(false);
+	h(() => props.onReady(props.consented), [props.consented]);
+	async function agree(yes) {
+		setChecked(yes);
+		if (!yes || props.consented) return;
+		setSaving(true);
+		props.onFailed(null);
+		try {
+			await confirmConsent();
+			console.info("Consent confirmed in the wizard");
+			props.onConsented();
+		} catch (e) {
+			console.error("Could not save consent from the wizard", e);
+			props.onFailed("Could not save your answer. Please try again.");
+			setChecked(false);
+		}
+		setSaving(false);
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		children: [
+			/* @__PURE__ */ u("h2", { children: STEP_TITLES.start }),
+			/* @__PURE__ */ u("p", { children: "You will need:" }),
+			/* @__PURE__ */ u("ul", {
+				className: "needs",
+				children: [
+					/* @__PURE__ */ u("li", { children: "A clear photo of your face, head and shoulders, looking at the camera." }),
+					/* @__PURE__ */ u("li", { children: "A few minutes of your voice, reading aloud in a quiet room. This is optional: without it, a ready-made voice speaks." }),
+					/* @__PURE__ */ u("li", { children: "About 20 minutes the first time, while the app prepares the video." })
+				]
+			}),
+			/* @__PURE__ */ u("p", { children: "Only use images you have the right to use. Ideally, use your own picture." }),
+			/* @__PURE__ */ u("label", {
+				className: "check",
+				children: [
+					/* @__PURE__ */ u("input", {
+						type: "checkbox",
+						checked,
+						disabled: props.consented || saving,
+						onChange: (e) => void agree(e.currentTarget.checked)
+					}),
+					" ",
+					"I have the right to use the photos and recording that will be used by the app."
+				]
+			})
+		]
+	});
+}
+function Placeholder(props) {
+	return /* @__PURE__ */ u("div", {
+		className: "capture-placeholder",
+		role: "note",
+		children: [/* @__PURE__ */ u("strong", { children: [props.what, " is coming soon."] }), /* @__PURE__ */ u("span", { children: props.instead })]
+	});
+}
+function PhotoStep(props) {
+	const [changes, setChanges] = d(0);
+	h(() => {
+		let newest = true;
+		getPhotoChoice().then((c) => {
+			if (newest) props.onReady(Boolean(c.id));
+		}).catch((e) => console.error("Could not read the chosen photo", e));
+		return () => {
+			newest = false;
+		};
+	}, [changes]);
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u(Placeholder, {
+			what: "Taking the photo with your camera",
+			instead: "For now, add a photo you already have."
+		}),
+		/* @__PURE__ */ u("ul", {
+			className: "tips",
+			children: [
+				/* @__PURE__ */ u("li", { children: "Face the camera, with your head and shoulders in the picture." }),
+				/* @__PURE__ */ u("li", { children: "Use soft, even light from the front, with a plain background." }),
+				/* @__PURE__ */ u("li", { children: "Keep a neutral face with your mouth closed." })
+			]
+		}),
+		/* @__PURE__ */ u(UploadSection, {
+			kind: "photos",
+			step: null,
+			title: STEP_TITLES.photo,
+			button: "Add a photo",
+			hint: "JPG, PNG or HEIC. Next is ready once a photo passes the checks.",
+			accept: "image/jpeg,image/png,image/heic,.heic",
+			notice: props.notice,
+			onChanging: (busy) => {
+				props.onReady(false);
+				if (!busy) setChanges((n) => n + 1);
+			},
+			onChange: () => {
+				props.onReady(false);
+				setChanges((n) => n + 1);
+				props.onChange();
+			}
+		})
+	] });
+}
+function VoiceStep(props) {
+	h(() => props.onReady(true), []);
+	return /* @__PURE__ */ u(S, { children: [
+		/* @__PURE__ */ u(Placeholder, {
+			what: "Recording your voice here in the browser",
+			instead: "For now, add recordings you already made."
+		}),
+		/* @__PURE__ */ u("ul", {
+			className: "tips",
+			children: [
+				/* @__PURE__ */ u("li", { children: "Record in a quiet room, about a hand's width from the microphone." }),
+				/* @__PURE__ */ u("li", { children: "Read aloud in your normal voice, for one to three minutes each time." }),
+				/* @__PURE__ */ u("li", { children: "Only your voice: no music, television or other people." })
+			]
+		}),
+		/* @__PURE__ */ u("p", {
+			className: "muted",
+			children: [
+				"The ",
+				/* @__PURE__ */ u("a", {
+					href: "#/guide",
+					children: "recording guide"
+				}),
+				" has a script to read and more tips."
+			]
+		}),
+		/* @__PURE__ */ u(UploadSection, {
+			kind: "sounds",
+			step: null,
+			title: STEP_TITLES.voice,
+			button: "Add recordings",
+			hint: "WAV, M4A or MP3, up to 10 minutes each. Optional: without them, a ready-made voice speaks.",
+			accept: "audio/*,.m4a,.wav,.mp3",
+			notice: props.notice,
+			onChange: props.onChange
+		})
+	] });
+}
+function AccentStep(props) {
+	h(() => props.onReady(true), []);
+	return /* @__PURE__ */ u(AccentSection, {
+		onChange: props.onChange,
+		preparing: props.preparing,
+		notice: props.notice,
+		numbered: false
+	});
+}
+var BACK_NOTICE = {
+	photos: "You rejected the image. Add a new photo and remove the ones you don't want.",
+	sounds: "You rejected the voice. Add new recordings and remove the ones you don't want.",
+	accent: "Choose another accent."
+};
+function ReviewStep(props) {
+	const [status, setStatus] = d(null);
+	h(() => {
+		getPrepare().then(setStatus).catch((e) => console.error("Could not read the sample video", e));
+	}, []);
+	if (status === null) return /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Loading…"
+	});
+	if (status.state !== "done") return /* @__PURE__ */ u("section", {
+		className: "panel",
+		children: [/* @__PURE__ */ u("h2", { children: STEP_TITLES.review }), /* @__PURE__ */ u("p", {
+			className: "notice",
+			children: "The sample video isn't ready. Go Back to prepare it."
+		})]
+	});
+	return /* @__PURE__ */ u("section", {
+		className: "panel sample-video",
+		children: [
+			/* @__PURE__ */ u("h2", { children: STEP_TITLES.review }),
+			/* @__PURE__ */ u("video", {
+				controls: true,
+				preload: "metadata",
+				src: clipUrl("sample", status),
+				"aria-label": "Sample video"
+			}),
+			/* @__PURE__ */ u(ReviewChoices, {
+				sample: status.finished_at,
+				onBack: (to) => props.onBack(to, BACK_NOTICE[to]),
+				onPending: props.onPending
+			})
+		]
+	});
+}
+//#endregion
 //#region src/App.tsx
 var NAV = [
 	{
@@ -8423,7 +8835,7 @@ var NAV = [
 	}
 ];
 function current(page, view) {
-	if (page === "guide" || page === "start-now" || page === "avatar-voice") return "setup";
+	if (page === "guide" || page === "start-now" || page === "avatar-voice" || page === "wizard") return "setup";
 	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
 	return page;
 }
@@ -8472,6 +8884,10 @@ function Shell() {
 			});
 		} }),
 		setup: /* @__PURE__ */ u(SetupPage, { change: setupTarget(hash) }),
+		wizard: /* @__PURE__ */ u(WizardPage, {
+			consented: consented === true,
+			onConsented: () => setConsented(true)
+		}),
 		"start-now": /* @__PURE__ */ u(StartNowPage, {}),
 		"avatar-voice": /* @__PURE__ */ u(AvatarVoicePage, {}),
 		chat: /* @__PURE__ */ u(ChatPage, {}),
