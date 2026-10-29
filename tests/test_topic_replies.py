@@ -233,6 +233,19 @@ def test_a_kept_reply_is_made_again_once_the_wiki_changes(tmp_path: Path) -> Non
         assert len(asked) == 2
 
 
+def test_a_kept_reply_is_made_again_at_another_level_of_detail(tmp_path: Path) -> None:
+    """R180: a topic's reply kept at one level of detail isn't said at another."""
+    asked: list[str] = []
+    client = app_with_examples(tmp_path, asked, ["Rain"])
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        ask_and_play(client, QUESTION, REPLY_ID)
+        assert client.patch("/api/settings", json={"detail": 5}).status_code == 200
+        ask_and_play(client, QUESTION, "e" * 32)
+        assert len(asked) == 2  # asked again, at the new level
+        ask_and_play(client, QUESTION, "f" * 32)
+        assert len(asked) == 2  # and kept at it
+
+
 def test_delete_my_data_removes_the_kept_replies(tmp_path: Path) -> None:
     from imageskin.delete_data import delete_my_data
 

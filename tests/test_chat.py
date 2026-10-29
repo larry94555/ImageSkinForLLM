@@ -17,6 +17,7 @@ from imageskin import reply_times
 from imageskin.app import CHAT_LOCKED, create_app
 from imageskin.chat import (
     CONTENT_RULES,
+    DETAIL_LEVELS,
     EARLIER,
     HISTORY_SHARE,
     REPLY_TOKENS,
@@ -38,6 +39,7 @@ from imageskin.chat import (
     StoppableResponse,
     Turn,
     ask_stop,
+    detail_level,
     estimate,
     latest,
     strict,
@@ -639,6 +641,16 @@ def test_the_client_streams_the_reply(fake_llm: str) -> None:
     client = LlmClient(LlmSettings(url=fake_llm, model="qwen"))
     assert list(client.stream([{"role": "user", "content": "Hi"}])) == ["Hello", " there."]
     assert FakeLlm.received[0]["stream"] is True
+    assert FakeLlm.received[0]["max_tokens"] == REPLY_TOKENS
+
+
+def test_a_streamed_reply_has_room_for_the_level_of_detail(fake_llm: str) -> None:
+    """R180: In depth, the reply may take more tokens, so a long answer isn't cut off."""
+    FakeLlm.answer = (200, events("Hello."))
+    client = LlmClient(LlmSettings(url=fake_llm))
+    with detail_level(5):
+        assert list(client.stream([{"role": "user", "content": "Hi"}])) == ["Hello."]
+    assert FakeLlm.received[0]["max_tokens"] == DETAIL_LEVELS[5][1] > REPLY_TOKENS
 
 
 def test_llama_servers_timings_are_kept_for_the_prompt(fake_llm: str) -> None:

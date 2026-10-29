@@ -48,6 +48,9 @@ class UiSettings:
     # It is chosen on the Setup page beside Prepare, not the Settings page, since the prepared
     # clips are made with it (Larry, 2026-10-26).
     face_movement: str = "normal"
+    # How detailed answers are, from 1 (High level) to 5 (In depth), set with the bar on the chat
+    # screen (R180); the middle answers as before the bar. Its lengths are `chat.DETAIL_LEVELS`.
+    detail: int = 3
 
 
 DEFAULTS = UiSettings()
@@ -62,6 +65,7 @@ CHOICES: dict[str, tuple[object, ...]] = {
     "debug": (True, False),
     "general_prompts": (True, False),
     "face_movement": ("off", "slight", "normal"),
+    "detail": (1, 2, 3, 4, 5),
 }
 
 
