@@ -4,6 +4,7 @@ import functools
 import http.server
 import json
 import logging
+import math
 import shutil
 import threading
 import time
@@ -963,7 +964,7 @@ def test_time_left_counts_down_to_the_chat(tmp_path: Path, pack: Path) -> None:
     assert start.status().left_s == 10 + 4 + 15 + 10  # every stage's usual time
     now[0] = 2.0
     start._set("downloading", 50)  # half of it in 2 s
-    assert start.status().left_s == round(remaining(4, 2) + 4 + 15 + 10)
+    assert start.status().left_s == math.ceil(remaining(4, 2) + 4 + 15 + 10)
     now[0] = 3.0
     start._set("unpacking", 100)
     assert start.status().left_s == 4 + 15 + 10
@@ -973,7 +974,10 @@ def test_time_left_counts_down_to_the_chat(tmp_path: Path, pack: Path) -> None:
     start._set("ready", 100)
     assert start.status().left_s == 10  # the chat's video
     now[0] = 25.5
-    assert start.status().left_s == round(remaining(10, 2))
+    assert start.status().left_s == math.ceil(remaining(10, 2))
+    now[0] = 23.5 + 300  # far past the chat's usual time: still at least 1 s, never 0
+    assert 0 < remaining(10, 300) < 0.5 and start.status().left_s == 1
+    now[0] = 25.5
     start.chat_shown()
     start.chat_shown()  # timed once
     assert start.status().left_s is None

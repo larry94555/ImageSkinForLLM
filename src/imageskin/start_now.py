@@ -18,6 +18,7 @@ accepted; choosing an avatar again starts it in its ready-made voice.
 
 import json
 import logging
+import math
 import os
 import shutil
 import threading
@@ -322,8 +323,9 @@ class StartNow:
                 self._ready_at = None
 
     def _left(self, now: float) -> int | None:
-        """About how many seconds are left until the chat opens: the stage it is in, from how
-        fast the download goes or the stage's expected time, then the stages after it."""
+        """About how many seconds are left until the chat opens, never under 1 while it is got
+        ready: the stage it is in, from how fast the download goes or the stage's expected time,
+        then the stages after it."""
         state = self._status.state
         if state == "ready" and self._ready_at is not None:
             stage, elapsed = "chat", now - self._ready_at
@@ -337,7 +339,9 @@ class StartNow:
         else:
             left = remaining(self._expected(stage), elapsed)
         later = list(USUAL_S)[list(USUAL_S).index(stage) + 1 :]
-        return round(left + sum(self._expected(s) for s in later))
+        # Rounded up, and at least 1 s: "about 0 s left" would say it is done while it still runs
+        # (Codex's review of PR #209).
+        return max(1, math.ceil(left + sum(self._expected(s) for s in later)))
 
     def _expected(self, stage: str) -> float:
         return self._times.get(stage, USUAL_S[stage])
