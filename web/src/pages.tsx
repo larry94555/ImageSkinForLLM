@@ -339,6 +339,10 @@ export function UploadSection(props: {
   accept: string;
   notice: string | null; // what to do after rejecting the sample (roadmap R14)
   onChange: () => void; // a file was added, passed its checks or removed, or a photo chosen
+  // True as a file is about to be added or removed, or a photo chosen, and false once that is
+  // over, whether it worked or not: the setup wizard's Next waits meanwhile (Codex's review of
+  // PR #224).
+  onChanging?: (busy: boolean) => void;
 }) {
   const { kind } = props;
   // null until the list has loaded.
@@ -377,6 +381,7 @@ export function UploadSection(props: {
     if (choosing !== null) return; // one at a time
     if (!(await guard.confirm(`Use ${item.name} instead?`))) return;
     const sent = ++choiceRequests.current; // reads sent before this click are now out of date
+    props.onChanging?.(true);
     setChoosing(item.id);
     setRefused([]);
     try {
@@ -393,6 +398,7 @@ export function UploadSection(props: {
       setRefused([{ name: item.name, reason: (e as Error).message }]);
     }
     setChoosing(null);
+    props.onChanging?.(false);
   }
 
   useEffect(() => {
@@ -444,6 +450,7 @@ export function UploadSection(props: {
     input.value = "";
     setRefused([]);
     if (files.length && !(await guard.confirm(`Add ${files.length === 1 ? files[0].name : `${files.length} files`}?`))) return;
+    if (files.length) props.onChanging?.(true);
     for (const file of files) {
       setSending(file.name);
       try {
@@ -459,6 +466,7 @@ export function UploadSection(props: {
       }
     }
     setSending(null);
+    if (files.length) props.onChanging?.(false);
   }
 
   async function remove(item: Upload) {
@@ -468,6 +476,7 @@ export function UploadSection(props: {
       ? await guard.confirm(title)
       : await ask({ title, keepLabel: "No, keep it", confirmLabel: "Yes, remove it" });
     if (!yes) return;
+    props.onChanging?.(true);
     try {
       await removeUpload(kind, item.id);
       setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
@@ -478,6 +487,7 @@ export function UploadSection(props: {
       console.error(`Could not remove ${item.name}`, e);
       setRefused([{ name: item.name, reason: "Could not remove it. Please try again." }]);
     }
+    props.onChanging?.(false);
   }
 
   // Adding waits for the first list, so a late list can't hide a file uploaded meanwhile.

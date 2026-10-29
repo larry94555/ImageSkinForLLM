@@ -14,7 +14,11 @@ function server(opts: {
   prepare?: string;
   stepFails?: boolean;
   consentFails?: boolean;
+  saveGate?: Promise<void>; // step saves wait for it
+  chosenGate?: Promise<void>; // reads of the chosen photo after the first wait for it
 }) {
+  let chosenReads = 0;
+  let photo = opts.photo ?? null;
   const saved: string[] = [];
   const reviews: string[] = [];
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -27,15 +31,27 @@ function server(opts: {
       if (opts.stepFails) return Response.json({ detail: "The step could not be saved." }, { status: 500 });
       const { step } = JSON.parse(init!.body as string) as { step: string };
       saved.push(step);
+      await opts.saveGate;
       return Response.json({ step });
     }
     if (url === "/api/consent") {
       if (opts.consentFails) return new Response("", { status: 500 });
       return Response.json({ agreed: true, agreed_at: FINISHED });
     }
-    if (url === "/api/uploads/photos" || url === "/api/uploads/sounds") return Response.json([]);
+    if (url === "/api/uploads/photos" && method === "POST") {
+      return Response.json({ detail: "The photo is too blurry." }, { status: 400 });
+    }
+    if (url === "/api/uploads/photos") {
+      return Response.json(photo ? [{ id: photo, kind: "photos", name: "me.jpg", format: "jpg", size: 1, uploaded_at: FINISHED, seconds: null, problems: [], score: 90 }] : []);
+    }
+    if (url === "/api/uploads/sounds") return Response.json([]);
+    if (url === `/api/uploads/photos/${PHOTO_ID}` && method === "DELETE") {
+      photo = null;
+      return Response.json({});
+    }
     if (url === "/api/uploads/photos/chosen") {
-      return Response.json({ id: opts.photo ?? null, chosen_by: "app" });
+      if (chosenReads++ > 0) await opts.chosenGate;
+      return Response.json({ id: photo, chosen_by: "app" });
     }
     if (url === "/api/voice-sample") {
       return Response.json({ recordings: 0, speech: 0, problem: "No recordings yet." });
@@ -194,4 +210,45 @@ test("a step that can't be read or saved still lets the wizard go on", async () 
   fireEvent.click(next());
   expect(await screen.findByText("Taking the photo with your camera is coming soon.")).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not save the wizard's step (photo)", expect.any(Error));
+});
+
+test("removing the chosen photo turns Next off at once, before the choice is read again", async () => {
+  let release = () => {};
+  const chosenGate = new Promise<void>((r) => (release = r));
+  server({ step: "photo", photo: PHOTO_ID, chosenGate });
+  render(<WizardPage consented onConsented={() => {}} />);
+  await waitFor(() => expect(next().disabled).toBe(false));
+  fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Yes, remove it" }));
+  await waitFor(() => expect(next().disabled).toBe(true));
+  release();
+  await screen.findByText("None yet.");
+  expect(next().disabled).toBe(true);
+});
+
+test("a double click on Next moves one step, saved once, with Back and Next off meanwhile", async () => {
+  let release = () => {};
+  const saveGate = new Promise<void>((r) => (release = r));
+  const { saved } = server({ step: "voice", saveGate });
+  render(<WizardPage consented onConsented={() => {}} />);
+  await waitFor(() => expect(next().disabled).toBe(false));
+  fireEvent.click(next());
+  fireEvent.click(next());
+  await waitFor(() => expect(next().disabled).toBe(true));
+  expect((screen.getByRole("button", { name: "Back" }) as HTMLButtonElement).disabled).toBe(true);
+  release();
+  expect(await screen.findByText("Speak with", { exact: true })).toBeTruthy();
+  expect(saved).toEqual(["accent"]);
+});
+
+test("a photo refused on upload leaves Next on for the photo already chosen", async () => {
+  server({ step: "photo", photo: PHOTO_ID });
+  render(<WizardPage consented onConsented={() => {}} />);
+  await waitFor(() => expect(next().disabled).toBe(false));
+  const input = document.querySelector("input[type=file]") as HTMLInputElement;
+  const file = new File(["x"], "blurry.jpg", { type: "image/jpeg" });
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  fireEvent.change(input);
+  expect(await screen.findByText("blurry.jpg: The photo is too blurry.")).toBeTruthy();
+  await waitFor(() => expect(next().disabled).toBe(false));
 });

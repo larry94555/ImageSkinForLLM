@@ -56,6 +56,11 @@ export function WizardPage(props: { consented: boolean; onConsented: () => void 
   const [preparing, setPreparing] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Set while a step change is being saved: Back and Next wait for it, so a double click can't
+  // send two changes from the same step whose answers could arrive out of order (Codex's review
+  // of PR #224).
+  const [moving, setMoving] = useState(false);
+  const movingNow = useRef(false);
   const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
   const stopGuard = usePrepareStopGuard(changed);
 
@@ -78,7 +83,9 @@ export function WizardPage(props: { consented: boolean; onConsented: () => void 
   }, []);
 
   async function go(to: WizardStep, why: string | null = null) {
-    if (step === null) return;
+    if (step === null || movingNow.current) return;
+    movingNow.current = true;
+    setMoving(true);
     console.info(
       `Wizard step: ${to} (${Math.round((performance.now() - opened.current) / 1000)} s on ${step})`,
     );
@@ -93,6 +100,8 @@ export function WizardPage(props: { consented: boolean; onConsented: () => void 
     setReady(false);
     setNotice(why);
     setStep(to);
+    movingNow.current = false;
+    setMoving(false);
     window.scrollTo?.({ top: 0 });
   }
 
@@ -168,13 +177,13 @@ export function WizardPage(props: { consented: boolean; onConsented: () => void 
           <button
             type="button"
             className="secondary"
-            disabled={index === 0}
+            disabled={index === 0 || moving}
             onClick={() => void go(nextStep(step, -1))}
           >
             Back
           </button>
           {!last && (
-            <button type="button" disabled={!ready} onClick={() => void go(nextStep(step, 1))}>
+            <button type="button" disabled={!ready || moving} onClick={() => void go(nextStep(step, 1))}>
               Next
             </button>
           )}
@@ -287,7 +296,14 @@ function PhotoStep(props: {
         hint="JPG, PNG or HEIC. Next is ready once a photo passes the checks."
         accept="image/jpeg,image/png,image/heic,.heic"
         notice={props.notice}
+        // Next waits until the new choice is read, so a photo just removed can't be used to go
+        // on (Codex's review of PR #224).
+        onChanging={(busy) => {
+          props.onReady(false);
+          if (!busy) setChanges((n) => n + 1); // over: read the choice again
+        }}
         onChange={() => {
+          props.onReady(false);
           setChanges((n) => n + 1);
           props.onChange();
         }}

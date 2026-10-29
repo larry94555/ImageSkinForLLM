@@ -3494,6 +3494,7 @@ function UploadSection(props) {
 		if (choosing !== null) return;
 		if (!await guard.confirm(`Use ${item.name} instead?`)) return;
 		const sent = ++choiceRequests.current;
+		props.onChanging?.(true);
 		setChoosing(item.id);
 		setRefused([]);
 		try {
@@ -3511,6 +3512,7 @@ function UploadSection(props) {
 			}]);
 		}
 		setChoosing(null);
+		props.onChanging?.(false);
 	}
 	h(() => {
 		listUploads(kind).then((list) => {
@@ -3552,6 +3554,7 @@ function UploadSection(props) {
 		input.value = "";
 		setRefused([]);
 		if (files.length && !await guard.confirm(`Add ${files.length === 1 ? files[0].name : `${files.length} files`}?`)) return;
+		if (files.length) props.onChanging?.(true);
 		for (const file of files) {
 			setSending(file.name);
 			try {
@@ -3570,6 +3573,7 @@ function UploadSection(props) {
 			}
 		}
 		setSending(null);
+		if (files.length) props.onChanging?.(false);
 	}
 	async function remove(item) {
 		const title = `Remove ${item.name}?`;
@@ -3578,6 +3582,7 @@ function UploadSection(props) {
 			keepLabel: "No, keep it",
 			confirmLabel: "Yes, remove it"
 		}))) return;
+		props.onChanging?.(true);
 		try {
 			await removeUpload(kind, item.id);
 			setItems((current) => (current ?? []).filter((i) => i.id !== item.id));
@@ -3590,6 +3595,7 @@ function UploadSection(props) {
 				reason: "Could not remove it. Please try again."
 			}]);
 		}
+		props.onChanging?.(false);
 	}
 	const ready = sending === null && (items !== null || loadFailed);
 	const loading = items === null && !loadFailed;
@@ -8459,6 +8465,8 @@ function WizardPage(props) {
 	const [preparing, setPreparing] = d(false);
 	const [pending, setPending] = d(false);
 	const [notice, setNotice] = d(null);
+	const [moving, setMoving] = d(false);
+	const movingNow = A(false);
 	const leaveDialog = useLeaveGuard(pending, "The chat keeps the person and voice it has now.");
 	const stopGuard = usePrepareStopGuard(changed);
 	h(() => {
@@ -8474,7 +8482,9 @@ function WizardPage(props) {
 		});
 	}, []);
 	async function go(to, why = null) {
-		if (step === null) return;
+		if (step === null || movingNow.current) return;
+		movingNow.current = true;
+		setMoving(true);
 		console.info(`Wizard step: ${to} (${Math.round((performance.now() - opened.current) / 1e3)} s on ${step})`);
 		setFailed(null);
 		try {
@@ -8486,6 +8496,8 @@ function WizardPage(props) {
 		setReady(false);
 		setNotice(why);
 		setStep(to);
+		movingNow.current = false;
+		setMoving(false);
 		window.scrollTo?.({ top: 0 });
 	}
 	if (step === null) return /* @__PURE__ */ u("p", {
@@ -8574,12 +8586,12 @@ function WizardPage(props) {
 					children: [/* @__PURE__ */ u("button", {
 						type: "button",
 						className: "secondary",
-						disabled: index === 0,
+						disabled: index === 0 || moving,
 						onClick: () => void go(nextStep(step, -1)),
 						children: "Back"
 					}), !last && /* @__PURE__ */ u("button", {
 						type: "button",
-						disabled: !ready,
+						disabled: !ready || moving,
 						onClick: () => void go(nextStep(step, 1)),
 						children: "Next"
 					})]
@@ -8690,7 +8702,12 @@ function PhotoStep(props) {
 			hint: "JPG, PNG or HEIC. Next is ready once a photo passes the checks.",
 			accept: "image/jpeg,image/png,image/heic,.heic",
 			notice: props.notice,
+			onChanging: (busy) => {
+				props.onReady(false);
+				if (!busy) setChanges((n) => n + 1);
+			},
 			onChange: () => {
+				props.onReady(false);
 				setChanges((n) => n + 1);
 				props.onChange();
 			}
