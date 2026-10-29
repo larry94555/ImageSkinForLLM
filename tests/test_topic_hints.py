@@ -10,7 +10,8 @@ import pytest
 from test_question_scope import Llm, app_with_content
 from test_topics import app_with_topics, ask, entry, riemann_app
 
-from imageskin.lookup import EXAMPLES, ContentLookup, example_subjects
+from imageskin import lookup
+from imageskin.lookup import EXAMPLES, ContentLookup, Passage, example_subjects
 from imageskin.topics import HINT_TOPICS, STILL_READING, STILL_READING_REST, hint_line
 
 
@@ -97,6 +98,30 @@ def test_up_to_EXAMPLES_examples_are_given_for_other_topics_to_cycle_through() -
         }
     ]
     assert len(lookup_over(contents).examples()) == EXAMPLES
+
+
+def test_the_content_is_counted_once_for_all_the_example_questions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review on PR #217: with 24 examples, counting every passage's words again for each
+    candidate would slow the hints on a large PDF, so it is done once per request."""
+    contents = [
+        {
+            "pdf_id": "p",
+            "pdf_name": "many.pdf",
+            "entries": [page(f"Topic{n}", f"Topic{n} text.") for n in range(EXAMPLES + 5)],
+        }
+    ]
+    counted: list[str] = []
+    real = lookup.passage_words
+
+    def counting(passage: Passage) -> list[str]:
+        counted.append(passage.title)
+        return real(passage)
+
+    monkeypatch.setattr(lookup, "passage_words", counting)
+    assert len(lookup_over(contents).examples()) == EXAMPLES
+    assert len(counted) == EXAMPLES + 5  # each passage once, not once per question
 
 
 def hints(client: Any) -> dict[str, Any]:
