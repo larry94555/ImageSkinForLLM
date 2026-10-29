@@ -9,6 +9,9 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 FILENAME = "warm-up.json"
+# How long a warm-up runs before the chat stops taking prompts and says how long is left (R183):
+# a prompt sent before then waits that little behind Thinking, less than it takes to type one.
+QUICK_WARM_UP_S = 10.0
 
 
 def last_warm_up_s(home: Path) -> float | None:

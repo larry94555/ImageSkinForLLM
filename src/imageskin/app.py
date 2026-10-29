@@ -127,7 +127,12 @@ from imageskin.uploads import (
     VoiceSample,
     shown_size,
 )
-from imageskin.warm_up_time import last_warm_up_s, save_warm_up_s, seconds_left
+from imageskin.warm_up_time import (
+    QUICK_WARM_UP_S,
+    last_warm_up_s,
+    save_warm_up_s,
+    seconds_left,
+)
 from imageskin.wiki import (
     TOPICS_SCHEMA,
     WIKI_REPLY_TOKENS,
@@ -1705,12 +1710,17 @@ def create_app(
         got ready for replies (R181). Back on the user's own photo and voice from a ready-made
         avatar, their voice is learned again from the recordings and their idle video made, a
         few minutes on a 4-core machine; the chat says so and waits, instead of a prompt
-        showing Thinking all that time (Larry, 2026-10-29). While it waits, `left_s` is the
-        seconds left if the warm-up takes as long as the last one, or None (R183)."""
+        showing Thinking all that time (Larry, 2026-10-29). A warm-up's first seconds don't
+        hold the chat: after a restart, with the voice learned from what was kept, the whole of
+        it is about 5 to 8 s, so it is ready with `warming` and asked again (Larry: "it should
+        load instantly", R183). Past them, `left_s` is the seconds left if the warm-up takes as
+        long as the last one, or None."""
         with warm_up_lock:
             if not warm_up["running"]:
                 return {"ready": True}
             elapsed = time.perf_counter() - warm_up["started"]
+            if elapsed < QUICK_WARM_UP_S:
+                return {"ready": True, "warming": True}
             return {"ready": False, "left_s": seconds_left(warm_up["expected_s"], elapsed)}
 
     @app.post("/api/chat", dependencies=[*needs_person, Depends(require_accepted)])

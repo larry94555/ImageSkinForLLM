@@ -1454,14 +1454,20 @@ function Chat(props: {
     let waitedFrom: number | null = null;
     const check = () => {
       getChatReady().then(
-        ({ ready: now, leftS: left }) => {
+        ({ ready: now, leftS: left, warming }) => {
           if (gone.current) return;
           setReady(now);
           setLeftS(left);
-          if (!now) {
+          // A warm-up in its first seconds leaves the chat open, but is asked about again in
+          // case it runs longer (R183).
+          if (!now || warming) {
             if (waitedFrom === null) {
               waitedFrom = performance.now();
-              console.info("Chat waits while the voice and face are got ready");
+              console.info(
+                now
+                  ? "Chat open while the voice and face are got ready"
+                  : "Chat waits while the voice and face are got ready",
+              );
             }
             timer = setTimeout(check, READY_CHECK_MS);
           } else if (waitedFrom !== null) {

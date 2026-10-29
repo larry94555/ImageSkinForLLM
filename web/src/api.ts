@@ -624,17 +624,24 @@ export async function getChatPhoto(): Promise<ChatPhoto> {
 // replies, as after switching back to your own photo and voice from an avatar (R181). Anything
 // but a plain "not ready" counts as ready, so the chat is never kept waiting by a failed check.
 // While not ready, leftS is the seconds left if the warm-up takes as long as the last (R183).
+// Warming is a warm-up in its first seconds, which doesn't hold the chat but is asked about
+// again, in case it runs longer.
 export interface ChatReady {
   ready: boolean;
   leftS: number | null;
+  warming: boolean;
 }
 
 export async function getChatReady(): Promise<ChatReady> {
-  const body = await json<{ ready?: boolean; left_s?: number | null } | null>(
+  const body = await json<{ ready?: boolean; left_s?: number | null; warming?: boolean } | null>(
     await fetch("/api/chat/ready"),
   );
   const left = body?.left_s;
-  return { ready: body?.ready !== false, leftS: typeof left === "number" && left > 0 ? left : null };
+  return {
+    ready: body?.ready !== false,
+    leftS: typeof left === "number" && left > 0 ? left : null,
+    warming: body?.warming === true,
+  };
 }
 
 // What the chat shows under the prompt box (roadmap R41g): a line naming a few of the topics,

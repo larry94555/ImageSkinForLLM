@@ -268,7 +268,8 @@ async function getChatReady() {
 	const left = body?.left_s;
 	return {
 		ready: body?.ready !== false,
-		leftS: typeof left === "number" && left > 0 ? left : null
+		leftS: typeof left === "number" && left > 0 ? left : null,
+		warming: body?.warming === true
 	};
 }
 async function getChatHints() {
@@ -4379,14 +4380,14 @@ function Chat(props) {
 		let timer;
 		let waitedFrom = null;
 		const check = () => {
-			getChatReady().then(({ ready: now, leftS: left }) => {
+			getChatReady().then(({ ready: now, leftS: left, warming }) => {
 				if (gone.current) return;
 				setReady(now);
 				setLeftS(left);
-				if (!now) {
+				if (!now || warming) {
 					if (waitedFrom === null) {
 						waitedFrom = performance.now();
-						console.info("Chat waits while the voice and face are got ready");
+						console.info(now ? "Chat open while the voice and face are got ready" : "Chat waits while the voice and face are got ready");
 					}
 					timer = setTimeout(check, READY_CHECK_MS);
 				} else if (waitedFrom !== null) console.info(`Voice and face ready for the chat (${Math.round(performance.now() - waitedFrom)} ms)`);

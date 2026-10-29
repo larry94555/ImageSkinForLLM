@@ -1873,6 +1873,46 @@ test("the chat counts down the seconds left while it is prepared", async () => {
   }
 });
 
+test("a warm-up in its first seconds leaves the chat open, and is asked about again", async () => {
+  // Larry, 2026-10-29: after a rebuild the chat should load at once; with the voice learned
+  // from what was kept, the warm-up is over in a few seconds (R183).
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let answer: object = { ready: true, warming: true };
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? Response.json(answer) : answers(url, init),
+  );
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    await openAt("#/chat");
+    await screen.findByText("Ask a question to start the conversation.");
+    fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+    const send = () => screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    await waitFor(() => expect(send().disabled).toBe(false));
+    expect(screen.queryByText(/Preparing chat/)).toBeNull();
+    expect(info.mock.calls.some(([m]) => m === "Chat open while the voice and face are got ready")).toBe(true);
+    answer = { ready: false, left_s: 30 }; // it ran longer: the chat now waits, saying so
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    expect(await screen.findByText("Preparing chat… 30 seconds remaining")).toBeTruthy();
+    expect(send().disabled).toBe(true);
+    answer = { ready: true };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    await waitFor(() => expect(send().disabled).toBe(false));
+    const asked = server.mock.calls.filter(([url]) => url === "/api/chat/ready").length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS * 3);
+    });
+    expect(server.mock.calls.filter(([url]) => url === "/api/chat/ready").length).toBe(asked);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("preparingChat says the seconds left only when they are known", () => {
   expect(preparingChat(null)).toBe("Preparing chat…");
   expect(preparingChat(1)).toBe("Preparing chat… 1 second remaining");

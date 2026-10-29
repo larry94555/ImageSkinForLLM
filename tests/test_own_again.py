@@ -117,7 +117,7 @@ def test_switching_back_waits_for_an_avatar_being_got_ready(
 
 
 def test_the_chat_waits_while_your_own_voice_and_face_are_got_ready(
-    client: TestClient, caplog: pytest.LogCaptureFixture
+    client: TestClient, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Larry, 2026-10-29: back on his own photo and voice from an avatar, a prompt showed
     Thinking for minutes, while their voice and idle video were got ready again. The chat now
@@ -145,6 +145,7 @@ def test_the_chat_waits_while_your_own_voice_and_face_are_got_ready(
         with patch.object(ReplyVideos, "warm_up", held), caplog.at_level(logging.INFO):
             assert client.delete("/api/start-now").status_code == 200
             assert warming.wait(10)
+            monkeypatch.setattr("imageskin.app.QUICK_WARM_UP_S", 0)  # past its first seconds
             waiting = client.get("/api/chat/ready").json()
             # The last warm-up, after the avatar was chosen, was timed (R183): a few seconds
             # left at most, or None once this one takes longer.
@@ -157,10 +158,11 @@ def test_the_chat_waits_while_your_own_voice_and_face_are_got_ready(
 
 
 def test_the_chat_says_how_many_seconds_are_left_from_the_last_warm_up(
-    client: TestClient, tmp_path: Path
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """R183: after a rebuild, the chat said only that it was getting ready, for over a minute.
-    Each warm-up's length is kept, and while the next runs the chat is told the seconds left."""
+    A warm-up's first seconds don't hold the chat, as a quick one is over by then; past them,
+    the chat is told the seconds left, from the last warm-up's length."""
     from imageskin.reply_video import ReplyVideos
 
     client.post("/api/consent", json={"agreed": True})
@@ -186,6 +188,8 @@ def test_the_chat_says_how_many_seconds_are_left_from_the_last_warm_up(
         with patch.object(ReplyVideos, "warm_up", held):
             assert client.delete("/api/start-now").status_code == 200
             assert warming.wait(10)
+            assert client.get("/api/chat/ready").json() == {"ready": True, "warming": True}
+            monkeypatch.setattr("imageskin.app.QUICK_WARM_UP_S", 0)  # past its first seconds
             waiting = client.get("/api/chat/ready").json()
             assert waiting["ready"] is False and 70 <= waiting["left_s"] <= 75
             go.set()
