@@ -4407,17 +4407,23 @@ function Chat(props) {
 	const busy = sending || speaking || saying !== null || ready !== true;
 	const last = turns?.[turns.length - 1];
 	const latestReply = last?.role === "assistant" ? last.content : null;
-	const [simplerFor, setSimplerFor] = d(null);
+	const [simplerOf, setSimplerOf] = d(null);
 	const simplerChecked = A(null);
 	h(() => {
 		if (busy || quizGoing || latestReply === null || simplerChecked.current === latestReply) return;
 		simplerChecked.current = latestReply;
 		checkSimpler().then((simpler) => {
-			console.info(`Say it simpler ${simpler ? "offered" : "not offered"}`);
-			if (simpler && simplerChecked.current === latestReply) setSimplerFor(latestReply);
+			console.info(`Say it simpler ${simpler ? "enabled" : "disabled"}`);
+			if (simplerChecked.current === latestReply) setSimplerOf({
+				reply: latestReply,
+				simpler
+			});
 		}, (e) => {
 			console.error("Could not check for a simpler reply", e);
-			if (simplerChecked.current === latestReply) simplerChecked.current = null;
+			if (simplerChecked.current === latestReply) setSimplerOf({
+				reply: latestReply,
+				simpler: false
+			});
 		});
 	}, [
 		busy,
@@ -4827,7 +4833,8 @@ function Chat(props) {
 				turns[turns.length - 1]?.role === "assistant" && !notClear && /* @__PURE__ */ u(ReplyActions, {
 					disabled: busy,
 					onRepeat: () => void repeat(),
-					onSimpler: quizGoing || simplerFor !== latestReply ? void 0 : () => void send(SAY_IT_SIMPLER)
+					onSimpler: quizGoing ? void 0 : () => void send(SAY_IT_SIMPLER),
+					simpler: simplerOf?.reply === latestReply ? simplerOf.simpler : null
 				}),
 				/* @__PURE__ */ u("p", {
 					className: "status muted",
@@ -5011,7 +5018,8 @@ function ReplyActions(props) {
 		}), props.onSimpler && /* @__PURE__ */ u("button", {
 			type: "button",
 			className: "secondary",
-			disabled: props.disabled,
+			disabled: props.disabled || props.simpler !== true,
+			title: props.simpler === false ? "This reply can't be said more simply." : props.simpler == null ? "Finding a simpler way to say it…" : void 0,
 			onClick: () => {
 				console.info("Say it simpler");
 				props.onSimpler?.();

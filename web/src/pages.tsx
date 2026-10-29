@@ -1485,24 +1485,26 @@ function Chat(props: {
     return () => clearTimeout(timer);
   }, []);
   const busy = sending || speaking || saying !== null || ready !== true;
-  // Say it simpler shows only once the server has found that it would say something new for
-  // the latest reply (R177): after a few presses the LLM may give the same reply back. Checked
-  // once each reply is said, not while a quiz is going.
+  // Say it simpler is shown with every reply, but can be pressed only once the server has found
+  // that it would say it more simply (R177): after a few presses the LLM may give the same reply
+  // back. Hidden, it looked flaky (Larry, PR #211). Checked once each reply is said, not while a
+  // quiz is going.
   const last = turns?.[turns.length - 1];
   const latestReply = last?.role === "assistant" ? last.content : null;
-  const [simplerFor, setSimplerFor] = useState<string | null>(null); // the reply it can simplify
+  // The latest reply checked, and whether it can be said more simply.
+  const [simplerOf, setSimplerOf] = useState<{ reply: string; simpler: boolean } | null>(null);
   const simplerChecked = useRef<string | null>(null);
   useEffect(() => {
     if (busy || quizGoing || latestReply === null || simplerChecked.current === latestReply) return;
     simplerChecked.current = latestReply;
     checkSimpler().then(
       (simpler) => {
-        console.info(`Say it simpler ${simpler ? "offered" : "not offered"}`);
-        if (simpler && simplerChecked.current === latestReply) setSimplerFor(latestReply);
+        console.info(`Say it simpler ${simpler ? "enabled" : "disabled"}`);
+        if (simplerChecked.current === latestReply) setSimplerOf({ reply: latestReply, simpler });
       },
       (e: unknown) => {
         console.error("Could not check for a simpler reply", e);
-        if (simplerChecked.current === latestReply) simplerChecked.current = null;
+        if (simplerChecked.current === latestReply) setSimplerOf({ reply: latestReply, simpler: false });
       },
     );
   }, [busy, quizGoing, latestReply]);
@@ -1949,9 +1951,8 @@ function Chat(props: {
           <ReplyActions
             disabled={busy}
             onRepeat={() => void repeat()}
-            onSimpler={
-              quizGoing || simplerFor !== latestReply ? undefined : () => void send(SAY_IT_SIMPLER)
-            }
+            onSimpler={quizGoing ? undefined : () => void send(SAY_IT_SIMPLER)}
+            simpler={simplerOf?.reply === latestReply ? simplerOf.simpler : null}
           />
         )}
         <p className="status muted" aria-live="polite">
@@ -2137,12 +2138,14 @@ function QuizControls(props: { quiz: Quiz; disabled: boolean; onAsk: (prompt: st
 const SAY_IT_SIMPLER = "Say it simpler";
 
 // Under the latest reply: Repeat says it again (R156), and Say it simpler has the LLM say it
-// again in simpler terms (R157), only when that says something new (R177). Not while a quiz is
-// going, where whatever is sent is the answer.
+// again in simpler terms (R157). Say it simpler can be pressed only when the reply can be said
+// more simply (`simpler`, null while that is being checked: R177). Not while a quiz is going,
+// where whatever is sent is the answer.
 function ReplyActions(props: {
   disabled: boolean;
   onRepeat: () => void;
   onSimpler?: () => void;
+  simpler?: boolean | null;
 }) {
   return (
     <div className="reply-actions">
@@ -2158,7 +2161,14 @@ function ReplyActions(props: {
         <button
           type="button"
           className="secondary"
-          disabled={props.disabled}
+          disabled={props.disabled || props.simpler !== true}
+          title={
+            props.simpler === false
+              ? "This reply can't be said more simply."
+              : props.simpler == null
+                ? "Finding a simpler way to say it…"
+                : undefined
+          }
           onClick={() => {
             console.info("Say it simpler");
             props.onSimpler?.();

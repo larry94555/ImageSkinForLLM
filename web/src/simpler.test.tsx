@@ -43,6 +43,13 @@ beforeEach(() => {
   localStorage.clear();
 });
 
+// The Say it simpler button, once the check has said whether it can be pressed.
+async function simplerButton(enabled: boolean): Promise<HTMLButtonElement> {
+  const button = (await screen.findByRole("button", { name: "Say it simpler" })) as HTMLButtonElement;
+  await waitFor(() => expect(button.disabled).toBe(!enabled));
+  return button;
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -54,7 +61,7 @@ test("Say it simpler asks for the latest reply in simpler terms, and shows the n
   window.location.hash = "#/chat";
   render(<App />);
   await screen.findByText("Condensation nucleates droplets.");
-  const button = await screen.findByRole("button", { name: "Say it simpler" });
+  const button = await simplerButton(true);
   await act(async () => {
     fireEvent.click(button);
   });
@@ -80,26 +87,29 @@ test("Say it simpler is not offered while a quiz is going", async () => {
   expect(screen.queryByRole("button", { name: "Say it simpler" })).toBeNull();
 });
 
-test("Say it simpler is hidden when it would say nothing new", async () => {
+test("Say it simpler is shown but disabled when it would say nothing new", async () => {
   // The simpler reply can't be said more simply: the LLM would give it back.
   const fetchMock = server((reply) => reply !== "Small drops join.");
   window.location.hash = "#/chat";
   render(<App />);
-  const button = await screen.findByRole("button", { name: "Say it simpler" });
+  const button = await simplerButton(true);
   await act(async () => {
     fireEvent.click(button);
   });
   expect(await screen.findByText("Small drops join.")).toBeTruthy();
-  // Checked again for the new reply, which can't be said more simply: the button is gone.
+  // Checked again for the new reply, which can't be said more simply: the button stays, disabled.
   await waitFor(() =>
     expect(fetchMock.mock.calls.filter(([url]) => url === "/api/chat/simpler")).toHaveLength(2),
   );
-  await waitFor(() => expect(console.info).toHaveBeenCalledWith("Say it simpler not offered"));
-  expect(screen.queryByRole("button", { name: "Say it simpler" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Repeat" })).toBeTruthy();
+  await waitFor(() => expect(console.info).toHaveBeenCalledWith("Say it simpler disabled"));
+  const disabled = await simplerButton(false);
+  expect(disabled.title).toBe("This reply can't be said more simply.");
+  expect((screen.getByRole("button", { name: "Repeat" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
 });
 
-test("Say it simpler stays hidden when the check fails", async () => {
+test("Say it simpler stays disabled when the check fails", async () => {
   const fetchMock = server();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === "/api/chat/simpler") return Response.json({ detail: "LLM down" }, { status: 502 });
@@ -117,5 +127,5 @@ test("Say it simpler stays hidden when the check fails", async () => {
       expect.anything(),
     ),
   );
-  expect(screen.queryByRole("button", { name: "Say it simpler" })).toBeNull();
+  await simplerButton(false);
 });
