@@ -1,5 +1,6 @@
 """FastAPI application: the JSON API under /api and the browser app at /."""
 
+import contextvars
 import functools
 import html
 import importlib.util
@@ -111,6 +112,7 @@ from imageskin.start_now import Choice as PersonChoice
 from imageskin.start_now import KokoroVoices, PresetVoice, StartNow, StartStatus
 from imageskin.startup import StartupTimes
 from imageskin.teach import Choice, Explain, Lesson, Say, Tutor, lesson_topics
+from imageskin.thinking_report import ThinkingReport
 from imageskin.topic_replies import TopicReplies, context_of
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
@@ -1704,6 +1706,8 @@ def create_app(
         # Where the time goes, returned with the reply for `imageskin time-reply` (R96).
         times = ReplyTimes(received_at=time.perf_counter())
         timing = reply_times.current.set(times)
+        # A summary being made meanwhile shares the LLM with the prompt (R147, R134c).
+        summarizing = conversation.summarizing()
         try:
             times.waited_warm_up_ms = wait_for_warm_up()
             asked = time.perf_counter()
@@ -1711,6 +1715,11 @@ def create_app(
             # PR #115).
             with chat_lock, pinned(client), llm_busy():
                 times.waited_turn_ms = ms_since(asked)
+                if times.waited_turn_ms >= 1:
+                    # Behind another prompt, a lesson written ahead or the wiki's LLM request.
+                    reply_times.add_step(
+                        "waiting for the LLM to be free", asked, time.perf_counter()
+                    )
                 not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
                 token = ask_stop.set(stop)  # the LLM is cut off on Stop
                 try:
@@ -1719,6 +1728,8 @@ def create_app(
                     ask_stop.reset(token)
             times.answered_at = time.perf_counter()
             log_reply_times(times)
+            reply_times.log_steps(times, reply_id=body.reply_id, summary_running=summarizing)
+            thinking_report.add(times, body.prompt, summarizing)  # speed/thinking-steps.md
             return {**answer, "timings": times.as_dict()}
         finally:
             reply_times.current.reset(timing)
@@ -1726,6 +1737,9 @@ def create_app(
                 with clips_lock:
                     if prompts.get(body.reply_id) is stop:
                         del prompts[body.reply_id]
+
+    # Each prompt's steps, in a Markdown file in the data folder (R134c).
+    thinking_report = ThinkingReport(data_home / "speed")
 
     def wait_for_warm_up(what: str = "Prompt") -> float:
         """A prompt sent right after the sample was accepted waits for the warm-up to finish,
@@ -1738,8 +1752,13 @@ def create_app(
             return 0.0
         start = time.perf_counter()
         thread.join()
+        end = time.perf_counter()
         waited = ms_since(start)
         logger.info(f"{what} waited for the warm-up", extra={"wait_ms": waited})
+        # The wait, and the part of it each of the warm-up's parts took (R134c).
+        reply_times.add_step("waiting for the warm-up", start, end)
+        for name, began, ended in warm_up_parts.during(start, end):
+            reply_times.add_step(f"warm-up: {name}", began, ended)
         return waited
 
     def log_reply_times(times: ReplyTimes) -> None:
@@ -1883,7 +1902,8 @@ def create_app(
                 # assessment (review on PR #91). A summary being made isn't waited for: the
                 # correction asks as a reply does, so the summary waits for it instead (R147).
                 conversation.check(body.prompt)
-                meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
+                with reply_times.step("correcting the spoken question"):
+                    meant = corrected(body.prompt, vocabulary(wiki.contents()), conversation.write)
                 body = body.model_copy(update={"prompt": meant})
             lesson = None if body.lesson is None else Lesson(**body.lesson.model_dump())
             quiz = None
@@ -1905,13 +1925,16 @@ def create_app(
                 conversation.check(body.prompt)  # before any of them asks the LLM
             assessed = None
             if settings.assessment:
-                assessed = assessor.step(body.prompt, assessment)
+                with reply_times.step("assessment step"):
+                    assessed = assessor.step(body.prompt, assessment)
             asking = None
             if assessed is None and settings.quiz_me:
-                asking = quizzer.step(body.prompt, quiz)
+                with reply_times.step("quiz step"):
+                    asking = quizzer.step(body.prompt, quiz)
             step = None
             if asking is None and settings.teach_me:
-                step = tutor.step(body.prompt, lesson)
+                with reply_times.step("lesson step"):
+                    step = tutor.step(body.prompt, lesson)
             choices: list[Choice] = []
             if assessed is not None:
                 reply, turn = conversation.say(body.prompt, assessed.sentences, clips)
@@ -1960,6 +1983,7 @@ def create_app(
             status = 400 if isinstance(e, ValueError) else 502
             raise HTTPException(status_code=status, detail=str(e)) from e
         if clips is not None:
+            note_first_clip(clips)
             clips.close()
             if not clips.sentences:  # not streamed: the browser asks for the whole video
                 with clips_lock:
@@ -1981,6 +2005,19 @@ def create_app(
             # A spoken prompt as it was answered, so the browser shows it that way (R24).
             **({"prompt": body.prompt} if body.spoken else {}),
         }
+
+    def note_first_clip(clips: SentenceClips) -> None:
+        """The first sentence's wait for the voice and its voice and first video frames, as
+        steps of the thinking when they are done by the time the reply is written (R134c)."""
+        first = clips.times[0] if clips.times else None
+        if first is None or first.started_at is None:
+            return
+        reply_times.add_step(
+            "first sentence waiting for the voice", first.sentence_at, first.started_at
+        )
+        reply_times.add_step(
+            "first sentence spoken and its video started", first.started_at, first.ready_at
+        )
 
     @app.post("/api/chat/ahead", dependencies=[*needs_person, Depends(require_accepted)])
     def post_read_ahead(body: ReadAheadRequest) -> dict[str, Any]:
@@ -2163,7 +2200,18 @@ def create_app(
             # On its own thread: an LLM that accepts the request but doesn't answer would
             # otherwise hold the engines' warm-up back for its whole timeout.
             warm_llm = startup.timed("LLM warm-up", conversation.warm_up)
-            llm = threading.Thread(target=warm_llm, name="llm-warm-up", daemon=True)
+
+            def warm_llm_part() -> None:
+                with reply_times.part("LLM reading the system prompt"):
+                    warm_llm()
+
+            # With this thread's context, so its part is kept with the warm-up's (R134c).
+            llm = threading.Thread(
+                target=contextvars.copy_context().run,
+                args=(warm_llm_part,),
+                name="llm-warm-up",
+                daemon=True,
+            )
             llm.start()
             startup.timed("voice and video warm-up", lambda: replies.warm_up(photo))()
             llm.join()
@@ -2178,8 +2226,13 @@ def create_app(
 
     app.state.warm_up = warm_up
 
+    # The warm-up's parts, so a prompt that waits for it says which it waited for (R134c).
+    warm_up_parts = reply_times.Parts()
+
     def warm_up_until_current() -> None:
         startup.begin("reply warm-up")
+        warm_up_parts.clear()
+        reply_times.parts.set(warm_up_parts)  # this thread's own context
         while True:
             try:
                 photo = warm_up_replies()

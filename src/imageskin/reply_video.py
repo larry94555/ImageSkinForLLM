@@ -32,6 +32,7 @@ from pathlib import Path
 from imageskin import pace
 from imageskin.pauses import fit_pause
 from imageskin.prepare_job import ClipSteps, PrepareVoice, RenderClip
+from imageskin.reply_times import part
 from imageskin.speech_text import CODE_FENCE, spoken_text
 from imageskin.video import discard
 
@@ -603,12 +604,18 @@ class ReplyVideos:
         thrown away, so the first reply is as quick as the next ones. Run in the background when
         the server starts; a reply sent meanwhile waits for it. Failures are logged only: the
         reply that follows says what went wrong."""
-        with self._voice_lock, self._video_lock:
+        # Each part is kept for a prompt that waits for the warm-up (R134c).
+        with part("waiting for the voice and video engines"):
+            self._voice_lock.acquire()
+            self._video_lock.acquire()
+        try:
             start = time.perf_counter()
             try:
-                self._before_engines()
-                self._voice.ensure()
-                with tempfile.TemporaryDirectory() as tmp:
+                with part("loading the voice and video engines"):
+                    self._before_engines()
+                with part("making the voice ready"):
+                    self._voice.ensure()
+                with part("rendering a first word"), tempfile.TemporaryDirectory() as tmp:
                     self._render_clip(photo, "Hello.", Path(tmp) / "warm-up.mp4")
             except Exception as e:
                 logger.error("Could not warm up replies", extra={"error": str(e)})
@@ -617,7 +624,11 @@ class ReplyVideos:
                 "Replies warmed up",
                 extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},
             )
-            self._make_idle(photo)
+            with part("making the idle video"):
+                self._make_idle(photo)
+        finally:
+            self._video_lock.release()
+            self._voice_lock.release()
 
     @contextmanager
     def engines(self) -> Iterator[None]:

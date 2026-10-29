@@ -20,6 +20,7 @@ from contextlib import contextmanager, nullcontext
 from typing import Any, TypeVar
 
 from imageskin.chat import LlmCancelled, ask_stop
+from imageskin.reply_times import step
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,14 @@ class RepliesFirst:
             if cut or ahead:
                 if self._settle is not None:
                     start = time.perf_counter()
-                    self._settle()
+                    # A step of the thinking (R134c): the wiki's, the summary's or a read
+                    # ahead's request still being read by the LLM.
+                    with step(
+                        "waiting for the requests cut off to stop",
+                        requests=len(cut),
+                        read_ahead=bool(ahead),
+                    ):
+                        self._settle()
                     logger.info(
                         "Reply waited for the requests cut off to stop",
                         extra={"duration_ms": round((time.perf_counter() - start) * 1000, 1)},

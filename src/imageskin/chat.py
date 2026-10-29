@@ -30,7 +30,7 @@ from typing import Any, Literal, NamedTuple, Protocol
 from imageskin import reply_times
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.json_grammar import compact_grammar
-from imageskin.reply_times import note, note_llm, note_now, note_request
+from imageskin.reply_times import add_step, note, note_llm, note_now, note_request, step
 from imageskin.sentences import SentenceSplitter, clips
 from imageskin.topics import (
     asks_for_topics,
@@ -1111,11 +1111,11 @@ class Conversation:
         )
         start = time.perf_counter()
         try:
-            content = (
-                self._ask(messages)
-                if self._stream is None
-                else self._stream_reply(messages, on_sentence)
-            )
+            if self._stream is None:
+                with step("LLM answering"):  # not streamed: reading and writing together
+                    content = self._ask(messages)
+            else:
+                content = self._stream_reply(messages, on_sentence)
             reply = Turn("assistant", content)
         except LlmError as e:
             logger.error(
@@ -1137,7 +1137,8 @@ class Conversation:
             },
         )
         if then is not None:
-            more = then(reply.content)
+            with step("adding what follows the reply"):  # a lesson's next part, say
+                more = then(reply.content)
             if self._stream is not None and on_sentence is not None:
                 for sentence in more:
                     on_sentence(sentence)
@@ -1151,7 +1152,7 @@ class Conversation:
         start = time.perf_counter()
         # Without the system prompt, the rules for the material go with it.
         rules: list[Message] = [{"role": "system", "content": CONTENT_RULES}] if material else []
-        with self._llm_busy():
+        with self._llm_busy(), step("LLM writing a one-off answer"):  # R134c
             content = self._ask([*rules, {"role": "user", "content": asked}])
         logger.info(
             "One-off LLM answer received",
@@ -1204,7 +1205,8 @@ class Conversation:
             return None
         start = time.perf_counter()
         try:
-            found = self._find(prompt)
+            with step("searching the PDFs and the wiki"):  # R134c
+                found = self._find(prompt)
         except Exception:
             logger.exception("Could not look the prompt up in the content; sending it alone")
             return None
@@ -1359,10 +1361,37 @@ class Conversation:
             ready(splitter.feed(piece))
         note_now("last_token_at")
         ready(splitter.flush())
+        self._note_llm_steps(start)
         content = "".join(pieces).strip()
         if not content:
             raise LlmError("The LLM sent an empty reply. Try asking again.")
         return content
+
+    def _note_llm_steps(self, sent: float) -> None:
+        """The LLM's part of the thinking as steps (R134c): reading the prompt until its first
+        token, with llama-server's tokens read and reused, then writing the first sentence and
+        the rest."""
+        timed = reply_times.current.get()
+        if timed is None or timed.first_token_at is None or timed.last_token_at is None:
+            return
+        if timed.first_token_at < sent:  # an earlier reply's, in the same prompt
+            return
+        llm = timed.llm or {}
+        add_step(
+            "LLM reading the prompt",
+            sent,
+            timed.first_token_at,
+            tokens_read=llm.get("prompt_n"),
+            tokens_reused=llm.get("cache_n"),
+        )
+        first = timed.first_sentence_at or timed.last_token_at
+        add_step("LLM writing the first sentence", timed.first_token_at, first)
+        add_step(
+            "LLM writing the rest of the reply",
+            first,
+            timed.last_token_at,
+            tokens_written=llm.get("predicted_n"),
+        )
 
     def summarizing(self) -> bool:
         """Whether a summary is being made after a reply (`imageskin time-pdf` waits for it)."""

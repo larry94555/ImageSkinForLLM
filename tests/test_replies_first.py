@@ -13,10 +13,12 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from imageskin import reply_times
 from imageskin.app import create_app
 from imageskin.chat import LlmCancelled, LlmClient, LlmSettings, Message, ask_stop
 from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.replies_first import RepliesFirst
+from imageskin.reply_times import ReplyTimes
 from imageskin.review import Review
 from imageskin.uploads import PhotoResult
 
@@ -334,11 +336,20 @@ def test_a_reply_waits_for_the_requests_cut_off_for_it_to_stop(
 
     thread, got = in_wiki_thread(replies, ask)
     assert started.wait(2)
-    with caplog.at_level(logging.INFO), replies.reply():
-        assert settled == ["settled"]
+    times = ReplyTimes(received_at=time.perf_counter())
+    token = reply_times.current.set(times)
+    try:
+        with caplog.at_level(logging.INFO), replies.reply():
+            assert settled == ["settled"]
+    finally:
+        reply_times.current.reset(token)
     thread.join(2)
     assert got == ["topics"]
     assert "Reply waited for the requests cut off to stop" in caplog.messages
+    # R134c: the wait is a step of the prompt's thinking.
+    [step] = times.steps
+    assert step["step"] == "waiting for the requests cut off to stop"
+    assert step["requests"] == 1 and step["read_ahead"] is False
 
 
 def test_a_reply_with_nothing_to_cut_off_does_not_wait() -> None:
