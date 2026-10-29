@@ -13,6 +13,7 @@ import {
   getStartNow,
   startNow,
 } from "./api";
+import { countdown } from "./pages";
 import { OWN_CONSENT } from "./router";
 
 const OPTIONS = {
@@ -53,6 +54,13 @@ export function progressText(status: StartNowStatus): string {
   if (status.state === "unpacking") return "Step 2 of 3: Unpacking the avatar…";
   if (status.state === "getting-ready") return "Step 2 of 3: Getting the avatar's voice ready…";
   return "Step 3 of 3: Making the avatar's video for the chat…";
+}
+
+// About how long is left, as Prepare shows it (R176), or else, while the chat's video is made,
+// the seconds so far.
+export function timeText(status: StartNowStatus, seconds: number): string {
+  if (status.left_s != null) return ` · about ${countdown(status.left_s)} left`;
+  return finishing(status) && seconds > 0 ? ` ${seconds} s` : "";
 }
 
 // Seconds since `from` (performance.now()), counted up once a second while `on`.
@@ -236,7 +244,7 @@ export function StartNowPage() {
         <>
           <p className="busy">
             {progressText(status)}
-            {finishing(status) && seconds > 0 && ` ${seconds} s`}
+            {timeText(status, seconds)}
           </p>
           {status.state === "downloading" ? (
             <progress max={100} value={status.percent} aria-label="Downloading">

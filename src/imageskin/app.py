@@ -1113,10 +1113,14 @@ def create_app(
     def get_start_now() -> dict[str, object]:
         chosen = start_now.chosen()
         status = start_now.status()
+        chat_ready = status.state == "ready" and chat_shows_person()
+        if chat_ready:
+            start_now.chat_shown()
         return {
             **asdict(status),
+            "left_s": None if chat_ready else status.left_s,
             "chosen": None if chosen is None else asdict(chosen),
-            "chat_ready": status.state == "ready" and chat_shows_person(),
+            "chat_ready": chat_ready,
         }
 
     def chat_shows_person() -> bool:
