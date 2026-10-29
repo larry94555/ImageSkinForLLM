@@ -395,6 +395,26 @@ def test_every_cause_checks_a_password_hash(
     assert len(runs) == 1
 
 
+def test_scrypt_failing_refuses_the_sign_in_without_a_server_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Codex's review: the dummy checked after a failure must not fail into itself again.
+    runs: list[int] = []
+
+    def failing(*args: Any, **kwargs: Any) -> bytes:
+        runs.append(1)
+        raise MemoryError("out of memory")
+
+    write(tmp_path / "admin.toml", f'password_hash = "{hash_password("hashed")}"\n')
+    browser = client(tmp_path)
+    monkeypatch.setattr(hashlib, "scrypt", failing)
+    for password in ["hashed", "x"]:
+        refused = browser.post("/api/admin/sign-in", json={"password": password})
+        assert refused.status_code == 401 and refused.json()["detail"].startswith("Admin login")
+    assert len(runs) == 4  # the file's hash, then the dummy once, for each try
+    assert "Admin dummy password check failed" in caplog.text
+
+
 def test_the_first_sign_in_runs_scrypt_once_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

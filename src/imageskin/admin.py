@@ -81,21 +81,34 @@ def parse_hash(value: str) -> tuple[int, int, int, bytes, bytes]:
     return n, r, p, salt, digest
 
 
+_HASH_ERRORS = (ValueError, TypeError, OverflowError, MemoryError)
+
+
+def _hash_matches(password: str, value: str) -> bool:
+    """Whether the password is the one this `password_hash` was made from; raises one of
+    _HASH_ERRORS when the hash can't be used."""
+    n, r, p, salt, expected = parse_hash(value)
+    given = hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=len(expected))
+    return hmac.compare_digest(given, expected)
+
+
 def password_matches(password: str, secret: "Secret") -> bool:
     """Whether the password is the one in the file, compared in constant time. A hash that
     can't be used matches nothing, so signing in is refused rather than failing; the dummy hash
-    is checked in its place, so even then the work is one scrypt run (R162)."""
+    is checked once in its place, so even then the work is one scrypt run (R162)."""
     if secret.kind == "password":
         return hmac.compare_digest(password.encode(), secret.value.encode())
     try:
-        n, r, p, salt, expected = parse_hash(secret.value)
-        given = hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=len(expected))
-    except (ValueError, TypeError, OverflowError, MemoryError) as e:
+        return _hash_matches(password, secret.value)
+    except _HASH_ERRORS as e:
         # A hash that wasn't made by hash_password, was cut short or was edited by hand.
         logger.error("Admin password hash is not valid", extra={"error": str(e)})
-        password_matches(password, _dummy())
-        return False
-    return hmac.compare_digest(given, expected)
+    try:
+        _hash_matches(password, _dummy().value)
+    except _HASH_ERRORS as e:
+        # scrypt itself failing, such as out of memory: refused all the same, never a 500.
+        logger.error("Admin dummy password check failed", extra={"error": str(e)})
+    return False
 
 
 @cache
