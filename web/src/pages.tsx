@@ -1430,8 +1430,9 @@ function Chat(props: {
     null,
   );
   // Whether replies are ready, or the person's voice and face are still being got ready (R181):
-  // nothing can be sent until they are, so a prompt never shows Thinking all that time. Null
-  // until the server has said, which counts as ready.
+  // nothing can be sent until the server has said they are, so a prompt never shows Thinking
+  // all that time (Codex's review of PR #216: Send was on while the answer was still coming).
+  // Null until the server has said; a failed check counts as ready.
   const [ready, setReady] = useState<boolean | null>(null);
   const gettingReady = ready === false;
   useEffect(() => {
@@ -1461,7 +1462,7 @@ function Chat(props: {
     check();
     return () => clearTimeout(timer);
   }, []);
-  const busy = sending || speaking || saying !== null || gettingReady;
+  const busy = sending || speaking || saying !== null || ready !== true;
   // The question typed so far is read ahead by the LLM once typing pauses (R148), so most of it
   // is in the LLM's cache on Send. Not while a reply is made, nor for an answer to a quiz.
   const readAheadOf = useRef("");

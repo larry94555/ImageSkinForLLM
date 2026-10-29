@@ -1837,6 +1837,25 @@ test("the chat waits, saying so, while the voice and face are got ready", async 
   }
 });
 
+test("nothing can be sent until the server says the chat is ready", async () => {
+  // Codex's review of PR #216: Send was on while the readiness check was still on its way, so a
+  // prompt sent then waited behind Thinking, as in R181.
+  const [readiness, answerReadiness] = later();
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? readiness() : answers(url, init),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+  const send = () => screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  expect(send().disabled).toBe(true);
+  expect(screen.queryByText(GETTING_READY)).toBeNull(); // nothing said for a moment's wait
+  await act(async () => answerReadiness(Response.json({ ready: true })));
+  await waitFor(() => expect(send().disabled).toBe(false));
+});
+
 test("a failed readiness check never keeps the chat waiting", async () => {
   const server = chatServer([], () => Response.json({}));
   const answers = server.getMockImplementation()!;

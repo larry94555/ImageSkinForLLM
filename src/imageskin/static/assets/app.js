@@ -4332,7 +4332,7 @@ function Chat(props) {
 		check();
 		return () => clearTimeout(timer);
 	}, []);
-	const busy = sending || speaking || saying !== null || gettingReady;
+	const busy = sending || speaking || saying !== null || ready !== true;
 	const readAheadOf = A("");
 	h(() => {
 		const text = prompt.trim();
