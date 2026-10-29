@@ -236,7 +236,7 @@ Added by Larry on 2026-10-25, to build right after the speed-ups (Milestone 10b)
 
 130. **Repeat.** Under the latest reply, **Repeat** says it again in the same words, voice and video, at once and with no new thinking: the reply is read again, not asked of the LLM again, and the conversation is unchanged (Larry, 2026-10-27).
 
-131. **Say it simpler.** Beside Repeat, **Say it simpler** has the latest reply said again in simpler terms: shorter sentences and everyday words, saying the same and nothing new. It asks the LLM, so it shows "Thinking…" first, and the new reply is kept in the conversation like any other (Larry, 2026-10-27).
+131. **Say it simpler.** Beside Repeat, **Say it simpler** has the latest reply said again in simpler terms: shorter sentences and everyday words, saying the same and nothing new. It asks the LLM, so it shows "Thinking…" first, and the new reply is kept in the conversation like any other (Larry, 2026-10-27). It is always shown and enabled, even once a reply can't be said more simply and the LLM gives it back much the same: hiding or disabling it then, tried in PR #211, looked flaky or left it nearly always off, and a user sees when it doesn't simplify (Larry, 2026-10-29).
 
 142. **Answers from the PDFs start sooner.** The "Thinking…" before an answer from the PDFs is as short as the LLM allows (Larry, 2026-10-26): no question waits for the conversation to be summarized, the LLM doesn't read the same instructions again with every question, and a typed question is read ahead while it is typed. Nothing changes in what the user sees but the speed, and every answer is as good as before.
 
