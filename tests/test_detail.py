@@ -1,5 +1,6 @@
 """The level of detail in an answer, set with the bar on the chat screen (roadmap R180)."""
 
+import functools
 import logging
 from collections.abc import Iterator
 from pathlib import Path
@@ -150,5 +151,5 @@ def test_more_detail_takes_its_room_from_the_history_not_the_prompt() -> None:
     long_prompt = "x" * 600  # fits in the middle of the bar, counted a token a byte
     for level in DETAIL_LEVELS:
         llm = Recorder()
-        Conversation(llm, lambda: 4096, detail=lambda level=level: level).send(long_prompt)
+        Conversation(llm, lambda: 4096, detail=functools.partial(int, level)).send(long_prompt)
         assert llm.sent[0][-1]["content"].endswith(long_prompt)
