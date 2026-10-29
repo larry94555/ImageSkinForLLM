@@ -20,6 +20,8 @@ from functools import cache
 from pathlib import Path
 from typing import NoReturn
 
+from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
+from imageskin.admin_laptops import AdminLaptops, LaptopProof
 from imageskin.failure import new_reference
 
 logger = logging.getLogger(__name__)
@@ -164,6 +166,8 @@ def read_secret(path: Path) -> Secret | None:
 class SignIn:
     last_activity: float
     fingerprint: str
+    # The laptop it was made from (R163), or None when no laptops file was in use.
+    laptop: str | None = None
 
 
 class AdminSignIns:
@@ -174,8 +178,11 @@ class AdminSignIns:
         path: Path,
         timeout_minutes: Callable[[], int] = lambda: TIMEOUT_MINUTES,
         clock: Callable[[], float] = time.monotonic,
+        laptops: AdminLaptops | None = None,
     ) -> None:
         self.path = path
+        # The allowed laptops (R163): admin-laptops.toml beside the password file by default.
+        self.laptops = laptops or AdminLaptops(path.parent / LAPTOPS_FILENAME, clock=clock)
         self.timeout_minutes = timeout_minutes
         self.clock = clock
         self._lock = threading.Lock()
@@ -212,9 +219,10 @@ class AdminSignIns:
             )
         return self._secret
 
-    def sign_in(self, password: str, address: str) -> str:
+    def sign_in(self, password: str, address: str, proof: LaptopProof | None = None) -> str:
         """A new sign-in's token; AdminRefused, with one message for every cause, when the
-        password is wrong or not set, or the address is waiting after 5 failures (R162)."""
+        password is wrong or not set, the address is waiting after 5 failures (R162), or the
+        laptop isn't one listed in the laptops file (R163)."""
         with self._lock:
             now = self.clock()
             failures, failed_at = self._wrong.get(address, (0, 0.0))
@@ -222,19 +230,25 @@ class AdminSignIns:
             secret = self.secret()
             # Checked whatever the cause, so the answer takes as long either way.
             matches = check_password(password, secret)
+            # Checked whatever the password, so the work is the same whichever fails (R163).
+            laptop_refused, laptop = self.laptops.check(proof)
             if waiting:
                 # Not counted again, so trying while waiting doesn't make the wait longer.
                 self._refuse("waiting", address)
             if secret is None:
                 self._note_wrong(address, failures + 1, now)
                 self._refuse("no password set", address)
+            if laptop_refused:
+                self._note_wrong(address, failures + 1, now)
+                # password_ok true means someone on an unlisted laptop knows the password.
+                self._refuse(laptop_refused, address, laptop=laptop, password_ok=matches)
             if not matches:
                 self._note_wrong(address, failures + 1, now)
                 self._refuse("wrong password", address)
             self._wrong.pop(address, None)
             token = secrets.token_urlsafe(32)
-            self._signed_in[token] = SignIn(now, secret.fingerprint)
-        logger.info("Admin signed in", extra={"address": address})
+            self._signed_in[token] = SignIn(now, secret.fingerprint, laptop)
+        logger.info("Admin signed in", extra={"address": address, "laptop": laptop})
         return token
 
     def _note_wrong(self, address: str, wrong: int, now: float) -> None:
@@ -248,8 +262,9 @@ class AdminSignIns:
             del self._wrong[next(iter(self._wrong))]
         self._wrong[address] = (wrong, now)
 
-    def _refuse(self, reason: str, address: str) -> NoReturn:
-        """Log the cause under a new code, and raise the one answer the page shows."""
+    def _refuse(self, reason: str, address: str, **laptop: object) -> NoReturn:
+        """Log the cause under a new code, and raise the one answer the page shows. A laptop
+        refused (R163) adds its ID and whether the password was right."""
         code = new_reference("A")
         logger.warning(
             "Admin sign-in refused",
@@ -258,6 +273,7 @@ class AdminSignIns:
                 "reason": reason,
                 "address": address,
                 "failures_in_a_row": self._wrong.get(address, (0, 0.0))[0],
+                **laptop,
             },
         )
         raise AdminRefused(reason, code)
@@ -282,19 +298,23 @@ class AdminSignIns:
                 logger.info("Admin signed out", extra={"why": "signed out"})
 
     def ended(self, token: str | None) -> str | None:
-        """Why the token's sign-in ended, if it did by itself: "inactive" or "password changed"."""
+        """Why the token's sign-in ended, if it did by itself: "inactive", "password changed" or
+        "laptop removed"."""
         with self._lock:
             self._current(token)
             return self._ended.pop(token, None) if token else None
 
     def _current(self, token: str | None) -> SignIn | None:
-        """The token's sign-in, ending it first if it has timed out or the password changed."""
+        """The token's sign-in, ending it first if it has timed out, the password changed or its
+        laptop is no longer listed."""
         if not token or token not in self._signed_in:
             return None
         sign_in = self._signed_in[token]
         secret = self.secret()
         if secret is None or secret.fingerprint != sign_in.fingerprint:
             why = "password changed"
+        elif not self.laptops.still_allowed(sign_in.laptop):
+            why = "laptop removed"
         elif self.clock() - sign_in.last_activity > self.timeout_minutes() * 60:
             why = "inactive"
         else:

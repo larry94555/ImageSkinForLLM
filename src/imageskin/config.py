@@ -38,6 +38,9 @@ class Settings:
     # The administrator's password file (roadmap R149, item 122); empty for admin.toml in the
     # app's home folder.
     admin_file: str = ""
+    # The allowed laptops file (roadmap R163, item 133); empty for admin-laptops.toml beside the
+    # password file.
+    admin_laptops_file: str = ""
     # The proxies whose X-Forwarded-For names the browser (uvicorn's forwarded_allow_ips): a
     # comma-separated list of addresses or networks, or "*" when only a proxy can reach the app,
     # as on the hosted site. Others' requests are taken to come from where they connect from.
@@ -85,6 +88,8 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"general_prompts in {path} must be true or false")
     if not isinstance(settings.admin_file, str):
         raise ConfigError(f"admin_file in {path} must be a string")
+    if not isinstance(settings.admin_laptops_file, str):
+        raise ConfigError(f"admin_laptops_file in {path} must be a string")
     if not isinstance(settings.trusted_proxies, str) or not settings.trusted_proxies.strip():
         raise ConfigError(f'trusted_proxies in {path} must be a list of addresses, or "*"')
     if settings.log_level not in LOG_LEVELS:

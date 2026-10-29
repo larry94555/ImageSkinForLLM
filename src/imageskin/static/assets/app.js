@@ -973,6 +973,7 @@ function minutes$1(n) {
 }
 function endedMessage(session) {
 	if (session.ended === "password changed") return "Signed out as administrator because the administrator password was changed.";
+	if (session.ended === "laptop removed") return "Signed out as administrator.";
 	return `Signed out as administrator after ${minutes$1(session.timeout_minutes)} without activity.`;
 }
 function AdminProvider({ children }) {

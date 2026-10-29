@@ -192,6 +192,23 @@ test("a changed password says why the sign-in ended", async () => {
   );
 });
 
+test("a laptop taken out of the list signs out without saying why", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const { state } = server();
+  await openAt("#/settings");
+  await screen.findByLabelText("Administrator password");
+  await signIn("secret");
+  await screen.findByRole("link", { name: "Admin" });
+  state.signedIn = false;
+  state.ended = "laptop removed";
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(CHECK_MS);
+  });
+  const notice = await screen.findByRole("status");
+  expect(notice.textContent).toContain("Signed out as administrator.");
+  expect(notice.textContent).not.toContain("laptop");
+});
+
 test("a click on the Settings page or in the admin view is activity, at most once a minute", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const { fetchMock, state } = server();

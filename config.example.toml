@@ -24,6 +24,11 @@ general_prompts = false
 # folder (~/.imageskin, or IMAGESKIN_HOME). Copy admin.example.toml there to start.
 admin_file = ""
 
+# The laptops allowed to sign in as the administrator (roadmap R163). Left empty, it is
+# admin-laptops.toml beside the password file. Copy admin-laptops.example.toml there to start;
+# with no file, any laptop can sign in.
+admin_laptops_file = ""
+
 # The proxies trusted to name the browser in X-Forwarded-For, such as Caddy in front of the hosted
 # site (roadmap R149): addresses or networks separated by commas, or "*" when nothing but a proxy
 # can reach the app. Requests from anywhere else count as coming from where they connect from, so

@@ -1077,7 +1077,7 @@ export interface AdminSession {
   signed_in: boolean;
   password_set: boolean;
   timeout_minutes: number;
-  ended: "inactive" | "password changed" | null;
+  ended: "inactive" | "password changed" | "laptop removed" | null;
 }
 
 export async function getAdminSession(): Promise<AdminSession> {

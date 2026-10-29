@@ -57,6 +57,9 @@ function endedMessage(session: AdminSession): string {
   if (session.ended === "password changed") {
     return "Signed out as administrator because the administrator password was changed.";
   }
+  // A laptop taken out of the allowed laptops file (R163): no hint of why, as with a failed
+  // sign-in (R162).
+  if (session.ended === "laptop removed") return "Signed out as administrator.";
   return `Signed out as administrator after ${minutes(session.timeout_minutes)} without activity.`;
 }
 
