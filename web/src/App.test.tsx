@@ -16,7 +16,9 @@ import styles from "./styles.css?raw";
 import {
   CANT_ANSWER,
   ClipPlayer,
+  GETTING_LLM_READY,
   GETTING_READY,
+  GETTING_VOICE_READY,
   READY_CHECK_MS,
   type Idle,
   Stage,
@@ -32,6 +34,7 @@ import {
   loadQuiz,
   loadAssessment,
   loadSound,
+  readyMessage,
   splitMatches,
 } from "./pages";
 import { minutes } from "./checks";
@@ -1814,12 +1817,14 @@ test("the chat waits, saying so, while the voice and face are got ready", async 
   const server = chatServer([], () => Response.json({}));
   const answers = server.getMockImplementation()!;
   server.mockImplementation(async (url, init) =>
-    url === "/api/chat/ready" ? Response.json({ ready }) : answers(url, init),
+    url === "/api/chat/ready"
+      ? Response.json({ ready, waiting_for: ready ? [] : ["voice"], waited_s: 0 })
+      : answers(url, init),
   );
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   try {
     await openAt("#/chat");
-    expect(await screen.findByText(GETTING_READY)).toBeTruthy();
+    expect(await screen.findByText(GETTING_VOICE_READY)).toBeTruthy();
     fireEvent.input(promptBox(), { target: { value: "Hello!" } });
     expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText("Thinking…")).toBeNull();
@@ -1827,14 +1832,36 @@ test("the chat waits, saying so, while the voice and face are got ready", async 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
     });
-    await waitFor(() => expect(screen.queryByText(GETTING_READY)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(GETTING_VOICE_READY)).toBeNull());
     expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
     const asked = server.mock.calls.filter(([url]) => url === "/api/chat/ready");
     expect(asked.length).toBe(2); // asked again only while not ready
-    expect(info.mock.calls.some(([m]) => String(m).startsWith("Voice and face ready for the chat"))).toBe(true);
+    expect(info.mock.calls.some(([m]) => String(m).startsWith("Replies ready for the chat"))).toBe(true);
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("the chat names the part it waits for, with the time so far", async () => {
+  // Larry, 2026-10-29: after a rebuild, the chat said it was getting the voice and face ready for
+  // over a minute while the LLM read its instructions (R181a).
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready"
+      ? Response.json({ ready: false, waiting_for: ["llm"], waited_s: 45 })
+      : answers(url, init),
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  expect(await screen.findByText(`${GETTING_LLM_READY} (45 s so far)`)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("the getting-ready line says the voice and face first, then the LLM, else just getting ready", () => {
+  expect(readyMessage(["llm", "voice"], 3)).toBe(`${GETTING_VOICE_READY} (3 s so far)`);
+  expect(readyMessage(["llm"], 0)).toBe(GETTING_LLM_READY);
+  expect(readyMessage([], null)).toBe(GETTING_READY);
 });
 
 test("nothing can be sent until the server says the chat is ready", async () => {

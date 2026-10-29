@@ -131,7 +131,7 @@ def test_the_chat_waits_while_your_own_voice_and_face_are_got_ready(
         assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
         choose(client)
         client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
-        assert client.get("/api/chat/ready").json() == {"ready": True}
+        assert client.get("/api/chat/ready").json()["ready"] is True
 
         warming, go = threading.Event(), threading.Event()
         warm_up = ReplyVideos.warm_up
@@ -144,13 +144,55 @@ def test_the_chat_waits_while_your_own_voice_and_face_are_got_ready(
         with patch.object(ReplyVideos, "warm_up", held), caplog.at_level(logging.INFO):
             assert client.delete("/api/start-now").status_code == 200
             assert warming.wait(10)
-            assert client.get("/api/chat/ready").json() == {"ready": False}
+            waiting = client.get("/api/chat/ready").json()
+            assert waiting["ready"] is False and "voice" in waiting["waiting_for"]
+            assert isinstance(waiting["waited_s"], int)
             go.set()
             client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
-        assert client.get("/api/chat/ready").json() == {"ready": True}
+        ready = {"ready": True, "waiting_for": [], "waited_s": None}
+        assert client.get("/api/chat/ready").json() == ready
+        assert any(r.getMessage() == "Warm-up part done" for r in caplog.records)
         done = [r for r in caplog.records if r.getMessage() == "Reply warm-up done"]
         assert done and isinstance(done[-1].__dict__["duration_ms"], float)
 
 
 def test_the_chat_ready_needs_a_person(client: TestClient) -> None:
     assert client.get("/api/chat/ready").status_code == 403  # before consent
+
+
+def test_the_chat_says_when_it_waits_for_the_llm(
+    tmp_path: Path, pack: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Larry, 2026-10-29, after a rebuild: the chat said it was getting the voice and face ready
+    for over a minute while the LLM read its instructions. It now says which part it waits for
+    (R181a)."""
+    monkeypatch.setattr(
+        "imageskin.app.StartNow",
+        functools.partial(sn.StartNow, packs=packs_of(pack), fetch=Fetcher(pack)),
+    )
+    reading, go = threading.Event(), threading.Event()
+
+    def slow_llm() -> None:
+        reading.set()
+        go.wait(10)
+
+    client = TestClient(
+        create_app(
+            tmp_path,
+            check_photo=lambda photo: PhotoResult([], 80),
+            prepare_voice=lambda: None,
+            prepare_face=lambda photo, progress: None,
+            render_clip=renderer([]),
+            ask_llm=lambda messages: "Hello there",
+            warm_up_llm=slow_llm,
+        )
+    )
+    choose(client)  # a ready-made avatar: the chat is open, and its replies are warmed up
+    try:
+        assert reading.wait(10)
+        waiting = client.get("/api/chat/ready").json()
+        assert waiting["ready"] is False and "llm" in waiting["waiting_for"]
+    finally:
+        go.set()
+    client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
+    assert client.get("/api/chat/ready").json()["ready"] is True

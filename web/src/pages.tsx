@@ -1364,10 +1364,24 @@ const READ_AHEAD_WORDS = 3;
 
 // How often the chat asks again whether the person's voice and face are ready (R181).
 export const READY_CHECK_MS = 2000;
-// Said in place of Thinking while they are got ready, as after switching back to your own photo
-// and voice from a ready-made avatar (Larry, 2026-10-29).
-export const GETTING_READY =
-  "Getting the voice and face ready… This can take a few minutes after switching.";
+// Said in place of Thinking while replies are got ready (R181): after switching back to your own
+// photo and voice from a ready-made avatar, and after the app starts. It names the part still
+// running, as it isn't always the voice and face (Larry, 2026-10-29: after a rebuild it said so
+// for over a minute), and how long it has taken so far (R181a).
+export const GETTING_VOICE_READY =
+  "Getting the voice and face ready… This can take a few minutes after the app starts or after switching.";
+export const GETTING_LLM_READY =
+  "The LLM is reading its instructions… This can take a minute or two after the app starts.";
+export const GETTING_READY = "Getting ready…";
+
+export function readyMessage(waitingFor: string[], waitedS: number | null): string {
+  const what = waitingFor.includes("voice")
+    ? GETTING_VOICE_READY
+    : waitingFor.includes("llm")
+      ? GETTING_LLM_READY
+      : GETTING_READY;
+  return waitedS ? `${what} (${waitedS} s so far)` : what;
+}
 
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
@@ -1434,23 +1448,25 @@ function Chat(props: {
   // all that time (Codex's review of PR #216: Send was on while the answer was still coming).
   // Null until the server has said; a failed check counts as ready.
   const [ready, setReady] = useState<boolean | null>(null);
+  const [waitingOn, setWaitingOn] = useState<string>(GETTING_READY); // what, while not ready
   const gettingReady = ready === false;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let waitedFrom: number | null = null;
     const check = () => {
       getChatReady().then(
-        (now) => {
+        ({ ready: now, waitingFor, waitedS }) => {
           if (gone.current) return;
           setReady(now);
           if (!now) {
+            setWaitingOn(readyMessage(waitingFor, waitedS));
             if (waitedFrom === null) {
               waitedFrom = performance.now();
-              console.info("Chat waits while the voice and face are got ready");
+              console.info(`Chat waits while replies are got ready: ${waitingFor.join(", ") || "starting"}`);
             }
             timer = setTimeout(check, READY_CHECK_MS);
           } else if (waitedFrom !== null) {
-            console.info(`Voice and face ready for the chat (${Math.round(performance.now() - waitedFrom)} ms)`);
+            console.info(`Replies ready for the chat (${Math.round(performance.now() - waitedFrom)} ms)`);
           }
         },
         (e: unknown) => {
@@ -1866,7 +1882,7 @@ function Chat(props: {
   // One line saying what is happening, until the person starts to speak (R41d).
   // Stopped while thinking: the server is cutting the LLM off.
   const status = gettingReady
-    ? GETTING_READY
+    ? waitingOn
     : sending
     ? halted
       ? "Stopping…"

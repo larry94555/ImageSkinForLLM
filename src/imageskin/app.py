@@ -1693,13 +1693,20 @@ def create_app(
         }
 
     @app.get("/api/chat/ready", dependencies=needs_person)
-    def get_chat_ready() -> dict[str, bool]:
+    def get_chat_ready() -> dict[str, object]:
         """Whether a prompt is answered now, rather than after the person's voice and face are
         got ready for replies (R181). Back on the user's own photo and voice from a ready-made
         avatar, their voice is learned again from the recordings and their idle video made, a
         few minutes on a 4-core machine; the chat says so and waits, instead of a prompt
-        showing Thinking all that time (Larry, 2026-10-29)."""
-        return {"ready": not warming_up()}
+        showing Thinking all that time (Larry, 2026-10-29). After the app starts, the LLM
+        reads its instructions too. Which parts it still waits for, and for how long since the
+        first of them began, so the chat says what it is doing (R181a)."""
+        ready = not warming_up()
+        with warm_up_lock:
+            parts = dict(warm_up_parts)
+        now = time.perf_counter()
+        waited = None if ready or not parts else round(now - min(parts.values()))
+        return {"ready": ready, "waiting_for": [] if ready else sorted(parts), "waited_s": waited}
 
     @app.post("/api/chat", dependencies=[*needs_person, Depends(require_accepted)])
     def post_chat(body: ChatRequest, seen: DeletesSeen) -> dict[str, Any]:
@@ -2174,11 +2181,33 @@ def create_app(
             # On its own thread: an LLM that accepts the request but doesn't answer would
             # otherwise hold the engines' warm-up back for its whole timeout.
             warm_llm = startup.timed("LLM warm-up", conversation.warm_up)
-            llm = threading.Thread(target=warm_llm, name="llm-warm-up", daemon=True)
+            llm = threading.Thread(
+                target=warming_part("llm", warm_llm), name="llm-warm-up", daemon=True
+            )
             llm.start()
-            startup.timed("voice and video warm-up", lambda: replies.warm_up(photo))()
+            engines = startup.timed("voice and video warm-up", lambda: replies.warm_up(photo))
+            warming_part("voice", engines)()
             llm.join()
         return photo
+
+    def warming_part(part: str, fn: Callable[[], object]) -> Callable[[], None]:
+        """`fn`, listed in the warm-up's parts while it runs, for the chat to say which it
+        waits for (R181a): the LLM reading its instructions, or the voice and face."""
+
+        def run() -> None:
+            start = time.perf_counter()
+            with warm_up_lock:
+                warm_up_parts[part] = start
+            try:
+                fn()
+            finally:
+                with warm_up_lock:
+                    warm_up_parts.pop(part, None)
+                logger.info(
+                    "Warm-up part done", extra={"part": part, "duration_ms": ms_since(start)}
+                )
+
+        return run
 
     # Whether a warm-up worker still has work to do, and whether one was asked for meanwhile:
     # both only read and changed under warm_up_lock. The worker gives up the work under the lock
@@ -2186,6 +2215,8 @@ def create_app(
     # own, even while the old thread is still ending (review on PR #122).
     warm_up_lock = threading.Lock()  # also guards app.state.reply_warm_up
     warm_up = {"running": False, "again": False}
+    # The warm-up's parts running now, each with when it began (R181a). Guarded by warm_up_lock.
+    warm_up_parts: dict[str, float] = {}
 
     app.state.warm_up = warm_up
 
