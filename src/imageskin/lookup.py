@@ -33,9 +33,10 @@ Source = Literal["wiki", "pdf"]
 # How many of each kind are found for a question.
 WIKI_LIMIT = 3
 PDF_LIMIT = 5
-# How many example questions the chat shows under the prompt box (R41g), and how they are asked:
-# each in turn, all opening with words ASKING_ABOUT takes off, so only the subject is looked up.
-EXAMPLES = 3
+# How many example questions the chat is given for under the prompt box (R41g), which it shows
+# three at a time, the next three with "other topics..." (R182), and how they are asked: each in
+# turn, all opening with words ASKING_ABOUT takes off, so only the subject is looked up.
+EXAMPLES = 24
 EXAMPLE_ASKS = ("What can you tell me about {}?", "Can you explain {}?", "Tell me about {}.")
 # The most of a passage the LLM is given to answer from (R40).
 PASSAGE_CHARS = 400
@@ -191,6 +192,28 @@ def passage_words(passage: Passage) -> list[str]:
     return words(passage.title) * 2 + words(passage.text)
 
 
+@dataclass(frozen=True)
+class Corpus:
+    """The passages with their words counted, so several questions can be looked up in the same
+    content without counting them again (review on PR #217: the example questions)."""
+
+    passages: list[Passage]
+    counted: list[Counter[str]]
+    having: Counter[str]  # how many passages have each word
+    lengths: list[int]
+    average: float
+
+    @classmethod
+    def of(cls, passages: list[Passage]) -> "Corpus":
+        counted = [Counter(passage_words(p)) for p in passages]
+        having: Counter[str] = Counter()
+        for c in counted:
+            having.update(c.keys())
+        lengths = [sum(c.values()) for c in counted]
+        average = (sum(lengths) / len(lengths) if lengths else 0.0) or 1.0
+        return cls(passages, counted, having, lengths, average)
+
+
 def wiki_passages(contents: list[dict[str, Any]]) -> list[Passage]:
     """Every entry of every table of contents (as `WikiJob.contents` gives them), parts too."""
 
@@ -219,7 +242,7 @@ def pdf_passages(reading: dict[str, Any]) -> list[Passage]:
     ]
 
 
-def rank(question: str, passages: list[Passage]) -> list[Found]:
+def rank(question: str, passages: list[Passage] | Corpus) -> list[Found]:
     """The passages that match enough of the question, best first, scored with BM25.
 
     A passage must have at least MIN_SHARE of the question's words, each weighted by how rare it
@@ -229,27 +252,26 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
     is left out, and a question about something the content doesn't cover finds nothing. Words
     that ask about a subject rather than name it ("notice", "explain") don't count against a
     passage that lacks them (REQUEST_WORDS), so "What did Euler notice?" finds Euler."""
-    if not words(question) or not passages:
+    corpus = passages if isinstance(passages, Corpus) else Corpus.of(passages)
+    if not words(question) or not corpus.passages:
         return []
-    counted = [Counter(passage_words(p)) for p in passages]
-    content: Counter[str] = Counter()
-    for c in counted:
-        content.update(c.keys())
+    content = corpus.having
     typed = set(words(question))
     asked = {spelled_as_in(w, content) for w in typed} if typed & content.keys() else typed
-    lengths = [sum(c.values()) for c in counted]
-    average = sum(lengths) / len(lengths) or 1.0
-    total = len(passages)
+    average = corpus.average
+    total = len(corpus.passages)
     idf = {}
     for w in asked:
-        having = sum(1 for c in counted if w in c)
+        having = content[w]
         idf[w] = math.log(1 + (total - having + 0.5) / (having + 0.5))
     # The question's words that name what it is about; all of them if it has only asking
     # words. Only these count for or against a passage (review on PR #91).
     subject = {w for w in asked if w not in REQUEST_WORDS} or asked
     weight = sum(idf[w] for w in subject)
     found = []
-    for passage, counts, length in zip(passages, counted, lengths, strict=True):
+    for passage, counts, length in zip(
+        corpus.passages, corpus.counted, corpus.lengths, strict=True
+    ):
         matched = [w for w in asked if w in counts]
         # A typo corrected helps only a passage that has a question word as typed, so a
         # correction is never the only reason a passage, or an off-topic prompt, is found
@@ -267,7 +289,7 @@ def rank(question: str, passages: list[Passage]) -> list[Found]:
 
 def look_up(
     question: str,
-    passages: list[Passage],
+    passages: list[Passage] | Corpus,
     wiki_limit: int = WIKI_LIMIT,
     pdf_limit: int = PDF_LIMIT,
 ) -> Lookup:
@@ -278,7 +300,8 @@ def look_up(
     wiki = [f for f in ranked if f.passage.source == "wiki"][:wiki_limit]
     pdf = [f for f in ranked if f.passage.source == "pdf"][:pdf_limit]
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
-    return Lookup(question, wiki, pdf, duration_ms, len(passages))
+    searched = passages.passages if isinstance(passages, Corpus) else passages
+    return Lookup(question, wiki, pdf, duration_ms, len(searched))
 
 
 def pages_label(pages: list[int]) -> str:
@@ -341,7 +364,7 @@ def named_topic(question: str, contents: list[dict[str, Any]]) -> str | None:
 def look_up_named(
     question: str,
     contents: list[dict[str, Any]],
-    passages: list[Passage],
+    passages: list[Passage] | Corpus,
     wiki_limit: int = WIKI_LIMIT,
     pdf_limit: int = PDF_LIMIT,
 ) -> Lookup:
@@ -418,11 +441,11 @@ class ContentLookup:
         """A few questions to show under the prompt box (R41g), drawn from the wiki, each one
         that finds something, so clicking it is never declined (R41)."""
         contents = self.wiki.contents()
-        passages = self.passages(contents)
+        corpus = Corpus.of(self.passages(contents))  # counted once for all the candidates
         found: list[str] = []
         for subject in example_subjects(contents):
             question = EXAMPLE_ASKS[len(found) % len(EXAMPLE_ASKS)].format(subject)
-            result = look_up_named(question, contents, passages)
+            result = look_up_named(question, contents, corpus)
             if result.wiki or result.pdf:
                 found.append(question)
                 if len(found) == limit:

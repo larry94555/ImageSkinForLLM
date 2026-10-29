@@ -20,6 +20,7 @@ from imageskin.spoken import (
     kept,
     put_back,
     suspects,
+    syllables,
     vocabulary,
 )
 
@@ -60,6 +61,8 @@ def test_the_content_s_words_are_its_titles_and_capitalised_words_most_used_firs
         ("Did Oiler accuse Riemann?", "Did Riemann accuse Euler?", False),
         ("Did Oiler accuse Riemann?", "Did Euler accuse Riemann?", True),
         ("What did Oiler do?", "What did Euler do do?", False),  # a word added, none dropped
+        # Larry's test (2026-10-28): spelled alike, but "France" isn't heard for "Ukraine".
+        ("What is the capital of France", "What is the capital of Ukraine", False),
     ],
 )
 def test_a_change_is_kept_only_when_it_puts_the_content_s_words_back(
@@ -140,6 +143,30 @@ def test_a_rewritten_question_is_not_taken(caplog: pytest.LogCaptureFixture) -> 
         heard = corrected("What did Oiler do?", TERMS, lambda i, m: "Oiler -> Riemann")
     assert heard == "What did Oiler do?"
     assert "Spoken question kept" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("word", "count"),
+    [("France", 1), ("Ukraine", 2), ("Euler", 2), ("Oiler", 2), ("funshun", 2), ("Crime", 1)],
+)
+def test_a_word_s_syllables_are_its_runs_of_vowels_less_a_silent_e(word: str, count: int) -> None:
+    assert syllables(word) == count
+
+
+def test_a_place_heard_right_isnt_taken_for_the_content_s(caplog: pytest.LogCaptureFixture) -> None:
+    """Larry (2026-10-28): with "Ukraine War Perspective" in the content, "What is the capital
+    of France" said with Hold to talk was answered as "What is the capital of Ukraine"."""
+    terms = vocabulary([{"entries": [entry("Ukraine War Perspective", "Trump and Ukraine.")]}])
+    assert "Ukraine" in terms
+    assert suspects("What is the capital of France", terms) == []
+
+    def write(instruction: str, material: list[str]) -> str:
+        return "France -> Ukraine"  # what the LLM said, unasked now
+
+    with caplog.at_level(logging.INFO, logger="imageskin.spoken"):
+        heard = corrected("What is the capital of France", terms, write)
+    assert heard == "What is the capital of France"
+    assert "Spoken question kept without asking the LLM" in caplog.messages
 
 
 def test_with_no_content_or_no_llm_it_is_taken_as_heard(caplog: pytest.LogCaptureFixture) -> None:

@@ -44,7 +44,7 @@ _PUNCTUATION = re.compile(r"[^\w\s']+")
 SPOKEN_TOPICS = 8
 # Topics named when a prompt is declined.
 DECLINE_TOPICS = 3
-# Topics named in the hint under the prompt box (R41g).
+# Topics named in the hint under the prompt box (R41g), when no example question links them.
 HINT_TOPICS = 3
 
 NO_CONTENT = "I can talk about anything you like. Ask me whatever you want to know."
@@ -106,17 +106,25 @@ def listed(topics: list[str], limit: int = SPOKEN_TOPICS) -> str:
     return spoken_list([*named, f"{more} more on the Wiki page"] if more else named)
 
 
-def hint_line(topics: list[str], content_only: bool, complete: bool = True) -> str | None:
-    """The line under the prompt box naming a few of the topics (R41g), saying questions must be
-    about them when general prompts are off (R41); None before any PDF is added. While a PDF is
-    still being read or its wiki built (`complete` false), the topics so far are given as only
-    those so far, never as all that can be asked about (review on PR #86)."""
+def hint_line(
+    topics: list[str], content_only: bool, complete: bool = True, linked: bool = False
+) -> str | None:
+    """The line under the prompt box introducing the topics (R41g), saying questions must be
+    about them when general prompts are off (R41); None before any PDF is added. With `linked`,
+    the example questions under it name the topics, so the line only leads into them (R182);
+    without, it names a few itself. While a PDF is still being read or its wiki built
+    (`complete` false), the topics so far are given as only those so far, never as all that can
+    be asked about (review on PR #86)."""
     if not complete:
         if not topics:
             return STILL_READING
+        if linked:
+            return f"{STILL_READING_REST} So far you can ask me about:"
         return f"So far I can talk about {listed(topics, HINT_TOPICS)}. {STILL_READING_REST}"
     if not topics:
         return None
+    if linked:
+        return "Questions must be about these topics:" if content_only else "You can ask me about:"
     named = listed(topics, HINT_TOPICS)
     if content_only:
         return f"Questions must be about these topics: {named}."

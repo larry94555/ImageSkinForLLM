@@ -1,6 +1,7 @@
 // Push-to-talk (roadmap R24): hold the button, say the question, let go, and it is sent as if
-// typed. A quick click or tap instead keeps it listening until the button is clicked again. The browser's own speech recognition turns it into text; where the browser has none
-// (Firefox), the button isn't shown.
+// typed, unless the browser isn't sure it heard every word (R179). A quick click or tap instead
+// keeps it listening until the button is clicked again. The browser's own speech recognition turns
+// it into text; where the browser has none (Firefox), the button isn't shown.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -13,12 +14,25 @@ export const TAIL_MS = 600;
 // and said "I didn't hear anything" (Larry, 2026-10-19).
 export const TAP_MS = 400;
 
+// The browser is less sure than this (0 to 1) of a phrase it heard: perhaps a word was misheard
+// ("Jill Biden" heard as "Joe Budden", Larry, 2026-10-28), so what was heard is left in the prompt
+// box to check and send, not sent (R179). Speech heard clearly is sent as before.
+export const SURE = 0.8;
+
+// One way the browser heard a phrase, and how sure it is of it: Chrome gives 0 while the phrase
+// is still changing, and some engines always.
+export interface Heard {
+  transcript: string;
+  confidence?: number;
+}
+type Results = ArrayLike<ArrayLike<Heard>>;
+
 // The part of the Web Speech API used here; TypeScript's DOM types don't include it.
 export interface Recognition {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onresult: ((e: { results: Results }) => void) | null;
   onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
   start(): void;
@@ -48,23 +62,33 @@ export function talkProblem(error: string): string | null {
 }
 
 // Everything heard so far, the final and the still-changing parts together.
-export function heard(results: ArrayLike<ArrayLike<{ transcript: string }>>): string {
+export function heard(results: Results): string {
   return Array.from(results, (r) => r[0]?.transcript ?? "")
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+// How sure the browser is of the phrase it is least sure of, or null when it didn't say (each
+// phrase came with 0 or nothing).
+export function leastSure(results: Results): number | null {
+  const known = Array.from(results, (r) => r[0]?.confidence ?? 0).filter((c) => c > 0);
+  return known.length ? Math.min(...known) : null;
+}
+
 export function TalkButton(props: {
   disabled: boolean;
   onHearing: (text: string) => void; // shown in the prompt box while speaking
   onHeard: (text: string) => void; // sent when the button is let go
+  onUnsure: (text: string) => void; // let go, but perhaps misheard: left in the box to check
+  onEdit: (text: string) => void; // Edit clicked while listening: left in the box to change
   onProblem: (problem: string | null) => void;
 }) {
   const Maker = speechRecognition();
   const [listening, setListening] = useState(false);
   const recognition = useRef<Recognition | null>(null);
   const said = useRef("");
+  const sure = useRef<number | null>(null);
   const started = useRef(0);
   const failed = useRef(false);
   const stopping = useRef<number | null>(null);
@@ -74,6 +98,10 @@ export function TalkButton(props: {
   // Set when the button was tapped rather than held: listening until it is clicked again.
   const [tapped, setTapped] = useState(false);
   const latched = useRef(false);
+  // Edit, shown right of the button while listening (R179): stops listening without sending.
+  const editLink = useRef<HTMLButtonElement>(null);
+  const editing = useRef(false);
+  const [overEditLink, setOverEditLink] = useState(false); // a held button is over Edit
 
   function clearTail() {
     if (stopping.current !== null) window.clearTimeout(stopping.current);
@@ -97,12 +125,15 @@ export function TalkButton(props: {
     r.continuous = true; // keeps listening while the button is held
     r.interimResults = true;
     said.current = "";
+    sure.current = null;
     failed.current = false;
     sending.current = false;
+    editing.current = false;
     latched.current = false;
     started.current = performance.now();
     r.onresult = (e) => {
       said.current = heard(e.results);
+      sure.current = leastSure(e.results);
       props.onHearing(said.current);
     };
     r.onerror = (e) => {
@@ -128,10 +159,23 @@ export function TalkButton(props: {
       if (!send) {
         // Not let go to send: what was heard stays in the prompt box, to send or change.
         if (text) console.info("Push-to-talk: ended without sending");
+        if (editing.current && text) props.onEdit(text);
         return;
       }
-      if (text) props.onHeard(text);
-      else props.onProblem(talkProblem("no-speech"));
+      if (!text) {
+        props.onProblem(talkProblem("no-speech"));
+        return;
+      }
+      const confidence = sure.current === null ? "not given" : sure.current.toFixed(2);
+      if (sure.current !== null && sure.current < SURE) {
+        console.info(
+          `Push-to-talk: not sure of the words (confidence ${confidence}), left to check`,
+        );
+        props.onUnsure(text);
+        return;
+      }
+      console.info(`Push-to-talk: sent (confidence ${confidence})`);
+      props.onHeard(text);
     };
     recognition.current = r;
     props.onProblem(null);
@@ -170,6 +214,26 @@ export function TalkButton(props: {
   }
 
   // Let go: sends, unless it was only a tap.
+  // Edit: stops listening and sends nothing; what was heard stays in the box to change.
+  function edit() {
+    if (!recognition.current) return;
+    clearTail();
+    sending.current = false;
+    editing.current = true;
+    latched.current = false;
+    setTapped(false);
+    console.info("Push-to-talk: Edit chosen; left in the box to change");
+    recognition.current.stop();
+  }
+
+  // Whether the pointer was let go over Edit: a held button is slid there to edit, not send.
+  function overEdit(e: { clientX: number; clientY: number }): boolean {
+    const box = editLink.current?.getBoundingClientRect();
+    if (!box || box.width === 0) return false;
+    const { clientX: x, clientY: y } = e;
+    return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+  }
+
   function release() {
     if (!recognition.current || latched.current || stopping.current !== null) return;
     const ms = Math.round(performance.now() - started.current);
@@ -183,31 +247,55 @@ export function TalkButton(props: {
   }
 
   return (
-    <button
-      type="button"
-      className={listening ? "secondary talk listening" : "secondary talk"}
-      disabled={props.disabled && !listening}
-      aria-pressed={listening}
-      onPointerDown={(e) => {
-        e.preventDefault();
-        // Kept until let go, so the button growing or moving under the pointer doesn't end it.
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-        press();
-      }}
-      onPointerUp={release}
-      // The browser took the pointer over: stopped, never kept on as a tap (review on PR #113).
-      onPointerCancel={stop}
-      onKeyDown={(e) => {
-        if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+    <div className="talk-row">
+      <button
+        type="button"
+        className={listening ? "secondary talk listening" : "secondary talk"}
+        disabled={props.disabled && !listening}
+        aria-pressed={listening}
+        onPointerDown={(e) => {
           e.preventDefault();
+          // Kept until let go, so the button growing or moving under the pointer doesn't end it.
+          e.currentTarget.setPointerCapture?.(e.pointerId);
           press();
-        }
-      }}
-      onKeyUp={(e) => {
-        if (e.key === " " || e.key === "Enter") release();
-      }}
-    >
-      {!listening ? "Hold to talk" : tapped ? "Listening… click to send" : "Listening… let go to send"}
-    </button>
+        }}
+        // Held and slid onto Edit: Edit and the button say that letting go there edits.
+        onPointerMove={(e) => setOverEditLink(recognition.current !== null && overEdit(e))}
+        onPointerUp={(e) => {
+          setOverEditLink(false);
+          if (overEdit(e)) edit();
+          else release();
+        }}
+        // The browser took the pointer over: stopped, never kept on as a tap (review on PR #113).
+        onPointerCancel={stop}
+        onKeyDown={(e) => {
+          if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+            e.preventDefault();
+            press();
+          }
+        }}
+        onKeyUp={(e) => {
+          if (e.key === " " || e.key === "Enter") release();
+        }}
+      >
+        {!listening
+          ? "Hold to talk"
+          : overEditLink
+            ? "Let go to edit"
+            : tapped
+              ? "Click to send or…"
+              : "Let go to send or…"}
+      </button>
+      {listening && (
+        <button
+          ref={editLink}
+          type="button"
+          className={overEditLink ? "link armed" : "link"}
+          onClick={edit}
+        >
+          Edit
+        </button>
+      )}
+    </div>
   );
 }

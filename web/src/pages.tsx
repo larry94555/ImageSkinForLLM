@@ -22,6 +22,7 @@ import {
   type Assessment,
   getChatHints,
   getChatPhoto,
+  getChatReady,
   getPhotoChoice,
   clipUrl,
   getPrepare,
@@ -1202,6 +1203,10 @@ function AvatarLinks({ readyMade }: { readyMade: boolean }) {
   );
 }
 
+// The reply shown when Hold to talk wasn't sure of every word it heard (R179), with the words
+// left in the prompt box to edit and send. It is shown only, not added to the conversation.
+export const CHECK_HEARD =
+  "I am not clear on what you said. Can you edit your question and resend?";
 // What the chat says when there is no reply, whatever the reason; the reason goes to the
 // browser console and the server log, not to the participant (R41d).
 export const CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
@@ -1362,6 +1367,17 @@ function saveSound(sound: Sound) {
 export const READ_AHEAD_PAUSE_MS = 600;
 const READ_AHEAD_WORDS = 3;
 
+// How often the chat asks again whether the person's voice and face are ready (R181): each
+// second, so the seconds left count down one by one (R183).
+export const READY_CHECK_MS = 1000;
+// Said in place of Thinking while they are got ready, after the app starts or after switching
+// back to your own photo and voice from a ready-made avatar, with the seconds left when the
+// server can tell (Larry, 2026-10-29, R183).
+export function preparingChat(leftS: number | null): string {
+  if (leftS === null) return "Preparing chat…";
+  return `Preparing chat… ${leftS} ${leftS === 1 ? "second" : "seconds"} remaining`;
+}
+
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
 // (roadmap R22); if that fails, the reply stays as text with a short note.
@@ -1385,6 +1401,11 @@ function Chat(props: {
   // Why the latest reply could not be spoken, by its place in the turns shown.
   const [unspoken, setUnspoken] = useState<{ turn: number } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const promptBox = useRef<HTMLTextAreaElement>(null);
+  const [notClear, setNotClear] = useState(false); // CHECK_HEARD shown as the reply (R179)
+  // What Hold to talk heard but wasn't sure of, or was stopped with Edit, left in the box (R179):
+  // sent unchanged, it is still a spoken question, so misheard names are put back (R24).
+  const unsure = useRef<string | null>(null);
   const gone = useRef(false); // the page was left: stop following clips
   const replying = useRef<string | null>(null); // the latest reply's id
   const stopped = useRef<string | null>(null); // the id of a reply stopped with Stop (R19)
@@ -1422,7 +1443,48 @@ function Chat(props: {
   const line = useRef<{ name: Line; at: number; timer?: ReturnType<typeof setTimeout> } | null>(
     null,
   );
-  const busy = sending || speaking || saying !== null;
+  // Whether replies are ready, or the person's voice and face are still being got ready (R181):
+  // nothing can be sent until the server has said they are, so a prompt never shows Thinking
+  // all that time (Codex's review of PR #216: Send was on while the answer was still coming).
+  // Null until the server has said; a failed check counts as ready.
+  const [ready, setReady] = useState<boolean | null>(null);
+  const [leftS, setLeftS] = useState<number | null>(null); // seconds left, when known (R183)
+  const gettingReady = ready === false;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let waitedFrom: number | null = null;
+    const check = () => {
+      getChatReady().then(
+        ({ ready: now, leftS: left, warming }) => {
+          if (gone.current) return;
+          setReady(now);
+          setLeftS(left);
+          // A warm-up in its first seconds leaves the chat open, but is asked about again in
+          // case it runs longer (R183).
+          if (!now || warming) {
+            if (waitedFrom === null) {
+              waitedFrom = performance.now();
+              console.info(
+                now
+                  ? "Chat open while the voice and face are got ready"
+                  : "Chat waits while the voice and face are got ready",
+              );
+            }
+            timer = setTimeout(check, READY_CHECK_MS);
+          } else if (waitedFrom !== null) {
+            console.info(`Voice and face ready for the chat (${Math.round(performance.now() - waitedFrom)} ms)`);
+          }
+        },
+        (e: unknown) => {
+          console.error("Could not ask whether the chat is ready", e);
+          if (!gone.current) setReady(true); // never kept waiting by a failed check
+        },
+      );
+    };
+    check();
+    return () => clearTimeout(timer);
+  }, []);
+  const busy = sending || speaking || saying !== null || ready !== true;
   // Say it simpler shows only once the server has found that it would say something new for
   // the latest reply (R177): after a few presses the LLM may give the same reply back. Checked
   // once each reply is said, not while a quiz is going.
@@ -1614,6 +1676,8 @@ function Chat(props: {
   async function send(asked?: string, spoken = false) {
     const text = (asked ?? prompt).trim();
     if (!text || busy) return;
+    spoken ||= asked === undefined && text === unsure.current;
+    unsure.current = null;
     const shownAt = (turns ?? []).length + 1; // where the reply shows, after the prompt
     const replyId = newReplyId();
     let replied = false;
@@ -1630,6 +1694,7 @@ function Chat(props: {
     allMade.current = false;
     clipsEnded.current = 0;
     setFailed(null);
+    setNotClear(false);
     setUnspoken(null);
     setClips([]); // the server replaces the last reply's clips or video with this one's
     setEarlier((e) => [...e, ...clipWaits(times)]);
@@ -1846,7 +1911,9 @@ function Chat(props: {
     );
   // One line saying what is happening, until the person starts to speak (R41d).
   // Stopped while thinking: the server is cutting the LLM off.
-  const status = sending
+  const status = gettingReady
+    ? preparingChat(leftS)
+    : sending
     ? halted
       ? "Stopping…"
       : "Thinking…"
@@ -1869,11 +1936,16 @@ function Chat(props: {
         )}
       </div>
       <div className="talk">
-        {turns.length === 0 && (
+        {turns.length === 0 && !notClear && (
           <p className="muted hint">Ask a question to start the conversation.</p>
         )}
-        <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
-        {turns[turns.length - 1]?.role === "assistant" && (
+        <TurnList
+          turns={turns}
+          from={latestExchange(turns)}
+          unspoken={unspoken}
+          notice={notClear ? CHECK_HEARD : undefined}
+        />
+        {turns[turns.length - 1]?.role === "assistant" && !notClear && (
           <ReplyActions
             disabled={busy}
             onRepeat={() => void repeat()}
@@ -1899,6 +1971,7 @@ function Chat(props: {
         <label className="prompt">
           <span>Your message</span>
           <textarea
+            ref={promptBox}
             rows={2}
             placeholder="Type your question here"
             value={prompt}
@@ -1920,7 +1993,19 @@ function Chat(props: {
             disabled={busy}
             onHearing={setPrompt}
             onHeard={(text) => void send(text, true)}
-            onProblem={setFailed}
+            onUnsure={(text) => {
+              unsure.current = text;
+              setNotClear(true);
+              promptBox.current?.focus();
+            }}
+            onEdit={(text) => {
+              unsure.current = text;
+              promptBox.current?.focus();
+            }}
+            onProblem={(problem) => {
+              setFailed(problem);
+              setNotClear(false); // listening again, or it failed
+            }}
           />
           {teachMe && !quizGoing && (
             <button
@@ -2139,17 +2224,22 @@ function LessonControls(props: {
   );
 }
 
-// Under the prompt box (R41g): a line naming a few of the topics, and example questions that
-// are sent when clicked.
+// Under the prompt box (R41g): a line leading into the topics, and example questions about them
+// that are sent when clicked, three at a time. "other topics..." shows the next three, wrapping
+// round to the first, when there are more (R182).
+export const SHOWN_EXAMPLES = 3;
+
 function Hints(props: { hints: ChatHints; disabled: boolean; onAsk: (question: string) => void }) {
   const { line, examples } = props.hints;
+  const [first, setFirst] = useState(0);
   if (!line && examples.length === 0) return null;
+  const shown = shownExamples(examples, first);
   return (
     <div className="hints">
       {line && <p className="muted">{line}</p>}
       {examples.length > 0 && (
         <ul aria-label="Example questions">
-          {examples.map((question) => (
+          {shown.map((question) => (
             <li key={question}>
               <button
                 type="button"
@@ -2164,9 +2254,34 @@ function Hints(props: { hints: ChatHints; disabled: boolean; onAsk: (question: s
               </button>
             </li>
           ))}
+          {examples.length > SHOWN_EXAMPLES && (
+            <li>
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  const next = (first + SHOWN_EXAMPLES) % examples.length;
+                  console.info(`Other topics shown, from ${next + 1} of ${examples.length}`);
+                  setFirst(next);
+                }}
+              >
+                other topics...
+              </button>
+            </li>
+          )}
         </ul>
       )}
     </div>
+  );
+}
+
+// The example questions shown, starting at `first` and wrapping round to the start, so there
+// are always SHOWN_EXAMPLES of them when there are that many (R182).
+export function shownExamples(examples: string[], first: number): string[] {
+  if (examples.length <= SHOWN_EXAMPLES) return examples;
+  return Array.from(
+    { length: SHOWN_EXAMPLES },
+    (_, i) => examples[(first + i) % examples.length],
   );
 }
 
@@ -2178,14 +2293,16 @@ export function latestExchange(turns: Turn[]): number {
 
 // The turns from `from` on, numbered by their place in the whole conversation so a note on a
 // reply that couldn't be spoken stays with it. With `search`, the matches of its query are
-// marked, numbered in order, and the current one stands out.
+// marked, numbered in order, and the current one stands out. A `notice` shows last as a reply
+// that isn't part of the conversation (R179).
 function TurnList(props: {
   turns: Turn[];
   from?: number;
   unspoken: { turn: number } | null;
   search?: { query: string; current: number };
+  notice?: string;
 }) {
-  const { turns, from = 0, unspoken, search } = props;
+  const { turns, from = 0, unspoken, search, notice } = props;
   let counted = 0; // matches marked in the turns before this one
   return (
     <ol className="turns">
@@ -2221,6 +2338,12 @@ function TurnList(props: {
           </li>
         );
       })}
+      {notice && (
+        <li className="assistant notice" role="status">
+          <span className="who">Reply</span>
+          {notice}
+        </li>
+      )}
     </ol>
   );
 }

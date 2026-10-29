@@ -127,6 +127,12 @@ from imageskin.uploads import (
     VoiceSample,
     shown_size,
 )
+from imageskin.warm_up_time import (
+    QUICK_WARM_UP_S,
+    last_warm_up_s,
+    save_warm_up_s,
+    seconds_left,
+)
 from imageskin.wiki import (
     TOPICS_SCHEMA,
     WIKI_REPLY_TOKENS,
@@ -1269,7 +1275,9 @@ def create_app(
             # A reply being rendered keeps its face and voice.
             if not start_now.forget_unless_busy():
                 raise HTTPException(status_code=409, detail=WAIT_FOR_AVATAR)
-        start_reply_warm_up()  # the chat now shows the person's own: ready their idle video
+        # The chat now shows the person's own: their voice and idle video are got ready, which
+        # the chat waits for (R181).
+        start_reply_warm_up()
         logger.info("Switched to your own photo and voice", extra={"duration_ms": ms_since(start)})
         return asdict(load_review(data_home, job.status()))
 
@@ -1659,13 +1667,19 @@ def create_app(
     def get_chat_hints() -> dict[str, object]:
         """What to show under the prompt box (R41g): a line naming a few of the topics, and a few
         example questions drawn from the wiki, read each time so they follow the PDFs."""
+        start = time.perf_counter()
         topics = content_topics()
         examples = content_lookup.examples() if topics else []
         complete = topics_complete()
-        line = hint_line(topics, content_only(), complete)
+        line = hint_line(topics, content_only(), complete, linked=bool(examples))
         logger.info(
             "Topic hints",
-            extra={"topics": len(topics), "examples": len(examples), "complete": complete},
+            extra={
+                "topics": len(topics),
+                "examples": len(examples),
+                "complete": complete,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
         )
         return {"line": line, "examples": examples}
 
@@ -1689,6 +1703,25 @@ def create_app(
             # The same for the idle video, named after the photo it is made from.
             "idle": None if photo is None else f"/api/chat/idle?photo={quote(photo.stem)}",
         }
+
+    @app.get("/api/chat/ready", dependencies=needs_person)
+    def get_chat_ready() -> dict[str, object]:
+        """Whether a prompt is answered now, rather than after the person's voice and face are
+        got ready for replies (R181). Back on the user's own photo and voice from a ready-made
+        avatar, their voice is learned again from the recordings and their idle video made, a
+        few minutes on a 4-core machine; the chat says so and waits, instead of a prompt
+        showing Thinking all that time (Larry, 2026-10-29). A warm-up's first seconds don't
+        hold the chat: after a restart, with the voice learned from what was kept, the whole of
+        it is about 5 to 8 s, so it is ready with `warming` and asked again (Larry: "it should
+        load instantly", R183). Past them, `left_s` is the seconds left if the warm-up takes as
+        long as the last one, or None."""
+        with warm_up_lock:
+            if not warm_up["running"]:
+                return {"ready": True}
+            elapsed = time.perf_counter() - warm_up["started"]
+            if elapsed < QUICK_WARM_UP_S:
+                return {"ready": True, "warming": True}
+            return {"ready": False, "left_s": seconds_left(warm_up["expected_s"], elapsed)}
 
     @app.post("/api/chat", dependencies=[*needs_person, Depends(require_accepted)])
     def post_chat(body: ChatRequest, seen: DeletesSeen) -> dict[str, Any]:
@@ -2192,12 +2225,15 @@ def create_app(
     # in the same step as it decides to stop, so a request after that starts a worker of its
     # own, even while the old thread is still ending (review on PR #122).
     warm_up_lock = threading.Lock()  # also guards app.state.reply_warm_up
-    warm_up = {"running": False, "again": False}
+    # When the running warm-up started and how long the last one took, for the seconds left (R183).
+    warm_up: dict[str, Any] = {"running": False, "again": False, "started": 0.0, "expected_s": None}
 
     app.state.warm_up = warm_up
 
     def warm_up_until_current() -> None:
         startup.begin("reply warm-up")
+        start = time.perf_counter()
+        warmed = False
         while True:
             try:
                 photo = warm_up_replies()
@@ -2205,6 +2241,7 @@ def create_app(
                 # Never left running: Start now waits on it before opening the chat.
                 logger.exception("Could not warm up replies")
                 photo = None
+            warmed = warmed or photo is not None
             with warm_up_lock:
                 again = warm_up["again"] and chosen_photo() != photo
                 warm_up["again"] = False
@@ -2213,12 +2250,16 @@ def create_app(
                     break
             logger.info("Warming up replies again for the person chosen meanwhile")
         startup.end("reply warm-up")
-        logger.info("Reply warm-up done")
+        # The chat says it is getting ready until here (R181).
+        took = ms_since(start)
+        logger.info("Reply warm-up done", extra={"duration_ms": took})
+        if warmed:  # one with nothing to warm up says nothing of the next one's length
+            save_warm_up_s(data_home, took / 1000)
 
     def warming_up() -> bool:
         """Whether replies are being warmed up for the person chosen now."""
         with warm_up_lock:
-            return warm_up["running"]
+            return bool(warm_up["running"])
 
     def start_reply_warm_up() -> None:
         """Warm up replies on a thread of their own. While a warm-up is under way, that thread
@@ -2231,6 +2272,8 @@ def create_app(
                 warm_up["again"] = True
                 return
             warm_up["running"] = True
+            warm_up["started"] = time.perf_counter()
+            warm_up["expected_s"] = last_warm_up_s(data_home)
             app.state.reply_warm_up = threading.Thread(
                 target=warm_up_until_current, name="reply-warm-up", daemon=True
             )
