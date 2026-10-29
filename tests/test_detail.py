@@ -163,10 +163,11 @@ def test_the_length_is_said_with_the_question_off_the_middle_or_when_asked_again
     before = [Turn("user", "Tell me about rain."), Turn("assistant", "Rain falls.")]
     assert at_length("Q", "Tell me about snow.", before) == "Q"  # the middle, as before the bar
     again = at_length("Q", "Tell me about rain.", before)
-    assert again == "Q\n\n(Answer in one to three sentences, even if asked before.)"
+    assert again == 'Q\n\n(Answer this question, "Tell me about rain.", in one to three sentences.)'
     with detail_level(5):
         assert at_length("Q", "Tell me about snow.", []).endswith(
-            "(Answer in a few paragraphs, complete and in depth, even if asked before.)"
+            '(Answer this question, "Tell me about snow.", in a few paragraphs, complete and'
+            " in depth.)"
         )
 
 
@@ -179,7 +180,7 @@ def test_a_question_asked_again_at_another_level_is_sent_with_its_length() -> No
     conversation.send("Tell me about rain.")
     assert llm.sent[0][-1]["content"] == "Tell me about rain."
     assert llm.sent[1][-1]["content"].endswith(
-        "(Answer in a few paragraphs, complete and in depth, even if asked before.)"
+        '(Answer this question, "Tell me about rain.", in a few paragraphs, complete and in depth.)'
     )
     # The conversation keeps the question as asked.
     assert [t.content for t in conversation.turns()][::2] == ["Tell me about rain."] * 2

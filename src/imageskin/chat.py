@@ -93,7 +93,7 @@ def system_prompt(level: int = DEFAULT_DETAIL) -> str:
     )
 
 
-# The same lengths in a few words, said again after each question (R180): with only the
+# The same lengths in a few words, said again after the question (R180): with only the
 # instructions, a question asked again after the bar moved was answered word for word as before,
 # copied from the conversation (Larry, 2026-10-29).
 DETAIL_LENGTHS: dict[int, str] = {
@@ -112,7 +112,10 @@ def at_length(asked: str, prompt: str, turns: list["Turn"]) -> str:
     again = any(t.role == "user" and t.content == prompt for t in turns)
     if level == DEFAULT_DETAIL and not again:
         return asked
-    return f"{asked}\n\n(Answer in {DETAIL_LENGTHS[level]}, even if asked before.)"
+    # The question is named: "(Answer in a few paragraphs, even if asked before.)" made Gemma 3
+    # 4B answer the question before it again, at length, after a short reply to it (Larry,
+    # 2026-10-29; 3 times in 3 with it, none with the question named).
+    return f'{asked}\n\n(Answer this question, "{prompt}", in {DETAIL_LENGTHS[level]}.)'
 
 
 def reply_tokens() -> int:
