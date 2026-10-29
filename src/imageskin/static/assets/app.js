@@ -2840,17 +2840,23 @@ function DetailBar() {
 	const [failed, setFailed] = d(false);
 	const [picked, setPicked] = d(null);
 	const shown = picked ?? settings.detail;
-	async function choose(detail) {
+	const latest = A(null);
+	const saving = A(Promise.resolve());
+	function choose(detail) {
 		setFailed(false);
 		setPicked(detail);
-		try {
-			await change({ detail });
-			console.info(`Level of detail set to ${detail}`);
-		} catch (e) {
-			console.error(`Could not set the level of detail to ${detail}`, e);
-			setFailed(true);
-		}
-		setPicked(null);
+		latest.current = detail;
+		saving.current = saving.current.then(async () => {
+			if (latest.current !== detail) return;
+			try {
+				await change({ detail });
+				console.info(`Level of detail set to ${detail}`);
+			} catch (e) {
+				console.error(`Could not set the level of detail to ${detail}`, e);
+				setFailed(true);
+			}
+			if (latest.current === detail) setPicked(null);
+		});
 	}
 	return /* @__PURE__ */ u("div", {
 		className: "detail-bar",
@@ -2868,7 +2874,7 @@ function DetailBar() {
 					step: 1,
 					value: shown,
 					"aria-valuetext": `${shown} of 5`,
-					onChange: (e) => void choose(Number(e.currentTarget.value))
+					onChange: (e) => choose(Number(e.currentTarget.value))
 				}),
 				/* @__PURE__ */ u("span", {
 					className: "muted",

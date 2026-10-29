@@ -73,3 +73,32 @@ test("a level off the bar shows as the middle, and one that can't be saved goes 
   expect(bar().value).toBe("3");
   expect(console.error).toHaveBeenCalled();
 });
+
+test("moved quickly, only the last level is saved, after any save under way", async () => {
+  const saved: Record<string, unknown> = { detail: 3 };
+  let release: () => void = () => {};
+  const bodies: unknown[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "PATCH") return Response.json(saved);
+      const body = JSON.parse(String(init.body));
+      bodies.push(body);
+      if (bodies.length === 1) await new Promise<void>((r) => (release = r)); // 4 answers late
+      Object.assign(saved, body);
+      return Response.json({ ...saved });
+    }),
+  );
+  await show();
+  await act(async () => {
+    fireEvent.change(bar(), { target: { value: "4" } });
+  });
+  await act(async () => {
+    fireEvent.change(bar(), { target: { value: "5" } });
+  });
+  expect(bar().value).toBe("5");
+  await act(async () => release());
+  await waitFor(() => expect(bodies).toEqual([{ detail: 4 }, { detail: 5 }]));
+  await waitFor(() => expect(saved.detail).toBe(5));
+  expect(bar().value).toBe("5");
+});

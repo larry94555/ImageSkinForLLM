@@ -20,9 +20,11 @@ from imageskin.chat import (
     Turn,
     at_length,
     detail_level,
+    estimate,
     reply_tokens,
     system_message,
     system_prompt,
+    tokens,
 )
 from imageskin.review import Review
 from imageskin.ui_settings import load_ui_settings, save_ui_settings
@@ -105,8 +107,8 @@ def test_the_warm_up_and_the_summary_use_the_level_set() -> None:
     )
     conversation.warm_up()
     assert warmed[0].startswith(system_prompt(4))
-    for i in range(6):  # enough for the older turns to be summarized
-        conversation.send(f"Question {i} " + "x" * 400)
+    for i in range(8):  # enough for the older turns to be summarized
+        conversation.send(f"Question {i} " + "x" * 300)
         conversation.wait()
     summaries = [m for m in llm.sent if m[-1]["content"] == SUMMARY_PROMPT]
     assert summaries and summaries[0][0]["content"].startswith(system_prompt(4))
@@ -150,7 +152,7 @@ def written(photo: Path, text: str, output: Path) -> None:
 
 
 def test_more_detail_takes_its_room_from_the_history_not_the_prompt() -> None:
-    long_prompt = "x" * 600  # fits in the middle of the bar, counted a token a byte
+    long_prompt = "x" * 450  # fits at every level, counted a token a byte
     for level in DETAIL_LEVELS:
         llm = Recorder()
         Conversation(llm, lambda: 4096, detail=functools.partial(int, level)).send(long_prompt)
@@ -184,3 +186,35 @@ def test_a_question_asked_again_at_another_level_is_sent_with_its_length() -> No
     )
     # The conversation keeps the question as asked.
     assert [t.content for t in conversation.turns()][::2] == ["Tell me about rain."] * 2
+
+
+def test_the_length_said_after_the_question_fits_the_window() -> None:
+    """Review on PR #221: the note went after passages that already filled the room left for
+    the prompt, so with the history at its budget the prompt and reply no longer fitted."""
+    with detail_level(5):
+        system = tokens(system_message(None), estimate)
+    window = 2 * (550 + system)
+    # What is left for the prompt once the history, the system prompt and the reply have
+    # theirs: about 250 tokens, less than the passages could take.
+    room = window - (window // 2 - (DETAIL_LEVELS[5][1] - REPLY_TOKENS))
+    room -= DETAIL_LEVELS[5][1] + system
+    sent: list[list[Message]] = []
+
+    def llm(messages: list[Message]) -> str:
+        sent.append(messages)
+        return "Reply."
+
+    conversation = Conversation(
+        llm, lambda: window, find=lambda prompt: ["alpha " * 200], detail=lambda: 5
+    )
+    conversation.send("Which?")
+    asked = sent[0][-1]
+    assert "alpha" in asked["content"] and asked["content"].endswith("complete and in depth.)")
+    assert tokens(asked, estimate) <= room
+
+
+def test_a_long_question_is_named_cut_in_the_note() -> None:
+    with detail_level(5):
+        note = at_length("", "why " * 60, [])
+    assert note.startswith('\n\n(Answer this question, "why why') and '…", in a few' in note
+    assert len(note) < 200

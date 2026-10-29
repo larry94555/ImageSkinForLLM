@@ -105,6 +105,10 @@ DETAIL_LENGTHS: dict[int, str] = {
 }
 
 
+# The most of the question named in the note; a long question is cut, as it is just above.
+NAMED_CHARS = 80
+
+
 def at_length(asked: str, prompt: str, turns: list["Turn"]) -> str:
     """What is asked, with the length of reply the level of detail calls for (R180) when it
     isn't the middle or the prompt was asked before in the turns sent; otherwise as it is."""
@@ -115,7 +119,8 @@ def at_length(asked: str, prompt: str, turns: list["Turn"]) -> str:
     # The question is named: "(Answer in a few paragraphs, even if asked before.)" made Gemma 3
     # 4B answer the question before it again, at length, after a short reply to it (Larry,
     # 2026-10-29; 3 times in 3 with it, none with the question named).
-    return f'{asked}\n\n(Answer this question, "{prompt}", in {DETAIL_LENGTHS[level]}.)'
+    named = prompt if len(prompt) <= NAMED_CHARS else prompt[: NAMED_CHARS - 1].rstrip() + "…"
+    return f'{asked}\n\n(Answer this question, "{named}", in {DETAIL_LENGTHS[level]}.)'
 
 
 def reply_tokens() -> int:
@@ -1128,15 +1133,20 @@ class Conversation:
         budget = max(0, int(window * HISTORY_SHARE) - (reply_tokens() - REPLY_TOKENS))
         count = self._count
         room = window - budget - reply_tokens() - tokens(system_message(None), count)
-        if tokens({"role": "user", "content": prompt}, count) > room:
-            logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
-            raise ValueError("That message is too long. Shorten it or split it in two.")
         # Normally the summary made after the last reply keeps this within budget; while it is
         # being made, or if it couldn't be, the oldest turns are left out. The summary may
         # replace the turns meanwhile, so the two are read together.
         with self._lock:
             summary, kept = self._summary, list(self._turns)
         turns = latest(kept, budget - history_tokens(summary, [], count), count)
+        # The length said after the question takes its room from the passages (review on PR
+        # #221), so the whole prompt still fits.
+        note = at_length("", prompt, turns)
+        if note:
+            room -= count(note)
+        if tokens({"role": "user", "content": prompt}, count) > room:
+            logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
+            raise ValueError("That message is too long. Shorten it or split it in two.")
         return _Fit(window, budget, room, turns, summary)
 
     def _send(
