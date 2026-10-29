@@ -387,6 +387,34 @@ def test_every_cause_checks_a_password_hash(
     with refused_for("waiting"):
         sign_ins.sign_in("hashed", "1.2.3.4")
     assert len(runs) == 1
+    # A hash that can't be used checks the dummy in its place (Codex's review).
+    write(path, 'password_hash = "scrypt$16384$8$1$cw==$cw=="\n')
+    runs.clear()
+    with refused_for("wrong password"):
+        sign_ins.sign_in("hashed", "5.6.7.8")
+    assert len(runs) == 1
+
+
+def test_the_first_sign_in_runs_scrypt_once_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Codex's review: a dummy made at the first sign-in would add a second scrypt run to it.
+    monkeypatch.setattr(admin, "_dummy", REAL_DUMMY)
+    REAL_DUMMY.cache_clear()
+    runs: list[int] = []
+    scrypt = hashlib.scrypt
+
+    def counted(*args: Any, **kwargs: Any) -> bytes:
+        runs.append(1)
+        return scrypt(*args, **kwargs)
+
+    monkeypatch.setattr(hashlib, "scrypt", counted)
+    sign_ins = AdminSignIns(tmp_path / "admin.toml")  # as the app starts: the dummy is made
+    assert len(runs) == 1
+    runs.clear()
+    with refused_for("no password set"):
+        sign_ins.sign_in("x", "1.2.3.4")
+    assert len(runs) == 1
 
 
 @contextmanager

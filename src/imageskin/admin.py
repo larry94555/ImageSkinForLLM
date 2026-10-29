@@ -83,7 +83,8 @@ def parse_hash(value: str) -> tuple[int, int, int, bytes, bytes]:
 
 def password_matches(password: str, secret: "Secret") -> bool:
     """Whether the password is the one in the file, compared in constant time. A hash that
-    can't be used matches nothing, so signing in is refused rather than failing."""
+    can't be used matches nothing, so signing in is refused rather than failing; the dummy hash
+    is checked in its place, so even then the work is one scrypt run (R162)."""
     if secret.kind == "password":
         return hmac.compare_digest(password.encode(), secret.value.encode())
     try:
@@ -92,6 +93,7 @@ def password_matches(password: str, secret: "Secret") -> bool:
     except (ValueError, TypeError, OverflowError, MemoryError) as e:
         # A hash that wasn't made by hash_password, was cut short or was edited by hand.
         logger.error("Admin password hash is not valid", extra={"error": str(e)})
+        password_matches(password, _dummy())
         return False
     return hmac.compare_digest(given, expected)
 
@@ -99,7 +101,8 @@ def password_matches(password: str, secret: "Secret") -> bool:
 @cache
 def _dummy() -> "Secret":
     """A hash no password matches, checked when there is nothing real to check, so every
-    failure takes about as long as a wrong password against a hash (R162)."""
+    failure takes about as long as a wrong password against a hash (R162). AdminSignIns makes
+    it when the app starts."""
     return Secret("hash", hash_password(secrets.token_urlsafe(32)))
 
 
@@ -171,6 +174,8 @@ class AdminSignIns:
         self._wrong: dict[str, tuple[int, float]] = {}
         self._file_seen: tuple[int, int] | None = None
         self._secret: Secret | None = None
+        # Made now, not at the first sign-in that needs it, which would run scrypt twice (R162).
+        _dummy()
 
     def secret(self) -> Secret | None:
         """The password in the file, read again only when the file has changed."""
