@@ -8,7 +8,7 @@ import { indexedDbStore, type KeyStore, useKeyStore } from "./laptop-key";
 // A server with consent given, the settings as `settings`, and an administrator password
 // "secret" unless `passwordSet` is false. `state` is changed by the tests to sign out by itself.
 function server(settings: Record<string, unknown> = {}, passwordSet = true) {
-  const state = { signedIn: false, ended: null as string | null, activityOk: true };
+  const state = { signedIn: false, ended: null as string | null, activityOk: true, listed: true };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true });
     if (url === "/api/settings") return Response.json(settings);
@@ -35,6 +35,7 @@ function server(settings: Record<string, unknown> = {}, passwordSet = true) {
       return Response.json({ signed_in: true });
     }
     if (url === "/api/admin/challenge") return Response.json({ challenge: "the challenge" });
+    if (url === "/api/admin/laptop") return Response.json({ listed: state.listed });
     if (url === "/api/admin/sign-out") {
       state.signedIn = false;
       return Response.json({ signed_in: false });
@@ -60,8 +61,10 @@ function adminSection() {
 
 async function signIn(password: string) {
   const section = adminSection();
+  // Shown once the server has said this laptop may sign in.
+  const field = await section.findByLabelText("Administrator password");
   await act(async () => {
-    fireEvent.input(section.getByLabelText("Administrator password"), {
+    fireEvent.input(field, {
       target: { value: password },
     });
   });
@@ -339,7 +342,8 @@ test("signing in sends this laptop's proof of the challenge", async () => {
   expect(body.password).toBe("secret");
   expect(body.laptop.challenge).toBe("the challenge");
   expect(atob(body.laptop.signature).length).toBe(64);
-  expect(calls(fetchMock, "/api/admin/challenge")).toBe(1);
+  // One challenge to ask whether this laptop is listed, one to sign in.
+  expect(calls(fetchMock, "/api/admin/challenge")).toBe(2);
 });
 
 test("at a plain http address the ID can't be shown and no proof is sent", async () => {
@@ -351,6 +355,8 @@ test("at a plain http address the ID can't be shown and no proof is sent", async
   const sent = fetchMock.mock.calls.find(([u]) => u === "/api/admin/sign-in")!;
   expect(JSON.parse(String(sent[1]!.body))).toEqual({ password: "secret" });
   expect(calls(fetchMock, "/api/admin/challenge")).toBe(0);
+  const asked = fetchMock.mock.calls.find(([u]) => u === "/api/admin/laptop")!;
+  expect(JSON.parse(String(asked[1]!.body))).toEqual({});
 });
 
 test("a key that can't be made says so", async () => {
@@ -363,4 +369,31 @@ test("a key that can't be made says so", async () => {
   server();
   await openAt("#/settings");
   await adminSection().findByText("This laptop's ID couldn't be made in this browser.");
+});
+
+test("a laptop that isn't listed gets no sign-in, only its ID to add", async () => {
+  secureBrowser();
+  const { fetchMock, state } = server();
+  state.listed = false;
+  await openAt("#/settings");
+  await adminSection().findByText(/isn't one of the laptops allowed to sign in/);
+  expect(adminSection().queryByLabelText("Administrator password")).toBeNull();
+  await adminSection().findByText(/^LT-/);
+  const asked = fetchMock.mock.calls.find(([u]) => u === "/api/admin/laptop")!;
+  const body = JSON.parse(String(asked[1]!.body)) as { laptop: { challenge: string } };
+  expect(body.laptop.challenge).toBe("the challenge");
+});
+
+test("when the laptop can't be checked, the sign-in is still shown", async () => {
+  const { fetchMock } = server();
+  const answer = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+    url === "/api/admin/laptop" ? new Response("", { status: 500 }) : answer(url, init),
+  );
+  await openAt("#/settings");
+  await screen.findByLabelText("Administrator password");
+  expect(console.error).toHaveBeenCalledWith(
+    "Could not ask whether this laptop is listed",
+    expect.anything(),
+  );
 });

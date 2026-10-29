@@ -14,6 +14,7 @@ import {
   type AdminSession,
   getAdminChallenge,
   getAdminSession,
+  isLaptopListed,
   ServerRefusal,
   signInAsAdmin,
   signOutAsAdmin,
@@ -167,8 +168,8 @@ export function AdminEndedNotice() {
   );
 }
 
-// This laptop's ID (R164), to list in admin-laptops.toml on the host. Shown to anyone, whether or
-// not a list exists or holds it, so the page never hints at whether this laptop is allowed.
+// This laptop's ID (R164), to list in admin-laptops.toml on the host. Shown on every laptop, listed
+// or not, so a laptop not yet listed can be added.
 export function LaptopId() {
   const [id, setId] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -234,8 +235,30 @@ export function AdminSection() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Whether this laptop may sign in (null while asking): the sign-in is shown only where it can
+  // work, not on a laptop the host's laptops file leaves out (Larry, 2026-10-29).
+  const [listed, setListed] = useState<boolean | null>(null);
+  const asking = session !== null && !session.signed_in && session.password_set;
 
   useEffect(() => console.info("Admin sign-in shown"), []);
+
+  useEffect(() => {
+    if (!asking) return;
+    let current = true;
+    (async () => {
+      const laptop = canProve() ? await prove(await getAdminChallenge()) : undefined;
+      const answer = await isLaptopListed(laptop);
+      console.info(`Laptop listed for admin: ${answer}`);
+      if (current) setListed(answer);
+    })().catch((err: unknown) => {
+      // The server still checks the laptop at sign-in, so the sign-in is shown rather than lost.
+      console.error("Could not ask whether this laptop is listed", err);
+      if (current) setListed(true);
+    });
+    return () => {
+      current = false;
+    };
+  }, [asking]);
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -295,7 +318,14 @@ export function AdminSection() {
         says.
       </p>
     );
-  } else if (session) {
+  } else if (session && listed === false) {
+    body = (
+      <p className="muted">
+        This laptop isn't one of the laptops allowed to sign in as administrator. To allow it,
+        whoever runs the computer adds this laptop's ID, below, to admin-laptops.toml.
+      </p>
+    );
+  } else if (session && listed) {
     body = (
       <form onSubmit={(e) => void submit(e)}>
         <label>

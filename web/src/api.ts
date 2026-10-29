@@ -1091,6 +1091,17 @@ export async function getAdminChallenge(): Promise<string> {
   return (await json<{ challenge: string }>(await fetch("/api/admin/challenge"))).challenge;
 }
 
+// Whether this laptop may sign in as administrator (R164): always when the host has no laptops
+// file, else only with a proof from a listed laptop.
+export async function isLaptopListed(laptop?: LaptopProof): Promise<boolean> {
+  const response = await fetch("/api/admin/laptop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(laptop ? { laptop } : {}),
+  });
+  return (await json<{ listed: boolean }>(response)).listed;
+}
+
 // Throws a ServerRefusal with R162's one message, whatever the cause, when refused. The laptop's
 // proof (R164) goes with the password where the browser can make one.
 export async function signInAsAdmin(password: string, laptop?: LaptopProof): Promise<void> {

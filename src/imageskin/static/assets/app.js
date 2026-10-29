@@ -468,6 +468,13 @@ async function getAdminSession() {
 async function getAdminChallenge() {
 	return (await json(await fetch("/api/admin/challenge"))).challenge;
 }
+async function isLaptopListed(laptop) {
+	return (await json(await fetch("/api/admin/laptop", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(laptop ? { laptop } : {})
+	}))).listed;
+}
 async function signInAsAdmin(password, laptop) {
 	const response = await fetch("/api/admin/sign-in", {
 		method: "POST",
@@ -1236,7 +1243,24 @@ function AdminSection() {
 	const [password, setPassword] = d("");
 	const [busy, setBusy] = d(false);
 	const [error, setError] = d(null);
+	const [listed, setListed] = d(null);
+	const asking = session !== null && !session.signed_in && session.password_set;
 	h(() => console.info("Admin sign-in shown"), []);
+	h(() => {
+		if (!asking) return;
+		let current = true;
+		(async () => {
+			const answer = await isLaptopListed(canProve() ? await prove(await getAdminChallenge()) : void 0);
+			console.info(`Laptop listed for admin: ${answer}`);
+			if (current) setListed(answer);
+		})().catch((err) => {
+			console.error("Could not ask whether this laptop is listed", err);
+			if (current) setListed(true);
+		});
+		return () => {
+			current = false;
+		};
+	}, [asking]);
 	async function submit(e) {
 		e.preventDefault();
 		setBusy(true);
@@ -1301,7 +1325,11 @@ function AdminSection() {
 			"says."
 		]
 	});
-	else if (session) body = /* @__PURE__ */ u("form", {
+	else if (session && listed === false) body = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "This laptop isn't one of the laptops allowed to sign in as administrator. To allow it, whoever runs the computer adds this laptop's ID, below, to admin-laptops.toml."
+	});
+	else if (session && listed) body = /* @__PURE__ */ u("form", {
 		onSubmit: (e) => void submit(e),
 		children: [
 			/* @__PURE__ */ u("label", { children: [

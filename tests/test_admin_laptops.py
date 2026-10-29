@@ -373,3 +373,40 @@ def test_the_config_takes_a_laptops_file(tmp_path: Path) -> None:
     config.write_text("admin_laptops_file = 3\n")
     with pytest.raises(ConfigError, match="admin_laptops_file"):
         load_settings(config)
+
+
+def test_the_api_says_whether_this_laptop_is_listed(
+    home: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    listed, other = Laptop(), Laptop()
+    browser = TestClient(create_app(home))
+
+    def ask(laptop: Laptop | None) -> object:
+        body: dict[str, object] = {}
+        if laptop:
+            body["laptop"] = laptop.body(browser.get("/api/admin/challenge").json()["challenge"])
+        return browser.post("/api/admin/laptop", json=body).json()["listed"]
+
+    assert ask(None) is True and ask(other) is True  # no file: any laptop
+    write(home / "admin-laptops.toml", listing(listed))
+    assert ask(listed) is True
+    assert ask(other) is False
+    assert ask(None) is False
+    checks = [r for r in caplog.records if r.getMessage() == "Admin laptop checked"]
+    assert [(r.laptop, r.listed) for r in checks][-3:] == [  # type: ignore[attr-defined]
+        (listed.id, True),
+        (other.id, False),
+        (None, False),
+    ]
+    # Asking is not a failed sign-in: no wait follows, however often it is asked.
+    for _ in range(6):
+        ask(other)
+    answer = browser.post(
+        "/api/admin/sign-in",
+        json={
+            "password": "first secret",
+            "laptop": listed.body(browser.get("/api/admin/challenge").json()["challenge"]),
+        },
+    )
+    assert answer.json() == {"signed_in": True}
