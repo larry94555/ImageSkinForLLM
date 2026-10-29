@@ -12,6 +12,7 @@ import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import {
   adminActivity,
   type AdminSession,
+  getAdminChallenge,
   getAdminSession,
   ServerRefusal,
   signInAsAdmin,
@@ -19,6 +20,7 @@ import {
 } from "./api";
 import { AdminSettingsPage } from "./admin-settings";
 import { ResourceDashboard } from "./dashboard";
+import { canProve, laptopEntry, laptopId, prove } from "./laptop-key";
 
 // Every step of setting the password, on a laptop and on the hosted site (R151).
 export const GUIDE =
@@ -94,7 +96,10 @@ export function AdminProvider({ children }: { children: ComponentChildren }) {
 
   async function signIn(password: string) {
     const started = performance.now();
-    await signInAsAdmin(password);
+    // This laptop's proof (R164), where the browser can make one; without it, a site with a
+    // laptops file refuses the sign-in with the same message as any other failure.
+    const laptop = canProve() ? await prove(await getAdminChallenge()) : undefined;
+    await signInAsAdmin(password, laptop);
     console.info(`Admin signed in (${Math.round(performance.now() - started)} ms)`);
     setEnded(null);
     await refresh();
@@ -159,6 +164,67 @@ export function AdminEndedNotice() {
         OK
       </button>
     </p>
+  );
+}
+
+// This laptop's ID (R164), to list in admin-laptops.toml on the host. Shown to anyone, whether or
+// not a list exists or holds it, so the page never hints at whether this laptop is allowed.
+export function LaptopId() {
+  const [id, setId] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const usable = canProve();
+
+  useEffect(() => {
+    if (!usable) return;
+    laptopId().then(setId, (err: unknown) => {
+      console.error("Could not make this laptop's key", err);
+      setFailed(true);
+    });
+  }, [usable]);
+
+  async function copy() {
+    if (!id) return;
+    try {
+      await navigator.clipboard.writeText(laptopEntry(id));
+      setCopied(true);
+    } catch (err) {
+      console.error("Could not copy the laptop ID", err);
+    }
+  }
+
+  let shown: ComponentChildren;
+  if (!usable) {
+    shown = (
+      <p className="muted">
+        This laptop's ID can't be shown at this address. It needs the site's https:// address, or
+        http://localhost on the computer running the app.
+      </p>
+    );
+  } else if (failed) {
+    shown = <p className="muted">This laptop's ID couldn't be made in this browser.</p>;
+  } else {
+    shown = (
+      <>
+        <p>
+          This laptop's ID: <code>{id ?? "…"}</code>{" "}
+          <button type="button" className="secondary" disabled={!id} onClick={() => void copy()}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </p>
+        <p className="muted">
+          To let only listed laptops sign in, whoever runs the computer pastes what Copy gives into
+          admin-laptops.toml, beside admin.toml. Each browser has its own ID, and clearing this
+          site's data makes a new one.
+        </p>
+      </>
+    );
+  }
+  return (
+    <div className="laptop-id">
+      <h3>This laptop</h3>
+      {shown}
+    </div>
   );
 }
 
@@ -254,6 +320,7 @@ export function AdminSection() {
       <p className="muted">Running the site as a whole, apart from the host and participant views.</p>
       {error && <p className="error">{error}</p>}
       {body}
+      <LaptopId />
     </section>
   );
 }

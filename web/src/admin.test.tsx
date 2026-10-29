@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { CHECK_MS, GUIDE } from "./admin";
 import { App } from "./App";
+import { indexedDbStore, type KeyStore, useKeyStore } from "./laptop-key";
 
 // A server with consent given, the settings as `settings`, and an administrator password
 // "secret" unless `passwordSet` is false. `state` is changed by the tests to sign out by itself.
@@ -33,6 +34,7 @@ function server(settings: Record<string, unknown> = {}, passwordSet = true) {
       state.signedIn = true;
       return Response.json({ signed_in: true });
     }
+    if (url === "/api/admin/challenge") return Response.json({ challenge: "the challenge" });
     if (url === "/api/admin/sign-out") {
       state.signedIn = false;
       return Response.json({ signed_in: false });
@@ -79,6 +81,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useKeyStore(indexedDbStore);
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -283,4 +286,81 @@ test("a server that can't be reached leaves the sign-in waiting", async () => {
     "Could not read the administrator sign-in",
     expect.any(Error),
   );
+});
+
+// A browser that can make a laptop key (HTTPS or localhost), kept in memory for the test.
+function secureBrowser(): void {
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("indexedDB", {});
+  let kept: CryptoKeyPair | undefined;
+  const store: KeyStore = {
+    load: async () => kept,
+    save: async (pair) => {
+      kept = pair;
+    },
+  };
+  useKeyStore(store);
+}
+
+test("the Settings page shows this laptop's ID, and Copy gives the lines for the file", async () => {
+  secureBrowser();
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  server();
+  await openAt("#/settings");
+  const id = (await adminSection().findByText(/^LT(-[A-Z2-7]{4}){5}$/)).textContent!;
+  await act(async () => {
+    fireEvent.click(adminSection().getByRole("button", { name: "Copy" }));
+  });
+  expect(writeText).toHaveBeenCalledWith(`[[laptop]]\nname = "My laptop"\nid = "${id}"\n`);
+  await adminSection().findByRole("button", { name: "Copied" });
+  expect(console.info).toHaveBeenCalledWith("Laptop ID shown");
+});
+
+test("the ID is shown whether or not a password is set or signed in", async () => {
+  secureBrowser();
+  server({}, false);
+  await openAt("#/settings");
+  await adminSection().findByText(/^LT-/);
+});
+
+test("signing in sends this laptop's proof of the challenge", async () => {
+  secureBrowser();
+  const { fetchMock } = server();
+  await openAt("#/settings");
+  await adminSection().findByText(/^LT-/);
+  await signIn("secret");
+  await screen.findByRole("link", { name: "Admin" });
+  const sent = fetchMock.mock.calls.find(([u]) => u === "/api/admin/sign-in")!;
+  const body = JSON.parse(String(sent[1]!.body)) as {
+    password: string;
+    laptop: { public_key: string; challenge: string; signature: string };
+  };
+  expect(body.password).toBe("secret");
+  expect(body.laptop.challenge).toBe("the challenge");
+  expect(atob(body.laptop.signature).length).toBe(64);
+  expect(calls(fetchMock, "/api/admin/challenge")).toBe(1);
+});
+
+test("at a plain http address the ID can't be shown and no proof is sent", async () => {
+  const { fetchMock } = server();
+  await openAt("#/settings");
+  await adminSection().findByText(/can't be shown at this address/);
+  await signIn("secret");
+  await screen.findByRole("link", { name: "Admin" });
+  const sent = fetchMock.mock.calls.find(([u]) => u === "/api/admin/sign-in")!;
+  expect(JSON.parse(String(sent[1]!.body))).toEqual({ password: "secret" });
+  expect(calls(fetchMock, "/api/admin/challenge")).toBe(0);
+});
+
+test("a key that can't be made says so", async () => {
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("indexedDB", {});
+  useKeyStore({
+    load: () => Promise.reject(new Error("blocked")),
+    save: async () => {},
+  });
+  server();
+  await openAt("#/settings");
+  await adminSection().findByText("This laptop's ID couldn't be made in this browser.");
 });

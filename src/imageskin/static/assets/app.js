@@ -465,11 +465,17 @@ async function signOutChatGpt() {
 async function getAdminSession() {
 	return json(await fetch("/api/admin/session"));
 }
-async function signInAsAdmin(password) {
+async function getAdminChallenge() {
+	return (await json(await fetch("/api/admin/challenge"))).challenge;
+}
+async function signInAsAdmin(password, laptop) {
 	const response = await fetch("/api/admin/sign-in", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ password })
+		body: JSON.stringify(laptop ? {
+			password,
+			laptop
+		} : { password })
 	});
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
@@ -954,6 +960,107 @@ function AdminSettingsPage() {
 	});
 }
 //#endregion
+//#region src/laptop-key.ts
+var DB = "imageskin-laptop";
+var STORE = "keys";
+var KEY = "laptop";
+function request(r) {
+	return new Promise((resolve, reject) => {
+		r.onsuccess = () => resolve(r.result);
+		r.onerror = () => reject(r.error ?? /* @__PURE__ */ new Error("IndexedDB request failed"));
+	});
+}
+function openDb() {
+	const open = indexedDB.open(DB, 1);
+	open.onupgradeneeded = () => open.result.createObjectStore(STORE);
+	return request(open);
+}
+var store = {
+	async load() {
+		const db = await openDb();
+		try {
+			return await request(db.transaction(STORE).objectStore(STORE).get(KEY));
+		} finally {
+			db.close();
+		}
+	},
+	async save(pair) {
+		const db = await openDb();
+		try {
+			await request(db.transaction(STORE, "readwrite").objectStore(STORE).put(pair, KEY));
+		} finally {
+			db.close();
+		}
+	}
+};
+var pair = null;
+function canProve() {
+	return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle && globalThis.indexedDB);
+}
+function keyPair() {
+	pair ??= (async () => {
+		const kept = await store.load();
+		if (kept) return kept;
+		const made = await crypto.subtle.generateKey({
+			name: "ECDSA",
+			namedCurve: "P-256"
+		}, false, ["sign", "verify"]);
+		await store.save(made);
+		console.info("Laptop key made");
+		return made;
+	})();
+	pair.catch(() => pair = null);
+	return pair;
+}
+var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function base32(bytes) {
+	let bits = 0;
+	let value = 0;
+	let out = "";
+	for (const byte of bytes) {
+		value = value << 8 | byte;
+		bits += 8;
+		while (bits >= 5) {
+			out += BASE32[value >>> bits - 5 & 31];
+			bits -= 5;
+		}
+	}
+	if (bits > 0) out += BASE32[value << 5 - bits & 31];
+	return out;
+}
+function base64(bytes) {
+	return btoa(String.fromCharCode(...new Uint8Array(bytes)));
+}
+async function idFromSpki(spki) {
+	return "LT-" + (base32(new Uint8Array(await crypto.subtle.digest("SHA-256", spki))).slice(0, 20).match(/.{4}/g) ?? []).join("-");
+}
+async function publicSpki() {
+	return crypto.subtle.exportKey("spki", (await keyPair()).publicKey);
+}
+async function laptopId() {
+	const id = await idFromSpki(await publicSpki());
+	console.info("Laptop ID shown");
+	return id;
+}
+async function prove(challenge) {
+	const start = performance.now();
+	const { privateKey } = await keyPair();
+	const signature = await crypto.subtle.sign({
+		name: "ECDSA",
+		hash: "SHA-256"
+	}, privateKey, new TextEncoder().encode(challenge));
+	const proof = {
+		public_key: base64(await publicSpki()),
+		challenge,
+		signature: base64(signature)
+	};
+	console.info(`Laptop proof sent (${Math.round(performance.now() - start)} ms)`);
+	return proof;
+}
+function laptopEntry(id) {
+	return `[[laptop]]\nname = "My laptop"\nid = "${id}"\n`;
+}
+//#endregion
 //#region src/admin.tsx
 var GUIDE = "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides/Admin-Password-Guide.pdf";
 var CHECK_MS = 6e4;
@@ -1002,7 +1109,7 @@ function AdminProvider({ children }) {
 	}, [signedIn]);
 	async function signIn(password) {
 		const started = performance.now();
-		await signInAsAdmin(password);
+		await signInAsAdmin(password, canProve() ? await prove(await getAdminChallenge()) : void 0);
 		console.info(`Admin signed in (${Math.round(performance.now() - started)} ms)`);
 		setEnded(null);
 		await refresh();
@@ -1072,6 +1179,56 @@ function AdminEndedNotice() {
 				children: "OK"
 			})
 		]
+	});
+}
+function LaptopId() {
+	const [id, setId] = d(null);
+	const [failed, setFailed] = d(false);
+	const [copied, setCopied] = d(false);
+	const usable = canProve();
+	h(() => {
+		if (!usable) return;
+		laptopId().then(setId, (err) => {
+			console.error("Could not make this laptop's key", err);
+			setFailed(true);
+		});
+	}, [usable]);
+	async function copy() {
+		if (!id) return;
+		try {
+			await navigator.clipboard.writeText(laptopEntry(id));
+			setCopied(true);
+		} catch (err) {
+			console.error("Could not copy the laptop ID", err);
+		}
+	}
+	let shown;
+	if (!usable) shown = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "This laptop's ID can't be shown at this address. It needs the site's https:// address, or http://localhost on the computer running the app."
+	});
+	else if (failed) shown = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "This laptop's ID couldn't be made in this browser."
+	});
+	else shown = /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: [
+		"This laptop's ID: ",
+		/* @__PURE__ */ u("code", { children: id ?? "…" }),
+		" ",
+		/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: !id,
+			onClick: () => void copy(),
+			children: copied ? "Copied" : "Copy"
+		})
+	] }), /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "To let only listed laptops sign in, whoever runs the computer pastes what Copy gives into admin-laptops.toml, beside admin.toml. Each browser has its own ID, and clearing this site's data makes a new one."
+	})] });
+	return /* @__PURE__ */ u("div", {
+		className: "laptop-id",
+		children: [/* @__PURE__ */ u("h3", { children: "This laptop" }), shown]
 	});
 }
 function AdminSection() {
@@ -1181,7 +1338,8 @@ function AdminSection() {
 				className: "error",
 				children: error
 			}),
-			body
+			body,
+			/* @__PURE__ */ u(LaptopId, {})
 		]
 	});
 }
