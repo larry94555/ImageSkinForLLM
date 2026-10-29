@@ -518,6 +518,14 @@ async function saveWizardStep(step) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return (await response.json()).step;
 }
+async function reportCamera(report) {
+	const response = await fetch("/api/wizard/camera", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(report)
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -8436,6 +8444,274 @@ function HostTrail() {
 		]
 	});
 }
+var WHY_NOT = {
+	insecure: "The browser allows the camera only on a secure page (HTTPS) or on this computer (localhost), and this page is neither.",
+	unsupported: "This browser can't use a camera.",
+	refused: "The browser wasn't allowed to use the camera.",
+	"no-camera": "No camera was found on this computer.",
+	failed: "The camera could not be started. It may be in use by another app."
+};
+function cameraBlocked() {
+	if (window.isSecureContext === false) return "insecure";
+	if (!navigator.mediaDevices?.getUserMedia) return "unsupported";
+	return null;
+}
+function reasonOf(error) {
+	const name = error?.name;
+	if (name === "NotAllowedError" || name === "SecurityError") return "refused";
+	if (name === "NotFoundError" || name === "OverconstrainedError") return "no-camera";
+	if (name === "NotSupportedError") return "unsupported";
+	return "failed";
+}
+function grabFrame(video) {
+	const width = video.videoWidth;
+	const height = video.videoHeight;
+	const canvas = document.createElement("canvas");
+	canvas.width = width;
+	canvas.height = height;
+	const context = canvas.getContext("2d");
+	if (!context) return Promise.reject(/* @__PURE__ */ new Error("The picture could not be taken."));
+	context.drawImage(video, 0, 0, width, height);
+	return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve({
+		blob,
+		width,
+		height
+	}) : reject(/* @__PURE__ */ new Error("The picture could not be taken.")), "image/jpeg", .92));
+}
+function stopTracks(stream) {
+	stream?.getTracks().forEach((t) => t.stop());
+}
+function report(r) {
+	reportCamera(r).catch((e) => console.error("Could not log the camera's use", e));
+}
+function CameraPhoto(props) {
+	const grab = props.grab ?? grabFrame;
+	const [phase, setPhase] = d("starting");
+	const [reason, setReason] = d(null);
+	const [count, setCount] = d(3);
+	const [shot, setShot] = d(null);
+	const video = A(null);
+	const stream = A(null);
+	const timers = A([]);
+	const alive = A(true);
+	const guard = useSettingGuard();
+	function stopCamera() {
+		if (stream.current) console.info("Camera turned off");
+		stopTracks(stream.current);
+		stream.current = null;
+	}
+	function notUsed(why, error) {
+		if (error) console.error(`Camera not used (${why})`, error);
+		else console.info(`Camera not used (${why})`);
+		report({
+			taken: false,
+			reason: why
+		});
+		setReason(why);
+		setPhase("off");
+	}
+	async function start() {
+		setPhase("starting");
+		const blocked = cameraBlocked();
+		if (blocked) {
+			notUsed(blocked);
+			return;
+		}
+		const started = performance.now();
+		try {
+			const media = await navigator.mediaDevices.getUserMedia({
+				video: {
+					facingMode: "user",
+					width: { ideal: 1920 },
+					height: { ideal: 1080 }
+				},
+				audio: false
+			});
+			if (!alive.current) {
+				stopTracks(media);
+				return;
+			}
+			stream.current = media;
+			console.info(`Camera on in ${Math.round(performance.now() - started)} ms`);
+			setPhase("live");
+		} catch (e) {
+			if (alive.current) notUsed(reasonOf(e), e);
+		}
+	}
+	h(() => {
+		const element = video.current;
+		if (phase !== "live" || !element || !stream.current) return;
+		element.srcObject = stream.current;
+		element.play().catch((e) => console.error("Could not play the live picture", e));
+	}, [phase]);
+	h(() => {
+		alive.current = true;
+		start();
+		return () => {
+			alive.current = false;
+			timers.current.forEach((t) => window.clearTimeout(t));
+			stopCamera();
+		};
+	}, []);
+	const shown = A(null);
+	function show(url) {
+		if (shown.current && shown.current !== url) URL.revokeObjectURL(shown.current);
+		shown.current = url;
+	}
+	h(() => () => show(null), []);
+	function takePhoto() {
+		setPhase("counting");
+		setCount(3);
+		for (let s = 1; s <= 3; s++) timers.current.push(window.setTimeout(() => s < 3 ? setCount(3 - s) : void capture(), s * 1e3));
+	}
+	async function capture() {
+		timers.current = [];
+		const element = video.current;
+		if (!element) return;
+		let grabbed;
+		try {
+			grabbed = await grab(element);
+		} catch (e) {
+			console.error("Could not take the picture", e);
+			setShot(null);
+			setPhase("live");
+			return;
+		}
+		stopCamera();
+		report({
+			taken: true,
+			width: grabbed.width,
+			height: grabbed.height
+		});
+		console.info(`Camera photo taken: ${grabbed.width}×${grabbed.height}`);
+		const url = URL.createObjectURL(grabbed.blob);
+		show(url);
+		setShot({
+			url,
+			upload: null,
+			error: null
+		});
+		if (!await guard.confirm("Add the photo you took?")) {
+			setPhase("taken");
+			return;
+		}
+		setPhase("checking");
+		props.onChanging(true);
+		const started = performance.now();
+		const name = `camera-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.jpg`;
+		try {
+			const upload = await uploadFile("photos", new File([grabbed.blob], name, { type: "image/jpeg" }));
+			console.info(`Camera photo checked in ${Math.round(performance.now() - started)} ms`);
+			if (alive.current) setShot({
+				url,
+				upload,
+				error: null
+			});
+			props.onAdded();
+		} catch (e) {
+			console.error("Camera photo refused", e);
+			if (alive.current) setShot({
+				url,
+				upload: null,
+				error: e.message
+			});
+		}
+		props.onChanging(false);
+		if (alive.current) setPhase("taken");
+	}
+	function retake() {
+		console.info("Retaking the photo");
+		show(null);
+		setShot(null);
+		start();
+	}
+	if (phase === "off") return /* @__PURE__ */ u("div", {
+		className: "camera off",
+		role: "note",
+		children: [
+			/* @__PURE__ */ u("strong", { children: "The camera can't be used." }),
+			" ",
+			reason && WHY_NOT[reason],
+			" Add a photo you already have below instead.",
+			reason !== "insecure" && reason !== "unsupported" && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: retake,
+				children: "Try the camera again"
+			})
+		]
+	});
+	const passed = shot?.upload?.problems?.length === 0;
+	return /* @__PURE__ */ u("div", {
+		className: "camera",
+		children: [
+			shot ? /* @__PURE__ */ u("img", {
+				className: "camera-view",
+				src: shot.url,
+				alt: "The photo you took"
+			}) : /* @__PURE__ */ u("div", {
+				className: "camera-view",
+				children: [
+					/* @__PURE__ */ u("video", {
+						ref: video,
+						muted: true,
+						playsInline: true,
+						"aria-label": "The camera's live picture"
+					}),
+					/* @__PURE__ */ u("svg", {
+						className: "outline",
+						viewBox: "0 0 160 120",
+						"aria-hidden": "true",
+						children: [/* @__PURE__ */ u("ellipse", {
+							cx: "80",
+							cy: "48",
+							rx: "25",
+							ry: "33"
+						}), /* @__PURE__ */ u("path", { d: "M30 120c4-24 22-34 50-34s46 10 50 34" })]
+					}),
+					phase === "counting" && /* @__PURE__ */ u("span", {
+						className: "countdown",
+						children: count
+					}),
+					phase === "starting" && /* @__PURE__ */ u("p", {
+						className: "muted busy camera-note",
+						children: "Asking for the camera…"
+					})
+				]
+			}),
+			phase === "checking" && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Checking the photo…"
+			}),
+			shot?.upload && /* @__PURE__ */ u(Checks, {
+				item: shot.upload,
+				queue: -1
+			}),
+			shot?.upload && passed && /* @__PURE__ */ u("p", {
+				className: "done",
+				children: "Kept. Click Next, or Retake to try again."
+			}),
+			shot?.error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: shot.error
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "choices",
+				children: [(phase === "live" || phase === "counting") && /* @__PURE__ */ u("button", {
+					type: "button",
+					disabled: phase === "counting",
+					onClick: takePhoto,
+					children: phase === "counting" ? `Taking in ${count}…` : "Take photo"
+				}), phase === "taken" && /* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					onClick: retake,
+					children: "Retake"
+				})]
+			})
+		]
+	});
+}
 //#endregion
 //#region src/wizard.tsx
 var STEP_TITLES = {
@@ -8672,6 +8948,11 @@ function Placeholder(props) {
 }
 function PhotoStep(props) {
 	const [changes, setChanges] = d(0);
+	const [taken, setTaken] = d(0);
+	function changing(busy) {
+		props.onReady(false);
+		if (!busy) setChanges((n) => n + 1);
+	}
 	h(() => {
 		let newest = true;
 		getPhotoChoice().then((c) => {
@@ -8681,38 +8962,45 @@ function PhotoStep(props) {
 			newest = false;
 		};
 	}, [changes]);
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u(Placeholder, {
-			what: "Taking the photo with your camera",
-			instead: "For now, add a photo you already have."
-		}),
-		/* @__PURE__ */ u("ul", {
-			className: "tips",
-			children: [
-				/* @__PURE__ */ u("li", { children: "Face the camera, with your head and shoulders in the picture." }),
-				/* @__PURE__ */ u("li", { children: "Use soft, even light from the front, with a plain background." }),
-				/* @__PURE__ */ u("li", { children: "Keep a neutral face with your mouth closed." })
-			]
-		}),
-		/* @__PURE__ */ u(UploadSection, {
-			kind: "photos",
-			step: null,
-			title: STEP_TITLES.photo,
-			button: "Add a photo",
-			hint: "JPG, PNG or HEIC. Next is ready once a photo passes the checks.",
-			accept: "image/jpeg,image/png,image/heic,.heic",
-			notice: props.notice,
-			onChanging: (busy) => {
-				props.onReady(false);
-				if (!busy) setChanges((n) => n + 1);
-			},
-			onChange: () => {
-				props.onReady(false);
-				setChanges((n) => n + 1);
-				props.onChange();
-			}
-		})
-	] });
+	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("section", {
+		className: "panel",
+		children: [
+			/* @__PURE__ */ u("h2", { children: STEP_TITLES.photo }),
+			props.notice && /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: props.notice
+			}),
+			/* @__PURE__ */ u("ul", {
+				className: "tips",
+				children: [
+					/* @__PURE__ */ u("li", { children: "Face the camera, with your head and shoulders inside the outline." }),
+					/* @__PURE__ */ u("li", { children: "Use soft, even light from the front, with a plain background." }),
+					/* @__PURE__ */ u("li", { children: "Keep a neutral face with your mouth closed." })
+				]
+			}),
+			/* @__PURE__ */ u(CameraPhoto, {
+				onChanging: changing,
+				onAdded: () => {
+					setTaken((n) => n + 1);
+					props.onChange();
+				}
+			})
+		]
+	}), /* @__PURE__ */ u(UploadSection, {
+		kind: "photos",
+		step: null,
+		title: "Your photos",
+		button: "Add a photo file",
+		hint: "The photos you took, and any you add as files (JPG, PNG or HEIC). Next is ready once one passes the checks.",
+		accept: "image/jpeg,image/png,image/heic,.heic",
+		notice: null,
+		onChanging: changing,
+		onChange: () => {
+			props.onReady(false);
+			setChanges((n) => n + 1);
+			props.onChange();
+		}
+	}, taken)] });
 }
 function VoiceStep(props) {
 	h(() => props.onReady(true), []);

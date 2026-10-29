@@ -17,6 +17,7 @@ import {
   type WizardStep,
 } from "./api";
 import { useLeaveGuard } from "./leave-guard";
+import { CameraPhoto } from "./camera";
 import { AccentSection, PrepareSection, ReviewChoices, UploadSection } from "./pages";
 import { type SetupPart } from "./router";
 import { SettingGuard, usePrepareStopGuard } from "./setting-guard";
@@ -266,6 +267,14 @@ function PhotoStep(props: {
   onChange: () => void;
 }) {
   const [changes, setChanges] = useState(0);
+  // Read again after a photo is taken with the camera, so the list shows it.
+  const [taken, setTaken] = useState(0);
+  // Next waits until the new choice is read, so a photo just removed can't be used to go on
+  // (Codex's review of PR #224).
+  function changing(busy: boolean) {
+    props.onReady(false);
+    if (!busy) setChanges((n) => n + 1); // over: read the choice again
+  }
   useEffect(() => {
     let newest = true;
     getPhotoChoice()
@@ -279,29 +288,32 @@ function PhotoStep(props: {
   }, [changes]);
   return (
     <>
-      <Placeholder
-        what="Taking the photo with your camera"
-        instead="For now, add a photo you already have."
-      />
-      <ul className="tips">
-        <li>Face the camera, with your head and shoulders in the picture.</li>
-        <li>Use soft, even light from the front, with a plain background.</li>
-        <li>Keep a neutral face with your mouth closed.</li>
-      </ul>
+      <section className="panel">
+        <h2>{STEP_TITLES.photo}</h2>
+        {props.notice && <p className="notice">{props.notice}</p>}
+        <ul className="tips">
+          <li>Face the camera, with your head and shoulders inside the outline.</li>
+          <li>Use soft, even light from the front, with a plain background.</li>
+          <li>Keep a neutral face with your mouth closed.</li>
+        </ul>
+        <CameraPhoto
+          onChanging={changing}
+          onAdded={() => {
+            setTaken((n) => n + 1);
+            props.onChange();
+          }}
+        />
+      </section>
       <UploadSection
+        key={taken}
         kind="photos"
         step={null}
-        title={STEP_TITLES.photo}
-        button="Add a photo"
-        hint="JPG, PNG or HEIC. Next is ready once a photo passes the checks."
+        title="Your photos"
+        button="Add a photo file"
+        hint="The photos you took, and any you add as files (JPG, PNG or HEIC). Next is ready once one passes the checks."
         accept="image/jpeg,image/png,image/heic,.heic"
-        notice={props.notice}
-        // Next waits until the new choice is read, so a photo just removed can't be used to go
-        // on (Codex's review of PR #224).
-        onChanging={(busy) => {
-          props.onReady(false);
-          if (!busy) setChanges((n) => n + 1); // over: read the choice again
-        }}
+        notice={null}
+        onChanging={changing}
         onChange={() => {
           props.onReady(false);
           setChanges((n) => n + 1);

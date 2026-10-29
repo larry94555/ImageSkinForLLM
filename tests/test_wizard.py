@@ -76,3 +76,34 @@ def test_delete_my_data_starts_the_wizard_again(tmp_path: Path) -> None:
     save_step(tmp_path, "review")
     delete_my_data(tmp_path)
     assert load_step(tmp_path) == "start"
+
+
+def test_camera_photo_taken_is_logged_with_its_size(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = TestClient(create_app(tmp_path))
+    with caplog.at_level(logging.INFO, logger="imageskin.wizard"):
+        response = client.post(
+            "/api/wizard/camera", json={"taken": True, "width": 1280, "height": 720}
+        )
+    assert response.json() == {"logged": True}
+    record = next(r for r in caplog.records if r.getMessage() == "Camera photo taken")
+    assert (vars(record)["width"], vars(record)["height"]) == (1280, 720)
+
+
+@pytest.mark.parametrize("reason", ["insecure", "unsupported", "refused", "no-camera", "failed"])
+def test_camera_not_used_is_logged_with_the_reason(
+    tmp_path: Path, reason: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = TestClient(create_app(tmp_path))
+    with caplog.at_level(logging.INFO, logger="imageskin.wizard"):
+        assert client.post("/api/wizard/camera", json={"taken": False, "reason": reason}).is_success
+    record = next(r for r in caplog.records if r.getMessage() == "Camera not used")
+    assert vars(record)["reason"] == reason
+
+
+def test_camera_report_with_an_unknown_reason_is_refused(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    response = client.post("/api/wizard/camera", json={"taken": False, "reason": "bored"})
+    assert response.status_code == 400
+    assert "No camera reason" in response.json()["detail"]
