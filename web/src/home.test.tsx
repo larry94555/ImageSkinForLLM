@@ -170,3 +170,17 @@ test("a late answer doesn't open the chat once the user has left home (review on
   expect(console.info).not.toHaveBeenCalledWith("Setup is saved, so the visit starts in the chat");
   window.location.hash = "";
 });
+
+test("before setup is done, home links to the setup wizard (R131)", async () => {
+  server(false);
+  render(<HomePage consented />);
+  const link = await screen.findByRole("link", { name: "Set up with your own photo and voice" });
+  expect(link.getAttribute("href")).toBe("#/setup/wizard");
+});
+
+test("once setup is done, home has no wizard link", async () => {
+  server(true);
+  render(<HomePage consented />);
+  await screen.findByText("Welcome back");
+  expect(screen.queryByRole("link", { name: "Set up with your own photo and voice" })).toBeNull();
+});

@@ -41,11 +41,13 @@ describe("router", () => {
     expect(resolve("#/", false)).toEqual({ page: "home" });
     expect(resolve("#/consent", false)).toEqual({ page: "consent" });
     expect(resolve("#/start-now", false)).toEqual({ page: "start-now" }); // no consent (R24c)
+    // The setup wizard asks for consent on its first step (R131).
+    expect(resolve("#/setup/wizard", false)).toEqual({ page: "wizard" });
   });
 });
 
 test("the participant view sends a host's page to the chat", () => {
-  for (const hash of ["#/", "#/consent", "#/setup", "#/start-now", "#/guide", "#/content"]) {
+  for (const hash of ["#/", "#/consent", "#/setup", "#/setup/wizard", "#/start-now", "#/guide", "#/content"]) {
     expect(resolve(hash, true, true)).toEqual({ page: "chat", redirect: "#/chat" });
   }
   expect(resolve("#/wiki", false, true)).toEqual({ page: "wiki" });

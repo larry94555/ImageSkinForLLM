@@ -1155,3 +1155,21 @@ export async function saveAdminSettings(
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as AdminSettings;
 }
+
+// The setup wizard's steps, in order (R131), and the one it has reached, saved on the server.
+export const WIZARD_STEPS = ["start", "photo", "voice", "accent", "prepare", "review"] as const;
+export type WizardStep = (typeof WIZARD_STEPS)[number];
+
+export async function getWizardStep(): Promise<WizardStep> {
+  return (await json<{ step: WizardStep }>(await fetch("/api/wizard"))).step;
+}
+
+export async function saveWizardStep(step: WizardStep): Promise<WizardStep> {
+  const response = await fetch("/api/wizard", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ step }),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+  return ((await response.json()) as { step: WizardStep }).step;
+}

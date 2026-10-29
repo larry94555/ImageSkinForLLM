@@ -220,7 +220,8 @@ export function SetupPage({ change }: { change?: SetupPart }) {
         </p>
         <p className="notice">
           New to this? The <a href="#/guide">recording guide</a> walks you step by step through
-          taking the photos and making the voice recordings on a Windows or Mac laptop.
+          taking the photos and making the voice recordings on a Windows or Mac laptop. Or{" "}
+          <a href="#/setup/wizard">set up with your own photo and voice</a> one step at a time.
         </p>
         <UploadSection
           kind="photos"
@@ -330,7 +331,7 @@ export function StepOf({ n }: { n: number }) {
 
 export function UploadSection(props: {
   kind: Kind;
-  step: number;
+  step: number | null; // null in the setup wizard (R131), which numbers its own steps
   title: string;
   button: string; // the add button's words
   hint: string;
@@ -484,7 +485,7 @@ export function UploadSection(props: {
 
   return (
     <section id={kind} className="panel">
-      <StepOf n={props.step} />
+      {props.step !== null && <StepOf n={props.step} />}
       <h2>{props.title}</h2>
       {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">{props.hint}</p>
@@ -607,6 +608,7 @@ export function AccentSection(props: {
   onChange: () => void;
   preparing: boolean;
   notice: string | null;
+  numbered?: boolean; // false in the setup wizard (R131), which numbers its own steps
 }) {
   const { onChange, preparing } = props;
   // null until the server has answered.
@@ -643,7 +645,7 @@ export function AccentSection(props: {
 
   return (
     <section className="accent panel" id="accent">
-      <StepOf n={3} />
+      {props.numbered !== false && <StepOf n={3} />}
       <h2>Accent</h2>
       {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">
@@ -694,8 +696,11 @@ export function PrepareSection(props: {
   avatarVoice?: boolean; // a ready-made avatar's picture in the user's voice (R24d)
   onPending?: (pending: boolean) => void; // a sample is neither accepted nor rejected
   onStopped?: (stopped: boolean) => void; // stopped part-way with Cancel, to resume (R159)
+  // The setup wizard (R131) numbers its own steps, and shows the sample video on a step of its
+  // own, so it is told when Prepare is done.
+  wizard?: { onDone: (done: boolean) => void };
 }) {
-  const { changes, onRunning } = props;
+  const { changes, onRunning, wizard } = props;
   // null until the server has answered.
   const [status, setStatus] = useState<PrepareStatus | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -775,6 +780,8 @@ export function PrepareSection(props: {
     running && !cancelling && status.steps?.find((s) => s.done < s.total)?.slow === true;
   const cancelled = status?.state === "cancelled";
   useEffect(() => onRunning(running), [running]);
+  const done = status?.state === "done";
+  useEffect(() => wizard?.onDone(done), [done]);
   // Before the browser paints, so a setting changed at once after is guarded.
   useLayoutEffect(() => props.onStopped?.(cancelled), [cancelled]);
   useEffect(() => {
@@ -794,7 +801,7 @@ export function PrepareSection(props: {
   };
   return (
     <section className="prepare panel">
-      <StepOf n={4} />
+      {!wizard && <StepOf n={4} />}
       <h2>Prepare the video</h2>
       <p className="muted">
         Gets the voice and the face ready for the video, then makes a short sample video of the
@@ -872,7 +879,10 @@ export function PrepareSection(props: {
           </ol>
         </>
       )}
-      {status?.state === "done" && (
+      {status?.state === "done" && wizard && (
+        <p className="done">Done. Click Next to watch the sample video.</p>
+      )}
+      {status?.state === "done" && !wizard && (
         <div className="sample-video">
           <p className="done">Done. Watch the sample video, then say whether it is right.</p>
           <video
@@ -966,7 +976,7 @@ const REJECTS: { decision: Decision; label: string; back: Back }[] = [
 
 // Under the sample video (roadmap R14): accept it and go to the chat, or go back to the photos,
 // the recordings or the accent. sample tells samples apart, so a new one is read afresh.
-function ReviewChoices(props: {
+export function ReviewChoices(props: {
   sample: string | null;
   onBack: (to: Back) => void;
   avatarVoice?: boolean;

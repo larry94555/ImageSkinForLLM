@@ -31,6 +31,7 @@ PERSONAL = (
     "review.json",
     "accent.json",
     "consent.json",
+    "wizard.json",  # the setup wizard's step (R131)
     # The default person chosen (R24c). The downloaded people are kept: they are made up.
     CHOICE_FILE,
     CHOICE_SAVING_FILE,
