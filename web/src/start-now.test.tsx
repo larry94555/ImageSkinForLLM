@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { type Face, lineUrl, type PersonChoice, type StartNowStatus } from "./api";
-import { facesOf, POLL_MS, progressText, StartNowPage } from "./start-now";
+import { facesOf, POLL_MS, progressText, StartNowPage, timeText } from "./start-now";
 
 const IDLE: StartNowStatus = { state: "idle", person: null, percent: 0, error: null, chosen: null };
 
@@ -157,6 +157,33 @@ test("progress text", () => {
   expect(progressText({ ...IDLE, state: "ready", percent: 100, chat_ready: false })).toBe(
     "Step 3 of 3: Making the avatar's video for the chat…",
   );
+});
+
+// R176: about how long is left, as Prepare says it; without it, the seconds so far for the
+// chat's video, as before.
+test("time left text", () => {
+  expect(timeText({ ...IDLE, state: "downloading", percent: 12, left_s: 42 }, 0)).toBe(
+    " · about 42 s left",
+  );
+  expect(timeText({ ...IDLE, state: "getting-ready", percent: 100, left_s: 725 }, 0)).toBe(
+    " · about 12 min 5 s left",
+  );
+  const making = { ...IDLE, state: "ready", percent: 100, chat_ready: false } as const;
+  expect(timeText({ ...making, left_s: 0 }, 3)).toBe(" · about 0 s left");
+  expect(timeText(making, 3)).toBe(" 3 s");
+  expect(timeText(making, 0)).toBe("");
+  expect(timeText({ ...IDLE, state: "unpacking", percent: 100 }, 5)).toBe("");
+});
+
+test("the time left is shown while the avatar is got ready", async () => {
+  const downloading = { ...IDLE, state: "downloading", person: "p", percent: 40, left_s: 42 } as const;
+  server([IDLE, downloading], downloading);
+  render(<StartNowPage />);
+  await facesShown();
+  fireEvent.click(screen.getByRole("button", { name: "Start now" }));
+  expect(
+    await screen.findByText("Step 1 of 3: Downloading the avatar… 40% · about 42 s left"),
+  ).toBeTruthy();
 });
 
 test("the chat opens only once the new avatar's video for it is made", async () => {
