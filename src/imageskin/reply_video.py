@@ -24,7 +24,6 @@ import tempfile
 import threading
 import time
 import wave
-from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -41,9 +40,7 @@ logger = logging.getLogger(__name__)
 
 HOLD_CHECK_S = 0.25  # how often a request waiting on held-back clips looks again
 
-# The most words a clip of sentences joined while the voice was busy may have: about 10 s of
-# speech, well under the 40 s at which Chatterbox stops.
-JOIN_WORDS = 30
+JOIN_WORDS = pace.JOIN_WORDS  # the most words a clip of sentences joined may have
 _BLOCK = re.compile(r"[ \t]*(?:\d+[.)]|[-*+]|#{1,6})[ \t]")  # a list item or heading
 
 
@@ -170,10 +167,16 @@ class SentenceClips:
         self.done = False  # every clip is rendered, or rendering stopped
         self._changed = threading.Condition()  # a clip was added, a clip failed or it is done
         self.join_words = JOIN_WORDS  # sentences queued are joined up to this many words
-        # Playback is held back this long after the first clip is ready, by the gaps the
-        # recent replies would have had if played at once, so the rest keeps up (R130).
-        self.hold_s = pace.hold_s(videos.recent_gaps)
+        # Playback is held back after the first clip is ready until the rest can play through,
+        # by how fast this machine makes clips and the LLM writes (R130, R161).
+        self.machine = videos.pace.machine()
         self.released_at: float | None = None  # when the clips were first listed to play
+        self.gaps_foreseen_s: float | None = None  # at release
+        self.words = 0  # the reply's words given so far
+        self._words_begun = 0  # of them, in clips begun (or let go by)
+        self._making: tuple[float, int] | None = None  # the clip being spoken: began, words
+        self._last_sentence_at = 0.0
+        self._ready_speech_s = 0.0  # the speech in clips listed so far
         self.plays: list[pace.ClipPlay] = []  # each whole clip's times, for the pace log
         # Given the clips once every one is rendered and none failed or was stopped, before they
         # can be removed (roadmap R130a). Set before close().
@@ -184,6 +187,8 @@ class SentenceClips:
             self._first_words = time.perf_counter()
             return
         self.sentences += 1
+        self.words += len(sentence.split())
+        self._last_sentence_at = time.perf_counter()
         if self._thread is None:
             self._thread = threading.Thread(target=self._run, name="sentence-clips", daemon=True)
             self._thread.start()
@@ -231,10 +236,18 @@ class SentenceClips:
             if self._stopped() or not self.plays:
                 return
             self.listed()  # released now, if it was still held
-            # The gaps it would have had if played at once, for the next reply's hold.
-            unheld = pace.heard(self.plays, self.times[0].ready_at)
-            self._videos.recent_gaps.append(sum(g.seconds for g in unheld.gaps))
             self._log_pace()
+            self._learn()
+
+    def _learn(self) -> None:
+        """Keep how fast this machine made the clips and the LLM wrote, for the next reply."""
+        clips = [
+            (p.whole_at - p.started_at, p.speech_s, p.words)
+            for p in self.plays
+            if p.started_at is not None and p.speech_s > 0
+        ]
+        rate = self._llm_words_per_s() or 0.0
+        self._videos.pace.add(clips, self.words, rate)
 
     def _log_pace(self) -> None:
         """Log the pace the reply is heard at, its wait and every gap over pace.GAP_S (R130)."""
@@ -252,7 +265,7 @@ class SentenceClips:
                 # time held back so the rest keeps up.
                 "wait_ms": round((self.released_at - first) * 1000),
                 "held_ms": round((self.released_at - self.times[0].ready_at) * 1000),
-                "hold_s": round(self.hold_s, 2),
+                "gaps_foreseen_s": self.gaps_foreseen_s,
                 "gaps": [
                     {"clip": g.clip, "seconds": g.seconds, "cause": g.cause} for g in heard.gaps
                 ],
@@ -260,25 +273,58 @@ class SentenceClips:
         )
 
     def listed(self) -> int:
-        """How many clips the browser may play: none while playback is held back (R130), for
-        `hold_s` after the first clip is ready or until the reply is done; then every clip
-        listed so far."""
+        """How many clips the browser may play: none while playback is held back (R130, R161),
+        until the rest of the reply can play through, at most pace.MAX_HOLD_S after the first
+        clip is ready, or until the reply is done; then every clip listed so far."""
         with self._changed:
             if self.released_at is None and self.clips:
                 now = time.perf_counter()
                 held_s = now - self.times[0].ready_at
-                if held_s >= self.hold_s or self.done or self._stopped():
+                done = self.done or self._stopped()
+                foreseen = None if done else self._gaps_ahead(now)
+                through = foreseen is not None and foreseen <= pace.PLAY_THROUGH_GAP_S
+                if done or held_s >= pace.MAX_HOLD_S or through:
                     self.released_at = now
-                    if self.hold_s > 0:
-                        logger.info(
-                            "Reply playback released",
-                            extra={
-                                "held_ms": round(held_s * 1000),
-                                "hold_s": round(self.hold_s, 2),
-                                "clips_ready": self.rendered,
-                            },
-                        )
+                    self.gaps_foreseen_s = None if foreseen is None else round(foreseen, 2)
+                    logger.info(
+                        "Reply playback released",
+                        extra={
+                            "held_ms": round(held_s * 1000),
+                            "gaps_foreseen_s": self.gaps_foreseen_s,
+                            "clips_ready": self.rendered,
+                            "words_given": self.words,
+                            "reply_done": self._closed,
+                            "make_fixed_s": round(self.machine.fixed_s, 2),
+                            "make_per_speech_s": round(self.machine.per_speech_s, 2),
+                        },
+                    )
             return len(self.clips) if self.released_at is not None else 0
+
+    def _llm_words_per_s(self) -> float | None:
+        """How fast the LLM has written this reply, once it has written for a second."""
+        if self._first_words is None or not self.times:
+            return None
+        start = self._first_words
+        end = time.perf_counter() if not self._closed else self._last_sentence_at
+        return self.words / (end - start) if end - start >= 1.0 else None
+
+    def _gaps_ahead(self, now: float) -> float:
+        """The gaps foreseen if playback started now (pace.gaps_ahead)."""
+        making = None
+        if self._making is not None:
+            making = (now - self._making[0], self._making[1])
+        begun = self._words_begun + (making[1] if making else 0)
+        to_come = (
+            0.0 if self._closed else max(self.machine.reply_words - self.words, pace.CLIP_WORDS)
+        )
+        return pace.gaps_ahead(
+            self.machine,
+            ahead_s=self._ready_speech_s,
+            making=making,
+            waiting_words=max(0, self.words - begun),
+            words_to_come=to_come,
+            llm_words_per_s=self._llm_words_per_s() or self.machine.llm_words_per_s,
+        )
 
     def wait_for_change(self, known: int, timeout: float) -> None:
         """Wait, at most `timeout` seconds, until more than `known` clips may be played, a clip
@@ -363,17 +409,22 @@ class SentenceClips:
         if self._stopped():
             return  # let the rest go by
         start = time.perf_counter()
+        with self._changed:
+            self._making = (start, len(sentence.split()))
         try:
             spoken = self._speak(n, sentence, sentence_at)
         except Exception as e:
+            self._begun()
             self._fail(n, "voice", e)
             return
-        if spoken is None:
+        if spoken is None or self._stopped():  # nothing to say, or cancelled while spoken
+            self._begun()
+            if spoken is not None:
+                spoken.wav.unlink(missing_ok=True)
+                spoken.wav.with_suffix(".json").unlink(missing_ok=True)
             return
-        if self._stopped():  # cancelled while it was spoken: no video for it
-            spoken.wav.unlink(missing_ok=True)
-            spoken.wav.with_suffix(".json").unlink(missing_ok=True)
-            return
+        # Still being made until _render lists it, under the same lock, so the hold never sees
+        # it gone from the clips being made before it is among those ready (R161).
         try:
             listed_at, mouth_lead = self._render(spoken)
         except Exception as e:
@@ -399,6 +450,14 @@ class SentenceClips:
                 ),
             },
         )
+
+    def _begun(self, speech_s: float = 0.0) -> None:
+        """The clip being made is listed, or let go by: its words are no longer waited for."""
+        with self._changed:
+            if self._making is not None:
+                self._words_begun += self._making[1]
+                self._making = None
+            self._ready_speech_s += speech_s
 
     def _speak(self, n: int, sentence: str, sentence_at: float) -> Spoken | None:
         """Speak the sentence to a WAV; None when there is nothing in it to say aloud."""
@@ -439,6 +498,7 @@ class SentenceClips:
         with self._changed:
             self.times.append(ClipTime(spoken.sentence_at, listed_at, spoken.started_at))
             self.clips.append(path)
+            self._begun(spoken.seconds or 0.0)
             self._changed.notify_all()
         try:
             mouth_lead = self._videos._steps.render(self._photo, spoken.wav, path)
@@ -533,9 +593,9 @@ class ReplyVideos:
         # only those are served, even when a cleared one's file couldn't be removed.
         self.generation = 0
         self._published: set[int] = set()
-        # The seconds of gaps each recent reply would have had on this machine if played at
-        # once, for how long to hold the next one back (R130).
-        self.recent_gaps: deque[float] = deque(maxlen=5)
+        # How fast this machine makes clips and the LLM writes, kept across restarts, for when
+        # to start playing each reply (R161).
+        self.pace = pace.PaceStore(self.folder / "pace.json")
         # Each photo's SHA-256, by its path, change time and size, for its idle video's name.
         self._digests: dict[tuple[str, int, int], str] = {}
 

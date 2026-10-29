@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from imageskin import pace
 from imageskin.app import CHAT_LOCKED, NO_SUCH_REPLY, PROMPT_STOPPED, create_app
 from imageskin.chat import Conversation, LlmError
 from imageskin.prepare_job import ClipSteps, PrepareJob, PrepareStatus, steps_clip
@@ -314,7 +315,10 @@ def test_each_clip_records_when_its_sentence_arrived_and_when_it_was_ready(
     assert all(r.since_sentence_ms >= 0 for r in ready)  # type: ignore[attr-defined]
 
 
-def test_waiting_for_a_change_ends_with_the_next_clip_or_the_end(tmp_path: Path) -> None:
+def test_waiting_for_a_change_ends_with_the_next_clip_or_the_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pace, "MAX_HOLD_S", 0.0)  # never held back (R161)
     go = threading.Event()
 
     def render(photo: Path, text: str, output: Path) -> None:
@@ -1204,9 +1208,15 @@ def test_a_prompt_behind_another_has_its_wait_as_a_step(tmp_path: Path) -> None:
         second.join(5)
     [waited] = [s for s in replies[0]["timings"]["steps"] if s["step"].startswith("waiting for")]
     assert waited["step"] == "waiting for the LLM to be free" and waited["duration_ms"] >= 150
+    # Both prompts are in the Markdown file of thinking steps, the latest first.
+    text = (tmp_path / "speed" / "thinking-steps.md").read_text(encoding="utf-8")
+    assert text.count("\n## ") == 2 and "| waiting for the LLM to be free |" in text
 
 
-def test_the_api_answers_as_soon_as_there_is_a_new_clip(tmp_path: Path) -> None:
+def test_the_api_answers_as_soon_as_there_is_a_new_clip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pace, "MAX_HOLD_S", 0.0)  # never held back (R161)
     go = threading.Event()
 
     def render(photo: Path, text: str, output: Path) -> None:
@@ -2093,11 +2103,26 @@ def test_each_clip_is_cut_to_its_pause_and_the_reply_s_pace_is_logged(
     assert spoken.cut_start_ms == 250 and spoken.cut_end_ms == 100  # type: ignore[attr-defined]
     paced = next(r for r in caplog.records if r.message == "Reply paced")
     assert paced.clips == 1 and paced.words == 2 and paced.gaps == []  # type: ignore[attr-defined]
-    assert paced.held_ms < 100  # type: ignore[attr-defined]  # nothing measured yet: not held
-    assert list(videos.recent_gaps) == [0]
+    assert paced.held_ms < 100  # type: ignore[attr-defined]  # done at once: not held
+    # How fast the clip was made is kept for the next reply, after a restart too (R161).
+    assert len(videos.pace.clips) == 1 and videos.pace.replies[0][0] == 2
+    restarted = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), wav_steps(said)
+    )
+    assert restarted.pace.clips == videos.pace.clips
 
 
-def test_playback_is_held_by_the_gaps_the_last_replies_had(
+def slow(videos: ReplyVideos) -> None:
+    """This machine made three clips at 10 s each per second of speech."""
+    videos.pace.add([(10.0, 1.0, 2), (20.0, 2.0, 4), (30.0, 3.0, 6)], words=100, rate=3.0)
+
+
+def fast(videos: ReplyVideos) -> None:
+    """This machine made three clips at 0.1 s each per second of speech."""
+    videos.pace.add([(0.1, 1.0, 2), (0.2, 2.0, 4), (0.3, 3.0, 6)], words=100, rate=3.0)
+
+
+def test_playback_waits_until_the_reply_can_play_through(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     said: list[str] = []
@@ -2108,34 +2133,105 @@ def test_playback_is_held_by_the_gaps_the_last_replies_had(
         VoiceReady(lambda: None, lambda: "v"),
         wav_steps(said, {"Two.": second}),
     )
-    videos.recent_gaps.extend([0.4, 0.5, 9.0])  # the median: 0.5 s
+    slow(videos)
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    assert clips.machine.per_speech_s == pytest.approx(10.0)
     clips.join_words = 0
     caplog.set_level(logging.INFO)
     clips("One.")
     clips("Two.")
     made(clips, 1)
-    assert clips.hold_s == 0.5
-    if time.perf_counter() - clips.times[0].ready_at < 0.4:
-        assert clips.listed() == 0  # held
-    clips.wait_for_change(0, 3)  # the hold ends while it waits
-    assert clips.listed() == 1
+    clips.wait_for_change(0, 0.5)
+    assert clips.listed() == 0  # held: the second clip would be about 10 s late
+    clips.close()
+    second.set()
+    clips.wait(10)
+    assert clips.listed() == 2  # released once all were made
     released = next(r for r in caplog.records if r.message == "Reply playback released")
-    assert released.held_ms >= 500 and released.hold_s == 0.5  # type: ignore[attr-defined]
-    time.sleep(1.5)  # the second clip is late: a gap the next reply is held by
+    assert released.reply_done and released.gaps_foreseen_s is None  # type: ignore[attr-defined]
+    assert released.held_ms >= 500  # type: ignore[attr-defined]
+    assert released.make_per_speech_s == 10.0  # type: ignore[attr-defined]
+
+
+def test_a_clip_spoken_is_still_being_made_until_it_is_listed(tmp_path: Path) -> None:
+    # The hold must never see a spoken clip as neither being made nor ready (R161, Codex on
+    # PR #206): its words and time count as being made until _render lists it.
+    said: list[str] = []
+    videos = ReplyVideos(
+        tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), wav_steps(said)
+    )
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    seen: list[tuple[float, int] | None] = []
+    render = clips._render
+
+    def watched(spoken: Any) -> tuple[float, float | None]:
+        seen.append(clips._making)
+        return render(spoken)
+
+    clips._render = watched  # type: ignore[method-assign]
+    clips("One two three.")
+    clips.close()
+    clips.wait(10)
+    assert seen and seen[0] is not None and seen[0][1] == 3
+    assert clips._making is None and clips._words_begun == 3
+
+
+def test_a_reply_that_can_play_through_starts_at_once(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    said: list[str] = []
+    second = threading.Event()
+    videos = ReplyVideos(
+        tmp_path,
+        write_text,
+        VoiceReady(lambda: None, lambda: "v"),
+        wav_steps(said, {"Two.": second}),
+    )
+    fast(videos)
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips.join_words = 0
+    caplog.set_level(logging.INFO)
+    clips("One.")
+    clips("Two.")
+    clips.close()  # the LLM is done: no more text to wait for
+    made(clips, 1)
+    clips.wait_for_change(0, 3)
+    assert clips.listed() == 1 and not clips.done  # the second is still being made
+    released = next(r for r in caplog.records if r.message == "Reply playback released")
+    assert released.gaps_foreseen_s == 0 and released.reply_done  # type: ignore[attr-defined]
+    second.set()
+    clips.wait(10)
+    paced = next(r for r in caplog.records if r.message == "Reply paced")
+    assert paced.gaps_foreseen_s == 0  # type: ignore[attr-defined]
+
+
+def test_a_reply_that_can_t_keep_up_is_held_at_most_the_longest_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pace, "MAX_HOLD_S", 0.3)
+    second = threading.Event()
+    videos = ReplyVideos(
+        tmp_path,
+        write_text,
+        VoiceReady(lambda: None, lambda: "v"),
+        wav_steps([], {"Two.": second}),
+    )
+    slow(videos)
+    clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
+    clips("One.")
+    clips("Two.")  # the LLM is still writing
+    made(clips, 1)
+    clips.wait_for_change(0, 3)  # the hold ends while it waits
+    assert clips.listed() == 1 and time.perf_counter() - clips.times[0].ready_at >= 0.3
     second.set()
     clips.close()
     clips.wait(10)
-    paced = next(r for r in caplog.records if r.message == "Reply paced")
-    assert paced.hold_s == 0.5 and paced.held_ms >= 500  # type: ignore[attr-defined]
-    assert len(videos.recent_gaps) == 4 and videos.recent_gaps[-1] > 0.3
 
 
 def test_a_reply_done_before_its_hold_ends_plays_at_once(tmp_path: Path) -> None:
     videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"), wav_steps([]))
-    videos.recent_gaps.append(60.0)
+    slow(videos)
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
-    assert clips.hold_s == 15.0
     clips("One.")
     clips.close()
     clips.wait(10)
@@ -2144,7 +2240,7 @@ def test_a_reply_done_before_its_hold_ends_plays_at_once(tmp_path: Path) -> None
 
 def test_a_reply_kept_whole_is_never_held(tmp_path: Path) -> None:
     videos = ReplyVideos(tmp_path, write_text, VoiceReady(lambda: None, lambda: "v"))
-    videos.recent_gaps.append(10.0)
+    slow(videos)
     clips = videos.sentence_clips(Path("me.jpg"), "abc123ef")
     kept = tmp_path / "kept.mp4"
     kept.write_bytes(b"clip")

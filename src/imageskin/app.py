@@ -112,6 +112,7 @@ from imageskin.start_now import Choice as PersonChoice
 from imageskin.start_now import KokoroVoices, PresetVoice, StartNow, StartStatus
 from imageskin.startup import StartupTimes
 from imageskin.teach import Choice, Explain, Lesson, Say, Tutor, lesson_topics
+from imageskin.thinking_report import ThinkingReport
 from imageskin.topic_replies import TopicReplies, context_of
 from imageskin.topics import hint_line, main_entries
 from imageskin.ui_settings import UiSettings, load_ui_settings, save_ui_settings
@@ -1724,6 +1725,7 @@ def create_app(
             times.answered_at = time.perf_counter()
             log_reply_times(times)
             reply_times.log_steps(times, reply_id=body.reply_id, summary_running=summarizing)
+            thinking_report.add(times, body.prompt, summarizing)  # speed/thinking-steps.md
             return {**answer, "timings": times.as_dict()}
         finally:
             reply_times.current.reset(timing)
@@ -1731,6 +1733,9 @@ def create_app(
                 with clips_lock:
                     if prompts.get(body.reply_id) is stop:
                         del prompts[body.reply_id]
+
+    # Each prompt's steps, in a Markdown file in the data folder (R134c).
+    thinking_report = ThinkingReport(data_home / "speed")
 
     def wait_for_warm_up(what: str = "Prompt") -> float:
         """A prompt sent right after the sample was accepted waits for the warm-up to finish,
