@@ -1871,7 +1871,10 @@ def create_app(
         status = job.status()
         voice = reply_preset() or job.voice_id()
         person = None if photo is None else replies.idle_name(photo)
-        return context_of(person, voice, status.finished_at, wiki.contents(), content_only())
+        # The level of detail too (R180): a reply kept at another level is made again.
+        return context_of(
+            person, voice, status.finished_at, wiki.contents(), content_only(), saved_detail()
+        )
 
     def answer_example(prompt: str, context: str, clips: SentenceClips) -> tuple[Turn, int]:
         """An example question's reply: the one kept, said at once, or the LLM's, kept once its
