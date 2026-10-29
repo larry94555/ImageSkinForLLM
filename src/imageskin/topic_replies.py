@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 REPLY_FILE = "reply.json"
 # Raised when the way a reply is cut into clips or spoken changes, so the replies kept before are
 # made again: 2 when a clip stopped ending on a possessive, 4 when a curly apostrophe was said as a
-# plain one (Larry's tests of PR #178).
-MAKING = 4
+# plain one (Larry's tests of PR #178), 5 when the level of detail's note after the question
+# named it (R180), as a reply kept before could answer the question before it.
+MAKING = 5
 
 
 def context_of(*parts: object) -> str:

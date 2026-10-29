@@ -62,6 +62,7 @@ import { switchToOwn } from "./change-setup";
 import { Checks, minutes } from "./checks";
 import { useConfirm } from "./confirm-dialog";
 import { RESTART_WARNING, SettingGuard, usePrepareStopGuard, useSettingGuard } from "./setting-guard";
+import { DetailBar } from "./detail-bar";
 import { ExitScreen } from "./exit";
 import { FaceMovementChoice } from "./face-movement";
 import { goWithoutAsking, useLeaveGuard } from "./leave-guard";
@@ -2015,6 +2016,7 @@ function Chat(props: {
           )}
         </div>
       </form>
+      <DetailBar />
       {/* The choices are a lesson's or a quiz's, so they go with the settings (review on PR
           #87). While a quiz is going, whatever is sent is taken as the answer, so only the quiz's
           own controls are shown (review on PR #88). */}

@@ -19,6 +19,7 @@ from imageskin.chat import (
     LlmSettings,
     Message,
     estimate,
+    reply_tokens,
     strict,
 )
 
@@ -158,7 +159,7 @@ class ClaudeClient:
         first: float | None = None
         try:
             with self._client.beta.messages.stream(
-                **self._params(messages, REPLY_TOKENS, None)
+                **self._params(messages, reply_tokens(), None)
             ) as stream:
                 for piece in stream.text_stream:
                     if piece and first is None:

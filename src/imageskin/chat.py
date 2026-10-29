@@ -42,16 +42,100 @@ from imageskin.topics import (
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "You are talking with someone face to face, and your replies are spoken aloud. Keep each"
-    " reply short and conversational: one to three sentences in plain words, without lists,"
-    " headings or code unless you are asked for them."
+# How long a reply is asked to be at each level of detail on the chat screen's bar (R180), from
+# High level (1) to In depth (5), and the most tokens it may take. The middle is the length every
+# reply was asked for before the bar. A few paragraphs need far more than 300 tokens, so the room
+# grows with the level and a long answer isn't cut off.
+DETAIL_LEVELS: dict[int, tuple[str, int]] = {
+    1: (
+        "Keep each reply brief and conversational: a single short sentence in plain words, of"
+        " at most 25 words, with only the main point",
+        300,
+    ),
+    2: (
+        "Keep each reply short and conversational: one or two short sentences in plain words,"
+        " of at most 45 words, with only the main points",
+        300,
+    ),
+    3: ("Keep each reply short and conversational: one to three sentences in plain words", 300),
+    4: (
+        "Give a fuller reply, still conversational: a paragraph of four to six sentences in"
+        " plain words that explains the answer, with an example when it helps",
+        600,
+    ),
+    5: (
+        "Give an in-depth, complete reply, still conversational: a few paragraphs in plain words"
+        " with the explanation, examples and the points a careful answer covers",
+        1200,
+    ),
+}
+DEFAULT_DETAIL = 3
+# The level the reply being made is asked at (R180), set by `detail_level` around each request.
+reply_detail: ContextVar[int] = ContextVar("reply_detail", default=DEFAULT_DETAIL)
+
+
+@contextlib.contextmanager
+def detail_level(level: int) -> Iterator[None]:
+    """Ask what is sent in this block at `level` of detail (R180)."""
+    token = reply_detail.set(level if level in DETAIL_LEVELS else DEFAULT_DETAIL)
+    try:
+        yield
+    finally:
+        reply_detail.reset(token)
+
+
+def system_prompt(level: int = DEFAULT_DETAIL) -> str:
+    """The chat's instructions, with the reply's length for the level of detail (R180)."""
+    return (
+        "You are talking with someone face to face, and your replies are spoken aloud."
+        f" {DETAIL_LEVELS[level][0]}, without lists, headings or code unless you are asked for"
+        f" them.{KEEP_TRACK}"
+    )
+
+
+# The same lengths in a few words, said again after the question (R180): with only the
+# instructions, a question asked again after the bar moved was answered word for word as before,
+# copied from the conversation (Larry, 2026-10-29).
+DETAIL_LENGTHS: dict[int, str] = {
+    1: "a single short sentence of at most 25 words",
+    2: "one or two short sentences, at most 45 words",
+    3: "one to three sentences",
+    4: "a paragraph of four to six sentences",
+    5: "a few paragraphs, complete and in depth",
+}
+
+
+# The most of the question named in the note; a long question is cut, as it is just above.
+NAMED_CHARS = 80
+
+
+def at_length(asked: str, prompt: str, turns: list["Turn"]) -> str:
+    """What is asked, with the length of reply the level of detail calls for (R180) when it
+    isn't the middle or the prompt was asked before in the turns sent; otherwise as it is."""
+    level = reply_detail.get()
+    again = any(t.role == "user" and t.content == prompt for t in turns)
+    if level == DEFAULT_DETAIL and not again:
+        return asked
+    # The question is named: "(Answer in a few paragraphs, even if asked before.)" made Gemma 3
+    # 4B answer the question before it again, at length, after a short reply to it (Larry,
+    # 2026-10-29; 3 times in 3 with it, none with the question named).
+    named = prompt if len(prompt) <= NAMED_CHARS else prompt[: NAMED_CHARS - 1].rstrip() + "…"
+    return f'{asked}\n\n(Answer this question, "{named}", in {DETAIL_LENGTHS[level]}.)'
+
+
+def reply_tokens() -> int:
+    """The most tokens a reply may take at the level of detail it is asked at (R180)."""
+    return DETAIL_LEVELS[reply_detail.get()][1]
+
+
+KEEP_TRACK = (
     # Asking for the checking as steps ("work out your answer, then check it") made the model
     # say the steps aloud, so the prompt states only what the reply must get right.
     " Everything you say must agree with what was said earlier in this conversation: keep"
     " track of who said what, and get every name and fact right. Reply only with the words you"
     " would say out loud, never with notes about your reply."
 )
+SYSTEM_PROMPT = system_prompt()
 # How to use what was found in the wiki and PDFs (roadmap R40). Said once, in the system prompt,
 # rather than around the passages of every prompt: there it came after the conversation, so
 # llama-server read its 65 tokens again with every question, about 2.5 s on the hosted machine
@@ -65,8 +149,9 @@ CONTENT_RULES = (
     ' Say any formula in full, in words, using "the fraction" and "the quantity" so it can be'
     " heard only one way."
 )
-# The longest reply asked for. A short reply needs far less; this is room in the context window.
-REPLY_TOKENS = 300
+# The longest reply asked for in the middle of the level of detail bar, and for a reply asked
+# outside the chat. A short reply needs far less; this is room in the context window.
+REPLY_TOKENS = DETAIL_LEVELS[DEFAULT_DETAIL][1]
 # How much randomness the LLM picks words with. llama-server's default (0.8) made a small model
 # now and then mix up facts it was given, such as calling the user's name a good one for a dog.
 TEMPERATURE = 0.3
@@ -272,7 +357,7 @@ def as_message(turn: Turn) -> Message:
 
 
 def system_message(summary: str | None) -> Message:
-    prompt = f"{SYSTEM_PROMPT} {CONTENT_RULES}"
+    prompt = f"{system_prompt(reply_detail.get())} {CONTENT_RULES}"
     content = prompt if summary is None else f"{prompt}\n\n{EARLIER}\n{summary}"
     return {"role": "system", "content": content}
 
@@ -672,7 +757,7 @@ class LlmClient:
 
     def stream(self, messages: list[Message]) -> Iterator[str]:
         """The reply in pieces as the LLM writes it, read from the API's server-sent events."""
-        url, request = self._post(messages, stream=True)
+        url, request = self._post(messages, stream=True, max_tokens=reply_tokens())
         finished = False  # a server or proxy may close the stream cleanly partway through
         with self._open(url, request) as response:
             try:
@@ -841,7 +926,10 @@ class Conversation:
         # Asks the local LLM to read a question typed so far, for one token, so its prompt is in
         # llama-server's cache on Send (R148); None when it can't, or the LLM isn't local.
         read_ahead: Callable[[list[Message]], str | None] | None = None,
+        # The level of detail set on the chat screen's bar, read for each prompt (R180).
+        detail: Callable[[], int] = lambda: DEFAULT_DETAIL,
     ) -> None:
+        self._detail = detail
         self._saved = saved
         self._read_ahead = read_ahead
         self._find = find
@@ -918,7 +1006,8 @@ class Conversation:
     def warm_up(self) -> None:
         """Ready the LLM for the first prompt (roadmap R22a), when the client can."""
         if self._warm_up is not None:
-            self._warm_up()
+            with self._at_detail():
+                self._warm_up()
 
     def send(
         self, prompt: str, on_sentence: OnSentence | None = None, teach: Teach | None = None
@@ -935,7 +1024,8 @@ class Conversation:
             # that fit, and the summary is used from the next prompt on (R147).
             if self.summarizing():
                 logger.info("Prompt didn't wait for the summary")
-            return self._send(prompt, on_sentence, teach)
+            with self._at_detail():
+                return self._send(prompt, on_sentence, teach)
 
     def say(
         self, prompt: str, sentences: list[str], on_sentence: OnSentence | None = None
@@ -943,7 +1033,7 @@ class Conversation:
         """Reply to the prompt with these sentences, made outside the LLM (a lesson's choices,
         R41h), spoken and kept like any reply. The prompt is checked as `send` checks it."""
         prompt = checked(prompt)
-        with self._busy:
+        with self._busy, self._at_detail():
             fit = self._fit(prompt)
             return self._say(prompt, sentences, on_sentence, fit.turns, fit.budget)
 
@@ -951,7 +1041,7 @@ class Conversation:
         """Refuse the prompt now, as `send` and `say` would, before anything else is done
         about it: a quiz or lesson may ask the LLM for something first (review on PR #88)."""
         prompt = checked(prompt)
-        with self._busy:
+        with self._busy, self._at_detail():
             self._fit(prompt)
 
     def read_ahead(self, draft: str) -> str:
@@ -960,6 +1050,10 @@ class Conversation:
         is already in llama-server's cache (R148). Nothing is kept. Returns "read", or why it
         was skipped."""
         draft = draft.strip()
+        with self._at_detail():
+            return self._read_ahead_at_level(draft)
+
+    def _read_ahead_at_level(self, draft: str) -> str:
         reason = self._read_ahead_skipped(draft)
         if reason is not None:
             logger.info("Prompt not read ahead", extra={"reason": reason})
@@ -977,7 +1071,12 @@ class Conversation:
         messages = [
             system_message(fit.summary),
             *map(as_message, fit.turns),
-            {"role": "user", "content": self._with_content(draft, found, fit.room, quiet=True)},
+            {
+                "role": "user",
+                "content": at_length(
+                    self._with_content(draft, found, fit.room, quiet=True), draft, fit.turns
+                ),
+            },
         ]
         start = time.perf_counter()
         kept: list[dict[str, Any]] = []  # llama-server's timings for the request
@@ -1029,18 +1128,25 @@ class Conversation:
         """How the prompt fits the context window, with the turns sent before it. A prompt that
         doesn't leave room for a reply is refused."""
         window = self._context_tokens()
-        budget = int(window * HISTORY_SHARE)
+        # A reply asked for in more detail takes its extra room from the history, so the room
+        # for the prompt and what is quoted with it is the same at every level (R180).
+        budget = max(0, int(window * HISTORY_SHARE) - (reply_tokens() - REPLY_TOKENS))
         count = self._count
-        room = window - budget - REPLY_TOKENS - tokens(system_message(None), count)
-        if tokens({"role": "user", "content": prompt}, count) > room:
-            logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
-            raise ValueError("That message is too long. Shorten it or split it in two.")
+        room = window - budget - reply_tokens() - tokens(system_message(None), count)
         # Normally the summary made after the last reply keeps this within budget; while it is
         # being made, or if it couldn't be, the oldest turns are left out. The summary may
         # replace the turns meanwhile, so the two are read together.
         with self._lock:
             summary, kept = self._summary, list(self._turns)
         turns = latest(kept, budget - history_tokens(summary, [], count), count)
+        # The length said after the question takes its room from the passages (review on PR
+        # #221), so the whole prompt still fits.
+        note = at_length("", prompt, turns)
+        if note:
+            room -= count(note)
+        if tokens({"role": "user", "content": prompt}, count) > room:
+            logger.warning("Chat prompt too long", extra={"prompt_chars": len(prompt)})
+            raise ValueError("That message is too long. Shorten it or split it in two.")
         return _Fit(window, budget, room, turns, summary)
 
     def _send(
@@ -1092,11 +1198,11 @@ class Conversation:
         messages = [
             system_message(fit.summary),
             *map(as_message, turns),
-            {"role": "user", "content": asked},
+            {"role": "user", "content": at_length(asked, prompt, turns)},
         ]
         note(
             history_tokens=history_tokens(fit.summary, turns, count),
-            asked_tokens=tokens({"role": "user", "content": asked}, count),
+            asked_tokens=tokens(messages[-1], count),
         )
         logger.info(
             "Chat prompt sent",
@@ -1107,6 +1213,7 @@ class Conversation:
                 "summary": fit.summary is not None,
                 "history_tokens": history_tokens(fit.summary, turns, count),
                 "context_tokens": fit.window,
+                "detail": reply_detail.get(),
             },
         )
         start = time.perf_counter()
@@ -1374,6 +1481,11 @@ class Conversation:
         if self._summarizer is not None:
             self._summarizer.join()
 
+    def _at_detail(self) -> AbstractContextManager[None]:
+        """Asks at the level of detail set now (R180): the system prompt and the reply's room
+        follow it."""
+        return detail_level(self._detail())
+
     def _summarize(self, budget: int) -> None:
         """Fold the older turns into the summary, keeping the latest ones word for word.
 
@@ -1390,11 +1502,12 @@ class Conversation:
         # read for the last reply and reads only this request: a summary sent apart read the
         # whole history again, about 85 s on the hosted machine, which a reply can't cut off
         # while it is read (R147). The latest turns are summarized too, and kept word for word.
-        messages = [
-            system_message(summary),
-            *map(as_message, turns),
-            {"role": "user", "content": SUMMARY_PROMPT},
-        ]
+        with self._at_detail():  # the system prompt the reply was sent with
+            messages = [
+                system_message(summary),
+                *map(as_message, turns),
+                {"role": "user", "content": SUMMARY_PROMPT},
+            ]
         start = time.perf_counter()
         try:
             with self._llm_busy():
