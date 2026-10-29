@@ -1269,7 +1269,9 @@ def create_app(
             # A reply being rendered keeps its face and voice.
             if not start_now.forget_unless_busy():
                 raise HTTPException(status_code=409, detail=WAIT_FOR_AVATAR)
-        start_reply_warm_up()  # the chat now shows the person's own: ready their idle video
+        # The chat now shows the person's own: their voice and idle video are got ready, which
+        # the chat waits for (R181).
+        start_reply_warm_up()
         logger.info("Switched to your own photo and voice", extra={"duration_ms": ms_since(start)})
         return asdict(load_review(data_home, job.status()))
 
@@ -1689,6 +1691,15 @@ def create_app(
             # The same for the idle video, named after the photo it is made from.
             "idle": None if photo is None else f"/api/chat/idle?photo={quote(photo.stem)}",
         }
+
+    @app.get("/api/chat/ready", dependencies=needs_person)
+    def get_chat_ready() -> dict[str, bool]:
+        """Whether a prompt is answered now, rather than after the person's voice and face are
+        got ready for replies (R181). Back on the user's own photo and voice from a ready-made
+        avatar, their voice is learned again from the recordings and their idle video made, a
+        few minutes on a 4-core machine; the chat says so and waits, instead of a prompt
+        showing Thinking all that time (Larry, 2026-10-29)."""
+        return {"ready": not warming_up()}
 
     @app.post("/api/chat", dependencies=[*needs_person, Depends(require_accepted)])
     def post_chat(body: ChatRequest, seen: DeletesSeen) -> dict[str, Any]:
@@ -2180,6 +2191,7 @@ def create_app(
 
     def warm_up_until_current() -> None:
         startup.begin("reply warm-up")
+        start = time.perf_counter()
         while True:
             try:
                 photo = warm_up_replies()
@@ -2195,7 +2207,8 @@ def create_app(
                     break
             logger.info("Warming up replies again for the person chosen meanwhile")
         startup.end("reply warm-up")
-        logger.info("Reply warm-up done")
+        # The chat says it is getting ready until here (R181).
+        logger.info("Reply warm-up done", extra={"duration_ms": ms_since(start)})
 
     def warming_up() -> bool:
         """Whether replies are being warmed up for the person chosen now."""

@@ -263,6 +263,9 @@ async function repeatReply(replyId) {
 async function getChatPhoto() {
 	return json(await fetch("/api/chat/photo"));
 }
+async function getChatReady() {
+	return (await json(await fetch("/api/chat/ready")))?.ready !== false;
+}
 async function getChatHints() {
 	const hints = await json(await fetch("/api/chat/hints"));
 	return {
@@ -4262,6 +4265,8 @@ function saveSound(sound) {
 	} catch {}
 }
 var READ_AHEAD_WORDS = 3;
+var READY_CHECK_MS = 2e3;
+var GETTING_READY = "Getting the voice and face ready… This can take a few minutes after switching.";
 function Chat(props) {
 	const metrics = useSettings().show_metrics;
 	const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
@@ -4303,7 +4308,31 @@ function Chat(props) {
 	]);
 	const [saying, setSaying] = d(props.welcome ? "welcome-back" : null);
 	const line = A(null);
-	const busy = sending || speaking || saying !== null;
+	const [ready, setReady] = d(null);
+	const gettingReady = ready === false;
+	h(() => {
+		let timer;
+		let waitedFrom = null;
+		const check = () => {
+			getChatReady().then((now) => {
+				if (gone.current) return;
+				setReady(now);
+				if (!now) {
+					if (waitedFrom === null) {
+						waitedFrom = performance.now();
+						console.info("Chat waits while the voice and face are got ready");
+					}
+					timer = setTimeout(check, READY_CHECK_MS);
+				} else if (waitedFrom !== null) console.info(`Voice and face ready for the chat (${Math.round(performance.now() - waitedFrom)} ms)`);
+			}, (e) => {
+				console.error("Could not ask whether the chat is ready", e);
+				if (!gone.current) setReady(true);
+			});
+		};
+		check();
+		return () => clearTimeout(timer);
+	}, []);
+	const busy = sending || speaking || saying !== null || ready !== true;
 	const readAheadOf = A("");
 	h(() => {
 		const text = prompt.trim();
@@ -4668,7 +4697,7 @@ function Chat(props) {
 			})
 		})]
 	});
-	const status = sending ? halted ? "Stopping…" : "Thinking…" : waiting ? "Getting ready to say it…" : null;
+	const status = gettingReady ? GETTING_READY : sending ? halted ? "Stopping…" : "Thinking…" : waiting ? "Getting ready to say it…" : null;
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [/* @__PURE__ */ u("div", {
