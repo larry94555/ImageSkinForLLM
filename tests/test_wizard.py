@@ -84,11 +84,13 @@ def test_camera_photo_taken_is_logged_with_its_size(
     client = TestClient(create_app(tmp_path))
     with caplog.at_level(logging.INFO, logger="imageskin.wizard"):
         response = client.post(
-            "/api/wizard/camera", json={"taken": True, "width": 1280, "height": 720}
+            "/api/wizard/camera",
+            json={"taken": True, "width": 1280, "height": 720, "camera": "Integrated Camera"},
         )
     assert response.json() == {"logged": True}
     record = next(r for r in caplog.records if r.getMessage() == "Camera photo taken")
     assert (vars(record)["width"], vars(record)["height"]) == (1280, 720)
+    assert vars(record)["camera"] == "Integrated Camera"
 
 
 @pytest.mark.parametrize("reason", ["insecure", "unsupported", "refused", "no-camera", "failed"])

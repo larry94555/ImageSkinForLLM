@@ -8463,9 +8463,11 @@ function reasonOf(error) {
 	if (name === "NotSupportedError") return "unsupported";
 	return "failed";
 }
+var NO_PICTURE = "The camera isn't sending a picture. Wait a moment and try again, or choose another camera.";
 function grabFrame(video) {
 	const width = video.videoWidth;
 	const height = video.videoHeight;
+	if (!width || !height) return Promise.reject(/* @__PURE__ */ new Error(NO_PICTURE));
 	const canvas = document.createElement("canvas");
 	canvas.width = width;
 	canvas.height = height;
@@ -8477,6 +8479,21 @@ function grabFrame(video) {
 		width,
 		height
 	}) : reject(/* @__PURE__ */ new Error("The picture could not be taken.")), "image/jpeg", .92));
+}
+var CAMERA_KEY = "imageskin.camera";
+function savedCamera() {
+	try {
+		return localStorage.getItem(CAMERA_KEY);
+	} catch {
+		return null;
+	}
+}
+function saveCamera(id) {
+	try {
+		localStorage.setItem(CAMERA_KEY, id);
+	} catch (e) {
+		console.warn("Could not remember the camera chosen", e);
+	}
 }
 function stopTracks(stream) {
 	stream?.getTracks().forEach((t) => t.stop());
@@ -8490,6 +8507,10 @@ function CameraPhoto(props) {
 	const [reason, setReason] = d(null);
 	const [count, setCount] = d(3);
 	const [shot, setShot] = d(null);
+	const [grabFailed, setGrabFailed] = d(null);
+	const [cameras, setCameras] = d([]);
+	const [cameraId, setCameraId] = d(null);
+	const label = A("");
 	const video = A(null);
 	const stream = A(null);
 	const timers = A([]);
@@ -8510,8 +8531,9 @@ function CameraPhoto(props) {
 		setReason(why);
 		setPhase("off");
 	}
-	async function start() {
+	async function start(chosen = savedCamera()) {
 		setPhase("starting");
+		setGrabFailed(null);
 		const blocked = cameraBlocked();
 		if (blocked) {
 			notUsed(blocked);
@@ -8520,11 +8542,7 @@ function CameraPhoto(props) {
 		const started = performance.now();
 		try {
 			const media = await navigator.mediaDevices.getUserMedia({
-				video: {
-					facingMode: "user",
-					width: { ideal: 1920 },
-					height: { ideal: 1080 }
-				},
+				video: chosen ? { deviceId: { ideal: chosen } } : true,
 				audio: false
 			});
 			if (!alive.current) {
@@ -8532,11 +8550,41 @@ function CameraPhoto(props) {
 				return;
 			}
 			stream.current = media;
-			console.info(`Camera on in ${Math.round(performance.now() - started)} ms`);
+			const track = media.getVideoTracks?.()[0];
+			label.current = track?.label ?? "";
+			setCameraId(track?.getSettings?.().deviceId ?? null);
+			try {
+				await track?.applyConstraints?.({
+					width: { ideal: 1920 },
+					height: { ideal: 1080 }
+				});
+			} catch (e) {
+				console.warn("The camera kept its own size", e);
+			}
+			console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
+			listCameras();
 			setPhase("live");
 		} catch (e) {
 			if (alive.current) notUsed(reasonOf(e), e);
 		}
+	}
+	async function listCameras() {
+		try {
+			const found = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput").map((d, i) => ({
+				id: d.deviceId,
+				label: d.label || `Camera ${i + 1}`
+			}));
+			console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
+			if (alive.current) setCameras(found);
+		} catch (e) {
+			console.error("Could not list the cameras", e);
+		}
+	}
+	function switchCamera(id) {
+		console.info(`Camera chosen: ${cameras.find((c) => c.id === id)?.label ?? id}`);
+		saveCamera(id);
+		stopCamera();
+		start(id);
 	}
 	h(() => {
 		const element = video.current;
@@ -8560,6 +8608,7 @@ function CameraPhoto(props) {
 	}
 	h(() => () => show(null), []);
 	function takePhoto() {
+		setGrabFailed(null);
 		setPhase("counting");
 		setCount(3);
 		for (let s = 1; s <= 3; s++) timers.current.push(window.setTimeout(() => s < 3 ? setCount(3 - s) : void capture(), s * 1e3));
@@ -8574,6 +8623,7 @@ function CameraPhoto(props) {
 		} catch (e) {
 			console.error("Could not take the picture", e);
 			setShot(null);
+			setGrabFailed(e.message);
 			setPhase("live");
 			return;
 		}
@@ -8581,7 +8631,8 @@ function CameraPhoto(props) {
 		report({
 			taken: true,
 			width: grabbed.width,
-			height: grabbed.height
+			height: grabbed.height,
+			camera: label.current
 		});
 		console.info(`Camera photo taken: ${grabbed.width}×${grabbed.height}`);
 		const url = URL.createObjectURL(grabbed.blob);
@@ -8678,6 +8729,26 @@ function CameraPhoto(props) {
 						children: "Asking for the camera…"
 					})
 				]
+			}),
+			!shot && cameras.length > 1 && /* @__PURE__ */ u("label", {
+				className: "camera-choice",
+				children: [
+					"Camera",
+					" ",
+					/* @__PURE__ */ u("select", {
+						value: cameraId ?? "",
+						disabled: phase !== "live",
+						onChange: (e) => switchCamera(e.currentTarget.value),
+						children: cameras.map((c) => /* @__PURE__ */ u("option", {
+							value: c.id,
+							children: c.label
+						}, c.id))
+					})
+				]
+			}),
+			grabFailed && phase === "live" && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: grabFailed
 			}),
 			phase === "checking" && /* @__PURE__ */ u("p", {
 				className: "muted busy",

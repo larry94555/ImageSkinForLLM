@@ -43,10 +43,14 @@ export interface Grabbed {
   height: number;
 }
 
+export const NO_PICTURE =
+  "The camera isn't sending a picture. Wait a moment and try again, or choose another camera.";
+
 // The live picture as a JPEG at the camera's full size.
 export function grabFrame(video: HTMLVideoElement): Promise<Grabbed> {
   const width = video.videoWidth;
   const height = video.videoHeight;
+  if (!width || !height) return Promise.reject(new Error(NO_PICTURE));
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -60,6 +64,31 @@ export function grabFrame(video: HTMLVideoElement): Promise<Grabbed> {
       0.92,
     ),
   );
+}
+
+// The camera chosen last time, so the same one opens next time (Larry's test of PR #227: a
+// virtual camera was opened instead of the laptop's own).
+const CAMERA_KEY = "imageskin.camera";
+
+function savedCamera(): string | null {
+  try {
+    return localStorage.getItem(CAMERA_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveCamera(id: string) {
+  try {
+    localStorage.setItem(CAMERA_KEY, id);
+  } catch (e) {
+    console.warn("Could not remember the camera chosen", e);
+  }
+}
+
+export interface CameraChoice {
+  id: string;
+  label: string;
 }
 
 type Phase = "starting" | "live" | "counting" | "checking" | "taken" | "off";
@@ -90,6 +119,11 @@ export function CameraPhoto(props: {
   const [reason, setReason] = useState<CameraReason | null>(null);
   const [count, setCount] = useState(COUNTDOWN_S);
   const [shot, setShot] = useState<Shot | null>(null);
+  const [grabFailed, setGrabFailed] = useState<string | null>(null);
+  // The cameras on this computer, once the browser lets their names be read, and the one in use.
+  const [cameras, setCameras] = useState<CameraChoice[]>([]);
+  const [cameraId, setCameraId] = useState<string | null>(null);
+  const label = useRef("");
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const timers = useRef<number[]>([]);
@@ -110,8 +144,9 @@ export function CameraPhoto(props: {
     setPhase("off");
   }
 
-  async function start() {
+  async function start(chosen: string | null = savedCamera()) {
     setPhase("starting");
+    setGrabFailed(null);
     const blocked = cameraBlocked();
     if (blocked) {
       notUsed(blocked);
@@ -119,8 +154,10 @@ export function CameraPhoto(props: {
     }
     const started = performance.now();
     try {
+      // No size asked for here: the browser would open whichever camera fits the size best, a
+      // virtual one over the laptop's own (Larry's test of PR #227). The size is raised after.
       const media = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: chosen ? { deviceId: { ideal: chosen } } : true,
         audio: false,
       });
       if (!alive.current) {
@@ -128,11 +165,40 @@ export function CameraPhoto(props: {
         return;
       }
       stream.current = media;
-      console.info(`Camera on in ${Math.round(performance.now() - started)} ms`);
+      const track = media.getVideoTracks?.()[0];
+      label.current = track?.label ?? "";
+      setCameraId(track?.getSettings?.().deviceId ?? null);
+      try {
+        await track?.applyConstraints?.({ width: { ideal: 1920 }, height: { ideal: 1080 } });
+      } catch (e) {
+        console.warn("The camera kept its own size", e);
+      }
+      console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
+      void listCameras();
       setPhase("live");
     } catch (e) {
       if (alive.current) notUsed(reasonOf(e), e);
     }
+  }
+
+  async function listCameras() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const found = devices
+        .filter((d) => d.kind === "videoinput")
+        .map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+      console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
+      if (alive.current) setCameras(found);
+    } catch (e) {
+      console.error("Could not list the cameras", e);
+    }
+  }
+
+  function switchCamera(id: string) {
+    console.info(`Camera chosen: ${cameras.find((c) => c.id === id)?.label ?? id}`);
+    saveCamera(id);
+    stopCamera();
+    void start(id);
   }
 
   // The live picture goes in the video once it shows.
@@ -163,6 +229,7 @@ export function CameraPhoto(props: {
   useEffect(() => () => show(null), []);
 
   function takePhoto() {
+    setGrabFailed(null);
     setPhase("counting");
     setCount(COUNTDOWN_S);
     for (let s = 1; s <= COUNTDOWN_S; s++) {
@@ -182,12 +249,13 @@ export function CameraPhoto(props: {
     } catch (e) {
       console.error("Could not take the picture", e);
       setShot(null);
+      setGrabFailed((e as Error).message);
       setPhase("live");
       return;
     }
     // The picture is kept: the camera goes off until Retake.
     stopCamera();
-    report({ taken: true, width: grabbed.width, height: grabbed.height });
+    report({ taken: true, width: grabbed.width, height: grabbed.height, camera: label.current });
     console.info(`Camera photo taken: ${grabbed.width}×${grabbed.height}`);
     const url = URL.createObjectURL(grabbed.blob);
     show(url);
@@ -250,6 +318,23 @@ export function CameraPhoto(props: {
           {phase === "starting" && <p className="muted busy camera-note">Asking for the camera…</p>}
         </div>
       )}
+      {!shot && cameras.length > 1 && (
+        <label className="camera-choice">
+          Camera{" "}
+          <select
+            value={cameraId ?? ""}
+            disabled={phase !== "live"}
+            onChange={(e) => switchCamera(e.currentTarget.value)}
+          >
+            {cameras.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {grabFailed && phase === "live" && <p className="error">{grabFailed}</p>}
       {phase === "checking" && <p className="muted busy">Checking the photo…</p>}
       {shot?.upload && <Checks item={shot.upload} queue={-1} />}
       {shot?.upload && passed && <p className="done">Kept. Click Next, or Retake to try again.</p>}

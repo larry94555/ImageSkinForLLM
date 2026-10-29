@@ -178,6 +178,7 @@ class CameraUse(BaseModel):
     reason: str | None = None
     width: int | None = None
     height: int | None = None
+    camera: str | None = None  # the camera's name, as the browser gives it
 
 
 class ReadyVoiceRequest(BaseModel):
@@ -650,7 +651,7 @@ def create_app(
     @app.post("/api/wizard/camera")
     def post_wizard_camera(body: CameraUse) -> dict[str, bool]:
         try:
-            log_camera(body.taken, body.reason, body.width, body.height)
+            log_camera(body.taken, body.reason, body.width, body.height, body.camera)
         except ValueError as e:
             logger.warning("Camera report refused", extra={"error": str(e)})
             raise HTTPException(status_code=400, detail=str(e)) from e

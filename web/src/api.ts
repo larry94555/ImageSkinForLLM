@@ -1190,7 +1190,9 @@ export type CameraReason = "insecure" | "unsupported" | "refused" | "no-camera" 
 // Tells the server's log about a photo taken with the camera, with its size, or why the camera
 // wasn't used (R132). Never the picture: that is uploaded like any photo.
 export async function reportCamera(
-  report: { taken: true; width: number; height: number } | { taken: false; reason: CameraReason },
+  report:
+    | { taken: true; width: number; height: number; camera: string }
+    | { taken: false; reason: CameraReason },
 ): Promise<void> {
   const response = await fetch("/api/wizard/camera", {
     method: "POST",

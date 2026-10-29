@@ -64,12 +64,18 @@ CAMERA_REASONS = ("insecure", "unsupported", "refused", "no-camera", "failed")
 
 
 def log_camera(
-    taken: bool, reason: str | None = None, width: int | None = None, height: int | None = None
+    taken: bool,
+    reason: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    camera: str | None = None,
 ) -> None:
-    """Log a photo taken with the camera in the wizard, with its size, or why the camera wasn't
-    used. The picture itself is never logged."""
+    """Log a photo taken with the camera in the wizard, with its size and the camera's name, or
+    why the camera wasn't used. The picture itself is never logged."""
     if taken:
-        logger.info("Camera photo taken", extra={"width": width, "height": height})
+        logger.info(
+            "Camera photo taken", extra={"width": width, "height": height, "camera": camera}
+        )
         return
     if reason not in CAMERA_REASONS:
         raise ValueError(f"No camera reason called {reason!r}.")

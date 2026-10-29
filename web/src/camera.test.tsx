@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { CameraPhoto, cameraBlocked, grabFrame, reasonOf, WHY_NOT } from "./camera";
+import { CameraPhoto, cameraBlocked, grabFrame, NO_PICTURE, reasonOf, WHY_NOT } from "./camera";
 
 const PHOTO = { id: "p1", kind: "photos", name: "camera.jpg", format: "jpg", size: 9, uploaded_at: "", seconds: null, score: 81, speech: null };
 
@@ -27,20 +27,36 @@ function server(upload: Response | (() => Response)) {
 }
 
 // A camera whose stream's tracks can be checked for being stopped.
-function camera(answer: "ok" | string = "ok") {
+// Two cameras by default: the laptop's own, opened first, and a virtual one.
+const CAMERAS = [
+  { kind: "videoinput", deviceId: "laptop", label: "Integrated Camera" },
+  { kind: "videoinput", deviceId: "obs", label: "OBS Virtual Camera" },
+  { kind: "audioinput", deviceId: "mic", label: "Microphone" },
+];
+
+function camera(answer: "ok" | string = "ok", devices = CAMERAS) {
   const stop = vi.fn();
-  const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
-  const getUserMedia = vi.fn(async () => {
-    if (answer === "ok") return stream;
-    throw Object.assign(new Error(answer), { name: answer });
+  const applyConstraints = vi.fn(async () => {});
+  const getUserMedia = vi.fn(async (asked: MediaStreamConstraints) => {
+    if (answer !== "ok") throw Object.assign(new Error(answer), { name: answer });
+    const video = asked.video as { deviceId?: { ideal: string } } | true;
+    const id = video === true ? "laptop" : (video.deviceId?.ideal ?? "laptop");
+    const label = devices.find((d) => d.deviceId === id)?.label ?? "";
+    const track = { stop, label, getSettings: () => ({ deviceId: id }), applyConstraints };
+    return { getTracks: () => [track], getVideoTracks: () => [track] } as unknown as MediaStream;
   });
-  Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia }, configurable: true });
-  return { getUserMedia, stop };
+  const enumerateDevices = vi.fn(async () => devices);
+  Object.defineProperty(navigator, "mediaDevices", {
+    value: { getUserMedia, enumerateDevices },
+    configurable: true,
+  });
+  return { getUserMedia, stop, applyConstraints };
 }
 
 const grab = vi.fn(async () => ({ blob: new Blob(["jpeg"], { type: "image/jpeg" }), width: 1280, height: 720 }));
 
 beforeEach(() => {
+  localStorage.clear();
   Object.defineProperty(window, "isSecureContext", { value: true, configurable: true });
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   URL.createObjectURL = vi.fn(() => "blob:shot");
@@ -117,7 +133,7 @@ test("a photo taken after the countdown is uploaded, checked, kept, and turns th
   expect(screen.getByText(/Looks good/)).toBeTruthy();
   expect(screen.getByRole("img", { name: "The photo you took" }).getAttribute("src")).toBe("blob:shot");
   expect(stop).toHaveBeenCalled();
-  expect(reports).toEqual([{ taken: true, width: 1280, height: 720 }]);
+  expect(reports).toEqual([{ taken: true, width: 1280, height: 720, camera: "Integrated Camera" }]);
   expect(uploads[0].name).toMatch(/^camera-.*\.jpg$/);
   expect(onAdded).toHaveBeenCalledTimes(1);
   expect(changing).toEqual([true, false]);
@@ -166,6 +182,7 @@ test("a picture that can't be grabbed goes back to the live picture", async () =
   await takePhoto();
   expect(await screen.findByRole("button", { name: "Take photo" })).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not take the picture", expect.any(Error));
+  expect(screen.getByText("no frame")).toBeTruthy();
 });
 
 test("leaving the step turns the camera off", async () => {
@@ -193,7 +210,10 @@ test("a camera allowed after the step was left is turned off at once", async () 
 
 test("grabbing needs a canvas the browser can draw on", async () => {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-  await expect(grabFrame(document.createElement("video"))).rejects.toThrow("The picture could not be taken.");
+  const video = document.createElement("video");
+  Object.defineProperty(video, "videoWidth", { value: 640 });
+  Object.defineProperty(video, "videoHeight", { value: 480 });
+  await expect(grabFrame(video)).rejects.toThrow("The picture could not be taken.");
 });
 
 test("a grabbed picture is a JPEG at the video's size", async () => {
@@ -209,4 +229,50 @@ test("a grabbed picture is a JPEG at the video's size", async () => {
   const grabbed = await grabFrame(video);
   expect([grabbed.width, grabbed.height]).toEqual([1920, 1080]);
   expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 1920, 1080);
+});
+
+test("the browser's default camera opens, with no size asked for, then is raised to full size", async () => {
+  const { getUserMedia, applyConstraints } = camera();
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  await screen.findByRole("button", { name: "Take photo" });
+  expect(getUserMedia).toHaveBeenCalledWith({ video: true, audio: false });
+  expect(applyConstraints).toHaveBeenCalledWith({ width: { ideal: 1920 }, height: { ideal: 1080 } });
+});
+
+test("with two cameras, another can be chosen, and is opened first next time", async () => {
+  const { getUserMedia } = camera();
+  server(Response.json(PHOTO));
+  const { unmount } = render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
+  expect([...select.options].map((o) => o.textContent)).toEqual(["Integrated Camera", "OBS Virtual Camera"]);
+  expect(select.value).toBe("laptop");
+  fireEvent.change(select, { target: { value: "obs" } });
+  await waitFor(() => expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { ideal: "obs" } }, audio: false }));
+  unmount();
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  await screen.findByRole("button", { name: "Take photo" });
+  expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { ideal: "obs" } }, audio: false });
+});
+
+test("with one camera, there is nothing to choose", async () => {
+  camera("ok", CAMERAS.slice(0, 1));
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  await screen.findByRole("button", { name: "Take photo" });
+  await waitFor(() => expect(console.info).toHaveBeenCalledWith("Cameras: Integrated Camera"));
+  expect(screen.queryByRole("combobox")).toBeNull();
+});
+
+test("a camera that keeps its own size is still used", async () => {
+  const { applyConstraints } = camera();
+  applyConstraints.mockRejectedValue(new Error("OverconstrainedError"));
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  expect(await screen.findByRole("button", { name: "Take photo" })).toBeTruthy();
+});
+
+test("a camera sending no picture says so, instead of failing silently", async () => {
+  await expect(grabFrame(document.createElement("video"))).rejects.toThrow(NO_PICTURE);
 });
