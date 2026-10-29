@@ -22,6 +22,7 @@ import {
   type Assessment,
   getChatHints,
   getChatPhoto,
+  getChatReady,
   getPhotoChoice,
   clipUrl,
   getPrepare,
@@ -1361,6 +1362,13 @@ function saveSound(sound: Sound) {
 export const READ_AHEAD_PAUSE_MS = 600;
 const READ_AHEAD_WORDS = 3;
 
+// How often the chat asks again whether the person's voice and face are ready (R181).
+export const READY_CHECK_MS = 2000;
+// Said in place of Thinking while they are got ready, as after switching back to your own photo
+// and voice from a ready-made avatar (Larry, 2026-10-29).
+export const GETTING_READY =
+  "Getting the voice and face ready… This can take a few minutes after switching.";
+
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
 // (roadmap R22); if that fails, the reply stays as text with a short note.
@@ -1421,7 +1429,39 @@ function Chat(props: {
   const line = useRef<{ name: Line; at: number; timer?: ReturnType<typeof setTimeout> } | null>(
     null,
   );
-  const busy = sending || speaking || saying !== null;
+  // Whether replies are ready, or the person's voice and face are still being got ready (R181):
+  // nothing can be sent until they are, so a prompt never shows Thinking all that time. Null
+  // until the server has said, which counts as ready.
+  const [ready, setReady] = useState<boolean | null>(null);
+  const gettingReady = ready === false;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let waitedFrom: number | null = null;
+    const check = () => {
+      getChatReady().then(
+        (now) => {
+          if (gone.current) return;
+          setReady(now);
+          if (!now) {
+            if (waitedFrom === null) {
+              waitedFrom = performance.now();
+              console.info("Chat waits while the voice and face are got ready");
+            }
+            timer = setTimeout(check, READY_CHECK_MS);
+          } else if (waitedFrom !== null) {
+            console.info(`Voice and face ready for the chat (${Math.round(performance.now() - waitedFrom)} ms)`);
+          }
+        },
+        (e: unknown) => {
+          console.error("Could not ask whether the chat is ready", e);
+          if (!gone.current) setReady(true); // never kept waiting by a failed check
+        },
+      );
+    };
+    check();
+    return () => clearTimeout(timer);
+  }, []);
+  const busy = sending || speaking || saying !== null || gettingReady;
   // The question typed so far is read ahead by the LLM once typing pauses (R148), so most of it
   // is in the LLM's cache on Send. Not while a reply is made, nor for an answer to a quiz.
   const readAheadOf = useRef("");
@@ -1824,7 +1864,9 @@ function Chat(props: {
     );
   // One line saying what is happening, until the person starts to speak (R41d).
   // Stopped while thinking: the server is cutting the LLM off.
-  const status = sending
+  const status = gettingReady
+    ? GETTING_READY
+    : sending
     ? halted
       ? "Stopping…"
       : "Thinking…"
