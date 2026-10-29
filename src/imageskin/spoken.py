@@ -36,6 +36,7 @@ _CHANGE = re.compile(r"^(.+?)->(.+)$")
 _QUOTES = "\"'.“”‘’ "
 _WORD = re.compile(r"[^\W\d_][\w'’-]*")
 _POSSESSIVE = re.compile(r"['’]s$")
+_VOWELS = re.compile(r"[aeiouy]+")
 # Capitalised at the start of a sentence, not because they are names or terms.
 _COMMON = {
     "this", "that", "these", "those", "there", "their", "they", "then", "than", "what", "when",
@@ -78,12 +79,23 @@ def words_of(text: str) -> list[str]:
     return [_POSSESSIVE.sub("", w.lower()) for w in _WORD.findall(text)]
 
 
+def syllables(word: str) -> int:
+    """About how many syllables a word has: its runs of vowels, less a silent final "e"."""
+    count = len(_VOWELS.findall(word.lower()))
+    if count > 1 and word.lower().endswith("e") and not word.lower().endswith("le"):
+        count -= 1
+    return max(count, 1)
+
+
 def sounds_like(word: str, dropped: list[str]) -> bool:
     """Whether a word put in is spelled like a word it replaced, or like the dropped words run
-    together ("fun shun" for "function"): misheard words sound alike, and are mostly spelled
-    alike ("Oiler" and "Euler" are 0.6 alike, "Boiler" and "function" 0.14)."""
+    together ("fun shun" for "function"), with as many syllables: misheard words sound alike,
+    and are mostly spelled alike ("Oiler" and "Euler" are 0.6 alike, "Boiler" and "function"
+    0.14). Spelling alone isn't enough: "France" and "Ukraine" are 0.62 alike, but one
+    syllable against two (Larry's test, 2026-10-28)."""
     return any(
-        SequenceMatcher(None, word, d).ratio() >= ALIKE for d in [*dropped, "".join(dropped)]
+        SequenceMatcher(None, word, d).ratio() >= ALIKE and syllables(word) == syllables(d)
+        for d in [*dropped, "".join(dropped)]
     )
 
 
@@ -110,7 +122,8 @@ def kept(heard: str, said: str, terms: list[str]) -> bool:
 
 def suspects(heard: str, terms: list[str]) -> list[str]:
     """The content's words spelled like a word heard, or like two heard words run together
-    ("fun shun" for "function"), the most alike first: the only ones it could have misheard.
+    ("fun shun" for "function"), with as many syllables, the most alike first: the only ones it
+    could have misheard.
     A word heard as the content's word isn't compared with it, alone or run together with
     another, but the same word misheard elsewhere in the question still is ("What did Euler say
     about Oiler?", review on PR #140)."""
@@ -119,7 +132,14 @@ def suspects(heard: str, terms: list[str]) -> list[str]:
     alike: dict[str, float] = {}
     for term in terms:
         key = term.lower()
-        best = max((alike_as_heard("".join(ws), key) for ws in tried if key not in ws), default=0.0)
+        best = max(
+            (
+                alike_as_heard(heard_as, key)
+                for ws in tried
+                if key not in ws and syllables(heard_as := "".join(ws)) == syllables(key)
+            ),
+            default=0.0,
+        )
         if best >= SUSPECT:
             alike[term] = best
     return sorted(alike, key=lambda t: -alike[t])[:MOST_SUSPECTS]
