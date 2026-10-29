@@ -11,6 +11,7 @@ from imageskin.accent import (
     PROBE,
     AccentEngine,
     convert_fitted,
+    kept_path,
     load_accent,
     pcm16_to_float,
     pick_base,
@@ -79,6 +80,8 @@ def test_pick_base_converts_every_voice_and_picks_the_closest_after() -> None:
 
 class FakeClone:
     """The parts of ChatterboxEngine the accent engine uses."""
+
+    name = "Fake clone"
 
     def __init__(self) -> None:
         self.learned: list[str] = []
@@ -276,3 +279,122 @@ def test_a_forgotten_voice_drops_the_clones_and_the_converters() -> None:
     engine.forget_voice()
     assert clone.learned[-1] == "forgot" and engine._converter is None
     assert engine.accent == "own" and engine.base is None
+
+
+def recorded(tmp_path: Path, sound: bytes = b"Larry speaking") -> str:
+    sample = tmp_path / "uploads" / "voice-sample.wav"
+    sample.parent.mkdir(parents=True, exist_ok=True)
+    sample.write_bytes(sound)
+    return str(sample)
+
+
+def test_the_accent_is_learned_again_from_the_kept_speech_after_a_restart(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R183: after a rebuild, the chat waited minutes while the British accent was converted
+    again; the speech converted last time is kept beside the voice sample and learned from."""
+    voice = recorded(tmp_path)
+    engine, _, _, _ = accent_engine(clone_keeps_accent=True)
+    with caplog.at_level(logging.INFO):
+        engine.prepare(voice, "british")
+    assert kept_path(voice) == tmp_path / "uploads" / "voice-sample.accent.npz"
+    assert kept_path(voice).is_file() and "Kept the accent speech for the next start" in caplog.text
+    assert not list((tmp_path / "uploads").glob("*.writing"))
+
+    restarted, clone, kokoros, converter = accent_engine(clone_keeps_accent=True)
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        restarted.prepare(voice, "british")
+    # Nothing converted, no Kokoro voice spoken, the converter never loaded.
+    assert kokoros == {} and converter.voice is None and restarted._converter is None
+    assert restarted.base == "bm_lewis" and restarted.accent == "british"
+    assert clone.learned == [f"{voice} from speech at 0.475"]
+    learned = next(
+        r
+        for r in caplog.records
+        if r.getMessage() == "Clone learned the voice with the accent from the kept speech"
+    )
+    assert vars(learned)["base"] == "bm_lewis" and vars(learned)["duration_ms"] >= 0
+
+
+@pytest.mark.parametrize("change", ["recordings", "accent"])
+def test_kept_speech_for_other_recordings_or_another_accent_is_not_used(
+    tmp_path: Path, change: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    voice = recorded(tmp_path)
+    accent_engine(clone_keeps_accent=True)[0].prepare(voice, "british")
+    if change == "recordings":
+        recorded(tmp_path, b"Larry speaking again")
+    restarted, _, kokoros, _ = accent_engine(clone_keeps_accent=True)
+    with caplog.at_level(logging.INFO):
+        restarted.prepare(voice, "british" if change == "recordings" else "american")
+    assert kokoros  # converted anew
+    assert "Kept accent speech is for another voice or accent" in caplog.text
+    restarted, _, kokoros, _ = accent_engine(clone_keeps_accent=True)
+    restarted.prepare(voice, "british" if change == "recordings" else "american")
+    assert kokoros == {}  # and kept again for the next start
+
+
+def test_a_clone_that_keeps_accents_learns_anew_when_only_the_base_voice_was_kept(
+    tmp_path: Path,
+) -> None:
+    voice = recorded(tmp_path)
+    engine, _, _, _ = accent_engine(clone_keeps_accent=True)
+    engine.base, engine.accent = "bm_george", "british"
+    engine._keep(voice, np.zeros(0, dtype=np.float32))
+    restarted, clone, kokoros, _ = accent_engine(clone_keeps_accent=True)
+    restarted.prepare(voice, "british")
+    # The kept base voice reads the passage; no probe is spoken.
+    assert kokoros["b"].said == [("bm_george", PASSAGE)]
+    assert clone.learned[-1] == f"{voice} from speech at 0.400"
+
+
+def test_broken_kept_speech_is_converted_anew(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    voice = recorded(tmp_path)
+    kept_path(voice).write_bytes(b"not an npz")
+    engine, _, kokoros, _ = accent_engine(clone_keeps_accent=True)
+    with caplog.at_level(logging.WARNING):
+        engine.prepare(voice, "british")
+    assert "Could not read the kept accent speech" in caplog.text
+    assert engine.base == "bm_lewis" and kokoros
+
+
+def test_speech_that_cannot_be_kept_is_logged_and_prepare_carries_on(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    voice = recorded(tmp_path)
+    kept_path(voice).mkdir()  # a folder in the way: the kept file can't replace it
+    engine, clone, _, _ = accent_engine(clone_keeps_accent=True)
+    with caplog.at_level(logging.WARNING):
+        engine.prepare(voice, "british")
+    assert "Could not keep the accent speech" in caplog.text
+    assert clone.learned[-1] == f"{voice} from speech at 0.475"
+    assert not list((tmp_path / "uploads").glob("*.writing"))
+
+
+def test_without_a_readable_voice_sample_nothing_is_kept(tmp_path: Path) -> None:
+    engine, _, kokoros, _ = accent_engine(clone_keeps_accent=True)
+    voice = str(tmp_path / "voice-sample.wav")  # the fake clone reads no file
+    engine.prepare(voice, "british")
+    assert kokoros and not kept_path(voice).exists()
+
+
+def test_a_clone_that_does_not_keep_accents_keeps_the_base_voice(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R183, with Chatterbox: every line is converted, so the converter still loads after a
+    restart, but the base voice isn't picked again from every voice of the accent."""
+    voice = recorded(tmp_path)
+    accent_engine()[0].prepare(voice, "british")
+    assert kept_path(voice).is_file()
+    restarted, clone, kokoros, converter = accent_engine()
+    with caplog.at_level(logging.INFO):
+        restarted.prepare(voice, "british")
+        speech = restarted.speak(voice, "Hi")
+    assert restarted.base == "bm_lewis" and "Base voice kept from last time" in caplog.text
+    assert "Picked base voice" not in caplog.text
+    assert [t for _, t in kokoros["b"].said] == ["Hi"]  # no probe spoken
+    assert converter.voice is not None and clone.learned == [f"read {voice} afresh"]
+    assert pcm16_to_float(speech.pcm)[0] == pytest.approx(0.475, abs=1e-3)

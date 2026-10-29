@@ -15,6 +15,7 @@ from test_start_now import CHOICE, Fetcher, packs_of, renderer
 from imageskin import start_now as sn
 from imageskin.app import OWN_NOT_ACCEPTED, WAIT_FOR_AVATAR, create_app
 from imageskin.uploads import PhotoResult, UploadStore, VoiceSample
+from imageskin.warm_up_time import last_warm_up_s, save_warm_up_s
 
 pack = test_start_now.pack  # the fixture: a real, small pack of the person CHOICE names
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
@@ -144,12 +145,53 @@ def test_the_chat_waits_while_your_own_voice_and_face_are_got_ready(
         with patch.object(ReplyVideos, "warm_up", held), caplog.at_level(logging.INFO):
             assert client.delete("/api/start-now").status_code == 200
             assert warming.wait(10)
-            assert client.get("/api/chat/ready").json() == {"ready": False}
+            waiting = client.get("/api/chat/ready").json()
+            # The last warm-up, after the avatar was chosen, was timed (R183): a few seconds
+            # left at most, or None once this one takes longer.
+            assert waiting["ready"] is False and "left_s" in waiting
             go.set()
             client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
         assert client.get("/api/chat/ready").json() == {"ready": True}
         done = [r for r in caplog.records if r.getMessage() == "Reply warm-up done"]
         assert done and isinstance(done[-1].__dict__["duration_ms"], float)
+
+
+def test_the_chat_says_how_many_seconds_are_left_from_the_last_warm_up(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """R183: after a rebuild, the chat said only that it was getting ready, for over a minute.
+    Each warm-up's length is kept, and while the next runs the chat is told the seconds left."""
+    from imageskin.reply_video import ReplyVideos
+
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    with patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)):
+        client.post("/api/prepare")
+        client.app.state.prepare_job.wait(10)  # type: ignore[attr-defined]
+        assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+        client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
+        assert last_warm_up_s(tmp_path) is not None  # the warm-up after the accept was timed
+        choose(client)
+        client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
+        save_warm_up_s(tmp_path, 75)  # as if the last one took 75 s
+
+        warming, go = threading.Event(), threading.Event()
+        warm_up = ReplyVideos.warm_up
+
+        def held(self: ReplyVideos, photo: Path) -> None:
+            warming.set()
+            go.wait(10)
+            warm_up(self, photo)
+
+        with patch.object(ReplyVideos, "warm_up", held):
+            assert client.delete("/api/start-now").status_code == 200
+            assert warming.wait(10)
+            waiting = client.get("/api/chat/ready").json()
+            assert waiting["ready"] is False and 70 <= waiting["left_s"] <= 75
+            go.set()
+            client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
+        assert client.get("/api/chat/ready").json() == {"ready": True}
+        assert last_warm_up_s(tmp_path) < 75  # type: ignore[operator]  # this one's, kept for next
 
 
 def test_the_chat_ready_needs_a_person(client: TestClient) -> None:

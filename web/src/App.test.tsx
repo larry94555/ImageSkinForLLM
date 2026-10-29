@@ -16,7 +16,7 @@ import styles from "./styles.css?raw";
 import {
   CANT_ANSWER,
   ClipPlayer,
-  GETTING_READY,
+  preparingChat,
   READY_CHECK_MS,
   type Idle,
   Stage,
@@ -1820,7 +1820,7 @@ test("the chat waits, saying so, while the voice and face are got ready", async 
   const info = vi.spyOn(console, "info").mockImplementation(() => {});
   try {
     await openAt("#/chat");
-    expect(await screen.findByText(GETTING_READY)).toBeTruthy();
+    expect(await screen.findByText("Preparing chat…")).toBeTruthy(); // no time known
     fireEvent.input(promptBox(), { target: { value: "Hello!" } });
     expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText("Thinking…")).toBeNull();
@@ -1828,7 +1828,7 @@ test("the chat waits, saying so, while the voice and face are got ready", async 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
     });
-    await waitFor(() => expect(screen.queryByText(GETTING_READY)).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Preparing chat…")).toBeNull());
     expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
     const asked = server.mock.calls.filter(([url]) => url === "/api/chat/ready");
     expect(asked.length).toBe(2); // asked again only while not ready
@@ -1836,6 +1836,46 @@ test("the chat waits, saying so, while the voice and face are got ready", async 
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("the chat counts down the seconds left while it is prepared", async () => {
+  // Larry, 2026-10-29: after a rebuild the chat said it was getting ready for over a minute,
+  // with no idea how long; it now says the seconds left, from the last warm-up (R183).
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let answer: object = { ready: false, left_s: 12 };
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? Response.json(answer) : answers(url, init),
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    await openAt("#/chat");
+    expect(await screen.findByText("Preparing chat… 12 seconds remaining")).toBeTruthy();
+    answer = { ready: false, left_s: 1 };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    expect(await screen.findByText("Preparing chat… 1 second remaining")).toBeTruthy();
+    answer = { ready: false, left_s: null }; // taking longer than last time
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    expect(await screen.findByText("Preparing chat…")).toBeTruthy();
+    answer = { ready: true };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    await waitFor(() => expect(screen.queryByText(/Preparing chat/)).toBeNull());
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("preparingChat says the seconds left only when they are known", () => {
+  expect(preparingChat(null)).toBe("Preparing chat…");
+  expect(preparingChat(1)).toBe("Preparing chat… 1 second remaining");
+  expect(preparingChat(40)).toBe("Preparing chat… 40 seconds remaining");
 });
 
 test("nothing can be sent until the server says the chat is ready", async () => {
@@ -1852,7 +1892,7 @@ test("nothing can be sent until the server says the chat is ready", async () => 
   fireEvent.input(promptBox(), { target: { value: "Hello!" } });
   const send = () => screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
   expect(send().disabled).toBe(true);
-  expect(screen.queryByText(GETTING_READY)).toBeNull(); // nothing said for a moment's wait
+  expect(screen.queryByText(/Preparing chat/)).toBeNull(); // nothing said for a moment's wait
   await act(async () => answerReadiness(Response.json({ ready: true })));
   await waitFor(() => expect(send().disabled).toBe(false));
 });
@@ -1868,7 +1908,7 @@ test("a failed readiness check never keeps the chat waiting", async () => {
   await screen.findByText("Ask a question to start the conversation.");
   fireEvent.input(promptBox(), { target: { value: "Hello!" } });
   expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
-  expect(screen.queryByText(GETTING_READY)).toBeNull();
+  expect(screen.queryByText(/Preparing chat/)).toBeNull();
   await waitFor(() =>
     expect(error.mock.calls.some(([m]) => m === "Could not ask whether the chat is ready")).toBe(true),
   );
