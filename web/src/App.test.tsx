@@ -15,6 +15,7 @@ import { openSettings, returnToApp } from "./settings.test.util";
 import styles from "./styles.css?raw";
 import {
   CANT_ANSWER,
+  CHECK_HEARD,
   ClipPlayer,
   type Idle,
   Stage,
@@ -1872,6 +1873,69 @@ test("a question said with Hold to talk is shown in the box, sent, and shown as 
   });
   expect(console.info).toHaveBeenCalledWith('Push-to-talk: "Who was Oiler?" taken as "Who was Euler?"');
   vi.unstubAllGlobals();
+});
+
+// Says "Who is Joe Budden?" with Hold to talk, at a confidence the browser isn't sure of (R179),
+// then sends the prompt box with Send after it is changed to `fixed`; returns what was sent.
+async function sayUnsureThenSend(fixed: string) {
+  let recognition: { onresult: (e: object) => void; onend: () => void } | null = null;
+  vi.stubGlobal(
+    "webkitSpeechRecognition",
+    class {
+      onresult = (_: object) => {};
+      onend = () => {};
+      constructor() {
+        recognition = this;
+      }
+      start() {}
+      stop() {
+        this.onend();
+      }
+    },
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  const fetchMock = chatServer([], () => Response.json({ role: "assistant", content: "Hi!" }));
+  await openAt("#/chat");
+  const talk = await screen.findByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(talk);
+  });
+  await act(async () => {
+    recognition!.onresult({ results: [[{ transcript: "Who is Joe Budden?", confidence: 0.6 }]] });
+  });
+  const now = performance.now.bind(performance);
+  vi.spyOn(performance, "now").mockImplementation(() => now() + 1000); // held, not tapped
+  await act(async () => {
+    fireEvent.pointerUp(talk);
+  });
+  expect((await screen.findByRole("alert", undefined, { timeout: 3000 })).textContent).toBe(
+    CHECK_HEARD,
+  );
+  // Not sent: left in the box, ready to fix.
+  const chats = () =>
+    fetchMock.mock.calls.filter(([url, init]) => url === "/api/chat" && init?.method);
+  expect(chats()).toHaveLength(0);
+  expect(promptBox().value).toBe("Who is Joe Budden?");
+  expect(document.activeElement).toBe(promptBox());
+  fireEvent.input(promptBox(), { target: { value: fixed } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByText("Hi!")).toBeTruthy();
+  expect(screen.getByText(fixed).className).toBe("user");
+  expect(screen.queryByText(CHECK_HEARD)).toBeNull();
+  vi.unstubAllGlobals();
+  return JSON.parse(chats()[0]![1]!.body as string) as { prompt: string; spoken?: boolean };
+}
+
+test("a question Hold to talk isn't sure of waits in the box, and is sent as fixed", async () => {
+  const sent = await sayUnsureThenSend("Who is Jill Biden?");
+  expect(sent.prompt).toBe("Who is Jill Biden?");
+  expect(sent.spoken).toBeUndefined(); // fixed by hand: sent as typed
+});
+
+test("a question Hold to talk isn't sure of, sent unchanged, is still spoken", async () => {
+  const sent = await sayUnsureThenSend("Who is Joe Budden?");
+  // So any misheard name is still put back (R24).
+  expect(sent).toMatchObject({ prompt: "Who is Joe Budden?", spoken: true });
 });
 
 // --- Topic hints (R41g) ---

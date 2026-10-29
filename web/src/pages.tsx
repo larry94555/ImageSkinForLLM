@@ -1203,6 +1203,9 @@ function AvatarLinks({ readyMade }: { readyMade: boolean }) {
 
 // What the chat says when there is no reply, whatever the reason; the reason goes to the
 // browser console and the server log, not to the participant (R41d).
+// Said with Hold to talk, but the browser wasn't sure of every word (R179).
+export const CHECK_HEARD =
+  "I may have misheard a word. Check your question, fix it if needed, then press Send.";
 export const CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 
 // How often the chat asks for a reply's new clips while they are being made.
@@ -1384,6 +1387,10 @@ function Chat(props: {
   // Why the latest reply could not be spoken, by its place in the turns shown.
   const [unspoken, setUnspoken] = useState<{ turn: number } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const promptBox = useRef<HTMLTextAreaElement>(null);
+  // What Hold to talk heard but wasn't sure of, left in the box (R179): sent unchanged, it is
+  // still a spoken question, so misheard names are put back (R24).
+  const unsure = useRef<string | null>(null);
   const gone = useRef(false); // the page was left: stop following clips
   const replying = useRef<string | null>(null); // the latest reply's id
   const stopped = useRef<string | null>(null); // the id of a reply stopped with Stop (R19)
@@ -1592,6 +1599,8 @@ function Chat(props: {
   async function send(asked?: string, spoken = false) {
     const text = (asked ?? prompt).trim();
     if (!text || busy) return;
+    spoken ||= asked === undefined && text === unsure.current;
+    unsure.current = null;
     const shownAt = (turns ?? []).length + 1; // where the reply shows, after the prompt
     const replyId = newReplyId();
     let replied = false;
@@ -1875,6 +1884,7 @@ function Chat(props: {
         <label className="prompt">
           <span>Your message</span>
           <textarea
+            ref={promptBox}
             rows={2}
             placeholder="Type your question here"
             value={prompt}
@@ -1896,6 +1906,11 @@ function Chat(props: {
             disabled={busy}
             onHearing={setPrompt}
             onHeard={(text) => void send(text, true)}
+            onUnsure={(text) => {
+              unsure.current = text;
+              setFailed(CHECK_HEARD);
+              promptBox.current?.focus();
+            }}
             onProblem={setFailed}
           />
           {teachMe && !quizGoing && (

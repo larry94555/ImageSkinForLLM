@@ -2918,11 +2918,16 @@ function talkProblem(error) {
 function heard(results) {
 	return Array.from(results, (r) => r[0]?.transcript ?? "").join(" ").replace(/\s+/g, " ").trim();
 }
+function leastSure(results) {
+	const known = Array.from(results, (r) => r[0]?.confidence ?? 0).filter((c) => c > 0);
+	return known.length ? Math.min(...known) : null;
+}
 function TalkButton(props) {
 	const Maker = speechRecognition();
 	const [listening, setListening] = d(false);
 	const recognition = A(null);
 	const said = A("");
+	const sure = A(null);
 	const started = A(0);
 	const failed = A(false);
 	const stopping = A(null);
@@ -2946,12 +2951,14 @@ function TalkButton(props) {
 		r.continuous = true;
 		r.interimResults = true;
 		said.current = "";
+		sure.current = null;
 		failed.current = false;
 		sending.current = false;
 		latched.current = false;
 		started.current = performance.now();
 		r.onresult = (e) => {
 			said.current = heard(e.results);
+			sure.current = leastSure(e.results);
 			props.onHearing(said.current);
 		};
 		r.onerror = (e) => {
@@ -2978,8 +2985,18 @@ function TalkButton(props) {
 				if (text) console.info("Push-to-talk: ended without sending");
 				return;
 			}
-			if (text) props.onHeard(text);
-			else props.onProblem(talkProblem("no-speech"));
+			if (!text) {
+				props.onProblem(talkProblem("no-speech"));
+				return;
+			}
+			const confidence = sure.current === null ? "not given" : sure.current.toFixed(2);
+			if (sure.current !== null && sure.current < .8) {
+				console.info(`Push-to-talk: not sure of the words (confidence ${confidence}), left to check`);
+				props.onUnsure(text);
+				return;
+			}
+			console.info(`Push-to-talk: sent (confidence ${confidence})`);
+			props.onHeard(text);
 		};
 		recognition.current = r;
 		props.onProblem(null);
@@ -4154,6 +4171,7 @@ function AvatarLinks({ readyMade }) {
 		}, href))]
 	});
 }
+var CHECK_HEARD = "I may have misheard a word. Check your question, fix it if needed, then press Send.";
 var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 var LINE_TEXT = {
 	goodbye: "Goodbye",
@@ -4275,6 +4293,8 @@ function Chat(props) {
 	const [whole, setWhole] = d(false);
 	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
+	const promptBox = A(null);
+	const unsure = A(null);
 	const gone = A(false);
 	const replying = A(null);
 	const stopped = A(null);
@@ -4463,6 +4483,8 @@ function Chat(props) {
 	async function send(asked, spoken = false) {
 		const text = (asked ?? prompt).trim();
 		if (!text || busy) return;
+		spoken ||= asked === void 0 && text === unsure.current;
+		unsure.current = null;
 		const shownAt = (turns ?? []).length + 1;
 		const replyId = newReplyId();
 		let replied = false;
@@ -4726,6 +4748,7 @@ function Chat(props) {
 					children: [/* @__PURE__ */ u("label", {
 						className: "prompt",
 						children: [/* @__PURE__ */ u("span", { children: "Your message" }), /* @__PURE__ */ u("textarea", {
+							ref: promptBox,
 							rows: 2,
 							placeholder: "Type your question here",
 							value: prompt,
@@ -4749,6 +4772,11 @@ function Chat(props) {
 								disabled: busy,
 								onHearing: setPrompt,
 								onHeard: (text) => void send(text, true),
+								onUnsure: (text) => {
+									unsure.current = text;
+									setFailed(CHECK_HEARD);
+									promptBox.current?.focus();
+								},
 								onProblem: setFailed
 							}),
 							teachMe && !quizGoing && /* @__PURE__ */ u("button", {

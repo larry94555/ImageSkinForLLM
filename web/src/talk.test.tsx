@@ -1,7 +1,16 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { heard, type Recognition, TAIL_MS, TalkButton, talkProblem, TAP_MS } from "./talk";
+import {
+  heard,
+  leastSure,
+  type Recognition,
+  SURE,
+  TAIL_MS,
+  TalkButton,
+  talkProblem,
+  TAP_MS,
+} from "./talk";
 
 // The browser's speech recognition, driven by the test: `say` gives what was heard so far,
 // `fail` an error, and stop() ends it as the browser does.
@@ -26,6 +35,12 @@ class FakeRecognition implements Recognition {
   say(...parts: string[]) {
     this.onresult?.({ results: parts.map((transcript) => [{ transcript }]) });
   }
+  // As `say`, with how sure the browser is of each phrase.
+  sayWith(...parts: [string, number][]) {
+    this.onresult?.({
+      results: parts.map(([transcript, confidence]) => [{ transcript, confidence }]),
+    });
+  }
   fail(error: string) {
     this.onerror?.({ error });
   }
@@ -35,6 +50,7 @@ function talk(disabled = false) {
   const calls = {
     hearing: [] as string[],
     heard: [] as string[],
+    unsure: [] as string[],
     problems: [] as (string | null)[],
   };
   render(
@@ -42,6 +58,7 @@ function talk(disabled = false) {
       disabled={disabled}
       onHearing={(t) => calls.hearing.push(t)}
       onHeard={(t) => calls.heard.push(t)}
+      onUnsure={(t) => calls.unsure.push(t)}
       onProblem={(p) => calls.problems.push(p)}
     />,
   );
@@ -305,4 +322,55 @@ test("a pointer the browser cancels stops listening, rather than keeping it on a
   });
   expect(button.textContent).toBe("Hold to talk");
   expect(calls.heard).toEqual(["What is"]);
+});
+
+// --- Words perhaps misheard (R179) ---
+
+test("leastSure is the lowest confidence given, leaving out phrases given none", () => {
+  const phrases = (...c: (number | undefined)[]) =>
+    c.map((confidence) => [{ transcript: "a", confidence }]);
+  expect(leastSure(phrases(0.95, 0.6))).toBe(0.6);
+  expect(leastSure(phrases(0.9, 0))).toBe(0.9);
+  expect(leastSure(phrases(undefined, 0))).toBeNull();
+  expect(leastSure([])).toBeNull();
+});
+
+// Holds the button, hears `parts` with their confidence, and lets go.
+async function holdAndSay(...parts: [string, number][]) {
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  await act(async () => {
+    FakeRecognition.made[0]!.sayWith(...parts);
+    vi.advanceTimersByTime(TAP_MS);
+    fireEvent.pointerUp(button);
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+}
+
+test("a phrase the browser isn't sure of is left to check, not sent", async () => {
+  const calls = talk();
+  await holdAndSay(["Who is", 0.93], [" Joe Budden?", 0.62]); // Larry's "Jill Biden"
+  expect(calls.heard).toEqual([]);
+  expect(calls.unsure).toEqual(["Who is Joe Budden?"]);
+  expect(calls.hearing.at(-1)).toBe("Who is Joe Budden?"); // in the box, to fix
+  expect(console.info).toHaveBeenCalledWith(
+    "Push-to-talk: not sure of the words (confidence 0.62), left to check",
+  );
+});
+
+test("speech heard clearly is sent at once", async () => {
+  const calls = talk();
+  await holdAndSay(["What is a prime number?", SURE]);
+  expect(calls.heard).toEqual(["What is a prime number?"]);
+  expect(calls.unsure).toEqual([]);
+  expect(console.info).toHaveBeenCalledWith("Push-to-talk: sent (confidence 0.80)");
+});
+
+test("with no confidence from the browser, what was heard is sent as before", async () => {
+  const calls = talk();
+  await holdAndSay(["What is a prime number?", 0]);
+  expect(calls.heard).toEqual(["What is a prime number?"]);
+  expect(console.info).toHaveBeenCalledWith("Push-to-talk: sent (confidence not given)");
 });
