@@ -10,7 +10,7 @@ from test_reply_video import REPLY_ID, stop_patches, video_app  # noqa: F401 (a 
 
 from imageskin.chat import LlmCancelled, LlmError, Teach, Turn, ask_stop
 from imageskin.review import Review
-from imageskin.simpler import INSTRUCTION, SimplerCheck, say_simpler
+from imageskin.simpler import INSTRUCTION, SimplerCheck, same, say_simpler
 
 TURNS = [Turn("user", "Why rain?"), Turn("assistant", "Condensation nucleates droplets.")]
 
@@ -162,3 +162,23 @@ def test_say_it_simpler_says_the_version_checked_ahead(tmp_path: Path) -> None:
         assert len(streamed) == 1  # said from the check, with no second request
         # Its own simpler version is itself again: Say it simpler is no longer offered.
         assert client.post("/api/chat/simpler").json() == {"simpler": False}
+
+
+def test_curly_and_straight_quotes_read_the_same() -> None:
+    # Larry's test of PR #211: the LLM gave his reply back with straight quotes.
+    reply = "Okay, so the “America First” plan wouldn’t really help Ukraine, right?"
+    assert same(reply, 'Okay, so the "America First" plan wouldn\'t really help Ukraine, right?')
+    assert not same(reply, "So that plan would not help Ukraine much.")
+    # A word changed in a long reply is still the same reply.
+    assert same(reply, reply.replace("really", "truly"))
+    check = SimplerCheck(lambda teach: reply.replace("’", "'"))
+    assert not check.check([Turn("user", "And America First?"), Turn("assistant", reply)])
+
+
+def test_a_reply_said_before_is_not_asked_more_simply(caplog: pytest.LogCaptureFixture) -> None:
+    turns = [*TURNS, Turn("user", "Say it simpler"), Turn("assistant", TURNS[1].content)]
+    check = SimplerCheck(lambda teach: pytest.fail("not asked"))
+    with caplog.at_level(logging.INFO, logger="imageskin.simpler"):
+        assert not check.check(turns)
+    logged = next(r for r in caplog.records if r.message == "Simpler reply not offered")
+    assert logged.reason == "said before"  # type: ignore[attr-defined]

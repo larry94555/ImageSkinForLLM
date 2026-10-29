@@ -8,13 +8,19 @@ import logging
 import re
 import threading
 import time
+import unicodedata
 from collections.abc import Callable
+from difflib import SequenceMatcher
 
 from imageskin.chat import LlmCancelled, LlmError, Teach, Turn, ask_stop, ms_since
 from imageskin.lessons_ahead import sentences
 from imageskin.teach import asks_simpler
 
 logger = logging.getLogger(__name__)
+
+# Two replies whose words are at least this alike say the same thing, so neither is a simpler
+# way of saying the other: a word or two changed reads as the same reply (Larry, PR #211).
+SAME_WORDS = 0.9
 
 INSTRUCTION = (
     "Say your last answer again in simpler terms, for someone new to the subject: in short"
@@ -39,9 +45,16 @@ def say_simpler(prompt: str, turns: list[Turn]) -> Teach | None:
     return Teach(INSTRUCTION, [last])
 
 
-def words(text: str) -> str:
-    """The text's words, without case or punctuation, to tell whether two replies are the same."""
-    return " ".join(re.findall(r"[\w']+", text.casefold()))
+def words(text: str) -> list[str]:
+    """The text's words, without case, punctuation or apostrophes, so curly and straight
+    quotes ("wouldn’t", "wouldn't") read the same (Larry's test of PR #211)."""
+    text = re.sub(r"['’‘`]", "", unicodedata.normalize("NFKC", text).casefold())
+    return re.findall(r"\w+", text)
+
+
+def same(a: str, b: str) -> bool:
+    """Whether two replies say the same thing, word for word or nearly."""
+    return SequenceMatcher(None, words(a), words(b), autojunk=False).ratio() >= SAME_WORDS
 
 
 class _NotChecked(Exception):
@@ -51,9 +64,10 @@ class _NotChecked(Exception):
 class SimplerCheck:
     """Whether Say it simpler would say something new for the latest reply (R177), from a
     simpler version written ahead by `write` (the LLM's answer to a `Teach`, after the chat's
-    requests). It is new unless its words are those of a reply already in the conversation.
-    Only the latest reply's check is kept, and `forget` cuts off one being written, as a new
-    prompt makes it out of date."""
+    requests). It is new unless its words are those of a reply already in the conversation, or
+    nearly (`same`); a latest reply that is itself one said before has none. Only the latest
+    reply's check is kept, and `forget` cuts off one being written, as a new prompt makes it out
+    of date."""
 
     def __init__(self, write: Callable[[Teach], str]) -> None:
         self._write = write
@@ -65,6 +79,11 @@ class SimplerCheck:
         """Whether the latest reply has a simpler version that says something new."""
         last = latest_reply(turns)
         if last is None:
+            return False
+        earlier = [t.content for t in turns if t.role == "assistant"][:-1]
+        if any(same(last, e) for e in earlier):
+            # Said already: it was asked more simply and came back the same (R177).
+            logger.info("Simpler reply not offered", extra={"reason": "said before"})
             return False
         with self._lock:
             kept = self._kept
@@ -92,8 +111,8 @@ class SimplerCheck:
             raise _NotChecked from e
         finally:
             ask_stop.reset(token)
-        said = {words(t.content) for t in turns if t.role == "assistant"}
-        new = bool(words(text)) and words(text) not in said
+        said = [t.content for t in turns if t.role == "assistant"]
+        new = bool(words(text)) and not any(same(text, s) for s in said)
         logger.info(
             "Simpler reply checked",
             extra={
