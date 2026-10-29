@@ -45,7 +45,8 @@ def test_the_middle_of_the_bar_asks_as_before() -> None:
 def test_each_level_asks_for_its_own_length_with_room_for_it() -> None:
     prompts = [system_prompt(level) for level in DETAIL_LEVELS]
     assert len(set(prompts)) == 5
-    assert "one sentence" in system_prompt(1) and "only the main point" in system_prompt(1)
+    assert "a single short sentence" in system_prompt(1)
+    assert "only the main point" in system_prompt(1)
     assert "a few paragraphs" in system_prompt(5) and "examples" in system_prompt(5)
     rooms = []
     for level in DETAIL_LEVELS:
@@ -138,7 +139,7 @@ def test_the_chat_answers_at_the_level_set_on_the_bar(
     assert asked[0][0].startswith(system_prompt(3)) and asked[0][1] == DETAIL_LEVELS[3][1]
     assert asked[-1][0].startswith(system_prompt(5)) and asked[-1][1] == DETAIL_LEVELS[5][1]
     set_ = next(r for r in caplog.records if r.message == "Level of detail set")
-    assert set_.level == 5  # type: ignore[attr-defined]
+    assert set_.detail == 5  # type: ignore[attr-defined]
 
 
 def written(photo: Path, text: str, output: Path) -> None:

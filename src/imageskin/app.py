@@ -630,7 +630,7 @@ def create_app(
         try:
             saved = asdict(save_ui_settings(data_home, changes, ui_defaults))
             if "detail" in changes:  # the next answer is asked at it (R180)
-                logger.info("Level of detail set", extra={"level": changes["detail"]})
+                logger.info("Level of detail set", extra={"detail": changes["detail"]})
             if "teach_me" in changes and app.state.lessons is not None:
                 # Turned on, its lessons are written; turned off, a round writing them stops
                 # after the lesson under way (R98a).

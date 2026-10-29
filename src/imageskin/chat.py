@@ -48,13 +48,13 @@ logger = logging.getLogger(__name__)
 # grows with the level and a long answer isn't cut off.
 DETAIL_LEVELS: dict[int, tuple[str, int]] = {
     1: (
-        "Keep each reply brief and conversational: one sentence in plain words with only the"
-        " main point",
+        "Keep each reply brief and conversational: a single short sentence in plain words, of"
+        " at most 25 words, with only the main point",
         300,
     ),
     2: (
-        "Keep each reply short and conversational: one or two sentences in plain words with"
-        " the main points",
+        "Keep each reply short and conversational: one or two short sentences in plain words,"
+        " of at most 45 words, with only the main points",
         300,
     ),
     3: ("Keep each reply short and conversational: one to three sentences in plain words", 300),
