@@ -3066,13 +3066,7 @@ function TalkButton(props) {
 	}
 	return /* @__PURE__ */ u("div", {
 		className: "talk-row",
-		children: [listening && /* @__PURE__ */ u("button", {
-			ref: editLink,
-			type: "button",
-			className: "link",
-			onClick: edit,
-			children: "Edit"
-		}), /* @__PURE__ */ u("button", {
+		children: [/* @__PURE__ */ u("button", {
 			type: "button",
 			className: listening ? "secondary talk listening" : "secondary talk",
 			disabled: props.disabled && !listening,
@@ -3093,7 +3087,13 @@ function TalkButton(props) {
 			onKeyUp: (e) => {
 				if (e.key === " " || e.key === "Enter") release();
 			},
-			children: !listening ? "Hold to talk" : tapped ? "Click to send…" : "Let go to send…"
+			children: !listening ? "Hold to talk" : tapped ? "Click to send or…" : "Let go to send or…"
+		}), listening && /* @__PURE__ */ u("button", {
+			ref: editLink,
+			type: "button",
+			className: "link",
+			onClick: edit,
+			children: "Edit"
 		})]
 	});
 }

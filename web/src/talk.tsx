@@ -98,7 +98,7 @@ export function TalkButton(props: {
   // Set when the button was tapped rather than held: listening until it is clicked again.
   const [tapped, setTapped] = useState(false);
   const latched = useRef(false);
-  // Edit, shown left of the button while listening (R179): stops listening without sending.
+  // Edit, shown right of the button while listening (R179): stops listening without sending.
   const editLink = useRef<HTMLButtonElement>(null);
   const editing = useRef(false);
 
@@ -247,11 +247,6 @@ export function TalkButton(props: {
 
   return (
     <div className="talk-row">
-      {listening && (
-        <button ref={editLink} type="button" className="link" onClick={edit}>
-          Edit
-        </button>
-      )}
       <button
         type="button"
         className={listening ? "secondary talk listening" : "secondary talk"}
@@ -276,8 +271,13 @@ export function TalkButton(props: {
           if (e.key === " " || e.key === "Enter") release();
         }}
       >
-        {!listening ? "Hold to talk" : tapped ? "Click to send…" : "Let go to send…"}
+        {!listening ? "Hold to talk" : tapped ? "Click to send or…" : "Let go to send or…"}
       </button>
+      {listening && (
+        <button ref={editLink} type="button" className="link" onClick={edit}>
+          Edit
+        </button>
+      )}
     </div>
   );
 }

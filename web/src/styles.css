@@ -871,7 +871,7 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 .send-buttons { display: grid; gap: 8px; }
 .send-buttons button.secondary { min-height: 40px; padding: 6px 16px; border-radius: 12px; }
 .send-buttons button.talk { touch-action: none; user-select: none; }
-/* Edit, left of Hold to talk while it listens (R179). */
+/* Edit, right of Hold to talk while it listens (R179). */
 .talk-row { display: flex; align-items: center; gap: 10px; }
 .talk-row button.talk { flex: 1; }
 .send-buttons button.talk.listening { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }

@@ -96,7 +96,7 @@ test("holding the button listens, and letting go sends what was heard", async ()
   });
   const r = FakeRecognition.made[0]!;
   expect([r.started, r.continuous, r.interimResults]).toEqual([true, true, true]);
-  expect(button.textContent).toBe("Let go to send…");
+  expect(button.textContent).toBe("Let go to send or…");
   expect(button.getAttribute("aria-pressed")).toBe("true");
   expect(console.info).toHaveBeenCalledWith("Push-to-talk: listening");
   await act(async () => {
@@ -273,7 +273,7 @@ test("a quick click or tap keeps listening until the button is clicked again", a
     fireEvent.pointerUp(button);
   });
   const r = FakeRecognition.made[0]!;
-  expect(button.textContent).toBe("Click to send…");
+  expect(button.textContent).toBe("Click to send or…");
   expect(console.info).toHaveBeenCalledWith(
     "Push-to-talk: let go after 80 ms; listening until clicked again",
   );
@@ -306,7 +306,7 @@ test("the pointer is kept while held, so moving off the button doesn't end liste
     vi.advanceTimersByTime(TAIL_MS * 2);
   });
   expect(captured).toHaveBeenCalledWith(7);
-  expect(button.textContent).toBe("Let go to send…");
+  expect(button.textContent).toBe("Let go to send or…");
 });
 
 test("a pointer the browser cancels stops listening, rather than keeping it on as a tap", async () => {
@@ -318,7 +318,7 @@ test("a pointer the browser cancels stops listening, rather than keeping it on a
     FakeRecognition.made[0]!.say("What is");
     fireEvent.pointerCancel(button);
   });
-  expect(button.textContent).not.toBe("Click to send…");
+  expect(button.textContent).not.toBe("Click to send or…");
   await act(async () => {
     vi.advanceTimersByTime(TAIL_MS);
   });
@@ -387,7 +387,7 @@ test("Edit shows only while listening, and after a tap stops it without sending"
     fireEvent.pointerDown(button);
     fireEvent.pointerUp(button); // a tap: listening until clicked again
   });
-  expect(button.textContent).toBe("Click to send…");
+  expect(button.textContent).toBe("Click to send or…");
   await act(async () => {
     FakeRecognition.made[0]!.say("Who is Joe Budden?");
   });
