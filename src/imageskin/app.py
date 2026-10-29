@@ -1661,13 +1661,19 @@ def create_app(
     def get_chat_hints() -> dict[str, object]:
         """What to show under the prompt box (R41g): a line naming a few of the topics, and a few
         example questions drawn from the wiki, read each time so they follow the PDFs."""
+        start = time.perf_counter()
         topics = content_topics()
         examples = content_lookup.examples() if topics else []
         complete = topics_complete()
-        line = hint_line(topics, content_only(), complete)
+        line = hint_line(topics, content_only(), complete, linked=bool(examples))
         logger.info(
             "Topic hints",
-            extra={"topics": len(topics), "examples": len(examples), "complete": complete},
+            extra={
+                "topics": len(topics),
+                "examples": len(examples),
+                "complete": complete,
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            },
         )
         return {"line": line, "examples": examples}
 

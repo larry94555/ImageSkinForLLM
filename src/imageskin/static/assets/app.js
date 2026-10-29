@@ -5017,7 +5017,9 @@ function LessonControls(props) {
 }
 function Hints(props) {
 	const { line, examples } = props.hints;
+	const [first, setFirst] = d(0);
 	if (!line && examples.length === 0) return null;
+	const shown = shownExamples(examples, first);
 	return /* @__PURE__ */ u("div", {
 		className: "hints",
 		children: [line && /* @__PURE__ */ u("p", {
@@ -5025,7 +5027,7 @@ function Hints(props) {
 			children: line
 		}), examples.length > 0 && /* @__PURE__ */ u("ul", {
 			"aria-label": "Example questions",
-			children: examples.map((question) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("button", {
+			children: [shown.map((question) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("button", {
 				type: "button",
 				className: "example",
 				disabled: props.disabled,
@@ -5034,9 +5036,22 @@ function Hints(props) {
 					props.onAsk(question);
 				},
 				children: question
-			}) }, question))
+			}) }, question)), examples.length > 3 && /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "link",
+				onClick: () => {
+					const next = (first + 3) % examples.length;
+					console.info(`Other topics shown, from ${next + 1} of ${examples.length}`);
+					setFirst(next);
+				},
+				children: "other topics..."
+			}) })]
 		})]
 	});
+}
+function shownExamples(examples, first) {
+	if (examples.length <= 3) return examples;
+	return Array.from({ length: 3 }, (_, i) => examples[(first + i) % examples.length]);
 }
 function latestExchange(turns) {
 	for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === "user") return i;

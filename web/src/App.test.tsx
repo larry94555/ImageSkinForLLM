@@ -33,6 +33,7 @@ import {
   loadQuiz,
   loadAssessment,
   loadSound,
+  shownExamples,
   splitMatches,
 } from "./pages";
 import { minutes } from "./checks";
@@ -2071,7 +2072,7 @@ function hintsServer(...hints: (object | Error)[]) {
 }
 
 const RIEMANN_HINTS = {
-  line: "Questions must be about these topics: Prime Number Basics and Zeta Function Integral.",
+  line: "Questions must be about these topics:",
   examples: [
     "What can you tell me about Prime Number Basics?",
     "Can you explain Zeta Function Integral?",
@@ -2155,6 +2156,48 @@ test("hints that can't be read again are taken away, not left stale (review on P
   await screen.findByText("Primes are counted.");
   await waitFor(() => expect(document.querySelector(".hints")).toBeNull());
   expect(screen.queryByRole("button", { name: RIEMANN_HINTS.examples[0] })).toBeNull();
+});
+
+// Larry (2026-10-29): the line no longer names the topics the links name (R182).
+const MANY_HINTS = {
+  line: "You can ask me about:",
+  examples: ["Tell me about A.", "Tell me about B.", "Tell me about C.", "Tell me about D."],
+};
+
+function shownQuestions(): string[] {
+  const list = within(screen.getByRole("list", { name: "Example questions" }));
+  return list
+    .getAllByRole("button")
+    .map((b) => b.textContent ?? "")
+    .filter((text) => text !== "other topics...");
+}
+
+test("other topics... shows the next three example questions, wrapping round (R182)", async () => {
+  hintsServer(MANY_HINTS);
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  expect(await screen.findByText("You can ask me about:")).toBeTruthy();
+  expect(shownQuestions()).toEqual(MANY_HINTS.examples.slice(0, 3));
+  fireEvent.click(screen.getByRole("button", { name: "other topics..." }));
+  expect(shownQuestions()).toEqual(["Tell me about D.", "Tell me about A.", "Tell me about B."]);
+  expect(info).toHaveBeenCalledWith("Other topics shown, from 4 of 4");
+  fireEvent.click(screen.getByRole("button", { name: "other topics..." }));
+  expect(shownQuestions()).toEqual(["Tell me about C.", "Tell me about D.", "Tell me about A."]);
+});
+
+test("with three example questions or fewer there is no other topics... (R182)", async () => {
+  hintsServer({ ...MANY_HINTS, examples: MANY_HINTS.examples.slice(0, 3) });
+  await openAt("#/chat");
+  expect(await screen.findByText("You can ask me about:")).toBeTruthy();
+  expect(shownQuestions()).toEqual(MANY_HINTS.examples.slice(0, 3));
+  expect(screen.queryByRole("button", { name: "other topics..." })).toBeNull();
+});
+
+test("shownExamples wraps round from any start", () => {
+  expect(shownExamples([], 0)).toEqual([]);
+  expect(shownExamples(["a", "b"], 5)).toEqual(["a", "b"]);
+  expect(shownExamples(["a", "b", "c", "d", "e"], 3)).toEqual(["d", "e", "a"]);
+  expect(shownExamples(["a", "b", "c", "d", "e"], 9)).toEqual(["e", "a", "b"]);
 });
 
 test("the example questions are chips in the design's colours", () => {
