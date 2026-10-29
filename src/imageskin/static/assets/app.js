@@ -394,7 +394,8 @@ var DEFAULT_SETTINGS = {
 	assessment: false,
 	debug: false,
 	general_prompts: false,
-	face_movement: "normal"
+	face_movement: "normal",
+	detail: 3
 };
 function settings(data) {
 	return {
@@ -405,7 +406,8 @@ function settings(data) {
 		assessment: data.assessment === true,
 		debug: data.debug === true,
 		general_prompts: data.general_prompts === true,
-		face_movement: FACE_MOVEMENTS.includes(data.face_movement) ? data.face_movement : "normal"
+		face_movement: FACE_MOVEMENTS.includes(data.face_movement) ? data.face_movement : "normal",
+		detail: Number.isInteger(data.detail) && data.detail >= 1 && data.detail <= 5 ? data.detail : 3
 	};
 }
 async function getSettings() {
@@ -1819,29 +1821,6 @@ function usePrepareStopGuard(onDiscarded) {
 	};
 }
 //#endregion
-//#region src/exit.tsx
-function ExitScreen({ onStartAgain }) {
-	h(() => console.info("Exit screen shown"), []);
-	return /* @__PURE__ */ u("section", {
-		className: "exit-screen",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "Goodbye" }),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "You have left the chat. Your conversation is kept for when you return."
-			}),
-			/* @__PURE__ */ u("button", {
-				type: "button",
-				onClick: () => {
-					console.info("Start again");
-					onStartAgain();
-				},
-				children: "Start again"
-			})
-		]
-	});
-}
-//#endregion
 //#region src/chatgpt-plan.tsx
 function ChatGptPlanSection() {
 	const [status, setStatus] = d(null);
@@ -2851,6 +2830,77 @@ function SettingsPage({ back, onDataDeleted }) {
 				href: back,
 				children: "Return to the app"
 			}) })
+		]
+	});
+}
+//#endregion
+//#region src/detail-bar.tsx
+function DetailBar() {
+	const { settings, change } = x(SettingsContext);
+	const [failed, setFailed] = d(false);
+	const [picked, setPicked] = d(null);
+	const shown = picked ?? settings.detail;
+	async function choose(detail) {
+		setFailed(false);
+		setPicked(detail);
+		try {
+			await change({ detail });
+			console.info(`Level of detail set to ${detail}`);
+		} catch (e) {
+			console.error(`Could not set the level of detail to ${detail}`, e);
+			setFailed(true);
+		}
+		setPicked(null);
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "detail-bar",
+		children: [/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: "Level of detail" }), /* @__PURE__ */ u("span", {
+			className: "detail-poles",
+			children: [
+				/* @__PURE__ */ u("span", {
+					className: "muted",
+					children: "High level"
+				}),
+				/* @__PURE__ */ u("input", {
+					type: "range",
+					min: 1,
+					max: 5,
+					step: 1,
+					value: shown,
+					"aria-valuetext": `${shown} of 5`,
+					onChange: (e) => void choose(Number(e.currentTarget.value))
+				}),
+				/* @__PURE__ */ u("span", {
+					className: "muted",
+					children: "In depth"
+				})
+			]
+		})] }), failed && /* @__PURE__ */ u("p", {
+			className: "error",
+			children: "The level of detail could not be changed. Try again."
+		})]
+	});
+}
+//#endregion
+//#region src/exit.tsx
+function ExitScreen({ onStartAgain }) {
+	h(() => console.info("Exit screen shown"), []);
+	return /* @__PURE__ */ u("section", {
+		className: "exit-screen",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Goodbye" }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "You have left the chat. Your conversation is kept for when you return."
+			}),
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				onClick: () => {
+					console.info("Start again");
+					onStartAgain();
+				},
+				children: "Start again"
+			})
 		]
 	});
 }
@@ -4888,6 +4938,7 @@ function Chat(props) {
 						]
 					})]
 				}),
+				/* @__PURE__ */ u(DetailBar, {}),
 				(teachMe || quizMe || assessOn) && !quizGoing && /* @__PURE__ */ u(Choices, {
 					choices,
 					disabled: busy,

@@ -629,6 +629,8 @@ def create_app(
     def patch_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, object]:
         try:
             saved = asdict(save_ui_settings(data_home, changes, ui_defaults))
+            if "detail" in changes:  # the next answer is asked at it (R180)
+                logger.info("Level of detail set", extra={"level": changes["detail"]})
             if "teach_me" in changes and app.state.lessons is not None:
                 # Turned on, its lessons are written; turned off, a round writing them stops
                 # after the lesson under way (R98a).
@@ -1402,6 +1404,10 @@ def create_app(
             return False
         return True
 
+    def saved_detail() -> int:
+        """The level of detail on the chat screen's bar, read for each prompt (R180)."""
+        return load_ui_settings(data_home, ui_defaults).detail
+
     if client is not None:
         conversation = Conversation(
             replies_first.asking(client.ask, local),
@@ -1419,6 +1425,7 @@ def create_app(
             saved=data_home / CONVERSATION_FILE,
             # A question typed so far, read for one token (R148).
             read_ahead=replies_first.ahead(functools.partial(client.ask, max_tokens=1), local),
+            detail=saved_detail,
         )
     else:
         assert ask_llm is not None
@@ -1435,6 +1442,7 @@ def create_app(
             topics_complete=topics_complete,
             saved=data_home / CONVERSATION_FILE,
             read_ahead=replies_first.ahead(ask_llm, local),
+            detail=saved_detail,
         )
 
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.

@@ -68,6 +68,7 @@ def test_the_settings_api_reads_and_changes_them(tmp_path: Path) -> None:
         "debug": False,
         "general_prompts": False,
         "face_movement": "normal",
+        "detail": 3,
     }
     assert client.get("/api/settings").json() == defaults  # no consent needed
     changed = client.patch("/api/settings", json={"show_metrics": True})
