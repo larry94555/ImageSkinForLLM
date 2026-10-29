@@ -13,19 +13,15 @@ const TURNS: Turn[] = [
 ];
 
 // A fake server with the sample accepted and the conversation `TURNS`; POST /api/chat answers
-// with a simpler reply, not streamed, with nothing to say aloud. The check says whether that
-// reply can be said more simply (`simpler`, true unless given).
-function server(simpler: (reply: string) => boolean = () => true) {
-  let latest = TURNS[1].content;
+// with a simpler reply, not streamed, with nothing to say aloud.
+function server() {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
     if (url === "/api/review") return Response.json({ accepted: true, accepted_at: null });
     if (url === "/api/chat") {
       if (init?.method !== "POST") return Response.json({ turns: TURNS });
-      latest = "Small drops join.";
-      return Response.json({ role: "assistant", content: latest, turn: 3 });
+      return Response.json({ role: "assistant", content: "Small drops join.", turn: 3 });
     }
-    if (url === "/api/chat/simpler") return Response.json({ simpler: simpler(latest) });
     if (url === "/api/settings") return Response.json({ quiz_me: true });
     if (url === "/api/chat/video") return Response.json({ video: null });
     if (url.startsWith("/api/chat/clips/")) {
@@ -43,13 +39,6 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-// The Say it simpler button, once the check has said whether it can be pressed.
-async function simplerButton(enabled: boolean): Promise<HTMLButtonElement> {
-  const button = (await screen.findByRole("button", { name: "Say it simpler" })) as HTMLButtonElement;
-  await waitFor(() => expect(button.disabled).toBe(!enabled));
-  return button;
-}
-
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -61,9 +50,8 @@ test("Say it simpler asks for the latest reply in simpler terms, and shows the n
   window.location.hash = "#/chat";
   render(<App />);
   await screen.findByText("Condensation nucleates droplets.");
-  const button = await simplerButton(true);
   await act(async () => {
-    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("button", { name: "Say it simpler" }));
   });
   const sent = fetchMock.mock.calls.find(([url, init]) => url === "/api/chat" && init?.method);
   expect(JSON.parse(String(sent?.[1]?.body)).prompt).toBe("Say it simpler");
@@ -85,47 +73,4 @@ test("Say it simpler is not offered while a quiz is going", async () => {
   await screen.findByText("Condensation nucleates droplets.");
   expect(screen.getByRole("button", { name: "Repeat" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Say it simpler" })).toBeNull();
-});
-
-test("Say it simpler is shown but disabled when it would say nothing new", async () => {
-  // The simpler reply can't be said more simply: the LLM would give it back.
-  const fetchMock = server((reply) => reply !== "Small drops join.");
-  window.location.hash = "#/chat";
-  render(<App />);
-  const button = await simplerButton(true);
-  await act(async () => {
-    fireEvent.click(button);
-  });
-  expect(await screen.findByText("Small drops join.")).toBeTruthy();
-  // Checked again for the new reply, which can't be said more simply: the button stays, disabled.
-  await waitFor(() =>
-    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/chat/simpler")).toHaveLength(2),
-  );
-  await waitFor(() => expect(console.info).toHaveBeenCalledWith("Say it simpler disabled"));
-  const disabled = await simplerButton(false);
-  expect(disabled.title).toBe("This reply can't be said more simply.");
-  expect((screen.getByRole("button", { name: "Repeat" }) as HTMLButtonElement).disabled).toBe(
-    false,
-  );
-});
-
-test("Say it simpler stays disabled when the check fails", async () => {
-  const fetchMock = server();
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url === "/api/chat/simpler") return Response.json({ detail: "LLM down" }, { status: 502 });
-    if (url === "/api/consent") return Response.json({ agreed: true, agreed_at: null });
-    if (url === "/api/review") return Response.json({ accepted: true, accepted_at: null });
-    if (url === "/api/chat" && init?.method !== "POST") return Response.json({ turns: TURNS });
-    return Response.json([]);
-  });
-  window.location.hash = "#/chat";
-  render(<App />);
-  await screen.findByText("Condensation nucleates droplets.");
-  await waitFor(() =>
-    expect(console.error).toHaveBeenCalledWith(
-      "Could not check for a simpler reply",
-      expect.anything(),
-    ),
-  );
-  await simplerButton(false);
 });

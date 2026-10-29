@@ -544,14 +544,6 @@ export async function readAhead(prompt: string): Promise<boolean> {
   return ((await response.json()) as { read: boolean }).read;
 }
 
-// Whether Say it simpler would say something new for the latest reply (roadmap R177): the
-// server writes its simpler version ahead, and Say it simpler then says that.
-export async function checkSimpler(): Promise<boolean> {
-  const response = await fetch("/api/chat/simpler", { method: "POST" });
-  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
-  return ((await response.json()) as { simpler: boolean }).simpler;
-}
-
 // Speaks a reply in the person's voice on their photo (roadmap R17); turn is its place in the
 // conversation. Returns the video's address, or null when the reply has nothing to say aloud.
 // Throws an Error saying why when the voice or the video fails.
