@@ -113,3 +113,44 @@ def test_switching_back_waits_for_an_avatar_being_got_ready(
         back = client.delete("/api/start-now")
         assert back.status_code == 200
         assert client.get("/api/start-now").json()["chosen"] is None
+
+
+def test_the_chat_waits_while_your_own_voice_and_face_are_got_ready(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry, 2026-10-29: back on his own photo and voice from an avatar, a prompt showed
+    Thinking for minutes, while their voice and idle video were got ready again. The chat now
+    asks whether it is ready, and says so until it is (R181)."""
+    from imageskin.reply_video import ReplyVideos
+
+    client.post("/api/consent", json={"agreed": True})
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    with patch.object(UploadStore, "voice_sample", return_value=VoiceSample(2, 40, 35, None)):
+        client.post("/api/prepare")
+        client.app.state.prepare_job.wait(10)  # type: ignore[attr-defined]
+        assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+        choose(client)
+        client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
+        assert client.get("/api/chat/ready").json() == {"ready": True}
+
+        warming, go = threading.Event(), threading.Event()
+        warm_up = ReplyVideos.warm_up
+
+        def held(self: ReplyVideos, photo: Path) -> None:
+            warming.set()
+            go.wait(10)
+            warm_up(self, photo)
+
+        with patch.object(ReplyVideos, "warm_up", held), caplog.at_level(logging.INFO):
+            assert client.delete("/api/start-now").status_code == 200
+            assert warming.wait(10)
+            assert client.get("/api/chat/ready").json() == {"ready": False}
+            go.set()
+            client.app.state.reply_warm_up.join(10)  # type: ignore[attr-defined]
+        assert client.get("/api/chat/ready").json() == {"ready": True}
+        done = [r for r in caplog.records if r.getMessage() == "Reply warm-up done"]
+        assert done and isinstance(done[-1].__dict__["duration_ms"], float)
+
+
+def test_the_chat_ready_needs_a_person(client: TestClient) -> None:
+    assert client.get("/api/chat/ready").status_code == 403  # before consent

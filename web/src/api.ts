@@ -620,6 +620,14 @@ export async function getChatPhoto(): Promise<ChatPhoto> {
   return json<ChatPhoto>(await fetch("/api/chat/photo"));
 }
 
+// Whether a prompt is answered now, or only once the person's voice and face are got ready for
+// replies, as after switching back to your own photo and voice from an avatar (R181). Anything
+// but a plain "not ready" counts as ready, so the chat is never kept waiting by a failed check.
+export async function getChatReady(): Promise<boolean> {
+  const body = await json<{ ready?: boolean } | null>(await fetch("/api/chat/ready"));
+  return body?.ready !== false;
+}
+
 // What the chat shows under the prompt box (roadmap R41g): a line naming a few of the topics,
 // null before any PDF is added, and a few example questions to send with a click.
 export interface ChatHints {

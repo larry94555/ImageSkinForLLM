@@ -17,6 +17,8 @@ import {
   CANT_ANSWER,
   CHECK_HEARD,
   ClipPlayer,
+  GETTING_READY,
+  READY_CHECK_MS,
   type Idle,
   Stage,
   type ClipTime,
@@ -1803,6 +1805,73 @@ test("the chat shows the conversation so far", async () => {
   expect(await screen.findByText("Nice to meet you, Larry!")).toBeTruthy();
   expect(screen.getByText("My name is Larry.").className).toBe("user");
   expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("the chat waits, saying so, while the voice and face are got ready", async () => {
+  // Larry, 2026-10-29: back on his own photo and voice from an avatar, the chat opened at once,
+  // but a prompt showed Thinking for minutes while they were got ready again (R181).
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let ready = false;
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? Response.json({ ready }) : answers(url, init),
+  );
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    await openAt("#/chat");
+    expect(await screen.findByText(GETTING_READY)).toBeTruthy();
+    fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("Thinking…")).toBeNull();
+    ready = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    await waitFor(() => expect(screen.queryByText(GETTING_READY)).toBeNull());
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+    const asked = server.mock.calls.filter(([url]) => url === "/api/chat/ready");
+    expect(asked.length).toBe(2); // asked again only while not ready
+    expect(info.mock.calls.some(([m]) => String(m).startsWith("Voice and face ready for the chat"))).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("nothing can be sent until the server says the chat is ready", async () => {
+  // Codex's review of PR #216: Send was on while the readiness check was still on its way, so a
+  // prompt sent then waited behind Thinking, as in R181.
+  const [readiness, answerReadiness] = later();
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? readiness() : answers(url, init),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+  const send = () => screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  expect(send().disabled).toBe(true);
+  expect(screen.queryByText(GETTING_READY)).toBeNull(); // nothing said for a moment's wait
+  await act(async () => answerReadiness(Response.json({ ready: true })));
+  await waitFor(() => expect(send().disabled).toBe(false));
+});
+
+test("a failed readiness check never keeps the chat waiting", async () => {
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? Response.json({}, { status: 500 }) : answers(url, init),
+  );
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.queryByText(GETTING_READY)).toBeNull();
+  await waitFor(() =>
+    expect(error.mock.calls.some(([m]) => m === "Could not ask whether the chat is ready")).toBe(true),
+  );
 });
 
 test("sending a prompt shows it and then the reply", async () => {
