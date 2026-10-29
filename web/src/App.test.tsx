@@ -1978,9 +1978,13 @@ async function sayUnsureThenSend(fixed: string) {
   await act(async () => {
     fireEvent.pointerUp(talk);
   });
-  expect((await screen.findByRole("alert", undefined, { timeout: 3000 })).textContent).toBe(
-    CHECK_HEARD,
-  );
+  // Said as the reply, not as an error, and not added to the conversation.
+  const notice = (await screen.findByText(CHECK_HEARD, undefined, { timeout: 3000 })).closest(
+    "li",
+  )!;
+  expect(notice.className).toBe("assistant notice");
+  expect(notice.textContent).toBe(`Reply${CHECK_HEARD}`);
+  expect(screen.queryByRole("alert")).toBeNull();
   // Not sent: left in the box, ready to fix.
   const chats = () =>
     fetchMock.mock.calls.filter(([url, init]) => url === "/api/chat" && init?.method);

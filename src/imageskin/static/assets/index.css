@@ -874,6 +874,7 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 /* Edit, right of Hold to talk while it listens (R179). */
 .talk-row { display: flex; align-items: center; gap: 10px; }
 .talk-row button.talk { flex: 1; }
+.talk-row button.link.armed { text-decoration: underline; font-weight: 600; }
 .send-buttons button.talk.listening { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
 .choices-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .choices-row li { display: block; padding: 0; border: 0; background: none; box-shadow: none; }

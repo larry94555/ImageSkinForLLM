@@ -2939,6 +2939,7 @@ function TalkButton(props) {
 	const latched = A(false);
 	const editLink = A(null);
 	const editing = A(false);
+	const [overEditLink, setOverEditLink] = d(false);
 	function clearTail() {
 		if (stopping.current !== null) window.clearTimeout(stopping.current);
 		stopping.current = null;
@@ -3076,7 +3077,12 @@ function TalkButton(props) {
 				e.currentTarget.setPointerCapture?.(e.pointerId);
 				press();
 			},
-			onPointerUp: (e) => overEdit(e) ? edit() : release(),
+			onPointerMove: (e) => setOverEditLink(recognition.current !== null && overEdit(e)),
+			onPointerUp: (e) => {
+				setOverEditLink(false);
+				if (overEdit(e)) edit();
+				else release();
+			},
 			onPointerCancel: stop,
 			onKeyDown: (e) => {
 				if ((e.key === " " || e.key === "Enter") && !e.repeat) {
@@ -3087,11 +3093,11 @@ function TalkButton(props) {
 			onKeyUp: (e) => {
 				if (e.key === " " || e.key === "Enter") release();
 			},
-			children: !listening ? "Hold to talk" : tapped ? "Click to send or…" : "Let go to send or…"
+			children: !listening ? "Hold to talk" : overEditLink ? "Let go to edit" : tapped ? "Click to send or…" : "Let go to send or…"
 		}), listening && /* @__PURE__ */ u("button", {
 			ref: editLink,
 			type: "button",
-			className: "link",
+			className: overEditLink ? "link armed" : "link",
 			onClick: edit,
 			children: "Edit"
 		})]
@@ -4203,7 +4209,7 @@ function AvatarLinks({ readyMade }) {
 		}, href))]
 	});
 }
-var CHECK_HEARD = "I may have misheard a word. Check your question, fix it if needed, then press Send.";
+var CHECK_HEARD = "I am not clear on what you said. Can you edit your question and resend?";
 var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 var LINE_TEXT = {
 	goodbye: "Goodbye",
@@ -4328,6 +4334,7 @@ function Chat(props) {
 	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
 	const promptBox = A(null);
+	const [notClear, setNotClear] = d(false);
 	const unsure = A(null);
 	const gone = A(false);
 	const replying = A(null);
@@ -4558,6 +4565,7 @@ function Chat(props) {
 		allMade.current = false;
 		clipsEnded.current = 0;
 		setFailed(null);
+		setNotClear(false);
 		setUnspoken(null);
 		setClips([]);
 		setEarlier((e) => [...e, ...clipWaits(times)]);
@@ -4771,16 +4779,17 @@ function Chat(props) {
 		}), /* @__PURE__ */ u("div", {
 			className: "talk",
 			children: [
-				turns.length === 0 && /* @__PURE__ */ u("p", {
+				turns.length === 0 && !notClear && /* @__PURE__ */ u("p", {
 					className: "muted hint",
 					children: "Ask a question to start the conversation."
 				}),
 				/* @__PURE__ */ u(TurnList, {
 					turns,
 					from: latestExchange(turns),
-					unspoken
+					unspoken,
+					notice: notClear ? CHECK_HEARD : void 0
 				}),
-				turns[turns.length - 1]?.role === "assistant" && /* @__PURE__ */ u(ReplyActions, {
+				turns[turns.length - 1]?.role === "assistant" && !notClear && /* @__PURE__ */ u(ReplyActions, {
 					disabled: busy,
 					onRepeat: () => void repeat(),
 					onSimpler: quizGoing ? void 0 : () => void send(SAY_IT_SIMPLER)
@@ -4832,14 +4841,17 @@ function Chat(props) {
 								onHeard: (text) => void send(text, true),
 								onUnsure: (text) => {
 									unsure.current = text;
-									setFailed(CHECK_HEARD);
+									setNotClear(true);
 									promptBox.current?.focus();
 								},
 								onEdit: (text) => {
 									unsure.current = text;
 									promptBox.current?.focus();
 								},
-								onProblem: setFailed
+								onProblem: (problem) => {
+									setFailed(problem);
+									setNotClear(false);
+								}
 							}),
 							teachMe && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",
@@ -5058,11 +5070,11 @@ function latestExchange(turns) {
 	return Math.max(turns.length - 1, 0);
 }
 function TurnList(props) {
-	const { turns, from = 0, unspoken, search } = props;
+	const { turns, from = 0, unspoken, search, notice } = props;
 	let counted = 0;
 	return /* @__PURE__ */ u("ol", {
 		className: "turns",
-		children: turns.slice(from).map((turn, k) => {
+		children: [turns.slice(from).map((turn, k) => {
 			const i = from + k;
 			const first = counted;
 			const parts = search ? splitMatches(turn.content, search.query) : [turn.content];
@@ -5090,7 +5102,14 @@ function TurnList(props) {
 					})
 				]
 			}, i);
-		})
+		}), notice && /* @__PURE__ */ u("li", {
+			className: "assistant notice",
+			role: "status",
+			children: [/* @__PURE__ */ u("span", {
+				className: "who",
+				children: "Reply"
+			}), notice]
+		})]
 	});
 }
 function splitMatches(text, query) {

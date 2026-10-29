@@ -421,6 +421,26 @@ test("a held button let go over Edit edits instead of sending", async () => {
   expect(calls.edited).toEqual(["Who is Bill Biden?"]);
 });
 
+test("a held button slid onto Edit says letting go there edits", async () => {
+  talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  const link = screen.getByRole("button", { name: "Edit" });
+  link.getBoundingClientRect = () => new DOMRect(200, 20, 40, 24);
+  await act(async () => {
+    fireEvent.pointerMove(button, { clientX: 210, clientY: 30 });
+  });
+  expect(button.textContent).toBe("Let go to edit");
+  expect(link.className).toBe("link armed");
+  await act(async () => {
+    fireEvent.pointerMove(button, { clientX: 50, clientY: 30 }); // back off it
+  });
+  expect(button.textContent).toBe("Let go to send or…");
+  expect(link.className).toBe("link");
+});
+
 test("let go off Edit, it sends; Edit with nothing heard does nothing", async () => {
   const calls = talk();
   const button = screen.getByRole("button", { name: "Hold to talk" });

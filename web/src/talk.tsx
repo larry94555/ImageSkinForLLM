@@ -101,6 +101,7 @@ export function TalkButton(props: {
   // Edit, shown right of the button while listening (R179): stops listening without sending.
   const editLink = useRef<HTMLButtonElement>(null);
   const editing = useRef(false);
+  const [overEditLink, setOverEditLink] = useState(false); // a held button is over Edit
 
   function clearTail() {
     if (stopping.current !== null) window.clearTimeout(stopping.current);
@@ -258,7 +259,13 @@ export function TalkButton(props: {
           e.currentTarget.setPointerCapture?.(e.pointerId);
           press();
         }}
-        onPointerUp={(e) => (overEdit(e) ? edit() : release())}
+        // Held and slid onto Edit: Edit and the button say that letting go there edits.
+        onPointerMove={(e) => setOverEditLink(recognition.current !== null && overEdit(e))}
+        onPointerUp={(e) => {
+          setOverEditLink(false);
+          if (overEdit(e)) edit();
+          else release();
+        }}
         // The browser took the pointer over: stopped, never kept on as a tap (review on PR #113).
         onPointerCancel={stop}
         onKeyDown={(e) => {
@@ -271,10 +278,21 @@ export function TalkButton(props: {
           if (e.key === " " || e.key === "Enter") release();
         }}
       >
-        {!listening ? "Hold to talk" : tapped ? "Click to send or…" : "Let go to send or…"}
+        {!listening
+          ? "Hold to talk"
+          : overEditLink
+            ? "Let go to edit"
+            : tapped
+              ? "Click to send or…"
+              : "Let go to send or…"}
       </button>
       {listening && (
-        <button ref={editLink} type="button" className="link" onClick={edit}>
+        <button
+          ref={editLink}
+          type="button"
+          className={overEditLink ? "link armed" : "link"}
+          onClick={edit}
+        >
           Edit
         </button>
       )}

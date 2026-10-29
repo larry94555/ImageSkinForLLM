@@ -1202,11 +1202,12 @@ function AvatarLinks({ readyMade }: { readyMade: boolean }) {
   );
 }
 
+// The reply shown when Hold to talk wasn't sure of every word it heard (R179), with the words
+// left in the prompt box to edit and send. It is shown only, not added to the conversation.
+export const CHECK_HEARD =
+  "I am not clear on what you said. Can you edit your question and resend?";
 // What the chat says when there is no reply, whatever the reason; the reason goes to the
 // browser console and the server log, not to the participant (R41d).
-// Said with Hold to talk, but the browser wasn't sure of every word (R179).
-export const CHECK_HEARD =
-  "I may have misheard a word. Check your question, fix it if needed, then press Send.";
 export const CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 
 // How often the chat asks for a reply's new clips while they are being made.
@@ -1396,6 +1397,7 @@ function Chat(props: {
   const [unspoken, setUnspoken] = useState<{ turn: number } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const promptBox = useRef<HTMLTextAreaElement>(null);
+  const [notClear, setNotClear] = useState(false); // CHECK_HEARD shown as the reply (R179)
   // What Hold to talk heard but wasn't sure of, or was stopped with Edit, left in the box (R179):
   // sent unchanged, it is still a spoken question, so misheard names are put back (R24).
   const unsure = useRef<string | null>(null);
@@ -1658,6 +1660,7 @@ function Chat(props: {
     allMade.current = false;
     clipsEnded.current = 0;
     setFailed(null);
+    setNotClear(false);
     setUnspoken(null);
     setClips([]); // the server replaces the last reply's clips or video with this one's
     setEarlier((e) => [...e, ...clipWaits(times)]);
@@ -1899,11 +1902,16 @@ function Chat(props: {
         )}
       </div>
       <div className="talk">
-        {turns.length === 0 && (
+        {turns.length === 0 && !notClear && (
           <p className="muted hint">Ask a question to start the conversation.</p>
         )}
-        <TurnList turns={turns} from={latestExchange(turns)} unspoken={unspoken} />
-        {turns[turns.length - 1]?.role === "assistant" && (
+        <TurnList
+          turns={turns}
+          from={latestExchange(turns)}
+          unspoken={unspoken}
+          notice={notClear ? CHECK_HEARD : undefined}
+        />
+        {turns[turns.length - 1]?.role === "assistant" && !notClear && (
           <ReplyActions
             disabled={busy}
             onRepeat={() => void repeat()}
@@ -1951,14 +1959,17 @@ function Chat(props: {
             onHeard={(text) => void send(text, true)}
             onUnsure={(text) => {
               unsure.current = text;
-              setFailed(CHECK_HEARD);
+              setNotClear(true);
               promptBox.current?.focus();
             }}
             onEdit={(text) => {
               unsure.current = text;
               promptBox.current?.focus();
             }}
-            onProblem={setFailed}
+            onProblem={(problem) => {
+              setFailed(problem);
+              setNotClear(false); // listening again, or it failed
+            }}
           />
           {teachMe && !quizGoing && (
             <button
@@ -2245,14 +2256,16 @@ export function latestExchange(turns: Turn[]): number {
 
 // The turns from `from` on, numbered by their place in the whole conversation so a note on a
 // reply that couldn't be spoken stays with it. With `search`, the matches of its query are
-// marked, numbered in order, and the current one stands out.
+// marked, numbered in order, and the current one stands out. A `notice` shows last as a reply
+// that isn't part of the conversation (R179).
 function TurnList(props: {
   turns: Turn[];
   from?: number;
   unspoken: { turn: number } | null;
   search?: { query: string; current: number };
+  notice?: string;
 }) {
-  const { turns, from = 0, unspoken, search } = props;
+  const { turns, from = 0, unspoken, search, notice } = props;
   let counted = 0; // matches marked in the turns before this one
   return (
     <ol className="turns">
@@ -2288,6 +2301,12 @@ function TurnList(props: {
           </li>
         );
       })}
+      {notice && (
+        <li className="assistant notice" role="status">
+          <span className="who">Reply</span>
+          {notice}
+        </li>
+      )}
     </ol>
   );
 }
