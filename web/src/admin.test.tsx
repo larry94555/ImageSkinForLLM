@@ -24,7 +24,11 @@ function server(settings: Record<string, unknown> = {}, passwordSet = true) {
     if (url === "/api/admin/sign-in") {
       const { password } = JSON.parse(String(init?.body)) as { password: string };
       if (password !== "secret") {
-        return Response.json({ detail: "That isn't the administrator password." }, { status: 401 });
+        // Every failure answers alike, with a new code (R162).
+        return Response.json(
+          { detail: "Admin login failed with error code A-7K3F9Q.", code: "A-7K3F9Q" },
+          { status: 401 },
+        );
       }
       state.signedIn = true;
       return Response.json({ signed_in: true });
@@ -91,7 +95,8 @@ test("signing in shows the Admin link and the admin view, and signing out hides 
   );
 
   await signIn("guess");
-  await adminSection().findByText("That isn't the administrator password.");
+  // Shown as it comes, with the code that finds the cause in the log.
+  await adminSection().findByText("Admin login failed with error code A-7K3F9Q.");
   expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
 
   await signIn("secret");

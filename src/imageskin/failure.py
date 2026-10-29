@@ -61,8 +61,9 @@ class Failure:
         return f"{self.message}{again} Reference for support: {self.reference}."
 
 
-def new_reference() -> str:
-    return "P-" + "".join(secrets.choice(_ALPHABET) for _ in range(6))
+def new_reference(prefix: str = "P") -> str:
+    """A new reference such as P-7K3F9Q; R162's failed admin sign-ins use the prefix A."""
+    return f"{prefix}-" + "".join(secrets.choice(_ALPHABET) for _ in range(6))
 
 
 def _chain(e: BaseException) -> Iterator[BaseException]:

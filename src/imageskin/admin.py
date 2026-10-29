@@ -16,14 +16,18 @@ import time
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
+from typing import NoReturn
+
+from imageskin.failure import new_reference
 
 logger = logging.getLogger(__name__)
 
 FILENAME = "admin.toml"
 # Without activity for this long, a sign-in ends (item 123); R155 makes it an admin setting.
 TIMEOUT_MINUTES = 30
-# After this many wrong passwords in a row, the next try waits (item 121).
+# After this many failed sign-ins in a row, whatever their cause, the next try waits (item 121).
 WRONG_IN_A_ROW = 5
 WAIT_S = 60.0
 # scrypt's cost: about 50 ms and 16 MB a try, so guessing a hash taken from the file is slow.
@@ -34,21 +38,19 @@ SCRYPT_MAX_MEMORY = 32 * 1024**2
 # then the ones that guessed longest ago, so a flood of addresses can't use up the memory.
 WRONG_KEPT = 1000
 
-NOT_SET = (
-    "No administrator password is set on this computer, so signing in as the administrator is "
-    "off. See the admin password guide to set one."
-)
-WRONG = "That isn't the administrator password."
-WAIT = "Too many wrong passwords. Wait a minute, then try again."
+# Every failed sign-in gets these words and a new code, whatever the cause (R162): a different
+# message, status or fixed code for each cause would tell someone guessing which guess came
+# close. Only the log, under the same code, says why.
+FAILED = "Admin login failed with error code {code}."
 
 
 class AdminRefused(Exception):
-    """A sign-in that was refused, with the reason for the log and a message for the page."""
+    """A refused sign-in: the reason, only for the log, and the code the page shows."""
 
-    def __init__(self, reason: str, message: str, status: int) -> None:
-        super().__init__(message)
+    def __init__(self, reason: str, code: str) -> None:
+        super().__init__(FAILED.format(code=code))
         self.reason = reason
-        self.status = status
+        self.code = code
 
 
 def hash_password(password: str) -> str:
@@ -92,6 +94,22 @@ def password_matches(password: str, secret: "Secret") -> bool:
         logger.error("Admin password hash is not valid", extra={"error": str(e)})
         return False
     return hmac.compare_digest(given, expected)
+
+
+@cache
+def _dummy() -> "Secret":
+    """A hash no password matches, checked when there is nothing real to check, so every
+    failure takes about as long as a wrong password against a hash (R162)."""
+    return Secret("hash", hash_password(secrets.token_urlsafe(32)))
+
+
+def check_password(password: str, secret: "Secret | None") -> bool:
+    """password_matches, with one scrypt run whatever the file holds: none for a plain password
+    or no password would answer sooner and tell those causes apart by the time taken."""
+    if secret is not None and secret.kind == "hash":
+        return password_matches(password, secret)
+    password_matches(password, _dummy())
+    return secret is not None and password_matches(password, secret)
 
 
 @dataclass(frozen=True)
@@ -177,21 +195,24 @@ class AdminSignIns:
         return self._secret
 
     def sign_in(self, password: str, address: str) -> str:
-        """A new sign-in's token; AdminRefused when the password is wrong, not set or waiting."""
+        """A new sign-in's token; AdminRefused, with one message for every cause, when the
+        password is wrong or not set, or the address is waiting after 5 failures (R162)."""
         with self._lock:
             now = self.clock()
-            wrong, wrong_at = self._wrong.get(address, (0, 0.0))
-            if wrong >= WRONG_IN_A_ROW and now - wrong_at < WAIT_S:
-                self._refuse("waiting", address)
-                raise AdminRefused("waiting", WAIT, 429)
+            failures, failed_at = self._wrong.get(address, (0, 0.0))
+            waiting = failures >= WRONG_IN_A_ROW and now - failed_at < WAIT_S
             secret = self.secret()
+            # Checked whatever the cause, so the answer takes as long either way.
+            matches = check_password(password, secret)
+            if waiting:
+                # Not counted again, so trying while waiting doesn't make the wait longer.
+                self._refuse("waiting", address)
             if secret is None:
+                self._note_wrong(address, failures + 1, now)
                 self._refuse("no password set", address)
-                raise AdminRefused("no password set", NOT_SET, 403)
-            if not password_matches(password, secret):
-                self._note_wrong(address, wrong + 1, now)
+            if not matches:
+                self._note_wrong(address, failures + 1, now)
                 self._refuse("wrong password", address)
-                raise AdminRefused("wrong password", WRONG, 401)
             self._wrong.pop(address, None)
             token = secrets.token_urlsafe(32)
             self._signed_in[token] = SignIn(now, secret.fingerprint)
@@ -199,7 +220,7 @@ class AdminSignIns:
         return token
 
     def _note_wrong(self, address: str, wrong: int, now: float) -> None:
-        # Moved to the end, so the map runs from the oldest wrong password to the newest.
+        # Moved to the end, so the map runs from the oldest failure to the newest.
         self._wrong.pop(address, None)
         if len(self._wrong) >= WRONG_KEPT:
             # Many addresses guessing: keep only those still counting towards a wait.
@@ -209,15 +230,19 @@ class AdminSignIns:
             del self._wrong[next(iter(self._wrong))]
         self._wrong[address] = (wrong, now)
 
-    def _refuse(self, reason: str, address: str) -> None:
+    def _refuse(self, reason: str, address: str) -> NoReturn:
+        """Log the cause under a new code, and raise the one answer the page shows."""
+        code = new_reference("A")
         logger.warning(
             "Admin sign-in refused",
             extra={
+                "code": code,
                 "reason": reason,
                 "address": address,
-                "wrong_in_a_row": self._wrong.get(address, (0, 0.0))[0],
+                "failures_in_a_row": self._wrong.get(address, (0, 0.0))[0],
             },
         )
+        raise AdminRefused(reason, code)
 
     def signed_in(self, token: str | None) -> bool:
         """Whether the token is signed in now. Not activity: the dashboard's refreshes ask this."""

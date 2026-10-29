@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Cookie, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 
 from imageskin.admin import AdminRefused, AdminSignIns
 
@@ -44,15 +45,15 @@ def admin_router(sign_ins: AdminSignIns) -> tuple[APIRouter, Callable[[str | Non
             "ended": None if signed_in else sign_ins.ended(token),
         }
 
-    @router.post("/sign-in")
+    @router.post("/sign-in", response_model=None)
     def sign_in(
         request: Request, response: Response, password: Annotated[str, Body(embed=True)]
-    ) -> dict[str, object]:
+    ) -> dict[str, object] | JSONResponse:
         try:
             token = sign_ins.sign_in(password, address(request))
         except AdminRefused as e:
-            headers = {"Retry-After": "60"} if e.status == 429 else None
-            raise HTTPException(status_code=e.status, detail=str(e), headers=headers) from e
+            # The same status and words for every cause, with no Retry-After (R162).
+            return JSONResponse({"detail": str(e), "code": e.code}, status_code=401)
         https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         response.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=https, path="/")
         return {"signed_in": True}
