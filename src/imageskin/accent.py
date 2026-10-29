@@ -13,12 +13,17 @@ runs once in prepare instead: the base voice reads a passage, it is converted to
 voice, and the clone learns from that. The clone then speaks every line itself, in the person's
 voice with the chosen accent, as fast as with their own.
 
-The choice is saved as accent.json in the app's home folder, so it survives a restart.
+The choice is saved as accent.json in the app's home folder, so it survives a restart. The
+converted passage is kept beside the voice sample, so after a restart the clone learns the accent
+from it again in moments instead of converting it anew (R183).
 """
 
+import hashlib
 import json
 import logging
+import os
 import time
+import zipfile
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -64,6 +69,9 @@ PASSAGE = (
 )
 
 RATE = 24000  # the clone's and the converter's rate, which Kokoro's matches
+# The converted passage the clone learned the accent from, beside the voice sample (R183), so
+# Delete my data removes it with the recordings (R31).
+KEPT_SUFFIX = ".accent.npz"
 Samples = np.ndarray  # 24 kHz float samples
 Convert = Callable[[Samples], Samples]
 
@@ -101,6 +109,10 @@ def save_accent(home: Path, accent: Accent) -> None:
     logger.info("Accent chosen", extra={"accent": accent})
 
 
+def ms_since(start: float) -> float:
+    return round((time.perf_counter() - start) * 1000, 1)
+
+
 def pcm16_to_float(pcm: bytes) -> Samples:
     return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768
 
@@ -115,6 +127,12 @@ def fit_length(samples: Samples, n: int) -> Samples:
 def convert_fitted(samples: Samples, convert: Convert) -> Samples:
     """The same speech in the person's voice, the same length, so the timings still hold."""
     return fit_length(np.asarray(convert(samples), dtype=np.float32), len(samples))
+
+
+def kept_path(voice: str) -> Path:
+    """Where the speech the clone learned the accent from is kept, beside the voice sample."""
+    path = Path(voice)
+    return path.with_name(f"{path.stem}{KEPT_SUFFIX}")
 
 
 def pick_base(
@@ -164,6 +182,18 @@ class AccentEngine:
         if accent == OWN:
             self._clone.learn_voice(voice)
             return
+        # After a restart, what was worked out last time, unless the recordings, the accent or the
+        # clone changed: picking the base voice and converting the passage again took most of 2
+        # minutes on 4 cores (Larry, R183).
+        kept = self._read_kept(voice, accent)
+        if kept is not None and self._clone_keeps_accent and len(kept[1]):
+            self._clone.learn_speech(voice, kept[1])
+            self.base = kept[0]
+            logger.info(
+                "Clone learned the voice with the accent from the kept speech",
+                extra={"accent": accent, "base": self.base, "duration_ms": ms_since(start)},
+            )
+            return
         # Kokoro's timings are kept, so neither the aligner nor the clone's voice is needed: only
         # the voice sample, read afresh since the recordings may have changed.
         reference = self._clone.reference(voice, fresh=True)
@@ -172,26 +202,34 @@ class AccentEngine:
             converter.set_voice(reference)
         except Exception as e:  # the model's own errors
             raise VoiceError(f"Chatterbox could not learn the voice for the accent: {e}") from e
-        target = self._voice_print(reference)
         lang, voices = KOKORO_VOICES[accent]
         kokoro = self._engine(lang)
-        self.base, scores = pick_base(
-            voices,
-            lambda v: pcm16_to_float(kokoro.speak(v, PROBE).pcm),
-            converter,
-            lambda samples: float(self._voice_print(samples) @ target),
-        )
-        logger.info(
-            "Picked base voice",
-            extra={
-                "accent": accent,
-                "voice": self.base,
-                "scores": scores,
-                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
-            },
-        )
+        if kept is not None:
+            self.base = kept[0]
+            logger.info(
+                "Base voice kept from last time", extra={"accent": accent, "voice": self.base}
+            )
+        else:
+            target = self._voice_print(reference)
+            self.base, scores = pick_base(
+                voices,
+                lambda v: pcm16_to_float(kokoro.speak(v, PROBE).pcm),
+                converter,
+                lambda samples: float(self._voice_print(samples) @ target),
+            )
+            logger.info(
+                "Picked base voice",
+                extra={
+                    "accent": accent,
+                    "voice": self.base,
+                    "scores": scores,
+                    "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+                },
+            )
         if self._clone_keeps_accent:
             self._teach_clone(voice, kokoro, converter)
+        elif kept is None:
+            self._keep(voice, np.zeros(0, dtype=np.float32))  # only the base voice to keep
 
     def _teach_clone(self, voice: str, kokoro: VoiceEngine, converter: Converter) -> None:
         """Have the clone learn the person's voice with the accent: the base voice reads the
@@ -204,6 +242,7 @@ class AccentEngine:
         except Exception as e:  # the model's own errors
             raise VoiceError(f"Chatterbox could not convert the voice: {e}") from e
         self._clone.learn_speech(voice, accented)
+        self._keep(voice, accented)
         # Not needed again until the accent changes, so its model (about 3 GB) can be freed.
         self._converter = None
         logger.info(
@@ -215,6 +254,57 @@ class AccentEngine:
                 "duration_ms": round((time.perf_counter() - start) * 1000, 1),
             },
         )
+
+    def _kept_key(self, voice: str, accent: Accent) -> str | None:
+        """What the kept speech was learned for: the voice sample, the accent, the clone and the
+        passage. None when the voice sample can't be read."""
+        try:
+            sample = hashlib.sha256(Path(voice).read_bytes()).hexdigest()[:16]
+        except OSError:
+            return None
+        passage = hashlib.sha256(PASSAGE.encode()).hexdigest()[:8]
+        return f"{sample}:{accent}:{getattr(self._clone, 'name', '')}:{passage}"
+
+    def _read_kept(self, voice: str, accent: Accent) -> tuple[str, Samples] | None:
+        """The base voice and the speech the clone learned the accent from (empty when the clone
+        doesn't keep accents), kept last time for this voice sample, accent and clone; None when
+        there is none to use."""
+        key = self._kept_key(voice, accent)
+        path = kept_path(voice)
+        if key is None or not path.is_file():
+            return None
+        try:
+            with np.load(path, allow_pickle=False) as kept:
+                if str(kept["key"]) != key:
+                    logger.info("Kept accent speech is for another voice or accent")
+                    return None
+                return str(kept["base"]), np.asarray(kept["speech"], dtype=np.float32)
+        # A truncated archive raises BadZipFile (Codex's review); it is worked out again.
+        except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile) as e:
+            logger.warning(
+                "Could not read the kept accent speech", extra={"path": str(path), "error": str(e)}
+            )
+            return None
+
+    def _keep(self, voice: str, accented: Samples) -> None:
+        """Keep the base voice and the speech the clone learned the accent from, for the next
+        start. Failures are logged only: the next start then works them out again."""
+        key = self._kept_key(voice, self.accent)
+        if key is None:
+            return
+        path = kept_path(voice)
+        writing = path.with_name(f"{path.name}.writing")
+        try:
+            with writing.open("wb") as f:
+                np.savez(f, key=np.array(key), base=np.array(self.base), speech=accented)
+            os.replace(writing, path)
+        except OSError as e:
+            writing.unlink(missing_ok=True)
+            logger.warning(
+                "Could not keep the accent speech", extra={"path": str(path), "error": str(e)}
+            )
+            return
+        logger.info("Kept the accent speech for the next start", extra={"path": str(path)})
 
     def forget_voice(self) -> None:
         """Forget the person's voice after Delete my data (roadmap R31): the clone's, and the

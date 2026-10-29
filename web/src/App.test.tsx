@@ -15,7 +15,10 @@ import { openSettings, returnToApp } from "./settings.test.util";
 import styles from "./styles.css?raw";
 import {
   CANT_ANSWER,
+  CHECK_HEARD,
   ClipPlayer,
+  preparingChat,
+  READY_CHECK_MS,
   type Idle,
   Stage,
   type ClipTime,
@@ -30,6 +33,7 @@ import {
   loadQuiz,
   loadAssessment,
   loadSound,
+  shownExamples,
   splitMatches,
 } from "./pages";
 import { minutes } from "./checks";
@@ -1804,6 +1808,153 @@ test("the chat shows the conversation so far", async () => {
   expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
+test("the chat waits, saying so, while the voice and face are got ready", async () => {
+  // Larry, 2026-10-29: back on his own photo and voice from an avatar, the chat opened at once,
+  // but a prompt showed Thinking for minutes while they were got ready again (R181).
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let ready = false;
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? Response.json({ ready }) : answers(url, init),
+  );
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    await openAt("#/chat");
+    expect(await screen.findByText("Preparing chat…")).toBeTruthy(); // no time known
+    fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("Thinking…")).toBeNull();
+    ready = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    await waitFor(() => expect(screen.queryByText("Preparing chat…")).toBeNull());
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+    const asked = server.mock.calls.filter(([url]) => url === "/api/chat/ready");
+    expect(asked.length).toBe(2); // asked again only while not ready
+    expect(info.mock.calls.some(([m]) => String(m).startsWith("Voice and face ready for the chat"))).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("the chat counts down the seconds left while it is prepared", async () => {
+  // Larry, 2026-10-29: after a rebuild the chat said it was getting ready for over a minute,
+  // with no idea how long; it now says the seconds left, from the last warm-up (R183).
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let answer: object = { ready: false, left_s: 12 };
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? Response.json(answer) : answers(url, init),
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    await openAt("#/chat");
+    expect(await screen.findByText("Preparing chat… 12 seconds remaining")).toBeTruthy();
+    answer = { ready: false, left_s: 1 };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    expect(await screen.findByText("Preparing chat… 1 second remaining")).toBeTruthy();
+    answer = { ready: false, left_s: null }; // taking longer than last time
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    expect(await screen.findByText("Preparing chat…")).toBeTruthy();
+    answer = { ready: true };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    await waitFor(() => expect(screen.queryByText(/Preparing chat/)).toBeNull());
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a warm-up in its first seconds leaves the chat open, and is asked about again", async () => {
+  // Larry, 2026-10-29: after a rebuild the chat should load at once; with the voice learned
+  // from what was kept, the warm-up is over in a few seconds (R183).
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let answer: object = { ready: true, warming: true };
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? Response.json(answer) : answers(url, init),
+  );
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  try {
+    await openAt("#/chat");
+    await screen.findByText("Ask a question to start the conversation.");
+    fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+    const send = () => screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    await waitFor(() => expect(send().disabled).toBe(false));
+    expect(screen.queryByText(/Preparing chat/)).toBeNull();
+    expect(info.mock.calls.some(([m]) => m === "Chat open while the voice and face are got ready")).toBe(true);
+    answer = { ready: false, left_s: 30 }; // it ran longer: the chat now waits, saying so
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    expect(await screen.findByText("Preparing chat… 30 seconds remaining")).toBeTruthy();
+    expect(send().disabled).toBe(true);
+    answer = { ready: true };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS);
+    });
+    await waitFor(() => expect(send().disabled).toBe(false));
+    const asked = server.mock.calls.filter(([url]) => url === "/api/chat/ready").length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(READY_CHECK_MS * 3);
+    });
+    expect(server.mock.calls.filter(([url]) => url === "/api/chat/ready").length).toBe(asked);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("preparingChat says the seconds left only when they are known", () => {
+  expect(preparingChat(null)).toBe("Preparing chat…");
+  expect(preparingChat(1)).toBe("Preparing chat… 1 second remaining");
+  expect(preparingChat(40)).toBe("Preparing chat… 40 seconds remaining");
+});
+
+test("nothing can be sent until the server says the chat is ready", async () => {
+  // Codex's review of PR #216: Send was on while the readiness check was still on its way, so a
+  // prompt sent then waited behind Thinking, as in R181.
+  const [readiness, answerReadiness] = later();
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? readiness() : answers(url, init),
+  );
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+  const send = () => screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  expect(send().disabled).toBe(true);
+  expect(screen.queryByText(/Preparing chat/)).toBeNull(); // nothing said for a moment's wait
+  await act(async () => answerReadiness(Response.json({ ready: true })));
+  await waitFor(() => expect(send().disabled).toBe(false));
+});
+
+test("a failed readiness check never keeps the chat waiting", async () => {
+  const server = chatServer([], () => Response.json({}));
+  const answers = server.getMockImplementation()!;
+  server.mockImplementation(async (url, init) =>
+    url === "/api/chat/ready" ? Response.json({}, { status: 500 }) : answers(url, init),
+  );
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  await openAt("#/chat");
+  await screen.findByText("Ask a question to start the conversation.");
+  fireEvent.input(promptBox(), { target: { value: "Hello!" } });
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(screen.queryByText(/Preparing chat/)).toBeNull();
+  await waitFor(() =>
+    expect(error.mock.calls.some(([m]) => m === "Could not ask whether the chat is ready")).toBe(true),
+  );
+});
+
 test("sending a prompt shows it and then the reply", async () => {
   const [answer, reply] = later();
   const fetchMock = chatServer([], answer);
@@ -1874,6 +2025,118 @@ test("a question said with Hold to talk is shown in the box, sent, and shown as 
   vi.unstubAllGlobals();
 });
 
+// Says "Who is Joe Budden?" with Hold to talk, at a confidence the browser isn't sure of (R179),
+// then sends the prompt box with Send after it is changed to `fixed`; returns what was sent.
+async function sayUnsureThenSend(fixed: string) {
+  let recognition: { onresult: (e: object) => void; onend: () => void } | null = null;
+  vi.stubGlobal(
+    "webkitSpeechRecognition",
+    class {
+      onresult = (_: object) => {};
+      onend = () => {};
+      constructor() {
+        recognition = this;
+      }
+      start() {}
+      stop() {
+        this.onend();
+      }
+    },
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  const fetchMock = chatServer([], () => Response.json({ role: "assistant", content: "Hi!" }));
+  await openAt("#/chat");
+  const talk = await screen.findByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(talk);
+  });
+  await act(async () => {
+    recognition!.onresult({ results: [[{ transcript: "Who is Joe Budden?", confidence: 0.6 }]] });
+  });
+  const now = performance.now.bind(performance);
+  vi.spyOn(performance, "now").mockImplementation(() => now() + 1000); // held, not tapped
+  await act(async () => {
+    fireEvent.pointerUp(talk);
+  });
+  // Said as the reply, not as an error, and not added to the conversation.
+  const notice = (await screen.findByText(CHECK_HEARD, undefined, { timeout: 3000 })).closest(
+    "li",
+  )!;
+  expect(notice.className).toBe("assistant notice");
+  expect(notice.textContent).toBe(`Reply${CHECK_HEARD}`);
+  expect(screen.queryByRole("alert")).toBeNull();
+  // Not sent: left in the box, ready to fix.
+  const chats = () =>
+    fetchMock.mock.calls.filter(([url, init]) => url === "/api/chat" && init?.method);
+  expect(chats()).toHaveLength(0);
+  expect(promptBox().value).toBe("Who is Joe Budden?");
+  expect(document.activeElement).toBe(promptBox());
+  fireEvent.input(promptBox(), { target: { value: fixed } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByText("Hi!")).toBeTruthy();
+  expect(screen.getByText(fixed).className).toBe("user");
+  expect(screen.queryByText(CHECK_HEARD)).toBeNull();
+  vi.unstubAllGlobals();
+  return JSON.parse(chats()[0]![1]!.body as string) as { prompt: string; spoken?: boolean };
+}
+
+test("a question Hold to talk isn't sure of waits in the box, and is sent as fixed", async () => {
+  const sent = await sayUnsureThenSend("Who is Jill Biden?");
+  expect(sent.prompt).toBe("Who is Jill Biden?");
+  expect(sent.spoken).toBeUndefined(); // fixed by hand: sent as typed
+});
+
+test("a question Hold to talk isn't sure of, sent unchanged, is still spoken", async () => {
+  const sent = await sayUnsureThenSend("Who is Joe Budden?");
+  // So any misheard name is still put back (R24).
+  expect(sent).toMatchObject({ prompt: "Who is Joe Budden?", spoken: true });
+});
+
+test("Edit while Hold to talk listens leaves the question in the box, sent as spoken", async () => {
+  let recognition: { onresult: (e: object) => void; onend: () => void } | null = null;
+  vi.stubGlobal(
+    "webkitSpeechRecognition",
+    class {
+      onresult = (_: object) => {};
+      onend = () => {};
+      constructor() {
+        recognition = this;
+      }
+      start() {}
+      stop() {
+        this.onend();
+      }
+    },
+  );
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  const fetchMock = chatServer([], () => Response.json({ role: "assistant", content: "Hi!" }));
+  await openAt("#/chat");
+  const talk = await screen.findByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(talk);
+    fireEvent.pointerUp(talk); // a tap: listening until clicked again
+  });
+  await act(async () => {
+    recognition!.onresult({ results: [[{ transcript: "Who was Oiler?", confidence: 0.95 }]] });
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  });
+  const chats = () =>
+    fetchMock.mock.calls.filter(([url, init]) => url === "/api/chat" && init?.method);
+  expect(chats()).toHaveLength(0);
+  expect(promptBox().value).toBe("Who was Oiler?");
+  expect(document.activeElement).toBe(promptBox());
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(await screen.findByText("Hi!")).toBeTruthy();
+  expect(JSON.parse(chats()[0]![1]!.body as string)).toMatchObject({
+    prompt: "Who was Oiler?",
+    spoken: true,
+  });
+  vi.unstubAllGlobals();
+});
+
 // --- Topic hints (R41g) ---
 
 // The chat's server, answering the hints with `hints`, one per call and then the last again.
@@ -1893,7 +2156,7 @@ function hintsServer(...hints: (object | Error)[]) {
 }
 
 const RIEMANN_HINTS = {
-  line: "Questions must be about these topics: Prime Number Basics and Zeta Function Integral.",
+  line: "Questions must be about these topics:",
   examples: [
     "What can you tell me about Prime Number Basics?",
     "Can you explain Zeta Function Integral?",
@@ -1977,6 +2240,48 @@ test("hints that can't be read again are taken away, not left stale (review on P
   await screen.findByText("Primes are counted.");
   await waitFor(() => expect(document.querySelector(".hints")).toBeNull());
   expect(screen.queryByRole("button", { name: RIEMANN_HINTS.examples[0] })).toBeNull();
+});
+
+// Larry (2026-10-29): the line no longer names the topics the links name (R182).
+const MANY_HINTS = {
+  line: "You can ask me about:",
+  examples: ["Tell me about A.", "Tell me about B.", "Tell me about C.", "Tell me about D."],
+};
+
+function shownQuestions(): string[] {
+  const list = within(screen.getByRole("list", { name: "Example questions" }));
+  return list
+    .getAllByRole("button")
+    .map((b) => b.textContent ?? "")
+    .filter((text) => text !== "other topics...");
+}
+
+test("other topics... shows the next three example questions, wrapping round (R182)", async () => {
+  hintsServer(MANY_HINTS);
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  await openAt("#/chat");
+  expect(await screen.findByText("You can ask me about:")).toBeTruthy();
+  expect(shownQuestions()).toEqual(MANY_HINTS.examples.slice(0, 3));
+  fireEvent.click(screen.getByRole("button", { name: "other topics..." }));
+  expect(shownQuestions()).toEqual(["Tell me about D.", "Tell me about A.", "Tell me about B."]);
+  expect(info).toHaveBeenCalledWith("Other topics shown, from 4 of 4");
+  fireEvent.click(screen.getByRole("button", { name: "other topics..." }));
+  expect(shownQuestions()).toEqual(["Tell me about C.", "Tell me about D.", "Tell me about A."]);
+});
+
+test("with three example questions or fewer there is no other topics... (R182)", async () => {
+  hintsServer({ ...MANY_HINTS, examples: MANY_HINTS.examples.slice(0, 3) });
+  await openAt("#/chat");
+  expect(await screen.findByText("You can ask me about:")).toBeTruthy();
+  expect(shownQuestions()).toEqual(MANY_HINTS.examples.slice(0, 3));
+  expect(screen.queryByRole("button", { name: "other topics..." })).toBeNull();
+});
+
+test("shownExamples wraps round from any start", () => {
+  expect(shownExamples([], 0)).toEqual([]);
+  expect(shownExamples(["a", "b"], 5)).toEqual(["a", "b"]);
+  expect(shownExamples(["a", "b", "c", "d", "e"], 3)).toEqual(["d", "e", "a"]);
+  expect(shownExamples(["a", "b", "c", "d", "e"], 9)).toEqual(["e", "a", "b"]);
 });
 
 test("the example questions are chips in the design's colours", () => {

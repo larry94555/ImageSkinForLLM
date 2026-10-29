@@ -263,6 +263,15 @@ async function repeatReply(replyId) {
 async function getChatPhoto() {
 	return json(await fetch("/api/chat/photo"));
 }
+async function getChatReady() {
+	const body = await json(await fetch("/api/chat/ready"));
+	const left = body?.left_s;
+	return {
+		ready: body?.ready !== false,
+		leftS: typeof left === "number" && left > 0 ? left : null,
+		warming: body?.warming === true
+	};
+}
 async function getChatHints() {
 	const hints = await json(await fetch("/api/chat/hints"));
 	return {
@@ -2918,17 +2927,25 @@ function talkProblem(error) {
 function heard(results) {
 	return Array.from(results, (r) => r[0]?.transcript ?? "").join(" ").replace(/\s+/g, " ").trim();
 }
+function leastSure(results) {
+	const known = Array.from(results, (r) => r[0]?.confidence ?? 0).filter((c) => c > 0);
+	return known.length ? Math.min(...known) : null;
+}
 function TalkButton(props) {
 	const Maker = speechRecognition();
 	const [listening, setListening] = d(false);
 	const recognition = A(null);
 	const said = A("");
+	const sure = A(null);
 	const started = A(0);
 	const failed = A(false);
 	const stopping = A(null);
 	const sending = A(false);
 	const [tapped, setTapped] = d(false);
 	const latched = A(false);
+	const editLink = A(null);
+	const editing = A(false);
+	const [overEditLink, setOverEditLink] = d(false);
 	function clearTail() {
 		if (stopping.current !== null) window.clearTimeout(stopping.current);
 		stopping.current = null;
@@ -2946,12 +2963,15 @@ function TalkButton(props) {
 		r.continuous = true;
 		r.interimResults = true;
 		said.current = "";
+		sure.current = null;
 		failed.current = false;
 		sending.current = false;
+		editing.current = false;
 		latched.current = false;
 		started.current = performance.now();
 		r.onresult = (e) => {
 			said.current = heard(e.results);
+			sure.current = leastSure(e.results);
 			props.onHearing(said.current);
 		};
 		r.onerror = (e) => {
@@ -2976,10 +2996,21 @@ function TalkButton(props) {
 			console.info(`Push-to-talk: heard ${words} words in ${ms} ms`);
 			if (!send) {
 				if (text) console.info("Push-to-talk: ended without sending");
+				if (editing.current && text) props.onEdit(text);
 				return;
 			}
-			if (text) props.onHeard(text);
-			else props.onProblem(talkProblem("no-speech"));
+			if (!text) {
+				props.onProblem(talkProblem("no-speech"));
+				return;
+			}
+			const confidence = sure.current === null ? "not given" : sure.current.toFixed(2);
+			if (sure.current !== null && sure.current < .8) {
+				console.info(`Push-to-talk: not sure of the words (confidence ${confidence}), left to check`);
+				props.onUnsure(text);
+				return;
+			}
+			console.info(`Push-to-talk: sent (confidence ${confidence})`);
+			props.onHeard(text);
 		};
 		recognition.current = r;
 		props.onProblem(null);
@@ -3013,6 +3044,22 @@ function TalkButton(props) {
 			stop();
 		}
 	}
+	function edit() {
+		if (!recognition.current) return;
+		clearTail();
+		sending.current = false;
+		editing.current = true;
+		latched.current = false;
+		setTapped(false);
+		console.info("Push-to-talk: Edit chosen; left in the box to change");
+		recognition.current.stop();
+	}
+	function overEdit(e) {
+		const box = editLink.current?.getBoundingClientRect();
+		if (!box || box.width === 0) return false;
+		const { clientX: x, clientY: y } = e;
+		return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+	}
 	function release() {
 		if (!recognition.current || latched.current || stopping.current !== null) return;
 		const ms = Math.round(performance.now() - started.current);
@@ -3024,28 +3071,42 @@ function TalkButton(props) {
 		}
 		stop();
 	}
-	return /* @__PURE__ */ u("button", {
-		type: "button",
-		className: listening ? "secondary talk listening" : "secondary talk",
-		disabled: props.disabled && !listening,
-		"aria-pressed": listening,
-		onPointerDown: (e) => {
-			e.preventDefault();
-			e.currentTarget.setPointerCapture?.(e.pointerId);
-			press();
-		},
-		onPointerUp: release,
-		onPointerCancel: stop,
-		onKeyDown: (e) => {
-			if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+	return /* @__PURE__ */ u("div", {
+		className: "talk-row",
+		children: [/* @__PURE__ */ u("button", {
+			type: "button",
+			className: listening ? "secondary talk listening" : "secondary talk",
+			disabled: props.disabled && !listening,
+			"aria-pressed": listening,
+			onPointerDown: (e) => {
 				e.preventDefault();
+				e.currentTarget.setPointerCapture?.(e.pointerId);
 				press();
-			}
-		},
-		onKeyUp: (e) => {
-			if (e.key === " " || e.key === "Enter") release();
-		},
-		children: !listening ? "Hold to talk" : tapped ? "Listening… click to send" : "Listening… let go to send"
+			},
+			onPointerMove: (e) => setOverEditLink(recognition.current !== null && overEdit(e)),
+			onPointerUp: (e) => {
+				setOverEditLink(false);
+				if (overEdit(e)) edit();
+				else release();
+			},
+			onPointerCancel: stop,
+			onKeyDown: (e) => {
+				if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+					e.preventDefault();
+					press();
+				}
+			},
+			onKeyUp: (e) => {
+				if (e.key === " " || e.key === "Enter") release();
+			},
+			children: !listening ? "Hold to talk" : overEditLink ? "Let go to edit" : tapped ? "Click to send or…" : "Let go to send or…"
+		}), listening && /* @__PURE__ */ u("button", {
+			ref: editLink,
+			type: "button",
+			className: overEditLink ? "link armed" : "link",
+			onClick: edit,
+			children: "Edit"
+		})]
 	});
 }
 //#endregion
@@ -4154,6 +4215,7 @@ function AvatarLinks({ readyMade }) {
 		}, href))]
 	});
 }
+var CHECK_HEARD = "I am not clear on what you said. Can you edit your question and resend?";
 var CANT_ANSWER = "Sorry, I couldn't answer that just now. Please try again in a moment.";
 var LINE_TEXT = {
 	goodbye: "Goodbye",
@@ -4262,6 +4324,11 @@ function saveSound(sound) {
 	} catch {}
 }
 var READ_AHEAD_WORDS = 3;
+var READY_CHECK_MS = 1e3;
+function preparingChat(leftS) {
+	if (leftS === null) return "Preparing chat…";
+	return `Preparing chat… ${leftS} ${leftS === 1 ? "second" : "seconds"} remaining`;
+}
 function Chat(props) {
 	const metrics = useSettings().show_metrics;
 	const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
@@ -4275,6 +4342,9 @@ function Chat(props) {
 	const [whole, setWhole] = d(false);
 	const [unspoken, setUnspoken] = d(null);
 	const [failed, setFailed] = d(null);
+	const promptBox = A(null);
+	const [notClear, setNotClear] = d(false);
+	const unsure = A(null);
 	const gone = A(false);
 	const replying = A(null);
 	const stopped = A(null);
@@ -4303,7 +4373,33 @@ function Chat(props) {
 	]);
 	const [saying, setSaying] = d(props.welcome ? "welcome-back" : null);
 	const line = A(null);
-	const busy = sending || speaking || saying !== null;
+	const [ready, setReady] = d(null);
+	const [leftS, setLeftS] = d(null);
+	const gettingReady = ready === false;
+	h(() => {
+		let timer;
+		let waitedFrom = null;
+		const check = () => {
+			getChatReady().then(({ ready: now, leftS: left, warming }) => {
+				if (gone.current) return;
+				setReady(now);
+				setLeftS(left);
+				if (!now || warming) {
+					if (waitedFrom === null) {
+						waitedFrom = performance.now();
+						console.info(now ? "Chat open while the voice and face are got ready" : "Chat waits while the voice and face are got ready");
+					}
+					timer = setTimeout(check, READY_CHECK_MS);
+				} else if (waitedFrom !== null) console.info(`Voice and face ready for the chat (${Math.round(performance.now() - waitedFrom)} ms)`);
+			}, (e) => {
+				console.error("Could not ask whether the chat is ready", e);
+				if (!gone.current) setReady(true);
+			});
+		};
+		check();
+		return () => clearTimeout(timer);
+	}, []);
+	const busy = sending || speaking || saying !== null || ready !== true;
 	const readAheadOf = A("");
 	h(() => {
 		const text = prompt.trim();
@@ -4463,6 +4559,8 @@ function Chat(props) {
 	async function send(asked, spoken = false) {
 		const text = (asked ?? prompt).trim();
 		if (!text || busy) return;
+		spoken ||= asked === void 0 && text === unsure.current;
+		unsure.current = null;
 		const shownAt = (turns ?? []).length + 1;
 		const replyId = newReplyId();
 		let replied = false;
@@ -4478,6 +4576,7 @@ function Chat(props) {
 		allMade.current = false;
 		clipsEnded.current = 0;
 		setFailed(null);
+		setNotClear(false);
 		setUnspoken(null);
 		setClips([]);
 		setEarlier((e) => [...e, ...clipWaits(times)]);
@@ -4668,7 +4767,7 @@ function Chat(props) {
 			})
 		})]
 	});
-	const status = sending ? halted ? "Stopping…" : "Thinking…" : waiting ? "Getting ready to say it…" : null;
+	const status = gettingReady ? preparingChat(leftS) : sending ? halted ? "Stopping…" : "Thinking…" : waiting ? "Getting ready to say it…" : null;
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [/* @__PURE__ */ u("div", {
@@ -4691,16 +4790,17 @@ function Chat(props) {
 		}), /* @__PURE__ */ u("div", {
 			className: "talk",
 			children: [
-				turns.length === 0 && /* @__PURE__ */ u("p", {
+				turns.length === 0 && !notClear && /* @__PURE__ */ u("p", {
 					className: "muted hint",
 					children: "Ask a question to start the conversation."
 				}),
 				/* @__PURE__ */ u(TurnList, {
 					turns,
 					from: latestExchange(turns),
-					unspoken
+					unspoken,
+					notice: notClear ? CHECK_HEARD : void 0
 				}),
-				turns[turns.length - 1]?.role === "assistant" && /* @__PURE__ */ u(ReplyActions, {
+				turns[turns.length - 1]?.role === "assistant" && !notClear && /* @__PURE__ */ u(ReplyActions, {
 					disabled: busy,
 					onRepeat: () => void repeat(),
 					onSimpler: quizGoing ? void 0 : () => void send(SAY_IT_SIMPLER)
@@ -4726,6 +4826,7 @@ function Chat(props) {
 					children: [/* @__PURE__ */ u("label", {
 						className: "prompt",
 						children: [/* @__PURE__ */ u("span", { children: "Your message" }), /* @__PURE__ */ u("textarea", {
+							ref: promptBox,
 							rows: 2,
 							placeholder: "Type your question here",
 							value: prompt,
@@ -4749,7 +4850,19 @@ function Chat(props) {
 								disabled: busy,
 								onHearing: setPrompt,
 								onHeard: (text) => void send(text, true),
-								onProblem: setFailed
+								onUnsure: (text) => {
+									unsure.current = text;
+									setNotClear(true);
+									promptBox.current?.focus();
+								},
+								onEdit: (text) => {
+									unsure.current = text;
+									promptBox.current?.focus();
+								},
+								onProblem: (problem) => {
+									setFailed(problem);
+									setNotClear(false);
+								}
 							}),
 							teachMe && !quizGoing && /* @__PURE__ */ u("button", {
 								type: "button",
@@ -4927,7 +5040,9 @@ function LessonControls(props) {
 }
 function Hints(props) {
 	const { line, examples } = props.hints;
+	const [first, setFirst] = d(0);
 	if (!line && examples.length === 0) return null;
+	const shown = shownExamples(examples, first);
 	return /* @__PURE__ */ u("div", {
 		className: "hints",
 		children: [line && /* @__PURE__ */ u("p", {
@@ -4935,7 +5050,7 @@ function Hints(props) {
 			children: line
 		}), examples.length > 0 && /* @__PURE__ */ u("ul", {
 			"aria-label": "Example questions",
-			children: examples.map((question) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("button", {
+			children: [shown.map((question) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("button", {
 				type: "button",
 				className: "example",
 				disabled: props.disabled,
@@ -4944,20 +5059,33 @@ function Hints(props) {
 					props.onAsk(question);
 				},
 				children: question
-			}) }, question))
+			}) }, question)), examples.length > 3 && /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "link",
+				onClick: () => {
+					const next = (first + 3) % examples.length;
+					console.info(`Other topics shown, from ${next + 1} of ${examples.length}`);
+					setFirst(next);
+				},
+				children: "other topics..."
+			}) })]
 		})]
 	});
+}
+function shownExamples(examples, first) {
+	if (examples.length <= 3) return examples;
+	return Array.from({ length: 3 }, (_, i) => examples[(first + i) % examples.length]);
 }
 function latestExchange(turns) {
 	for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === "user") return i;
 	return Math.max(turns.length - 1, 0);
 }
 function TurnList(props) {
-	const { turns, from = 0, unspoken, search } = props;
+	const { turns, from = 0, unspoken, search, notice } = props;
 	let counted = 0;
 	return /* @__PURE__ */ u("ol", {
 		className: "turns",
-		children: turns.slice(from).map((turn, k) => {
+		children: [turns.slice(from).map((turn, k) => {
 			const i = from + k;
 			const first = counted;
 			const parts = search ? splitMatches(turn.content, search.query) : [turn.content];
@@ -4985,7 +5113,14 @@ function TurnList(props) {
 					})
 				]
 			}, i);
-		})
+		}), notice && /* @__PURE__ */ u("li", {
+			className: "assistant notice",
+			role: "status",
+			children: [/* @__PURE__ */ u("span", {
+				className: "who",
+				children: "Reply"
+			}), notice]
+		})]
 	});
 }
 function splitMatches(text, query) {

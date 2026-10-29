@@ -1,7 +1,16 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { heard, type Recognition, TAIL_MS, TalkButton, talkProblem, TAP_MS } from "./talk";
+import {
+  heard,
+  leastSure,
+  type Recognition,
+  SURE,
+  TAIL_MS,
+  TalkButton,
+  talkProblem,
+  TAP_MS,
+} from "./talk";
 
 // The browser's speech recognition, driven by the test: `say` gives what was heard so far,
 // `fail` an error, and stop() ends it as the browser does.
@@ -26,6 +35,12 @@ class FakeRecognition implements Recognition {
   say(...parts: string[]) {
     this.onresult?.({ results: parts.map((transcript) => [{ transcript }]) });
   }
+  // As `say`, with how sure the browser is of each phrase.
+  sayWith(...parts: [string, number][]) {
+    this.onresult?.({
+      results: parts.map(([transcript, confidence]) => [{ transcript, confidence }]),
+    });
+  }
   fail(error: string) {
     this.onerror?.({ error });
   }
@@ -35,6 +50,8 @@ function talk(disabled = false) {
   const calls = {
     hearing: [] as string[],
     heard: [] as string[],
+    unsure: [] as string[],
+    edited: [] as string[],
     problems: [] as (string | null)[],
   };
   render(
@@ -42,6 +59,8 @@ function talk(disabled = false) {
       disabled={disabled}
       onHearing={(t) => calls.hearing.push(t)}
       onHeard={(t) => calls.heard.push(t)}
+      onUnsure={(t) => calls.unsure.push(t)}
+      onEdit={(t) => calls.edited.push(t)}
       onProblem={(p) => calls.problems.push(p)}
     />,
   );
@@ -77,7 +96,7 @@ test("holding the button listens, and letting go sends what was heard", async ()
   });
   const r = FakeRecognition.made[0]!;
   expect([r.started, r.continuous, r.interimResults]).toEqual([true, true, true]);
-  expect(button.textContent).toBe("Listening… let go to send");
+  expect(button.textContent).toBe("Let go to send or…");
   expect(button.getAttribute("aria-pressed")).toBe("true");
   expect(console.info).toHaveBeenCalledWith("Push-to-talk: listening");
   await act(async () => {
@@ -254,7 +273,7 @@ test("a quick click or tap keeps listening until the button is clicked again", a
     fireEvent.pointerUp(button);
   });
   const r = FakeRecognition.made[0]!;
-  expect(button.textContent).toBe("Listening… click to send");
+  expect(button.textContent).toBe("Click to send or…");
   expect(console.info).toHaveBeenCalledWith(
     "Push-to-talk: let go after 80 ms; listening until clicked again",
   );
@@ -287,7 +306,7 @@ test("the pointer is kept while held, so moving off the button doesn't end liste
     vi.advanceTimersByTime(TAIL_MS * 2);
   });
   expect(captured).toHaveBeenCalledWith(7);
-  expect(button.textContent).toBe("Listening… let go to send");
+  expect(button.textContent).toBe("Let go to send or…");
 });
 
 test("a pointer the browser cancels stops listening, rather than keeping it on as a tap", async () => {
@@ -299,10 +318,150 @@ test("a pointer the browser cancels stops listening, rather than keeping it on a
     FakeRecognition.made[0]!.say("What is");
     fireEvent.pointerCancel(button);
   });
-  expect(button.textContent).not.toBe("Listening… click to send");
+  expect(button.textContent).not.toBe("Click to send or…");
   await act(async () => {
     vi.advanceTimersByTime(TAIL_MS);
   });
   expect(button.textContent).toBe("Hold to talk");
   expect(calls.heard).toEqual(["What is"]);
+});
+
+// --- Words perhaps misheard (R179) ---
+
+test("leastSure is the lowest confidence given, leaving out phrases given none", () => {
+  const phrases = (...c: (number | undefined)[]) =>
+    c.map((confidence) => [{ transcript: "a", confidence }]);
+  expect(leastSure(phrases(0.95, 0.6))).toBe(0.6);
+  expect(leastSure(phrases(0.9, 0))).toBe(0.9);
+  expect(leastSure(phrases(undefined, 0))).toBeNull();
+  expect(leastSure([])).toBeNull();
+});
+
+// Holds the button, hears `parts` with their confidence, and lets go.
+async function holdAndSay(...parts: [string, number][]) {
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  await act(async () => {
+    FakeRecognition.made[0]!.sayWith(...parts);
+    vi.advanceTimersByTime(TAP_MS);
+    fireEvent.pointerUp(button);
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+}
+
+test("a phrase the browser isn't sure of is left to check, not sent", async () => {
+  const calls = talk();
+  await holdAndSay(["Who is", 0.93], [" Joe Budden?", 0.62]); // Larry's "Jill Biden"
+  expect(calls.heard).toEqual([]);
+  expect(calls.unsure).toEqual(["Who is Joe Budden?"]);
+  expect(calls.hearing.at(-1)).toBe("Who is Joe Budden?"); // in the box, to fix
+  expect(console.info).toHaveBeenCalledWith(
+    "Push-to-talk: not sure of the words (confidence 0.62), left to check",
+  );
+});
+
+test("speech heard clearly is sent at once", async () => {
+  const calls = talk();
+  await holdAndSay(["What is a prime number?", SURE]);
+  expect(calls.heard).toEqual(["What is a prime number?"]);
+  expect(calls.unsure).toEqual([]);
+  expect(console.info).toHaveBeenCalledWith("Push-to-talk: sent (confidence 0.80)");
+});
+
+test("with no confidence from the browser, what was heard is sent as before", async () => {
+  const calls = talk();
+  await holdAndSay(["What is a prime number?", 0]);
+  expect(calls.heard).toEqual(["What is a prime number?"]);
+  expect(console.info).toHaveBeenCalledWith("Push-to-talk: sent (confidence not given)");
+});
+
+// --- Edit while listening (R179) ---
+
+test("Edit shows only while listening, and after a tap stops it without sending", async () => {
+  const calls = talk();
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button); // a tap: listening until clicked again
+  });
+  expect(button.textContent).toBe("Click to send or…");
+  await act(async () => {
+    FakeRecognition.made[0]!.say("Who is Joe Budden?");
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  });
+  expect(calls.heard).toEqual([]);
+  expect(calls.edited).toEqual(["Who is Joe Budden?"]);
+  expect(button.textContent).toBe("Hold to talk");
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  expect(console.info).toHaveBeenCalledWith(
+    "Push-to-talk: Edit chosen; left in the box to change",
+  );
+});
+
+test("a held button let go over Edit edits instead of sending", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  const link = screen.getByRole("button", { name: "Edit" });
+  link.getBoundingClientRect = () => new DOMRect(10, 20, 40, 24);
+  await act(async () => {
+    FakeRecognition.made[0]!.say("Who is Bill Biden?");
+    vi.advanceTimersByTime(TAP_MS);
+    fireEvent.pointerUp(button, { clientX: 30, clientY: 30 }); // slid onto Edit
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(calls.heard).toEqual([]);
+  expect(calls.edited).toEqual(["Who is Bill Biden?"]);
+});
+
+test("a held button slid onto Edit says letting go there edits", async () => {
+  talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  const link = screen.getByRole("button", { name: "Edit" });
+  link.getBoundingClientRect = () => new DOMRect(200, 20, 40, 24);
+  await act(async () => {
+    fireEvent.pointerMove(button, { clientX: 210, clientY: 30 });
+  });
+  expect(button.textContent).toBe("Let go to edit");
+  expect(link.className).toBe("link armed");
+  await act(async () => {
+    fireEvent.pointerMove(button, { clientX: 50, clientY: 30 }); // back off it
+  });
+  expect(button.textContent).toBe("Let go to send or…");
+  expect(link.className).toBe("link");
+});
+
+test("let go off Edit, it sends; Edit with nothing heard does nothing", async () => {
+  const calls = talk();
+  const button = screen.getByRole("button", { name: "Hold to talk" });
+  await act(async () => {
+    fireEvent.pointerDown(button);
+  });
+  screen.getByRole("button", { name: "Edit" }).getBoundingClientRect = () =>
+    new DOMRect(10, 20, 40, 24);
+  await act(async () => {
+    FakeRecognition.made[0]!.say("Hello");
+    vi.advanceTimersByTime(TAP_MS);
+    fireEvent.pointerUp(button, { clientX: 300, clientY: 30 });
+    vi.advanceTimersByTime(TAIL_MS);
+  });
+  expect(calls.heard).toEqual(["Hello"]);
+  await act(async () => {
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  });
+  expect(calls.edited).toEqual([]);
 });
