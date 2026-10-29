@@ -264,7 +264,13 @@ async function getChatPhoto() {
 	return json(await fetch("/api/chat/photo"));
 }
 async function getChatReady() {
-	return (await json(await fetch("/api/chat/ready")))?.ready !== false;
+	const body = await json(await fetch("/api/chat/ready"));
+	const left = body?.left_s;
+	return {
+		ready: body?.ready !== false,
+		leftS: typeof left === "number" && left > 0 ? left : null,
+		warming: body?.warming === true
+	};
 }
 async function getChatHints() {
 	const hints = await json(await fetch("/api/chat/hints"));
@@ -4318,8 +4324,11 @@ function saveSound(sound) {
 	} catch {}
 }
 var READ_AHEAD_WORDS = 3;
-var READY_CHECK_MS = 2e3;
-var GETTING_READY = "Getting the voice and face ready… This can take a few minutes after switching.";
+var READY_CHECK_MS = 1e3;
+function preparingChat(leftS) {
+	if (leftS === null) return "Preparing chat…";
+	return `Preparing chat… ${leftS} ${leftS === 1 ? "second" : "seconds"} remaining`;
+}
 function Chat(props) {
 	const metrics = useSettings().show_metrics;
 	const { teach_me: teachMe, quiz_me: quizMe, assessment: assessOn, debug } = useSettings();
@@ -4365,18 +4374,20 @@ function Chat(props) {
 	const [saying, setSaying] = d(props.welcome ? "welcome-back" : null);
 	const line = A(null);
 	const [ready, setReady] = d(null);
+	const [leftS, setLeftS] = d(null);
 	const gettingReady = ready === false;
 	h(() => {
 		let timer;
 		let waitedFrom = null;
 		const check = () => {
-			getChatReady().then((now) => {
+			getChatReady().then(({ ready: now, leftS: left, warming }) => {
 				if (gone.current) return;
 				setReady(now);
-				if (!now) {
+				setLeftS(left);
+				if (!now || warming) {
 					if (waitedFrom === null) {
 						waitedFrom = performance.now();
-						console.info("Chat waits while the voice and face are got ready");
+						console.info(now ? "Chat open while the voice and face are got ready" : "Chat waits while the voice and face are got ready");
 					}
 					timer = setTimeout(check, READY_CHECK_MS);
 				} else if (waitedFrom !== null) console.info(`Voice and face ready for the chat (${Math.round(performance.now() - waitedFrom)} ms)`);
@@ -4756,7 +4767,7 @@ function Chat(props) {
 			})
 		})]
 	});
-	const status = gettingReady ? GETTING_READY : sending ? halted ? "Stopping…" : "Thinking…" : waiting ? "Getting ready to say it…" : null;
+	const status = gettingReady ? preparingChat(leftS) : sending ? halted ? "Stopping…" : "Thinking…" : waiting ? "Getting ready to say it…" : null;
 	return /* @__PURE__ */ u("div", {
 		className: "chat",
 		children: [/* @__PURE__ */ u("div", {

@@ -1366,12 +1366,16 @@ function saveSound(sound: Sound) {
 export const READ_AHEAD_PAUSE_MS = 600;
 const READ_AHEAD_WORDS = 3;
 
-// How often the chat asks again whether the person's voice and face are ready (R181).
-export const READY_CHECK_MS = 2000;
-// Said in place of Thinking while they are got ready, as after switching back to your own photo
-// and voice from a ready-made avatar (Larry, 2026-10-29).
-export const GETTING_READY =
-  "Getting the voice and face ready… This can take a few minutes after switching.";
+// How often the chat asks again whether the person's voice and face are ready (R181): each
+// second, so the seconds left count down one by one (R183).
+export const READY_CHECK_MS = 1000;
+// Said in place of Thinking while they are got ready, after the app starts or after switching
+// back to your own photo and voice from a ready-made avatar, with the seconds left when the
+// server can tell (Larry, 2026-10-29, R183).
+export function preparingChat(leftS: number | null): string {
+  if (leftS === null) return "Preparing chat…";
+  return `Preparing chat… ${leftS} ${leftS === 1 ? "second" : "seconds"} remaining`;
+}
 
 // Text chat with the LLM (roadmap R15). The person speaks each reply in their voice, on their
 // photo (roadmap R17), starting on its first sentence while the rest is still being made
@@ -1443,19 +1447,27 @@ function Chat(props: {
   // all that time (Codex's review of PR #216: Send was on while the answer was still coming).
   // Null until the server has said; a failed check counts as ready.
   const [ready, setReady] = useState<boolean | null>(null);
+  const [leftS, setLeftS] = useState<number | null>(null); // seconds left, when known (R183)
   const gettingReady = ready === false;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let waitedFrom: number | null = null;
     const check = () => {
       getChatReady().then(
-        (now) => {
+        ({ ready: now, leftS: left, warming }) => {
           if (gone.current) return;
           setReady(now);
-          if (!now) {
+          setLeftS(left);
+          // A warm-up in its first seconds leaves the chat open, but is asked about again in
+          // case it runs longer (R183).
+          if (!now || warming) {
             if (waitedFrom === null) {
               waitedFrom = performance.now();
-              console.info("Chat waits while the voice and face are got ready");
+              console.info(
+                now
+                  ? "Chat open while the voice and face are got ready"
+                  : "Chat waits while the voice and face are got ready",
+              );
             }
             timer = setTimeout(check, READY_CHECK_MS);
           } else if (waitedFrom !== null) {
@@ -1878,7 +1890,7 @@ function Chat(props: {
   // One line saying what is happening, until the person starts to speak (R41d).
   // Stopped while thinking: the server is cutting the LLM off.
   const status = gettingReady
-    ? GETTING_READY
+    ? preparingChat(leftS)
     : sending
     ? halted
       ? "Stopping…"
