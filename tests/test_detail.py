@@ -17,6 +17,8 @@ from imageskin.chat import (
     SUMMARY_PROMPT,
     Conversation,
     Message,
+    Turn,
+    at_length,
     detail_level,
     reply_tokens,
     system_message,
@@ -152,4 +154,32 @@ def test_more_detail_takes_its_room_from_the_history_not_the_prompt() -> None:
     for level in DETAIL_LEVELS:
         llm = Recorder()
         Conversation(llm, lambda: 4096, detail=functools.partial(int, level)).send(long_prompt)
-        assert llm.sent[0][-1]["content"].endswith(long_prompt)
+        assert long_prompt in llm.sent[0][-1]["content"]
+
+
+def test_the_length_is_said_with_the_question_off_the_middle_or_when_asked_again() -> None:
+    """Asked again after the bar moved, a small model said its earlier answer word for word,
+    copied from the conversation (Larry, 2026-10-29), so the length goes with the question."""
+    before = [Turn("user", "Tell me about rain."), Turn("assistant", "Rain falls.")]
+    assert at_length("Q", "Tell me about snow.", before) == "Q"  # the middle, as before the bar
+    again = at_length("Q", "Tell me about rain.", before)
+    assert again == "Q\n\n(Answer in one to three sentences, even if asked before.)"
+    with detail_level(5):
+        assert at_length("Q", "Tell me about snow.", []).endswith(
+            "(Answer in a few paragraphs, complete and in depth, even if asked before.)"
+        )
+
+
+def test_a_question_asked_again_at_another_level_is_sent_with_its_length() -> None:
+    llm = Recorder()
+    level = {"now": 3}
+    conversation = Conversation(llm, lambda: 4096, detail=lambda: level["now"])
+    conversation.send("Tell me about rain.")
+    level["now"] = 5
+    conversation.send("Tell me about rain.")
+    assert llm.sent[0][-1]["content"] == "Tell me about rain."
+    assert llm.sent[1][-1]["content"].endswith(
+        "(Answer in a few paragraphs, complete and in depth, even if asked before.)"
+    )
+    # The conversation keeps the question as asked.
+    assert [t.content for t in conversation.turns()][::2] == ["Tell me about rain."] * 2

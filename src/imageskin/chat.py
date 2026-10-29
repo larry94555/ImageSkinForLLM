@@ -93,6 +93,28 @@ def system_prompt(level: int = DEFAULT_DETAIL) -> str:
     )
 
 
+# The same lengths in a few words, said again after each question (R180): with only the
+# instructions, a question asked again after the bar moved was answered word for word as before,
+# copied from the conversation (Larry, 2026-10-29).
+DETAIL_LENGTHS: dict[int, str] = {
+    1: "a single short sentence of at most 25 words",
+    2: "one or two short sentences, at most 45 words",
+    3: "one to three sentences",
+    4: "a paragraph of four to six sentences",
+    5: "a few paragraphs, complete and in depth",
+}
+
+
+def at_length(asked: str, prompt: str, turns: list["Turn"]) -> str:
+    """What is asked, with the length of reply the level of detail calls for (R180) when it
+    isn't the middle or the prompt was asked before in the turns sent; otherwise as it is."""
+    level = reply_detail.get()
+    again = any(t.role == "user" and t.content == prompt for t in turns)
+    if level == DEFAULT_DETAIL and not again:
+        return asked
+    return f"{asked}\n\n(Answer in {DETAIL_LENGTHS[level]}, even if asked before.)"
+
+
 def reply_tokens() -> int:
     """The most tokens a reply may take at the level of detail it is asked at (R180)."""
     return DETAIL_LEVELS[reply_detail.get()][1]
@@ -1041,7 +1063,12 @@ class Conversation:
         messages = [
             system_message(fit.summary),
             *map(as_message, fit.turns),
-            {"role": "user", "content": self._with_content(draft, found, fit.room, quiet=True)},
+            {
+                "role": "user",
+                "content": at_length(
+                    self._with_content(draft, found, fit.room, quiet=True), draft, fit.turns
+                ),
+            },
         ]
         start = time.perf_counter()
         kept: list[dict[str, Any]] = []  # llama-server's timings for the request
@@ -1158,11 +1185,11 @@ class Conversation:
         messages = [
             system_message(fit.summary),
             *map(as_message, turns),
-            {"role": "user", "content": asked},
+            {"role": "user", "content": at_length(asked, prompt, turns)},
         ]
         note(
             history_tokens=history_tokens(fit.summary, turns, count),
-            asked_tokens=tokens({"role": "user", "content": asked}, count),
+            asked_tokens=tokens(messages[-1], count),
         )
         logger.info(
             "Chat prompt sent",
