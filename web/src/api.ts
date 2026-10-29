@@ -920,7 +920,12 @@ export interface UiSettings {
   // How much the cheeks and the face around the mouth move with it while the person speaks
   // (R128a); "off" leaves only the lips and jaw moving.
   face_movement: FaceMovement;
+  // How detailed answers are, from 1 (High level) to DETAIL_LEVELS (In depth), set with the bar
+  // on the chat screen (R180); the middle answers as before the bar.
+  detail: number;
 }
+
+export const DETAIL_LEVELS = 5;
 
 export type FaceMovement = "off" | "slight" | "normal";
 const FACE_MOVEMENTS: FaceMovement[] = ["off", "slight", "normal"];
@@ -934,6 +939,7 @@ export const DEFAULT_SETTINGS: UiSettings = {
   debug: false,
   general_prompts: false,
   face_movement: "normal",
+  detail: 3,
 };
 
 // Any value the server didn't send as one the setting can take is the default.
@@ -949,6 +955,10 @@ function settings(data: Partial<UiSettings>): UiSettings {
     face_movement: FACE_MOVEMENTS.includes(data.face_movement as FaceMovement)
       ? (data.face_movement as FaceMovement)
       : "normal",
+    detail:
+      Number.isInteger(data.detail) && data.detail! >= 1 && data.detail! <= DETAIL_LEVELS
+        ? data.detail!
+        : 3,
   };
 }
 

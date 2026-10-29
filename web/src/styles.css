@@ -876,6 +876,11 @@ ol.turns li.user .note { color: rgb(255 255 255 / 0.8); }
 .talk-row button.talk { flex: 1; }
 .talk-row button.link.armed { text-decoration: underline; font-weight: 600; }
 .send-buttons button.talk.listening { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+/* The Level of detail bar under the prompt box (R180). */
+.detail-bar { margin: 4px 0; }
+.detail-bar label { display: grid; gap: 4px; font-weight: 600; }
+.detail-poles { display: flex; align-items: center; gap: 10px; font-weight: normal; font-size: 0.9rem; }
+.detail-poles input { flex: 1; min-width: 0; accent-color: var(--accent); }
 .choices-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .choices-row li { display: block; padding: 0; border: 0; background: none; box-shadow: none; }
 .choices-row button.example {

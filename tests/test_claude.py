@@ -9,12 +9,14 @@ import httpx2
 import pytest
 
 from imageskin.chat import (
+    DETAIL_LEVELS,
     REPLY_TOKENS,
     Conversation,
     EmptyReply,
     LlmClient,
     LlmError,
     LlmSettings,
+    detail_level,
     strict,
 )
 from imageskin.claude import (
@@ -235,6 +237,14 @@ def test_claude_streams_the_reply(caplog: pytest.LogCaptureFixture) -> None:
     assert fake.body()["stream"] is True
     streamed_log = next(r for r in caplog.records if r.message == "Claude streamed a reply")
     assert streamed_log.__dict__["first_words_ms"] is not None
+
+
+def test_claudes_reply_has_room_for_the_level_of_detail() -> None:
+    """R180: In depth, the reply may take more tokens, so a long answer isn't cut off."""
+    fake = FakeClaude(streamed(sse("Hello.")))
+    with detail_level(5):
+        list(client(fake).stream([{"role": "user", "content": "Hi"}]))
+    assert fake.body()["max_tokens"] == DETAIL_LEVELS[5][1] + THINKING_ROOM
 
 
 @pytest.mark.parametrize(
