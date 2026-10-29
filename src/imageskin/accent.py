@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import time
+import zipfile
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -278,7 +279,8 @@ class AccentEngine:
                     logger.info("Kept accent speech is for another voice or accent")
                     return None
                 return str(kept["base"]), np.asarray(kept["speech"], dtype=np.float32)
-        except (OSError, ValueError, KeyError) as e:
+        # A truncated archive raises BadZipFile (Codex's review); it is worked out again.
+        except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile) as e:
             logger.warning(
                 "Could not read the kept accent speech", extra={"path": str(path), "error": str(e)}
             )

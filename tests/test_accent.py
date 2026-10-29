@@ -361,6 +361,21 @@ def test_broken_kept_speech_is_converted_anew(
     assert engine.base == "bm_lewis" and kokoros
 
 
+def test_a_truncated_kept_archive_is_converted_anew(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review: an archive cut short raises BadZipFile, which must not fail prepare."""
+    voice = recorded(tmp_path)
+    accent_engine(clone_keeps_accent=True)[0].prepare(voice, "british")
+    kept_path(voice).write_bytes(kept_path(voice).read_bytes()[:100])
+    engine, _, kokoros, _ = accent_engine(clone_keeps_accent=True)
+    with caplog.at_level(logging.WARNING):
+        engine.prepare(voice, "british")
+    assert "Could not read the kept accent speech" in caplog.text
+    assert engine.base == "bm_lewis" and kokoros  # worked out again, and kept again
+    assert accent_engine(clone_keeps_accent=True)[0]._read_kept(voice, "british") is not None
+
+
 def test_speech_that_cannot_be_kept_is_logged_and_prepare_carries_on(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

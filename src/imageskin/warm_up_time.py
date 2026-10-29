@@ -24,7 +24,13 @@ def last_warm_up_s(home: Path) -> float | None:
     except (OSError, ValueError, KeyError, TypeError) as e:
         logger.warning("Could not read the last warm-up time", extra={"error": str(e)})
         return None
-    if not isinstance(seconds, int | float) or seconds < 0:
+    # JSON allows NaN and Infinity, which no time left can be counted from (Codex's review).
+    if (
+        isinstance(seconds, bool)
+        or not isinstance(seconds, int | float)
+        or not math.isfinite(seconds)
+        or seconds < 0
+    ):
         logger.warning("Last warm-up time is not a time", extra={"seconds": seconds})
         return None
     return float(seconds)
@@ -32,6 +38,9 @@ def last_warm_up_s(home: Path) -> float | None:
 
 def save_warm_up_s(home: Path, seconds: float) -> None:
     """Keep how long the warm-up took. Failures are logged only: the chat then says no time."""
+    if not math.isfinite(seconds) or seconds < 0:
+        logger.warning("Warm-up time not kept: not a time", extra={"seconds": seconds})
+        return
     try:
         home.mkdir(parents=True, exist_ok=True)
         (home / FILENAME).write_text(json.dumps({"seconds": round(seconds, 1)}), encoding="utf-8")
@@ -42,7 +51,7 @@ def save_warm_up_s(home: Path, seconds: float) -> None:
 def seconds_left(expected: float | None, elapsed: float) -> int | None:
     """Whole seconds left if this warm-up takes as long as the last; None when that isn't known
     or it is already taking longer."""
-    if expected is None:
+    if expected is None or not math.isfinite(expected):
         return None
     left = math.ceil(expected - elapsed)
     return left if left > 0 else None

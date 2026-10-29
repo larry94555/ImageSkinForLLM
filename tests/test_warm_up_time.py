@@ -33,8 +33,18 @@ def test_a_warm_up_time_that_cannot_be_kept_is_logged(
     assert "Could not keep the warm-up time" in caplog.text
 
 
+@pytest.mark.parametrize("seconds", [float("nan"), float("inf"), -1.0])
+def test_a_warm_up_time_that_is_not_a_time_is_not_kept(
+    tmp_path: Path, seconds: float, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING):
+        save_warm_up_s(tmp_path, seconds)
+    assert not (tmp_path / FILENAME).exists() and "Warm-up time not kept" in caplog.text
+
+
 def test_seconds_left_counts_down_to_none() -> None:
     assert seconds_left(None, 0) is None  # never timed
+    assert seconds_left(float("nan"), 0) is None and seconds_left(float("inf"), 0) is None
     assert seconds_left(20, 0) == 20
     assert seconds_left(20, 12.5) == 8  # rounded up: never 0 while it still runs
     assert seconds_left(20, 19.9) == 1
