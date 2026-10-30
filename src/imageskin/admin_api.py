@@ -6,8 +6,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Cookie, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from imageskin.admin import AdminRefused, AdminSignIns
+from imageskin.admin_laptops import LaptopProof
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,14 @@ COOKIE = "imageskin_admin"
 NOT_SIGNED_IN = "Not supported at this time."
 
 Token = Annotated[str | None, Cookie(alias=COOKIE)]
+
+
+class Laptop(BaseModel):
+    """R163's proof of the laptop: its public key, the challenge and its signature, in base64."""
+
+    public_key: str
+    challenge: str
+    signature: str
 
 
 def address(request: Request) -> str:
@@ -41,16 +51,35 @@ def admin_router(sign_ins: AdminSignIns) -> tuple[APIRouter, Callable[[str | Non
             "signed_in": signed_in,
             "password_set": sign_ins.secret() is not None,
             "timeout_minutes": sign_ins.timeout_minutes(),
-            # Why a sign-in ended by itself ("inactive" or "password changed"), said once.
+            # Why a sign-in ended by itself ("inactive", "password changed" or "laptop
+            # removed"), said once. POST /laptop says whether this laptop is listed (R164).
             "ended": None if signed_in else sign_ins.ended(token),
         }
 
+    @router.get("/challenge")
+    def challenge() -> dict[str, object]:
+        """A one-time challenge for the laptop to sign, good for a minute (R163)."""
+        return {"challenge": sign_ins.laptops.challenge()}
+
+    @router.post("/laptop")
+    def laptop_listed(
+        laptop: Annotated[Laptop | None, Body(embed=True)] = None,
+    ) -> dict[str, object]:
+        """Whether this laptop may sign in as administrator: always with no laptops file, else
+        only with a proof from a listed laptop (R164). The page hides the sign-in when not."""
+        proof = LaptopProof(**laptop.model_dump()) if laptop else None
+        return {"listed": sign_ins.laptops.listed(proof)}
+
     @router.post("/sign-in", response_model=None)
     def sign_in(
-        request: Request, response: Response, password: Annotated[str, Body(embed=True)]
+        request: Request,
+        response: Response,
+        password: Annotated[str, Body(embed=True)],
+        laptop: Annotated[Laptop | None, Body(embed=True)] = None,
     ) -> dict[str, object] | JSONResponse:
+        proof = LaptopProof(**laptop.model_dump()) if laptop else None
         try:
-            token = sign_ins.sign_in(password, address(request))
+            token = sign_ins.sign_in(password, address(request), proof)
         except AdminRefused as e:
             # The same status and words for every cause, with no Retry-After (R162).
             return JSONResponse({"detail": str(e), "code": e.code}, status_code=401)

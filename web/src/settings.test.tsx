@@ -63,8 +63,9 @@ test("the page groups the settings and shows each one as saved", async () => {
     "Avatar Choice",
     "Video and conversation",
     "Your data",
-    "Administrator",
   ]);
+  // The Administrator section shows only once the server says this laptop may sign in (R164);
+  // this test's server has no admin routes.
   // Face movement is on the Setup page, beside Prepare, since it needs preparing again (R128a).
   expect(screen.queryByRole("radio", { name: "Slight" })).toBeNull();
   const chat = within(screen.getByRole("region", { name: "Chat" }));

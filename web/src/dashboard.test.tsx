@@ -90,6 +90,7 @@ function server(reading: () => Resources | number) {
   const fetchMock = vi.fn(async (url: string) => {
     if (url === "/api/consent") return Response.json({ agreed: true });
     if (url === "/api/settings") return Response.json({});
+    if (url === "/api/admin/laptop") return Response.json({ listed: true });
     if (url === "/api/admin/session") {
       return Response.json({
         signed_in: state.signedIn,

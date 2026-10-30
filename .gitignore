@@ -13,3 +13,5 @@ deploy/default-people/
 
 # The administrator password file (roadmap R149): only admin.example.toml is committed.
 admin.toml
+# The allowed admin laptops file (roadmap R163): only admin-laptops.example.toml is committed.
+admin-laptops.toml
