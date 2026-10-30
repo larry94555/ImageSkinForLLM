@@ -5424,7 +5424,8 @@ function Chat(props) {
 					turns,
 					from: latestExchange(turns),
 					unspoken,
-					notice: notClear ? CHECK_HEARD : void 0
+					notice: notClear ? CHECK_HEARD : void 0,
+					hideReplies: true
 				}),
 				turns[turns.length - 1]?.role === "assistant" && !notClear && /* @__PURE__ */ u(ReplyActions, {
 					disabled: busy,
@@ -5708,7 +5709,7 @@ function latestExchange(turns) {
 	return Math.max(turns.length - 1, 0);
 }
 function TurnList(props) {
-	const { turns, from = 0, unspoken, search, notice } = props;
+	const { turns, from = 0, unspoken, search, notice, hideReplies } = props;
 	let counted = 0;
 	return /* @__PURE__ */ u("ol", {
 		className: "turns",
@@ -5733,7 +5734,7 @@ function TurnList(props) {
 							className: current,
 							children: part
 						}, p);
-					}) }) : turn.content,
+					}) }) : hideReplies && turn.role === "assistant" && unspoken?.turn !== i ? /* @__PURE__ */ u(HiddenText, { text: turn.content }) : turn.content,
 					unspoken?.turn === i && /* @__PURE__ */ u("span", {
 						className: "note",
 						children: "I couldn't say this one aloud, so here it is as text."
@@ -5747,6 +5748,27 @@ function TurnList(props) {
 				className: "who",
 				children: "Reply"
 			}), notice]
+		})]
+	});
+}
+function HiddenText(props) {
+	const [open, setOpen] = d(false);
+	function toggle() {
+		console.info(open ? "Reply text hidden" : "Reply text shown");
+		setOpen(!open);
+	}
+	return /* @__PURE__ */ u("span", {
+		className: "hidden-text",
+		children: [/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "link",
+			"aria-expanded": open,
+			onClick: toggle,
+			children: open ? "Hide text" : "Review text"
+		}), /* @__PURE__ */ u("span", {
+			className: "reply-text",
+			hidden: !open,
+			children: props.text
 		})]
 	});
 }
