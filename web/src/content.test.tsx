@@ -104,6 +104,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 // Clicks a Remove button, then Yes in the box that asks first.
@@ -245,23 +246,30 @@ test("sizes read as KB or MB", () => {
   expect(size(2_500_000)).toBe("2.4 MB");
 });
 
+// Waits for `text` under fake timers that move only when the test moves them: each check moves
+// the clock 50 ms, so no extra progress check fires while waiting (the real clock moving the fake
+// one on a slow runner skipped a step of the wiki's progress).
+async function seen(text: string | RegExp) {
+  await vi.waitFor(() => screen.getByText(text));
+}
+
 test("shows how far each PDF has got being read, checking again until it is done", async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.useFakeTimers();
   const reading: Reading = { ...READ, state: "reading", page: 1, kind: null, counts: null };
   const fetchMock = server([GUIDE], {
     readings: [{ a1: { ...reading, state: "waiting", pages: 0 } }, { a1: reading }, { a1: READ }],
     wiki: [{ a1: BUILT }],
   });
   render(<ContentPage />);
-  expect(await screen.findByText("Waiting to be read…")).toBeTruthy();
+  await seen("Waiting to be read…");
   await act(async () => {
     await vi.advanceTimersByTimeAsync(READING_POLL_MS);
   });
-  expect(await screen.findByText("Reading page 1 of 3…")).toBeTruthy();
+  await seen("Reading page 1 of 3…");
   await act(async () => {
     await vi.advanceTimersByTimeAsync(READING_POLL_MS);
   });
-  expect(await screen.findByText(/Read 3 pages: 12 paragraphs, 1 table/)).toBeTruthy();
+  await seen(/Read 3 pages: 12 paragraphs, 1 table/);
   // What was read is raw data, so the page doesn't link to it (R41e).
   expect(screen.queryByRole("link", { name: "What was read" })).toBeNull();
 
@@ -284,7 +292,7 @@ test("a PDF that could not be read shows why", async () => {
 });
 
 test("a failed progress check is tried again", async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.useFakeTimers();
   server([GUIDE]);
   let checks = 0;
   vi.mocked(fetch).mockImplementation(async (url) => {
@@ -292,12 +300,12 @@ test("a failed progress check is tried again", async () => {
     return ++checks === 1 ? new Response("", { status: 500 }) : Response.json({ a1: READ });
   });
   render(<ContentPage />);
-  await screen.findByRole("link", { name: "guide.pdf" });
-  await waitFor(() => expect(checks).toBe(1));
+  await vi.waitFor(() => screen.getByRole("link", { name: "guide.pdf" }));
+  await vi.waitFor(() => expect(checks).toBe(1));
   await act(async () => {
     await vi.advanceTimersByTimeAsync(READING_POLL_MS);
   });
-  expect(await screen.findByText(/Read 3 pages/)).toBeTruthy();
+  await seen(/Read 3 pages/);
   vi.useRealTimers();
 });
 
@@ -336,23 +344,22 @@ test("reading progress reads as a sentence", () => {
 });
 
 test("shows the wiki pages being built once a PDF is read, checking until they are", async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.useFakeTimers();
   const building: WikiBuild = { ...BUILT, state: "building", part: 0, pages: null };
   const fetchMock = server([GUIDE], {
     readings: [{ a1: READ }],
-    wiki: [{}, { a1: building }, { a1: { ...building, part: 1 } }, { a1: BUILT }],
+    // Building is answered twice: once when the PDF is read, and again by the check made at once
+    // when the page sees the wiki being built. Then one answer per check.
+    wiki: [{}, { a1: building }, { a1: building }, { a1: { ...building, part: 1 } }, { a1: BUILT }],
   });
   render(<ContentPage />);
-  expect(await screen.findByText(/Read 3 pages/)).toBeTruthy();
-  for (const text of [
-    "Building the wiki: part 1 of 2, 0% done…",
-    "part 2 of 2, 50% done",
-    "Wiki ready: 7 topics",
-  ]) {
+  await seen(/Read 3 pages/);
+  await seen(/Building the wiki: part 1 of 2, 0% done…/);
+  for (const text of ["part 2 of 2, 50% done", "Wiki ready: 7 topics"]) {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(READING_POLL_MS);
     });
-    expect(await screen.findByText(new RegExp(text))).toBeTruthy();
+    await seen(new RegExp(text));
   }
   const link = screen.getByRole("link", { name: "Read the wiki" });
   expect(link.getAttribute("href")).toBe("#/wiki/a1"); // the readable wiki, not its JSON
