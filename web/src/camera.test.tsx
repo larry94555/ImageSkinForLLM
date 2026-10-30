@@ -45,8 +45,8 @@ function camera(answer: "ok" | string = "ok", devices = CAMERAS) {
   const applyConstraints = vi.fn(async () => {});
   const getUserMedia = vi.fn(async (asked: MediaStreamConstraints) => {
     if (answer !== "ok") throw Object.assign(new Error(answer), { name: answer });
-    const video = asked.video as { deviceId?: { ideal: string } } | true;
-    const id = video === true ? "laptop" : (video.deviceId?.ideal ?? "laptop");
+    const video = asked.video as { deviceId?: { ideal?: string; exact?: string } } | true;
+    const id = video === true ? devices[0].deviceId : (video.deviceId?.exact ?? video.deviceId?.ideal ?? "");
     const label = devices.find((d) => d.deviceId === id)?.label ?? "";
     const track = { stop, label, getSettings: () => ({ deviceId: id }), applyConstraints };
     return { getTracks: () => [track], getVideoTracks: () => [track] } as unknown as MediaStream;
@@ -215,12 +215,14 @@ test("leaving the step turns the camera off", async () => {
 test("a camera allowed after the step was left is turned off at once", async () => {
   let allow = (_: MediaStream) => {};
   const stop = vi.fn();
+  const getUserMedia = vi.fn(() => new Promise<MediaStream>((r) => (allow = r)));
   Object.defineProperty(navigator, "mediaDevices", {
-    value: { getUserMedia: () => new Promise<MediaStream>((r) => (allow = r)) },
+    value: { getUserMedia, enumerateDevices: async () => [] },
     configurable: true,
   });
   server(Response.json(PHOTO));
   const { unmount } = render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  await waitFor(() => expect(getUserMedia).toHaveBeenCalled());
   unmount();
   await act(async () => allow({ getTracks: () => [{ stop }] } as unknown as MediaStream));
   expect(stop).toHaveBeenCalled();
@@ -249,8 +251,8 @@ test("a grabbed picture is a JPEG at the video's size", async () => {
   expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 1920, 1080);
 });
 
-test("the browser's default camera opens, with no size asked for, then is raised to full size", async () => {
-  const { getUserMedia, applyConstraints } = camera();
+test("before the camera is allowed, the browser's default opens, with no size asked for, then raised", async () => {
+  const { getUserMedia, applyConstraints } = camera("ok", [{ kind: "videoinput", deviceId: "", label: "" }]);
   server(Response.json(PHOTO));
   render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
   await screen.findByRole("button", { name: "Take photo" });
@@ -258,19 +260,71 @@ test("the browser's default camera opens, with no size asked for, then is raised
   expect(applyConstraints).toHaveBeenCalledWith({ width: { ideal: 1920 }, height: { ideal: 1080 } });
 });
 
-test("with two cameras, another can be chosen, and is opened first next time", async () => {
-  const { getUserMedia } = camera();
+test("once allowed, a real camera is opened by its id, not a virtual one listed first (Larry's LG laptop)", async () => {
+  const { getUserMedia } = camera("ok", [
+    { kind: "videoinput", deviceId: "mmx", label: "Mirametrix Virtual Camera" },
+    { kind: "videoinput", deviceId: "lge", label: "LGE Camera (30c9:0084)" },
+  ]);
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  await screen.findByRole("button", { name: "Take photo" });
+  expect(getUserMedia).toHaveBeenCalledTimes(1);
+  expect(getUserMedia).toHaveBeenCalledWith({ video: { deviceId: { exact: "lge" } }, audio: false });
+});
+
+test("a camera that won't start gives way to the next one", async () => {
+  const devices = [
+    { kind: "videoinput", deviceId: "lge", label: "LGE Camera" },
+    { kind: "videoinput", deviceId: "usb", label: "USB Webcam" },
+  ];
+  const { getUserMedia } = camera("ok", devices);
+  const works = getUserMedia.getMockImplementation()!;
+  getUserMedia.mockImplementation(async (asked: MediaStreamConstraints) => {
+    if (JSON.stringify(asked).includes('"lge"')) throw Object.assign(new Error("Timeout starting video source"), { name: "AbortError" });
+    return works(asked);
+  });
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  expect(await screen.findByRole("button", { name: "Take photo" })).toBeTruthy();
+  expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { exact: "usb" } }, audio: false });
+});
+
+test("when no camera starts, the step says why", async () => {
+  const { getUserMedia } = camera("AbortError");
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  expect(await screen.findByText(WHY_NOT.failed, { exact: false })).toBeTruthy();
+  expect(getUserMedia).toHaveBeenCalledTimes(2); // the first, then the other one
+});
+
+test("with two cameras, another can be chosen, and a real one chosen is opened first next time", async () => {
+  const devices = [
+    { kind: "videoinput", deviceId: "laptop", label: "Integrated Camera" },
+    { kind: "videoinput", deviceId: "usb", label: "HD Webcam" },
+  ];
+  const { getUserMedia } = camera("ok", devices);
   server(Response.json(PHOTO));
   const { unmount } = render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
   const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
-  expect([...select.options].map((o) => o.textContent)).toEqual(["Integrated Camera", "OBS Virtual Camera"]);
+  expect([...select.options].map((o) => o.textContent)).toEqual(["Integrated Camera", "HD Webcam"]);
   expect(select.value).toBe("laptop");
-  fireEvent.change(select, { target: { value: "obs" } });
-  await waitFor(() => expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { ideal: "obs" } }, audio: false }));
+  fireEvent.change(select, { target: { value: "usb" } });
+  await waitFor(() => expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { exact: "usb" } }, audio: false }));
   unmount();
   render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
   await screen.findByRole("button", { name: "Take photo" });
-  expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { ideal: "obs" } }, audio: false });
+  expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { exact: "usb" } }, audio: false });
+});
+
+test("a virtual camera chosen last time isn't reopened when a real one is there", async () => {
+  localStorage.setItem("imageskin.camera", "obs");
+  const { getUserMedia } = camera();
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  await screen.findByRole("button", { name: "Take photo" });
+  expect(getUserMedia).toHaveBeenCalledWith({ video: { deviceId: { exact: "laptop" } }, audio: false });
 });
 
 test("with one camera, there is nothing to choose", async () => {
@@ -305,26 +359,31 @@ test("an infrared or virtual camera gives way to one that can take the photo", (
 });
 
 test("opened on the infrared camera by default, it switches to the laptop's own, without remembering it", async () => {
-  const { getUserMedia } = camera("ok", [
-    { kind: "videoinput", deviceId: "laptop", label: "Integrated IR Camera" },
+  // Before the camera is allowed no names can be read, so the browser's first opens.
+  const devices = [
+    { kind: "videoinput", deviceId: "ir", label: "Integrated IR Camera" },
     { kind: "videoinput", deviceId: "rgb", label: "Integrated Camera" },
-  ]);
+  ];
+  const { getUserMedia } = camera("ok", devices);
+  const enumerate = navigator.mediaDevices.enumerateDevices as ReturnType<typeof vi.fn>;
+  enumerate.mockResolvedValueOnce([]); // not allowed yet
   server(Response.json(PHOTO));
   render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
-  await waitFor(() => expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { ideal: "rgb" } }, audio: false }));
+  await waitFor(() => expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { exact: "rgb" } }, audio: false }));
+  expect(getUserMedia).toHaveBeenNthCalledWith(1, { video: true, audio: false });
   await waitFor(() => expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("rgb"));
-  expect(getUserMedia).toHaveBeenCalledTimes(2);
   expect(localStorage.getItem("imageskin.camera")).toBeNull();
 });
 
-test("an infrared camera the user chose is kept", async () => {
-  localStorage.setItem("imageskin.camera", "laptop");
+test("a camera picked in the list is kept, even an infrared one", async () => {
   const { getUserMedia } = camera("ok", [
-    { kind: "videoinput", deviceId: "laptop", label: "Integrated IR Camera" },
     { kind: "videoinput", deviceId: "rgb", label: "Integrated Camera" },
+    { kind: "videoinput", deviceId: "ir", label: "Integrated IR Camera" },
   ]);
   server(Response.json(PHOTO));
   render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
-  await screen.findByRole("combobox");
-  expect(getUserMedia).toHaveBeenCalledTimes(1);
+  fireEvent.change(await screen.findByRole("combobox"), { target: { value: "ir" } });
+  await waitFor(() => expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { exact: "ir" } }, audio: false }));
+  await screen.findByRole("button", { name: "Take photo" });
+  expect(getUserMedia).toHaveBeenCalledTimes(2); // no switch back
 });

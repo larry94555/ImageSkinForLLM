@@ -157,8 +157,32 @@ export function CameraPhoto(props: {
     setPhase("off");
   }
 
-  // `picked` is false for a camera the app chose itself, so it isn't remembered as the user's.
-  async function start(chosen: string | null = savedCamera(), picked = chosen !== null) {
+  // The cameras on this computer. Their names and ids can be read only once the camera has been
+  // allowed for this site; before that, none is listed.
+  async function videoInputs(): Promise<CameraChoice[]> {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices
+        .filter((d) => d.kind === "videoinput" && d.deviceId)
+        .map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+    } catch (e) {
+      console.error("Could not list the cameras", e);
+      return [];
+    }
+  }
+
+  function open(id: string | null, exact: boolean): Promise<MediaStream> {
+    // No size asked for here: the browser would open whichever camera fits the size best, a
+    // virtual one over the laptop's own (Larry's test of PR #227). The size is raised after.
+    const video = id ? { deviceId: exact ? { exact: id } : { ideal: id } } : true;
+    return navigator.mediaDevices.getUserMedia({ video, audio: false });
+  }
+
+  // `explicit` is a camera the user picked in this visit (or the one already in use, on Retake):
+  // it is opened as asked. Otherwise a real camera is opened rather than the browser's first,
+  // which may be a virtual one that never sends a picture (Larry's LG laptop: the Mirametrix
+  // Virtual Camera of LG Security Guard, listed before the LGE Camera).
+  async function start(chosen: string | null = null, explicit = false) {
     setPhase("starting");
     setGrabFailed(null);
     const blocked = cameraBlocked();
@@ -167,54 +191,71 @@ export function CameraPhoto(props: {
       return;
     }
     const started = performance.now();
-    try {
-      // No size asked for here: the browser would open whichever camera fits the size best, a
-      // virtual one over the laptop's own (Larry's test of PR #227). The size is raised after.
-      const media = await navigator.mediaDevices.getUserMedia({
-        video: chosen ? { deviceId: { ideal: chosen } } : true,
-        audio: false,
-      });
-      if (!alive.current) {
-        stopTracks(media); // the step was left while the browser asked
-        return;
-      }
-      stream.current = media;
-      const track = media.getVideoTracks?.()[0];
-      label.current = track?.label ?? "";
-      const opened = track?.getSettings?.().deviceId ?? null;
-      setCameraId(opened);
-      try {
-        await track?.applyConstraints?.({ width: { ideal: 1920 }, height: { ideal: 1080 } });
-      } catch (e) {
-        console.warn("The camera kept its own size", e);
-      }
-      console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
-      void listCameras(opened, picked);
-      setPhase("live");
-    } catch (e) {
-      if (alive.current) notUsed(reasonOf(e), e);
+    const known = await videoInputs();
+    let target = chosen;
+    if (!explicit) {
+      const saved = known.find((c) => c.id === savedCamera());
+      const real = known.find((c) => !NOT_A_PHOTO_CAMERA.test(c.label));
+      target = (saved && !NOT_A_PHOTO_CAMERA.test(saved.label) ? saved : (real ?? saved))?.id ?? null;
     }
+    const exact = target !== null && known.some((c) => c.id === target);
+    let media: MediaStream | null = null;
+    let failure: unknown = null;
+    try {
+      media = await open(target, exact);
+    } catch (e) {
+      failure = e;
+    }
+    // A camera that won't start (a virtual one can time out): try the others, real ones first.
+    if (!media && reasonOf(failure) !== "refused") {
+      const others = (await videoInputs()).filter((c) => c.id !== target);
+      others.sort((a, b) => Number(NOT_A_PHOTO_CAMERA.test(a.label)) - Number(NOT_A_PHOTO_CAMERA.test(b.label)));
+      for (const other of others) {
+        try {
+          media = await open(other.id, true);
+          console.warn(`The first camera wouldn't start (${(failure as Error)?.name}); opened ${other.label}`);
+          break;
+        } catch (e) {
+          console.warn(`${other.label} wouldn't start either`, e);
+        }
+      }
+    }
+    if (!media) {
+      if (alive.current) notUsed(reasonOf(failure), failure);
+      return;
+    }
+    if (!alive.current) {
+      stopTracks(media); // the step was left while the browser asked
+      return;
+    }
+    stream.current = media;
+    const track = media.getVideoTracks?.()[0];
+    label.current = track?.label ?? "";
+    const opened = track?.getSettings?.().deviceId ?? null;
+    setCameraId(opened);
+    try {
+      await track?.applyConstraints?.({ width: { ideal: 1920 }, height: { ideal: 1080 } });
+    } catch (e) {
+      console.warn("The camera kept its own size", e);
+    }
+    console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
+    void listCameras(opened, explicit);
+    setPhase("live");
   }
 
-  // `current` is the camera just opened; `chosen` is set when the user picked it.
+  // `current` is the camera just opened; `chosen` is set when the user picked it. Asked again
+  // after opening, as the names can be read only once the camera is allowed.
   async function listCameras(current: string | null, chosen: boolean) {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const found = devices
-        .filter((d) => d.kind === "videoinput")
-        .map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` }));
-      console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
-      if (!alive.current) return;
-      setCameras(found);
-      const better = chosen ? null : betterCamera(found, current);
-      if (better) {
-        const was = found.find((c) => c.id === current)?.label;
-        console.info(`Camera switched from ${was} to ${better.label}: the first can't take the photo`);
-        stopCamera();
-        void start(better.id, false);
-      }
-    } catch (e) {
-      console.error("Could not list the cameras", e);
+    const found = await videoInputs();
+    console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
+    if (!alive.current) return;
+    setCameras(found);
+    const better = chosen ? null : betterCamera(found, current);
+    if (better) {
+      const was = found.find((c) => c.id === current)?.label;
+      console.info(`Camera switched from ${was} to ${better.label}: the first can't take the photo`);
+      stopCamera();
+      void start(better.id, true);
     }
   }
 
@@ -222,7 +263,7 @@ export function CameraPhoto(props: {
     console.info(`Camera chosen: ${cameras.find((c) => c.id === id)?.label ?? id}`);
     saveCamera(id);
     stopCamera();
-    void start(id);
+    void start(id, true);
   }
 
   // The live picture goes in the video once it shows.
@@ -326,8 +367,7 @@ export function CameraPhoto(props: {
     show(null);
     setShot(null);
     // The same camera as before, even one the app switched to itself.
-    const saved = savedCamera();
-    void start(cameraId ?? saved, cameraId === null || cameraId === saved);
+    void start(cameraId, cameraId !== null);
   }
 
   if (phase === "off") {

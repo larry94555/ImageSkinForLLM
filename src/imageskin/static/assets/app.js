@@ -8537,7 +8537,25 @@ function CameraPhoto(props) {
 		setReason(why);
 		setPhase("off");
 	}
-	async function start(chosen = savedCamera(), picked = chosen !== null) {
+	async function videoInputs() {
+		try {
+			return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput" && d.deviceId).map((d, i) => ({
+				id: d.deviceId,
+				label: d.label || `Camera ${i + 1}`
+			}));
+		} catch (e) {
+			console.error("Could not list the cameras", e);
+			return [];
+		}
+	}
+	function open(id, exact) {
+		const video = id ? { deviceId: exact ? { exact: id } : { ideal: id } } : true;
+		return navigator.mediaDevices.getUserMedia({
+			video,
+			audio: false
+		});
+	}
+	async function start(chosen = null, explicit = false) {
 		setPhase("starting");
 		setGrabFailed(null);
 		const blocked = cameraBlocked();
@@ -8546,60 +8564,75 @@ function CameraPhoto(props) {
 			return;
 		}
 		const started = performance.now();
-		try {
-			const media = await navigator.mediaDevices.getUserMedia({
-				video: chosen ? { deviceId: { ideal: chosen } } : true,
-				audio: false
-			});
-			if (!alive.current) {
-				stopTracks(media);
-				return;
-			}
-			stream.current = media;
-			const track = media.getVideoTracks?.()[0];
-			label.current = track?.label ?? "";
-			const opened = track?.getSettings?.().deviceId ?? null;
-			setCameraId(opened);
-			try {
-				await track?.applyConstraints?.({
-					width: { ideal: 1920 },
-					height: { ideal: 1080 }
-				});
-			} catch (e) {
-				console.warn("The camera kept its own size", e);
-			}
-			console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
-			listCameras(opened, picked);
-			setPhase("live");
-		} catch (e) {
-			if (alive.current) notUsed(reasonOf(e), e);
+		const known = await videoInputs();
+		let target = chosen;
+		if (!explicit) {
+			const saved = known.find((c) => c.id === savedCamera());
+			const real = known.find((c) => !NOT_A_PHOTO_CAMERA.test(c.label));
+			target = (saved && !NOT_A_PHOTO_CAMERA.test(saved.label) ? saved : real ?? saved)?.id ?? null;
 		}
+		const exact = target !== null && known.some((c) => c.id === target);
+		let media = null;
+		let failure = null;
+		try {
+			media = await open(target, exact);
+		} catch (e) {
+			failure = e;
+		}
+		if (!media && reasonOf(failure) !== "refused") {
+			const others = (await videoInputs()).filter((c) => c.id !== target);
+			others.sort((a, b) => Number(NOT_A_PHOTO_CAMERA.test(a.label)) - Number(NOT_A_PHOTO_CAMERA.test(b.label)));
+			for (const other of others) try {
+				media = await open(other.id, true);
+				console.warn(`The first camera wouldn't start (${failure?.name}); opened ${other.label}`);
+				break;
+			} catch (e) {
+				console.warn(`${other.label} wouldn't start either`, e);
+			}
+		}
+		if (!media) {
+			if (alive.current) notUsed(reasonOf(failure), failure);
+			return;
+		}
+		if (!alive.current) {
+			stopTracks(media);
+			return;
+		}
+		stream.current = media;
+		const track = media.getVideoTracks?.()[0];
+		label.current = track?.label ?? "";
+		const opened = track?.getSettings?.().deviceId ?? null;
+		setCameraId(opened);
+		try {
+			await track?.applyConstraints?.({
+				width: { ideal: 1920 },
+				height: { ideal: 1080 }
+			});
+		} catch (e) {
+			console.warn("The camera kept its own size", e);
+		}
+		console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
+		listCameras(opened, explicit);
+		setPhase("live");
 	}
 	async function listCameras(current, chosen) {
-		try {
-			const found = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput").map((d, i) => ({
-				id: d.deviceId,
-				label: d.label || `Camera ${i + 1}`
-			}));
-			console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
-			if (!alive.current) return;
-			setCameras(found);
-			const better = chosen ? null : betterCamera(found, current);
-			if (better) {
-				const was = found.find((c) => c.id === current)?.label;
-				console.info(`Camera switched from ${was} to ${better.label}: the first can't take the photo`);
-				stopCamera();
-				start(better.id, false);
-			}
-		} catch (e) {
-			console.error("Could not list the cameras", e);
+		const found = await videoInputs();
+		console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
+		if (!alive.current) return;
+		setCameras(found);
+		const better = chosen ? null : betterCamera(found, current);
+		if (better) {
+			const was = found.find((c) => c.id === current)?.label;
+			console.info(`Camera switched from ${was} to ${better.label}: the first can't take the photo`);
+			stopCamera();
+			start(better.id, true);
 		}
 	}
 	function switchCamera(id) {
 		console.info(`Camera chosen: ${cameras.find((c) => c.id === id)?.label ?? id}`);
 		saveCamera(id);
 		stopCamera();
-		start(id);
+		start(id, true);
 	}
 	h(() => {
 		const element = video.current;
@@ -8699,8 +8732,7 @@ function CameraPhoto(props) {
 		console.info("Retaking the photo");
 		show(null);
 		setShot(null);
-		const saved = savedCamera();
-		start(cameraId ?? saved, cameraId === null || cameraId === saved);
+		start(cameraId, cameraId !== null);
 	}
 	if (phase === "off") return /* @__PURE__ */ u("div", {
 		className: "camera off",
