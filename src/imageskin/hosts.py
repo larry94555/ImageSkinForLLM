@@ -199,6 +199,16 @@ class HostAccounts:
         )
         return token
 
+    def first(self) -> str | None:
+        """The email of the first host to sign up, who counts the files stored before host
+        accounts (R192); None before any host has, or while the file can't be read."""
+        with self._lock:
+            try:
+                hosts = self._load()["hosts"]
+            except HostsUnreadable:
+                return None
+        return min(hosts, key=lambda email: hosts[email]["created_at"], default=None)
+
     def host(self, token: str | None) -> Host | None:
         """The host the token is signed in as, or None."""
         if not token:

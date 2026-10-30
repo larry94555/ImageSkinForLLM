@@ -75,7 +75,9 @@ from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
-from imageskin.hosts import HostAccounts
+from imageskin.host_disk import Owners
+from imageskin.host_disk import count as count_disk
+from imageskin.hosts import Host, HostAccounts
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -619,7 +621,14 @@ def create_app(
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
     # for the participant view.
     host_only = [Depends(app.state.require_host)]
+    SignedInHost = Annotated[Host, Depends(app.state.require_host)]
     app.include_router(host_routes)
+    # Who added each photo, recording and PDF, and the disk space each host has used (R192).
+    owners = Owners(data_home)
+
+    @app.get("/api/host/disk")
+    def host_disk(host: SignedInHost) -> dict[str, int]:
+        return count_disk(data_home, owners, host.email, host_accounts.first())
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
     # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
@@ -820,7 +829,9 @@ def create_app(
     needs_person = [Depends(require_person)]
 
     @app.post(uploads_api, dependencies=host_and_consent)
-    def upload(kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response) -> Upload:
+    def upload(
+        kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response, host: SignedInHost
+    ) -> Upload:
         try:
             # Each step's time goes back in the Server-Timing header (R96b). FastAPI has received
             # and parsed the upload before this runs, so `endpoint` leaves that out; the time
@@ -830,6 +841,7 @@ def create_app(
                     saved = store.save(kind, file.filename, file.file)
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
+        owners.record(kind, saved.id, host.email)
         response.headers["Server-Timing"] = server_timing.header(steps)
         return saved
 
@@ -945,12 +957,13 @@ def create_app(
         return content.list()
 
     @app.post(content_api, dependencies=host_only)
-    def add_pdf(file: UploadFile, seen: DeletesSeen) -> Pdf:
+    def add_pdf(file: UploadFile, seen: DeletesSeen, host: SignedInHost) -> Pdf:
         with content_write(seen):
             try:
                 pdf = content.add(file.filename, file.file)
             except UploadError as e:
                 raise HTTPException(status_code=e.status, detail=str(e)) from e
+            owners.record("pdfs", pdf.id, host.email)
             readings.queue(pdf)
         return pdf
 
