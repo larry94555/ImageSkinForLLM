@@ -27,15 +27,15 @@ jobs:
       - name: Build
         run: pip wheel --no-deps -w dist .
 
-  # The unit tests in two halves at once, each on every core of its runner. pytest-split puts
-  # every test in exactly one half, and the coverage job below reports the two together.
+  # The unit tests in three parts at once, each on every core of its runner. pytest-split puts
+  # every test in exactly one part, and the coverage job below reports them together.
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2]
+        group: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,11 +47,11 @@ jobs:
         timeout-minutes: 10
         run: .github/scripts/install-ffmpeg.sh
       - run: pip install -e ".[dev,video,heic]"
-      - name: Unit tests, half ${{ matrix.group }} of 2
+      - name: Unit tests, part ${{ matrix.group }} of 3
         timeout-minutes: 8
         env:
           COVERAGE_FILE: .coverage.${{ matrix.group }}
-        run: pytest -n auto --splits 2 --group ${{ matrix.group }} --splitting-algorithm least_duration
+        run: pytest -n auto --splits 3 --group ${{ matrix.group }} --splitting-algorithm least_duration
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.group }}
@@ -75,7 +75,7 @@ jobs:
           merge-multiple: true
       - name: Coverage of all the unit tests
         run: |
-          coverage combine .coverage.1 .coverage.2
+          coverage combine .coverage.1 .coverage.2 .coverage.3
           coverage report --show-missing
 
   web:
