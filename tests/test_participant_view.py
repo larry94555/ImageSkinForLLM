@@ -83,3 +83,25 @@ def test_the_view_follows_who_is_signed_in(
         ("participant", "host signed in"),
         ("participant", "no host signed in"),
     ]
+
+
+def test_only_a_signed_in_host_changes_the_saved_view(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Codex's review of PR #233: a visitor could save the view and put the host in the
+    # participant view.
+    host = TestClient(create_app(tmp_path))
+    host.post("/api/host/sign-up", json=HOST)
+    visitor = TestClient(host.app)
+    answer = visitor.patch("/api/settings", json={"view": "participant"})
+    assert answer.status_code == 401
+    assert answer.json() == {"detail": NOT_SIGNED_IN}
+    assert "View change refused" in caplog.messages
+    assert host.get("/api/settings").json()["view"] == "host"
+    # The other settings stay open to a visitor until R191, and its answer is the participant view.
+    changed = visitor.patch("/api/settings", json={"show_metrics": True})
+    assert changed.status_code == 200
+    assert changed.json()["view"] == "participant"
+    assert host.get("/api/settings").json()["view"] == "host"
+    assert host.patch("/api/settings", json={"view": "participant"}).json()["view"] == "participant"
+    assert host.get("/api/settings").json()["view"] == "participant"

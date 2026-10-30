@@ -74,7 +74,7 @@ from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
-from imageskin.host_api import host_router
+from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.hosts import HostAccounts
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
@@ -702,8 +702,8 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {"logged": True}
 
-    # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
-    # question scope follows the config file until it is changed there.
+    # The Settings page's settings (R41a, R27): anyone can read and change them for now, except
+    # the view (R190). The question scope follows the config file until it is changed there.
     ui_defaults = UiSettings(general_prompts=general_prompts)
 
     @app.get("/api/settings")
@@ -727,9 +727,20 @@ def create_app(
         return settings
 
     @app.patch("/api/settings")
-    def patch_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, object]:
+    def patch_settings(
+        changes: Annotated[dict[str, Any], Body()],
+        host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
+    ) -> dict[str, object]:
+        # The saved view is the host's, so only a signed-in host changes it (Codex's review of
+        # PR #233); the other settings stay open until R191.
+        host = host_accounts.host(host_token)
+        if "view" in changes and host is None:
+            logger.warning("View change refused", extra={"why": "no host signed in"})
+            raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
         try:
             saved = asdict(save_ui_settings(data_home, changes, ui_defaults))
+            if host is None:
+                saved["view"] = "participant"
             if "detail" in changes:  # the next answer is asked at it (R180)
                 logger.info("Level of detail set", extra={"detail": changes["detail"]})
             if "teach_me" in changes and app.state.lessons is not None:
