@@ -539,6 +539,14 @@ async function reportCamera(report) {
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function reportRecording(report) {
+	const response = await fetch("/api/wizard/recording", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(report)
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -3547,20 +3555,10 @@ function SetupPage({ change }) {
 				}),
 				/* @__PURE__ */ u("p", {
 					className: "notice",
-					children: [
-						"New to this? The ",
-						/* @__PURE__ */ u("a", {
-							href: "#/guide",
-							children: "recording guide"
-						}),
-						" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop. Or",
-						" ",
-						/* @__PURE__ */ u("a", {
-							href: "#/setup/wizard",
-							children: "set up with your own photo and voice"
-						}),
-						" one step at a time."
-					]
+					children: [/* @__PURE__ */ u("a", {
+						href: "#/setup/wizard",
+						children: "Set up your own photo and voice one step at a time"
+					}), ", with help on each step."]
 				}),
 				/* @__PURE__ */ u(UploadSection, {
 					kind: "photos",
@@ -6475,6 +6473,15 @@ function loadGuide() {
 		};
 	}
 }
+function guideAt(title) {
+	const step = STEPS.findIndex((s) => s.title === title);
+	if (step < 0) return;
+	saveGuide({
+		...loadGuide(),
+		step
+	});
+	console.info(`Guide opened from the wizard at: ${title}`);
+}
 function saveGuide(state) {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -6485,6 +6492,35 @@ function saveGuide(state) {
 function For({ laptop, only, children }) {
 	return laptop === null || only.includes(laptop) ? /* @__PURE__ */ u(S, { children }) : null;
 }
+var SCRIPT_1 = [
+	"Hi, thanks for stopping by. It's good to see you.",
+	"I wasn't sure what to expect today, but honestly, I'm glad you asked.",
+	"Let me think about that for a second. Okay, here's what I'd do.",
+	"First, take a deep breath. Second, write down the three things that matter most. Third, pick one and start there.",
+	"Really? You found it in the garage, behind the old bicycle? That's amazing!",
+	"No, no, that's not what I meant at all. I meant the other one, the blue one.",
+	"The weather this weekend should be cool and breezy, with a chance of rain on Sunday afternoon.",
+	"My favourite meal is still my grandmother's soup, with fresh bread and a little too much butter.",
+	"She sells seashells by the seashore, and the shells she sells are surely seashells.",
+	"The quick brown fox jumps over the lazy dog, and the dog doesn't seem to mind."
+];
+var SCRIPT_2 = [
+	"Could you call me back around four thirty? My number is five five five, two nine one, eight three zero seven.",
+	"It cost about twelve dollars and fifty cents, which felt fair for what it was.",
+	"Hmm, I'm not totally sure. I think it was in two thousand nineteen, but don't quote me on that.",
+	"Wow. That is genuinely the best news I've heard all week.",
+	"I'm sorry to hear that. That sounds really hard, and it makes sense that you're tired.",
+	"Here's a fun fact: an octopus has three hearts and blue blood.",
+	"Would you like the short version, or the long version with all the details?",
+	"Measure twice, cut once. My father used to say that, and he was usually right.",
+	"Thanks for listening. Take care of yourself, and let's talk again soon."
+];
+var QUESTIONS_3 = [
+	"What did you do last weekend?",
+	"Describe a place you love and why.",
+	"Explain how to make something you cook often.",
+	"What's something you've changed your mind about?"
+];
 function Script({ first, lines }) {
 	return /* @__PURE__ */ u("ol", {
 		className: "script",
@@ -7001,18 +7037,7 @@ var STEPS = [
 			minutes: "1½ minutes"
 		}), /* @__PURE__ */ u(Script, {
 			first: 1,
-			lines: [
-				"Hi, thanks for stopping by. It's good to see you.",
-				"I wasn't sure what to expect today, but honestly, I'm glad you asked.",
-				"Let me think about that for a second. Okay, here's what I'd do.",
-				"First, take a deep breath. Second, write down the three things that matter most. Third, pick one and start there.",
-				"Really? You found it in the garage, behind the old bicycle? That's amazing!",
-				"No, no, that's not what I meant at all. I meant the other one, the blue one.",
-				"The weather this weekend should be cool and breezy, with a chance of rain on Sunday afternoon.",
-				"My favourite meal is still my grandmother's soup, with fresh bread and a little too much butter.",
-				"She sells seashells by the seashore, and the shells she sells are surely seashells.",
-				"The quick brown fox jumps over the lazy dog, and the dog doesn't seem to mind."
-			]
+			lines: SCRIPT_1
 		})] })
 	},
 	{
@@ -7022,17 +7047,7 @@ var STEPS = [
 			minutes: "1½ minutes"
 		}), /* @__PURE__ */ u(Script, {
 			first: 11,
-			lines: [
-				"Could you call me back around four thirty? My number is five five five, two nine one, eight three zero seven.",
-				"It cost about twelve dollars and fifty cents, which felt fair for what it was.",
-				"Hmm, I'm not totally sure. I think it was in two thousand nineteen, but don't quote me on that.",
-				"Wow. That is genuinely the best news I've heard all week.",
-				"I'm sorry to hear that. That sounds really hard, and it makes sense that you're tired.",
-				"Here's a fun fact: an octopus has three hearts and blue blood.",
-				"Would you like the short version, or the long version with all the details?",
-				"Measure twice, cut once. My father used to say that, and he was usually right.",
-				"Thanks for listening. Take care of yourself, and let's talk again soon."
-			]
+			lines: SCRIPT_2
 		})] })
 	},
 	{
@@ -7043,12 +7058,7 @@ var STEPS = [
 				minutes: "1 minute",
 				children: "Choose two or three of the questions below. Press Record and answer them out loud in your own words, as if chatting with a friend, for about 20 to 30 seconds each. Pause for a second between questions."
 			}),
-			/* @__PURE__ */ u(Questions, { items: [
-				"What did you do last weekend?",
-				"Describe a place you love and why.",
-				"Explain how to make something you cook often.",
-				"What's something you've changed your mind about?"
-			] }),
+			/* @__PURE__ */ u(Questions, { items: QUESTIONS_3 }),
 			/* @__PURE__ */ u("p", {
 				className: "notice",
 				children: [
@@ -8645,7 +8655,7 @@ function HostTrail() {
 		]
 	});
 }
-var WHY_NOT = {
+var WHY_NOT$1 = {
 	insecure: "The browser allows the camera only on a secure page (HTTPS) or on this computer (localhost), and this page is neither.",
 	unsupported: "This browser can't use a camera.",
 	refused: "The browser wasn't allowed to use the camera.",
@@ -8657,7 +8667,7 @@ function cameraBlocked() {
 	if (!navigator.mediaDevices?.getUserMedia) return "unsupported";
 	return null;
 }
-function reasonOf(error) {
+function reasonOf$1(error) {
 	const name = error?.name;
 	if (name === "NotAllowedError" || name === "SecurityError") return "refused";
 	if (name === "NotFoundError" || name === "OverconstrainedError") return "no-camera";
@@ -8702,10 +8712,10 @@ function betterCamera(cameras, current) {
 	if (!inUse || !NOT_A_PHOTO_CAMERA.test(inUse.label)) return null;
 	return cameras.find((c) => !NOT_A_PHOTO_CAMERA.test(c.label)) ?? null;
 }
-function stopTracks(stream) {
+function stopTracks$1(stream) {
 	stream?.getTracks().forEach((t) => t.stop());
 }
-function report(r) {
+function report$1(r) {
 	reportCamera(r).catch((e) => console.error("Could not log the camera's use", e));
 }
 function CameraPhoto(props) {
@@ -8726,13 +8736,13 @@ function CameraPhoto(props) {
 	const guard = useSettingGuard();
 	function stopCamera() {
 		if (stream.current) console.info("Camera turned off");
-		stopTracks(stream.current);
+		stopTracks$1(stream.current);
 		stream.current = null;
 	}
 	function notUsed(why, error) {
 		if (error) console.error(`Camera not used (${why})`, error);
 		else console.info(`Camera not used (${why})`);
-		report({
+		report$1({
 			taken: false,
 			reason: why
 		});
@@ -8784,7 +8794,7 @@ function CameraPhoto(props) {
 		} catch (e) {
 			failure = e;
 		}
-		if (!media && reasonOf(failure) !== "refused" && latest()) {
+		if (!media && reasonOf$1(failure) !== "refused" && latest()) {
 			const others = (await videoInputs()).filter((c) => c.id !== target);
 			others.sort((a, b) => Number(NOT_A_PHOTO_CAMERA.test(a.label)) - Number(NOT_A_PHOTO_CAMERA.test(b.label)));
 			for (const other of others) {
@@ -8799,11 +8809,11 @@ function CameraPhoto(props) {
 			}
 		}
 		if (!media) {
-			if (latest()) notUsed(reasonOf(failure), failure);
+			if (latest()) notUsed(reasonOf$1(failure), failure);
 			return;
 		}
 		if (!latest()) {
-			stopTracks(media);
+			stopTracks$1(media);
 			return;
 		}
 		stopCamera();
@@ -8889,7 +8899,7 @@ function CameraPhoto(props) {
 			return;
 		}
 		stopCamera();
-		report({
+		report$1({
 			taken: true,
 			width: grabbed.width,
 			height: grabbed.height,
@@ -8961,7 +8971,7 @@ function CameraPhoto(props) {
 		children: [
 			/* @__PURE__ */ u("strong", { children: "The camera can't be used." }),
 			" ",
-			reason && WHY_NOT[reason],
+			reason && WHY_NOT$1[reason],
 			" Add a photo you already have below instead.",
 			reason !== "insecure" && reason !== "unsupported" && /* @__PURE__ */ u("button", {
 				type: "button",
@@ -9069,8 +9079,443 @@ function CameraPhoto(props) {
 		]
 	});
 }
+var WHY_NOT = {
+	insecure: "The browser allows the microphone only on a secure page (HTTPS) or on this computer (localhost), and this page is neither.",
+	unsupported: "This browser can't record sound.",
+	refused: "The browser wasn't allowed to use the microphone.",
+	"no-microphone": "No microphone was found on this computer.",
+	failed: "The microphone could not be started. It may be in use by another app."
+};
+var MICROPHONE = {
+	echoCancellation: false,
+	noiseSuppression: false,
+	autoGainControl: false
+};
+var PASSAGES = [
+	{
+		name: "Voice 1",
+		how: "Read each line, then pause about 1 second (one breath) before the next line.",
+		minutes: "1½ minutes",
+		say: /* @__PURE__ */ u(Script, {
+			first: 1,
+			lines: SCRIPT_1
+		})
+	},
+	{
+		name: "Voice 2",
+		how: "Read each line, then pause about 1 second (one breath) before the next line.",
+		minutes: "1½ minutes",
+		say: /* @__PURE__ */ u(Script, {
+			first: 11,
+			lines: SCRIPT_2
+		})
+	},
+	{
+		name: "Voice 3",
+		how: "Choose two or three questions and answer them out loud in your own words, as if chatting with a friend, for about 20 to 30 seconds each.",
+		minutes: "1 minute",
+		say: /* @__PURE__ */ u(Questions, { items: QUESTIONS_3 })
+	}
+];
+function microphoneBlocked() {
+	if (window.isSecureContext === false) return "insecure";
+	if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return "unsupported";
+	return null;
+}
+function reasonOf(error) {
+	const name = error?.name;
+	if (name === "NotAllowedError" || name === "SecurityError") return "refused";
+	if (name === "NotFoundError" || name === "OverconstrainedError") return "no-microphone";
+	if (name === "NotSupportedError") return "unsupported";
+	return "failed";
+}
+var TYPES = [
+	"audio/webm;codecs=opus",
+	"audio/webm",
+	"audio/mp4",
+	"audio/ogg;codecs=opus"
+];
+function recordingType() {
+	return TYPES.find((t) => MediaRecorder.isTypeSupported?.(t)) ?? "";
+}
+function extension(type) {
+	if (type.startsWith("audio/mp4")) return "m4a";
+	if (type.startsWith("audio/ogg")) return "ogg";
+	return "webm";
+}
+function clock(seconds) {
+	const s = Math.floor(seconds);
+	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+function stopTracks(stream) {
+	stream?.getTracks().forEach((t) => t.stop());
+}
+function report(r) {
+	reportRecording(r).catch((e) => console.error("Could not log the microphone's use", e));
+}
+function VoiceRecorder(props) {
+	const [phase, setPhase] = d("ready");
+	const [reason, setReason] = d(null);
+	const [passage, setPassage] = d(0);
+	const [seconds, setSeconds] = d(0);
+	const [level, setLevel] = d(0);
+	const [made, setMade] = d(null);
+	const [keptHere, setKeptHere] = d([]);
+	const stream = A(null);
+	const recorder = A(null);
+	const audio = A(null);
+	const ticking = A(void 0);
+	const frame = A(void 0);
+	const alive = A(true);
+	const guard = useSettingGuard();
+	function stopListening() {
+		window.clearInterval(ticking.current);
+		if (frame.current !== void 0) cancelAnimationFrame(frame.current);
+		frame.current = void 0;
+		audio.current?.close().catch(() => {});
+		audio.current = null;
+		stopTracks(stream.current);
+		stream.current = null;
+	}
+	h(() => {
+		alive.current = true;
+		return () => {
+			alive.current = false;
+			if (recorder.current?.state === "recording") recorder.current.stop();
+			stopListening();
+		};
+	}, []);
+	const shown = A(null);
+	function show(url) {
+		if (shown.current && shown.current !== url) URL.revokeObjectURL(shown.current);
+		shown.current = url;
+	}
+	h(() => () => show(null), []);
+	function notUsed(why, error) {
+		if (error) console.error(`Microphone not used (${why})`, error);
+		else console.info(`Microphone not used (${why})`);
+		report({
+			made: false,
+			reason: why
+		});
+		setReason(why);
+		setPhase("off");
+	}
+	function meter(media) {
+		if (typeof AudioContext === "undefined") return;
+		try {
+			const context = new AudioContext();
+			const analyser = context.createAnalyser();
+			analyser.fftSize = 1024;
+			context.createMediaStreamSource(media).connect(analyser);
+			audio.current = context;
+			const samples = new Float32Array(analyser.fftSize);
+			const draw = () => {
+				analyser.getFloatTimeDomainData(samples);
+				let peak = 0;
+				for (const v of samples) peak = Math.max(peak, Math.abs(v));
+				setLevel(peak);
+				frame.current = requestAnimationFrame(draw);
+			};
+			draw();
+		} catch (e) {
+			console.warn("No level meter", e);
+		}
+	}
+	async function record() {
+		const blocked = microphoneBlocked();
+		if (blocked) {
+			notUsed(blocked);
+			return;
+		}
+		show(null);
+		setMade(null);
+		setPhase("asking");
+		const asked = performance.now();
+		let media;
+		try {
+			media = await navigator.mediaDevices.getUserMedia({
+				audio: MICROPHONE,
+				video: false
+			});
+		} catch (e) {
+			if (alive.current) notUsed(reasonOf(e), e);
+			return;
+		}
+		if (!alive.current) {
+			stopTracks(media);
+			return;
+		}
+		stream.current = media;
+		const type = recordingType();
+		let rec;
+		try {
+			rec = new MediaRecorder(media, type ? { mimeType: type } : void 0);
+		} catch (e) {
+			stopListening();
+			notUsed("unsupported", e);
+			return;
+		}
+		const microphone = media.getAudioTracks?.()[0]?.label || "unnamed";
+		console.info(`Microphone on in ${Math.round(performance.now() - asked)} ms: ${microphone}`);
+		const chunks = [];
+		rec.ondataavailable = (e) => {
+			if (e.data.size > 0) chunks.push(e.data);
+		};
+		const started = performance.now();
+		rec.onstop = () => {
+			const length = (performance.now() - started) / 1e3;
+			stopListening();
+			if (alive.current) finish(new Blob(chunks, { type: rec.mimeType || type }), length);
+		};
+		try {
+			rec.start(1e3);
+		} catch (e) {
+			stopListening();
+			notUsed("failed", e);
+			return;
+		}
+		recorder.current = rec;
+		meter(media);
+		setSeconds(0);
+		ticking.current = window.setInterval(() => {
+			const now = (performance.now() - started) / 1e3;
+			setSeconds(now);
+			if (now >= 600 && rec.state === "recording") {
+				console.info(`Recording stopped at the 10-minute limit`);
+				rec.stop();
+			}
+		}, 250);
+		props.onChanging(true);
+		console.info(`Recording ${PASSAGES[passage].name} (${rec.mimeType || type || "browser's type"})`);
+		setPhase("recording");
+	}
+	function stop() {
+		if (recorder.current?.state === "recording") recorder.current.stop();
+	}
+	async function finish(blob, length) {
+		const format = blob.type || "unknown";
+		report({
+			made: true,
+			seconds: Math.round(length * 10) / 10,
+			format
+		});
+		console.info(`Recording made: ${length.toFixed(1)} s, ${format}`);
+		const url = URL.createObjectURL(blob);
+		show(url);
+		setMade({
+			url,
+			upload: null,
+			error: null
+		});
+		if (!await guard.confirm("Add the recording you made?")) {
+			props.onChanging(false);
+			setPhase("made");
+			return;
+		}
+		setPhase("checking");
+		const checking = performance.now();
+		const name = `voice-${passage + 1}-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.${extension(format)}`;
+		try {
+			const upload = await uploadFile("sounds", new File([blob], name, { type: format }));
+			console.info(`Recording checked in ${Math.round(performance.now() - checking)} ms`);
+			if (alive.current) setMade({
+				url,
+				upload,
+				error: null
+			});
+			if (upload.problems?.length) {
+				if (!await dropFailed(upload) && alive.current) setMade({
+					url,
+					upload,
+					error: null,
+					stayed: true
+				});
+			} else {
+				setKeptHere((k) => k.includes(passage) ? k : [...k, passage]);
+				props.onAdded();
+			}
+		} catch (e) {
+			console.error("Recording refused", e);
+			if (alive.current) setMade({
+				url,
+				upload: null,
+				error: e.message
+			});
+		}
+		props.onChanging(false);
+		if (alive.current) setPhase("made");
+	}
+	async function dropFailed(upload) {
+		try {
+			await removeUpload("sounds", upload.id);
+			console.info(`Recording failed its checks and was not kept: ${upload.problems?.join(" ")}`);
+			return true;
+		} catch (e) {
+			console.error("Could not remove the recording that failed its checks", e);
+			props.onAdded();
+			return false;
+		}
+	}
+	function goTo(to) {
+		console.info(`Recording chosen: ${PASSAGES[to].name}`);
+		show(null);
+		setMade(null);
+		setPassage(to);
+		setPhase("ready");
+	}
+	if (phase === "off") return /* @__PURE__ */ u("div", {
+		className: "recorder off",
+		role: "note",
+		children: [
+			/* @__PURE__ */ u("strong", { children: "The microphone can't be used." }),
+			" ",
+			reason && WHY_NOT[reason],
+			" Add recordings you already made below instead.",
+			reason !== "insecure" && reason !== "unsupported" && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: () => void record(),
+				children: "Try the microphone again"
+			})
+		]
+	});
+	const current = PASSAGES[passage];
+	const kept = made?.upload?.problems?.length === 0;
+	const failed = Boolean(made?.upload?.problems?.length);
+	const busy = phase === "asking" || phase === "recording" || phase === "checking";
+	return /* @__PURE__ */ u("div", {
+		className: "recorder",
+		children: [
+			/* @__PURE__ */ u("div", {
+				className: "passages",
+				role: "group",
+				"aria-label": "Recordings",
+				children: [/* @__PURE__ */ u("span", {
+					className: "muted",
+					children: "Make them in any order:"
+				}), PASSAGES.map((p, i) => /* @__PURE__ */ u("button", {
+					type: "button",
+					className: i === passage ? "current" : "secondary",
+					"aria-pressed": i === passage,
+					"aria-label": keptHere.includes(i) ? `${p.name} kept` : p.name,
+					disabled: busy,
+					onClick: () => goTo(i),
+					children: [p.name, keptHere.includes(i) && " ✓"]
+				}, p.name))]
+			}),
+			/* @__PURE__ */ u("h3", { children: [
+				"Recording ",
+				passage + 1,
+				" of ",
+				PASSAGES.length,
+				": ",
+				current.name
+			] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					current.how,
+					" About ",
+					current.minutes,
+					"."
+				]
+			}),
+			current.say,
+			phase === "recording" && /* @__PURE__ */ u("div", {
+				className: "recording",
+				role: "status",
+				children: [
+					/* @__PURE__ */ u("span", {
+						className: "rec-dot",
+						"aria-hidden": "true"
+					}),
+					/* @__PURE__ */ u("span", {
+						className: "timer",
+						children: clock(seconds)
+					}),
+					/* @__PURE__ */ u("span", {
+						className: "level",
+						"aria-label": "Sound level",
+						children: /* @__PURE__ */ u("span", { style: { width: `${Math.min(100, Math.round(level * 100))}%` } })
+					})
+				]
+			}),
+			phase === "asking" && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Asking for the microphone…"
+			}),
+			phase === "checking" && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Checking the recording…"
+			}),
+			made && (phase === "made" || phase === "checking") && /* @__PURE__ */ u("audio", {
+				controls: true,
+				src: made.url,
+				"aria-label": "The recording you made"
+			}),
+			made?.upload && /* @__PURE__ */ u(Checks, {
+				item: made.upload,
+				queue: -1
+			}),
+			kept && /* @__PURE__ */ u("p", {
+				className: "done",
+				children: [
+					"Kept.",
+					" ",
+					passage + 1 < PASSAGES.length ? "Go on to the next recording, or click Next if you have enough." : "That's all three: click Next."
+				]
+			}),
+			failed && (made?.stayed ? /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "This recording could not be removed. It is still in Your recordings below: remove it there, then Record again."
+			}) : /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Not kept. Record again to try again."
+			})),
+			made?.error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: made.error
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "choices",
+				children: [
+					phase === "ready" && /* @__PURE__ */ u("button", {
+						type: "button",
+						onClick: () => void record(),
+						children: "Start recording"
+					}),
+					phase === "recording" && /* @__PURE__ */ u("button", {
+						type: "button",
+						onClick: stop,
+						children: "Stop"
+					}),
+					phase === "made" && /* @__PURE__ */ u("button", {
+						type: "button",
+						className: kept ? "secondary" : void 0,
+						onClick: () => void record(),
+						children: "Record again"
+					}),
+					phase === "made" && kept && passage + 1 < PASSAGES.length && /* @__PURE__ */ u("button", {
+						type: "button",
+						onClick: () => goTo(passage + 1),
+						children: ["Next recording: ", PASSAGES[passage + 1].name]
+					})
+				]
+			})
+		]
+	});
+}
 //#endregion
 //#region src/wizard.tsx
+var HELP = {
+	start: "Before you begin",
+	photo: "How to take the photos",
+	voice: "Record your voice",
+	accent: "If something goes wrong",
+	prepare: "If something goes wrong",
+	review: "If something goes wrong"
+};
 var STEP_TITLES = {
 	start: "Before you start",
 	photo: "Your photo",
@@ -9200,14 +9645,24 @@ function WizardPage(props) {
 						children: STEP_TITLES[s]
 					}, s))
 				}),
-				/* @__PURE__ */ u("p", {
-					className: "step-of",
-					children: [
-						"Step ",
-						index + 1,
-						" of ",
-						WIZARD_STEPS.length
-					]
+				/* @__PURE__ */ u("div", {
+					className: "step-row",
+					children: [/* @__PURE__ */ u("p", {
+						className: "step-of",
+						children: [
+							"Step ",
+							index + 1,
+							" of ",
+							WIZARD_STEPS.length
+						]
+					}), /* @__PURE__ */ u("a", {
+						className: "need-help",
+						href: "#/guide",
+						target: "_blank",
+						rel: "noopener",
+						onClick: () => guideAt(HELP[step]),
+						children: "Need help?"
+					})]
 				}),
 				body,
 				failed && /* @__PURE__ */ u("p", {
@@ -9296,13 +9751,6 @@ function StartStep(props) {
 		]
 	});
 }
-function Placeholder(props) {
-	return /* @__PURE__ */ u("div", {
-		className: "capture-placeholder",
-		role: "note",
-		children: [/* @__PURE__ */ u("strong", { children: [props.what, " is coming soon."] }), /* @__PURE__ */ u("span", { children: props.instead })]
-	});
-}
 function PhotoStep(props) {
 	const [changes, setChanges] = d(0);
 	const [taken, setTaken] = d(0);
@@ -9361,41 +9809,41 @@ function PhotoStep(props) {
 }
 function VoiceStep(props) {
 	h(() => props.onReady(true), []);
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u(Placeholder, {
-			what: "Recording your voice here in the browser",
-			instead: "For now, add recordings you already made."
-		}),
-		/* @__PURE__ */ u("ul", {
-			className: "tips",
-			children: [
-				/* @__PURE__ */ u("li", { children: "Record in a quiet room, about a hand's width from the microphone." }),
-				/* @__PURE__ */ u("li", { children: "Read aloud in your normal voice, for one to three minutes each time." }),
-				/* @__PURE__ */ u("li", { children: "Only your voice: no music, television or other people." })
-			]
-		}),
-		/* @__PURE__ */ u("p", {
-			className: "muted",
-			children: [
-				"The ",
-				/* @__PURE__ */ u("a", {
-					href: "#/guide",
-					children: "recording guide"
-				}),
-				" has a script to read and more tips."
-			]
-		}),
-		/* @__PURE__ */ u(UploadSection, {
-			kind: "sounds",
-			step: null,
-			title: STEP_TITLES.voice,
-			button: "Add recordings",
-			hint: "WAV, M4A or MP3, up to 10 minutes each. Optional: without them, a ready-made voice speaks.",
-			accept: "audio/*,.m4a,.wav,.mp3",
-			notice: props.notice,
-			onChange: props.onChange
-		})
-	] });
+	const [made, setMade] = d(0);
+	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("section", {
+		className: "panel",
+		children: [
+			/* @__PURE__ */ u("h2", { children: "Record your voice" }),
+			props.notice && /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: props.notice
+			}),
+			/* @__PURE__ */ u("ul", {
+				className: "tips",
+				children: [
+					/* @__PURE__ */ u("li", { children: "Record in a quiet room, about a hand's width from the microphone." }),
+					/* @__PURE__ */ u("li", { children: "Read aloud in your normal voice." }),
+					/* @__PURE__ */ u("li", { children: "Only your voice: no music, television or other people." })
+				]
+			}),
+			/* @__PURE__ */ u(VoiceRecorder, {
+				onChanging: (busy) => props.onReady(!busy),
+				onAdded: () => {
+					setMade((n) => n + 1);
+					props.onChange();
+				}
+			})
+		]
+	}), /* @__PURE__ */ u(UploadSection, {
+		kind: "sounds",
+		step: null,
+		title: "Your recordings",
+		button: "Add a recording file",
+		hint: "The recordings you made, and any you add as files (WAV, M4A or MP3, up to 10 minutes each). Optional: without them, a ready-made voice speaks.",
+		accept: "audio/*,.m4a,.wav,.mp3",
+		notice: null,
+		onChange: props.onChange
+	}, made)] });
 }
 function AccentStep(props) {
 	h(() => props.onReady(true), []);

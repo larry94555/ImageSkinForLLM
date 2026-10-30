@@ -1220,3 +1220,18 @@ export async function reportCamera(
   });
   if (!response.ok) throw new Error(await refusal(response));
 }
+
+export type MicrophoneReason = "insecure" | "unsupported" | "refused" | "no-microphone" | "failed";
+
+// Tells the server's log about a recording made with the microphone, with its length and format,
+// or why the microphone wasn't used (R133). Never the sound: that is uploaded like any recording.
+export async function reportRecording(
+  report: { made: true; seconds: number; format: string } | { made: false; reason: MicrophoneReason },
+): Promise<void> {
+  const response = await fetch("/api/wizard/recording", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(report),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+}

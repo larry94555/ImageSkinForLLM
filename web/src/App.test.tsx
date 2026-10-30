@@ -331,11 +331,12 @@ test("if the avatar can't be read, the top bar's Setup still goes to setup and t
   expect(nav.getAttribute("href")).toBe("#/setup");
 });
 
-test("setup links to the recording guide, which keeps setup marked in the nav", async () => {
+test("setup starts with the wizard, and the recording guide keeps setup marked in the nav", async () => {
   serverWithConsent(true);
   await openAt("#/setup");
-  const link = await screen.findByRole("link", { name: "recording guide" });
-  expect(link.getAttribute("href")).toBe("#/guide");
+  const link = await screen.findByRole("link", { name: "Set up your own photo and voice one step at a time" });
+  expect(link.getAttribute("href")).toBe("#/setup/wizard");
+  expect(screen.queryByRole("link", { name: "recording guide" })).toBeNull();
   cleanup();
   await openAt("#/guide");
   expect(await screen.findByRole("heading", { name: "Before you begin" })).toBeTruthy();

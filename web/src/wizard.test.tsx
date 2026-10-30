@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { nextStep, WizardPage } from "./wizard";
+import { loadGuide, STEPS } from "./guide";
+import { HELP, nextStep, WizardPage } from "./wizard";
 
 const PHOTO_ID = "a".repeat(32);
 const FINISHED = "2026-10-29T20:00:00Z";
@@ -150,10 +151,12 @@ test("with a photo chosen, the photo step's Next is ready", async () => {
   await waitFor(() => expect(next().disabled).toBe(false));
 });
 
-test("the voice step shows the placeholder and is optional", async () => {
+test("the voice step offers the recorder, with the script to read, and is optional", async () => {
   const { saved } = server({ step: "voice" });
   render(<WizardPage consented onConsented={() => {}} />);
-  expect(await screen.findByText("Recording your voice here in the browser is coming soon.")).toBeTruthy();
+  expect(await screen.findByText("Recording 1 of 3: Voice 1")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Start recording" })).toBeTruthy();
+  expect(await screen.findByText("Add a recording file")).toBeTruthy();
   await waitFor(() => expect(next().disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(await screen.findByText("Add a photo file")).toBeTruthy();
@@ -251,4 +254,16 @@ test("a photo refused on upload leaves Next on for the photo already chosen", as
   fireEvent.change(input);
   expect(await screen.findByText("blurry.jpg: The photo is too blurry.")).toBeTruthy();
   await waitFor(() => expect(next().disabled).toBe(false));
+});
+
+test("each step's Need help? opens the recording guide's page for it in a new tab", async () => {
+  server({ step: "photo", photo: null });
+  render(<WizardPage consented onConsented={() => {}} />);
+  const help = await screen.findByRole("link", { name: "Need help?" });
+  expect(help.getAttribute("href")).toBe("#/guide");
+  expect(help.getAttribute("target")).toBe("_blank");
+  fireEvent.click(help);
+  expect(STEPS[loadGuide().step].title).toBe("How to take the photos");
+  // Every step names a page the guide has.
+  for (const title of Object.values(HELP)) expect(STEPS.some((s) => s.title === title)).toBe(true);
 });

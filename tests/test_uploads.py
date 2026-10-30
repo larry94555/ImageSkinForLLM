@@ -44,10 +44,11 @@ def wav_bytes(seconds: float = 0.5, rate: int = 16000) -> bytes:
 
 
 def encoded(tmp_path: Path, suffix: str) -> bytes:
-    """A short sound encoded by ffmpeg, as M4A or MP3."""
+    """A short sound encoded by ffmpeg, as M4A, MP3, WebM or Ogg (Opus, as browsers record)."""
     src, out = tmp_path / "in.wav", tmp_path / f"out{suffix}"
     src.write_bytes(wav_bytes())
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), str(out)], check=True)
+    codec = ["-c:a", "libopus"] if suffix in (".webm", ".ogg") else []
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), *codec, str(out)], check=True)
     return out.read_bytes()
 
 
@@ -61,6 +62,8 @@ def encoded(tmp_path: Path, suffix: str) -> bytes:
         (b"\0\0\0\x18ftypmif1\0\0\0\0", "heic"),
         (b"\0\0\0\x18ftypM4A \0\0\0\0", "m4a"),
         (b"\0\0\0\x18ftypqt  \0\0\0\0", None),
+        (b"\x1a\x45\xdf\xa3\x9f\x42\x86\x81", "webm"),
+        (b"OggS\0\x02\0\0", "ogg"),
         (b"ID3\x04\0", "mp3"),
         (b"\xff\xfb\x90\x00", "mp3"),
         (b"%PDF-1.7", None),
@@ -226,7 +229,7 @@ def test_only_generated_ids_are_looked_up(tmp_path: Path, bad_id: str) -> None:
 
 
 @needs_ffmpeg
-@pytest.mark.parametrize("fmt", ["wav", "m4a", "mp3"])
+@pytest.mark.parametrize("fmt", ["wav", "m4a", "mp3", "webm", "ogg"])
 def test_sound_is_converted_to_wav(tmp_path: Path, fmt: str) -> None:
     data = wav_bytes() if fmt == "wav" else encoded(tmp_path, f".{fmt}")
     store = UploadStore(tmp_path / "home")
