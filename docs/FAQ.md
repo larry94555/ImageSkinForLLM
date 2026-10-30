@@ -141,6 +141,42 @@ llama-server -hf ggml-org/gemma-3-4b-it-GGUF --no-mmproj --port 8080 --ctx-size 
 
 **Every step:** [docs/guides/Admin-Password-Guide.pdf](guides/Admin-Password-Guide.pdf).
 
+## Admin login failed with an error code. How do I find out why?
+
+**What the page says:** every failed sign-in as the administrator says only "Admin login failed with error code A-7K3F9Q." Whatever went wrong, the words are the same, so someone guessing learns nothing from them. The code is new each time; only the log says what it was.
+
+**On the hosted site,** after connecting with SSH as in [deploy/README.md](../deploy/README.md) step 4, use the code the page showed:
+
+```
+cd ~/ImageSkinForLLM/deploy
+docker compose logs app --since 24h | grep A-7K3F9Q
+```
+
+**On a laptop (`imageskin serve`),** the log is the terminal the app runs in. To search it, save it while signing in again (the new try has a new code):
+
+```
+imageskin serve 2>&1 | tee imageskin.log
+grep A-7K3F9Q imageskin.log
+```
+
+On Windows PowerShell: `imageskin serve 2>&1 | Tee-Object imageskin.log`, then `Select-String A-7K3F9Q imageskin.log`.
+
+**What the reason means:** the line is `Admin sign-in refused` with the `code`, the `address` it came from, `failures_in_a_row`, and a `reason`. It never has the password.
+
+| `reason` | What it means, and what to do |
+|---|---|
+| `wrong password` | The password doesn't match `admin.toml`. Check for a space at the end, or a hash pasted only in part (one line, in double quotes). |
+| `no password set` | `admin.toml` has no password, or the app can't find it; the Settings page then says signing in is off. |
+| `waiting` | 5 failures in a row from this address: wait a minute. Tries while waiting aren't counted. |
+| `laptop not listed` | There is an `admin-laptops.toml`, and this browser's ID isn't in it. The line's `laptop` field is the ID it sent: add it to the file, as the guide says. |
+| `no laptop proof` | There is an `admin-laptops.toml`, and the browser sent no proof of its ID: the page was opened at a plain `http://` address (not `https://`, `localhost` or `127.0.0.1`), or the browser couldn't make its key. |
+| `challenge expired` | The sign-in came more than a minute after the page asked for it, or the app restarted in between. Try again. |
+| `bad laptop proof` | The browser's proof didn't check out. Reload the page and try again. |
+
+Laptop lines also say `password_ok`, whether the password was right, so a right password from an unlisted laptop shows as `laptop not listed` with `password_ok: true`. A laptop failure counts towards the 5, as a wrong password does.
+
+**Every step**, with listing laptops, is in [docs/guides/Admin-Password-Guide.pdf](guides/Admin-Password-Guide.pdf).
+
 ## Preparing the video failed. How does tech support find out why?
 
 **What the customer sees:** setup stops and says which step failed and why, in plain words, for example "“Make the mouth shapes and the blinking eyes” failed. Out of memory.", and "Please give support the reference `P-7K3F9Q`." (when Try again may help, it says so first: "Try again may help. If it keeps failing, please give support the reference …"). **Copy details for support** copies the reference, the step, the reason, the time, the app's version, the browser and the error (without the server's folders and file names); ask the customer to paste it into the ticket. The same reference is shown, in one line, when making the sample video again from Settings or getting a default person ready fails. The reasons are: a program or add-on missing, out of memory, not enough disk space, a model that couldn't be downloaded, a photo or recording that couldn't be read, a step that took too long, or something unexpected.
