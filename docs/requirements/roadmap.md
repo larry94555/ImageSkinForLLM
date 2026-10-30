@@ -29,9 +29,9 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 10d | **[Setup wizard](#milestone-10d-setup-wizard).** From a link on the home page or the Setup page, set up with your own photo and voice one step at a time, taking the photo with the laptop's camera and recording the voice in the browser, or picking files when they aren't allowed. | R131 to R133 | 3 | 100% | 3 of 3 | 1.1% |
 | 29 | **[Host login and resource view](#milestone-29-host-login-and-resource-view).** Sign up, sign in and sign out as a host and see the disk space your photos and recordings, your PDFs and all of them take; until a host signs in, anyone gets the participant view with no sign-up, and Settings is shown only to a signed-in host or on a laptop in the admin laptops list. | R188 to R193 | 6 | 100% | 6 of 6 | 2.2% |
 | 13a | **[Identity and guidelines](#milestone-13a-identity-and-guidelines).** Ask "Who are you?" or "What is your purpose?" and hear the answer from a generated identity; under Customization, a signed-in host edits the identity, the goals and the guidelines for answering questions, the topics, Teach me, Quiz me, the assessment, the level of detail and Say it simpler, which inform what the agent says in each; compare the latest version with an earlier one, go back to one, or edit the latest and save it. | R92, R94, R194 to R200, R93, R95, R95a | 12 | 0% | 0 | 4.4% |
+| 12 | **[Sign-on and accounts](#milestone-12-sign-on-and-accounts).** On each customer's site: question and answer only without signing in, participant sign-up and login, and a setting to require sign-up. | R45 to R47 | 3 | 0% | 0 | 1.1% |
 | 20 | **[Many customers on me0.ai](#milestone-20-many-customers-on-me0ai).** A customer signs up for a membership (and can reset a forgotten password), starts a free one-week trial at a path of random characters, picks their own subdomain of me0.ai when they first pay $1 (and can change it), signs in to manage settings that change only their site, pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, visitors and history are separate from every other site. | R61, R62, R62a, R44, R65 to R67, R63, R64, R68 to R71 | 13 | 0% | 0 | 4.8% |
 | 30 | **[Resource enforcement](#milestone-30-resource-enforcement).** A free trial at a temporary address gets 100 MB and is closed after 30 days without activity, with a warning on the home page and the days since the last activity on the Resources page; an upload over the limit is refused with the reason; Upgrade to 5 GB for $1.99 a month, with 5 GB more for $1 a month each and no activity rule; Billing and Billing history pages for subscribers; and each host's storage and payment on the admin dashboard, with the totals and the estimated Oracle charges, the prices set in Admin settings. | R201 to R213 | 13 | 0% | 0 | 4.8% |
-| 12 | **[Sign-on and accounts](#milestone-12-sign-on-and-accounts).** On each customer's site: question and answer only without signing in, participant sign-up and login, and a setting to require sign-up. | R45 to R47 | 3 | 0% | 0 | 1.1% |
 | 21 | **[Support at support.me0.ai](#milestone-21-support-at-supportme0ai).** A support guide PDF, a video person who answers questions from it, asking the AI, open public tickets with optional email when a ticket's status changes, and feedback. | R72 to R78 | 7 | 0% | 0 | 2.6% |
 | 28 | **[Thinking and quality of response](#milestone-28-thinking-and-quality-of-response).** When thinking takes long, every step is found and timed, described, and shown to the user every 5 to 10 seconds as clear progress, and the slowest steps are made shorter; each answer's level of detail is detected from its question; and the topics offered under the prompt box, through other topics..., cover every important topic in the content; and Tell Me More goes on with another part of the topic, a related topic or a more general one, saying "That's pretty much it" only when the PDFs have nothing more. | R134c, R134d, R134e, R184 to R187 | 7 | 0% | 0 | 2.6% |
 | 13 | **[Contexts](#milestone-13-contexts).** Each prompt is answered by the contexts it calls for: a primary one, such as Teacher/Student, and supplementary ones, such as Meta; the administrator turns contexts on or off, picks the primary, changes their guidelines and criteria and adds new ones, and Debug shows which context responded. | R84 to R91 | 8 | 0% | 0 | 2.9% |
@@ -1396,6 +1396,29 @@ Contexts (Milestone 13) now come after this milestone, so guidelines are kept fo
 - The log has `Customization compared` with the two versions.
 - **Can show:** make two edits and compare the latest with the one before, with only the change marked; compare with the first version and see every change since.
 
+## Milestone 12: Sign-on and accounts
+
+| PR | Description | Status |
+|---|---|---|
+| [R45. Question and answer screen for visitors](#r45-question-and-answer-screen-for-visitors-simple--item-31) | A question and answer screen for visitors who aren't signed in. | Not started |
+| [R46. Participant sign-up and login](#r46-participant-sign-up-and-login-medium--item-32) | Participant sign-up and login, kept per site. | Not started |
+| [R47. Require sign-up setting](#r47-require-sign-up-setting-simple--item-33) | A setting that requires visitors to sign up before asking. | Not started |
+
+### R45. Question and answer screen for visitors (Simple) · item 31
+- Without sign-on, the app shows only the question box and the person's spoken answers, with no links to setup, content or settings.
+- Visitors get the topic hints and "What can you talk about?" (R41f, R41g), but not Teach me, Quiz me or the assessment (R41h to R41j).
+- **Can show:** an anonymous visitor asks a question and gets a spoken answer, with nothing else reachable.
+
+### R46. Participant sign-up and login (Medium) · item 32
+- A sign-up page and the login link for participants; a cookie keeps a participant logged in on that browser. Participants never see settings. A participant account and its cookie belong to one site (item 66), with R65's checks that nothing crosses between sites.
+- The signed-in participant gets the participant view and an anonymous visitor only R45's question and answer screen, completing R44's views.
+- Teach me's progress (R41h) is kept for each signed-in participant rather than for the browser.
+- **Can show:** sign up, close the browser, come back still logged in, and see no settings; sign up with the same email on a second site and see separate histories.
+
+### R47. Require sign-up setting (Simple) · item 33
+- A setting that disallows anonymous use; visitors are sent to sign up or log in before asking.
+- **Can show:** with the setting on, an anonymous visitor is sent to the login page.
+
 ## Milestone 20: Many customers on me0.ai
 
 On 2026-10-30 Larry added resource enforcement ([Milestone 30](#milestone-30-resource-enforcement)) to build right after this milestone. It changes R62, R66, R67, R68 and R70 as it describes there *(default)*; their definitions below are revised when each one starts.
@@ -1558,29 +1581,6 @@ It changes Milestone 20 *(default, to confirm with Larry)*: storage subscription
 - R154's admin Resources page adds a table of every host, trial and paid, each marked as such, with **User name** (their email *(default)*), **Host name** (their subdomain, or their trial address *(default)*), **Total resources consumed** and **Amount paid for the month** (this calendar month's charges, $0.00 for a trial). Under it: **Total resources consumed** by all hosts, **Total amount paid** by all paid hosts this month, and **Estimated Oracle charges**: the total consumed at $4.25 for each 100 GB (from Admin settings), in proportion, rounded to the cent *(default)*.
 - The log has `Host storage table read` with the number of hosts, the totals and how long it took.
 - **Can show:** a screenshot with a trial host and two paid hosts, and the totals and estimate checked by hand.
-
-## Milestone 12: Sign-on and accounts
-
-| PR | Description | Status |
-|---|---|---|
-| [R45. Question and answer screen for visitors](#r45-question-and-answer-screen-for-visitors-simple--item-31) | A question and answer screen for visitors who aren't signed in. | Not started |
-| [R46. Participant sign-up and login](#r46-participant-sign-up-and-login-medium--item-32) | Participant sign-up and login, kept per site. | Not started |
-| [R47. Require sign-up setting](#r47-require-sign-up-setting-simple--item-33) | A setting that requires visitors to sign up before asking. | Not started |
-
-### R45. Question and answer screen for visitors (Simple) · item 31
-- Without sign-on, the app shows only the question box and the person's spoken answers, with no links to setup, content or settings.
-- Visitors get the topic hints and "What can you talk about?" (R41f, R41g), but not Teach me, Quiz me or the assessment (R41h to R41j).
-- **Can show:** an anonymous visitor asks a question and gets a spoken answer, with nothing else reachable.
-
-### R46. Participant sign-up and login (Medium) · item 32
-- A sign-up page and the login link for participants; a cookie keeps a participant logged in on that browser. Participants never see settings. A participant account and its cookie belong to one site (item 66), with R65's checks that nothing crosses between sites.
-- The signed-in participant gets the participant view and an anonymous visitor only R45's question and answer screen, completing R44's views.
-- Teach me's progress (R41h) is kept for each signed-in participant rather than for the browser.
-- **Can show:** sign up, close the browser, come back still logged in, and see no settings; sign up with the same email on a second site and see separate histories.
-
-### R47. Require sign-up setting (Simple) · item 33
-- A setting that disallows anonymous use; visitors are sent to sign up or log in before asking.
-- **Can show:** with the setting on, an anonymous visitor is sent to the login page.
 
 ## Milestone 21: Support at support.me0.ai
 
