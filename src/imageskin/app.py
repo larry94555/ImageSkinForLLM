@@ -118,6 +118,8 @@ from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady, ms_sin
 from imageskin.resources import ResourceReader
 from imageskin.review import accept, load_review, withdraw
 from imageskin.sentences import clips_of
+from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
+from imageskin.settings_access import SettingsAccess, settings_router
 from imageskin.simpler import say_simpler
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
@@ -248,6 +250,8 @@ VOICE_CONSENT_NEEDED = "Tick the box to confirm the person in the recordings agr
 NO_AVATAR = "Choose a ready-made avatar first."
 WAIT_FOR_PREPARE_AVATAR = "Wait until Prepare finishes, then try again."
 WAIT_FOR_AVATAR = "Wait until the ready-made avatar is ready, then switch to your own photo."
+# The settings the chat page changes itself, open to anyone; the rest are Settings' own (R191).
+CHAT_SETTINGS = frozenset({"detail"})
 REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 # The conversation is saved in the data folder, so it is still there after a restart (R30).
 CONVERSATION_FILE = "conversation.json"
@@ -600,10 +604,16 @@ def create_app(
         timeout_minutes=lambda: admin_settings.current.timeout_minutes,
         laptops=AdminLaptops(admin_laptops_file or admin_file.parent / LAPTOPS_FILENAME),
     )
-    admin_routes, app.state.require_admin = admin_router(admin_sign_ins)
-    app.include_router(admin_routes)
     # Host accounts (R188). The host-only pages and routes later depend on require_host (R190).
     host_accounts = HostAccounts(data_home)
+    # Settings only for a signed-in host or a listed admin laptop (R191): its calls, and the
+    # admin sign-in on it, refuse anyone else as if not found.
+    settings_access = SettingsAccess(host_accounts, admin_sign_ins.laptops)
+    settings_routes, require_settings = settings_router(settings_access)
+    settings_only = [Depends(require_settings)]
+    app.include_router(settings_routes)
+    admin_routes, app.state.require_admin = admin_router(admin_sign_ins, [require_settings])
+    app.include_router(admin_routes)
     host_routes, app.state.require_host = host_router(host_accounts)
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
@@ -702,8 +712,9 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {"logged": True}
 
-    # The Settings page's settings (R41a, R27): anyone can read and change them for now, except
-    # the view (R190). The question scope follows the config file until it is changed there.
+    # The Settings page's settings (R41a, R27): anyone can read them, as every page follows them;
+    # only a host or a listed laptop changes them (R191). The question scope follows the config
+    # file until it is changed there.
     ui_defaults = UiSettings(general_prompts=general_prompts)
 
     @app.get("/api/settings")
@@ -730,13 +741,18 @@ def create_app(
     def patch_settings(
         changes: Annotated[dict[str, Any], Body()],
         host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
+        laptop_token: Annotated[str | None, Cookie(alias=LAPTOP_COOKIE)] = None,
     ) -> dict[str, object]:
         # The saved view is the host's, so only a signed-in host changes it (Codex's review of
-        # PR #233); the other settings stay open until R191.
+        # PR #233). The rest are the Settings page's (R191), but the level of detail, which the
+        # chat's own bar sets for anyone.
         host = host_accounts.host(host_token)
         if "view" in changes and host is None:
             logger.warning("View change refused", extra={"why": "no host signed in"})
             raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
+        if set(changes) - CHAT_SETTINGS and settings_access.who(host_token, laptop_token) is None:
+            logger.info("Settings call refused", extra={"method": "PATCH", "path": "/api/settings"})
+            raise HTTPException(status_code=404, detail="Not Found")
         try:
             saved = asdict(save_ui_settings(data_home, changes, ui_defaults))
             if host is None:
@@ -1559,7 +1575,7 @@ def create_app(
         )
 
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.
-    @app.get("/api/llm")
+    @app.get("/api/llm", dependencies=settings_only)
     def get_llm() -> dict[str, Any]:
         return described(load_choice(data_home), plan_ready())
 
@@ -1607,7 +1623,7 @@ def create_app(
     # saying one LLM while the other answers (a review on PR #115).
     changing_llm = threading.Lock()
 
-    @app.put("/api/llm")
+    @app.put("/api/llm", dependencies=settings_only)
     def put_llm(body: LlmRequest) -> dict[str, Any]:
         start = time.perf_counter()
         key = (body.api_key or "").strip()
@@ -1646,7 +1662,7 @@ def create_app(
     # The models a provider offers to the key just entered, or the saved one (R42); OpenRouter's
     # before any key. 400 when the key is missing or refused, 502 when the provider can't be
     # reached, so the page offers a typed model name only then.
-    @app.post("/api/llm/models")
+    @app.post("/api/llm/models", dependencies=settings_only)
     def post_llm_models(body: ModelsRequest) -> dict[str, Any]:
         if body.provider not in PROVIDERS:
             raise HTTPException(status_code=400, detail=f"There is no LLM called {body.provider}.")
@@ -1675,11 +1691,11 @@ def create_app(
     # Sign in with ChatGPT (R43): the browser is sent to OpenAI to sign in, and comes back to
     # this app's own address on 127.0.0.1, where the server swaps the code for the tokens.
 
-    @app.get("/api/chatgpt")
+    @app.get("/api/chatgpt", dependencies=settings_only)
     def get_chatgpt() -> dict[str, Any]:
         return signin.status()
 
-    @app.get("/api/chatgpt/sign-in", response_model=None)
+    @app.get("/api/chatgpt/sign-in", response_model=None, dependencies=settings_only)
     def chatgpt_sign_in(
         request: Request, consent: bool = False, another: bool = False, account: str = ""
     ) -> Response:
@@ -1702,7 +1718,7 @@ def create_app(
         follow_plan_account()
         return RedirectResponse("/#/settings", status_code=303)
 
-    @app.post("/api/chatgpt/use")
+    @app.post("/api/chatgpt/use", dependencies=settings_only)
     def chatgpt_use(body: ChatGptAccount) -> dict[str, Any]:
         try:
             status = signin.use(body.account)
@@ -1736,7 +1752,7 @@ def create_app(
             extra={"was": was, "model": models[0]},
         )
 
-    @app.post("/api/chatgpt/sign-out")
+    @app.post("/api/chatgpt/sign-out", dependencies=settings_only)
     def chatgpt_sign_out() -> dict[str, Any]:
         return signin.sign_out()
 
@@ -2451,7 +2467,7 @@ def create_app(
             raise HTTPException(status_code=502, detail=detail) from e
         return {"video": "/api/prepare/clips/sample", "seconds": seconds}
 
-    @app.delete("/api/chat", dependencies=needs_person)
+    @app.delete("/api/chat", dependencies=[*settings_only, *needs_person])
     def clear_chat(seen: DeletesSeen) -> dict[str, int]:
         """Clear conversation from Settings (roadmap R27b), once the browser has asked to
         confirm. It waits for a prompt being answered, so that reply is cleared too."""
@@ -2532,7 +2548,7 @@ def create_app(
             },
         )
 
-    @app.delete("/api/data")
+    @app.delete("/api/data", dependencies=settings_only)
     def delete_data() -> dict[str, object]:
         """Delete my data from Settings (roadmap R31), once the browser has asked to confirm:
         the photos, recordings, prepared face and voice, videos and conversation, and the PDFs

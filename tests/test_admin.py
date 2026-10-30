@@ -60,9 +60,11 @@ CODE = re.compile(r"A-[A-HJ-NP-Z2-9]{6}")
 def quick_dummy(monkeypatch: pytest.MonkeyPatch) -> None:
     """A cheaper hash to check when there is nothing real to check, so the many failed sign-ins
     here run quickly; the app's own is as costly as a real one."""
-    monkeypatch.setattr(admin, "SCRYPT_N", 2**4)
-    cheap = Secret("hash", hash_password("never typed"))
-    monkeypatch.undo()
+    # Its own patch, undone at once: an undo of `monkeypatch` would also undo conftest.py's
+    # signed-in host, which the admin sign-in needs (R191).
+    with pytest.MonkeyPatch.context() as quick:
+        quick.setattr(admin, "SCRYPT_N", 2**4)
+        cheap = Secret("hash", hash_password("never typed"))
     monkeypatch.setattr(admin, "_dummy", lambda: cheap)
 
 

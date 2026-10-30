@@ -475,6 +475,13 @@ async function isLaptopListed(laptop) {
 		body: JSON.stringify(laptop ? { laptop } : {})
 	}))).listed;
 }
+async function getSettingsAccess(laptop) {
+	return json(await fetch("/api/settings/access", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(laptop ? { laptop } : {})
+	}));
+}
 async function signInAsAdmin(password, laptop) {
 	const response = await fetch("/api/admin/sign-in", {
 		method: "POST",
@@ -8037,6 +8044,41 @@ function StartNowPage() {
 	});
 }
 //#endregion
+//#region src/settings-access.tsx
+var AccessContext = X(null);
+function useSettingsShown() {
+	return x(AccessContext);
+}
+function SettingsAccessProvider({ children }) {
+	const session = useHost().session;
+	const [shown, setShown] = d(null);
+	const host = session?.signed_in;
+	h(() => {
+		if (host === void 0) return;
+		let current = true;
+		(async () => {
+			const laptop = !host && canProve() ? await prove(await getAdminChallenge()) : void 0;
+			const access = await getSettingsAccess(laptop);
+			if (!access.shown && laptop) console.info(`This laptop's ID: ${await laptopId()}`);
+			return access;
+		})().then((access) => {
+			if (!current) return;
+			console.info(access.shown ? `Settings shown, as ${access.as}` : "Settings hidden");
+			setShown(access.shown === true);
+		}, (e) => {
+			console.error("Could not ask whether Settings is shown", e);
+			if (current) setShown(false);
+		});
+		return () => {
+			current = false;
+		};
+	}, [host]);
+	return /* @__PURE__ */ u(AccessContext.Provider, {
+		value: shown,
+		children
+	});
+}
+//#endregion
 //#region src/wiki.tsx
 var WIKI_POLL_MS = 2e3;
 function busy(build) {
@@ -10199,7 +10241,7 @@ function current(page, view) {
 	return page;
 }
 function App() {
-	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(HostProvider, { children: /* @__PURE__ */ u(Shell, {}) }) }) });
+	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(HostProvider, { children: /* @__PURE__ */ u(SettingsAccessProvider, { children: /* @__PURE__ */ u(Shell, {}) }) }) }) });
 }
 function Shell() {
 	const hash = useHash();
@@ -10217,6 +10259,7 @@ function Shell() {
 	const defaultPerson = useDefaultPerson(hash, host);
 	const hostSession = useHost().session;
 	const visitor = hostSession?.signed_in !== true;
+	const settingsShown = useSettingsShown();
 	const route = consented === null || !settingsLoaded || hostSession === null ? null : resolve(hash, consented, participant, visitor);
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
@@ -10256,7 +10299,7 @@ function Shell() {
 		guide: /* @__PURE__ */ u(GuidePage, {}),
 		wiki: /* @__PURE__ */ u(WikiPage, { pdf: wikiTarget(hash).pdf }),
 		"wiki-page": /* @__PURE__ */ u(WikiDetailPage, { entry: wikiTarget(hash).entry ?? "" }),
-		settings: /* @__PURE__ */ u(SettingsPage, {
+		settings: !settingsShown ? settingsShown === null ? /* @__PURE__ */ u("p", { children: "Loading…" }) : /* @__PURE__ */ u(NotFoundPage, {}) : /* @__PURE__ */ u(SettingsPage, {
 			back: back.current ?? (participant ? "#/chat" : "#/"),
 			onDataDeleted: () => setConsented(false)
 		}),
@@ -10285,7 +10328,7 @@ function Shell() {
 					children: [
 						/* @__PURE__ */ u(HostLinks, { page: route?.page }),
 						/* @__PURE__ */ u(AdminLink, { current: route?.page === "admin" }),
-						settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })
+						settingsLoaded && settingsShown && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })
 					]
 				})
 			]

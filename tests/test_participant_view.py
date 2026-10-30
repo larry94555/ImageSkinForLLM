@@ -98,8 +98,8 @@ def test_only_a_signed_in_host_changes_the_saved_view(
     assert answer.json() == {"detail": NOT_SIGNED_IN}
     assert "View change refused" in caplog.messages
     assert host.get("/api/settings").json()["view"] == "host"
-    # The other settings stay open to a visitor until R191, and its answer is the participant view.
-    changed = visitor.patch("/api/settings", json={"show_metrics": True})
+    # The level of detail stays open to a visitor, and its answer is the participant view.
+    changed = visitor.patch("/api/settings", json={"detail": 2})
     assert changed.status_code == 200
     assert changed.json()["view"] == "participant"
     assert host.get("/api/settings").json()["view"] == "host"

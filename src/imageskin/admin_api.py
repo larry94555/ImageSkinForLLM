@@ -1,10 +1,10 @@
 """The administrator's sign-in routes (roadmap R149), and `require_admin` for every admin route."""
 
 import logging
-from collections.abc import Callable
-from typing import Annotated
+from collections.abc import Callable, Sequence
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Cookie, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -35,8 +35,11 @@ def address(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def admin_router(sign_ins: AdminSignIns) -> tuple[APIRouter, Callable[[str | None], None]]:
-    """The routes, and the dependency that refuses a request not signed in as administrator."""
+def admin_router(
+    sign_ins: AdminSignIns, sign_in_check: Sequence[Callable[..., Any]] = ()
+) -> tuple[APIRouter, Callable[[str | None], None]]:
+    """The routes, and the dependency that refuses a request not signed in as administrator.
+    `sign_in_check` runs before a sign-in: the Settings page's own check (R191)."""
     router = APIRouter(prefix="/api/admin")
 
     def require_admin(token: Token = None) -> None:
@@ -70,7 +73,7 @@ def admin_router(sign_ins: AdminSignIns) -> tuple[APIRouter, Callable[[str | Non
         proof = LaptopProof(**laptop.model_dump()) if laptop else None
         return {"listed": sign_ins.laptops.listed(proof)}
 
-    @router.post("/sign-in", response_model=None)
+    @router.post("/sign-in", response_model=None, dependencies=[Depends(c) for c in sign_in_check])
     def sign_in(
         request: Request,
         response: Response,

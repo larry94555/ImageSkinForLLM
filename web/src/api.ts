@@ -1102,6 +1102,22 @@ export async function isLaptopListed(laptop?: LaptopProof): Promise<boolean> {
   return (await json<{ listed: boolean }>(response)).listed;
 }
 
+// Whether this browser sees Settings (R191): a signed-in host, or a laptop listed in the admin
+// laptops file, proved with `laptop` once; the server then keeps a pass for it in a cookie.
+export interface SettingsAccess {
+  shown: boolean;
+  as: "host" | "laptop" | null;
+}
+
+export async function getSettingsAccess(laptop?: LaptopProof): Promise<SettingsAccess> {
+  const response = await fetch("/api/settings/access", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(laptop ? { laptop } : {}),
+  });
+  return json<SettingsAccess>(response);
+}
+
 // Throws a ServerRefusal with R162's one message, whatever the cause, when refused. The laptop's
 // proof (R164) goes with the password where the browser can make one.
 export async function signInAsAdmin(password: string, laptop?: LaptopProof): Promise<void> {

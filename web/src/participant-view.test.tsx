@@ -19,6 +19,9 @@ function server(signedIn = false) {
       return Response.json({ signed_in: state.host, email: state.host ? "host@example.com" : null });
     }
     if (url === "/api/host/page") return new Response(null, { status: 204 });
+    if (url === "/api/settings/access") {
+      return Response.json({ shown: state.host, as: state.host ? "host" : null });
+    }
     if (url === "/api/host/sign-in") {
       const body = JSON.parse(String(init?.body)) as { email: string };
       state.host = true;
@@ -99,11 +102,11 @@ test("signing in as host gives the host view, and signing out the participant vi
 });
 
 test("only a signed-in host chooses the view on the Settings page", async () => {
+  // Anyone else isn't shown Settings at all (R191).
   server();
   window.location.hash = "#/settings";
   render(<App />);
-  await screen.findByRole("heading", { name: "Settings" });
-  expect(screen.queryByRole("region", { name: "View" })).toBeNull();
+  await screen.findByRole("heading", { name: "Page not found" });
   cleanup();
 
   server(true);
