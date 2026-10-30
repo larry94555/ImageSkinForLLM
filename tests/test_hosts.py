@@ -16,9 +16,11 @@ from imageskin.hosts import (
     EMAIL_TAKEN,
     FILENAME,
     SHORT_PASSWORD,
+    UNREADABLE,
     WRONG,
     HostAccounts,
     HostRefused,
+    HostsUnreadable,
 )
 
 PASSWORD = "a long secret"
@@ -137,13 +139,46 @@ def test_reset_password_ends_the_hosts_sign_ins(tmp_path: Path) -> None:
         accounts.reset_password("host@example.com", "short")
 
 
-def test_an_unreadable_file_means_no_hosts(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize("text", ["{ not json", '{"hosts": [], "sessions": {}}'])
+def test_an_unreadable_file_is_never_written_over(
+    tmp_path: Path, text: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    (tmp_path / FILENAME).write_text("{ not json")
-    accounts = HostAccounts(tmp_path)
-    assert accounts.host("anything") is None
+    # Codex's review: a sign-up must not replace a file it couldn't read with an empty one.
+    path = tmp_path / FILENAME
+    path.write_text(text)
+    browser = TestClient(create_app(tmp_path), cookies={"imageskin_host": "a sign-in"})
+    body = {"email": "new@example.com", "password": PASSWORD}
+    for route in ["sign-up", "sign-in", "sign-out"]:
+        answer = browser.post(f"/api/host/{route}", json=body)
+        assert answer.status_code == 503 and answer.json() == {"detail": UNREADABLE}
+    assert browser.get("/api/host/session").json()["signed_in"] is False
+    with pytest.raises(HostsUnreadable):
+        HostAccounts(tmp_path).reset_password("new@example.com", PASSWORD)
+    assert path.read_text() == text
     assert "Could not read the host accounts file" in caplog.text
+    # Once the file is fixed, it is read again with no restart.
+    path.write_text('{"hosts": {}, "sessions": {}}')
+    assert browser.post("/api/host/sign-up", json=body).status_code == 200
+
+
+def test_a_reset_while_signing_in_refuses_the_old_password(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Codex's review: a sign-in checked against the old password must not outlive a reset.
+    accounts = HostAccounts(tmp_path)
+    accounts.sign_up("host@example.com", PASSWORD, "1.2.3.4")
+    check = admin.check_password
+
+    def reset_meanwhile(password: str, secret: Any) -> bool:
+        matches = check(password, secret)
+        HostAccounts(tmp_path).reset_password("host@example.com", "a new long one")
+        return matches
+
+    monkeypatch.setattr("imageskin.hosts.check_password", reset_meanwhile)
+    with pytest.raises(HostRefused) as e:
+        accounts.sign_in("host@example.com", PASSWORD, "1.2.3.4")
+    assert refused(e) == (WRONG, "password changed while signing in")
+    assert json.loads((tmp_path / FILENAME).read_text())["sessions"] == {}
 
 
 def test_the_api_signs_up_in_and_out(tmp_path: Path) -> None:

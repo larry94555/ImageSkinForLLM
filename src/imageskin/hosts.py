@@ -38,6 +38,17 @@ EMAIL_TAKEN = "That email address is already signed up. Sign in instead."
 WRONG = "The email address or password is wrong."
 
 
+UNREADABLE = "Host accounts can't be read right now. Please try again later."
+
+
+class HostsUnreadable(Exception):
+    """hosts.json is there but can't be read or parsed. Nothing is written over it, so the
+    accounts in it are never lost to an empty file (Codex's review); only the log says why."""
+
+    def __init__(self) -> None:
+        super().__init__(UNREADABLE)
+
+
 class HostRefused(Exception):
     """A refused sign-up or sign-in: the words for the page, and the reason for the log."""
 
@@ -72,7 +83,8 @@ class HostAccounts:
         self._data: dict[str, Any] = {"hosts": {}, "sessions": {}}
 
     def _load(self) -> dict[str, Any]:
-        """The file's accounts and sign-ins, read again only when the file has changed."""
+        """The file's accounts and sign-ins, read again only when the file has changed;
+        HostsUnreadable when it is there but can't be used, so nothing reads or writes it."""
         try:
             stat = self.path.stat()
             seen: tuple[int, int] | None = (stat.st_mtime_ns, stat.st_size)
@@ -83,12 +95,15 @@ class HostAccounts:
             if seen:
                 try:
                     data.update(json.loads(self.path.read_text(encoding="utf-8")))
-                except (OSError, ValueError) as e:
-                    # Kept as no hosts, so nobody signs in, rather than failing every page.
+                    if not all(isinstance(data[k], dict) for k in ("hosts", "sessions")):
+                        raise ValueError("hosts and sessions must be objects")
+                except (OSError, ValueError, TypeError) as e:
+                    # Not remembered as seen, so the file is tried again once it is fixed.
                     logger.error(
                         "Could not read the host accounts file",
                         extra={"path": str(self.path), "error": str(e)},
                     )
+                    raise HostsUnreadable() from e
             self._data, self._file_seen = data, seen
         return self._data
 
@@ -159,6 +174,11 @@ class HostAccounts:
             self._refuse(WRONG, reason, "sign-in", email, address)
         with self._lock:
             data = self._load()
+            now = data["hosts"].get(email)
+            # The password reset while it was checked (Codex's review): no sign-in with the old
+            # one, as the reset ended the host's sign-ins.
+            if now is None or now["password_hash"] != secret.value:  # type: ignore[union-attr]
+                self._refuse(WRONG, "password changed while signing in", "sign-in", email, address)
             data = {**data, "sessions": {**data["sessions"]}}
             token = self._new_sign_in(data, email)
             self._save(data)
@@ -177,7 +197,10 @@ class HostAccounts:
         if not token:
             return None
         with self._lock:
-            data = self._load()
+            try:
+                data = self._load()
+            except HostsUnreadable:
+                return None  # signed in as no one until the file can be read
             session = data["sessions"].get(token_key(token))
             account = session and data["hosts"].get(session["email"])
         if not account:

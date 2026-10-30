@@ -5,11 +5,11 @@ import logging
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from imageskin.admin_api import address
-from imageskin.hosts import Host, HostAccounts, HostRefused, normal_email
+from imageskin.hosts import Host, HostAccounts, HostRefused, HostsUnreadable, normal_email
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,8 @@ def host_router(accounts: HostAccounts) -> tuple[APIRouter, Callable[[str | None
         except HostRefused as e:
             status = 409 if e.reason == "email already signed up" else 400
             return JSONResponse({"detail": str(e)}, status_code=status)
+        except HostsUnreadable as e:
+            return JSONResponse({"detail": str(e)}, status_code=503)
         return signed_in(request, token, email)
 
     @router.post("/sign-in")
@@ -68,13 +70,20 @@ def host_router(accounts: HostAccounts) -> tuple[APIRouter, Callable[[str | None
             token = accounts.sign_in(email, password, address(request))
         except HostRefused as e:
             return JSONResponse({"detail": str(e)}, status_code=401)
+        except HostsUnreadable as e:
+            return JSONResponse({"detail": str(e)}, status_code=503)
         return signed_in(request, token, email)
 
     @router.post("/sign-out")
-    def sign_out(request: Request, response: Response, token: Token = None) -> dict[str, object]:
-        accounts.sign_out(token, address(request))
+    def sign_out(request: Request, token: Token = None) -> JSONResponse:
+        try:
+            accounts.sign_out(token, address(request))
+        except HostsUnreadable as e:
+            # The cookie is kept: the sign-in can't be ended on the server until the file reads.
+            return JSONResponse({"detail": str(e)}, status_code=503)
+        response = JSONResponse({"signed_in": False})
         response.delete_cookie(COOKIE, path="/")
-        return {"signed_in": False}
+        return response
 
     @router.get("/me")
     def me(host: Annotated[Host, Depends(require_host)]) -> dict[str, object]:
