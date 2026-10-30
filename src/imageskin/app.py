@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NoReturn
 from urllib.parse import quote
 
 from fastapi import (
@@ -40,6 +40,7 @@ from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.admin import FILENAME as ADMIN_FILENAME
 from imageskin.admin import AdminSignIns
+from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_api import admin_router
 from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
@@ -75,7 +76,9 @@ from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
-from imageskin.hosts import HostAccounts
+from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
+from imageskin.host_disk import count as count_disk
+from imageskin.hosts import Host, HostAccounts, normal_email
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -619,7 +622,57 @@ def create_app(
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
     # for the participant view.
     host_only = [Depends(app.state.require_host)]
+    SignedInHost = Annotated[Host, Depends(app.state.require_host)]
     app.include_router(host_routes)
+    # Who added each photo, recording and PDF, and the disk space each host has used (R192).
+    owners = Owners(data_home)
+
+    def unrecorded_refused(
+        step: Callable[[], None], undo: Callable[[], object] | None = None
+    ) -> None:
+        """Run `step`; when owners.json can't be read, undo what was stored and refuse."""
+        try:
+            step()
+        except OwnersUnreadable as e:
+            if undo:
+                undo()
+            logger.error("File refused: its host can't be recorded", extra={"error": str(e)})
+            raise HTTPException(status_code=500, detail=NOT_RECORDED) from e
+
+    # Asked by a signed-in host for their own files, or by the administrator for any host's
+    # (Larry, 2026-10-30); anyone else is refused.
+    @app.get("/api/host/disk")
+    def host_disk(
+        email: Annotated[str | None, Query(description="The host's email address.")] = None,
+        host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
+        admin_token: Annotated[str | None, Cookie(alias=ADMIN_COOKIE)] = None,
+    ) -> dict[str, int]:
+        host = host_accounts.host(host_token)
+        admin = admin_sign_ins.signed_in(admin_token)
+        wanted = normal_email(email) if email else (host.email if host else None)
+
+        def refuse(status: int, detail: str, why: str) -> NoReturn:
+            logger.warning(
+                "Host disk space refused",
+                extra={
+                    "email": wanted,
+                    "asked_by": host and host.email,
+                    "admin": admin,
+                    "why": why,
+                },
+            )
+            raise HTTPException(status_code=status, detail=detail)
+
+        if admin:
+            if wanted is None:
+                refuse(400, "Say which host's disk space to count.", "no host named")
+            if not host_accounts.exists(wanted):
+                refuse(404, "There is no host with that email address.", "no such host")
+        elif host is None:
+            refuse(401, NOT_SIGNED_IN, "not signed in")
+        elif wanted != host.email:
+            refuse(403, "A host can only see their own disk space.", "another host's")
+        return count_disk(data_home, owners, wanted)
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
     # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
@@ -820,7 +873,11 @@ def create_app(
     needs_person = [Depends(require_person)]
 
     @app.post(uploads_api, dependencies=host_and_consent)
-    def upload(kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response) -> Upload:
+    def upload(
+        kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response, host: SignedInHost
+    ) -> Upload:
+        # Refused, not stored with no host, while who added what can't be recorded (R192).
+        unrecorded_refused(owners.check)
         try:
             # Each step's time goes back in the Server-Timing header (R96b). FastAPI has received
             # and parsed the upload before this runs, so `endpoint` leaves that out; the time
@@ -828,6 +885,10 @@ def create_app(
             with server_timing.collecting() as steps, server_timing.step("endpoint"):
                 with personal_write(seen):
                     saved = store.save(kind, file.filename, file.file)
+                    unrecorded_refused(
+                        lambda: owners.record(kind, saved.id, host.email),
+                        undo=lambda: store.remove(kind, saved.id),
+                    )
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
         response.headers["Server-Timing"] = server_timing.header(steps)
@@ -945,12 +1006,17 @@ def create_app(
         return content.list()
 
     @app.post(content_api, dependencies=host_only)
-    def add_pdf(file: UploadFile, seen: DeletesSeen) -> Pdf:
+    def add_pdf(file: UploadFile, seen: DeletesSeen, host: SignedInHost) -> Pdf:
+        unrecorded_refused(owners.check)
         with content_write(seen):
             try:
                 pdf = content.add(file.filename, file.file)
             except UploadError as e:
                 raise HTTPException(status_code=e.status, detail=str(e)) from e
+            unrecorded_refused(
+                lambda: owners.record("pdfs", pdf.id, host.email),
+                undo=lambda: content.remove(pdf.id),
+            )
             readings.queue(pdf)
         return pdf
 

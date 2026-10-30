@@ -199,6 +199,14 @@ class HostAccounts:
         )
         return token
 
+    def exists(self, email: str) -> bool:
+        """Whether a host has signed up with this email address."""
+        with self._lock:
+            try:
+                return normal_email(email) in self._load()["hosts"]
+            except HostsUnreadable:
+                return False
+
     def host(self, token: str | None) -> Host | None:
         """The host the token is signed in as, or None."""
         if not token:
