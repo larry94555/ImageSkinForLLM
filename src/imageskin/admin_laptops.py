@@ -40,6 +40,9 @@ EXPIRED = "challenge expired"
 BAD_PROOF = "bad laptop proof"
 NOT_LISTED = "laptop not listed"
 
+# The file couldn't be looked at (not missing, which lets any laptop in): no laptop gets in.
+UNREADABLE = "unreadable"
+
 
 def laptop_id(public_key: bytes) -> str:
     """The laptop's ID from its public key (SPKI, DER): the first 20 characters of the SHA-256
@@ -124,7 +127,8 @@ class AdminLaptops:
         self.path = path
         self.clock = clock
         self._lock = threading.Lock()
-        self._file_seen: tuple[int, int] | None = None
+        # The file's modification time and size when last read, None with no file, or UNREADABLE.
+        self._file_seen: tuple[int, int] | str | None = None
         self._allowed: frozenset[str] | None = None
         # Each challenge given, with when it was given, oldest first.
         self._challenges: dict[str, float] = {}
@@ -134,12 +138,25 @@ class AdminLaptops:
         with self._lock:
             try:
                 stat = self.path.stat()
-                seen: tuple[int, int] | None = (stat.st_mtime_ns, stat.st_size)
-            except OSError:
+                seen: tuple[int, int] | str | None = (stat.st_mtime_ns, stat.st_size)
+            except FileNotFoundError:
                 seen = None
+            except OSError as e:
+                # Not "no file": the file may be there and list laptops, so let none in until it
+                # can be looked at again (Codex on #225).
+                logger.error(
+                    "Could not read the admin laptops file",
+                    extra={"path": str(self.path), "error": str(e)},
+                )
+                seen = UNREADABLE
             if seen != self._file_seen:
                 before = self._allowed
-                self._allowed = read_laptops(self.path) if seen else None
+                if seen is None:
+                    self._allowed = None
+                elif seen == UNREADABLE:
+                    self._allowed = frozenset()
+                else:
+                    self._allowed = read_laptops(self.path)
                 self._file_seen = seen
                 logger.info(
                     "Admin laptops file read",

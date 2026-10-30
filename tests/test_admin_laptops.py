@@ -192,6 +192,51 @@ def test_the_file_is_read_again_only_when_it_changes(
     assert [(r.laptops, r.changed) for r in reads] == [(1, True), (2, True)]  # type: ignore[attr-defined]
 
 
+def stat_fails(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
+    """The file can't be looked at, as with no permission on its folder."""
+    real = Path.stat
+
+    def stat(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if self == path:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "stat", stat)
+
+
+def test_a_file_that_cant_be_looked_at_lets_no_laptop_in(
+    home: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = home / "admin-laptops.toml"
+    sign_ins = AdminSignIns(home / "admin.toml")
+    stat_fails(monkeypatch, path)
+    assert sign_ins.laptops.allowed() == frozenset()
+    assert sign_ins.laptops.check(None) == (admin_laptops.NO_PROOF, None)
+    assert not sign_ins.laptops.still_allowed(None)
+    with pytest.raises(AdminRefused):
+        sign_ins.sign_in("first secret", "1.2.3.4")
+    assert "Could not read the admin laptops file" in caplog.text
+    monkeypatch.undo()
+    assert sign_ins.laptops.allowed() is None  # looked at again: there is no file
+
+
+def test_a_listed_file_that_cant_be_looked_at_signs_everyone_out(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    one = Laptop()
+    path = home / "admin-laptops.toml"
+    write(path, listing(one))
+    sign_ins = AdminSignIns(home / "admin.toml")
+    token = sign_ins.sign_in("first secret", "1.2.3.4", one.prove(sign_ins.laptops.challenge()))
+    stat_fails(monkeypatch, path)
+    assert not sign_ins.signed_in(token)
+    assert sign_ins.ended(token) == "laptop removed"
+    with pytest.raises(AdminRefused):
+        sign_ins.sign_in("first secret", "1.2.3.4", one.prove(sign_ins.laptops.challenge()))
+    monkeypatch.undo()
+    assert sign_ins.laptops.allowed() == frozenset({one.id})
+
+
 def test_the_committed_example_lists_no_laptop() -> None:
     assert read_laptops(ROOT / "admin-laptops.example.toml") == frozenset()
     assert "admin-laptops.toml" in (ROOT / ".gitignore").read_text().splitlines()
