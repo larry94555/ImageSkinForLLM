@@ -343,3 +343,23 @@ test("any recording can be chosen first, and the ones kept are ticked", async ()
   expect(screen.getByRole("button", { name: "Voice 2" }).getAttribute("aria-pressed")).toBe("true");
   expect(screen.queryByLabelText("The recording you made")).toBeNull();
 });
+
+test("a recorder that won't start turns the microphone off and can be tried again", async () => {
+  const { stop, getUserMedia } = microphone();
+  const start = vi.spyOn(FakeRecorder.prototype, "start").mockImplementationOnce(() => {
+    throw Object.assign(new Error("can't start"), { name: "NotSupportedError" });
+  });
+  const { reports } = server(Response.json(SOUND));
+  const changing: boolean[] = [];
+  recorder({ onChanging: (b) => changing.push(b) });
+  fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+  expect(await screen.findByText(WHY_NOT.failed, { exact: false })).toBeTruthy();
+  expect(stop).toHaveBeenCalled();
+  expect(screen.queryByText("Asking for the microphone…")).toBeNull();
+  expect(changing).toEqual([]);
+  await waitFor(() => expect(reports).toEqual([{ made: false, reason: "failed" }]));
+  fireEvent.click(screen.getByRole("button", { name: "Try the microphone again" }));
+  expect(await screen.findByRole("button", { name: "Stop" })).toBeTruthy();
+  expect(getUserMedia).toHaveBeenCalledTimes(2);
+  expect(start).toHaveBeenCalledTimes(2);
+});

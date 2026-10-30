@@ -9268,6 +9268,13 @@ function VoiceRecorder(props) {
 			stopListening();
 			if (alive.current) finish(new Blob(chunks, { type: rec.mimeType || type }), length);
 		};
+		try {
+			rec.start(1e3);
+		} catch (e) {
+			stopListening();
+			notUsed("failed", e);
+			return;
+		}
 		recorder.current = rec;
 		meter(media);
 		setSeconds(0);
@@ -9279,7 +9286,6 @@ function VoiceRecorder(props) {
 				rec.stop();
 			}
 		}, 250);
-		rec.start(1e3);
 		props.onChanging(true);
 		console.info(`Recording ${PASSAGES[passage].name} (${rec.mimeType || type || "browser's type"})`);
 		setPhase("recording");

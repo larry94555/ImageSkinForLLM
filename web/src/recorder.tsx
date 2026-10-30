@@ -240,6 +240,15 @@ export function VoiceRecorder(props: {
       stopListening();
       if (alive.current) void finish(new Blob(chunks, { type: rec.mimeType || type }), length);
     };
+    // Started before the meter and the timer, as it can refuse (the type chosen, or the
+    // microphone's state: Codex's review of PR #230).
+    try {
+      rec.start(1000);
+    } catch (e) {
+      stopListening();
+      notUsed("failed", e);
+      return;
+    }
     recorder.current = rec;
     meter(media);
     setSeconds(0);
@@ -251,7 +260,6 @@ export function VoiceRecorder(props: {
         rec.stop();
       }
     }, 250);
-    rec.start(1000);
     props.onChanging(true);
     console.info(`Recording ${PASSAGES[passage].name} (${rec.mimeType || type || "browser's type"})`);
     setPhase("recording");
