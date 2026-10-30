@@ -28,6 +28,13 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple, Protocol
 
 from imageskin import reply_times
+from imageskin.customization import (
+    Customization,
+    Read,
+    about_me,
+    asks_about_identity,
+    instructions,
+)
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.json_grammar import compact_grammar
 from imageskin.reply_times import note, note_llm, note_now, note_request
@@ -74,13 +81,23 @@ DEFAULT_DETAIL = 3
 reply_detail: ContextVar[int] = ContextVar("reply_detail", default=DEFAULT_DETAIL)
 
 
+# The identity and goals the reply being made is asked with (R92), set by `detail_level` too;
+# None, as in a one-off ask outside the chat, leaves them out.
+reply_customization: ContextVar[Customization | None] = ContextVar(
+    "reply_customization", default=None
+)
+
+
 @contextlib.contextmanager
-def detail_level(level: int) -> Iterator[None]:
-    """Ask what is sent in this block at `level` of detail (R180)."""
+def detail_level(level: int, customization: Customization | None = None) -> Iterator[None]:
+    """Ask what is sent in this block at `level` of detail (R180), with the identity and goals
+    in `customization` (R92)."""
     token = reply_detail.set(level if level in DETAIL_LEVELS else DEFAULT_DETAIL)
+    who = reply_customization.set(customization)
     try:
         yield
     finally:
+        reply_customization.reset(who)
         reply_detail.reset(token)
 
 
@@ -189,6 +206,8 @@ MIN_PASSAGE_CHARS = 80
 # matches the prompt (roadmap R41), when there are no topics to name (R41f). It is spoken, so it
 # is short and plain.
 OFF_TOPIC = " ".join(decline_reply([]))
+# Said to "Who are you?" when every part of the identity is empty (R92).
+NO_IDENTITY = "I'm here to talk with you about the material I was given."
 
 
 @dataclass(frozen=True)
@@ -358,6 +377,12 @@ def as_message(turn: Turn) -> Message:
 
 def system_message(summary: str | None) -> Message:
     prompt = f"{system_prompt(reply_detail.get())} {CONTENT_RULES}"
+    # The identity and goals come first, so they are kept in llama-server's cache with the
+    # instructions and read again only when they change (R92).
+    customization = reply_customization.get()
+    who = "" if customization is None else instructions(customization)
+    if who:
+        prompt = f"{who} {prompt}"
     content = prompt if summary is None else f"{prompt}\n\n{EARLIER}\n{summary}"
     return {"role": "system", "content": content}
 
@@ -928,8 +953,11 @@ class Conversation:
         read_ahead: Callable[[list[Message]], str | None] | None = None,
         # The level of detail set on the chat screen's bar, read for each prompt (R180).
         detail: Callable[[], int] = lambda: DEFAULT_DETAIL,
+        # The identity and goals, read once for each prompt (R92); None leaves them out.
+        customization: Callable[[], Read] | None = None,
     ) -> None:
         self._detail = detail
+        self._customization = customization
         self._saved = saved
         self._read_ahead = read_ahead
         self._find = find
@@ -1024,7 +1052,7 @@ class Conversation:
             # that fit, and the summary is used from the next prompt on (R147).
             if self.summarizing():
                 logger.info("Prompt didn't wait for the summary")
-            with self._at_detail():
+            with self._at_detail(sent=True):
                 return self._send(prompt, on_sentence, teach)
 
     def say(
@@ -1033,7 +1061,7 @@ class Conversation:
         """Reply to the prompt with these sentences, made outside the LLM (a lesson's choices,
         R41h), spoken and kept like any reply. The prompt is checked as `send` checks it."""
         prompt = checked(prompt)
-        with self._busy, self._at_detail():
+        with self._busy, self._at_detail(sent=True):
             fit = self._fit(prompt)
             return self._say(prompt, sentences, on_sentence, fit.turns, fit.budget)
 
@@ -1158,6 +1186,8 @@ class Conversation:
             return self._ask_llm(prompt, asked, fit, on_sentence, teach.then)
         if asks_for_topics(prompt):
             return self._tell_topics(prompt, fit.turns, on_sentence, fit.budget)
+        if asks_about_identity(prompt):
+            return self._tell_identity(prompt, fit.turns, on_sentence, fit.budget)
         # "Tell me about the second one" after the topics were listed is about that topic, so
         # that is what is looked up (review on PR #85); the LLM gets the prompt as it is, with
         # the list in the history.
@@ -1348,6 +1378,16 @@ class Conversation:
         self._told = (spoken_topics(topics), suggested if len(topics) > 1 and complete else None)
         return self._say(prompt, sentences, on_sentence, turns, budget)
 
+    def _tell_identity(
+        self, prompt: str, turns: list[Turn], on_sentence: OnSentence | None, budget: int
+    ) -> tuple[Turn, int]:
+        """Answer "Who are you?" and the like from the identity, without asking the LLM (R92),
+        so it is answered with general prompts off. It is sent with later prompts."""
+        customization = reply_customization.get()
+        sentences = [] if customization is None else about_me(customization.identity)
+        logger.info("Identity asked for", extra={"sentences": len(sentences)})
+        return self._say(prompt, sentences or [NO_IDENTITY], on_sentence, turns, budget)
+
     def _decline(self, prompt: str, on_sentence: OnSentence | None) -> tuple[Turn, int]:
         """Say sorry, naming a few topics to ask about instead (R41f), without asking the LLM
         (roadmap R41). It is shown in the chat but not sent to the LLM with later prompts, so it
@@ -1481,10 +1521,22 @@ class Conversation:
         if self._summarizer is not None:
             self._summarizer.join()
 
-    def _at_detail(self) -> AbstractContextManager[None]:
-        """Asks at the level of detail set now (R180): the system prompt and the reply's room
-        follow it."""
-        return detail_level(self._detail())
+    def _at_detail(self, sent: bool = False) -> AbstractContextManager[None]:
+        """Asks at the level of detail set now (R180), with the identity and goals as they are
+        now (R92): the system prompt and the reply's room follow them. `sent` when a prompt is
+        answered, for the log."""
+        read = None
+        if self._customization is not None:
+            try:
+                read = self._customization()
+            except Exception:
+                logger.exception("Could not read the identity")
+            if sent and read is not None:
+                logger.info(
+                    "Identity used",
+                    extra={"shipped": read.shipped, "duration_ms": read.duration_ms},
+                )
+        return detail_level(self._detail(), None if read is None else read.customization)
 
     def _summarize(self, budget: int) -> None:
         """Fold the older turns into the summary, keeping the latest ones word for word.

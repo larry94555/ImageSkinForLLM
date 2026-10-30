@@ -65,11 +65,17 @@ Choose = Callable[[Sequence[str]], str]
 Sample = Callable[[Sequence[str], int], list[str]]
 
 
-def asks_for_topics(prompt: str) -> bool:
-    """Whether the prompt asks what can be talked about."""
+def normalized(prompt: str) -> str:
+    """The prompt as the questions above are matched against it: in lower case, with its
+    punctuation and a few lead-in and closing words taken off."""
     text = _PUNCTUATION.sub(" ", prompt.lower().replace("’", "'"))
     text = " ".join(text.split())
-    text = _CLOSING.sub("", _LEAD_IN.sub("", text)).strip()
+    return _CLOSING.sub("", _LEAD_IN.sub("", text)).strip()
+
+
+def asks_for_topics(prompt: str) -> bool:
+    """Whether the prompt asks what can be talked about."""
+    text = normalized(prompt)
     return any(p.fullmatch(text) for p in TOPIC_QUESTIONS)
 
 

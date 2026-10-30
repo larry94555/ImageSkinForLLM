@@ -237,6 +237,15 @@ export function SettingsPage({
               <p className="muted">{help}</p>
             </div>
           ))}
+          {/* The identity and goals are the signed-in host's (R92). */}
+          {group === "Chat" && host && (
+            <div className="switch">
+              <a href="#/customization">Customization</a>
+              <p className="muted">
+                Who the person in the video is and their goals, given to the LLM with every prompt.
+              </p>
+            </div>
+          )}
         </section>
       ))}
       {/* The LLM and its key are the host's to pick (R42). */}

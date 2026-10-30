@@ -226,7 +226,8 @@ def test_a_spoken_prompt_is_corrected_without_waiting_for_the_summary(tmp_path: 
 
     client = riemann_app(tmp_path, Slow())
     for _ in range(20):  # until a reply starts a summary
-        chat(client, "How are primes counted? " + "primes counted " * 40)
+        # short enough to fit beside the identity and goals (R92) by the tests' byte count
+        chat(client, "How are primes counted? " + "primes counted " * 15)
         if asked:
             break
     assert asked == ["summary"]  # being made

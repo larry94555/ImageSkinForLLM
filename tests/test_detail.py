@@ -141,8 +141,9 @@ def test_the_chat_answers_at_the_level_set_on_the_bar(
         changed = client.patch("/api/settings", json={"detail": 5})
         assert changed.status_code == 200 and changed.json()["detail"] == 5
         client.post("/api/chat", json={"prompt": "Why blue?", "reply_id": "a" * 32})
-    assert asked[0][0].startswith(system_prompt(3)) and asked[0][1] == DETAIL_LEVELS[3][1]
-    assert asked[-1][0].startswith(system_prompt(5)) and asked[-1][1] == DETAIL_LEVELS[5][1]
+    # after the identity and goals (R92)
+    assert system_prompt(3) in asked[0][0] and asked[0][1] == DETAIL_LEVELS[3][1]
+    assert system_prompt(5) in asked[-1][0] and asked[-1][1] == DETAIL_LEVELS[5][1]
     set_ = next(r for r in caplog.records if r.message == "Level of detail set")
     assert set_.detail == 5  # type: ignore[attr-defined]
 

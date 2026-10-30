@@ -798,6 +798,14 @@ ul.photos img { border-radius: 8px; }
 .disk-used dt { margin: 0; }
 .disk-used dd { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .disk-used .total { font-weight: 600; }
+/* The Customization page's identity and goals (R92). */
+.identity { margin: 8px 0 0; }
+.identity > div { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.identity > div:first-child { border-top: none; }
+.identity dt, .identity dd { margin: 0; }
+@media (max-width: 600px) { .identity > div { grid-template-columns: 1fr; gap: 4px; } }
+ul.goals { margin: 8px 0 0; padding-left: 20px; }
+ul.goals li { display: list-item; padding: 4px 0; border: 0; background: none; }
 .host-account form { max-width: 24em; }
 .host-account label { display: grid; gap: 4px; width: 100%; font-weight: 600; }
 .host-account input { width: 100%; }

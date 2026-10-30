@@ -70,6 +70,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
+from imageskin.customization import CustomizationFile
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
@@ -1609,6 +1610,20 @@ def create_app(
         """The level of detail on the chat screen's bar, read for each prompt (R180)."""
         return load_ui_settings(data_home, ui_defaults).detail
 
+    # The identity, goals and guidelines (R92), read for each prompt and shown to a host.
+    customization = CustomizationFile(data_home)
+
+    @app.get("/api/customization", dependencies=host_only)
+    def get_customization(
+        opened: Annotated[
+            bool, Query(description="Asked by the Customization page as it opens.")
+        ] = False,
+    ) -> dict[str, Any]:
+        read = customization.read()
+        if opened:
+            logger.info("Customization page opened", extra={"shipped": read.shipped})
+        return {**read.customization.as_dict(), "shipped": read.shipped}
+
     if client is not None:
         conversation = Conversation(
             replies_first.asking(client.ask, local),
@@ -1627,6 +1642,7 @@ def create_app(
             # A question typed so far, read for one token (R148).
             read_ahead=replies_first.ahead(functools.partial(client.ask, max_tokens=1), local),
             detail=saved_detail,
+            customization=customization.read,
         )
     else:
         assert ask_llm is not None
@@ -1644,6 +1660,7 @@ def create_app(
             saved=data_home / CONVERSATION_FILE,
             read_ahead=replies_first.ahead(ask_llm, local),
             detail=saved_detail,
+            customization=customization.read,
         )
 
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.

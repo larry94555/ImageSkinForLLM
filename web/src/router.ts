@@ -20,6 +20,7 @@ export type Page =
   | "host-sign-in"
   | "host-only"
   | "resources"
+  | "customization"
   | "not-found";
 
 const PAGES: Record<string, Page> = {
@@ -42,6 +43,8 @@ const PAGES: Record<string, Page> = {
   "/host/sign-in": "host-sign-in",
   // The signed-in host's disk space used (R193), in either view; it checks the sign-in itself.
   "/resources": "resources",
+  // The identity and goals (R92), in either view; it checks the sign-in itself.
+  "/customization": "customization",
 };
 
 // The wiki's addresses (roadmap R37b): #/wiki/<PDF id> is one PDF's table of contents, and
