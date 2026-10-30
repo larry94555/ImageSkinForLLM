@@ -6,6 +6,7 @@ export type Page =
   | "home"
   | "consent"
   | "setup"
+  | "wizard"
   | "start-now"
   | "avatar-voice"
   | "chat"
@@ -22,6 +23,7 @@ const PAGES: Record<string, Page> = {
   "/consent": "consent",
   "/consent/own": "consent", // choosing your own image and voice over a ready-made avatar
   "/setup": "setup",
+  "/setup/wizard": "wizard", // R131: setup one step at a time, with its own consent step
   "/start-now": "start-now",
   "/avatar-voice": "avatar-voice", // R24d: a ready-made avatar in the user's own voice
   "/chat": "chat",
@@ -100,6 +102,7 @@ const HOST_PAGES: Page[] = [
   "home",
   "consent",
   "setup",
+  "wizard",
   "start-now",
   "avatar-voice",
   "guide",

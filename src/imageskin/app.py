@@ -155,6 +155,7 @@ from imageskin.wiki_outline import (
     OutlineProgress,
     Outliner,
 )
+from imageskin.wizard import load_step, save_step
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +169,10 @@ class ChatGptAccount(BaseModel):
 
 class ConsentRequest(BaseModel):
     agreed: bool
+
+
+class WizardStep(BaseModel):
+    step: str
 
 
 class ReadyVoiceRequest(BaseModel):
@@ -622,6 +627,22 @@ def create_app(
         with data_lock:
             not_deleted_since(seen)
             return asdict(save_consent(data_home))
+
+    # The step the setup wizard has reached (R131), so coming back opens it there.
+    @app.get("/api/wizard")
+    def get_wizard() -> dict[str, str]:
+        return {"step": load_step(data_home)}
+
+    @app.put("/api/wizard")
+    def put_wizard(body: WizardStep) -> dict[str, str]:
+        try:
+            return {"step": save_step(data_home, body.step)}
+        except ValueError as e:
+            logger.warning("Wizard step refused", extra={"error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except OSError as e:
+            logger.error("Could not save the wizard's step", extra={"error": str(e)})
+            raise HTTPException(status_code=500, detail="The step could not be saved.") from e
 
     # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
     # question scope follows the config file until it is changed there.

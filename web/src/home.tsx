@@ -6,6 +6,9 @@ import { useEffect, useState } from "preact/hooks";
 
 import { DEFAULT_PICTURE, getPhotoChoice, getReview, getStartNow, uploadUrl } from "./api";
 
+// The setup wizard (R131).
+export const WIZARD = "#/setup/wizard";
+
 interface Choice {
   href: string;
   title: string;
@@ -150,6 +153,11 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
           </li>
         ))}
       </ul>
+      {!state.done && (
+        <p className="wizard-link">
+          <a href={WIZARD}>Set up with your own photo and voice</a>, one step at a time.
+        </p>
+      )}
     </section>
   );
 }
