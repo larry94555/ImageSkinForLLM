@@ -2138,9 +2138,16 @@ def create_app(
         status = job.status()
         voice = reply_preset() or job.voice_id()
         person = None if photo is None else replies.idle_name(photo)
-        # The level of detail too (R180): a reply kept at another level is made again.
+        # The level of detail too (R180): a reply kept at another level is made again; and the
+        # identity, goals and guidelines (R194), so a reply kept before a change isn't played.
         return context_of(
-            person, voice, status.finished_at, wiki.contents(), content_only(), saved_detail()
+            person,
+            voice,
+            status.finished_at,
+            wiki.contents(),
+            content_only(),
+            saved_detail(),
+            customization.read().customization.as_dict(),
         )
 
     def answer_example(prompt: str, context: str, clips: SentenceClips) -> tuple[Turn, int]:
