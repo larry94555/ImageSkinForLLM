@@ -72,6 +72,9 @@ dev = [
     "mypy>=1.10",
     "pytest>=8",
     "pytest-cov>=5",
+    # Run the tests on every core, in two halves at once in CI.
+    "pytest-split>=0.9",
+    "pytest-xdist>=3.5",
     # Makes the PDFs the reading tests read (BSD).
     "reportlab>=4",
     "ruff>=0.5",

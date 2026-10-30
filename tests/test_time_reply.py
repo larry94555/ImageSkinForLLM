@@ -191,7 +191,7 @@ def test_stop_is_timed_at_the_first_clip(tmp_path: Path) -> None:
 
     def render(photo: Path, text: str, output: Path) -> None:
         tone_clip(0.3, output)
-        go.wait(5)  # the reply is still being made when Stop is pressed
+        go.wait(1)  # the reply is still being made when Stop is pressed
 
     def stream(messages: list[dict[str, str]]) -> Iterator[str]:
         yield from ["One. ", "Two. ", "Three."]
@@ -309,7 +309,9 @@ class SlowClip(BaseHTTPRequestHandler):
 def test_the_first_bytes_are_timed_when_they_arrive(tmp_path: Path) -> None:
     """Review on PR #138: a read that waits for 64 KB timed the first bytes too late."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), SlowClip)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    ).start()
     clip = ClipSeen(1, {"url": "/clip"}, seen_at=0.0)
     start = time.perf_counter()
     try:

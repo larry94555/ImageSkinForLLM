@@ -8,16 +8,15 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    # The whole job takes about 4 minutes; a hung step fails it instead of running on for hours.
-    timeout-minutes: 15
+    # About a minute; a hung step fails it instead of running on for hours.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install ffmpeg
-        timeout-minutes: 10
-        run: .github/scripts/install-ffmpeg.sh
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev,video,heic]"
       - name: Lint
         run: ruff check .
@@ -25,11 +24,59 @@ jobs:
         run: ruff format --check .
       - name: Type check
         run: mypy
-      - name: Unit tests
-        timeout-minutes: 8
-        run: pytest
       - name: Build
         run: pip wheel --no-deps -w dist .
+
+  # The unit tests in two halves at once, each on every core of its runner. pytest-split puts
+  # every test in exactly one half, and the coverage job below reports the two together.
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install ffmpeg
+        timeout-minutes: 10
+        run: .github/scripts/install-ffmpeg.sh
+      - run: pip install -e ".[dev,video,heic]"
+      - name: Unit tests, half ${{ matrix.group }} of 2
+        timeout-minutes: 8
+        env:
+          COVERAGE_FILE: .coverage.${{ matrix.group }}
+        run: pytest -n auto --splits 2 --group ${{ matrix.group }} --splitting-algorithm least_duration
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.group }}
+          path: .coverage.${{ matrix.group }}
+          include-hidden-files: true
+          if-no-files-found: error
+
+  coverage:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install coverage
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+      - name: Coverage of all the unit tests
+        run: |
+          coverage combine .coverage.1 .coverage.2
+          coverage report --show-missing
 
   web:
     runs-on: ubuntu-latest
