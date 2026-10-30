@@ -75,8 +75,52 @@ def test_a_host_counts_only_what_they_added(
     assert counted[-2].took_ms >= 0  # type: ignore[attr-defined]
 
 
-def test_only_a_signed_in_host_asks(tmp_path: Path) -> None:
-    assert TestClient(create_app(tmp_path)).get("/api/host/disk").status_code == 401
+def refused(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.why  # type: ignore[attr-defined]
+        for r in caplog.records
+        if r.getMessage() == "Host disk space refused"
+    ]
+
+
+def test_a_host_sees_only_their_own_and_anyone_else_is_refused(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Larry, 2026-10-30: a host for their own files, the administrator for any host's.
+    first = TestClient(create_app(tmp_path))
+    first.post("/api/host/sign-up", json=FIRST)
+    second = TestClient(first.app)
+    second.post("/api/host/sign-up", json=SECOND)
+    nobody = TestClient(first.app)
+
+    assert first.get("/api/host/disk", params={"email": "First@Example.com "}).status_code == 200
+    other = first.get("/api/host/disk", params={"email": SECOND["email"]})
+    assert other.status_code == 403
+    assert other.json() == {"detail": "A host can only see their own disk space."}
+    assert nobody.get("/api/host/disk").status_code == 401
+    assert nobody.get("/api/host/disk", params={"email": FIRST["email"]}).status_code == 401
+    assert refused(caplog) == ["another host's", "not signed in", "not signed in"]
+
+
+def test_the_administrator_sees_any_hosts(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    (tmp_path / "admin.toml").write_text('password = "first secret"\n')
+    browser = TestClient(create_app(tmp_path))
+    browser.post("/api/host/sign-up", json=FIRST)
+    TestClient(browser.app).post("/api/host/sign-up", json=SECOND)
+    # Signed in as a host too, as the admin sign-in is on Settings (R191).
+    assert browser.post("/api/admin/sign-in", json={"password": "first secret"}).status_code == 200
+    browser.post("/api/host/sign-out")
+
+    answer = browser.get("/api/host/disk", params={"email": SECOND["email"]})
+    assert answer.json() == {"images_and_recordings": 0, "pdfs": 0, "total": 0}
+    assert browser.get("/api/host/disk", params={"email": FIRST["email"]}).status_code == 200
+    missing = browser.get("/api/host/disk", params={"email": "nobody@example.com"})
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "There is no host with that email address."}
+    assert browser.get("/api/host/disk").status_code == 400
+    assert refused(caplog) == ["no such host", "no host named"]
+    counted = [r for r in caplog.records if r.getMessage() == "Host disk space counted"]
+    assert [r.email for r in counted] == [SECOND["email"], FIRST["email"]]  # type: ignore[attr-defined]
 
 
 def test_only_the_files_a_host_added_count(tmp_path: Path) -> None:

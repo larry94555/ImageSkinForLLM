@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NoReturn
 from urllib.parse import quote
 
 from fastapi import (
@@ -40,6 +40,7 @@ from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.admin import FILENAME as ADMIN_FILENAME
 from imageskin.admin import AdminSignIns
+from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_api import admin_router
 from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
@@ -77,7 +78,7 @@ from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.host_disk import Owners
 from imageskin.host_disk import count as count_disk
-from imageskin.hosts import Host, HostAccounts
+from imageskin.hosts import Host, HostAccounts, normal_email
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -626,9 +627,40 @@ def create_app(
     # Who added each photo, recording and PDF, and the disk space each host has used (R192).
     owners = Owners(data_home)
 
+    # Asked by a signed-in host for their own files, or by the administrator for any host's
+    # (Larry, 2026-10-30); anyone else is refused.
     @app.get("/api/host/disk")
-    def host_disk(host: SignedInHost) -> dict[str, int]:
-        return count_disk(data_home, owners, host.email)
+    def host_disk(
+        email: Annotated[str | None, Query(description="The host's email address.")] = None,
+        host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
+        admin_token: Annotated[str | None, Cookie(alias=ADMIN_COOKIE)] = None,
+    ) -> dict[str, int]:
+        host = host_accounts.host(host_token)
+        admin = admin_sign_ins.signed_in(admin_token)
+        wanted = normal_email(email) if email else (host.email if host else None)
+
+        def refuse(status: int, detail: str, why: str) -> NoReturn:
+            logger.warning(
+                "Host disk space refused",
+                extra={
+                    "email": wanted,
+                    "asked_by": host and host.email,
+                    "admin": admin,
+                    "why": why,
+                },
+            )
+            raise HTTPException(status_code=status, detail=detail)
+
+        if admin:
+            if wanted is None:
+                refuse(400, "Say which host's disk space to count.", "no host named")
+            if not host_accounts.exists(wanted):
+                refuse(404, "There is no host with that email address.", "no such host")
+        elif host is None:
+            refuse(401, NOT_SIGNED_IN, "not signed in")
+        elif wanted != host.email:
+            refuse(403, "A host can only see their own disk space.", "another host's")
+        return count_disk(data_home, owners, wanted)
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
     # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
