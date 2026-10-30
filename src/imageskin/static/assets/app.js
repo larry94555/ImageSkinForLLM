@@ -8722,6 +8722,7 @@ function CameraPhoto(props) {
 	const stream = A(null);
 	const timers = A([]);
 	const alive = A(true);
+	const starts = A(0);
 	const guard = useSettingGuard();
 	function stopCamera() {
 		if (stream.current) console.info("Camera turned off");
@@ -8757,6 +8758,8 @@ function CameraPhoto(props) {
 		});
 	}
 	async function start(chosen = null, explicit = false) {
+		const mine = ++starts.current;
+		const latest = () => alive.current && starts.current === mine;
 		setPhase("starting");
 		setGrabFailed(null);
 		const blocked = cameraBlocked();
@@ -8766,6 +8769,7 @@ function CameraPhoto(props) {
 		}
 		const started = performance.now();
 		const known = await videoInputs();
+		if (!latest()) return;
 		let target = chosen;
 		if (!explicit) {
 			const saved = known.find((c) => c.id === savedCamera());
@@ -8780,25 +8784,29 @@ function CameraPhoto(props) {
 		} catch (e) {
 			failure = e;
 		}
-		if (!media && reasonOf(failure) !== "refused") {
+		if (!media && reasonOf(failure) !== "refused" && latest()) {
 			const others = (await videoInputs()).filter((c) => c.id !== target);
 			others.sort((a, b) => Number(NOT_A_PHOTO_CAMERA.test(a.label)) - Number(NOT_A_PHOTO_CAMERA.test(b.label)));
-			for (const other of others) try {
-				media = await open(other.id, true);
-				console.warn(`The first camera wouldn't start (${failure?.name}); opened ${other.label}`);
-				break;
-			} catch (e) {
-				console.warn(`${other.label} wouldn't start either`, e);
+			for (const other of others) {
+				if (!latest()) break;
+				try {
+					media = await open(other.id, true);
+					console.warn(`The first camera wouldn't start (${failure?.name}); opened ${other.label}`);
+					break;
+				} catch (e) {
+					console.warn(`${other.label} wouldn't start either`, e);
+				}
 			}
 		}
 		if (!media) {
-			if (alive.current) notUsed(reasonOf(failure), failure);
+			if (latest()) notUsed(reasonOf(failure), failure);
 			return;
 		}
-		if (!alive.current) {
+		if (!latest()) {
 			stopTracks(media);
 			return;
 		}
+		stopCamera();
 		stream.current = media;
 		const track = media.getVideoTracks?.()[0];
 		label.current = track?.label ?? "";
@@ -8812,14 +8820,18 @@ function CameraPhoto(props) {
 		} catch (e) {
 			console.warn("The camera kept its own size", e);
 		}
+		if (!latest()) {
+			if (stream.current === media) stopCamera();
+			return;
+		}
 		console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
-		listCameras(opened, explicit);
+		listCameras(opened, explicit, mine);
 		setPhase("live");
 	}
-	async function listCameras(current, chosen) {
+	async function listCameras(current, chosen, mine) {
 		const found = await videoInputs();
 		console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
-		if (!alive.current) return;
+		if (!alive.current || starts.current !== mine) return;
 		setCameras(found);
 		const better = chosen ? null : betterCamera(found, current);
 		if (better) {
@@ -8907,8 +8919,14 @@ function CameraPhoto(props) {
 				upload,
 				error: null
 			});
-			if (upload.problems?.length) await dropFailed(upload);
-			else props.onAdded();
+			if (upload.problems?.length) {
+				if (!await dropFailed(upload) && alive.current) setShot({
+					url,
+					upload,
+					error: null,
+					stayed: true
+				});
+			} else props.onAdded();
 		} catch (e) {
 			console.error("Camera photo refused", e);
 			if (alive.current) setShot({
@@ -8924,9 +8942,11 @@ function CameraPhoto(props) {
 		try {
 			await removeUpload("photos", upload.id);
 			console.info(`Camera photo failed its checks and was not kept: ${upload.problems?.join(" ")}`);
+			return true;
 		} catch (e) {
 			console.error("Could not remove the camera photo that failed its checks", e);
 			props.onAdded();
+			return false;
 		}
 	}
 	function retake() {
@@ -9021,7 +9041,10 @@ function CameraPhoto(props) {
 				className: "done",
 				children: "Kept. Click Next, or Retake to try again."
 			}),
-			shot?.upload && shot.upload.problems?.length ? /* @__PURE__ */ u("p", {
+			shot?.upload && shot.upload.problems?.length ? shot.stayed ? /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "This photo could not be removed. It is still in Your photos below: remove it there, then Retake."
+			}) : /* @__PURE__ */ u("p", {
 				className: "muted",
 				children: "Not kept. Retake to try again."
 			}) : null,

@@ -110,6 +110,7 @@ interface Shot {
   url: string;
   upload: Upload | null;
   error: string | null;
+  stayed?: boolean; // failed its checks but couldn't be removed, so it is still in the list
 }
 
 function stopTracks(stream: MediaStream | null) {
@@ -141,6 +142,9 @@ export function CameraPhoto(props: {
   const stream = useRef<MediaStream | null>(null);
   const timers = useRef<number[]>([]);
   const alive = useRef(true);
+  // Each start of the camera has its own number: one overtaken by a later start (a camera picked
+  // while another was still opening) gives up, and turns off the camera it opened.
+  const starts = useRef(0);
   const guard = useSettingGuard();
 
   function stopCamera() {
@@ -183,6 +187,8 @@ export function CameraPhoto(props: {
   // which may be a virtual one that never sends a picture (Larry's LG laptop: the Mirametrix
   // Virtual Camera of LG Security Guard, listed before the LGE Camera).
   async function start(chosen: string | null = null, explicit = false) {
+    const mine = ++starts.current;
+    const latest = () => alive.current && starts.current === mine;
     setPhase("starting");
     setGrabFailed(null);
     const blocked = cameraBlocked();
@@ -192,6 +198,7 @@ export function CameraPhoto(props: {
     }
     const started = performance.now();
     const known = await videoInputs();
+    if (!latest()) return;
     let target = chosen;
     if (!explicit) {
       const saved = known.find((c) => c.id === savedCamera());
@@ -207,10 +214,11 @@ export function CameraPhoto(props: {
       failure = e;
     }
     // A camera that won't start (a virtual one can time out): try the others, real ones first.
-    if (!media && reasonOf(failure) !== "refused") {
+    if (!media && reasonOf(failure) !== "refused" && latest()) {
       const others = (await videoInputs()).filter((c) => c.id !== target);
       others.sort((a, b) => Number(NOT_A_PHOTO_CAMERA.test(a.label)) - Number(NOT_A_PHOTO_CAMERA.test(b.label)));
       for (const other of others) {
+        if (!latest()) break;
         try {
           media = await open(other.id, true);
           console.warn(`The first camera wouldn't start (${(failure as Error)?.name}); opened ${other.label}`);
@@ -221,13 +229,14 @@ export function CameraPhoto(props: {
       }
     }
     if (!media) {
-      if (alive.current) notUsed(reasonOf(failure), failure);
+      if (latest()) notUsed(reasonOf(failure), failure);
       return;
     }
-    if (!alive.current) {
-      stopTracks(media); // the step was left while the browser asked
+    if (!latest()) {
+      stopTracks(media); // the step was left, or another camera asked for, while the browser asked
       return;
     }
+    stopCamera(); // any camera an earlier start left on
     stream.current = media;
     const track = media.getVideoTracks?.()[0];
     label.current = track?.label ?? "";
@@ -238,17 +247,21 @@ export function CameraPhoto(props: {
     } catch (e) {
       console.warn("The camera kept its own size", e);
     }
+    if (!latest()) {
+      if (stream.current === media) stopCamera(); // overtaken while its size was raised
+      return;
+    }
     console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
-    void listCameras(opened, explicit);
+    void listCameras(opened, explicit, mine);
     setPhase("live");
   }
 
   // `current` is the camera just opened; `chosen` is set when the user picked it. Asked again
   // after opening, as the names can be read only once the camera is allowed.
-  async function listCameras(current: string | null, chosen: boolean) {
+  async function listCameras(current: string | null, chosen: boolean, mine: number) {
     const found = await videoInputs();
     console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
-    if (!alive.current) return;
+    if (!alive.current || starts.current !== mine) return;
     setCameras(found);
     const better = chosen ? null : betterCamera(found, current);
     if (better) {
@@ -338,7 +351,7 @@ export function CameraPhoto(props: {
       console.info(`Camera photo checked in ${Math.round(performance.now() - started)} ms`);
       if (alive.current) setShot({ url, upload, error: null });
       if (upload.problems?.length) {
-        await dropFailed(upload);
+        if (!(await dropFailed(upload)) && alive.current) setShot({ url, upload, error: null, stayed: true });
       } else {
         props.onAdded();
       }
@@ -352,13 +365,16 @@ export function CameraPhoto(props: {
 
   // A photo taken that fails its checks isn't kept: it would only fill the list (Larry's test of
   // PR #227). If it can't be removed, the list shows it, so it can be removed there.
-  async function dropFailed(upload: Upload) {
+  // Answers whether it was removed.
+  async function dropFailed(upload: Upload): Promise<boolean> {
     try {
       await removeUpload("photos", upload.id);
       console.info(`Camera photo failed its checks and was not kept: ${upload.problems?.join(" ")}`);
+      return true;
     } catch (e) {
       console.error("Could not remove the camera photo that failed its checks", e);
       props.onAdded();
+      return false;
     }
   }
 
@@ -421,7 +437,13 @@ export function CameraPhoto(props: {
       {shot?.upload && <Checks item={shot.upload} queue={-1} />}
       {shot?.upload && passed && <p className="done">Kept. Click Next, or Retake to try again.</p>}
       {shot?.upload && shot.upload.problems?.length ? (
-        <p className="muted">Not kept. Retake to try again.</p>
+        shot.stayed ? (
+          <p className="error">
+            This photo could not be removed. It is still in Your photos below: remove it there, then Retake.
+          </p>
+        ) : (
+          <p className="muted">Not kept. Retake to try again.</p>
+        )
       ) : null}
       {shot?.error && <p className="error">{shot.error}</p>}
       <div className="choices">

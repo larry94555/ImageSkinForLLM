@@ -178,6 +178,8 @@ test("a failed photo that can't be removed is shown in the list, to remove there
   await takePhoto();
   await waitFor(() => expect(onAdded).toHaveBeenCalled());
   expect(console.error).toHaveBeenCalledWith("Could not remove the camera photo that failed its checks", expect.any(Error));
+  expect(await screen.findByText(/This photo could not be removed\. It is still in Your photos/)).toBeTruthy();
+  expect(screen.queryByText("Not kept. Retake to try again.")).toBeNull();
 });
 
 test("a photo the server refuses shows the reason", async () => {
@@ -226,6 +228,41 @@ test("a camera allowed after the step was left is turned off at once", async () 
   unmount();
   await act(async () => allow({ getTracks: () => [{ stop }] } as unknown as MediaStream));
   expect(stop).toHaveBeenCalled();
+});
+
+test("a camera that opens after a newer one was asked for is turned off, and the newer one stays", async () => {
+  const devices = [
+    { kind: "videoinput", deviceId: "laptop", label: "Integrated Camera" },
+    { kind: "videoinput", deviceId: "usb", label: "HD Webcam" },
+    { kind: "videoinput", deviceId: "dock", label: "Dock Camera" },
+  ];
+  const { getUserMedia } = camera("ok", devices);
+  const works = getUserMedia.getMockImplementation()!;
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
+  // Each camera asked for from here waits to be answered; each answered stream has its own stop.
+  const pending: { asked: MediaStreamConstraints; answer: (m: MediaStream) => void }[] = [];
+  getUserMedia.mockImplementation((asked: MediaStreamConstraints) => new Promise((answer) => pending.push({ asked, answer })));
+  const stops: (() => void)[] = [];
+  async function answer(i: number) {
+    const media = await works(pending[i].asked);
+    const track = media.getVideoTracks()[0] as unknown as { stop: () => void };
+    stops[i] = vi.fn<() => void>();
+    track.stop = stops[i];
+    await act(async () => pending[i].answer(media));
+  }
+  // Two picks, the second landing while the first camera is still opening.
+  fireEvent.change(select, { target: { value: "usb" } });
+  await waitFor(() => expect(pending).toHaveLength(1));
+  fireEvent.change(select, { target: { value: "dock" } });
+  await waitFor(() => expect(pending).toHaveLength(2));
+  await answer(1); // the newer opens first
+  await answer(0); // then the older one
+  expect(stops[0]).toHaveBeenCalled();
+  expect(stops[1]).not.toHaveBeenCalled();
+  await waitFor(() => expect(select.value).toBe("dock"));
+  expect(screen.getByRole("button", { name: "Take photo" })).toBeTruthy();
 });
 
 test("grabbing needs a canvas the browser can draw on", async () => {
