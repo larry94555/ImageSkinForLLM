@@ -18,6 +18,7 @@ export type Page =
   | "admin"
   | "host-sign-up"
   | "host-sign-in"
+  | "host-only"
   | "not-found";
 
 const PAGES: Record<string, Page> = {
@@ -115,10 +116,17 @@ const HOST_PAGES: Page[] = [
 ];
 
 // Setup is blocked until the user confirms consent (feature item 22). In the participant view a
-// host's page, opened by its address, shows the chat instead.
-export function resolve(hash: string, consented: boolean, participant = false): Route {
+// host's page, opened by its address, shows the chat instead; to anyone not signed in as a host
+// (`visitor`, R190) it says it is for the host, with a link to sign in, except the home page.
+export function resolve(
+  hash: string,
+  consented: boolean,
+  participant = false,
+  visitor = false,
+): Route {
   const page = pageFor(hash);
   if (participant && HOST_PAGES.includes(page)) {
+    if (visitor && page !== "home") return { page: "host-only" };
     return { page: "chat", redirect: "#/chat" };
   }
   if (page === "setup" && !consented) {

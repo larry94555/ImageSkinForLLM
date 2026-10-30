@@ -17,3 +17,16 @@ def no_model_downloads(request: pytest.FixtureRequest, monkeypatch: pytest.Monke
 
         monkeypatch.setattr("imageskin.speaker_checks.SpeakerChecker.prepare", lambda self: None)
         monkeypatch.setattr("imageskin.speaker_checks.SpeakerChecker.voice_prints", one_voice)
+
+
+@pytest.fixture(autouse=True)
+def signed_in_host(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every browser in the tests is a signed-in host (R190), as the host pages' calls refuse
+    anyone else; tests marked `real_hosts` sign in, or don't, for themselves."""
+    if request.node.get_closest_marker("real_hosts"):
+        return
+    from imageskin.hosts import Host
+
+    monkeypatch.setattr(
+        "imageskin.hosts.HostAccounts.host", lambda self, token: Host("host@example.com", 0.0)
+    )

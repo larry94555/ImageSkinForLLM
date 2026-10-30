@@ -23,6 +23,9 @@ from imageskin.hosts import (
     HostsUnreadable,
 )
 
+# These tests sign in for themselves (R190).
+pytestmark = pytest.mark.real_hosts
+
 PASSWORD = "a long secret"
 
 

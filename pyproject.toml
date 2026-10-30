@@ -105,3 +105,4 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests", "experiments/voice", "experiments/default_person", "experiments/mouth_sync", "experiments/long_reply", "experiments/thinking", "tools/default_people"]
 addopts = "--cov=imageskin --cov-report=term-missing"
+markers = ["real_hosts: the test signs in as a host for itself, instead of every browser being a signed-in host (R190)"]

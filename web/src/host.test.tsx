@@ -4,6 +4,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import { hostPageOpened } from "./api";
 
+// The real host session calls, not test-setup.ts's signed-in host.
+vi.unmock("./api");
+
 // A server with consent given and the host accounts of R188: "host@example.com" with the
 // password "a long secret" can sign in; `state` says who is signed in.
 function server(signedIn: string | null = null) {
@@ -118,7 +121,7 @@ test("signing up checks the fields, says the server's message, and signs in", as
   fill(/^Email/, "new@example.com");
   fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
   expect(await within(topBar()).findByText("new@example.com")).toBeTruthy();
-  expect(window.location.hash).toBe("#/");
+  await vi.waitFor(() => expect(window.location.hash).toBe("#/"));
   expect(within(topBar()).queryByRole("link", { name: "Host sign up" })).toBeNull();
 });
 
@@ -157,7 +160,7 @@ test("signing out returns to the participant view's chat", async () => {
   state.signOutFails = false;
   fireEvent.click(within(bar).getByRole("button", { name: "Sign out" }));
   expect(await within(bar).findByRole("link", { name: "Host sign in" })).toBeTruthy();
-  expect(window.location.hash).toBe("#/chat");
+  await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"));
 });
 
 test("the sign-in pages say so when a host is already signed in", async () => {

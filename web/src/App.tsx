@@ -9,7 +9,7 @@ import { ownAfterConsent } from "./change-setup";
 import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
 import { HomePage, setupLink } from "./home";
-import { HostAccountPage, HostLinks, HostProvider } from "./host";
+import { HostAccountPage, HostLinks, HostOnlyPage, HostProvider, useHost } from "./host";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { StartNowPage } from "./start-now";
 import {
@@ -89,7 +89,13 @@ function Shell() {
   // Read again on each page change, as Start now can choose an avatar or drop it.
   const defaultPerson = useDefaultPerson(hash, host);
 
-  const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, participant);
+  // Anyone not signed in as a host has the participant view (R190), and a host page says so.
+  const hostSession = useHost().session;
+  const visitor = hostSession?.signed_in !== true;
+  const route =
+    consented === null || !settingsLoaded || hostSession === null
+      ? null
+      : resolve(hash, consented, participant, visitor);
   useEffect(() => {
     if (route?.redirect && route.redirect !== window.location.hash) {
       window.location.replace(route.redirect);
@@ -149,6 +155,7 @@ function Shell() {
       admin: <AdminPage section={adminTarget(hash)} />,
       "host-sign-up": <HostAccountPage kind="up" />,
       "host-sign-in": <HostAccountPage kind="in" />,
+      "host-only": <HostOnlyPage />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }
