@@ -114,7 +114,7 @@ test("the first step asks for consent, and Next waits for it", async () => {
   rerender(<WizardPage consented onConsented={onConsented} />);
   await waitFor(() => expect(next().disabled).toBe(false));
   fireEvent.click(next());
-  expect(await screen.findByText("Taking the photo with your camera is coming soon.")).toBeTruthy();
+  expect(await screen.findByText("Add a photo file")).toBeTruthy();
   expect(saved).toEqual(["photo"]);
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Wizard step: photo \(\d+ s on start\)$/));
 });
@@ -136,11 +136,11 @@ test("before consent, a saved step is not opened", async () => {
   expect(await screen.findByText("You will need:")).toBeTruthy();
 });
 
-test("the photo step shows the placeholder and waits for a photo that passed its checks", async () => {
+test("the photo step, without a camera, says why and waits for a photo that passed its checks", async () => {
   server({ step: "photo", photo: null });
   render(<WizardPage consented onConsented={() => {}} />);
-  expect(await screen.findByText("Taking the photo with your camera is coming soon.")).toBeTruthy();
-  expect(await screen.findByText("Add a photo")).toBeTruthy();
+  expect(await screen.findByText("Add a photo file")).toBeTruthy();
+  expect(await screen.findByText("The camera can't be used.")).toBeTruthy();
   expect(next().disabled).toBe(true);
 });
 
@@ -156,7 +156,7 @@ test("the voice step shows the placeholder and is optional", async () => {
   expect(await screen.findByText("Recording your voice here in the browser is coming soon.")).toBeTruthy();
   await waitFor(() => expect(next().disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
-  expect(await screen.findByText("Taking the photo with your camera is coming soon.")).toBeTruthy();
+  expect(await screen.findByText("Add a photo file")).toBeTruthy();
   expect(saved).toEqual(["photo"]);
 });
 
@@ -208,7 +208,7 @@ test("a step that can't be read or saved still lets the wizard go on", async () 
   expect(await screen.findByText("You will need:")).toBeTruthy();
   await waitFor(() => expect(next().disabled).toBe(false));
   fireEvent.click(next());
-  expect(await screen.findByText("Taking the photo with your camera is coming soon.")).toBeTruthy();
+  expect(await screen.findByText("Add a photo file")).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not save the wizard's step (photo)", expect.any(Error));
 });
 

@@ -1202,3 +1202,21 @@ export async function saveWizardStep(step: WizardStep): Promise<WizardStep> {
   if (!response.ok) throw new Error(await refusal(response));
   return ((await response.json()) as { step: WizardStep }).step;
 }
+
+// Why the setup wizard couldn't use the camera (R132).
+export type CameraReason = "insecure" | "unsupported" | "refused" | "no-camera" | "failed";
+
+// Tells the server's log about a photo taken with the camera, with its size, or why the camera
+// wasn't used (R132). Never the picture: that is uploaded like any photo.
+export async function reportCamera(
+  report:
+    | { taken: true; width: number; height: number; camera: string }
+    | { taken: false; reason: CameraReason },
+): Promise<void> {
+  const response = await fetch("/api/wizard/camera", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(report),
+  });
+  if (!response.ok) throw new Error(await refusal(response));
+}

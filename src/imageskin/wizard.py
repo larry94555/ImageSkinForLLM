@@ -57,3 +57,26 @@ def save_step(home: Path, step: str) -> str:
         extra={"step": step, "from": before.get("step"), "spent_on_previous_s": spent},
     )
     return step
+
+
+# Why the camera wasn't used (R132), as the browser reports it.
+CAMERA_REASONS = ("insecure", "unsupported", "refused", "no-camera", "failed")
+
+
+def log_camera(
+    taken: bool,
+    reason: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    camera: str | None = None,
+) -> None:
+    """Log a photo taken with the camera in the wizard, with its size and the camera's name, or
+    why the camera wasn't used. The picture itself is never logged."""
+    if taken:
+        logger.info(
+            "Camera photo taken", extra={"width": width, "height": height, "camera": camera}
+        )
+        return
+    if reason not in CAMERA_REASONS:
+        raise ValueError(f"No camera reason called {reason!r}.")
+    logger.info("Camera not used", extra={"reason": reason})

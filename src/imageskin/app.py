@@ -155,7 +155,7 @@ from imageskin.wiki_outline import (
     OutlineProgress,
     Outliner,
 )
-from imageskin.wizard import load_step, save_step
+from imageskin.wizard import load_step, log_camera, save_step
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +173,14 @@ class ConsentRequest(BaseModel):
 
 class WizardStep(BaseModel):
     step: str
+
+
+class CameraUse(BaseModel):
+    taken: bool
+    reason: str | None = None
+    width: int | None = None
+    height: int | None = None
+    camera: str | None = None  # the camera's name, as the browser gives it
 
 
 class ReadyVoiceRequest(BaseModel):
@@ -643,6 +651,17 @@ def create_app(
         except OSError as e:
             logger.error("Could not save the wizard's step", extra={"error": str(e)})
             raise HTTPException(status_code=500, detail="The step could not be saved.") from e
+
+    # A photo taken with the camera in the wizard, or why the camera wasn't used (R132), for the
+    # log only: the picture is uploaded like any photo.
+    @app.post("/api/wizard/camera")
+    def post_wizard_camera(body: CameraUse) -> dict[str, bool]:
+        try:
+            log_camera(body.taken, body.reason, body.width, body.height, body.camera)
+        except ValueError as e:
+            logger.warning("Camera report refused", extra={"error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return {"logged": True}
 
     # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
     # question scope follows the config file until it is changed there.

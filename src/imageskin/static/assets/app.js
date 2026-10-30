@@ -531,6 +531,14 @@ async function saveWizardStep(step) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return (await response.json()).step;
 }
+async function reportCamera(report) {
+	const response = await fetch("/api/wizard/camera", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(report)
+	});
+	if (!response.ok) throw new Error(await refusal(response));
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -8637,6 +8645,430 @@ function HostTrail() {
 		]
 	});
 }
+var WHY_NOT = {
+	insecure: "The browser allows the camera only on a secure page (HTTPS) or on this computer (localhost), and this page is neither.",
+	unsupported: "This browser can't use a camera.",
+	refused: "The browser wasn't allowed to use the camera.",
+	"no-camera": "No camera was found on this computer.",
+	failed: "The camera could not be started. It may be in use by another app."
+};
+function cameraBlocked() {
+	if (window.isSecureContext === false) return "insecure";
+	if (!navigator.mediaDevices?.getUserMedia) return "unsupported";
+	return null;
+}
+function reasonOf(error) {
+	const name = error?.name;
+	if (name === "NotAllowedError" || name === "SecurityError") return "refused";
+	if (name === "NotFoundError" || name === "OverconstrainedError") return "no-camera";
+	if (name === "NotSupportedError") return "unsupported";
+	return "failed";
+}
+var NO_PICTURE = "The camera isn't sending a picture. Wait a moment and try again, or choose another camera.";
+function grabFrame(video) {
+	const width = video.videoWidth;
+	const height = video.videoHeight;
+	if (!width || !height) return Promise.reject(/* @__PURE__ */ new Error(NO_PICTURE));
+	const canvas = document.createElement("canvas");
+	canvas.width = width;
+	canvas.height = height;
+	const context = canvas.getContext("2d");
+	if (!context) return Promise.reject(/* @__PURE__ */ new Error("The picture could not be taken."));
+	context.drawImage(video, 0, 0, width, height);
+	return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve({
+		blob,
+		width,
+		height
+	}) : reject(/* @__PURE__ */ new Error("The picture could not be taken.")), "image/jpeg", .92));
+}
+var CAMERA_KEY = "imageskin.camera";
+function savedCamera() {
+	try {
+		return localStorage.getItem(CAMERA_KEY);
+	} catch {
+		return null;
+	}
+}
+function saveCamera(id) {
+	try {
+		localStorage.setItem(CAMERA_KEY, id);
+	} catch (e) {
+		console.warn("Could not remember the camera chosen", e);
+	}
+}
+var NOT_A_PHOTO_CAMERA = /\b(ir|infrared|virtual|obs|snap|manycam|xsplit|nvidia broadcast|droidcam|camo)\b/i;
+function betterCamera(cameras, current) {
+	const inUse = cameras.find((c) => c.id === current);
+	if (!inUse || !NOT_A_PHOTO_CAMERA.test(inUse.label)) return null;
+	return cameras.find((c) => !NOT_A_PHOTO_CAMERA.test(c.label)) ?? null;
+}
+function stopTracks(stream) {
+	stream?.getTracks().forEach((t) => t.stop());
+}
+function report(r) {
+	reportCamera(r).catch((e) => console.error("Could not log the camera's use", e));
+}
+function CameraPhoto(props) {
+	const grab = props.grab ?? grabFrame;
+	const [phase, setPhase] = d("starting");
+	const [reason, setReason] = d(null);
+	const [count, setCount] = d(3);
+	const [shot, setShot] = d(null);
+	const [grabFailed, setGrabFailed] = d(null);
+	const [cameras, setCameras] = d([]);
+	const [cameraId, setCameraId] = d(null);
+	const label = A("");
+	const video = A(null);
+	const stream = A(null);
+	const timers = A([]);
+	const alive = A(true);
+	const starts = A(0);
+	const guard = useSettingGuard();
+	function stopCamera() {
+		if (stream.current) console.info("Camera turned off");
+		stopTracks(stream.current);
+		stream.current = null;
+	}
+	function notUsed(why, error) {
+		if (error) console.error(`Camera not used (${why})`, error);
+		else console.info(`Camera not used (${why})`);
+		report({
+			taken: false,
+			reason: why
+		});
+		setReason(why);
+		setPhase("off");
+	}
+	async function videoInputs() {
+		try {
+			return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput" && d.deviceId).map((d, i) => ({
+				id: d.deviceId,
+				label: d.label || `Camera ${i + 1}`
+			}));
+		} catch (e) {
+			console.error("Could not list the cameras", e);
+			return [];
+		}
+	}
+	function open(id, exact) {
+		const video = id ? { deviceId: exact ? { exact: id } : { ideal: id } } : true;
+		return navigator.mediaDevices.getUserMedia({
+			video,
+			audio: false
+		});
+	}
+	async function start(chosen = null, explicit = false) {
+		const mine = ++starts.current;
+		const latest = () => alive.current && starts.current === mine;
+		setPhase("starting");
+		setGrabFailed(null);
+		const blocked = cameraBlocked();
+		if (blocked) {
+			notUsed(blocked);
+			return;
+		}
+		const started = performance.now();
+		const known = await videoInputs();
+		if (!latest()) return;
+		let target = chosen;
+		if (!explicit) {
+			const saved = known.find((c) => c.id === savedCamera());
+			const real = known.find((c) => !NOT_A_PHOTO_CAMERA.test(c.label));
+			target = (saved && !NOT_A_PHOTO_CAMERA.test(saved.label) ? saved : real ?? saved)?.id ?? null;
+		}
+		const exact = target !== null && known.some((c) => c.id === target);
+		let media = null;
+		let failure = null;
+		try {
+			media = await open(target, exact);
+		} catch (e) {
+			failure = e;
+		}
+		if (!media && reasonOf(failure) !== "refused" && latest()) {
+			const others = (await videoInputs()).filter((c) => c.id !== target);
+			others.sort((a, b) => Number(NOT_A_PHOTO_CAMERA.test(a.label)) - Number(NOT_A_PHOTO_CAMERA.test(b.label)));
+			for (const other of others) {
+				if (!latest()) break;
+				try {
+					media = await open(other.id, true);
+					console.warn(`The first camera wouldn't start (${failure?.name}); opened ${other.label}`);
+					break;
+				} catch (e) {
+					console.warn(`${other.label} wouldn't start either`, e);
+				}
+			}
+		}
+		if (!media) {
+			if (latest()) notUsed(reasonOf(failure), failure);
+			return;
+		}
+		if (!latest()) {
+			stopTracks(media);
+			return;
+		}
+		stopCamera();
+		stream.current = media;
+		const track = media.getVideoTracks?.()[0];
+		label.current = track?.label ?? "";
+		const opened = track?.getSettings?.().deviceId ?? null;
+		setCameraId(opened);
+		try {
+			await track?.applyConstraints?.({
+				width: { ideal: 1920 },
+				height: { ideal: 1080 }
+			});
+		} catch (e) {
+			console.warn("The camera kept its own size", e);
+		}
+		if (!latest()) {
+			if (stream.current === media) stopCamera();
+			return;
+		}
+		console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
+		listCameras(opened, explicit, mine);
+		setPhase("live");
+	}
+	async function listCameras(current, chosen, mine) {
+		const found = await videoInputs();
+		console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
+		if (!alive.current || starts.current !== mine) return;
+		setCameras(found);
+		const better = chosen ? null : betterCamera(found, current);
+		if (better) {
+			const was = found.find((c) => c.id === current)?.label;
+			console.info(`Camera switched from ${was} to ${better.label}: the first can't take the photo`);
+			stopCamera();
+			start(better.id, true);
+		}
+	}
+	function switchCamera(id) {
+		console.info(`Camera chosen: ${cameras.find((c) => c.id === id)?.label ?? id}`);
+		saveCamera(id);
+		stopCamera();
+		start(id, true);
+	}
+	h(() => {
+		const element = video.current;
+		if (phase !== "live" || !element || !stream.current) return;
+		element.srcObject = stream.current;
+		element.play().catch((e) => console.error("Could not play the live picture", e));
+	}, [phase]);
+	h(() => {
+		alive.current = true;
+		start();
+		return () => {
+			alive.current = false;
+			timers.current.forEach((t) => window.clearTimeout(t));
+			stopCamera();
+		};
+	}, []);
+	const shown = A(null);
+	function show(url) {
+		if (shown.current && shown.current !== url) URL.revokeObjectURL(shown.current);
+		shown.current = url;
+	}
+	h(() => () => show(null), []);
+	function takePhoto() {
+		setGrabFailed(null);
+		setPhase("counting");
+		setCount(3);
+		for (let s = 1; s <= 3; s++) timers.current.push(window.setTimeout(() => s < 3 ? setCount(3 - s) : void capture(), s * 1e3));
+	}
+	async function capture() {
+		timers.current = [];
+		const element = video.current;
+		if (!element) return;
+		let grabbed;
+		try {
+			grabbed = await grab(element);
+		} catch (e) {
+			console.error("Could not take the picture", e);
+			setShot(null);
+			setGrabFailed(e.message);
+			setPhase("live");
+			return;
+		}
+		stopCamera();
+		report({
+			taken: true,
+			width: grabbed.width,
+			height: grabbed.height,
+			camera: label.current
+		});
+		console.info(`Camera photo taken: ${grabbed.width}×${grabbed.height}`);
+		const url = URL.createObjectURL(grabbed.blob);
+		show(url);
+		setShot({
+			url,
+			upload: null,
+			error: null
+		});
+		if (!await guard.confirm("Add the photo you took?")) {
+			setPhase("taken");
+			return;
+		}
+		setPhase("checking");
+		props.onChanging(true);
+		const started = performance.now();
+		const name = `camera-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.jpg`;
+		try {
+			const upload = await uploadFile("photos", new File([grabbed.blob], name, { type: "image/jpeg" }));
+			console.info(`Camera photo checked in ${Math.round(performance.now() - started)} ms`);
+			if (alive.current) setShot({
+				url,
+				upload,
+				error: null
+			});
+			if (upload.problems?.length) {
+				if (!await dropFailed(upload) && alive.current) setShot({
+					url,
+					upload,
+					error: null,
+					stayed: true
+				});
+			} else props.onAdded();
+		} catch (e) {
+			console.error("Camera photo refused", e);
+			if (alive.current) setShot({
+				url,
+				upload: null,
+				error: e.message
+			});
+		}
+		props.onChanging(false);
+		if (alive.current) setPhase("taken");
+	}
+	async function dropFailed(upload) {
+		try {
+			await removeUpload("photos", upload.id);
+			console.info(`Camera photo failed its checks and was not kept: ${upload.problems?.join(" ")}`);
+			return true;
+		} catch (e) {
+			console.error("Could not remove the camera photo that failed its checks", e);
+			props.onAdded();
+			return false;
+		}
+	}
+	function retake() {
+		console.info("Retaking the photo");
+		show(null);
+		setShot(null);
+		start(cameraId, cameraId !== null);
+	}
+	if (phase === "off") return /* @__PURE__ */ u("div", {
+		className: "camera off",
+		role: "note",
+		children: [
+			/* @__PURE__ */ u("strong", { children: "The camera can't be used." }),
+			" ",
+			reason && WHY_NOT[reason],
+			" Add a photo you already have below instead.",
+			reason !== "insecure" && reason !== "unsupported" && /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: retake,
+				children: "Try the camera again"
+			})
+		]
+	});
+	const passed = shot?.upload?.problems?.length === 0;
+	return /* @__PURE__ */ u("div", {
+		className: "camera",
+		children: [
+			shot ? /* @__PURE__ */ u("img", {
+				className: "camera-view",
+				src: shot.url,
+				alt: "The photo you took"
+			}) : /* @__PURE__ */ u("div", {
+				className: "camera-view",
+				children: [
+					/* @__PURE__ */ u("video", {
+						ref: video,
+						muted: true,
+						playsInline: true,
+						"aria-label": "The camera's live picture"
+					}),
+					/* @__PURE__ */ u("svg", {
+						className: "outline",
+						viewBox: "0 0 160 120",
+						"aria-hidden": "true",
+						children: [/* @__PURE__ */ u("ellipse", {
+							cx: "80",
+							cy: "48",
+							rx: "25",
+							ry: "33"
+						}), /* @__PURE__ */ u("path", { d: "M30 120c4-24 22-34 50-34s46 10 50 34" })]
+					}),
+					phase === "counting" && /* @__PURE__ */ u("span", {
+						className: "countdown",
+						children: count
+					}),
+					phase === "starting" && /* @__PURE__ */ u("p", {
+						className: "muted busy camera-note",
+						children: "Asking for the camera…"
+					})
+				]
+			}),
+			!shot && cameras.length > 1 && /* @__PURE__ */ u("label", {
+				className: "camera-choice",
+				children: [
+					"Camera",
+					" ",
+					/* @__PURE__ */ u("select", {
+						value: cameraId ?? "",
+						disabled: phase !== "live",
+						onChange: (e) => switchCamera(e.currentTarget.value),
+						children: cameras.map((c) => /* @__PURE__ */ u("option", {
+							value: c.id,
+							children: c.label
+						}, c.id))
+					})
+				]
+			}),
+			grabFailed && phase === "live" && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: grabFailed
+			}),
+			phase === "checking" && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Checking the photo…"
+			}),
+			shot?.upload && /* @__PURE__ */ u(Checks, {
+				item: shot.upload,
+				queue: -1
+			}),
+			shot?.upload && passed && /* @__PURE__ */ u("p", {
+				className: "done",
+				children: "Kept. Click Next, or Retake to try again."
+			}),
+			shot?.upload && shot.upload.problems?.length ? shot.stayed ? /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "This photo could not be removed. It is still in Your photos below: remove it there, then Retake."
+			}) : /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Not kept. Retake to try again."
+			}) : null,
+			shot?.error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: shot.error
+			}),
+			/* @__PURE__ */ u("div", {
+				className: "choices",
+				children: [(phase === "live" || phase === "counting") && /* @__PURE__ */ u("button", {
+					type: "button",
+					disabled: phase === "counting",
+					onClick: takePhoto,
+					children: phase === "counting" ? `Taking in ${count}…` : "Take photo"
+				}), phase === "taken" && /* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					onClick: retake,
+					children: "Retake"
+				})]
+			})
+		]
+	});
+}
 //#endregion
 //#region src/wizard.tsx
 var STEP_TITLES = {
@@ -8873,6 +9305,11 @@ function Placeholder(props) {
 }
 function PhotoStep(props) {
 	const [changes, setChanges] = d(0);
+	const [taken, setTaken] = d(0);
+	function changing(busy) {
+		props.onReady(false);
+		if (!busy) setChanges((n) => n + 1);
+	}
 	h(() => {
 		let newest = true;
 		getPhotoChoice().then((c) => {
@@ -8882,38 +9319,45 @@ function PhotoStep(props) {
 			newest = false;
 		};
 	}, [changes]);
-	return /* @__PURE__ */ u(S, { children: [
-		/* @__PURE__ */ u(Placeholder, {
-			what: "Taking the photo with your camera",
-			instead: "For now, add a photo you already have."
-		}),
-		/* @__PURE__ */ u("ul", {
-			className: "tips",
-			children: [
-				/* @__PURE__ */ u("li", { children: "Face the camera, with your head and shoulders in the picture." }),
-				/* @__PURE__ */ u("li", { children: "Use soft, even light from the front, with a plain background." }),
-				/* @__PURE__ */ u("li", { children: "Keep a neutral face with your mouth closed." })
-			]
-		}),
-		/* @__PURE__ */ u(UploadSection, {
-			kind: "photos",
-			step: null,
-			title: STEP_TITLES.photo,
-			button: "Add a photo",
-			hint: "JPG, PNG or HEIC. Next is ready once a photo passes the checks.",
-			accept: "image/jpeg,image/png,image/heic,.heic",
-			notice: props.notice,
-			onChanging: (busy) => {
-				props.onReady(false);
-				if (!busy) setChanges((n) => n + 1);
-			},
-			onChange: () => {
-				props.onReady(false);
-				setChanges((n) => n + 1);
-				props.onChange();
-			}
-		})
-	] });
+	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("section", {
+		className: "panel",
+		children: [
+			/* @__PURE__ */ u("h2", { children: STEP_TITLES.photo }),
+			props.notice && /* @__PURE__ */ u("p", {
+				className: "notice",
+				children: props.notice
+			}),
+			/* @__PURE__ */ u("ul", {
+				className: "tips",
+				children: [
+					/* @__PURE__ */ u("li", { children: "Face the camera, with your head and shoulders inside the outline." }),
+					/* @__PURE__ */ u("li", { children: "Use soft, even light from the front, with a plain background." }),
+					/* @__PURE__ */ u("li", { children: "Keep a neutral face with your mouth closed." })
+				]
+			}),
+			/* @__PURE__ */ u(CameraPhoto, {
+				onChanging: changing,
+				onAdded: () => {
+					setTaken((n) => n + 1);
+					props.onChange();
+				}
+			})
+		]
+	}), /* @__PURE__ */ u(UploadSection, {
+		kind: "photos",
+		step: null,
+		title: "Your photos",
+		button: "Add a photo file",
+		hint: "The photos you took, and any you add as files (JPG, PNG or HEIC). Next is ready once one passes the checks.",
+		accept: "image/jpeg,image/png,image/heic,.heic",
+		notice: null,
+		onChanging: changing,
+		onChange: () => {
+			props.onReady(false);
+			setChanges((n) => n + 1);
+			props.onChange();
+		}
+	}, taken)] });
 }
 function VoiceStep(props) {
 	h(() => props.onReady(true), []);
