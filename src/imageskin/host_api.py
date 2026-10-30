@@ -3,7 +3,7 @@ host-only route (R190 on)."""
 
 import logging
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -21,6 +21,8 @@ NOT_SIGNED_IN = "Sign in as a host to do this."
 Token = Annotated[str | None, Cookie(alias=COOKIE)]
 Email = Annotated[str, Body(embed=True)]
 Password = Annotated[str, Body(embed=True)]
+# The host pages the browser says it opened (R189); anything else is refused, not logged.
+HostPage = Literal["sign-up", "sign-in"]
 
 
 def host_router(accounts: HostAccounts) -> tuple[APIRouter, Callable[[str | None], Host]]:
@@ -84,6 +86,11 @@ def host_router(accounts: HostAccounts) -> tuple[APIRouter, Callable[[str | None
         response = JSONResponse({"signed_in": False})
         response.delete_cookie(COOKIE, path="/")
         return response
+
+    @router.post("/page", status_code=204)
+    def page_opened(request: Request, page: Annotated[HostPage, Body(embed=True)]) -> None:
+        """For the log: a host page opened in the browser (R189)."""
+        logger.info("Host page opened", extra={"page": page, "address": address(request)})
 
     @router.get("/me")
     def me(host: Annotated[Host, Depends(require_host)]) -> dict[str, object]:

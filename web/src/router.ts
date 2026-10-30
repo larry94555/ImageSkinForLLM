@@ -16,6 +16,8 @@ export type Page =
   | "wiki-page"
   | "settings"
   | "admin"
+  | "host-sign-up"
+  | "host-sign-in"
   | "not-found";
 
 const PAGES: Record<string, Page> = {
@@ -33,6 +35,9 @@ const PAGES: Record<string, Page> = {
   "/settings": "settings", // in both views, so a participant view can be switched back (R27)
   "/admin": "admin", // the admin view (R150), apart from the host and participant views
   "/admin/settings": "admin", // its second page, the admin settings (R155)
+  // Host sign up and sign in (R189), in both views, as anyone not signed in may become a host.
+  "/host/sign-up": "host-sign-up",
+  "/host/sign-in": "host-sign-in",
 };
 
 // The wiki's addresses (roadmap R37b): #/wiki/<PDF id> is one PDF's table of contents, and

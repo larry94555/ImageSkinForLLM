@@ -9,6 +9,7 @@ import { ownAfterConsent } from "./change-setup";
 import { ContentPage } from "./content";
 import { GuidePage } from "./guide";
 import { HomePage, setupLink } from "./home";
+import { HostAccountPage, HostLinks, HostProvider } from "./host";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
 import { StartNowPage } from "./start-now";
 import {
@@ -56,7 +57,9 @@ export function App() {
   return (
     <SettingsProvider>
       <AdminProvider>
-        <Shell />
+        <HostProvider>
+          <Shell />
+        </HostProvider>
       </AdminProvider>
     </SettingsProvider>
   );
@@ -144,6 +147,8 @@ function Shell() {
         />
       ),
       admin: <AdminPage section={adminTarget(hash)} />,
+      "host-sign-up": <HostAccountPage kind="up" />,
+      "host-sign-in": <HostAccountPage kind="in" />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }
@@ -167,6 +172,7 @@ function Shell() {
           ))}
         </nav>
         <span className="header-end">
+          <HostLinks page={route?.page} />
           <AdminLink current={route?.page === "admin"} />
           {settingsLoaded && <SettingsLink current={route?.page === "settings"} />}
         </span>

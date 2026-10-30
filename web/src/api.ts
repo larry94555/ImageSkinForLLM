@@ -1235,3 +1235,50 @@ export async function reportRecording(
   });
   if (!response.ok) throw new Error(await refusal(response));
 }
+
+// Host accounts (roadmap R188, R189): sign up, sign in and sign out as a host. The cookie that
+// keeps the host signed in is set by the server and can't be read here.
+export interface HostSession {
+  signed_in: boolean;
+  email: string | null;
+}
+
+export async function getHostSession(): Promise<HostSession> {
+  return json<HostSession>(await fetch("/api/host/session"));
+}
+
+// Throws a ServerRefusal with the server's plain message when a field is wrong, the email is
+// taken or the sign-in fails.
+async function hostAccount(route: "sign-up" | "sign-in", email: string, password: string) {
+  const response = await fetch(`/api/host/${route}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as HostSession;
+}
+
+export function signUpAsHost(email: string, password: string): Promise<HostSession> {
+  return hostAccount("sign-up", email, password);
+}
+
+export function signInAsHost(email: string, password: string): Promise<HostSession> {
+  return hostAccount("sign-in", email, password);
+}
+
+export async function signOutAsHost(): Promise<void> {
+  const response = await fetch("/api/host/sign-out", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+
+// For the server's log: `Host page opened` with the page's name (R189).
+// The server answers 204 with no body, so only the status is read (Codex's review).
+export async function hostPageOpened(page: "sign-up" | "sign-in"): Promise<void> {
+  const response = await fetch("/api/host/page", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ page }),
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+}
