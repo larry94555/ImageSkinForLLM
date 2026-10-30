@@ -1273,12 +1273,12 @@ export async function signOutAsHost(): Promise<void> {
 }
 
 // For the server's log: `Host page opened` with the page's name (R189).
+// The server answers 204 with no body, so only the status is read (Codex's review).
 export async function hostPageOpened(page: "sign-up" | "sign-in"): Promise<void> {
-  await json<unknown>(
-    await fetch("/api/host/page", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ page }),
-    }),
-  );
+  const response = await fetch("/api/host/page", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ page }),
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
 }

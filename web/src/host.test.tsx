@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/pre
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
+import { hostPageOpened } from "./api";
 
 // A server with consent given and the host accounts of R188: "host@example.com" with the
 // password "a long secret" can sign in; `state` says who is signed in.
@@ -176,4 +177,24 @@ test("a host sign-in that can't be read shows the sign-in links", async () => {
   render(<App />);
   expect(await within(topBar()).findByRole("link", { name: "Host sign in" })).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not read the host sign-in", expect.anything());
+});
+
+test("logging a host page opened resolves on the server's 204 and throws on an error", async () => {
+  // Codex's review: a 204 has no body to parse.
+  const { fetchMock } = server();
+  await expect(hostPageOpened("sign-up")).resolves.toBeUndefined();
+  fetchMock.mockResolvedValueOnce(new Response("", { status: 422 }));
+  await expect(hostPageOpened("sign-in")).rejects.toThrow("422");
+});
+
+test("opening a host page logs no error about logging it", async () => {
+  server();
+  window.location.hash = "#/host/sign-in";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Host sign in" });
+  await new Promise((r) => setTimeout(r, 50));
+  expect(console.error).not.toHaveBeenCalledWith(
+    "Could not log the host page opened",
+    expect.anything(),
+  );
 });

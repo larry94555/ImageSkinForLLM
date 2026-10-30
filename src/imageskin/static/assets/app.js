@@ -573,11 +573,12 @@ async function signOutAsHost() {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
 async function hostPageOpened(page) {
-	await json(await fetch("/api/host/page", {
+	const response = await fetch("/api/host/page", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ page })
-	}));
+	});
+	if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
 }
 //#endregion
 //#region src/dashboard.tsx
