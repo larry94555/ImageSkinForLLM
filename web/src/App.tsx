@@ -29,6 +29,7 @@ import {
   useSettings,
   useSettingsLoaded,
 } from "./settings";
+import { SettingsAccessProvider, useSettingsShown } from "./settings-access";
 import { WikiDetailPage, WikiPage } from "./wiki";
 import { WizardPage } from "./wizard";
 
@@ -57,7 +58,9 @@ export function App() {
     <SettingsProvider>
       <AdminProvider>
         <HostProvider>
-          <Shell />
+          <SettingsAccessProvider>
+            <Shell />
+          </SettingsAccessProvider>
         </HostProvider>
       </AdminProvider>
     </SettingsProvider>
@@ -91,6 +94,7 @@ function Shell() {
   // Anyone not signed in as a host has the participant view (R190), and a host page says so.
   const hostSession = useHost().session;
   const visitor = hostSession?.signed_in !== true;
+  const settingsShown = useSettingsShown();
   const route =
     consented === null || !settingsLoaded || hostSession === null
       ? null
@@ -144,7 +148,15 @@ function Shell() {
       guide: <GuidePage />,
       wiki: <WikiPage pdf={wikiTarget(hash).pdf} />,
       "wiki-page": <WikiDetailPage entry={wikiTarget(hash).entry ?? ""} />,
-      settings: (
+      // Only for a host or a listed laptop (R191): anyone else gets the page any unknown
+      // address shows.
+      settings: !settingsShown ? (
+        settingsShown === null ? (
+          <p>Loading…</p>
+        ) : (
+          <NotFoundPage />
+        )
+      ) : (
         <SettingsPage
           back={back.current ?? (participant ? "#/chat" : "#/")}
           // Delete my data removed the consent (R31): setup starts again there.
@@ -180,7 +192,9 @@ function Shell() {
         <span className="header-end">
           <HostLinks page={route?.page} />
           <AdminLink current={route?.page === "admin"} />
-          {settingsLoaded && <SettingsLink current={route?.page === "settings"} />}
+          {settingsLoaded && settingsShown && (
+            <SettingsLink current={route?.page === "settings"} />
+          )}
         </span>
       </header>
       <main>

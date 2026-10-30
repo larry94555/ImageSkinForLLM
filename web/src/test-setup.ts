@@ -5,4 +5,6 @@ import { vi } from "vitest";
 vi.mock("./api", async (original) => ({
   ...(await original<typeof import("./api")>()),
   getHostSession: vi.fn(async () => ({ signed_in: true, email: "host@example.com" })),
+  // And so it sees Settings (R191).
+  getSettingsAccess: vi.fn(async () => ({ shown: true, as: "host" })),
 }));

@@ -45,9 +45,11 @@ def write(path: Path, text: str) -> None:
 @pytest.fixture(autouse=True)
 def quick_dummy(monkeypatch: pytest.MonkeyPatch) -> None:
     """A cheaper dummy hash, as in test_admin.py, so the many sign-ins here run quickly."""
-    monkeypatch.setattr(admin, "SCRYPT_N", 2**4)
-    cheap = Secret("hash", hash_password("never typed"))
-    monkeypatch.undo()
+    # Its own patch, undone at once: an undo of `monkeypatch` would also undo conftest.py's
+    # signed-in host, which the admin sign-in needs (R191).
+    with pytest.MonkeyPatch.context() as quick:
+        quick.setattr(admin, "SCRYPT_N", 2**4)
+        cheap = Secret("hash", hash_password("never typed"))
     monkeypatch.setattr(admin, "_dummy", lambda: cheap)
 
 
