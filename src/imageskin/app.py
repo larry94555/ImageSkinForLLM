@@ -1614,8 +1614,14 @@ def create_app(
     customization = CustomizationFile(data_home)
 
     @app.get("/api/customization", dependencies=host_only)
-    def get_customization() -> dict[str, Any]:
+    def get_customization(
+        opened: Annotated[
+            bool, Query(description="Asked by the Customization page as it opens.")
+        ] = False,
+    ) -> dict[str, Any]:
         read = customization.read()
+        if opened:
+            logger.info("Customization page opened", extra={"shipped": read.shipped})
         return {**read.customization.as_dict(), "shipped": read.shipped}
 
     if client is not None:

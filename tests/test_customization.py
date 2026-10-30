@@ -264,13 +264,18 @@ def test_the_app_answers_who_are_you_from_the_file_with_general_prompts_off(
     assert llm.sent[-1][0]["content"].startswith(instructions(MAYA))
 
 
-def test_a_host_gets_the_customization(tmp_path: Path) -> None:
+def test_a_host_gets_the_customization(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     client = TestClient(create_app(tmp_path))
-    got = client.get("/api/customization")
+    with caplog.at_level(logging.INFO, logger="imageskin.app"):
+        got = client.get("/api/customization")
+        assert not any(r.message == "Customization page opened" for r in caplog.records)
+        save(tmp_path, MAYA)
+        opened = client.get("/api/customization?opened=true")
     assert got.status_code == 200
     assert got.json() == {**SHIPPED.as_dict(), "shipped": True}
-    save(tmp_path, MAYA)
-    assert client.get("/api/customization").json()["identity"]["name"] == "Maya"
+    assert opened.json()["identity"]["name"] == "Maya"
+    logged = [r for r in caplog.records if r.message == "Customization page opened"]
+    assert [r.shipped for r in logged] == [False]  # type: ignore[attr-defined]
 
 
 @pytest.mark.real_hosts

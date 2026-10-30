@@ -1310,3 +1310,24 @@ export interface HostDisk {
 export async function getHostDisk(opened = false): Promise<HostDisk> {
   return json<HostDisk>(await fetch(opened ? "/api/host/disk?opened=true" : "/api/host/disk"));
 }
+
+// The AI's identity, its goals and each feature's guidelines (R92), for a signed-in host only.
+export interface Customization {
+  identity: {
+    name: string;
+    speaks_as: string;
+    purpose: string;
+    audience: string;
+    helps_with: string;
+  };
+  goals: string[];
+  guidelines: Record<string, unknown>;
+  // The shipped default, as customization.json is missing or can't be read.
+  shipped: boolean;
+}
+
+export async function getCustomization(opened = false): Promise<Customization> {
+  return json<Customization>(
+    await fetch(opened ? "/api/customization?opened=true" : "/api/customization"),
+  );
+}

@@ -29,6 +29,7 @@ import {
   useSettings,
   useSettingsLoaded,
 } from "./settings";
+import { CustomizationPage } from "./customization";
 import { ResourcesPage } from "./resources";
 import { SettingsAccessProvider, useSettingsShown } from "./settings-access";
 import { WikiDetailPage, WikiPage } from "./wiki";
@@ -169,6 +170,7 @@ function Shell() {
       "host-sign-in": <HostAccountPage kind="in" />,
       "host-only": <HostOnlyPage />,
       resources: <ResourcesPage />,
+      customization: <CustomizationPage />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }

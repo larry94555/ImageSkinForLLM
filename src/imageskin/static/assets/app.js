@@ -590,6 +590,9 @@ async function hostPageOpened(page) {
 async function getHostDisk(opened = false) {
 	return json(await fetch(opened ? "/api/host/disk?opened=true" : "/api/host/disk"));
 }
+async function getCustomization(opened = false) {
+	return json(await fetch(opened ? "/api/customization?opened=true" : "/api/customization"));
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -1639,7 +1642,8 @@ var PAGES = {
 	"/admin/settings": "admin",
 	"/host/sign-up": "host-sign-up",
 	"/host/sign-in": "host-sign-in",
-	"/resources": "resources"
+	"/resources": "resources",
+	"/customization": "customization"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -3345,7 +3349,17 @@ function SettingsPage({ back, onDataDeleted }) {
 							className: "muted",
 							children: help
 						})]
-					}, name))
+					}, name)),
+					group === "Chat" && host && /* @__PURE__ */ u("div", {
+						className: "switch",
+						children: [/* @__PURE__ */ u("a", {
+							href: "#/customization",
+							children: "Customization"
+						}), /* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "Who the person in the video is and their goals, given to the LLM with every prompt."
+						})]
+					})
 				]
 			}, group)),
 			settings.view === "host" && /* @__PURE__ */ u(LlmSettingSection, {}),
@@ -8056,6 +8070,85 @@ function StartNowPage() {
 	});
 }
 //#endregion
+//#region src/customization.tsx
+var IDENTITY = [
+	["name", "Name"],
+	["speaks_as", "Speaks as"],
+	["purpose", "Purpose"],
+	["audience", "Who it is for"],
+	["helps_with", "What it can help with"]
+];
+function CustomizationPage() {
+	const session = useHost().session;
+	const host = session?.signed_in === true;
+	const [read, setRead] = d(null);
+	const [failed, setFailed] = d(false);
+	h(() => {
+		if (!host) return;
+		getCustomization(true).then((got) => {
+			setRead(got);
+			console.info(`Customization page opened: shipped=${got.shipped}`);
+		}, (e) => {
+			console.error("Could not read the customization", e);
+			setFailed(true);
+		});
+	}, [host]);
+	if (session === null) return /* @__PURE__ */ u("p", { children: "Loading…" });
+	if (!host) return /* @__PURE__ */ u(HostOnlyPage, {});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page customization-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Customization" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Who the person in the video is and what they aim for, given to the LLM with every prompt. \"Who are you?\" and \"What is your purpose?\" are answered from the identity."
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The customization could not be read. Reload to try again."
+			}),
+			!failed && read === null && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			}),
+			read && /* @__PURE__ */ u(S, { children: [
+				/* @__PURE__ */ u("p", {
+					className: "muted",
+					children: [read.shipped ? "As shipped. " : "", "To change them for now, edit customization.json in the app's home folder; the change is used from the next prompt."]
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "customization-identity",
+					children: [/* @__PURE__ */ u("h2", {
+						id: "customization-identity",
+						children: "Identity"
+					}), /* @__PURE__ */ u("dl", {
+						className: "identity",
+						children: IDENTITY.map(([key, label]) => /* @__PURE__ */ u("div", { children: [/* @__PURE__ */ u("dt", { children: label }), /* @__PURE__ */ u("dd", { children: read.identity[key] || /* @__PURE__ */ u("span", {
+							className: "muted",
+							children: "Not set"
+						}) })] }, key))
+					})]
+				}),
+				/* @__PURE__ */ u("section", {
+					className: "panel",
+					"aria-labelledby": "customization-goals",
+					children: [/* @__PURE__ */ u("h2", {
+						id: "customization-goals",
+						children: "Goals"
+					}), read.goals.length ? /* @__PURE__ */ u("ul", {
+						className: "goals",
+						children: read.goals.map((goal) => /* @__PURE__ */ u("li", { children: goal }, goal))
+					}) : /* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "None"
+					})]
+				})
+			] })
+		]
+	});
+}
+//#endregion
 //#region src/resources.tsx
 var MB = 1e3 ** 2;
 var GB = 1e3 ** 3;
@@ -10399,6 +10492,7 @@ function Shell() {
 		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
 		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
 		resources: /* @__PURE__ */ u(ResourcesPage, {}),
+		customization: /* @__PURE__ */ u(CustomizationPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
