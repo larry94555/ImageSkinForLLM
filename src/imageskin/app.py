@@ -76,7 +76,7 @@ from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.failure import report
 from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
-from imageskin.host_disk import Owners
+from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import count as count_disk
 from imageskin.hosts import Host, HostAccounts, normal_email
 from imageskin.lessons_ahead import LessonsAhead
@@ -627,6 +627,18 @@ def create_app(
     # Who added each photo, recording and PDF, and the disk space each host has used (R192).
     owners = Owners(data_home)
 
+    def unrecorded_refused(
+        step: Callable[[], None], undo: Callable[[], object] | None = None
+    ) -> None:
+        """Run `step`; when owners.json can't be read, undo what was stored and refuse."""
+        try:
+            step()
+        except OwnersUnreadable as e:
+            if undo:
+                undo()
+            logger.error("File refused: its host can't be recorded", extra={"error": str(e)})
+            raise HTTPException(status_code=500, detail=NOT_RECORDED) from e
+
     # Asked by a signed-in host for their own files, or by the administrator for any host's
     # (Larry, 2026-10-30); anyone else is refused.
     @app.get("/api/host/disk")
@@ -864,6 +876,8 @@ def create_app(
     def upload(
         kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response, host: SignedInHost
     ) -> Upload:
+        # Refused, not stored with no host, while who added what can't be recorded (R192).
+        unrecorded_refused(owners.check)
         try:
             # Each step's time goes back in the Server-Timing header (R96b). FastAPI has received
             # and parsed the upload before this runs, so `endpoint` leaves that out; the time
@@ -871,9 +885,12 @@ def create_app(
             with server_timing.collecting() as steps, server_timing.step("endpoint"):
                 with personal_write(seen):
                     saved = store.save(kind, file.filename, file.file)
+                    unrecorded_refused(
+                        lambda: owners.record(kind, saved.id, host.email),
+                        undo=lambda: store.remove(kind, saved.id),
+                    )
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
-        owners.record(kind, saved.id, host.email)
         response.headers["Server-Timing"] = server_timing.header(steps)
         return saved
 
@@ -990,12 +1007,16 @@ def create_app(
 
     @app.post(content_api, dependencies=host_only)
     def add_pdf(file: UploadFile, seen: DeletesSeen, host: SignedInHost) -> Pdf:
+        unrecorded_refused(owners.check)
         with content_write(seen):
             try:
                 pdf = content.add(file.filename, file.file)
             except UploadError as e:
                 raise HTTPException(status_code=e.status, detail=str(e)) from e
-            owners.record("pdfs", pdf.id, host.email)
+            unrecorded_refused(
+                lambda: owners.record("pdfs", pdf.id, host.email),
+                undo=lambda: content.remove(pdf.id),
+            )
             readings.queue(pdf)
         return pdf
 

@@ -19,6 +19,14 @@ FILENAME = "owners.json"
 Kind = Literal["photos", "sounds", "pdfs"]
 
 
+class OwnersUnreadable(Exception):
+    """owners.json is there but can't be read, or isn't a record of who added what."""
+
+
+# Said when a photo, recording or PDF can't be added, as it couldn't be recorded with its host.
+NOT_RECORDED = "The file could not be added just now. Please tell whoever runs this site."
+
+
 class Owners:
     """Who added each photo, recording and PDF, kept in owners.json."""
 
@@ -27,15 +35,32 @@ class Owners:
         self._lock = threading.Lock()
 
     def read(self) -> dict[str, dict[str, str]]:
+        """The record, or OwnersUnreadable when the file is there but not readable as one; it
+        is then left as it is, never written over (Codex's review of PR #236)."""
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
         except (OSError, ValueError) as e:
-            # Counted for no host until it is fixed; the files themselves are untouched.
             logger.error("Could not read who added each file", extra={"error": str(e)})
-            return {}
-        return data if isinstance(data, dict) else {}
+            raise OwnersUnreadable(str(e)) from e
+        if not (
+            isinstance(data, dict)
+            and all(
+                isinstance(items, dict)
+                and all(isinstance(k, str) and isinstance(v, str) for k, v in items.items())
+                for items in data.values()
+            )
+        ):
+            logger.error("Could not read who added each file", extra={"error": "not a record"})
+            raise OwnersUnreadable("not a record of who added each file")
+        return data
+
+    def check(self) -> None:
+        """Raise OwnersUnreadable when a file added now couldn't be recorded, so it is refused
+        rather than stored with no host."""
+        with self._lock:
+            self.read()
 
     def record(self, kind: Kind, item: str, email: str) -> None:
         with self._lock:
@@ -50,7 +75,10 @@ class Owners:
 def count(home: Path, owners: Owners, email: str) -> dict[str, int]:
     """The host's photos and recordings, PDFs and total, in bytes."""
     started = time.perf_counter()
-    recorded = owners.read()
+    try:
+        recorded = owners.read()
+    except OwnersUnreadable:
+        recorded = {}  # counted for no host until the file is fixed; it is left as it is
 
     def added(kind: Kind, folder: Path, suffixes: tuple[str, ...]) -> int:
         """Bytes in the files of `folder` the host added, by their ids."""

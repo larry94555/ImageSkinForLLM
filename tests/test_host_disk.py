@@ -10,7 +10,7 @@ from test_uploads import wav_bytes
 
 from imageskin import admin
 from imageskin.app import create_app
-from imageskin.host_disk import Owners, count
+from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable, count
 
 pytestmark = pytest.mark.real_hosts
 
@@ -161,3 +161,59 @@ def test_an_unreadable_owners_file_counts_nothing(
     (tmp_path / "owners.json").write_text("not json")
     assert count(tmp_path, Owners(tmp_path), "a@example.com")["total"] == 0
     assert "Could not read who added each file" in caplog.messages
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        b"not json",
+        b"[]",
+        b'{"pdfs": ["d1"]}',
+        b'{"pdfs": {"d1": 7}}',
+    ],
+)
+def test_an_unreadable_owners_file_is_never_written_over(tmp_path: Path, broken: bytes) -> None:
+    # Codex's review of PR #236: a write after a failed read would have lost every host's record.
+    (tmp_path / "owners.json").write_bytes(broken)
+    owners = Owners(tmp_path)
+    with pytest.raises(OwnersUnreadable):
+        owners.record("pdfs", "d2", "a@example.com")
+    assert (tmp_path / "owners.json").read_bytes() == broken
+
+
+def test_a_file_is_refused_not_stored_unrecorded_while_owners_cant_be_read(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    browser = TestClient(create_app(tmp_path))
+    browser.post("/api/host/sign-up", json=FIRST)
+    browser.post("/api/consent", json={"agreed": True})
+    (tmp_path / "owners.json").write_text("not json")
+
+    pdf = browser.post("/api/content", files={"file": ("a.pdf", PDF, "application/pdf")})
+    assert (pdf.status_code, pdf.json()) == (500, {"detail": NOT_RECORDED})
+    sound = browser.post("/api/uploads/sounds", files={"file": ("a.wav", wav_bytes(), "audio/wav")})
+    assert (sound.status_code, sound.json()) == (500, {"detail": NOT_RECORDED})
+    assert browser.get("/api/content").json() == []
+    assert browser.get("/api/uploads/sounds").json() == []
+    assert (tmp_path / "owners.json").read_text() == "not json"
+    assert "File refused: its host can't be recorded" in caplog.messages
+
+
+def test_a_file_stored_as_owners_breaks_is_taken_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Readable when checked, broken by the time the file is recorded: the file is removed.
+    browser = TestClient(create_app(tmp_path))
+    browser.post("/api/host/sign-up", json=FIRST)
+    browser.post("/api/consent", json={"agreed": True})
+
+    def broken(*_: object) -> None:
+        raise OwnersUnreadable("broken meanwhile")
+
+    monkeypatch.setattr(Owners, "record", broken)
+    pdf = browser.post("/api/content", files={"file": ("a.pdf", PDF, "application/pdf")})
+    assert pdf.status_code == 500
+    sound = browser.post("/api/uploads/sounds", files={"file": ("a.wav", wav_bytes(), "audio/wav")})
+    assert sound.status_code == 500
+    assert browser.get("/api/content").json() == []
+    assert browser.get("/api/uploads/sounds").json() == []
