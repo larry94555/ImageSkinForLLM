@@ -1322,8 +1322,43 @@ export interface Customization {
   };
   goals: string[];
   guidelines: Record<string, unknown>;
+  // Each feature's guidelines, as the Customization page shows them (R94).
+  features: GuidelineFeature[];
   // The shipped default, as customization.json is missing or can't be read.
   shipped: boolean;
+}
+
+export interface GuidelineFeature {
+  key: string;
+  label: string;
+  changes: string; // what the guidelines change in the feature
+  stays: string; // what stays as the code makes it
+  shipped: string;
+  text: string;
+  edited: boolean;
+}
+
+async function putCustomization(path: string, body: unknown): Promise<Customization> {
+  const response = await fetch(`/api/customization/${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as Customization;
+}
+
+export function saveIdentity(identity: Customization["identity"]): Promise<Customization> {
+  return putCustomization("identity", identity);
+}
+
+export function saveGoals(goals: string[]): Promise<Customization> {
+  return putCustomization("goals", { goals });
+}
+
+// With `text` null, the feature's guidelines are set back to how they shipped.
+export function saveGuidelines(feature: string, text: string | null): Promise<Customization> {
+  return putCustomization(`guidelines/${encodeURIComponent(feature)}`, { text });
 }
 
 export async function getCustomization(opened = false): Promise<Customization> {

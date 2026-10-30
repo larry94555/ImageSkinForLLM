@@ -590,6 +590,24 @@ async function hostPageOpened(page) {
 async function getHostDisk(opened = false) {
 	return json(await fetch(opened ? "/api/host/disk?opened=true" : "/api/host/disk"));
 }
+async function putCustomization(path, body) {
+	const response = await fetch(`/api/customization/${path}`, {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body)
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+function saveIdentity(identity) {
+	return putCustomization("identity", identity);
+}
+function saveGoals(goals) {
+	return putCustomization("goals", { goals });
+}
+function saveGuidelines(feature, text) {
+	return putCustomization(`guidelines/${encodeURIComponent(feature)}`, { text });
+}
 async function getCustomization(opened = false) {
 	return json(await fetch(opened ? "/api/customization?opened=true" : "/api/customization"));
 }
@@ -8072,12 +8090,226 @@ function StartNowPage() {
 //#endregion
 //#region src/customization.tsx
 var IDENTITY = [
-	["name", "Name"],
-	["speaks_as", "Speaks as"],
-	["purpose", "Purpose"],
-	["audience", "Who it is for"],
-	["helps_with", "What it can help with"]
+	[
+		"name",
+		"Name",
+		"Said first to \"Who are you?\": I'm …"
+	],
+	[
+		"speaks_as",
+		"Speaks as",
+		"Told to the LLM only."
+	],
+	[
+		"purpose",
+		"Purpose",
+		"My purpose is …"
+	],
+	[
+		"audience",
+		"Who it is for",
+		"I'm here for …"
+	],
+	[
+		"helps_with",
+		"What it can help with",
+		"I can help with …"
+	]
 ];
+var SAVED = "Saved. It is used from the next prompt.";
+function useSave() {
+	const [busy, setBusy] = d(false);
+	const [said, setSaid] = d(null);
+	async function run(part, save) {
+		setBusy(true);
+		setSaid(null);
+		const started = performance.now();
+		try {
+			const saved = await save();
+			console.info(`Customization saved: ${part} (${Math.round(performance.now() - started)} ms)`);
+			setSaid({
+				ok: true,
+				text: SAVED
+			});
+			return saved;
+		} catch (e) {
+			console.error(`Could not save the customization: ${part}`, e);
+			setSaid({
+				ok: false,
+				text: e instanceof ServerRefusal ? e.message : "Could not save. Try again."
+			});
+			return null;
+		} finally {
+			setBusy(false);
+		}
+	}
+	return {
+		busy,
+		run,
+		status: said && /* @__PURE__ */ u("p", {
+			className: said.ok ? "notice" : "error",
+			role: "status",
+			children: said.text
+		}),
+		changed: () => setSaid(null)
+	};
+}
+function IdentitySection({ identity }) {
+	const [fields, setFields] = d(identity);
+	const { busy, run, status, changed } = useSave();
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-identity",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-identity",
+				children: "Identity"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Who the person in the video is. \"Who are you?\" is answered from it."
+			}),
+			/* @__PURE__ */ u("form", {
+				className: "customization-edit",
+				onSubmit: (e) => {
+					e.preventDefault();
+					run("identity", () => saveIdentity(fields)).then((saved) => {
+						if (saved) setFields(saved.identity);
+					});
+				},
+				children: [
+					IDENTITY.map(([key, label, about]) => /* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+						className: "muted",
+						children: [" · ", about]
+					})] }), /* @__PURE__ */ u("input", {
+						value: fields[key],
+						readOnly: busy,
+						onInput: (e) => {
+							changed();
+							setFields({
+								...fields,
+								[key]: e.currentTarget.value
+							});
+						}
+					})] }, key)),
+					status,
+					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy,
+						children: "Save the identity"
+					}) })
+				]
+			})
+		]
+	});
+}
+function GoalsSection({ goals }) {
+	const [text, setText] = d(goals.join("\n"));
+	const { busy, run, status, changed } = useSave();
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-goals",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-goals",
+				children: "Goals"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "What every reply aims for, one goal on each line."
+			}),
+			/* @__PURE__ */ u("form", {
+				className: "customization-edit",
+				onSubmit: (e) => {
+					e.preventDefault();
+					run("goals", () => saveGoals(text.split("\n"))).then((saved) => {
+						if (saved) setText(saved.goals.join("\n"));
+					});
+				},
+				children: [
+					/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", {
+						className: "sr-only",
+						children: "Goals"
+					}), /* @__PURE__ */ u("textarea", {
+						rows: 4,
+						value: text,
+						readOnly: busy,
+						onInput: (e) => {
+							changed();
+							setText(e.currentTarget.value);
+						}
+					})] }),
+					status,
+					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy,
+						children: "Save the goals"
+					}) })
+				]
+			})
+		]
+	});
+}
+function FeatureGuidelines({ feature }) {
+	const [shown, setShown] = d(feature);
+	const [text, setText] = d(feature.text);
+	const { busy, run, status, changed } = useSave();
+	function save(value) {
+		run(`guidelines ${shown.key}`, () => saveGuidelines(shown.key, value)).then((saved) => {
+			const now = saved?.features.find((f) => f.key === shown.key);
+			if (now) {
+				setShown(now);
+				setText(now.text);
+			}
+		});
+	}
+	return /* @__PURE__ */ u("form", {
+		className: "customization-edit guideline",
+		"aria-label": shown.label,
+		onSubmit: (e) => {
+			e.preventDefault();
+			save(text);
+		},
+		children: [
+			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [shown.label, !shown.edited && /* @__PURE__ */ u("span", {
+				className: "muted",
+				children: " · as shipped"
+			})] }), /* @__PURE__ */ u("textarea", {
+				rows: 4,
+				value: text,
+				readOnly: busy,
+				onInput: (e) => {
+					changed();
+					setText(e.currentTarget.value);
+				}
+			})] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					shown.changes,
+					" ",
+					shown.stays
+				]
+			}),
+			status,
+			/* @__PURE__ */ u("p", { children: [
+				/* @__PURE__ */ u("button", {
+					type: "submit",
+					disabled: busy,
+					children: "Save"
+				}),
+				" ",
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					disabled: busy || !shown.edited,
+					onClick: () => save(null),
+					children: "Set back to how it shipped"
+				})
+			] })
+		]
+	});
+}
 function CustomizationPage() {
 	const session = useHost().session;
 	const host = session?.signed_in === true;
@@ -8101,7 +8333,7 @@ function CustomizationPage() {
 			/* @__PURE__ */ u("h1", { children: "Customization" }),
 			/* @__PURE__ */ u("p", {
 				className: "lead",
-				children: "Who the person in the video is and what they aim for, given to the LLM with every prompt. \"Who are you?\" and \"What is your purpose?\" are answered from the identity."
+				children: "Who the person in the video is, what they aim for, and how each feature answers, given to the LLM with every prompt."
 			}),
 			failed && /* @__PURE__ */ u("p", {
 				className: "error",
@@ -8112,37 +8344,25 @@ function CustomizationPage() {
 				children: "Loading…"
 			}),
 			read && /* @__PURE__ */ u(S, { children: [
-				/* @__PURE__ */ u("p", {
-					className: "muted",
-					children: [read.shipped ? "As shipped. " : "", "To change them for now, edit customization.json in the app's home folder; the change is used from the next prompt."]
-				}),
+				/* @__PURE__ */ u(IdentitySection, { identity: read.identity }),
+				/* @__PURE__ */ u(GoalsSection, { goals: read.goals }),
 				/* @__PURE__ */ u("section", {
 					className: "panel",
-					"aria-labelledby": "customization-identity",
-					children: [/* @__PURE__ */ u("h2", {
-						id: "customization-identity",
-						children: "Identity"
-					}), /* @__PURE__ */ u("dl", {
-						className: "identity",
-						children: IDENTITY.map(([key, label]) => /* @__PURE__ */ u("div", { children: [/* @__PURE__ */ u("dt", { children: label }), /* @__PURE__ */ u("dd", { children: read.identity[key] || /* @__PURE__ */ u("span", {
+					"aria-labelledby": "customization-guidelines",
+					children: [
+						/* @__PURE__ */ u("h2", {
+							id: "customization-guidelines",
+							children: "Guidelines"
+						}),
+						/* @__PURE__ */ u("p", {
 							className: "muted",
-							children: "Not set"
-						}) })] }, key))
-					})]
-				}),
-				/* @__PURE__ */ u("section", {
-					className: "panel",
-					"aria-labelledby": "customization-goals",
-					children: [/* @__PURE__ */ u("h2", {
-						id: "customization-goals",
-						children: "Goals"
-					}), read.goals.length ? /* @__PURE__ */ u("ul", {
-						className: "goals",
-						children: read.goals.map((goal) => /* @__PURE__ */ u("li", { children: goal }, goal))
-					}) : /* @__PURE__ */ u("p", {
-						className: "muted",
-						children: "None"
-					})]
+							children: "How each feature writes what it says."
+						}),
+						read.features.length ? read.features.map((feature) => /* @__PURE__ */ u(FeatureGuidelines, { feature }, feature.key)) : /* @__PURE__ */ u("p", {
+							className: "muted",
+							children: "No feature has guidelines to edit yet."
+						})
+					]
 				})
 			] })
 		]
