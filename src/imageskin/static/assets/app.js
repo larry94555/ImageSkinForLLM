@@ -8183,6 +8183,7 @@ function IdentitySection({ identity }) {
 						children: [" · ", about]
 					})] }), /* @__PURE__ */ u("input", {
 						value: fields[key],
+						readOnly: busy,
 						onInput: (e) => {
 							changed();
 							setFields({
@@ -8232,6 +8233,7 @@ function GoalsSection({ goals }) {
 					}), /* @__PURE__ */ u("textarea", {
 						rows: 4,
 						value: text,
+						readOnly: busy,
 						onInput: (e) => {
 							changed();
 							setText(e.currentTarget.value);
@@ -8275,6 +8277,7 @@ function FeatureGuidelines({ feature }) {
 			})] }), /* @__PURE__ */ u("textarea", {
 				rows: 4,
 				value: text,
+				readOnly: busy,
 				onInput: (e) => {
 					changed();
 					setText(e.currentTarget.value);

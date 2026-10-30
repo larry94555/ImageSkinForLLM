@@ -32,11 +32,21 @@ const QUESTIONS = {
 
 type Put = { url: string; body: unknown };
 
+// A save's answer held back until `resolve` is called.
+type Held = { promise: Promise<void>; resolve: () => void };
+function hold(): Held {
+  let resolve = () => {};
+  const promise = new Promise<void>((done) => (resolve = done));
+  return { promise, resolve };
+}
+
 // A server with consent given and, when `host`, a signed-in host; `customization` null fails.
 function server(
   host: boolean,
   customization: typeof MAYA | null = MAYA,
   refuse: string | null = null,
+  // When given, each save is answered only once it resolves.
+  held: Held | null = null,
 ) {
   const asked: string[] = [];
   const puts: Put[] = [];
@@ -66,6 +76,7 @@ function server(
       if (url.startsWith("/api/customization/") && init?.method === "PUT") {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;
         puts.push({ url, body });
+        await held?.promise;
         if (refuse) return Response.json({ detail: refuse }, { status: 400 });
         return Response.json(saved(url, body));
       }
@@ -229,3 +240,29 @@ test("a customization that can't be read says so", async () => {
     expect.anything(),
   );
 });
+
+test.each([
+  ["Identity", /^Name/, "Save the identity"],
+  ["Goals", "Goals", "Save the goals"],
+  ["Answering questions", null, "Save"],
+] as const)(
+  "the %s editor is read-only while its save is in flight, so nothing typed is lost",
+  async (part, box, button) => {
+    const held = hold();
+    server(true, { ...MAYA, features: [QUESTIONS] }, null, held);
+    await opened();
+    const area = within(
+      part === "Answering questions"
+        ? screen.getByRole("form", { name: part })
+        : screen.getByRole("region", { name: part }),
+    );
+    const editor = (box ? area.getByRole("textbox", { name: box }) : area.getByRole("textbox")) as
+      | HTMLInputElement
+      | HTMLTextAreaElement;
+    fireEvent.click(area.getByRole("button", { name: button }));
+    await vi.waitFor(() => expect(editor.readOnly).toBe(true));
+    held.resolve();
+    expect(await area.findByText("Saved. It is used from the next prompt.")).toBeTruthy();
+    expect(editor.readOnly).toBe(false);
+  },
+);

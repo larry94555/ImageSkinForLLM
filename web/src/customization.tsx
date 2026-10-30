@@ -27,7 +27,9 @@ const IDENTITY: [keyof Identity, string, string][] = [
 
 const SAVED = "Saved. It is used from the next prompt.";
 
-// Saving one part of the page: whether it is being saved, and what to say after.
+// Saving one part of the page: whether it is being saved, and what to say after. While a save is
+// in flight its editors are read-only, as what it gives back replaces them: text typed then would
+// be lost (Codex's review on PR #243).
 function useSave() {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
@@ -82,6 +84,7 @@ function IdentitySection({ identity }: { identity: Identity }) {
             </span>
             <input
               value={fields[key]}
+              readOnly={busy}
               onInput={(e) => {
                 changed();
                 setFields({ ...fields, [key]: e.currentTarget.value });
@@ -121,6 +124,7 @@ function GoalsSection({ goals }: { goals: string[] }) {
           <textarea
             rows={4}
             value={text}
+            readOnly={busy}
             onInput={(e) => {
               changed();
               setText(e.currentTarget.value);
@@ -170,6 +174,7 @@ function FeatureGuidelines({ feature }: { feature: GuidelineFeature }) {
         <textarea
           rows={4}
           value={text}
+          readOnly={busy}
           onInput={(e) => {
             changed();
             setText(e.currentTarget.value);
