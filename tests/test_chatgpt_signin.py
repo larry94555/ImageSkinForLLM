@@ -760,7 +760,9 @@ def test_openai_is_asked_over_http() -> None:
             pass
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    ).start()
     url = f"http://127.0.0.1:{server.server_port}/"
     try:
         assert cs._http(url, None) == (200, {"issuer": "x"})

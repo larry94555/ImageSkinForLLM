@@ -32,7 +32,9 @@ def site(tmp_path: Path) -> Iterator[str]:
     handler = partial(SimpleHTTPRequestHandler, directory=str(tmp_path))
     handler.log_message = lambda *args: None  # type: ignore[attr-defined]
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    ).start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/"
     finally:

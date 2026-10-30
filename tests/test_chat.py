@@ -464,7 +464,9 @@ def fake_llm() -> Iterator[str]:
     server = HTTPServer(("127.0.0.1", 0), FakeLlm)
     FakeLlm.received = []
     FakeLlm.keys = []
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
     thread.start()
     yield f"http://127.0.0.1:{server.server_port}/v1/"
     server.shutdown()
@@ -1061,7 +1063,9 @@ def slow_llm() -> Iterator[str]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), SlowLlm)
     SlowLlm.go, SlowLlm.hung_up = threading.Event(), threading.Event()
     SlowLlm.first, SlowLlm.streamed = None, False
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    ).start()
     yield f"http://127.0.0.1:{server.server_port}/v1"
     SlowLlm.go.set()
     server.shutdown()
@@ -1287,7 +1291,9 @@ class Slots(BaseHTTPRequestHandler):
 def slots_server() -> Iterator[str]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), Slots)
     Slots.busy, Slots.asked = 0, 0
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    ).start()
     yield f"http://127.0.0.1:{server.server_port}/v1"
     server.shutdown()
     server.server_close()
