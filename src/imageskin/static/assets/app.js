@@ -547,6 +547,38 @@ async function reportRecording(report) {
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function getHostSession() {
+	return json(await fetch("/api/host/session"));
+}
+async function hostAccount(route, email, password) {
+	const response = await fetch(`/api/host/${route}`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			email,
+			password
+		})
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+function signUpAsHost(email, password) {
+	return hostAccount("sign-up", email, password);
+}
+function signInAsHost(email, password) {
+	return hostAccount("sign-in", email, password);
+}
+async function signOutAsHost() {
+	const response = await fetch("/api/host/sign-out", { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
+async function hostPageOpened(page) {
+	await json(await fetch("/api/host/page", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ page })
+	}));
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -1593,7 +1625,9 @@ var PAGES = {
 	"/wiki": "wiki",
 	"/settings": "settings",
 	"/admin": "admin",
-	"/admin/settings": "admin"
+	"/admin/settings": "admin",
+	"/host/sign-up": "host-sign-up",
+	"/host/sign-in": "host-sign-in"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -7513,6 +7547,196 @@ function ChoiceIcon({ href }) {
 		})
 	});
 }
+var HostContext = X({
+	session: null,
+	signUp: async () => {},
+	signIn: async () => {},
+	signOut: async () => {}
+});
+function useHost() {
+	return x(HostContext);
+}
+var SIGNED_OUT = {
+	signed_in: false,
+	email: null
+};
+function HostProvider({ children }) {
+	const [session, setSession] = d(null);
+	h(() => {
+		getHostSession().then(setSession, (e) => {
+			console.error("Could not read the host sign-in", e);
+			setSession(SIGNED_OUT);
+		});
+	}, []);
+	async function account(kind, email, password) {
+		const started = performance.now();
+		const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
+		console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
+		setSession(signedIn);
+	}
+	async function signOut() {
+		await signOutAsHost();
+		console.info("Host signed out");
+		setSession(SIGNED_OUT);
+	}
+	const shared = {
+		session,
+		signUp: (email, password) => account("up", email, password),
+		signIn: (email, password) => account("in", email, password),
+		signOut
+	};
+	return /* @__PURE__ */ u(HostContext.Provider, {
+		value: shared,
+		children
+	});
+}
+function HostLinks({ page }) {
+	const { session, signOut } = useHost();
+	const [busy, setBusy] = d(false);
+	if (!session) return null;
+	if (session.signed_in) {
+		async function leave() {
+			setBusy(true);
+			try {
+				await signOut();
+				window.location.hash = "#/chat";
+			} catch (e) {
+				console.error("Could not sign out as host", e);
+			} finally {
+				setBusy(false);
+			}
+		}
+		return /* @__PURE__ */ u("span", {
+			className: "host-links",
+			children: [/* @__PURE__ */ u("span", {
+				className: "host-email",
+				title: "Signed in as host",
+				children: session.email
+			}), /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				disabled: busy,
+				onClick: () => void leave(),
+				children: "Sign out"
+			})]
+		});
+	}
+	const link = (to, href, label) => /* @__PURE__ */ u("a", {
+		href,
+		className: page === to ? "settings-link current" : "settings-link",
+		children: label
+	});
+	return /* @__PURE__ */ u("span", {
+		className: "host-links",
+		children: [link("host-sign-up", "#/host/sign-up", "Host sign up"), link("host-sign-in", "#/host/sign-in", "Host sign in")]
+	});
+}
+function HostAccountPage({ kind }) {
+	const { session, signUp, signIn } = useHost();
+	const [email, setEmail] = d("");
+	const [password, setPassword] = d("");
+	const [again, setAgain] = d("");
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d(null);
+	const up = kind === "up";
+	h(() => {
+		setError(null);
+		hostPageOpened(up ? "sign-up" : "sign-in").catch((e) => console.error("Could not log the host page opened", e));
+	}, [up]);
+	function problem() {
+		if (!up) return null;
+		if (password.length < 10) return `The password must be at least 10 characters.`;
+		if (password !== again) return "The two passwords are different.";
+		return null;
+	}
+	async function submit(e) {
+		e.preventDefault();
+		const found = problem();
+		setError(found);
+		if (found) return;
+		setBusy(true);
+		try {
+			await (up ? signUp : signIn)(email, password);
+			window.location.hash = "#/";
+		} catch (err) {
+			console.error(`Could not sign ${kind} as host`, err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	const title = up ? "Host sign up" : "Host sign in";
+	if (session?.signed_in) return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [/* @__PURE__ */ u("h1", { children: title }), /* @__PURE__ */ u("p", { children: [
+			"You are signed in as host with ",
+			session.email,
+			". ",
+			/* @__PURE__ */ u("a", {
+				href: "#/",
+				children: "Go to the home page"
+			})
+		] })]
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: title }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: up ? "Make a host account to set up the person and their content." : "Sign in with the email and password of your host account."
+			}),
+			/* @__PURE__ */ u("form", {
+				onSubmit: (e) => void submit(e),
+				noValidate: true,
+				children: [
+					/* @__PURE__ */ u("label", { children: ["Email", /* @__PURE__ */ u("input", {
+						type: "email",
+						autoComplete: "email",
+						value: email,
+						onInput: (e) => setEmail(e.currentTarget.value)
+					})] }),
+					/* @__PURE__ */ u("label", { children: [
+						"Password",
+						up && ` (at least 10 characters)`,
+						/* @__PURE__ */ u("input", {
+							type: "password",
+							autoComplete: up ? "new-password" : "current-password",
+							value: password,
+							onInput: (e) => setPassword(e.currentTarget.value)
+						})
+					] }),
+					up && /* @__PURE__ */ u("label", { children: ["Password again", /* @__PURE__ */ u("input", {
+						type: "password",
+						autoComplete: "new-password",
+						value: again,
+						onInput: (e) => setAgain(e.currentTarget.value)
+					})] }),
+					error && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: error
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy || email.trim() === "" || password === "",
+						children: up ? "Sign up" : "Sign in"
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: up ? /* @__PURE__ */ u(S, { children: ["Already a host? ", /* @__PURE__ */ u("a", {
+					href: "#/host/sign-in",
+					children: "Host sign in"
+				})] }) : /* @__PURE__ */ u(S, { children: ["New here? ", /* @__PURE__ */ u("a", {
+					href: "#/host/sign-up",
+					children: "Host sign up"
+				})] })
+			})
+		]
+	});
+}
 //#endregion
 //#region src/start-now.tsx
 var OPTIONS = {
@@ -9933,7 +10157,7 @@ function current(page, view) {
 	return page;
 }
 function App() {
-	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(Shell, {}) }) });
+	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(HostProvider, { children: /* @__PURE__ */ u(Shell, {}) }) }) });
 }
 function Shell() {
 	const hash = useHash();
@@ -9993,6 +10217,8 @@ function Shell() {
 			onDataDeleted: () => setConsented(false)
 		}),
 		admin: /* @__PURE__ */ u(AdminPage, { section: adminTarget(hash) }),
+		"host-sign-up": /* @__PURE__ */ u(HostAccountPage, { kind: "up" }),
+		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [
@@ -10011,7 +10237,11 @@ function Shell() {
 				}, item.page)) }),
 				/* @__PURE__ */ u("span", {
 					className: "header-end",
-					children: [/* @__PURE__ */ u(AdminLink, { current: route?.page === "admin" }), settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })]
+					children: [
+						/* @__PURE__ */ u(HostLinks, { page: route?.page }),
+						/* @__PURE__ */ u(AdminLink, { current: route?.page === "admin" }),
+						settingsLoaded && /* @__PURE__ */ u(SettingsLink, { current: route?.page === "settings" })
+					]
 				})
 			]
 		}),

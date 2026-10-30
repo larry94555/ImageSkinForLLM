@@ -262,3 +262,12 @@ def test_the_reset_command(
     answers[:] = ["a new long one", "a new long one"]
     assert cli.main(["host-password-reset", "nobody@example.com"]) == 1
     assert "No host has signed up" in capsys.readouterr().err
+
+
+def test_the_host_pages_opened_are_logged(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    browser = TestClient(create_app(tmp_path))
+    for page in ["sign-up", "sign-in"]:
+        assert browser.post("/api/host/page", json={"page": page}).status_code == 204
+    assert browser.post("/api/host/page", json={"page": "anything"}).status_code == 422
+    lines = [r for r in caplog.records if r.getMessage() == "Host page opened"]
+    assert [r.page for r in lines] == ["sign-up", "sign-in"]  # type: ignore[attr-defined]
