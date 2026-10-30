@@ -7,6 +7,7 @@ import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { AdminSection } from "./admin";
+import { useHost } from "./host";
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
 import { ChangeSetup } from "./change-setup";
 import { ChatGptPlanSection } from "./chatgpt-plan";
@@ -19,12 +20,15 @@ interface Shared {
   settings: UiSettings;
   loaded: boolean; // the server has answered, or couldn't
   change: (changes: Partial<UiSettings>) => Promise<void>;
+  // Reads them again, as the view follows who is signed in as a host (R190).
+  reload: () => Promise<void>;
 }
 
 export const SettingsContext = createContext<Shared>({
   settings: DEFAULT_SETTINGS,
   loaded: true,
   change: async () => {},
+  reload: async () => {},
 });
 
 // The settings as saved on the server: the defaults until it answers, or if it can't.
@@ -35,6 +39,10 @@ export function useSettings(): UiSettings {
 // Whether the settings have been read, so a page the view hides isn't shown first (R41b).
 export function useSettingsLoaded(): boolean {
   return useContext(SettingsContext).loaded;
+}
+
+export function useSettingsReload(): () => Promise<void> {
+  return useContext(SettingsContext).reload;
 }
 
 export function SettingsProvider({ children }: { children: ComponentChildren }) {
@@ -58,7 +66,21 @@ export function SettingsProvider({ children }: { children: ComponentChildren }) 
     console.info(`Settings changed: ${JSON.stringify(changes)} (${took} ms)`);
   }
 
-  return <SettingsContext.Provider value={{ settings, loaded, change }}>{children}</SettingsContext.Provider>;
+  async function reload() {
+    try {
+      const read = await getSettings();
+      setSettings(read);
+      console.info(`Settings read again: the ${read.view} view`);
+    } catch (e) {
+      console.error("Could not read the settings again", e);
+    }
+  }
+
+  return (
+    <SettingsContext.Provider value={{ settings, loaded, change, reload }}>
+      {children}
+    </SettingsContext.Provider>
+  );
 }
 
 // The word in parentheses is today's only context; later it follows the primary context (R84 on).
@@ -155,6 +177,8 @@ export function SettingsPage({
     }
   }
 
+  const host = useHost().session?.signed_in === true;
+
   function chooseView(view: View) {
     const was = settings.view;
     save({ view }, () => {
@@ -168,6 +192,8 @@ export function SettingsPage({
       <h1>Settings</h1>
       <p className="lead">Changes are saved at once and kept after a restart.</p>
       {failed && <p className="error">The setting could not be changed. Try again.</p>}
+      {/* Only a signed-in host chooses the view; anyone else has the participant view (R190). */}
+      {host && (
       <section className="panel" aria-labelledby="settings-view">
         <h2 id="settings-view">View</h2>
         <p className="muted">Who the app is set out for.</p>
@@ -190,6 +216,7 @@ export function SettingsPage({
           ))}
         </fieldset>
       </section>
+      )}
       {SWITCHES.map(({ group, about, items }) => (
         <section key={group} className="panel" aria-labelledby={`settings-${group}`}>
           <h2 id={`settings-${group}`}>{group}</h2>

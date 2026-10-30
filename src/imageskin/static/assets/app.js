@@ -1676,12 +1676,15 @@ var HOST_PAGES = [
 	"guide",
 	"content"
 ];
-function resolve(hash, consented, participant = false) {
+function resolve(hash, consented, participant = false, visitor = false) {
 	const page = pageFor(hash);
-	if (participant && HOST_PAGES.includes(page)) return {
-		page: "chat",
-		redirect: "#/chat"
-	};
+	if (participant && HOST_PAGES.includes(page)) {
+		if (visitor && page !== "home") return { page: "host-only" };
+		return {
+			page: "chat",
+			redirect: "#/chat"
+		};
+	}
 	if (page === "setup" && !consented) return {
 		page: "consent",
 		redirect: "#/consent"
@@ -2093,6 +2096,225 @@ function usePrepareStopGuard(onDiscarded) {
 			children: failed
 		}), dialog] })
 	};
+}
+var HostContext = X({
+	session: null,
+	signUp: async () => {},
+	signIn: async () => {},
+	signOut: async () => {}
+});
+function useHost() {
+	return x(HostContext);
+}
+var SIGNED_OUT = {
+	signed_in: false,
+	email: null
+};
+function HostProvider({ children }) {
+	const [session, setSession] = d(null);
+	const reload = useSettingsReload();
+	h(() => {
+		getHostSession().then(setSession, (e) => {
+			console.error("Could not read the host sign-in", e);
+			setSession(SIGNED_OUT);
+		});
+	}, []);
+	async function account(kind, email, password) {
+		const started = performance.now();
+		const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
+		console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
+		setSession(signedIn);
+		await reload();
+	}
+	async function signOut() {
+		await signOutAsHost();
+		console.info("Host signed out");
+		setSession(SIGNED_OUT);
+		await reload();
+	}
+	const shared = {
+		session,
+		signUp: (email, password) => account("up", email, password),
+		signIn: (email, password) => account("in", email, password),
+		signOut
+	};
+	return /* @__PURE__ */ u(HostContext.Provider, {
+		value: shared,
+		children
+	});
+}
+function HostLinks({ page }) {
+	const { session, signOut } = useHost();
+	const [busy, setBusy] = d(false);
+	if (!session) return null;
+	if (session.signed_in) {
+		async function leave() {
+			setBusy(true);
+			try {
+				await signOut();
+				window.location.hash = "#/chat";
+			} catch (e) {
+				console.error("Could not sign out as host", e);
+			} finally {
+				setBusy(false);
+			}
+		}
+		return /* @__PURE__ */ u("span", {
+			className: "host-links",
+			children: [/* @__PURE__ */ u("span", {
+				className: "host-email",
+				title: "Signed in as host",
+				children: session.email
+			}), /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				disabled: busy,
+				onClick: () => void leave(),
+				children: "Sign out"
+			})]
+		});
+	}
+	const link = (to, href, label) => /* @__PURE__ */ u("a", {
+		href,
+		className: page === to ? "settings-link current" : "settings-link",
+		children: label
+	});
+	return /* @__PURE__ */ u("span", {
+		className: "host-links",
+		children: [link("host-sign-up", "#/host/sign-up", "Host sign up"), link("host-sign-in", "#/host/sign-in", "Host sign in")]
+	});
+}
+function HostAccountPage({ kind }) {
+	const { session, signUp, signIn } = useHost();
+	const [email, setEmail] = d("");
+	const [password, setPassword] = d("");
+	const [again, setAgain] = d("");
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d(null);
+	const up = kind === "up";
+	h(() => {
+		setError(null);
+		hostPageOpened(up ? "sign-up" : "sign-in").catch((e) => console.error("Could not log the host page opened", e));
+	}, [up]);
+	function problem() {
+		if (!up) return null;
+		if (password.length < 10) return `The password must be at least 10 characters.`;
+		if (password !== again) return "The two passwords are different.";
+		return null;
+	}
+	async function submit(e) {
+		e.preventDefault();
+		const found = problem();
+		setError(found);
+		if (found) return;
+		setBusy(true);
+		try {
+			await (up ? signUp : signIn)(email, password);
+			window.location.hash = "#/";
+		} catch (err) {
+			console.error(`Could not sign ${kind} as host`, err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	const title = up ? "Host sign up" : "Host sign in";
+	if (session?.signed_in) return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [/* @__PURE__ */ u("h1", { children: title }), /* @__PURE__ */ u("p", { children: [
+			"You are signed in as host with ",
+			session.email,
+			". ",
+			/* @__PURE__ */ u("a", {
+				href: "#/",
+				children: "Go to the home page"
+			})
+		] })]
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: title }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: up ? "Make a host account to set up the person and their content." : "Sign in with the email and password of your host account."
+			}),
+			/* @__PURE__ */ u("form", {
+				onSubmit: (e) => void submit(e),
+				noValidate: true,
+				children: [
+					/* @__PURE__ */ u("label", { children: ["Email", /* @__PURE__ */ u("input", {
+						type: "email",
+						autoComplete: "email",
+						value: email,
+						onInput: (e) => setEmail(e.currentTarget.value)
+					})] }),
+					/* @__PURE__ */ u("label", { children: [
+						"Password",
+						up && ` (at least 10 characters)`,
+						/* @__PURE__ */ u("input", {
+							type: "password",
+							autoComplete: up ? "new-password" : "current-password",
+							value: password,
+							onInput: (e) => setPassword(e.currentTarget.value)
+						})
+					] }),
+					up && /* @__PURE__ */ u("label", { children: ["Password again", /* @__PURE__ */ u("input", {
+						type: "password",
+						autoComplete: "new-password",
+						value: again,
+						onInput: (e) => setAgain(e.currentTarget.value)
+					})] }),
+					error && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: error
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy || email.trim() === "" || password === "",
+						children: up ? "Sign up" : "Sign in"
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: up ? /* @__PURE__ */ u(S, { children: ["Already a host? ", /* @__PURE__ */ u("a", {
+					href: "#/host/sign-in",
+					children: "Host sign in"
+				})] }) : /* @__PURE__ */ u(S, { children: ["New here? ", /* @__PURE__ */ u("a", {
+					href: "#/host/sign-up",
+					children: "Host sign up"
+				})] })
+			})
+		]
+	});
+}
+function HostOnlyPage() {
+	h(() => console.info(`Host page refused: ${window.location.hash}`), []);
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "For the host only" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "This page is for the host, who sets up the person and their content."
+			}),
+			/* @__PURE__ */ u("p", { children: [
+				/* @__PURE__ */ u("a", {
+					className: "button",
+					href: "#/host/sign-in",
+					children: "Host sign in"
+				}),
+				" ",
+				"or ",
+				/* @__PURE__ */ u("a", {
+					href: "#/chat",
+					children: "go to the chat"
+				})
+			] })
+		]
+	});
 }
 //#endregion
 //#region src/chatgpt-plan.tsx
@@ -2884,13 +3106,17 @@ function YourFiles() {
 var SettingsContext = X({
 	settings: DEFAULT_SETTINGS,
 	loaded: true,
-	change: async () => {}
+	change: async () => {},
+	reload: async () => {}
 });
 function useSettings() {
 	return x(SettingsContext).settings;
 }
 function useSettingsLoaded() {
 	return x(SettingsContext).loaded;
+}
+function useSettingsReload() {
+	return x(SettingsContext).reload;
 }
 function SettingsProvider({ children }) {
 	const [settings, setSettings] = d(DEFAULT_SETTINGS);
@@ -2907,11 +3133,21 @@ function SettingsProvider({ children }) {
 		const took = Math.round(performance.now() - started);
 		console.info(`Settings changed: ${JSON.stringify(changes)} (${took} ms)`);
 	}
+	async function reload() {
+		try {
+			const read = await getSettings();
+			setSettings(read);
+			console.info(`Settings read again: the ${read.view} view`);
+		} catch (e) {
+			console.error("Could not read the settings again", e);
+		}
+	}
 	return /* @__PURE__ */ u(SettingsContext.Provider, {
 		value: {
 			settings,
 			loaded,
-			change
+			change,
+			reload
 		},
 		children
 	});
@@ -3006,6 +3242,7 @@ function SettingsPage({ back, onDataDeleted }) {
 			undo();
 		}
 	}
+	const host = useHost().session?.signed_in === true;
 	function chooseView(view) {
 		const was = settings.view;
 		save({ view }, () => {
@@ -3026,7 +3263,7 @@ function SettingsPage({ back, onDataDeleted }) {
 				className: "error",
 				children: "The setting could not be changed. Try again."
 			}),
-			/* @__PURE__ */ u("section", {
+			host && /* @__PURE__ */ u("section", {
 				className: "panel",
 				"aria-labelledby": "settings-view",
 				children: [
@@ -7548,196 +7785,6 @@ function ChoiceIcon({ href }) {
 		})
 	});
 }
-var HostContext = X({
-	session: null,
-	signUp: async () => {},
-	signIn: async () => {},
-	signOut: async () => {}
-});
-function useHost() {
-	return x(HostContext);
-}
-var SIGNED_OUT = {
-	signed_in: false,
-	email: null
-};
-function HostProvider({ children }) {
-	const [session, setSession] = d(null);
-	h(() => {
-		getHostSession().then(setSession, (e) => {
-			console.error("Could not read the host sign-in", e);
-			setSession(SIGNED_OUT);
-		});
-	}, []);
-	async function account(kind, email, password) {
-		const started = performance.now();
-		const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
-		console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
-		setSession(signedIn);
-	}
-	async function signOut() {
-		await signOutAsHost();
-		console.info("Host signed out");
-		setSession(SIGNED_OUT);
-	}
-	const shared = {
-		session,
-		signUp: (email, password) => account("up", email, password),
-		signIn: (email, password) => account("in", email, password),
-		signOut
-	};
-	return /* @__PURE__ */ u(HostContext.Provider, {
-		value: shared,
-		children
-	});
-}
-function HostLinks({ page }) {
-	const { session, signOut } = useHost();
-	const [busy, setBusy] = d(false);
-	if (!session) return null;
-	if (session.signed_in) {
-		async function leave() {
-			setBusy(true);
-			try {
-				await signOut();
-				window.location.hash = "#/chat";
-			} catch (e) {
-				console.error("Could not sign out as host", e);
-			} finally {
-				setBusy(false);
-			}
-		}
-		return /* @__PURE__ */ u("span", {
-			className: "host-links",
-			children: [/* @__PURE__ */ u("span", {
-				className: "host-email",
-				title: "Signed in as host",
-				children: session.email
-			}), /* @__PURE__ */ u("button", {
-				type: "button",
-				className: "secondary",
-				disabled: busy,
-				onClick: () => void leave(),
-				children: "Sign out"
-			})]
-		});
-	}
-	const link = (to, href, label) => /* @__PURE__ */ u("a", {
-		href,
-		className: page === to ? "settings-link current" : "settings-link",
-		children: label
-	});
-	return /* @__PURE__ */ u("span", {
-		className: "host-links",
-		children: [link("host-sign-up", "#/host/sign-up", "Host sign up"), link("host-sign-in", "#/host/sign-in", "Host sign in")]
-	});
-}
-function HostAccountPage({ kind }) {
-	const { session, signUp, signIn } = useHost();
-	const [email, setEmail] = d("");
-	const [password, setPassword] = d("");
-	const [again, setAgain] = d("");
-	const [busy, setBusy] = d(false);
-	const [error, setError] = d(null);
-	const up = kind === "up";
-	h(() => {
-		setError(null);
-		hostPageOpened(up ? "sign-up" : "sign-in").catch((e) => console.error("Could not log the host page opened", e));
-	}, [up]);
-	function problem() {
-		if (!up) return null;
-		if (password.length < 10) return `The password must be at least 10 characters.`;
-		if (password !== again) return "The two passwords are different.";
-		return null;
-	}
-	async function submit(e) {
-		e.preventDefault();
-		const found = problem();
-		setError(found);
-		if (found) return;
-		setBusy(true);
-		try {
-			await (up ? signUp : signIn)(email, password);
-			window.location.hash = "#/";
-		} catch (err) {
-			console.error(`Could not sign ${kind} as host`, err);
-			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
-		} finally {
-			setBusy(false);
-		}
-	}
-	const title = up ? "Host sign up" : "Host sign in";
-	if (session?.signed_in) return /* @__PURE__ */ u("div", {
-		className: "host-page host-account",
-		children: [/* @__PURE__ */ u("h1", { children: title }), /* @__PURE__ */ u("p", { children: [
-			"You are signed in as host with ",
-			session.email,
-			". ",
-			/* @__PURE__ */ u("a", {
-				href: "#/",
-				children: "Go to the home page"
-			})
-		] })]
-	});
-	return /* @__PURE__ */ u("div", {
-		className: "host-page host-account",
-		children: [
-			/* @__PURE__ */ u("h1", { children: title }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: up ? "Make a host account to set up the person and their content." : "Sign in with the email and password of your host account."
-			}),
-			/* @__PURE__ */ u("form", {
-				onSubmit: (e) => void submit(e),
-				noValidate: true,
-				children: [
-					/* @__PURE__ */ u("label", { children: ["Email", /* @__PURE__ */ u("input", {
-						type: "email",
-						autoComplete: "email",
-						value: email,
-						onInput: (e) => setEmail(e.currentTarget.value)
-					})] }),
-					/* @__PURE__ */ u("label", { children: [
-						"Password",
-						up && ` (at least 10 characters)`,
-						/* @__PURE__ */ u("input", {
-							type: "password",
-							autoComplete: up ? "new-password" : "current-password",
-							value: password,
-							onInput: (e) => setPassword(e.currentTarget.value)
-						})
-					] }),
-					up && /* @__PURE__ */ u("label", { children: ["Password again", /* @__PURE__ */ u("input", {
-						type: "password",
-						autoComplete: "new-password",
-						value: again,
-						onInput: (e) => setAgain(e.currentTarget.value)
-					})] }),
-					error && /* @__PURE__ */ u("p", {
-						className: "error",
-						role: "alert",
-						children: error
-					}),
-					/* @__PURE__ */ u("button", {
-						type: "submit",
-						disabled: busy || email.trim() === "" || password === "",
-						children: up ? "Sign up" : "Sign in"
-					})
-				]
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: up ? /* @__PURE__ */ u(S, { children: ["Already a host? ", /* @__PURE__ */ u("a", {
-					href: "#/host/sign-in",
-					children: "Host sign in"
-				})] }) : /* @__PURE__ */ u(S, { children: ["New here? ", /* @__PURE__ */ u("a", {
-					href: "#/host/sign-up",
-					children: "Host sign up"
-				})] })
-			})
-		]
-	});
-}
 //#endregion
 //#region src/start-now.tsx
 var OPTIONS = {
@@ -10140,12 +10187,6 @@ var NAV = [
 		views: ["host", "participant"]
 	},
 	{
-		page: "wiki",
-		href: "#/wiki",
-		label: "Wiki",
-		views: ["participant"]
-	},
-	{
 		page: "content",
 		href: "#/content",
 		label: "Manage Content",
@@ -10154,7 +10195,7 @@ var NAV = [
 ];
 function current(page, view) {
 	if (page === "guide" || page === "start-now" || page === "avatar-voice" || page === "wizard") return "setup";
-	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
+	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : void 0;
 	return page;
 }
 function App() {
@@ -10174,7 +10215,9 @@ function Shell() {
 		});
 	}, []);
 	const defaultPerson = useDefaultPerson(hash, host);
-	const route = consented === null || !settingsLoaded ? null : resolve(hash, consented, participant);
+	const hostSession = useHost().session;
+	const visitor = hostSession?.signed_in !== true;
+	const route = consented === null || !settingsLoaded || hostSession === null ? null : resolve(hash, consented, participant, visitor);
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
 	}, [route?.redirect]);
@@ -10220,6 +10263,7 @@ function Shell() {
 		admin: /* @__PURE__ */ u(AdminPage, { section: adminTarget(hash) }),
 		"host-sign-up": /* @__PURE__ */ u(HostAccountPage, { kind: "up" }),
 		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
+		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [

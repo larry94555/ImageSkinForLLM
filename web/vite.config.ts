@@ -30,8 +30,9 @@ export default defineConfig({
   server: { proxy: { "/api": "http://127.0.0.1:8000", "/health": "http://127.0.0.1:8000" } },
   test: {
     environment: "jsdom",
+    setupFiles: ["src/test-setup.ts"],
     // So a test can read the stylesheet as text (styles.css?raw).
     css: { include: [/styles\.css/] },
-    coverage: { include: ["src/**"], exclude: ["src/main.tsx", "src/**/*.test.*"] },
+    coverage: { include: ["src/**"], exclude: ["src/main.tsx", "src/**/*.test.*", "src/test-setup.ts"] },
   },
 });

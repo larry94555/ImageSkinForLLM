@@ -6,6 +6,8 @@ import type { ComponentChildren } from "preact";
 import { createContext } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
 
+import { useSettingsReload } from "./settings";
+
 import {
   getHostSession,
   hostPageOpened,
@@ -41,6 +43,8 @@ const SIGNED_OUT: HostSession = { signed_in: false, email: null };
 
 export function HostProvider({ children }: { children: ComponentChildren }) {
   const [session, setSession] = useState<HostSession | null>(null);
+  // The view follows who is signed in (R190), so the settings are read again after a change.
+  const reload = useSettingsReload();
 
   useEffect(() => {
     getHostSession().then(setSession, (e: unknown) => {
@@ -55,12 +59,14 @@ export function HostProvider({ children }: { children: ComponentChildren }) {
     const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
     console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
     setSession(signedIn);
+    await reload();
   }
 
   async function signOut() {
     await signOutAsHost();
     console.info("Host signed out");
     setSession(SIGNED_OUT);
+    await reload();
   }
 
   const shared = {
@@ -228,6 +234,24 @@ export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
             New here? <a href="#/host/sign-up">Host sign up</a>
           </>
         )}
+      </p>
+    </div>
+  );
+}
+
+// A host page opened by anyone not signed in as a host (R190): what it is, and how to sign in.
+// Its calls to the server are refused too.
+export function HostOnlyPage() {
+  useEffect(() => console.info(`Host page refused: ${window.location.hash}`), []);
+  return (
+    <div className="host-page host-account">
+      <h1>For the host only</h1>
+      <p className="lead">This page is for the host, who sets up the person and their content.</p>
+      <p>
+        <a className="button" href="#/host/sign-in">
+          Host sign in
+        </a>{" "}
+        or <a href="#/chat">go to the chat</a>
       </p>
     </div>
   );

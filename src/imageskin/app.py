@@ -13,7 +13,17 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response, UploadFile
+from fastapi import (
+    Body,
+    Cookie,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi import Path as PathParam
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import (
@@ -63,7 +73,8 @@ from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.failure import report
-from imageskin.host_api import host_router
+from imageskin.host_api import COOKIE as HOST_COOKIE
+from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.hosts import HostAccounts
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
@@ -592,7 +603,12 @@ def create_app(
     admin_routes, app.state.require_admin = admin_router(admin_sign_ins)
     app.include_router(admin_routes)
     # Host accounts (R188). The host-only pages and routes later depend on require_host (R190).
-    host_routes, app.state.require_host = host_router(HostAccounts(data_home))
+    host_accounts = HostAccounts(data_home)
+    host_routes, app.state.require_host = host_router(host_accounts)
+    # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
+    # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
+    # for the participant view.
+    host_only = [Depends(app.state.require_host)]
     app.include_router(host_routes)
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
@@ -640,7 +656,7 @@ def create_app(
             logger.warning("Request arrived before Delete my data; refused")
             raise HTTPException(status_code=409, detail=DELETED_MEANWHILE)
 
-    @app.post("/api/consent")
+    @app.post("/api/consent", dependencies=host_only)
     def post_consent(body: ConsentRequest, seen: DeletesSeen) -> dict[str, object]:
         if not body.agreed:
             raise HTTPException(status_code=400, detail="Tick the box to confirm consent.")
@@ -653,7 +669,7 @@ def create_app(
     def get_wizard() -> dict[str, str]:
         return {"step": load_step(data_home)}
 
-    @app.put("/api/wizard")
+    @app.put("/api/wizard", dependencies=host_only)
     def put_wizard(body: WizardStep) -> dict[str, str]:
         try:
             return {"step": save_step(data_home, body.step)}
@@ -666,7 +682,7 @@ def create_app(
 
     # A photo taken with the camera in the wizard, or why the camera wasn't used (R132), for the
     # log only: the picture is uploaded like any photo.
-    @app.post("/api/wizard/camera")
+    @app.post("/api/wizard/camera", dependencies=host_only)
     def post_wizard_camera(body: CameraUse) -> dict[str, bool]:
         try:
             log_camera(body.taken, body.reason, body.width, body.height, body.camera)
@@ -677,7 +693,7 @@ def create_app(
 
     # A recording made with the microphone in the wizard, or why the microphone wasn't used
     # (R133), for the log only: the recording is uploaded like any sound file.
-    @app.post("/api/wizard/recording")
+    @app.post("/api/wizard/recording", dependencies=host_only)
     def post_wizard_recording(body: RecordingMade) -> dict[str, bool]:
         try:
             log_recording(body.made, body.reason, body.seconds, body.format)
@@ -686,18 +702,45 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {"logged": True}
 
-    # The Settings page's settings (R41a, R27): anyone can read and change them for now. The
-    # question scope follows the config file until it is changed there.
+    # The Settings page's settings (R41a, R27): anyone can read and change them for now, except
+    # the view (R190). The question scope follows the config file until it is changed there.
     ui_defaults = UiSettings(general_prompts=general_prompts)
 
     @app.get("/api/settings")
-    def get_settings() -> dict[str, object]:
-        return asdict(load_ui_settings(data_home, ui_defaults))
+    def get_settings(
+        host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
+    ) -> dict[str, object]:
+        settings = asdict(load_ui_settings(data_home, ui_defaults))
+        # The view follows who is signed in (R190): anyone not signed in as a host gets the
+        # participant view; a host gets the view chosen in the settings, so they can look at the
+        # app as a participant does.
+        host = host_accounts.host(host_token)
+        if host is None:
+            settings["view"] = "participant"
+        logger.info(
+            "View chosen",
+            extra={
+                "view": settings["view"],
+                "why": "host signed in" if host else "no host signed in",
+            },
+        )
+        return settings
 
     @app.patch("/api/settings")
-    def patch_settings(changes: Annotated[dict[str, Any], Body()]) -> dict[str, object]:
+    def patch_settings(
+        changes: Annotated[dict[str, Any], Body()],
+        host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
+    ) -> dict[str, object]:
+        # The saved view is the host's, so only a signed-in host changes it (Codex's review of
+        # PR #233); the other settings stay open until R191.
+        host = host_accounts.host(host_token)
+        if "view" in changes and host is None:
+            logger.warning("View change refused", extra={"why": "no host signed in"})
+            raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
         try:
             saved = asdict(save_ui_settings(data_home, changes, ui_defaults))
+            if host is None:
+                saved["view"] = "participant"
             if "detail" in changes:  # the next answer is asked at it (R180)
                 logger.info("Level of detail set", extra={"detail": changes["detail"]})
             if "teach_me" in changes and app.state.lessons is not None:
@@ -750,6 +793,7 @@ def create_app(
     )
     uploads_api = "/api/uploads/{kind}"
     needs_consent = [Depends(require_consent)]
+    host_and_consent = [*host_only, *needs_consent]
 
     # A default person (roadmap R24c) is chosen without consent: the chat needs consent only
     # for the person's own photo and voice (item 58).
@@ -759,7 +803,7 @@ def create_app(
 
     needs_person = [Depends(require_person)]
 
-    @app.post(uploads_api, dependencies=needs_consent)
+    @app.post(uploads_api, dependencies=host_and_consent)
     def upload(kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response) -> Upload:
         try:
             # Each step's time goes back in the Server-Timing header (R96b). FastAPI has received
@@ -773,11 +817,11 @@ def create_app(
         response.headers["Server-Timing"] = server_timing.header(steps)
         return saved
 
-    @app.get(uploads_api, dependencies=needs_consent)
+    @app.get(uploads_api, dependencies=host_and_consent)
     def list_uploads(kind: Kind) -> list[Upload]:
         return store.list(kind)
 
-    @app.post(uploads_api + "/{upload_id}/check", dependencies=needs_consent)
+    @app.post(uploads_api + "/{upload_id}/check", dependencies=host_and_consent)
     def check_upload_now(kind: Kind, upload_id: str, seen: DeletesSeen) -> Upload:
         start = time.perf_counter()
         try:
@@ -809,11 +853,11 @@ def create_app(
         )
         return checked
 
-    @app.get("/api/voice-sample", dependencies=needs_consent)
+    @app.get("/api/voice-sample", dependencies=host_and_consent)
     def get_voice_sample() -> VoiceSample:
         return store.voice_sample()
 
-    @app.get("/api/voice-sample/audio", dependencies=needs_consent)
+    @app.get("/api/voice-sample/audio", dependencies=host_and_consent)
     def get_voice_sample_audio() -> FileResponse:
         if not store.voice_sample_file.is_file():
             raise HTTPException(status_code=404, detail="No recording has passed the checks yet.")
@@ -822,11 +866,11 @@ def create_app(
         return FileResponse(store.voice_sample_file, media_type="audio/wav", headers=headers)
 
     # Before the {upload_id} routes; ids are 32 hex digits, so they never clash.
-    @app.get("/api/uploads/photos/chosen", dependencies=needs_consent)
+    @app.get("/api/uploads/photos/chosen", dependencies=host_and_consent)
     def get_photo_choice() -> PhotoChoice:
         return store.photo_choice()
 
-    @app.put("/api/uploads/photos/chosen", dependencies=needs_consent)
+    @app.put("/api/uploads/photos/chosen", dependencies=host_and_consent)
     def put_photo_choice(body: PhotoChoiceRequest, seen: DeletesSeen) -> PhotoChoice:
         try:
             with personal_write(seen):
@@ -834,7 +878,7 @@ def create_app(
         except UploadError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
 
-    @app.get(uploads_api + "/{upload_id}", dependencies=needs_consent)
+    @app.get(uploads_api + "/{upload_id}", dependencies=host_and_consent)
     def get_upload(kind: Kind, upload_id: str) -> FileResponse:
         path = store.path(kind, upload_id)
         if path is None:
@@ -844,7 +888,7 @@ def create_app(
             path, media_type=MEDIA_TYPE[path.suffix], headers={"X-Content-Type-Options": "nosniff"}
         )
 
-    @app.delete(uploads_api + "/{upload_id}", dependencies=needs_consent)
+    @app.delete(uploads_api + "/{upload_id}", dependencies=host_and_consent)
     def remove_upload(kind: Kind, upload_id: str, seen: DeletesSeen) -> dict[str, bool]:
         with personal_write(seen):
             removed = store.remove(kind, upload_id)
@@ -884,7 +928,7 @@ def create_app(
     def list_pdfs() -> list[Pdf]:
         return content.list()
 
-    @app.post(content_api)
+    @app.post(content_api, dependencies=host_only)
     def add_pdf(file: UploadFile, seen: DeletesSeen) -> Pdf:
         with content_write(seen):
             try:
@@ -894,7 +938,7 @@ def create_app(
             readings.queue(pdf)
         return pdf
 
-    @app.put(content_api + "/{pdf_id}")
+    @app.put(content_api + "/{pdf_id}", dependencies=host_only)
     def replace_pdf(pdf_id: str, file: UploadFile, seen: DeletesSeen) -> Pdf:
         with content_write(seen):
             try:
@@ -906,7 +950,7 @@ def create_app(
         return pdf
 
     # Before /{pdf_id}, which would take "readings" as an id.
-    @app.get(content_api + "/readings")
+    @app.get(content_api + "/readings", dependencies=host_only)
     def reading_statuses() -> dict[str, ReadingStatus]:
         return readings.statuses()
 
@@ -939,7 +983,7 @@ def create_app(
             headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
         )
 
-    @app.delete(content_api + "/{pdf_id}")
+    @app.delete(content_api + "/{pdf_id}", dependencies=host_only)
     def remove_pdf(pdf_id: str, seen: DeletesSeen) -> dict[str, bool]:
         with content_write(seen):
             try:
@@ -973,7 +1017,7 @@ def create_app(
         return page
 
     # The user's edits (roadmap R38).
-    @app.put("/api/wiki/{page_id}")
+    @app.put("/api/wiki/{page_id}", dependencies=host_only)
     def edit_wiki_page(page_id: str, request: WikiEditRequest, seen: DeletesSeen) -> dict[str, Any]:
         with content_write(seen):
             try:
@@ -981,7 +1025,7 @@ def create_app(
             except EditError as e:
                 raise HTTPException(status_code=e.status, detail=str(e)) from e
 
-    @app.delete("/api/wiki/{page_id}/edit")
+    @app.delete("/api/wiki/{page_id}/edit", dependencies=host_only)
     def undo_wiki_edit(page_id: str, seen: DeletesSeen) -> dict[str, bool]:
         with content_write(seen):
             try:
@@ -992,7 +1036,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="That wiki entry has no edit.")
         return {"undone": True}
 
-    @app.post("/api/wiki/{page_id}/reviewed")
+    @app.post("/api/wiki/{page_id}/reviewed", dependencies=host_only)
     def wiki_edit_reviewed(page_id: str, seen: DeletesSeen) -> dict[str, bool]:
         with content_write(seen):
             try:
@@ -1003,7 +1047,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="That wiki entry has no edit.")
         return {"reviewed": True}
 
-    @app.post(content_api + "/{pdf_id}/wiki/rebuild")
+    @app.post(content_api + "/{pdf_id}/wiki/rebuild", dependencies=host_only)
     def rebuild_wiki(pdf_id: str, seen: DeletesSeen) -> WikiStatus:
         with content_write(seen):
             if content.get(pdf_id) is None:
@@ -1013,21 +1057,21 @@ def create_app(
         return wiki.statuses()[pdf_id]
 
     # The wiki's history, and saving it to a file and loading it back (roadmap R38a).
-    @app.get(content_api + "/{pdf_id}/wiki/history")
+    @app.get(content_api + "/{pdf_id}/wiki/history", dependencies=host_only)
     def wiki_history(pdf_id: str) -> list[dict[str, Any]]:
         versions = wiki.versions(pdf_id)
         if versions is None:
             raise HTTPException(status_code=404, detail="No wiki pages yet.")
         return versions
 
-    @app.get(content_api + "/{pdf_id}/wiki/history/{version_id}")
+    @app.get(content_api + "/{pdf_id}/wiki/history/{version_id}", dependencies=host_only)
     def wiki_version(pdf_id: str, version_id: str) -> dict[str, Any]:
         found = wiki.version(pdf_id, version_id)
         if found is None:
             raise HTTPException(status_code=404, detail="No such version of the wiki.")
         return found
 
-    @app.post(content_api + "/{pdf_id}/wiki/history/{version_id}/restore")
+    @app.post(content_api + "/{pdf_id}/wiki/history/{version_id}/restore", dependencies=host_only)
     def restore_wiki_version(
         pdf_id: str, version_id: str, seen: DeletesSeen, force: bool = False
     ) -> dict[str, bool]:
@@ -1048,7 +1092,7 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{wiki_file_name(saved)}"'},
         )
 
-    @app.post(content_api + "/{pdf_id}/wiki/file")
+    @app.post(content_api + "/{pdf_id}/wiki/file", dependencies=host_only)
     def load_wiki_file(
         pdf_id: str, file: UploadFile, seen: DeletesSeen, force: bool = False
     ) -> dict[str, int]:
@@ -1152,7 +1196,7 @@ def create_app(
             "voices": ready_voices(),  # every default person's voice (R24e)
         }
 
-    @app.put("/api/ready-voice", dependencies=needs_consent)
+    @app.put("/api/ready-voice", dependencies=host_and_consent)
     def put_ready_voice(body: ReadyVoiceRequest, seen: DeletesSeen) -> dict[str, object]:
         if body.voice not in READY_VOICES:
             raise HTTPException(
@@ -1209,7 +1253,7 @@ def create_app(
         photo = chosen_photo()
         return photo is not None and replies.idle(photo) is not None
 
-    @app.post("/api/start-now")
+    @app.post("/api/start-now", dependencies=host_only)
     def post_start_now(body: StartNowRequest, seen: DeletesSeen) -> StartStatus:
         choice = PersonChoice(body.gender, body.accent, body.realism, body.role, body.face)
         problem = choice.problem()
@@ -1261,20 +1305,20 @@ def create_app(
     def get_prepare() -> PrepareStatus:
         return job.status()
 
-    @app.post("/api/prepare", dependencies=needs_consent)
+    @app.post("/api/prepare", dependencies=host_and_consent)
     def start_prepare() -> PrepareStatus:
         try:
             return job.start()
         except PrepareError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
 
-    @app.post("/api/prepare/cancel", dependencies=needs_consent)
+    @app.post("/api/prepare/cancel", dependencies=host_and_consent)
     def cancel_prepare(body: CancelRequest | None = None) -> PrepareStatus:
         """Stop preparing (roadmap R159), once the user confirmed it on the page: at once, or
         once the part it is on is finished (at most 10 seconds)."""
         return job.cancel(now=body is not None and body.now)
 
-    @app.post("/api/prepare/discard", dependencies=needs_consent)
+    @app.post("/api/prepare/discard", dependencies=host_and_consent)
     def discard_prepare() -> PrepareStatus:
         """Prepare over again instead of resuming (R159): a setting is about to change."""
         return job.discard()
@@ -1285,7 +1329,7 @@ def create_app(
         available = voice_kind in CLONES
         return AccentChoice(accent=accent() if available else "own", available=available)
 
-    @app.put("/api/accent", dependencies=needs_consent)
+    @app.put("/api/accent", dependencies=host_and_consent)
     def put_accent(body: AccentRequest, seen: DeletesSeen) -> AccentChoice:
         if body.accent != "own" and voice_kind not in CLONES:
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
@@ -1333,7 +1377,7 @@ def create_app(
             }
         return asdict(load_review(data_home, job.status()))
 
-    @app.delete("/api/start-now", dependencies=needs_consent)
+    @app.delete("/api/start-now", dependencies=host_and_consent)
     def use_own_person(seen: DeletesSeen) -> dict[str, object]:
         """Use your own photo and voice again, from a ready-made avatar, when their sample is
         already accepted: the avatar is no longer chosen, and nothing needs preparing again."""
@@ -1352,7 +1396,7 @@ def create_app(
         logger.info("Switched to your own photo and voice", extra={"duration_ms": ms_since(start)})
         return asdict(load_review(data_home, job.status()))
 
-    @app.put("/api/start-now/own-voice")
+    @app.put("/api/start-now/own-voice", dependencies=host_only)
     def use_own_voice(body: ConsentRequest, seen: DeletesSeen) -> dict[str, object]:
         """The ready-made avatar is to speak in the user's own recorded voice (R24d): consent for
         the person in the recordings, then the recordings, Prepare and review as in setup. Until
@@ -1383,7 +1427,7 @@ def create_app(
             logger.warning("Avatar's voice not changed while Prepare runs")
             raise HTTPException(status_code=409, detail=WAIT_FOR_PREPARE_AVATAR)
 
-    @app.delete("/api/start-now/own-voice", dependencies=needs_consent)
+    @app.delete("/api/start-now/own-voice", dependencies=host_and_consent)
     def use_ready_voice(seen: DeletesSeen) -> dict[str, object]:
         """The ready-made avatar speaks in its ready-made voice again (R24d)."""
         with personal_write(seen):
@@ -1391,7 +1435,7 @@ def create_app(
                 change_avatar_voice(lambda: start_now.set_own_voice(False))
         return get_review()
 
-    @app.post("/api/review", dependencies=needs_consent)
+    @app.post("/api/review", dependencies=host_and_consent)
     def post_review(body: ReviewRequest, seen: DeletesSeen) -> dict[str, object]:
         with personal_write(seen):
             if body.decision != "accept":
@@ -2388,7 +2432,7 @@ def create_app(
                     del whole_videos[key]
         return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
 
-    @app.post("/api/prepare/clips/sample/again", dependencies=needs_consent)
+    @app.post("/api/prepare/clips/sample/again", dependencies=host_and_consent)
     def run_video_test_again() -> dict[str, object]:
         """Run the video test again from Settings (roadmap R27b): render the sample video afresh
         from the prepared face and voice. It waits for any prompt being answered and holds the

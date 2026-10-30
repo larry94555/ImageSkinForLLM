@@ -553,7 +553,7 @@ function withSettings(saved: { show_metrics: boolean; view: string }) {
 
 const PARTICIPANT = { show_metrics: false, view: "participant" };
 
-test("the participant view has only the chat and a read-only wiki with its PDFs", async () => {
+test("the participant view has only the chat, and the wiki by its address is read-only", async () => {
   const edited: WikiContents = {
     ...CONTENTS,
     entries: [{ ...CONTENTS.entries[0], edited: true }],
@@ -565,7 +565,7 @@ test("the participant view has only the chat and a read-only wiki with its PDFs"
   render(<App />);
   const pdf = (await screen.findByRole("heading", { name: "guide.pdf" })).closest("article")!;
   const nav = within(screen.getByRole("navigation", { name: "" }));
-  expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
+  expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat"]);
   expect(screen.getByRole("link", { name: "ImageSkinForLLM" }).getAttribute("href")).toBe("#/chat");
 
   const open = within(pdf).getByRole("link", { name: "Open the PDF" });
@@ -685,7 +685,7 @@ test("while the settings load, the top bar shows no host's links", async () => {
 
   await act(async () => answer(Response.json(PARTICIPANT)));
   await screen.findByText("How the weather changes.");
-  expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Wiki"]);
+  expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat"]);
   expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("#/settings");
 });
 
