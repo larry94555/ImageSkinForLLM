@@ -3,11 +3,12 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { CHECK_MS, GUIDE } from "./admin";
 import { App } from "./App";
+import { indexedDbStore, type KeyStore, useKeyStore } from "./laptop-key";
 
 // A server with consent given, the settings as `settings`, and an administrator password
 // "secret" unless `passwordSet` is false. `state` is changed by the tests to sign out by itself.
 function server(settings: Record<string, unknown> = {}, passwordSet = true) {
-  const state = { signedIn: false, ended: null as string | null, activityOk: true };
+  const state = { signedIn: false, ended: null as string | null, activityOk: true, listed: true };
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true });
     if (url === "/api/settings") return Response.json(settings);
@@ -33,6 +34,8 @@ function server(settings: Record<string, unknown> = {}, passwordSet = true) {
       state.signedIn = true;
       return Response.json({ signed_in: true });
     }
+    if (url === "/api/admin/challenge") return Response.json({ challenge: "the challenge" });
+    if (url === "/api/admin/laptop") return Response.json({ listed: state.listed });
     if (url === "/api/admin/sign-out") {
       state.signedIn = false;
       return Response.json({ signed_in: false });
@@ -46,10 +49,15 @@ function server(settings: Record<string, unknown> = {}, passwordSet = true) {
   return { fetchMock, state };
 }
 
-async function openAt(hash: string) {
+// Waits for the Administrator section, shown once the server says this laptop may sign in,
+// unless `admin` is false.
+async function openAt(hash: string, admin = true) {
   window.location.hash = hash;
   render(<App />);
   await screen.findByRole("link", { name: "Settings" });
+  if (admin && hash === "#/settings") {
+    await screen.findByRole("region", { name: "Administrator" });
+  }
 }
 
 function adminSection() {
@@ -58,8 +66,10 @@ function adminSection() {
 
 async function signIn(password: string) {
   const section = adminSection();
+  // Shown once the server has said this laptop may sign in.
+  const field = await section.findByLabelText("Administrator password");
   await act(async () => {
-    fireEvent.input(section.getByLabelText("Administrator password"), {
+    fireEvent.input(field, {
       target: { value: password },
     });
   });
@@ -79,6 +89,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useKeyStore(indexedDbStore);
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -142,7 +153,7 @@ test("the participant view has the Administrator section too", async () => {
 test("the admin view opened without a sign-in shows the sign-in", async () => {
   server();
   await openAt("#/admin");
-  expect(screen.getByRole("heading", { name: "Admin", level: 1 })).toBeTruthy();
+  await screen.findByRole("heading", { name: "Admin", level: 1 });
   await screen.findByLabelText("Administrator password");
   expect(screen.queryByRole("heading", { name: "Resources" })).toBeNull();
 });
@@ -190,6 +201,23 @@ test("a changed password says why the sign-in ended", async () => {
   expect((await screen.findByRole("status")).textContent).toContain(
     "because the administrator password was changed",
   );
+});
+
+test("a laptop taken out of the list signs out without saying why", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const { state } = server();
+  await openAt("#/settings");
+  await screen.findByLabelText("Administrator password");
+  await signIn("secret");
+  await screen.findByRole("link", { name: "Admin" });
+  state.signedIn = false;
+  state.ended = "laptop removed";
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(CHECK_MS);
+  });
+  const notice = await screen.findByRole("status");
+  expect(notice.textContent).toContain("Signed out as administrator.");
+  expect(notice.textContent).not.toContain("laptop");
 });
 
 test("a click on the Settings page or in the admin view is activity, at most once a minute", async () => {
@@ -251,7 +279,7 @@ test("a click on the Settings page or in the admin view is activity, at most onc
   await screen.findByLabelText("Administrator password");
 });
 
-test("a server that can't be reached leaves the sign-in waiting", async () => {
+test("a server that can't be reached shows nothing of the administrator", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
@@ -260,10 +288,126 @@ test("a server that can't be reached leaves the sign-in waiting", async () => {
       return new Response("", { status: 500 });
     }),
   );
-  await openAt("#/settings");
-  expect(adminSection().getByText("Checking…")).toBeTruthy();
+  await openAt("#/settings", false);
+  await vi.waitFor(() => expect(console.error).toHaveBeenCalled());
+  expect(screen.queryByRole("region", { name: "Administrator" })).toBeNull();
   expect(console.error).toHaveBeenCalledWith(
     "Could not read the administrator sign-in",
     expect.any(Error),
+  );
+});
+
+// A browser that can make a laptop key (HTTPS or localhost), kept in memory for the test.
+function secureBrowser(): void {
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("indexedDB", {});
+  let kept: CryptoKeyPair | undefined;
+  const store: KeyStore = {
+    load: async () => kept,
+    save: async (pair) => {
+      kept = pair;
+    },
+  };
+  useKeyStore(store);
+}
+
+test("the Settings page shows this laptop's ID, and Copy gives the lines for the file", async () => {
+  secureBrowser();
+  const writeText = vi.fn(async () => {});
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  server();
+  await openAt("#/settings");
+  const id = (await adminSection().findByText(/^LT(-[A-Z2-7]{4}){5}$/)).textContent!;
+  await act(async () => {
+    fireEvent.click(adminSection().getByRole("button", { name: "Copy" }));
+  });
+  expect(writeText).toHaveBeenCalledWith(`[[laptop]]\nname = "My laptop"\nid = "${id}"\n`);
+  await adminSection().findByRole("button", { name: "Copied" });
+  expect(console.info).toHaveBeenCalledWith("Laptop ID shown");
+});
+
+test("the ID is shown whether or not a password is set or signed in", async () => {
+  secureBrowser();
+  server({}, false);
+  await openAt("#/settings");
+  await adminSection().findByText(/^LT-/);
+});
+
+test("signing in sends this laptop's proof of the challenge", async () => {
+  secureBrowser();
+  const { fetchMock } = server();
+  await openAt("#/settings");
+  await adminSection().findByText(/^LT-/);
+  await signIn("secret");
+  await screen.findByRole("link", { name: "Admin" });
+  const sent = fetchMock.mock.calls.find(([u]) => u === "/api/admin/sign-in")!;
+  const body = JSON.parse(String(sent[1]!.body)) as {
+    password: string;
+    laptop: { public_key: string; challenge: string; signature: string };
+  };
+  expect(body.password).toBe("secret");
+  expect(body.laptop.challenge).toBe("the challenge");
+  expect(atob(body.laptop.signature).length).toBe(64);
+  // One challenge to ask whether this laptop is listed, one to sign in.
+  expect(calls(fetchMock, "/api/admin/challenge")).toBe(2);
+});
+
+test("at a plain http address the ID can't be shown and no proof is sent", async () => {
+  const { fetchMock } = server();
+  await openAt("#/settings");
+  await adminSection().findByText(/can't be shown at this address/);
+  await signIn("secret");
+  await screen.findByRole("link", { name: "Admin" });
+  const sent = fetchMock.mock.calls.find(([u]) => u === "/api/admin/sign-in")!;
+  expect(JSON.parse(String(sent[1]!.body))).toEqual({ password: "secret" });
+  expect(calls(fetchMock, "/api/admin/challenge")).toBe(0);
+  const asked = fetchMock.mock.calls.find(([u]) => u === "/api/admin/laptop")!;
+  expect(JSON.parse(String(asked[1]!.body))).toEqual({});
+});
+
+test("a key that can't be made says so", async () => {
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("indexedDB", {});
+  useKeyStore({
+    load: () => Promise.reject(new Error("blocked")),
+    save: async () => {},
+  });
+  server();
+  await openAt("#/settings");
+  await adminSection().findByText("This laptop's ID couldn't be made in this browser.");
+});
+
+test("a laptop that isn't listed sees only its ID, nothing of the administrator", async () => {
+  secureBrowser();
+  const { fetchMock, state } = server();
+  state.listed = false;
+  await openAt("#/settings", false);
+  const laptop = within(await screen.findByRole("region", { name: "This laptop" }));
+  await laptop.findByText(/^LT(-[A-Z2-7]{4}){5}$/);
+  expect(laptop.getByRole("button", { name: "Copy" })).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Administrator" })).toBeNull();
+  expect(screen.queryByText(/administrator|admin-laptops/i)).toBeNull();
+  const asked = fetchMock.mock.calls.find(([u]) => u === "/api/admin/laptop")!;
+  const body = JSON.parse(String(asked[1]!.body)) as { laptop: { challenge: string } };
+  expect(body.laptop.challenge).toBe("the challenge");
+  // Nor the admin view, opened by its address.
+  cleanup();
+  await openAt("#/admin", false);
+  await vi.waitFor(() => expect(calls(fetchMock, "/api/admin/laptop")).toBe(2));
+  expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
+  expect(screen.queryByLabelText("Administrator password")).toBeNull();
+});
+
+test("when the laptop can't be checked, the sign-in is still shown", async () => {
+  const { fetchMock } = server();
+  const answer = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+    url === "/api/admin/laptop" ? new Response("", { status: 500 }) : answer(url, init),
+  );
+  await openAt("#/settings");
+  await screen.findByLabelText("Administrator password");
+  expect(console.error).toHaveBeenCalledWith(
+    "Could not ask whether this laptop is listed",
+    expect.anything(),
   );
 });

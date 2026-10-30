@@ -25,8 +25,8 @@ services:
     volumes:
       - imageskin-data:/data
       - ./config.toml:/etc/imageskin/config.toml:ro
-      # The administrator's password file (R149): a folder, not the file, so an edit made on the
-      # machine is seen at once, with no restart.
+      # The administrator's password file (R149) and allowed laptops (R163): a folder, not the
+      # files, so an edit made on the machine is seen at once, with no restart.
       - ./admin:/etc/imageskin/admin:ro
       # The machine's own network card for the admin dashboard's monthly use (R153): in here the
       # card is the container's, so the host's /proc is read, at /host/proc/1/net/dev.

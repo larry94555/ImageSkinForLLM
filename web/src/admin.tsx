@@ -12,13 +12,16 @@ import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import {
   adminActivity,
   type AdminSession,
+  getAdminChallenge,
   getAdminSession,
+  isLaptopListed,
   ServerRefusal,
   signInAsAdmin,
   signOutAsAdmin,
 } from "./api";
 import { AdminSettingsPage } from "./admin-settings";
 import { ResourceDashboard } from "./dashboard";
+import { canProve, laptopEntry, laptopId, prove } from "./laptop-key";
 
 // Every step of setting the password, on a laptop and on the hosted site (R151).
 export const GUIDE =
@@ -29,6 +32,10 @@ export const ACTIVITY_MS = 60_000;
 
 interface Shared {
   session: AdminSession | null; // null until the server has answered
+  // Whether this laptop may sign in (null while asking). A laptop the host's laptops file
+  // leaves out sees nothing of the administrator at all (Larry, 2026-10-30).
+  listed: boolean | null;
+  askListed: () => void; // asks once, from the Settings page or the admin view
   ended: string | null; // why the last sign-in ended by itself, until dismissed
   refresh: () => Promise<void>;
   signIn: (password: string) => Promise<void>;
@@ -38,6 +45,8 @@ interface Shared {
 
 const AdminContext = createContext<Shared>({
   session: null,
+  listed: null,
+  askListed: () => {},
   ended: null,
   refresh: async () => {},
   signIn: async () => {},
@@ -57,12 +66,16 @@ function endedMessage(session: AdminSession): string {
   if (session.ended === "password changed") {
     return "Signed out as administrator because the administrator password was changed.";
   }
+  // A laptop taken out of the allowed laptops file (R163): no hint of why, as with a failed
+  // sign-in (R162).
+  if (session.ended === "laptop removed") return "Signed out as administrator.";
   return `Signed out as administrator after ${minutes(session.timeout_minutes)} without activity.`;
 }
 
 export function AdminProvider({ children }: { children: ComponentChildren }) {
   const [session, setSession] = useState<AdminSession | null>(null);
   const [ended, setEnded] = useState<string | null>(null);
+  const [listed, setListed] = useState<boolean | null>(null);
 
   async function refresh() {
     try {
@@ -81,6 +94,24 @@ export function AdminProvider({ children }: { children: ComponentChildren }) {
     void refresh();
   }, []);
 
+  // Whether this laptop is listed, asked once with a proof of a fresh challenge, when a page that
+  // needs it opens. Not listed, its ID also goes to the browser console.
+  const asked = useRef(false);
+  function askListed() {
+    if (asked.current) return;
+    asked.current = true;
+    (async () => {
+      const laptop = canProve() ? await prove(await getAdminChallenge()) : undefined;
+      const answer = await isLaptopListed(laptop);
+      setListed(answer);
+      if (!answer && canProve()) console.info(`This laptop's ID: ${await laptopId()}`);
+    })().catch((err: unknown) => {
+      // The server still checks the laptop at sign-in, so the sign-in is shown rather than lost.
+      console.error("Could not ask whether this laptop is listed", err);
+      setListed(true);
+    });
+  }
+
   // While signed in, check each minute, so a sign-out shows without a click.
   const signedIn = session?.signed_in === true;
   useEffect(() => {
@@ -91,7 +122,10 @@ export function AdminProvider({ children }: { children: ComponentChildren }) {
 
   async function signIn(password: string) {
     const started = performance.now();
-    await signInAsAdmin(password);
+    // This laptop's proof (R164), where the browser can make one; without it, a site with a
+    // laptops file refuses the sign-in with the same message as any other failure.
+    const laptop = canProve() ? await prove(await getAdminChallenge()) : undefined;
+    await signInAsAdmin(password, laptop);
     console.info(`Admin signed in (${Math.round(performance.now() - started)} ms)`);
     setEnded(null);
     await refresh();
@@ -103,7 +137,7 @@ export function AdminProvider({ children }: { children: ComponentChildren }) {
     await refresh();
   }
 
-  const shared = { session, ended, refresh, signIn, signOut, dismiss: () => setEnded(null) };
+  const shared = { session, listed, askListed, ended, refresh, signIn, signOut, dismiss: () => setEnded(null) };
   return <AdminContext.Provider value={shared}>{children}</AdminContext.Provider>;
 }
 
@@ -159,14 +193,74 @@ export function AdminEndedNotice() {
   );
 }
 
+// This laptop's ID (R164), to list in admin-laptops.toml on the host. Shown on every laptop, with
+// no word of what it is for (Larry, 2026-10-30).
+export function LaptopId() {
+  const [id, setId] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const usable = canProve();
+
+  useEffect(() => {
+    if (!usable) return;
+    laptopId().then(setId, (err: unknown) => {
+      console.error("Could not make this laptop's key", err);
+      setFailed(true);
+    });
+  }, [usable]);
+
+  async function copy() {
+    if (!id) return;
+    try {
+      await navigator.clipboard.writeText(laptopEntry(id));
+      setCopied(true);
+    } catch (err) {
+      console.error("Could not copy the laptop ID", err);
+    }
+  }
+
+  let shown: ComponentChildren;
+  if (!usable) {
+    shown = (
+      <p className="muted">This laptop's ID can't be shown at this address.</p>
+    );
+  } else if (failed) {
+    shown = <p className="muted">This laptop's ID couldn't be made in this browser.</p>;
+  } else {
+    shown = (
+      <>
+        <p>
+          This laptop's ID: <code>{id ?? "…"}</code>{" "}
+          <button type="button" className="secondary" disabled={!id} onClick={() => void copy()}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </p>
+      </>
+    );
+  }
+  return (
+    <div className="laptop-id">
+      <h3>This laptop</h3>
+      {shown}
+    </div>
+  );
+}
+
 // The Settings page's Administrator section, in either view.
 export function AdminSection() {
-  const { session, signIn, signOut } = useAdmin();
+  const { session, listed, askListed, signIn, signOut } = useAdmin();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const shown = Boolean(session?.signed_in || listed);
 
-  useEffect(() => console.info("Admin sign-in shown"), []);
+  useEffect(() => {
+    if (session) askListed();
+  }, [session !== null]);
+
+  useEffect(() => {
+    if (shown) console.info("Admin sign-in shown");
+  }, [shown]);
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -245,12 +339,24 @@ export function AdminSection() {
     );
   }
 
+  // On a laptop that isn't listed, only its ID: nothing of the administrator, so the page gives no
+  // clue (Larry, 2026-10-30). Nothing while asking.
+  if (!shown) {
+    if (listed !== false) return null;
+    return (
+      <section className="panel" aria-label="This laptop">
+        <LaptopId />
+      </section>
+    );
+  }
+
   return (
     <section className="panel" aria-labelledby="settings-admin">
       <h2 id="settings-admin">Administrator</h2>
       <p className="muted">Running the site as a whole, apart from the host and participant views.</p>
       {error && <p className="error">{error}</p>}
       {body}
+      <LaptopId />
     </section>
   );
 }
@@ -258,8 +364,13 @@ export function AdminSection() {
 // The admin view: the resource dashboard (R154) at #/admin and the admin settings (R155) at
 // #/admin/settings. Opened without a sign-in, it shows the sign-in instead.
 export function AdminPage({ section = "resources" }: { section?: "resources" | "settings" }) {
-  const { session } = useAdmin();
+  const { session, listed, askListed } = useAdmin();
+  useEffect(() => {
+    if (session) askListed();
+  }, [session !== null]);
   if (!session?.signed_in) {
+    // Opened on a laptop that isn't listed: the page any unknown address shows.
+    if (!listed) return null;
     return (
       <div className="host-page admin-page">
         <h1>Admin</h1>

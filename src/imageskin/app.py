@@ -31,6 +31,8 @@ from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.admin import FILENAME as ADMIN_FILENAME
 from imageskin.admin import AdminSignIns
 from imageskin.admin_api import admin_router
+from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
+from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import DEFAULTS as ADMIN_DEFAULTS
 from imageskin.admin_settings import AdminSettingsStore
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
@@ -507,6 +509,8 @@ def create_app(
     lessons_ahead: bool | None = None,
     # The administrator's password file (R149); left out, admin.toml in the home folder.
     admin_file: Path | None = None,
+    # The allowed laptops file (R163); left out, admin-laptops.toml beside the password file.
+    admin_laptops_file: Path | None = None,
 ) -> FastAPI:
     startup = startup or StartupTimes()
     startup.begin("app made")
@@ -562,9 +566,11 @@ def create_app(
     # The minutes before an inactive administrator is signed out, and the dashboard's colours,
     # are admin settings (R155), read at each check so a change applies at once.
     admin_settings = AdminSettingsStore(data_home)
+    admin_file = admin_file or data_home / ADMIN_FILENAME
     admin_sign_ins = AdminSignIns(
-        admin_file or data_home / ADMIN_FILENAME,
+        admin_file,
         timeout_minutes=lambda: admin_settings.current.timeout_minutes,
+        laptops=AdminLaptops(admin_laptops_file or admin_file.parent / LAPTOPS_FILENAME),
     )
     admin_routes, app.state.require_admin = admin_router(admin_sign_ins)
     app.include_router(admin_routes)
