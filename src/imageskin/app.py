@@ -628,7 +628,7 @@ def create_app(
 
     @app.get("/api/host/disk")
     def host_disk(host: SignedInHost) -> dict[str, int]:
-        return count_disk(data_home, owners, host.email, host_accounts.first())
+        return count_disk(data_home, owners, host.email)
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
     # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.

@@ -10,8 +10,7 @@ from test_uploads import wav_bytes
 
 from imageskin import admin
 from imageskin.app import create_app
-from imageskin.host_disk import Owners, count, size_of
-from imageskin.photoreal_library import library_key
+from imageskin.host_disk import Owners, count
 
 pytestmark = pytest.mark.real_hosts
 
@@ -32,7 +31,7 @@ def write(path: Path, size: int) -> None:
 
 
 def on_disk(home: Path, *globs: str) -> int:
-    return sum(size_of(p) for g in globs for p in home.glob(g))
+    return sum(p.stat().st_size for g in globs for p in home.glob(g))
 
 
 def test_a_host_counts_only_what_they_added(
@@ -58,13 +57,9 @@ def test_a_host_counts_only_what_they_added(
     first.app.state.wiki.wait()  # type: ignore[attr-defined]
 
     amounts = first.get("/api/host/disk").json()
-    # The recording with its info file; the voice sample made from it goes with the first host,
-    # as no photo is chosen.
-    assert amounts["images_and_recordings"] == on_disk(
-        tmp_path, f"uploads/sounds/{sound_id}.*", "uploads/voice-sample.wav"
-    )
-    assert amounts["pdfs"] == on_disk(tmp_path, f"content/*/{pdf_id}.*")
-    assert amounts["pdfs"] >= len(PDF)
+    # Only the recording and the PDF themselves, not what is made from them (Larry, 2026-10-30).
+    assert amounts["images_and_recordings"] == on_disk(tmp_path, f"uploads/sounds/{sound_id}.wav")
+    assert amounts["pdfs"] == len(PDF)
     assert amounts["total"] == amounts["images_and_recordings"] + amounts["pdfs"]
     assert second.get("/api/host/disk").json() == {
         "images_and_recordings": 0,
@@ -84,44 +79,41 @@ def test_only_a_signed_in_host_asks(tmp_path: Path) -> None:
     assert TestClient(create_app(tmp_path)).get("/api/host/disk").status_code == 401
 
 
-def test_files_from_before_host_accounts_count_for_the_first_host(tmp_path: Path) -> None:
+def test_only_the_files_a_host_added_count(tmp_path: Path) -> None:
     write(tmp_path / "uploads" / "photos" / "p1.jpg", 1000)
     write(tmp_path / "uploads" / "photos" / "p1.json", 10)
-    write(tmp_path / "uploads" / "photos" / "p2.jpg", 2000)
-    face = tmp_path / "photoreal" / library_key(tmp_path / "uploads" / "photos" / "p1.jpg")
-    write(face / "library.json", 300)
-    write(face / "frames" / "0.png", 400)
-    write(tmp_path / "uploads" / "chosen-photo.json", 0)
-    (tmp_path / "uploads" / "chosen-photo.json").write_text('{"id": "p2"}')
-    write(tmp_path / "clips" / "sample.mp4", 5000)
-    write(tmp_path / "replies" / "r.mp4", 7000)
+    write(tmp_path / "uploads" / "photos" / "p2.png", 2000)
+    write(tmp_path / "uploads" / "sounds" / "s1.wav", 3000)
+    write(tmp_path / "uploads" / "voice-sample.wav", 400)  # made from the recordings
+    write(tmp_path / "photoreal" / "key" / "library.json", 500)  # made from a photo
     write(tmp_path / "content" / "pdfs" / "d1.pdf", 100)
     write(tmp_path / "content" / "pdfs" / "d1.json", 20)
-    write(tmp_path / "content" / "read" / "d1.json", 30)
-    write(tmp_path / "content" / "wiki" / "d1.history" / "v1.json", 40)
-    write(tmp_path / "content" / "wiki" / "pace.json", 9)  # from no one PDF
+    write(tmp_path / "content" / "read" / "d1.json", 30)  # read from the PDF
     write(tmp_path / "content" / "pdfs" / "d2.pdf", 200)
+    write(tmp_path / "content" / "pdfs" / "d3.pdf", 50)  # from before host accounts
     owners = Owners(tmp_path)
-    owners.record("photos", "p2", "second@example.com")
-    owners.record("pdfs", "d2", "second@example.com")
-
-    chosen = len('{"id": "p2"}')
-    first = count(tmp_path, owners, "first@example.com", "first@example.com")
-    assert first == {"images_and_recordings": 1710, "pdfs": 190, "total": 1900}
-    # The second host's photo is the one chosen, so what was prepared from it is theirs.
-    second = count(tmp_path, owners, "second@example.com", "first@example.com")
-    assert second == {
-        "images_and_recordings": 2000 + chosen + 5000 + 7000,
-        "pdfs": 200,
-        "total": 14200 + chosen,
+    owners.record("photos", "p1", "a@example.com")
+    owners.record("sounds", "s1", "a@example.com")
+    owners.record("pdfs", "d1", "a@example.com")
+    owners.record("photos", "p2", "b@example.com")
+    owners.record("pdfs", "d2", "b@example.com")
+    assert count(tmp_path, owners, "a@example.com") == {
+        "images_and_recordings": 4000,
+        "pdfs": 100,
+        "total": 4100,
     }
+    assert count(tmp_path, owners, "b@example.com") == {
+        "images_and_recordings": 2000,
+        "pdfs": 200,
+        "total": 2200,
+    }
+    assert count(tmp_path, owners, "c@example.com")["total"] == 0
 
 
-def test_an_unreadable_owners_file_counts_everything_for_the_first_host(
+def test_an_unreadable_owners_file_counts_nothing(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     write(tmp_path / "content" / "pdfs" / "d1.pdf", 100)
     (tmp_path / "owners.json").write_text("not json")
-    assert count(tmp_path, Owners(tmp_path), "a@example.com", "a@example.com")["pdfs"] == 100
+    assert count(tmp_path, Owners(tmp_path), "a@example.com")["total"] == 0
     assert "Could not read who added each file" in caplog.messages
-    assert count(tmp_path, Owners(tmp_path), "b@example.com", "a@example.com")["total"] == 0
