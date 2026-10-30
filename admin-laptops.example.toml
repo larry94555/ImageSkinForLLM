@@ -2,7 +2,7 @@
 # admin-laptops.toml beside admin.toml (~/.imageskin on a laptop, deploy/admin/ on the hosted
 # machine) and list each laptop. admin-laptops.toml is never committed: .gitignore keeps it out.
 #
-# Each laptop's ID is on the Settings page, under Administrator, with a button to copy it. Each
+# Each laptop's ID is on the Settings page, under "This laptop", with a button to copy it. Each
 # browser on a laptop has its own ID, and clearing the browser's data for the site makes a new
 # one, to list again.
 #

@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 
+from imageskin import admin_laptops
 from imageskin.config import load_settings
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -184,3 +185,24 @@ def test_the_admin_password_guide_is_there_and_linked() -> None:
     assert "../docs/guides/Admin-Password-Guide.pdf" in text(DEPLOY / "README.md")
     assert "guides/Admin-Password-Guide.pdf" in text(ROOT / "docs" / "FAQ.md")
     assert "../../docs/guides/Admin-Password-Guide.pdf" in text(DEPLOY / "admin" / "README.md")
+
+
+def test_the_guide_and_the_faq_cover_the_allowed_laptops() -> None:
+    # Listing laptops, and finding why a sign-in failed from its code (R165).
+    guide = text(ROOT / "docs" / "guides" / "Admin-Password-Guide.html")
+    assert "Only the laptops you list" in guide
+    assert "deploy/admin/admin-laptops.toml" in guide
+    faq = text(ROOT / "docs" / "FAQ.md")
+    assert "## Admin login failed with an error code. How do I find out why?" in faq
+    # Every reason the log can give for a refused sign-in has a row.
+    reasons = ["wrong password", "no password set", "waiting"] + [
+        admin_laptops.NOT_LISTED,
+        admin_laptops.NO_PROOF,
+        admin_laptops.EXPIRED,
+        admin_laptops.BAD_PROOF,
+    ]
+    for reason in reasons:
+        assert f"| `{reason}` |" in faq, reason
+    faq_link = "../docs/FAQ.md#admin-login-failed-with-an-error-code-how-do-i-find-out-why"
+    assert faq_link in text(DEPLOY / "README.md")
+    assert "Only the laptops you list" in text(DEPLOY / "README.md")

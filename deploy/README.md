@@ -235,6 +235,8 @@ Then set up the person (photos, recordings, Prepare) as on your laptop. Prepare 
 | Change the password | a new hash in `.env`, then `docker compose up -d` |
 | Speak with Pocket TTS on a site set up before it (R160) | step 6e, then `git pull`, `docker compose up -d --build`, and **Prepare** again on the Setup page; the log then says `cloned with Pocket TTS` (`docker compose logs app \| grep "Prepare speaks"`) |
 | Set or change the administrator password (the admin view's, not the site's) | edit `admin/admin.toml` here; no restart (see [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
+| Let only your own laptops sign in as the administrator | list each laptop's ID, from its Settings page, in `admin/admin-laptops.toml` here; no restart (see "Only the laptops you list" in [Admin-Password-Guide.pdf](../docs/guides/Admin-Password-Guide.pdf)) |
+| Find out why an admin sign-in failed ("Admin login failed with error code A-…") | `docker compose logs app --since 24h \| grep A-…` with the page's code; the reasons are in the [FAQ](../docs/FAQ.md#admin-login-failed-with-an-error-code-how-do-i-find-out-why) |
 | Change the app's settings (`config.toml` here) | edit it, then `docker compose restart app` |
 | See the app's log | `docker compose logs -f app` (Ctrl+C stops watching) |
 | Stop the site | `docker compose down` (the data is kept) |
