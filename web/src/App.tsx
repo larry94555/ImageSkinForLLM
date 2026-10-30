@@ -29,6 +29,7 @@ import {
   useSettings,
   useSettingsLoaded,
 } from "./settings";
+import { ResourcesPage } from "./resources";
 import { SettingsAccessProvider, useSettingsShown } from "./settings-access";
 import { WikiDetailPage, WikiPage } from "./wiki";
 import { WizardPage } from "./wizard";
@@ -167,6 +168,7 @@ function Shell() {
       "host-sign-up": <HostAccountPage kind="up" />,
       "host-sign-in": <HostAccountPage kind="in" />,
       "host-only": <HostOnlyPage />,
+      resources: <ResourcesPage />,
       "not-found": <NotFoundPage />,
     }[route.page];
   }
