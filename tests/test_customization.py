@@ -2,6 +2,8 @@
 
 import json
 import logging
+import re
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -14,17 +16,26 @@ from imageskin.app import create_app
 from imageskin.chat import NO_IDENTITY, Conversation, Message, system_prompt
 from imageskin.customization import (
     CUSTOMIZATION_FILE,
+    FEATURES,
     SHIPPED,
     Customization,
     CustomizationFile,
+    CustomizationRefused,
     CustomizationUnreadable,
+    Feature,
     Identity,
+    NoSuchFeature,
     Read,
     about_me,
     asks_about_identity,
+    features,
     from_dict,
+    guidelines_of,
     instructions,
     save,
+    with_goals,
+    with_guidelines,
+    with_identity,
 )
 from imageskin.review import Review
 
@@ -272,7 +283,7 @@ def test_a_host_gets_the_customization(tmp_path: Path, caplog: pytest.LogCapture
         save(tmp_path, MAYA)
         opened = client.get("/api/customization?opened=true")
     assert got.status_code == 200
-    assert got.json() == {**SHIPPED.as_dict(), "shipped": True}
+    assert got.json() == {**SHIPPED.as_dict(), "features": [], "shipped": True}
     assert opened.json()["identity"]["name"] == "Maya"
     logged = [r for r in caplog.records if r.message == "Customization page opened"]
     assert [r.shipped for r in logged] == [False]  # type: ignore[attr-defined]
@@ -282,3 +293,165 @@ def test_a_host_gets_the_customization(tmp_path: Path, caplog: pytest.LogCapture
 def test_anyone_not_signed_in_as_a_host_is_refused(tmp_path: Path) -> None:
     got = TestClient(create_app(tmp_path)).get("/api/customization")
     assert got.status_code == 401
+
+
+# The Customization page's edits (R94).
+
+QUESTIONS = Feature(
+    "Answering questions",
+    "How every answer is written.",
+    "Which questions are declined stays as the code decides.",
+    "Answer from the content, in your own words.",
+)
+
+
+@pytest.fixture
+def a_feature(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(FEATURES, "questions", QUESTIONS)
+
+
+def test_the_identity_and_goals_are_edited_and_checked() -> None:
+    edited = with_identity(SHIPPED, {"name": "  Maya ", "audience": ""})
+    assert (edited.identity.name, edited.identity.audience) == ("Maya", "")
+    assert edited.identity.purpose == SHIPPED.identity.purpose
+    assert with_goals(SHIPPED, ["Be kind.", "  ", "Be brief."]).goals == ("Be kind.", "Be brief.")
+    wrongs: list[tuple[dict[str, object], str]] = [
+        ({"age": "3"}, "The identity has no age."),
+        ({"name": 3}, "The name must be text."),
+        ({"purpose": "x" * 501}, "The purpose is too long: at most 500 characters."),
+    ]
+    for wrong, why in wrongs:
+        with pytest.raises(CustomizationRefused, match=re.escape(why)):
+            with_identity(SHIPPED, wrong)
+    for goals, why in [
+        ("Be kind.", "The goals must be a list."),
+        (["x" * 301], "A goal is too long"),
+        (["Go."] * 11, "at most 10 goals"),
+    ]:
+        with pytest.raises(CustomizationRefused, match=why):
+            with_goals(SHIPPED, goals)
+
+
+@pytest.mark.usefixtures("a_feature")
+def test_a_features_guidelines_are_edited_and_set_back() -> None:
+    assert guidelines_of(SHIPPED, "questions") == QUESTIONS.shipped
+    edited = with_guidelines(SHIPPED, "questions", " End with a question. ")
+    assert guidelines_of(edited, "questions") == "End with a question."
+    assert features(edited) == [
+        {"key": "questions", **asdict(QUESTIONS), "text": "End with a question.", "edited": True}
+    ]
+    back = with_guidelines(edited, "questions", None)
+    assert back.guidelines == {} and features(back)[0]["edited"] is False
+    with pytest.raises(NoSuchFeature):
+        with_guidelines(SHIPPED, "jokes", "Be funny.")
+    with pytest.raises(CustomizationRefused, match="Answering questions's guidelines is too"):
+        with_guidelines(SHIPPED, "questions", "x" * 2001)
+
+
+def test_a_change_is_saved_whole_and_read_back_without_reading_the_file_again(
+    tmp_path: Path,
+) -> None:
+    file = CustomizationFile(tmp_path)
+    file.change(lambda c: with_identity(c, {"name": "Maya"}))
+    file.change(lambda c: with_goals(c, ["Be kind."]))  # keeps the name
+    read = file.read()
+    assert (read.customization.identity.name, read.customization.goals) == ("Maya", ("Be kind.",))
+    assert not read.shipped
+    assert from_dict(json.loads((tmp_path / CUSTOMIZATION_FILE).read_text())) == read.customization
+
+
+def test_a_change_to_a_broken_file_starts_from_the_shipped_default(tmp_path: Path) -> None:
+    (tmp_path / CUSTOMIZATION_FILE).write_text("{broken")
+    file = CustomizationFile(tmp_path)
+    edited = file.change(lambda c: with_identity(c, {"name": "Maya"}))
+    assert edited == with_identity(SHIPPED, {"name": "Maya"})
+    assert file.read().customization == edited
+
+
+def test_a_refused_change_saves_nothing(tmp_path: Path) -> None:
+    file = CustomizationFile(tmp_path)
+    with pytest.raises(CustomizationRefused):
+        file.change(lambda c: with_goals(c, "Be kind."))
+    assert not (tmp_path / CUSTOMIZATION_FILE).exists()
+
+
+@pytest.mark.usefixtures("a_feature")
+def test_a_host_edits_the_customization_and_the_next_prompt_uses_it(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    llm = Llm()
+    client = app_with_content(tmp_path, llm, general_prompts=False, add_pdf=True)
+    with caplog.at_level(logging.INFO, logger="imageskin.app"):
+        identity = client.put("/api/customization/identity", json={"name": "Maya"})
+        goals = client.put("/api/customization/goals", json={"goals": ["Be exam-ready."]})
+        edited = client.put("/api/customization/guidelines/questions", json={"text": "Be brief."})
+        back = client.put("/api/customization/guidelines/questions", json={"text": None})
+    assert identity.status_code == goals.status_code == edited.status_code == 200
+    assert identity.json()["identity"]["name"] == "Maya" and identity.json()["shipped"] is False
+    assert goals.json()["goals"] == ["Be exam-ready."]
+    assert edited.json()["features"][0]["text"] == "Be brief."
+    assert back.json()["features"][0] == {
+        "key": "questions",
+        **asdict(QUESTIONS),
+        "text": QUESTIONS.shipped,
+        "edited": False,
+    }
+    saved = [r for r in caplog.records if r.message == "Customization saved"]
+    parts = [(r.part, r.feature) for r in saved]  # type: ignore[attr-defined]
+    assert parts == [
+        ("identity", None),
+        ("goals", None),
+        ("guidelines", "questions"),
+        ("guidelines set back", "questions"),
+    ]
+    assert all(r.duration_ms >= 0 for r in saved)  # type: ignore[attr-defined]
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        reply = client.post("/api/chat", json={"prompt": "Who are you?"}).json()
+        client.post("/api/chat", json={"prompt": "Which moons circle Mars?"})
+    assert reply["content"].startswith("I'm Maya.")
+    assert "Your goals: Be exam-ready." in llm.sent[-1][0]["content"]
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "status", "detail"),
+    [
+        ("identity", {"age": "3"}, 400, "The identity has no age."),
+        ("goals", {"goals": "Be kind."}, 400, "The goals must be a list."),
+        ("guidelines/jokes", {"text": "Be funny."}, 404, "There is no such feature."),
+    ],
+)
+def test_an_edit_that_cant_be_saved_is_refused_and_says_why(
+    tmp_path: Path, path: str, body: dict[str, Any], status: int, detail: str
+) -> None:
+    client = TestClient(create_app(tmp_path))
+    got = client.put(f"/api/customization/{path}", json=body)
+    assert (got.status_code, got.json()["detail"]) == (status, detail)
+    assert not (tmp_path / CUSTOMIZATION_FILE).exists()
+
+
+def test_a_save_that_fails_says_so(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    client = TestClient(create_app(tmp_path))
+    with (
+        patch("imageskin.customization.save", side_effect=OSError("disk full")),
+        caplog.at_level(logging.ERROR, logger="imageskin.app"),
+    ):
+        got = client.put("/api/customization/identity", json={"name": "Maya"})
+    assert got.status_code == 500
+    assert "Customization can't be saved" in caplog.text
+
+
+@pytest.mark.real_hosts
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("identity", {"name": "Maya"}),
+        ("goals", {"goals": []}),
+        ("guidelines/questions", {"text": "x"}),
+    ],
+)
+def test_edits_are_refused_to_anyone_not_signed_in_as_a_host(
+    tmp_path: Path, path: str, body: dict[str, Any]
+) -> None:
+    got = TestClient(create_app(tmp_path)).put(f"/api/customization/{path}", json=body)
+    assert got.status_code == 401
+    assert not (tmp_path / CUSTOMIZATION_FILE).exists()

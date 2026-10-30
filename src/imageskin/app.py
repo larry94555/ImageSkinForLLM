@@ -70,7 +70,16 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
-from imageskin.customization import CustomizationFile
+from imageskin.customization import (
+    Customization,
+    CustomizationFile,
+    CustomizationRefused,
+    NoSuchFeature,
+    features,
+    with_goals,
+    with_guidelines,
+    with_identity,
+)
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
@@ -1622,7 +1631,47 @@ def create_app(
         read = customization.read()
         if opened:
             logger.info("Customization page opened", extra={"shipped": read.shipped})
-        return {**read.customization.as_dict(), "shipped": read.shipped}
+        return shown(read.customization, read.shipped)
+
+    def shown(c: Customization, shipped: bool = False) -> dict[str, Any]:
+        """The customization as the Customization page shows it (R94)."""
+        return {**c.as_dict(), "features": features(c), "shipped": shipped}
+
+    def save_customization(
+        part: str, edit: Callable[[Customization], Customization], feature: str | None = None
+    ) -> dict[str, Any]:
+        """Save an edit made on the Customization page (R94), used from the next prompt."""
+        start = time.perf_counter()
+        try:
+            saved = customization.change(edit)
+        except CustomizationRefused as e:
+            logger.warning("Customization refused", extra={"part": part, "error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except NoSuchFeature as e:
+            raise HTTPException(status_code=404, detail="There is no such feature.") from e
+        except OSError as e:
+            logger.error("Customization can't be saved", extra={"part": part, "error": str(e)})
+            raise HTTPException(status_code=500, detail="It could not be saved. Try again.") from e
+        logger.info(
+            "Customization saved",
+            extra={"part": part, "feature": feature, "duration_ms": ms_since(start)},
+        )
+        return shown(saved)
+
+    @app.put("/api/customization/identity", dependencies=host_only)
+    def put_identity(parts: Annotated[dict[str, Any], Body()]) -> dict[str, Any]:
+        return save_customization("identity", lambda c: with_identity(c, parts))
+
+    @app.put("/api/customization/goals", dependencies=host_only)
+    def put_goals(goals: Annotated[Any, Body(embed=True)]) -> dict[str, Any]:
+        return save_customization("goals", lambda c: with_goals(c, goals))
+
+    @app.put("/api/customization/guidelines/{feature}", dependencies=host_only)
+    def put_guidelines(
+        feature: str, text: Annotated[Any, Body(embed=True, description="None: as shipped.")]
+    ) -> dict[str, Any]:
+        part = "guidelines" if text is not None else "guidelines set back"
+        return save_customization(part, lambda c: with_guidelines(c, feature, text), feature)
 
     if client is not None:
         conversation = Conversation(

@@ -5,7 +5,8 @@ fixed default shipped for when the file is missing or can't be read. The identit
 given to the LLM with every prompt, and "Who are you?", "What is your purpose?" and the like are
 recognized as "What can you talk about?" is (R41f) and answered from the identity here, so they
 cost no LLM call and are answered with general prompts off. Each feature's guidelines are added by
-its own PR (R194 to R200); until then there are none.
+its own PR (R194 to R200), as an entry in FEATURES; until then there are none. A signed-in host
+edits all of them on the Customization page (R94).
 """
 
 import json
@@ -14,7 +15,8 @@ import os
 import re
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +65,108 @@ class Customization:
 
 
 SHIPPED = Customization()
+
+
+@dataclass(frozen=True)
+class Feature:
+    """A feature whose guidelines the host can edit (R194 to R200): its name on the Customization
+    page, what its guidelines change and what stays as the code makes it, and the text they ship
+    with, which describes what the feature does today."""
+
+    label: str
+    changes: str
+    stays: str
+    shipped: str
+
+
+# Each feature's guidelines, by the key they are kept under in `guidelines`, in the order the page
+# shows them. Each guideline PR adds its feature here (R194 to R200).
+FEATURES: dict[str, Feature] = {}
+
+
+def guidelines_of(customization: Customization, key: str) -> str:
+    """A feature's guidelines: as the host edited them, or as shipped."""
+    edited = customization.guidelines.get(key)
+    return edited if isinstance(edited, str) else FEATURES[key].shipped
+
+
+# The most an edit may hold, so the instructions sent with every prompt stay short *(default)*.
+MOST_PART_CHARS = 500
+MOST_GOALS = 10
+MOST_GOAL_CHARS = 300
+MOST_GUIDELINES_CHARS = 2000
+
+
+class CustomizationRefused(ValueError):
+    """An edit that can't be saved, saying why in words for the page."""
+
+
+class NoSuchFeature(KeyError):
+    pass
+
+
+def _checked(text: object, what: str, most: int) -> str:
+    if not isinstance(text, str):
+        raise CustomizationRefused(f"{what} must be text.")
+    text = text.strip()
+    if len(text) > most:
+        raise CustomizationRefused(f"{what} is too long: at most {most} characters.")
+    return text
+
+
+IDENTITY_LABELS = {
+    "name": "The name",
+    "speaks_as": "Speaks as",
+    "purpose": "The purpose",
+    "audience": "Who it is for",
+    "helps_with": "What it can help with",
+}
+
+
+def with_identity(customization: Customization, parts: dict[str, object]) -> Customization:
+    """The customization with these parts of the identity changed."""
+    unknown = sorted(set(parts) - set(IDENTITY_LABELS))
+    if unknown:
+        raise CustomizationRefused(f"The identity has no {', '.join(unknown)}.")
+    changed = {k: _checked(v, IDENTITY_LABELS[k], MOST_PART_CHARS) for k, v in parts.items()}
+    return replace(customization, identity=replace(customization.identity, **changed))
+
+
+def with_goals(customization: Customization, goals: object) -> Customization:
+    """The customization with these goals; empty ones are left out."""
+    if not isinstance(goals, list):
+        raise CustomizationRefused("The goals must be a list.")
+    kept = [g for g in (_checked(g, "A goal", MOST_GOAL_CHARS) for g in goals) if g]
+    if len(kept) > MOST_GOALS:
+        raise CustomizationRefused(f"There can be at most {MOST_GOALS} goals.")
+    return replace(customization, goals=tuple(kept))
+
+
+def with_guidelines(customization: Customization, key: str, text: object) -> Customization:
+    """The customization with a feature's guidelines changed, or, with `text` None, set back to
+    how they shipped."""
+    if key not in FEATURES:
+        raise NoSuchFeature(key)
+    guidelines = dict(customization.guidelines)
+    if text is None:
+        guidelines.pop(key, None)
+    else:
+        label = f"{FEATURES[key].label}'s guidelines"
+        guidelines[key] = _checked(text, label, MOST_GUIDELINES_CHARS)
+    return replace(customization, guidelines=guidelines)
+
+
+def features(customization: Customization) -> list[dict[str, Any]]:
+    """Each feature's guidelines as the Customization page shows them."""
+    return [
+        {
+            "key": key,
+            **asdict(feature),
+            "text": guidelines_of(customization, key),
+            "edited": isinstance(customization.guidelines.get(key), str),
+        }
+        for key, feature in FEATURES.items()
+    ]
 
 
 class CustomizationUnreadable(ValueError):
@@ -126,22 +230,37 @@ class CustomizationFile:
     def read(self) -> Read:
         start = time.perf_counter()
         with self._lock:
-            try:
-                stat = self.path.stat()
-                seen: tuple[int, int] | None = (stat.st_mtime_ns, stat.st_size)
-            except FileNotFoundError:
-                seen = None
-            except OSError as e:
-                logger.error(
-                    "Customization can't be read", extra={"path": str(self.path), "error": str(e)}
-                )
-                return Read(SHIPPED, True, ms_since(start))
-            if seen is None:
-                self._seen, self._last = None, Read(SHIPPED, True, 0.0)
-            elif seen != self._seen:
-                self._seen = seen
-                self._last = Read(*self._load(), 0.0)
-            return Read(self._last.customization, self._last.shipped, ms_since(start))
+            return self._read(start)
+
+    def change(self, edit: Callable[[Customization], Customization]) -> Customization:
+        """Save `edit` of the customization as it is now, one change at a time, so two saves
+        made at once both count. A broken file is replaced by the shipped default, edited."""
+        with self._lock:
+            edited = edit(self._read(time.perf_counter()).customization)
+            save(self.path.parent, edited)
+            stat = self.path.stat()
+            self._seen = (stat.st_mtime_ns, stat.st_size)
+            self._last = Read(edited, False, 0.0)
+            return edited
+
+    def _read(self, start: float) -> Read:
+        """`read`, holding the lock."""
+        try:
+            stat = self.path.stat()
+            seen: tuple[int, int] | None = (stat.st_mtime_ns, stat.st_size)
+        except FileNotFoundError:
+            seen = None
+        except OSError as e:
+            logger.error(
+                "Customization can't be read", extra={"path": str(self.path), "error": str(e)}
+            )
+            return Read(SHIPPED, True, ms_since(start))
+        if seen is None:
+            self._seen, self._last = None, Read(SHIPPED, True, 0.0)
+        elif seen != self._seen:
+            self._seen = seen
+            self._last = Read(*self._load(), 0.0)
+        return Read(self._last.customization, self._last.shipped, ms_since(start))
 
     def _load(self) -> tuple[Customization, bool]:
         try:
