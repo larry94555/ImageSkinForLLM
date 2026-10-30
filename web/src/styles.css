@@ -1232,3 +1232,5 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
   background: var(--accent-soft);
 }
 .recorder.off button { margin-top: 8px; display: block; }
+/* A reply's text behind its Review text link: the link on its own line, the text below it. */
+ol.turns .hidden-text { display: grid; gap: 4px; justify-items: start; }

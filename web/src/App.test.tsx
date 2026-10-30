@@ -2941,6 +2941,40 @@ test("only the latest exchange shows; the history is closed until opened", async
   info.mockRestore();
 });
 
+test("the latest reply's text is hidden behind Review text until clicked", async () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  chatServer(
+    [
+      { role: "user", content: "What is my name?" },
+      { role: "assistant", content: "Your name is Larry." },
+    ],
+    () => Response.json({}),
+  );
+  await openAt("#/chat");
+  const reply = await screen.findByText("Your name is Larry.");
+  expect(reply.hidden).toBe(true);
+  expect(screen.getByText("What is my name?")).toBeTruthy(); // the prompt isn't hidden
+
+  const review = screen.getByRole("button", { name: "Review text" });
+  expect(review.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(review);
+  expect(reply.hidden).toBe(false);
+  const hide = screen.getByRole("button", { name: "Hide text" });
+  expect(hide.getAttribute("aria-expanded")).toBe("true");
+  expect(info).toHaveBeenCalledWith("Reply text shown");
+
+  fireEvent.click(hide);
+  expect(reply.hidden).toBe(true);
+  expect(screen.getByRole("button", { name: "Review text" })).toBeTruthy();
+  expect(info).toHaveBeenCalledWith("Reply text hidden");
+
+  // The history shows every reply in full; only the latest exchange hides it.
+  fireEvent.click(screen.getByRole("button", { name: "Show history" }));
+  const box = screen.getByLabelText("Conversation history");
+  expect(within(box).getByText("Your name is Larry.").hidden).toBe(false);
+  info.mockRestore();
+});
+
 // --- Searching the history (R18) ---
 
 test("a search marks every match and steps through them", async () => {
