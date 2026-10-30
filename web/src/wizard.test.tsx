@@ -150,10 +150,12 @@ test("with a photo chosen, the photo step's Next is ready", async () => {
   await waitFor(() => expect(next().disabled).toBe(false));
 });
 
-test("the voice step shows the placeholder and is optional", async () => {
+test("the voice step offers the recorder, with the script to read, and is optional", async () => {
   const { saved } = server({ step: "voice" });
   render(<WizardPage consented onConsented={() => {}} />);
-  expect(await screen.findByText("Recording your voice here in the browser is coming soon.")).toBeTruthy();
+  expect(await screen.findByText("Recording 1 of 3: Voice 1")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Start recording" })).toBeTruthy();
+  expect(await screen.findByText("Add a recording file")).toBeTruthy();
   await waitFor(() => expect(next().disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(await screen.findByText("Add a photo file")).toBeTruthy();
