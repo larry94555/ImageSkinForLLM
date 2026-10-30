@@ -88,8 +88,15 @@ class HostAccounts:
         try:
             stat = self.path.stat()
             seen: tuple[int, int] | None = (stat.st_mtime_ns, stat.st_size)
-        except OSError:
+        except FileNotFoundError:
             seen = None
+        except OSError as e:
+            # Only a missing file is no hosts yet; any other failure fails closed (Codex's review).
+            logger.error(
+                "Could not read the host accounts file",
+                extra={"path": str(self.path), "error": str(e)},
+            )
+            raise HostsUnreadable() from e
         if seen != self._file_seen:
             data: dict[str, Any] = {"hosts": {}, "sessions": {}}
             if seen:

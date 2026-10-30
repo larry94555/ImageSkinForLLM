@@ -161,6 +161,35 @@ def test_an_unreadable_file_is_never_written_over(
     assert browser.post("/api/host/sign-up", json=body).status_code == 200
 
 
+@pytest.mark.parametrize("existing", [False, True])
+def test_a_file_that_cant_be_looked_at_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: bool
+) -> None:
+    # Codex's review: only a missing file means no hosts; any other stat failure refuses.
+    accounts = HostAccounts(tmp_path)
+    token = accounts.sign_up("host@example.com", PASSWORD, "1.2.3.4") if existing else "x"
+    before = (tmp_path / FILENAME).read_bytes() if existing else None
+    stat = Path.stat
+
+    def denied(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self.name == FILENAME:
+            raise PermissionError("denied")
+        return stat(self, *args, **kwargs)
+
+    saves: list[int] = []
+    monkeypatch.setattr(Path, "stat", denied)
+    monkeypatch.setattr(HostAccounts, "_save", lambda self, data: saves.append(1))
+    with pytest.raises(HostsUnreadable):
+        accounts.sign_up("new@example.com", PASSWORD, "1.2.3.4")
+    with pytest.raises(HostsUnreadable):
+        accounts.sign_out(token, "1.2.3.4")
+    assert accounts.host(token) is None and saves == []
+    monkeypatch.undo()
+    if existing:
+        assert (tmp_path / FILENAME).read_bytes() == before
+        assert accounts.host(token) is not None  # the session is back once the file can be read
+
+
 def test_a_reset_while_signing_in_refuses_the_old_password(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
