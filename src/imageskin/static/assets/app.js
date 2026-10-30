@@ -3555,20 +3555,10 @@ function SetupPage({ change }) {
 				}),
 				/* @__PURE__ */ u("p", {
 					className: "notice",
-					children: [
-						"New to this? The ",
-						/* @__PURE__ */ u("a", {
-							href: "#/guide",
-							children: "recording guide"
-						}),
-						" walks you step by step through taking the photos and making the voice recordings on a Windows or Mac laptop. Or",
-						" ",
-						/* @__PURE__ */ u("a", {
-							href: "#/setup/wizard",
-							children: "set up with your own photo and voice"
-						}),
-						" one step at a time."
-					]
+					children: [/* @__PURE__ */ u("a", {
+						href: "#/setup/wizard",
+						children: "Set up your own photo and voice one step at a time"
+					}), ", with help on each step."]
 				}),
 				/* @__PURE__ */ u(UploadSection, {
 					kind: "photos",
@@ -6483,6 +6473,15 @@ function loadGuide() {
 		};
 	}
 }
+function guideAt(title) {
+	const step = STEPS.findIndex((s) => s.title === title);
+	if (step < 0) return;
+	saveGuide({
+		...loadGuide(),
+		step
+	});
+	console.info(`Guide opened from the wizard at: ${title}`);
+}
 function saveGuide(state) {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -9161,6 +9160,7 @@ function VoiceRecorder(props) {
 	const [seconds, setSeconds] = d(0);
 	const [level, setLevel] = d(0);
 	const [made, setMade] = d(null);
+	const [keptHere, setKeptHere] = d([]);
 	const stream = A(null);
 	const recorder = A(null);
 	const audio = A(null);
@@ -9325,7 +9325,10 @@ function VoiceRecorder(props) {
 					error: null,
 					stayed: true
 				});
-			} else props.onAdded();
+			} else {
+				setKeptHere((k) => k.includes(passage) ? k : [...k, passage]);
+				props.onAdded();
+			}
 		} catch (e) {
 			console.error("Recording refused", e);
 			if (alive.current) setMade({
@@ -9348,10 +9351,11 @@ function VoiceRecorder(props) {
 			return false;
 		}
 	}
-	function next() {
+	function goTo(to) {
+		console.info(`Recording chosen: ${PASSAGES[to].name}`);
 		show(null);
 		setMade(null);
-		setPassage((p) => p + 1);
+		setPassage(to);
 		setPhase("ready");
 	}
 	if (phase === "off") return /* @__PURE__ */ u("div", {
@@ -9373,9 +9377,27 @@ function VoiceRecorder(props) {
 	const current = PASSAGES[passage];
 	const kept = made?.upload?.problems?.length === 0;
 	const failed = Boolean(made?.upload?.problems?.length);
+	const busy = phase === "asking" || phase === "recording" || phase === "checking";
 	return /* @__PURE__ */ u("div", {
 		className: "recorder",
 		children: [
+			/* @__PURE__ */ u("div", {
+				className: "passages",
+				role: "group",
+				"aria-label": "Recordings",
+				children: [/* @__PURE__ */ u("span", {
+					className: "muted",
+					children: "Make them in any order:"
+				}), PASSAGES.map((p, i) => /* @__PURE__ */ u("button", {
+					type: "button",
+					className: i === passage ? "current" : "secondary",
+					"aria-pressed": i === passage,
+					"aria-label": keptHere.includes(i) ? `${p.name} kept` : p.name,
+					disabled: busy,
+					onClick: () => goTo(i),
+					children: [p.name, keptHere.includes(i) && " ✓"]
+				}, p.name))]
+			}),
 			/* @__PURE__ */ u("h3", { children: [
 				"Recording ",
 				passage + 1,
@@ -9470,7 +9492,7 @@ function VoiceRecorder(props) {
 					}),
 					phase === "made" && kept && passage + 1 < PASSAGES.length && /* @__PURE__ */ u("button", {
 						type: "button",
-						onClick: next,
+						onClick: () => goTo(passage + 1),
 						children: ["Next recording: ", PASSAGES[passage + 1].name]
 					})
 				]
@@ -9480,6 +9502,14 @@ function VoiceRecorder(props) {
 }
 //#endregion
 //#region src/wizard.tsx
+var HELP = {
+	start: "Before you begin",
+	photo: "How to take the photos",
+	voice: "Record your voice",
+	accent: "If something goes wrong",
+	prepare: "If something goes wrong",
+	review: "If something goes wrong"
+};
 var STEP_TITLES = {
 	start: "Before you start",
 	photo: "Your photo",
@@ -9609,14 +9639,24 @@ function WizardPage(props) {
 						children: STEP_TITLES[s]
 					}, s))
 				}),
-				/* @__PURE__ */ u("p", {
-					className: "step-of",
-					children: [
-						"Step ",
-						index + 1,
-						" of ",
-						WIZARD_STEPS.length
-					]
+				/* @__PURE__ */ u("div", {
+					className: "step-row",
+					children: [/* @__PURE__ */ u("p", {
+						className: "step-of",
+						children: [
+							"Step ",
+							index + 1,
+							" of ",
+							WIZARD_STEPS.length
+						]
+					}), /* @__PURE__ */ u("a", {
+						className: "need-help",
+						href: "#/guide",
+						target: "_blank",
+						rel: "noopener",
+						onClick: () => guideAt(HELP[step]),
+						children: "Need help?"
+					})]
 				}),
 				body,
 				failed && /* @__PURE__ */ u("p", {

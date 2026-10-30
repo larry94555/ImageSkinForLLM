@@ -34,6 +34,15 @@ export function loadGuide(): GuideState {
   }
 }
 
+// Opens the guide at the step with this title next time it is shown: the setup wizard's Need
+// help? links (Larry's review of PR #230). The laptop picked stays.
+export function guideAt(title: string) {
+  const step = STEPS.findIndex((s) => s.title === title);
+  if (step < 0) return;
+  saveGuide({ ...loadGuide(), step });
+  console.info(`Guide opened from the wizard at: ${title}`);
+}
+
 function saveGuide(state: GuideState) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));

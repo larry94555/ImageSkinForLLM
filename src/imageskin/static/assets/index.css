@@ -1153,6 +1153,11 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .camera.off button { margin-top: 8px; display: block; }
 .recorder { display: grid; gap: 10px; }
 .recorder h3 { margin: 0; }
+.recorder .passages { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.recorder .passages button { padding: 6px 14px; }
+.step-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 6px; }
+.step-row .step-of { margin: 0; }
+.step-row .need-help { font-weight: 600; }
 .recorder p { margin: 0; }
 .recorder ol.script, .recorder ul.bullets {
   margin: 0;

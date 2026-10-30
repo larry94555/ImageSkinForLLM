@@ -323,3 +323,23 @@ test("the level meter shows how loud the voice is", async () => {
   await screen.findByText(/^Kept\./);
   expect(close).toHaveBeenCalled();
 });
+
+test("any recording can be chosen first, and the ones kept are ticked", async () => {
+  microphone();
+  const { uploads } = server(Response.json({ ...SOUND, problems: [] }));
+  recorder();
+  fireEvent.click(screen.getByRole("button", { name: "Voice 3" }));
+  expect(screen.getByText("Recording 3 of 3: Voice 3")).toBeTruthy();
+  expect(screen.getByText(/What did you do last weekend/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+  await screen.findByRole("button", { name: "Stop" });
+  expect((screen.getByRole("button", { name: "Voice 1" }) as HTMLButtonElement).disabled).toBe(true); // not while recording
+  fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+  await screen.findByText(/^Kept\./);
+  expect(uploads[0].name).toMatch(/^voice-3-/);
+  expect(screen.getByRole("button", { name: "Voice 3 kept" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Voice 2" }));
+  expect(screen.getByText("Recording 2 of 3: Voice 2")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Voice 2" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.queryByLabelText("The recording you made")).toBeNull();
+});

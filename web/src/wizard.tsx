@@ -16,12 +16,23 @@ import {
   WIZARD_STEPS,
   type WizardStep,
 } from "./api";
+import { guideAt } from "./guide";
 import { useLeaveGuard } from "./leave-guard";
 import { CameraPhoto } from "./camera";
 import { VoiceRecorder } from "./recorder";
 import { AccentSection, PrepareSection, ReviewChoices, UploadSection } from "./pages";
 import { type SetupPart } from "./router";
 import { SettingGuard, usePrepareStopGuard } from "./setting-guard";
+
+// The recording guide's page each step's Need help? opens (Larry's review of PR #230).
+export const HELP: Record<WizardStep, string> = {
+  start: "Before you begin",
+  photo: "How to take the photos",
+  voice: "Record your voice",
+  accent: "If something goes wrong",
+  prepare: "If something goes wrong",
+  review: "If something goes wrong",
+};
 
 export const STEP_TITLES: Record<WizardStep, string> = {
   start: "Before you start",
@@ -170,9 +181,21 @@ export function WizardPage(props: { consented: boolean; onConsented: () => void 
             </li>
           ))}
         </ol>
-        <p className="step-of">
-          Step {index + 1} of {WIZARD_STEPS.length}
-        </p>
+        <div className="step-row">
+          <p className="step-of">
+            Step {index + 1} of {WIZARD_STEPS.length}
+          </p>
+          {/* In a new tab, so the wizard stays where it is. */}
+          <a
+            className="need-help"
+            href="#/guide"
+            target="_blank"
+            rel="noopener"
+            onClick={() => guideAt(HELP[step])}
+          >
+            Need help?
+          </a>
+        </div>
         {body}
         {failed && <p className="error">{failed}</p>}
         <div className="wizard-nav">

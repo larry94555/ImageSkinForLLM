@@ -126,6 +126,8 @@ export function VoiceRecorder(props: {
   const [seconds, setSeconds] = useState(0);
   const [level, setLevel] = useState(0);
   const [made, setMade] = useState<Made | null>(null);
+  // The recordings kept in this visit, by their place in PASSAGES.
+  const [keptHere, setKeptHere] = useState<number[]>([]);
   const stream = useRef<MediaStream | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -282,6 +284,7 @@ export function VoiceRecorder(props: {
       if (upload.problems?.length) {
         if (!(await dropFailed(upload)) && alive.current) setMade({ url, upload, error: null, stayed: true });
       } else {
+        setKeptHere((k) => (k.includes(passage) ? k : [...k, passage]));
         props.onAdded();
       }
     } catch (e) {
@@ -307,10 +310,12 @@ export function VoiceRecorder(props: {
     }
   }
 
-  function next() {
+  // Any recording can be made in any order (Larry's review of PR #230).
+  function goTo(to: number) {
+    console.info(`Recording chosen: ${PASSAGES[to].name}`);
     show(null);
     setMade(null);
-    setPassage((p) => p + 1);
+    setPassage(to);
     setPhase("ready");
   }
 
@@ -331,8 +336,26 @@ export function VoiceRecorder(props: {
   const current = PASSAGES[passage];
   const kept = made?.upload?.problems?.length === 0;
   const failed = Boolean(made?.upload?.problems?.length);
+  const busy = phase === "asking" || phase === "recording" || phase === "checking";
   return (
     <div className="recorder">
+      <div className="passages" role="group" aria-label="Recordings">
+        <span className="muted">Make them in any order:</span>
+        {PASSAGES.map((p, i) => (
+          <button
+            key={p.name}
+            type="button"
+            className={i === passage ? "current" : "secondary"}
+            aria-pressed={i === passage}
+            aria-label={keptHere.includes(i) ? `${p.name} kept` : p.name}
+            disabled={busy}
+            onClick={() => goTo(i)}
+          >
+            {p.name}
+            {keptHere.includes(i) && " ✓"}
+          </button>
+        ))}
+      </div>
       <h3>
         Recording {passage + 1} of {PASSAGES.length}: {current.name}
       </h3>
@@ -390,7 +413,7 @@ export function VoiceRecorder(props: {
           </button>
         )}
         {phase === "made" && kept && passage + 1 < PASSAGES.length && (
-          <button type="button" onClick={next}>
+          <button type="button" onClick={() => goTo(passage + 1)}>
             Next recording: {PASSAGES[passage + 1].name}
           </button>
         )}
