@@ -156,6 +156,11 @@ def build_parser() -> argparse.ArgumentParser:
         "admin-password-hash",
         help="make the password_hash line for the admin password file (admin.toml)",
     )
+    # No email is sent yet, so a forgotten host password is reset here (R188) until R62a.
+    reset = commands.add_parser(
+        "host-password-reset", help="set a new password for a host account, signing it out"
+    )
+    reset.add_argument("email", help="the host's email address")
     check_packs = commands.add_parser(
         "check-packs",
         help="download every default person's pack from the hosted site and check it",
@@ -535,6 +540,26 @@ def print_admin_password_hash() -> int:
     return 0
 
 
+def reset_host_password(email: str) -> int:
+    """Ask for a host's new password twice and set it, ending the host's sign-ins (R188)."""
+    from imageskin.hosts import HostAccounts, HostRefused
+
+    password = getpass.getpass("New host password: ")
+    if getpass.getpass("The same again: ") != password:
+        print("The two passwords are different; nothing changed.", file=sys.stderr)
+        return 1
+    try:
+        reset = HostAccounts(default_home()).reset_password(email, password)
+    except HostRefused as e:
+        print(f"{e} Nothing changed.", file=sys.stderr)
+        return 1
+    if not reset:
+        print(f"No host has signed up with {email}; nothing changed.", file=sys.stderr)
+        return 1
+    print(f"The password for {email} is changed, and every sign-in it had has ended.")
+    return 0
+
+
 def print_pack_checks(url: str | None) -> int:
     """Check every hosted pack (roadmap R32a), printing a line for each; 1 if any is wrong."""
     from imageskin.hosted_packs import check_all, line
@@ -598,6 +623,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return chatgpt_import(args.file)
     if args.command == "admin-password-hash":
         return print_admin_password_hash()
+    if args.command == "host-password-reset":
+        return reset_host_password(args.email)
     if args.command == "check-packs":
         return print_pack_checks(args.url)
     if args.command == "lookup":

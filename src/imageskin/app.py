@@ -63,6 +63,8 @@ from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
 from imageskin.failure import report
+from imageskin.host_api import host_router
+from imageskin.hosts import HostAccounts
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -582,6 +584,9 @@ def create_app(
     )
     admin_routes, app.state.require_admin = admin_router(admin_sign_ins)
     app.include_router(admin_routes)
+    # Host accounts (R188). The host-only pages and routes later depend on require_host (R190).
+    host_routes, app.state.require_host = host_router(HostAccounts(data_home))
+    app.include_router(host_routes)
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
     # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
