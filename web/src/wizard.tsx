@@ -1,7 +1,7 @@
 // The setup wizard (roadmap R131): setting up with your own photo and voice one step at a time,
-// one step per screen with Back and Next. It uses the same pieces as the Setup page. Taking the
-// photo with the camera (R132) and recording the voice in the browser (R133) aren't built yet:
-// their steps show a placeholder for them and pick files instead.
+// one step per screen with Back and Next. It uses the same pieces as the Setup page. The photo is
+// taken with the camera (R132) and the voice recorded in the browser (R133), or either picked as
+// files.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -16,11 +16,23 @@ import {
   WIZARD_STEPS,
   type WizardStep,
 } from "./api";
+import { guideAt } from "./guide";
 import { useLeaveGuard } from "./leave-guard";
 import { CameraPhoto } from "./camera";
+import { VoiceRecorder } from "./recorder";
 import { AccentSection, PrepareSection, ReviewChoices, UploadSection } from "./pages";
 import { type SetupPart } from "./router";
 import { SettingGuard, usePrepareStopGuard } from "./setting-guard";
+
+// The recording guide's page each step's Need help? opens (Larry's review of PR #230).
+export const HELP: Record<WizardStep, string> = {
+  start: "Before you begin",
+  photo: "How to take the photos",
+  voice: "Record your voice",
+  accent: "If something goes wrong",
+  prepare: "If something goes wrong",
+  review: "If something goes wrong",
+};
 
 export const STEP_TITLES: Record<WizardStep, string> = {
   start: "Before you start",
@@ -169,9 +181,21 @@ export function WizardPage(props: { consented: boolean; onConsented: () => void 
             </li>
           ))}
         </ol>
-        <p className="step-of">
-          Step {index + 1} of {WIZARD_STEPS.length}
-        </p>
+        <div className="step-row">
+          <p className="step-of">
+            Step {index + 1} of {WIZARD_STEPS.length}
+          </p>
+          {/* In a new tab, so the wizard stays where it is. */}
+          <a
+            className="need-help"
+            href="#/guide"
+            target="_blank"
+            rel="noopener"
+            onClick={() => guideAt(HELP[step])}
+          >
+            Need help?
+          </a>
+        </div>
         {body}
         {failed && <p className="error">{failed}</p>}
         <div className="wizard-nav">
@@ -250,16 +274,6 @@ function StartStep(props: {
   );
 }
 
-// Where the camera (R132) or the microphone (R133) will go. Until then the step picks files.
-export function Placeholder(props: { what: string; instead: string }) {
-  return (
-    <div className="capture-placeholder" role="note">
-      <strong>{props.what} is coming soon.</strong>
-      <span>{props.instead}</span>
-    </div>
-  );
-}
-
 // The photo: Next waits for one that passed its checks (R8).
 function PhotoStep(props: {
   notice: string | null;
@@ -330,29 +344,37 @@ function VoiceStep(props: {
   onReady: (ready: boolean) => void;
   onChange: () => void;
 }) {
+  // Optional: Next is ready except while recording, or while a recording is checked.
   useEffect(() => props.onReady(true), []);
+  // Read again after a recording is made, so the list shows it.
+  const [made, setMade] = useState(0);
   return (
     <>
-      <Placeholder
-        what="Recording your voice here in the browser"
-        instead="For now, add recordings you already made."
-      />
-      <ul className="tips">
-        <li>Record in a quiet room, about a hand's width from the microphone.</li>
-        <li>Read aloud in your normal voice, for one to three minutes each time.</li>
-        <li>Only your voice: no music, television or other people.</li>
-      </ul>
-      <p className="muted">
-        The <a href="#/guide">recording guide</a> has a script to read and more tips.
-      </p>
+      <section className="panel">
+        <h2>Record your voice</h2>
+        {props.notice && <p className="notice">{props.notice}</p>}
+        <ul className="tips">
+          <li>Record in a quiet room, about a hand&apos;s width from the microphone.</li>
+          <li>Read aloud in your normal voice.</li>
+          <li>Only your voice: no music, television or other people.</li>
+        </ul>
+        <VoiceRecorder
+          onChanging={(busy) => props.onReady(!busy)}
+          onAdded={() => {
+            setMade((n) => n + 1);
+            props.onChange();
+          }}
+        />
+      </section>
       <UploadSection
+        key={made}
         kind="sounds"
         step={null}
-        title={STEP_TITLES.voice}
-        button="Add recordings"
-        hint="WAV, M4A or MP3, up to 10 minutes each. Optional: without them, a ready-made voice speaks."
+        title="Your recordings"
+        button="Add a recording file"
+        hint="The recordings you made, and any you add as files (WAV, M4A or MP3, up to 10 minutes each). Optional: without them, a ready-made voice speaks."
         accept="audio/*,.m4a,.wav,.mp3"
-        notice={props.notice}
+        notice={null}
         onChange={props.onChange}
       />
     </>

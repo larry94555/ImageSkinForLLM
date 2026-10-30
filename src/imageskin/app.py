@@ -157,7 +157,7 @@ from imageskin.wiki_outline import (
     OutlineProgress,
     Outliner,
 )
-from imageskin.wizard import load_step, log_camera, save_step
+from imageskin.wizard import load_step, log_camera, log_recording, save_step
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +183,13 @@ class CameraUse(BaseModel):
     width: int | None = None
     height: int | None = None
     camera: str | None = None  # the camera's name, as the browser gives it
+
+
+class RecordingMade(BaseModel):
+    made: bool
+    reason: str | None = None
+    seconds: float | None = None
+    format: str | None = None  # the browser's recording type, such as audio/webm;codecs=opus
 
 
 class ReadyVoiceRequest(BaseModel):
@@ -665,6 +672,17 @@ def create_app(
             log_camera(body.taken, body.reason, body.width, body.height, body.camera)
         except ValueError as e:
             logger.warning("Camera report refused", extra={"error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return {"logged": True}
+
+    # A recording made with the microphone in the wizard, or why the microphone wasn't used
+    # (R133), for the log only: the recording is uploaded like any sound file.
+    @app.post("/api/wizard/recording")
+    def post_wizard_recording(body: RecordingMade) -> dict[str, bool]:
+        try:
+            log_recording(body.made, body.reason, body.seconds, body.format)
+        except ValueError as e:
+            logger.warning("Recording report refused", extra={"error": str(e)})
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {"logged": True}
 

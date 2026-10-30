@@ -13,8 +13,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 FILENAME = "wizard.json"
-# In order. The photo and the voice are picked as files until R132 and R133 add the camera and
-# the microphone.
+# In order. The photo is taken with the camera (R132) and the voice recorded with the microphone
+# (R133), or either picked as files.
 STEPS = ("start", "photo", "voice", "accent", "prepare", "review")
 
 
@@ -80,3 +80,23 @@ def log_camera(
     if reason not in CAMERA_REASONS:
         raise ValueError(f"No camera reason called {reason!r}.")
     logger.info("Camera not used", extra={"reason": reason})
+
+
+# Why the microphone wasn't used (R133), as the browser reports it.
+MICROPHONE_REASONS = ("insecure", "unsupported", "refused", "no-microphone", "failed")
+
+
+def log_recording(
+    made: bool,
+    reason: str | None = None,
+    seconds: float | None = None,
+    format: str | None = None,
+) -> None:
+    """Log a recording made in the wizard, with its length and format, or why the microphone
+    wasn't used. The sound itself is never logged."""
+    if made:
+        logger.info("Recording made", extra={"seconds": seconds, "format": format})
+        return
+    if reason not in MICROPHONE_REASONS:
+        raise ValueError(f"No microphone reason called {reason!r}.")
+    logger.info("Microphone not used", extra={"reason": reason})

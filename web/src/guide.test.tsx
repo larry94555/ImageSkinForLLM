@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { GuidePage, loadGuide, STEPS } from "./guide";
+import { GuidePage, guideAt, loadGuide, STEPS } from "./guide";
 
 beforeEach(() => {
   localStorage.clear();
@@ -148,4 +148,12 @@ test("the short path (stop after Recording 3) stays consistent in the later step
     fireEvent.change(screen.getByRole("combobox"), { target: { value: String(i) } });
     expect(screen.queryByText(/7 recordings|Voice 1 to Voice 7|12 files/)).toBeNull();
   }
+});
+
+test("the wizard's Need help? opens the guide at the page it names, keeping the laptop picked", () => {
+  localStorage.setItem("imageskin.guide", JSON.stringify({ step: 0, laptop: "mac" }));
+  guideAt("Record your voice");
+  expect(loadGuide()).toEqual({ step: STEPS.findIndex((s) => s.title === "Record your voice"), laptop: "mac" });
+  guideAt("No such page");
+  expect(loadGuide().step).toBe(STEPS.findIndex((s) => s.title === "Record your voice"));
 });

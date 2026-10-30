@@ -11,7 +11,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_SUFFIXES = (".m4a", ".mp3", ".wav")
+SUPPORTED_SUFFIXES = (".m4a", ".mp3", ".wav", ".webm", ".ogg")
 # Every converted file has the same format, so the WAVs can be joined frame by frame.
 SAMPLE_RATE = 24000
 CHANNELS = 1
@@ -23,7 +23,7 @@ class AudioError(Exception):
 
 
 def to_wav(src: Path, dst: Path, timeout_s: float = DEFAULT_TIMEOUT_S) -> None:
-    """Convert an M4A, MP3 or WAV file to 24 kHz mono 16-bit WAV."""
+    """Convert an M4A, MP3, WAV, WebM or Ogg file to 24 kHz mono 16-bit WAV."""
     if src.suffix.lower() not in SUPPORTED_SUFFIXES:
         raise AudioError(f"{src.name}: unsupported file type, use one of {SUPPORTED_SUFFIXES}")
     if not src.is_file():

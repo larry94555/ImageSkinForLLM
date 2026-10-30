@@ -34,6 +34,15 @@ export function loadGuide(): GuideState {
   }
 }
 
+// Opens the guide at the step with this title next time it is shown: the setup wizard's Need
+// help? links (Larry's review of PR #230). The laptop picked stays.
+export function guideAt(title: string) {
+  const step = STEPS.findIndex((s) => s.title === title);
+  if (step < 0) return;
+  saveGuide({ ...loadGuide(), step });
+  console.info(`Guide opened from the wizard at: ${title}`);
+}
+
 function saveGuide(state: GuideState) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -60,7 +69,41 @@ interface Step {
   body: (laptop: Laptop | null, pick: (l: Laptop) => void) => ComponentChildren;
 }
 
-function Script({ first, lines }: { first: number; lines: string[] }) {
+// The recording script, also read aloud in the setup wizard's voice step (R133).
+export const SCRIPT_1 = [
+  "Hi, thanks for stopping by. It's good to see you.",
+  "I wasn't sure what to expect today, but honestly, I'm glad you asked.",
+  "Let me think about that for a second. Okay, here's what I'd do.",
+  "First, take a deep breath. Second, write down the three things that matter most. Third, pick one and start there.",
+  "Really? You found it in the garage, behind the old bicycle? That's amazing!",
+  "No, no, that's not what I meant at all. I meant the other one, the blue one.",
+  "The weather this weekend should be cool and breezy, with a chance of rain on Sunday afternoon.",
+  "My favourite meal is still my grandmother's soup, with fresh bread and a little too much butter.",
+  "She sells seashells by the seashore, and the shells she sells are surely seashells.",
+  "The quick brown fox jumps over the lazy dog, and the dog doesn't seem to mind.",
+];
+
+export const SCRIPT_2 = [
+  "Could you call me back around four thirty? My number is five five five, two nine one, eight three zero seven.",
+  "It cost about twelve dollars and fifty cents, which felt fair for what it was.",
+  "Hmm, I'm not totally sure. I think it was in two thousand nineteen, but don't quote me on that.",
+  "Wow. That is genuinely the best news I've heard all week.",
+  "I'm sorry to hear that. That sounds really hard, and it makes sense that you're tired.",
+  "Here's a fun fact: an octopus has three hearts and blue blood.",
+  "Would you like the short version, or the long version with all the details?",
+  "Measure twice, cut once. My father used to say that, and he was usually right.",
+  "Thanks for listening. Take care of yourself, and let's talk again soon.",
+];
+
+// Recording 3: questions answered in your own words.
+export const QUESTIONS_3 = [
+  "What did you do last weekend?",
+  "Describe a place you love and why.",
+  "Explain how to make something you cook often.",
+  "What's something you've changed your mind about?",
+];
+
+export function Script({ first, lines }: { first: number; lines: string[] }) {
   return (
     <ol className="script" start={first}>
       {lines.map((line) => (
@@ -84,7 +127,7 @@ function Before({ name, minutes, children }: { name: string; minutes: string; ch
   );
 }
 
-function Questions({ items }: { items: string[] }) {
+export function Questions({ items }: { items: string[] }) {
   return (
     <ul className="bullets">
       {items.map((q) => (
@@ -372,21 +415,7 @@ export const STEPS: Step[] = [
     body: () => (
       <>
         <Before name="Voice 1" minutes="1½ minutes" />
-        <Script
-          first={1}
-          lines={[
-            "Hi, thanks for stopping by. It's good to see you.",
-            "I wasn't sure what to expect today, but honestly, I'm glad you asked.",
-            "Let me think about that for a second. Okay, here's what I'd do.",
-            "First, take a deep breath. Second, write down the three things that matter most. Third, pick one and start there.",
-            "Really? You found it in the garage, behind the old bicycle? That's amazing!",
-            "No, no, that's not what I meant at all. I meant the other one, the blue one.",
-            "The weather this weekend should be cool and breezy, with a chance of rain on Sunday afternoon.",
-            "My favourite meal is still my grandmother's soup, with fresh bread and a little too much butter.",
-            "She sells seashells by the seashore, and the shells she sells are surely seashells.",
-            "The quick brown fox jumps over the lazy dog, and the dog doesn't seem to mind.",
-          ]}
-        />
+        <Script first={1} lines={SCRIPT_1} />
       </>
     ),
   },
@@ -395,20 +424,7 @@ export const STEPS: Step[] = [
     body: () => (
       <>
         <Before name="Voice 2" minutes="1½ minutes" />
-        <Script
-          first={11}
-          lines={[
-            "Could you call me back around four thirty? My number is five five five, two nine one, eight three zero seven.",
-            "It cost about twelve dollars and fifty cents, which felt fair for what it was.",
-            "Hmm, I'm not totally sure. I think it was in two thousand nineteen, but don't quote me on that.",
-            "Wow. That is genuinely the best news I've heard all week.",
-            "I'm sorry to hear that. That sounds really hard, and it makes sense that you're tired.",
-            "Here's a fun fact: an octopus has three hearts and blue blood.",
-            "Would you like the short version, or the long version with all the details?",
-            "Measure twice, cut once. My father used to say that, and he was usually right.",
-            "Thanks for listening. Take care of yourself, and let's talk again soon.",
-          ]}
-        />
+        <Script first={11} lines={SCRIPT_2} />
       </>
     ),
   },
@@ -421,14 +437,7 @@ export const STEPS: Step[] = [
           own words, as if chatting with a friend, for about 20 to 30 seconds each. Pause for a
           second between questions.
         </Before>
-        <Questions
-          items={[
-            "What did you do last weekend?",
-            "Describe a place you love and why.",
-            "Explain how to make something you cook often.",
-            "What's something you've changed your mind about?",
-          ]}
-        />
+        <Questions items={QUESTIONS_3} />
         <p className="notice">
           Short on time? You can stop here: Recordings 1 to 3 are enough for today&apos;s voice. Use{" "}
           <b>Go to step</b> below to jump to <b>Check your recordings</b>.

@@ -44,9 +44,20 @@ CHUNK = 1024 * 1024
 HEIC_BRANDS = {b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"mif1", b"msf1"}
 M4A_BRANDS = {b"M4A ", b"M4B ", b"mp41", b"mp42", b"isom", b"iso2", b"3gp4", b"3gp5"}
 
-SUFFIX = {"jpg": ".jpg", "png": ".png", "heic": ".jpg", "wav": ".wav", "mp3": ".wav", "m4a": ".wav"}
+SUFFIX = {
+    "jpg": ".jpg",
+    "png": ".png",
+    "heic": ".jpg",
+    "wav": ".wav",
+    "mp3": ".wav",
+    "m4a": ".wav",
+    "webm": ".wav",
+    "ogg": ".wav",
+}
 MEDIA_TYPE = {".jpg": "image/jpeg", ".png": "image/png", ".wav": "audio/wav"}
-ALLOWED = {"photos": ("jpg", "png", "heic"), "sounds": ("wav", "mp3", "m4a")}
+# WebM and Ogg are what browsers record in (R133: Chrome and Edge WebM, Firefox Ogg or WebM;
+# Safari records M4A).
+ALLOWED = {"photos": ("jpg", "png", "heic"), "sounds": ("wav", "mp3", "m4a", "webm", "ogg")}
 DESCRIPTION = {"photos": "a JPG, PNG or HEIC photo", "sounds": "a WAV, M4A or MP3 recording"}
 
 
@@ -63,7 +74,7 @@ class Upload:
     id: str
     kind: Kind
     name: str  # the name it was uploaded with, for display only
-    format: str  # the format it arrived in: jpg, png, heic, wav, mp3 or m4a
+    format: str  # the format it arrived in: jpg, png, heic, wav, mp3, m4a, webm or ogg
     size: int  # bytes as stored
     uploaded_at: str  # ISO 8601, UTC
     seconds: float | None = None  # sounds only
@@ -115,6 +126,10 @@ def detect_format(head: bytes) -> str | None:
         if head[8:12] in M4A_BRANDS:
             return "m4a"
         return None
+    if head.startswith(b"\x1a\x45\xdf\xa3"):  # EBML, as a WebM recording starts
+        return "webm"
+    if head.startswith(b"OggS"):
+        return "ogg"
     if head.startswith(b"ID3") or (len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0):
         return "mp3"
     return None

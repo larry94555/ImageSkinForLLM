@@ -1081,20 +1081,6 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
   color: var(--on-button);
   font-weight: 600;
 }
-.capture-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-height: 160px;
-  margin: 0 0 12px;
-  padding: 16px;
-  border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 12px;
-  background: var(--accent-soft);
-  text-align: center;
-}
 .wizard-nav {
   display: flex;
   justify-content: space-between;
@@ -1165,3 +1151,55 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
   background: var(--accent-soft);
 }
 .camera.off button { margin-top: 8px; display: block; }
+.recorder { display: grid; gap: 10px; }
+.recorder h3 { margin: 0; }
+.recorder .passages { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.recorder .passages button { padding: 6px 14px; }
+.step-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 6px; }
+.step-row .step-of { margin: 0; }
+.step-row .need-help { font-weight: 600; }
+.recorder p { margin: 0; }
+.recorder ol.script, .recorder ul.bullets {
+  margin: 0;
+  padding: 12px 12px 12px 2.6em;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 1.05rem;
+}
+.recorder ol.script li, .recorder ul.bullets li {
+  display: list-item;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.recorder ol.script li::marker { color: var(--muted); }
+.recorder .recording { display: flex; align-items: center; gap: 12px; }
+.recorder .rec-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #d92d20;
+  animation: rec-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes rec-pulse { to { opacity: 0.35; } }
+.recorder .timer { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 3.5em; }
+.recorder .level {
+  flex: 1;
+  max-width: 320px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--line);
+  overflow: hidden;
+}
+.recorder .level span { display: block; height: 100%; background: var(--accent); transition: width 80ms linear; }
+.recorder audio { width: 100%; max-width: 480px; }
+.recorder.off {
+  display: block;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+.recorder.off button { margin-top: 8px; display: block; }

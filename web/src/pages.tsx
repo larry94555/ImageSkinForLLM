@@ -220,9 +220,8 @@ export function SetupPage({ change }: { change?: SetupPart }) {
           . Your photos and recordings are kept.
         </p>
         <p className="notice">
-          New to this? The <a href="#/guide">recording guide</a> walks you step by step through
-          taking the photos and making the voice recordings on a Windows or Mac laptop. Or{" "}
-          <a href="#/setup/wizard">set up with your own photo and voice</a> one step at a time.
+          <a href="#/setup/wizard">Set up your own photo and voice one step at a time</a>, with
+          help on each step.
         </p>
         <UploadSection
           kind="photos"
