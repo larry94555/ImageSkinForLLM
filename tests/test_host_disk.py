@@ -217,3 +217,17 @@ def test_a_file_stored_as_owners_breaks_is_taken_back(
     assert sound.status_code == 500
     assert browser.get("/api/content").json() == []
     assert browser.get("/api/uploads/sounds").json() == []
+
+
+def test_the_resources_page_opening_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # R193: the page asks with `opened`, so the log says the view was opened, with the amounts.
+    browser = TestClient(create_app(tmp_path))
+    browser.post("/api/host/sign-up", json=FIRST)
+    browser.get("/api/host/disk")
+    assert "Resource view opened" not in caplog.messages
+    answer = browser.get("/api/host/disk", params={"opened": "true"}).json()
+    [opened] = [r for r in caplog.records if r.getMessage() == "Resource view opened"]
+    assert opened.email == FIRST["email"]  # type: ignore[attr-defined]
+    assert {k: getattr(opened, k) for k in answer} == answer

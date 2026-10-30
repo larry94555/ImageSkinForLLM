@@ -1298,3 +1298,15 @@ export async function hostPageOpened(page: "sign-up" | "sign-in"): Promise<void>
   });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
 }
+
+// The disk space the signed-in host has used (roadmap R192), in bytes; `opened` when the
+// Resources page asks as it opens (R193), so the server logs it.
+export interface HostDisk {
+  images_and_recordings: number;
+  pdfs: number;
+  total: number;
+}
+
+export async function getHostDisk(opened = false): Promise<HostDisk> {
+  return json<HostDisk>(await fetch(opened ? "/api/host/disk?opened=true" : "/api/host/disk"));
+}
