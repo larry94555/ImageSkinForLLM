@@ -49,10 +49,15 @@ function server(settings: Record<string, unknown> = {}, passwordSet = true) {
   return { fetchMock, state };
 }
 
-async function openAt(hash: string) {
+// Waits for the Administrator section, shown once the server says this laptop may sign in,
+// unless `admin` is false.
+async function openAt(hash: string, admin = true) {
   window.location.hash = hash;
   render(<App />);
   await screen.findByRole("link", { name: "Settings" });
+  if (admin && hash === "#/settings") {
+    await screen.findByRole("region", { name: "Administrator" });
+  }
 }
 
 function adminSection() {
@@ -148,7 +153,7 @@ test("the participant view has the Administrator section too", async () => {
 test("the admin view opened without a sign-in shows the sign-in", async () => {
   server();
   await openAt("#/admin");
-  expect(screen.getByRole("heading", { name: "Admin", level: 1 })).toBeTruthy();
+  await screen.findByRole("heading", { name: "Admin", level: 1 });
   await screen.findByLabelText("Administrator password");
   expect(screen.queryByRole("heading", { name: "Resources" })).toBeNull();
 });
@@ -274,7 +279,7 @@ test("a click on the Settings page or in the admin view is activity, at most onc
   await screen.findByLabelText("Administrator password");
 });
 
-test("a server that can't be reached leaves the sign-in waiting", async () => {
+test("a server that can't be reached shows nothing of the administrator", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
@@ -283,8 +288,9 @@ test("a server that can't be reached leaves the sign-in waiting", async () => {
       return new Response("", { status: 500 });
     }),
   );
-  await openAt("#/settings");
-  expect(adminSection().getByText("Checking…")).toBeTruthy();
+  await openAt("#/settings", false);
+  await vi.waitFor(() => expect(console.error).toHaveBeenCalled());
+  expect(screen.queryByRole("region", { name: "Administrator" })).toBeNull();
   expect(console.error).toHaveBeenCalledWith(
     "Could not read the administrator sign-in",
     expect.any(Error),
@@ -371,17 +377,25 @@ test("a key that can't be made says so", async () => {
   await adminSection().findByText("This laptop's ID couldn't be made in this browser.");
 });
 
-test("a laptop that isn't listed gets no sign-in, only its ID to add", async () => {
+test("a laptop that isn't listed sees only its ID, nothing of the administrator", async () => {
   secureBrowser();
   const { fetchMock, state } = server();
   state.listed = false;
-  await openAt("#/settings");
-  await adminSection().findByText(/isn't one of the laptops allowed to sign in/);
-  expect(adminSection().queryByLabelText("Administrator password")).toBeNull();
-  await adminSection().findByText(/^LT-/);
+  await openAt("#/settings", false);
+  const laptop = within(await screen.findByRole("region", { name: "This laptop" }));
+  await laptop.findByText(/^LT(-[A-Z2-7]{4}){5}$/);
+  expect(laptop.getByRole("button", { name: "Copy" })).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Administrator" })).toBeNull();
+  expect(screen.queryByText(/administrator|admin-laptops/i)).toBeNull();
   const asked = fetchMock.mock.calls.find(([u]) => u === "/api/admin/laptop")!;
   const body = JSON.parse(String(asked[1]!.body)) as { laptop: { challenge: string } };
   expect(body.laptop.challenge).toBe("the challenge");
+  // Nor the admin view, opened by its address.
+  cleanup();
+  await openAt("#/admin", false);
+  await vi.waitFor(() => expect(calls(fetchMock, "/api/admin/laptop")).toBe(2));
+  expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
+  expect(screen.queryByLabelText("Administrator password")).toBeNull();
 });
 
 test("when the laptop can't be checked, the sign-in is still shown", async () => {

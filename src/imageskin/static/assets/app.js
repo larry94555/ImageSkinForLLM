@@ -1093,6 +1093,8 @@ var GUIDE = "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides
 var CHECK_MS = 6e4;
 var AdminContext = X({
 	session: null,
+	listed: null,
+	askListed: () => {},
 	ended: null,
 	refresh: async () => {},
 	signIn: async () => {},
@@ -1113,6 +1115,7 @@ function endedMessage(session) {
 function AdminProvider({ children }) {
 	const [session, setSession] = d(null);
 	const [ended, setEnded] = d(null);
+	const [listed, setListed] = d(null);
 	async function refresh() {
 		try {
 			const read = await getAdminSession();
@@ -1128,6 +1131,19 @@ function AdminProvider({ children }) {
 	h(() => {
 		refresh();
 	}, []);
+	const asked = A(false);
+	function askListed() {
+		if (asked.current) return;
+		asked.current = true;
+		(async () => {
+			const answer = await isLaptopListed(canProve() ? await prove(await getAdminChallenge()) : void 0);
+			setListed(answer);
+			if (!answer && canProve()) console.info(`This laptop's ID: ${await laptopId()}`);
+		})().catch((err) => {
+			console.error("Could not ask whether this laptop is listed", err);
+			setListed(true);
+		});
+	}
 	const signedIn = session?.signed_in === true;
 	h(() => {
 		if (!signedIn) return;
@@ -1148,6 +1164,8 @@ function AdminProvider({ children }) {
 	}
 	const shared = {
 		session,
+		listed,
+		askListed,
 		ended,
 		refresh,
 		signIn,
@@ -1232,13 +1250,13 @@ function LaptopId() {
 	let shown;
 	if (!usable) shown = /* @__PURE__ */ u("p", {
 		className: "muted",
-		children: "This laptop's ID can't be shown at this address. It needs the site's https:// address, or http://localhost on the computer running the app."
+		children: "This laptop's ID can't be shown at this address."
 	});
 	else if (failed) shown = /* @__PURE__ */ u("p", {
 		className: "muted",
 		children: "This laptop's ID couldn't be made in this browser."
 	});
-	else shown = /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: [
+	else shown = /* @__PURE__ */ u(S, { children: /* @__PURE__ */ u("p", { children: [
 		"This laptop's ID: ",
 		/* @__PURE__ */ u("code", { children: id ?? "…" }),
 		" ",
@@ -1249,38 +1267,24 @@ function LaptopId() {
 			onClick: () => void copy(),
 			children: copied ? "Copied" : "Copy"
 		})
-	] }), /* @__PURE__ */ u("p", {
-		className: "muted",
-		children: "To let only listed laptops sign in, whoever runs the computer pastes what Copy gives into admin-laptops.toml, beside admin.toml. Each browser has its own ID, and clearing this site's data makes a new one."
-	})] });
+	] }) });
 	return /* @__PURE__ */ u("div", {
 		className: "laptop-id",
 		children: [/* @__PURE__ */ u("h3", { children: "This laptop" }), shown]
 	});
 }
 function AdminSection() {
-	const { session, signIn, signOut } = useAdmin();
+	const { session, listed, askListed, signIn, signOut } = useAdmin();
 	const [password, setPassword] = d("");
 	const [busy, setBusy] = d(false);
 	const [error, setError] = d(null);
-	const [listed, setListed] = d(null);
-	const asking = session !== null && !session.signed_in && session.password_set;
-	h(() => console.info("Admin sign-in shown"), []);
+	const shown = Boolean(session?.signed_in || listed);
 	h(() => {
-		if (!asking) return;
-		let current = true;
-		(async () => {
-			const answer = await isLaptopListed(canProve() ? await prove(await getAdminChallenge()) : void 0);
-			console.info(`Laptop listed for admin: ${answer}`);
-			if (current) setListed(answer);
-		})().catch((err) => {
-			console.error("Could not ask whether this laptop is listed", err);
-			if (current) setListed(true);
-		});
-		return () => {
-			current = false;
-		};
-	}, [asking]);
+		if (session) askListed();
+	}, [session !== null]);
+	h(() => {
+		if (shown) console.info("Admin sign-in shown");
+	}, [shown]);
 	async function submit(e) {
 		e.preventDefault();
 		setBusy(true);
@@ -1345,11 +1349,7 @@ function AdminSection() {
 			"says."
 		]
 	});
-	else if (session && listed === false) body = /* @__PURE__ */ u("p", {
-		className: "muted",
-		children: "This laptop isn't one of the laptops allowed to sign in as administrator. To allow it, whoever runs the computer adds this laptop's ID, below, to admin-laptops.toml."
-	});
-	else if (session && listed) body = /* @__PURE__ */ u("form", {
+	else if (session) body = /* @__PURE__ */ u("form", {
 		onSubmit: (e) => void submit(e),
 		children: [
 			/* @__PURE__ */ u("label", { children: [
@@ -1370,6 +1370,14 @@ function AdminSection() {
 			})
 		]
 	});
+	if (!shown) {
+		if (listed !== false) return null;
+		return /* @__PURE__ */ u("section", {
+			className: "panel",
+			"aria-label": "This laptop",
+			children: /* @__PURE__ */ u(LaptopId, {})
+		});
+	}
 	return /* @__PURE__ */ u("section", {
 		className: "panel",
 		"aria-labelledby": "settings-admin",
@@ -1392,18 +1400,24 @@ function AdminSection() {
 	});
 }
 function AdminPage({ section = "resources" }) {
-	const { session } = useAdmin();
-	if (!session?.signed_in) return /* @__PURE__ */ u("div", {
-		className: "host-page admin-page",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "Admin" }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: "Site-wide administration, separate from the host and participant views."
-			}),
-			/* @__PURE__ */ u(AdminSection, {})
-		]
-	});
+	const { session, listed, askListed } = useAdmin();
+	h(() => {
+		if (session) askListed();
+	}, [session !== null]);
+	if (!session?.signed_in) {
+		if (!listed) return null;
+		return /* @__PURE__ */ u("div", {
+			className: "host-page admin-page",
+			children: [
+				/* @__PURE__ */ u("h1", { children: "Admin" }),
+				/* @__PURE__ */ u("p", {
+					className: "lead",
+					children: "Site-wide administration, separate from the host and participant views."
+				}),
+				/* @__PURE__ */ u(AdminSection, {})
+			]
+		});
+	}
 	const tab = (to, href, label) => /* @__PURE__ */ u("a", {
 		href,
 		className: section === to ? "current" : void 0,

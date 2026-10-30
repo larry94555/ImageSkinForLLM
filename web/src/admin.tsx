@@ -32,6 +32,10 @@ export const ACTIVITY_MS = 60_000;
 
 interface Shared {
   session: AdminSession | null; // null until the server has answered
+  // Whether this laptop may sign in (null while asking). A laptop the host's laptops file
+  // leaves out sees nothing of the administrator at all (Larry, 2026-10-30).
+  listed: boolean | null;
+  askListed: () => void; // asks once, from the Settings page or the admin view
   ended: string | null; // why the last sign-in ended by itself, until dismissed
   refresh: () => Promise<void>;
   signIn: (password: string) => Promise<void>;
@@ -41,6 +45,8 @@ interface Shared {
 
 const AdminContext = createContext<Shared>({
   session: null,
+  listed: null,
+  askListed: () => {},
   ended: null,
   refresh: async () => {},
   signIn: async () => {},
@@ -69,6 +75,7 @@ function endedMessage(session: AdminSession): string {
 export function AdminProvider({ children }: { children: ComponentChildren }) {
   const [session, setSession] = useState<AdminSession | null>(null);
   const [ended, setEnded] = useState<string | null>(null);
+  const [listed, setListed] = useState<boolean | null>(null);
 
   async function refresh() {
     try {
@@ -86,6 +93,24 @@ export function AdminProvider({ children }: { children: ComponentChildren }) {
   useEffect(() => {
     void refresh();
   }, []);
+
+  // Whether this laptop is listed, asked once with a proof of a fresh challenge, when a page that
+  // needs it opens. Not listed, its ID also goes to the browser console.
+  const asked = useRef(false);
+  function askListed() {
+    if (asked.current) return;
+    asked.current = true;
+    (async () => {
+      const laptop = canProve() ? await prove(await getAdminChallenge()) : undefined;
+      const answer = await isLaptopListed(laptop);
+      setListed(answer);
+      if (!answer && canProve()) console.info(`This laptop's ID: ${await laptopId()}`);
+    })().catch((err: unknown) => {
+      // The server still checks the laptop at sign-in, so the sign-in is shown rather than lost.
+      console.error("Could not ask whether this laptop is listed", err);
+      setListed(true);
+    });
+  }
 
   // While signed in, check each minute, so a sign-out shows without a click.
   const signedIn = session?.signed_in === true;
@@ -112,7 +137,7 @@ export function AdminProvider({ children }: { children: ComponentChildren }) {
     await refresh();
   }
 
-  const shared = { session, ended, refresh, signIn, signOut, dismiss: () => setEnded(null) };
+  const shared = { session, listed, askListed, ended, refresh, signIn, signOut, dismiss: () => setEnded(null) };
   return <AdminContext.Provider value={shared}>{children}</AdminContext.Provider>;
 }
 
@@ -168,8 +193,8 @@ export function AdminEndedNotice() {
   );
 }
 
-// This laptop's ID (R164), to list in admin-laptops.toml on the host. Shown on every laptop, listed
-// or not, so a laptop not yet listed can be added.
+// This laptop's ID (R164), to list in admin-laptops.toml on the host. Shown on every laptop, with
+// no word of what it is for (Larry, 2026-10-30).
 export function LaptopId() {
   const [id, setId] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -197,10 +222,7 @@ export function LaptopId() {
   let shown: ComponentChildren;
   if (!usable) {
     shown = (
-      <p className="muted">
-        This laptop's ID can't be shown at this address. It needs the site's https:// address, or
-        http://localhost on the computer running the app.
-      </p>
+      <p className="muted">This laptop's ID can't be shown at this address.</p>
     );
   } else if (failed) {
     shown = <p className="muted">This laptop's ID couldn't be made in this browser.</p>;
@@ -212,11 +234,6 @@ export function LaptopId() {
           <button type="button" className="secondary" disabled={!id} onClick={() => void copy()}>
             {copied ? "Copied" : "Copy"}
           </button>
-        </p>
-        <p className="muted">
-          To let only listed laptops sign in, whoever runs the computer pastes what Copy gives into
-          admin-laptops.toml, beside admin.toml. Each browser has its own ID, and clearing this
-          site's data makes a new one.
         </p>
       </>
     );
@@ -231,34 +248,19 @@ export function LaptopId() {
 
 // The Settings page's Administrator section, in either view.
 export function AdminSection() {
-  const { session, signIn, signOut } = useAdmin();
+  const { session, listed, askListed, signIn, signOut } = useAdmin();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Whether this laptop may sign in (null while asking): the sign-in is shown only where it can
-  // work, not on a laptop the host's laptops file leaves out (Larry, 2026-10-29).
-  const [listed, setListed] = useState<boolean | null>(null);
-  const asking = session !== null && !session.signed_in && session.password_set;
-
-  useEffect(() => console.info("Admin sign-in shown"), []);
+  const shown = Boolean(session?.signed_in || listed);
 
   useEffect(() => {
-    if (!asking) return;
-    let current = true;
-    (async () => {
-      const laptop = canProve() ? await prove(await getAdminChallenge()) : undefined;
-      const answer = await isLaptopListed(laptop);
-      console.info(`Laptop listed for admin: ${answer}`);
-      if (current) setListed(answer);
-    })().catch((err: unknown) => {
-      // The server still checks the laptop at sign-in, so the sign-in is shown rather than lost.
-      console.error("Could not ask whether this laptop is listed", err);
-      if (current) setListed(true);
-    });
-    return () => {
-      current = false;
-    };
-  }, [asking]);
+    if (session) askListed();
+  }, [session !== null]);
+
+  useEffect(() => {
+    if (shown) console.info("Admin sign-in shown");
+  }, [shown]);
 
   async function submit(e: Event) {
     e.preventDefault();
@@ -318,14 +320,7 @@ export function AdminSection() {
         says.
       </p>
     );
-  } else if (session && listed === false) {
-    body = (
-      <p className="muted">
-        This laptop isn't one of the laptops allowed to sign in as administrator. To allow it,
-        whoever runs the computer adds this laptop's ID, below, to admin-laptops.toml.
-      </p>
-    );
-  } else if (session && listed) {
+  } else if (session) {
     body = (
       <form onSubmit={(e) => void submit(e)}>
         <label>
@@ -344,6 +339,17 @@ export function AdminSection() {
     );
   }
 
+  // On a laptop that isn't listed, only its ID: nothing of the administrator, so the page gives no
+  // clue (Larry, 2026-10-30). Nothing while asking.
+  if (!shown) {
+    if (listed !== false) return null;
+    return (
+      <section className="panel" aria-label="This laptop">
+        <LaptopId />
+      </section>
+    );
+  }
+
   return (
     <section className="panel" aria-labelledby="settings-admin">
       <h2 id="settings-admin">Administrator</h2>
@@ -358,8 +364,13 @@ export function AdminSection() {
 // The admin view: the resource dashboard (R154) at #/admin and the admin settings (R155) at
 // #/admin/settings. Opened without a sign-in, it shows the sign-in instead.
 export function AdminPage({ section = "resources" }: { section?: "resources" | "settings" }) {
-  const { session } = useAdmin();
+  const { session, listed, askListed } = useAdmin();
+  useEffect(() => {
+    if (session) askListed();
+  }, [session !== null]);
   if (!session?.signed_in) {
+    // Opened on a laptop that isn't listed: the page any unknown address shows.
+    if (!listed) return null;
     return (
       <div className="host-page admin-page">
         <h1>Admin</h1>
