@@ -1314,7 +1314,7 @@ Contexts (Milestone 13) now come after this milestone, so guidelines are kept fo
 
 | PR | Description | Status |
 |---|---|---|
-| [R92. Identity and goals in every reply](#r92-identity-and-goals-in-every-reply-medium--items-84-85--done-in-pr-240) | The AI's identity and goals are sent with every reply, and the guidelines get a place to be kept. | Done in [PR #240](https://github.com/larry94555/ImageSkinForLLM/pull/240) |
+| [R92. Identity and goals in every reply](#r92-identity-and-goals-in-every-reply-medium--items-84-85--done-in-pr-241) | The AI's identity and goals are sent with every reply, and the guidelines get a place to be kept. | Done in [PR #241](https://github.com/larry94555/ImageSkinForLLM/pull/241) |
 | [R94. Customization page](#r94-customization-page-medium--items-85-87) | A Customization page for the host to edit the identity, the goals and the guidelines. | Not started |
 | [R194. Guidelines for answering questions](#r194-guidelines-for-answering-questions-medium--item-153) | The host's guidelines inform every answer to a question. | Not started |
 | [R195. Guidelines for the topics](#r195-guidelines-for-the-topics-medium--item-154) | The host's guidelines inform replies about a topic as a whole. | Not started |
@@ -1327,7 +1327,7 @@ Contexts (Milestone 13) now come after this milestone, so guidelines are kept fo
 | [R95. Change history: versions, going back and editing](#r95-change-history-versions-going-back-and-editing-medium--item-88) | Every change kept as a version, with a history to go back to or edit. | Not started |
 | [R95a. Comparing versions](#r95a-comparing-versions-simple--item-88) | Compare the latest version with an earlier one, with the changes marked. | Not started |
 
-### R92. Identity and goals in every reply (Medium) · items 84, 85 · Done in [PR #240](https://github.com/larry94555/ImageSkinForLLM/pull/240)
+### R92. Identity and goals in every reply (Medium) · items 84, 85 · Done in [PR #241](https://github.com/larry94555/ImageSkinForLLM/pull/241)
 - The identity (name, who it speaks as, purpose, who it is for, what it can help with), the goals and the guidelines of each feature are kept in `customization.json` in the app's home folder, with a fixed default shipped for when the file is missing or can't be read (the error goes in the log). The guidelines have one entry for each feature that R194 to R200 add; until a feature's PR is built, it has none. Each save writes the whole file to a temporary file and renames it over the old one, so a reader never sees half a save. `GET /api/customization` returns all of it, to a signed-in host only (R190).
 - The identity and goals are given to the LLM with every prompt. The file is read once per prompt, so a prompt never mixes two versions, and they are kept in llama-server's cache with the instructions, as the level of detail is (R180), so they are read again only when they change. "Who are you?", "What is your purpose?" and similar phrasings are recognized as "What can you talk about?" is (R41f) and answered from the identity, so they are answered with general prompts off *(default)*; contexts later make them a Meta action (R85).
 - The log has `Identity used` with the time taken, and `Customization can't be read` with the error when the shipped default is used.
