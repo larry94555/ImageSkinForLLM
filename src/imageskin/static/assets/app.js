@@ -10187,12 +10187,6 @@ var NAV = [
 		views: ["host", "participant"]
 	},
 	{
-		page: "wiki",
-		href: "#/wiki",
-		label: "Wiki",
-		views: ["participant"]
-	},
-	{
 		page: "content",
 		href: "#/content",
 		label: "Manage Content",
@@ -10201,7 +10195,7 @@ var NAV = [
 ];
 function current(page, view) {
 	if (page === "guide" || page === "start-now" || page === "avatar-voice" || page === "wizard") return "setup";
-	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
+	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : void 0;
 	return page;
 }
 function App() {

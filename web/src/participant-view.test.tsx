@@ -56,12 +56,12 @@ afterEach(() => {
   window.location.hash = "";
 });
 
-test("a visitor gets the participant view: the chat and the wiki", async () => {
+test("a visitor gets the participant view: only the chat", async () => {
   server();
   window.location.hash = "#/";
   render(<App />);
   await within(topBar()).findByRole("link", { name: "Host sign in" });
-  await vi.waitFor(() => expect(navLinks()).toEqual(["Chat", "Wiki"]));
+  await vi.waitFor(() => expect(navLinks()).toEqual(["Chat"]));
   // The home page is the host's, so a visitor lands on the chat.
   await vi.waitFor(() => expect(window.location.hash).toBe("#/chat"));
 });
@@ -95,7 +95,7 @@ test("signing in as host gives the host view, and signing out the participant vi
   );
 
   fireEvent.click(within(topBar()).getByRole("button", { name: "Sign out" }));
-  await vi.waitFor(() => expect(navLinks()).toEqual(["Chat", "Wiki"]));
+  await vi.waitFor(() => expect(navLinks()).toEqual(["Chat"]));
 });
 
 test("only a signed-in host chooses the view on the Settings page", async () => {

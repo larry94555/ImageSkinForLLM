@@ -32,24 +32,23 @@ import {
 import { WikiDetailPage, WikiPage } from "./wiki";
 import { WizardPage } from "./wizard";
 
-// The top bar's pages for each view: the participant view (R41b) has only the chat and the wiki.
-// The host reaches the wiki from Manage Content, as it is built from the PDFs there (Larry's
-// review of PR #123).
+// The top bar's pages for each view: the participant view has only the chat (Larry's test of
+// PR #233). The host reaches the wiki from Manage Content, as it is built from the PDFs there
+// (Larry's review of PR #123).
 const NAV: { page: Page; href: string; label: string; views: View[] }[] = [
   { page: "home", href: "#/", label: "Home", views: ["host"] },
   { page: "setup", href: "#/setup", label: "Setup", views: ["host"] },
   { page: "chat", href: "#/chat", label: "Chat", views: ["host", "participant"] },
-  { page: "wiki", href: "#/wiki", label: "Wiki", views: ["participant"] },
   { page: "content", href: "#/content", label: "Manage Content", views: ["host"] },
 ];
 
 // The top bar link to highlight: the recording guide and Start now are part of setup, and the
-// wiki's pages are part of Manage Content for the host, and of Wiki for a participant.
+// wiki's pages are part of Manage Content for the host.
 function current(page: Page | undefined, view: View): Page | undefined {
   if (page === "guide" || page === "start-now" || page === "avatar-voice" || page === "wizard") {
     return "setup";
   }
-  if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : "wiki";
+  if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : undefined;
   return page;
 }
 

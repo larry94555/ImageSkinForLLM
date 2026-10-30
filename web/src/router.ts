@@ -103,7 +103,8 @@ export function pageFor(hash: string): Page {
   return PAGES[path] ?? "not-found";
 }
 
-// The pages the participant view hides (R41b): it has only the chat and the wiki.
+// The pages the participant view hides (R41b). The wiki has no top bar link there, but opened by
+// its address it is read-only.
 const HOST_PAGES: Page[] = [
   "home",
   "consent",
