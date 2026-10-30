@@ -1,14 +1,15 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { CameraPhoto, cameraBlocked, grabFrame, NO_PICTURE, reasonOf, WHY_NOT } from "./camera";
+import { betterCamera, CameraPhoto, cameraBlocked, grabFrame, NO_PICTURE, reasonOf, WHY_NOT } from "./camera";
 
 const PHOTO = { id: "p1", kind: "photos", name: "camera.jpg", format: "jpg", size: 9, uploaded_at: "", seconds: null, score: 81, speech: null };
 
 // The server: what each photo upload answers, and the camera reports it was sent.
-function server(upload: Response | (() => Response)) {
+function server(upload: Response | (() => Response), deleteFails = false) {
   const reports: unknown[] = [];
   const uploads: File[] = [];
+  const deleted: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -20,10 +21,15 @@ function server(upload: Response | (() => Response)) {
         uploads.push((init.body as FormData).get("file") as File);
         return typeof upload === "function" ? upload() : upload.clone();
       }
+      if (url.startsWith("/api/uploads/photos/") && init?.method === "DELETE") {
+        if (deleteFails) return Response.json({ detail: "busy" }, { status: 500 });
+        deleted.push(url);
+        return Response.json({});
+      }
       return new Response("", { status: 404 });
     }),
   );
-  return { reports, uploads };
+  return { reports, uploads, deleted };
 }
 
 // A camera whose stream's tracks can be checked for being stopped.
@@ -150,16 +156,28 @@ test("Retake turns the camera back on", async () => {
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:shot");
 });
 
-test("a photo that fails its checks shows why, with Retake", async () => {
+test("a photo that fails its checks shows why, isn't kept, and offers Retake", async () => {
   camera();
-  server(Response.json({ ...PHOTO, problems: ["The photo is too dark."] }));
+  const { deleted } = server(Response.json({ ...PHOTO, problems: ["The photo is too dark."] }));
   const onAdded = vi.fn();
   render(<CameraPhoto onAdded={onAdded} onChanging={() => {}} grab={grab} />);
   await takePhoto();
   expect(await screen.findByText("The photo is too dark.")).toBeTruthy();
-  expect(screen.queryByText(/Kept\./)).toBeNull();
+  expect(screen.getByText("Not kept. Retake to try again.")).toBeTruthy();
+  expect(screen.queryByText(/^Kept\./)).toBeNull();
   expect(screen.getByRole("button", { name: "Retake" })).toBeTruthy();
-  expect(onAdded).toHaveBeenCalled(); // stored, so the list shows it with its problem
+  await waitFor(() => expect(deleted).toEqual(["/api/uploads/photos/p1"]));
+  expect(onAdded).not.toHaveBeenCalled(); // never in the list
+});
+
+test("a failed photo that can't be removed is shown in the list, to remove there", async () => {
+  camera();
+  server(Response.json({ ...PHOTO, problems: ["The photo is too dark."] }), true);
+  const onAdded = vi.fn();
+  render(<CameraPhoto onAdded={onAdded} onChanging={() => {}} grab={grab} />);
+  await takePhoto();
+  await waitFor(() => expect(onAdded).toHaveBeenCalled());
+  expect(console.error).toHaveBeenCalledWith("Could not remove the camera photo that failed its checks", expect.any(Error));
 });
 
 test("a photo the server refuses shows the reason", async () => {
@@ -275,4 +293,38 @@ test("a camera that keeps its own size is still used", async () => {
 
 test("a camera sending no picture says so, instead of failing silently", async () => {
   await expect(grabFrame(document.createElement("video"))).rejects.toThrow(NO_PICTURE);
+});
+
+test("an infrared or virtual camera gives way to one that can take the photo", () => {
+  const cams = (...labels: string[]) => labels.map((label, i) => ({ id: String(i), label }));
+  expect(betterCamera(cams("Integrated IR Camera", "Integrated Camera"), "0")?.label).toBe("Integrated Camera");
+  expect(betterCamera(cams("OBS Virtual Camera", "HD Webcam"), "0")?.label).toBe("HD Webcam");
+  expect(betterCamera(cams("Integrated Camera", "OBS Virtual Camera"), "0")).toBeNull();
+  expect(betterCamera(cams("Integrated IR Camera"), "0")).toBeNull(); // nothing better
+  expect(betterCamera(cams("Integrated IR Camera", "Integrated Camera"), null)).toBeNull();
+});
+
+test("opened on the infrared camera by default, it switches to the laptop's own, without remembering it", async () => {
+  const { getUserMedia } = camera("ok", [
+    { kind: "videoinput", deviceId: "laptop", label: "Integrated IR Camera" },
+    { kind: "videoinput", deviceId: "rgb", label: "Integrated Camera" },
+  ]);
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  await waitFor(() => expect(getUserMedia).toHaveBeenLastCalledWith({ video: { deviceId: { ideal: "rgb" } }, audio: false }));
+  await waitFor(() => expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("rgb"));
+  expect(getUserMedia).toHaveBeenCalledTimes(2);
+  expect(localStorage.getItem("imageskin.camera")).toBeNull();
+});
+
+test("an infrared camera the user chose is kept", async () => {
+  localStorage.setItem("imageskin.camera", "laptop");
+  const { getUserMedia } = camera("ok", [
+    { kind: "videoinput", deviceId: "laptop", label: "Integrated IR Camera" },
+    { kind: "videoinput", deviceId: "rgb", label: "Integrated Camera" },
+  ]);
+  server(Response.json(PHOTO));
+  render(<CameraPhoto onAdded={() => {}} onChanging={() => {}} grab={grab} />);
+  await screen.findByRole("combobox");
+  expect(getUserMedia).toHaveBeenCalledTimes(1);
 });

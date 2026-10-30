@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { type CameraReason, reportCamera, type Upload, uploadFile } from "./api";
+import { type CameraReason, removeUpload, reportCamera, type Upload, uploadFile } from "./api";
 import { Checks } from "./checks";
 import { useSettingGuard } from "./setting-guard";
 
@@ -91,6 +91,19 @@ export interface CameraChoice {
   label: string;
 }
 
+// Cameras that can't take the photo: a laptop's infrared camera for Windows Hello sees a dark,
+// grainy picture with no face found in it, and a virtual camera shows a video or another app.
+// Either may be the browser's default, with no light on the laptop's camera (Larry's test of
+// PR #227 on Windows 11).
+const NOT_A_PHOTO_CAMERA = /\b(ir|infrared|virtual|obs|snap|manycam|xsplit|nvidia broadcast|droidcam|camo)\b/i;
+
+// The camera to use instead of `current`, when `current` can't take the photo and another can.
+export function betterCamera(cameras: CameraChoice[], current: string | null): CameraChoice | null {
+  const inUse = cameras.find((c) => c.id === current);
+  if (!inUse || !NOT_A_PHOTO_CAMERA.test(inUse.label)) return null;
+  return cameras.find((c) => !NOT_A_PHOTO_CAMERA.test(c.label)) ?? null;
+}
+
 type Phase = "starting" | "live" | "counting" | "checking" | "taken" | "off";
 
 interface Shot {
@@ -108,7 +121,7 @@ function report(r: Parameters<typeof reportCamera>[0]) {
 }
 
 export function CameraPhoto(props: {
-  // A photo taken was stored, passed its checks or not, so the list of photos is read again.
+  // A photo taken was kept, so the list of photos is read again.
   onAdded: () => void;
   // True while a photo taken is uploaded and checked, false once that is over.
   onChanging: (busy: boolean) => void;
@@ -144,7 +157,8 @@ export function CameraPhoto(props: {
     setPhase("off");
   }
 
-  async function start(chosen: string | null = savedCamera()) {
+  // `picked` is false for a camera the app chose itself, so it isn't remembered as the user's.
+  async function start(chosen: string | null = savedCamera(), picked = chosen !== null) {
     setPhase("starting");
     setGrabFailed(null);
     const blocked = cameraBlocked();
@@ -167,28 +181,38 @@ export function CameraPhoto(props: {
       stream.current = media;
       const track = media.getVideoTracks?.()[0];
       label.current = track?.label ?? "";
-      setCameraId(track?.getSettings?.().deviceId ?? null);
+      const opened = track?.getSettings?.().deviceId ?? null;
+      setCameraId(opened);
       try {
         await track?.applyConstraints?.({ width: { ideal: 1920 }, height: { ideal: 1080 } });
       } catch (e) {
         console.warn("The camera kept its own size", e);
       }
       console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
-      void listCameras();
+      void listCameras(opened, picked);
       setPhase("live");
     } catch (e) {
       if (alive.current) notUsed(reasonOf(e), e);
     }
   }
 
-  async function listCameras() {
+  // `current` is the camera just opened; `chosen` is set when the user picked it.
+  async function listCameras(current: string | null, chosen: boolean) {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const found = devices
         .filter((d) => d.kind === "videoinput")
         .map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` }));
       console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
-      if (alive.current) setCameras(found);
+      if (!alive.current) return;
+      setCameras(found);
+      const better = chosen ? null : betterCamera(found, current);
+      if (better) {
+        const was = found.find((c) => c.id === current)?.label;
+        console.info(`Camera switched from ${was} to ${better.label}: the first can't take the photo`);
+        stopCamera();
+        void start(better.id, false);
+      }
     } catch (e) {
       console.error("Could not list the cameras", e);
     }
@@ -272,7 +296,11 @@ export function CameraPhoto(props: {
       const upload = await uploadFile("photos", new File([grabbed.blob], name, { type: "image/jpeg" }));
       console.info(`Camera photo checked in ${Math.round(performance.now() - started)} ms`);
       if (alive.current) setShot({ url, upload, error: null });
-      props.onAdded();
+      if (upload.problems?.length) {
+        await dropFailed(upload);
+      } else {
+        props.onAdded();
+      }
     } catch (e) {
       console.error("Camera photo refused", e);
       if (alive.current) setShot({ url, upload: null, error: (e as Error).message });
@@ -281,11 +309,25 @@ export function CameraPhoto(props: {
     if (alive.current) setPhase("taken");
   }
 
+  // A photo taken that fails its checks isn't kept: it would only fill the list (Larry's test of
+  // PR #227). If it can't be removed, the list shows it, so it can be removed there.
+  async function dropFailed(upload: Upload) {
+    try {
+      await removeUpload("photos", upload.id);
+      console.info(`Camera photo failed its checks and was not kept: ${upload.problems?.join(" ")}`);
+    } catch (e) {
+      console.error("Could not remove the camera photo that failed its checks", e);
+      props.onAdded();
+    }
+  }
+
   function retake() {
     console.info("Retaking the photo");
     show(null);
     setShot(null);
-    void start();
+    // The same camera as before, even one the app switched to itself.
+    const saved = savedCamera();
+    void start(cameraId ?? saved, cameraId === null || cameraId === saved);
   }
 
   if (phase === "off") {
@@ -338,6 +380,9 @@ export function CameraPhoto(props: {
       {phase === "checking" && <p className="muted busy">Checking the photo…</p>}
       {shot?.upload && <Checks item={shot.upload} queue={-1} />}
       {shot?.upload && passed && <p className="done">Kept. Click Next, or Retake to try again.</p>}
+      {shot?.upload && shot.upload.problems?.length ? (
+        <p className="muted">Not kept. Retake to try again.</p>
+      ) : null}
       {shot?.error && <p className="error">{shot.error}</p>}
       <div className="choices">
         {(phase === "live" || phase === "counting") && (

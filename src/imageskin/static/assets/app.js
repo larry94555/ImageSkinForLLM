@@ -8495,6 +8495,12 @@ function saveCamera(id) {
 		console.warn("Could not remember the camera chosen", e);
 	}
 }
+var NOT_A_PHOTO_CAMERA = /\b(ir|infrared|virtual|obs|snap|manycam|xsplit|nvidia broadcast|droidcam|camo)\b/i;
+function betterCamera(cameras, current) {
+	const inUse = cameras.find((c) => c.id === current);
+	if (!inUse || !NOT_A_PHOTO_CAMERA.test(inUse.label)) return null;
+	return cameras.find((c) => !NOT_A_PHOTO_CAMERA.test(c.label)) ?? null;
+}
 function stopTracks(stream) {
 	stream?.getTracks().forEach((t) => t.stop());
 }
@@ -8531,7 +8537,7 @@ function CameraPhoto(props) {
 		setReason(why);
 		setPhase("off");
 	}
-	async function start(chosen = savedCamera()) {
+	async function start(chosen = savedCamera(), picked = chosen !== null) {
 		setPhase("starting");
 		setGrabFailed(null);
 		const blocked = cameraBlocked();
@@ -8552,7 +8558,8 @@ function CameraPhoto(props) {
 			stream.current = media;
 			const track = media.getVideoTracks?.()[0];
 			label.current = track?.label ?? "";
-			setCameraId(track?.getSettings?.().deviceId ?? null);
+			const opened = track?.getSettings?.().deviceId ?? null;
+			setCameraId(opened);
 			try {
 				await track?.applyConstraints?.({
 					width: { ideal: 1920 },
@@ -8562,20 +8569,28 @@ function CameraPhoto(props) {
 				console.warn("The camera kept its own size", e);
 			}
 			console.info(`Camera on in ${Math.round(performance.now() - started)} ms: ${label.current || "unnamed"}`);
-			listCameras();
+			listCameras(opened, picked);
 			setPhase("live");
 		} catch (e) {
 			if (alive.current) notUsed(reasonOf(e), e);
 		}
 	}
-	async function listCameras() {
+	async function listCameras(current, chosen) {
 		try {
 			const found = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput").map((d, i) => ({
 				id: d.deviceId,
 				label: d.label || `Camera ${i + 1}`
 			}));
 			console.info(`Cameras: ${found.map((c) => c.label).join(", ") || "none listed"}`);
-			if (alive.current) setCameras(found);
+			if (!alive.current) return;
+			setCameras(found);
+			const better = chosen ? null : betterCamera(found, current);
+			if (better) {
+				const was = found.find((c) => c.id === current)?.label;
+				console.info(`Camera switched from ${was} to ${better.label}: the first can't take the photo`);
+				stopCamera();
+				start(better.id, false);
+			}
 		} catch (e) {
 			console.error("Could not list the cameras", e);
 		}
@@ -8658,7 +8673,8 @@ function CameraPhoto(props) {
 				upload,
 				error: null
 			});
-			props.onAdded();
+			if (upload.problems?.length) await dropFailed(upload);
+			else props.onAdded();
 		} catch (e) {
 			console.error("Camera photo refused", e);
 			if (alive.current) setShot({
@@ -8670,11 +8686,21 @@ function CameraPhoto(props) {
 		props.onChanging(false);
 		if (alive.current) setPhase("taken");
 	}
+	async function dropFailed(upload) {
+		try {
+			await removeUpload("photos", upload.id);
+			console.info(`Camera photo failed its checks and was not kept: ${upload.problems?.join(" ")}`);
+		} catch (e) {
+			console.error("Could not remove the camera photo that failed its checks", e);
+			props.onAdded();
+		}
+	}
 	function retake() {
 		console.info("Retaking the photo");
 		show(null);
 		setShot(null);
-		start();
+		const saved = savedCamera();
+		start(cameraId ?? saved, cameraId === null || cameraId === saved);
 	}
 	if (phase === "off") return /* @__PURE__ */ u("div", {
 		className: "camera off",
@@ -8762,6 +8788,10 @@ function CameraPhoto(props) {
 				className: "done",
 				children: "Kept. Click Next, or Retake to try again."
 			}),
+			shot?.upload && shot.upload.problems?.length ? /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Not kept. Retake to try again."
+			}) : null,
 			shot?.error && /* @__PURE__ */ u("p", {
 				className: "error",
 				children: shot.error
