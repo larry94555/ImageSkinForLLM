@@ -1,5 +1,7 @@
 // Calls to the server's JSON API.
 
+import type { LaptopProof } from "./laptop-key";
+
 export interface Consent {
   agreed: boolean;
   agreed_at: string | null;
@@ -1084,12 +1086,29 @@ export async function getAdminSession(): Promise<AdminSession> {
   return json<AdminSession>(await fetch("/api/admin/session"));
 }
 
-// Throws a ServerRefusal with the reason (a wrong password, none set, or wait) when refused.
-export async function signInAsAdmin(password: string): Promise<void> {
+// A one-time challenge for this laptop's key to sign at the next sign-in (R163).
+export async function getAdminChallenge(): Promise<string> {
+  return (await json<{ challenge: string }>(await fetch("/api/admin/challenge"))).challenge;
+}
+
+// Whether this laptop may sign in as administrator (R164): always when the host has no laptops
+// file, else only with a proof from a listed laptop.
+export async function isLaptopListed(laptop?: LaptopProof): Promise<boolean> {
+  const response = await fetch("/api/admin/laptop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(laptop ? { laptop } : {}),
+  });
+  return (await json<{ listed: boolean }>(response)).listed;
+}
+
+// Throws a ServerRefusal with R162's one message, whatever the cause, when refused. The laptop's
+// proof (R164) goes with the password where the browser can make one.
+export async function signInAsAdmin(password: string, laptop?: LaptopProof): Promise<void> {
   const response = await fetch("/api/admin/sign-in", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(laptop ? { password, laptop } : { password }),
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }

@@ -52,7 +52,7 @@ def admin_router(sign_ins: AdminSignIns) -> tuple[APIRouter, Callable[[str | Non
             "password_set": sign_ins.secret() is not None,
             "timeout_minutes": sign_ins.timeout_minutes(),
             # Why a sign-in ended by itself ("inactive", "password changed" or "laptop
-            # removed"), said once. Nothing here says whether this laptop is listed (R163).
+            # removed"), said once. POST /laptop says whether this laptop is listed (R164).
             "ended": None if signed_in else sign_ins.ended(token),
         }
 
@@ -60,6 +60,15 @@ def admin_router(sign_ins: AdminSignIns) -> tuple[APIRouter, Callable[[str | Non
     def challenge() -> dict[str, object]:
         """A one-time challenge for the laptop to sign, good for a minute (R163)."""
         return {"challenge": sign_ins.laptops.challenge()}
+
+    @router.post("/laptop")
+    def laptop_listed(
+        laptop: Annotated[Laptop | None, Body(embed=True)] = None,
+    ) -> dict[str, object]:
+        """Whether this laptop may sign in as administrator: always with no laptops file, else
+        only with a proof from a listed laptop (R164). The page hides the sign-in when not."""
+        proof = LaptopProof(**laptop.model_dump()) if laptop else None
+        return {"listed": sign_ins.laptops.listed(proof)}
 
     @router.post("/sign-in", response_model=None)
     def sign_in(

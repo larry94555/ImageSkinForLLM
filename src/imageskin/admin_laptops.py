@@ -189,6 +189,16 @@ class AdminLaptops:
             return BAD_PROOF, None
         return (None if found in allowed else NOT_LISTED), found
 
+    def listed(self, proof: LaptopProof | None) -> bool:
+        """Whether this laptop may sign in, so the Settings page shows the sign-in only where it
+        can work (Larry, 2026-10-29). Not a sign-in: it neither signs in nor counts as a failure."""
+        refused, laptop = self.check(proof)
+        logger.info(
+            "Admin laptop checked",
+            extra={"laptop": laptop, "listed": refused is None, "reason": refused},
+        )
+        return refused is None
+
     def still_allowed(self, laptop: str | None) -> bool:
         """Whether a sign-in made from this laptop (None: made with no file) may go on."""
         allowed = self.allowed()
