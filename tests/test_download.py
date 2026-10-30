@@ -46,7 +46,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def server() -> Iterator[Server]:
     srv = Server(("127.0.0.1", 0), Handler)
     srv.requests = []
-    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
     yield srv
     srv.shutdown()

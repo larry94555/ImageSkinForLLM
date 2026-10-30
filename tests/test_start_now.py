@@ -411,7 +411,9 @@ def test_a_real_404_from_the_release_says_not_available(tmp_path: Path, pack: Pa
     empty.mkdir()
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(empty))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    ).start()
     try:
         url = f"http://127.0.0.1:{server.server_address[1]}"
         start = sn.StartNow(tmp_path / "home", renderer([]), packs=packs_of(pack), base_url=url)

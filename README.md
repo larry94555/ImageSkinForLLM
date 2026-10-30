@@ -60,6 +60,7 @@ ruff check .           # lint
 ruff format --check .  # format
 mypy                   # type check
 pytest                 # unit tests with coverage
+pytest -n auto         # the same on every core, about 4 times as fast
 ```
 
 ## Running
