@@ -587,6 +587,9 @@ async function hostPageOpened(page) {
 	});
 	if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
 }
+async function getHostDisk(opened = false) {
+	return json(await fetch(opened ? "/api/host/disk?opened=true" : "/api/host/disk"));
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -625,13 +628,13 @@ var NAMES = {
 	red: "Red",
 	unknown: "Unknown"
 };
-var GB = 1e3 ** 3;
+var GB$1 = 1e3 ** 3;
 var GIB = 1024 ** 3;
 function amount(resource, value) {
 	if (value === null || value === void 0) return "unknown";
 	if (resource.unit === "cores") return `${value.toFixed(value >= 10 ? 0 : 2)} cores`;
 	const binary = resource.name === "memory";
-	const gb = value / (binary ? GIB : GB);
+	const gb = value / (binary ? GIB : GB$1);
 	if (gb >= 1e3) return `${(gb / 1e3).toFixed(2)} TB`;
 	if (gb >= 10) return `${gb.toFixed(0)} GB`;
 	if (gb >= 1) return `${gb.toFixed(1)} GB`;
@@ -675,8 +678,8 @@ function usedTenths(resource) {
 	const d = resource.details;
 	if (resource.name !== "disk" || typeof d.llm_bytes !== "number") return null;
 	return {
-		used: Math.round((d.llm_bytes + Number(d.other_bytes)) / GB * 10),
-		model: Math.round(d.llm_bytes / GB * 10)
+		used: Math.round((d.llm_bytes + Number(d.other_bytes)) / GB$1 * 10),
+		model: Math.round(d.llm_bytes / GB$1 * 10)
 	};
 }
 function usedBy(resource) {
@@ -1635,7 +1638,8 @@ var PAGES = {
 	"/admin": "admin",
 	"/admin/settings": "admin",
 	"/host/sign-up": "host-sign-up",
-	"/host/sign-in": "host-sign-in"
+	"/host/sign-in": "host-sign-in",
+	"/resources": "resources"
 };
 var WIKI_PDF = /^\/wiki\/([^/]+)$/;
 var WIKI_PAGE = /^\/wiki\/page\/([^/]+)$/;
@@ -2168,17 +2172,25 @@ function HostLinks({ page }) {
 		}
 		return /* @__PURE__ */ u("span", {
 			className: "host-links",
-			children: [/* @__PURE__ */ u("span", {
-				className: "host-email",
-				title: "Signed in as host",
-				children: session.email
-			}), /* @__PURE__ */ u("button", {
-				type: "button",
-				className: "secondary",
-				disabled: busy,
-				onClick: () => void leave(),
-				children: "Sign out"
-			})]
+			children: [
+				/* @__PURE__ */ u("a", {
+					href: "#/resources",
+					className: page === "resources" ? "settings-link current" : "settings-link",
+					children: "Resources"
+				}),
+				/* @__PURE__ */ u("span", {
+					className: "host-email",
+					title: "Signed in as host",
+					children: session.email
+				}),
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					disabled: busy,
+					onClick: () => void leave(),
+					children: "Sign out"
+				})
+			]
 		});
 	}
 	const link = (to, href, label) => /* @__PURE__ */ u("a", {
@@ -6558,7 +6570,7 @@ function ContentPage() {
 					/* @__PURE__ */ u("span", {
 						className: "muted",
 						children: [
-							size(pdf.size),
+							size$1(pdf.size),
 							" · ",
 							pdf.replaced_at ? "replaced" : "added",
 							" ",
@@ -6706,7 +6718,7 @@ function duration(seconds) {
 function plural(n, word) {
 	return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
-function size(bytes) {
+function size$1(bytes) {
 	if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 	return `${(bytes / 1048576).toFixed(1)} MB`;
 }
@@ -8039,6 +8051,85 @@ function StartNowPage() {
 					}),
 					"."
 				]
+			})
+		]
+	});
+}
+//#endregion
+//#region src/resources.tsx
+var MB = 1e3 ** 2;
+var GB = 1e3 ** 3;
+function size(bytes) {
+	if (bytes >= GB) return `${(bytes / GB).toFixed(2)} GB`;
+	return `${(bytes / MB).toFixed(1)} MB`;
+}
+var ROWS = [
+	[
+		"images_and_recordings",
+		"Images and voice recordings",
+		"The photos and recordings you added."
+	],
+	[
+		"pdfs",
+		"PDFs",
+		"The PDFs you added."
+	],
+	[
+		"total",
+		"Total",
+		"All the disk space your files take."
+	]
+];
+function ResourcesPage() {
+	const session = useHost().session;
+	const host = session?.signed_in === true;
+	const [disk, setDisk] = d(null);
+	const [failed, setFailed] = d(false);
+	h(() => {
+		if (!host) return;
+		getHostDisk(true).then((read) => {
+			setDisk(read);
+			console.info(`Resource view opened: ${JSON.stringify(read)}`);
+		}, (e) => {
+			console.error("Could not read the disk space used", e);
+			setFailed(true);
+		});
+	}, [host]);
+	if (session === null) return /* @__PURE__ */ u("p", { children: "Loading…" });
+	if (!host) return /* @__PURE__ */ u(HostOnlyPage, {});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page resources-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Resources" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: [
+					"The disk space used by the files you added, as ",
+					session.email,
+					"."
+				]
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The disk space used could not be read. Reload to try again."
+			}),
+			!failed && disk === null && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Counting…"
+			}),
+			disk && /* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-label": "Disk space used",
+				children: [/* @__PURE__ */ u("h2", { children: "Disk space used" }), /* @__PURE__ */ u("dl", {
+					className: "disk-used",
+					children: ROWS.map(([key, label, about]) => /* @__PURE__ */ u("div", {
+						className: key === "total" ? "disk-row total" : "disk-row",
+						children: [/* @__PURE__ */ u("dt", { children: [label, /* @__PURE__ */ u("span", {
+							className: "muted",
+							children: [" · ", about]
+						})] }), /* @__PURE__ */ u("dd", { children: size(disk[key]) })]
+					}, key))
+				})]
 			})
 		]
 	});
@@ -10307,6 +10398,7 @@ function Shell() {
 		"host-sign-up": /* @__PURE__ */ u(HostAccountPage, { kind: "up" }),
 		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
 		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
+		resources: /* @__PURE__ */ u(ResourcesPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
 	}[route.page];
 	return /* @__PURE__ */ u(S, { children: [

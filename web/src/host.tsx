@@ -78,7 +78,8 @@ export function HostProvider({ children }: { children: ComponentChildren }) {
   return <HostContext.Provider value={shared}>{children}</HostContext.Provider>;
 }
 
-// The top bar's host links: Host sign up and Host sign in, or the host's email and Sign out.
+// The top bar's host links: Host sign up and Host sign in, or Resources (R193), the host's email
+// and Sign out.
 // Signing out returns to the participant view's page, the chat.
 export function HostLinks({ page }: { page?: string }) {
   const { session, signOut } = useHost();
@@ -99,6 +100,12 @@ export function HostLinks({ page }: { page?: string }) {
     }
     return (
       <span className="host-links">
+        <a
+          href="#/resources"
+          className={page === "resources" ? "settings-link current" : "settings-link"}
+        >
+          Resources
+        </a>
         <span className="host-email" title="Signed in as host">
           {session.email}
         </span>

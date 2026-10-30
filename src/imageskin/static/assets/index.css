@@ -791,6 +791,13 @@ ul.photos img { border-radius: 8px; }
 .host-links { display: inline-flex; align-items: center; gap: 4px; }
 .host-email { color: var(--muted); font-size: 0.9em; padding: 0 6px; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .host-links button { padding: 4px 12px; }
+/* The host's resource view (R193): each amount on a row, the total last and bold. */
+.disk-used { margin: 8px 0 0; }
+.disk-used .disk-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.disk-used .disk-row:first-child { border-top: none; }
+.disk-used dt { margin: 0; }
+.disk-used dd { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.disk-used .total { font-weight: 600; }
 .host-account form { max-width: 24em; }
 .host-account label { display: grid; gap: 4px; width: 100%; font-weight: 600; }
 .host-account input { width: 100%; }

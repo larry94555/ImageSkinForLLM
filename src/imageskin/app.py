@@ -644,6 +644,9 @@ def create_app(
     @app.get("/api/host/disk")
     def host_disk(
         email: Annotated[str | None, Query(description="The host's email address.")] = None,
+        opened: Annotated[
+            bool, Query(description="Asked by the Resources page as it opens (R193).")
+        ] = False,
         host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
         admin_token: Annotated[str | None, Cookie(alias=ADMIN_COOKIE)] = None,
     ) -> dict[str, int]:
@@ -672,7 +675,10 @@ def create_app(
             refuse(401, NOT_SIGNED_IN, "not signed in")
         elif wanted != host.email:
             refuse(403, "A host can only see their own disk space.", "another host's")
-        return count_disk(data_home, owners, wanted)
+        amounts = count_disk(data_home, owners, wanted)
+        if opened:
+            logger.info("Resource view opened", extra={"email": wanted, **amounts})
+        return amounts
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
     # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
