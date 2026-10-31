@@ -18,6 +18,7 @@ Items are numbered in the order Larry added them, not the order they are built. 
 | 148 to 152 | Host login and resource view | 2026-10-30 | 29 (done) |
 | 84 to 88, 153 to 159, 197, 198 | Identity and guidelines, with the administrator's requirements over the host's | 2026-10-18; 153 to 159 on 2026-10-30; 197 and 198 on 2026-10-31 | 13a |
 | 187 to 196 | Optimize image: the head and neck, framed, enlarged and on a plain backdrop; whether hosts can use a custom photo or voice | 2026-10-31 | 13f |
+| 199 to 203 | Optimize LLM latencies: every local LLM task found, timed, given a target and made faster where clear | 2026-10-31 | 13g |
 | 30 to 33, 169 to 174 | Sign-on and accounts; email confirmation and the activity report | 2026-10-08; 169 to 174 on 2026-10-30 | 12 |
 | 61 to 66 | Many customers on me0.ai | 2026-10-17 | 20 |
 | 160 to 168 | Resource enforcement | 2026-10-30 | 30 |
@@ -544,6 +545,22 @@ Noted here and applied when the PRs for these items are built.
 Noted here and applied when the PRs for these items are built.
 
 - **Items 1 to 8, 59 and 108 to 111 (setup, Settings, Replace with your own, the setup wizard):** each is offered to a host only while that host may use a custom photo or voice (items 193 to 196). Items 187 to 192 apply only to a host who may use a custom photo.
+
+## Optimize LLM latencies
+
+Added by Larry on 2026-10-31, to build right after optimize image (items 187 to 192) and before sign-on and accounts (items 30 to 33 and 169 to 174). The local LLM is used for many tasks beyond the chat's replies, and some keep the user waiting. These items find every one of them, time it, set how long users will accept waiting for it, and make the slow ones faster where there is a clear way. The measurements use the local LLM only *(default)*. Larry will go into this in detail when the items before it are done (Larry, 2026-10-31).
+
+199. **Every local LLM task found.** A test finds every task where the app uses the local LLM, such as a reply, the conversation's summary, a spoken question checked, the wiki, answers from the content, the topics, Teach me, Quiz me, the assessment, Say it simpler and the identity and guidelines, with what starts each one, who waits on it and how often it runs.
+200. **How long each task takes.** Experiments measure how long each of those tasks takes on the hosted machine and on a laptop, with short and long inputs, including any wait behind another task, the time to the first word and the time to the whole answer.
+201. **How long users will wait.** A recommendation, from published research on response times and conversation, of how long each task can take before users find it slow, with how far each task is from it today.
+202. **How to make the LLM answer sooner.** Recommendations on how to bring each slow task within its time, such as shorter prompts that the LLM can reuse, a smaller or helper model, keeping background work out of a reply's way, or doing work ahead, each with its expected saving and cost.
+203. **Faster where there is a clear way.** Each clear opportunity found is built, measured before and after, with answers as good as before. Which ones are built is decided when the recommendations (item 202) are reviewed *(default)*.
+
+### How this changes later items
+
+Noted here and applied when the PRs for these items are built.
+
+- **Item 144 (shorter thinking):** it comes later and starts from these items' measurements and speed-ups, making shorter only the steps that are still slow *(default)*.
 
 ## Handling disputes
 
