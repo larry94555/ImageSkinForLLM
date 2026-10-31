@@ -16,8 +16,8 @@ Items are numbered in the order Larry added them, not the order they are built. 
 | 121 to 125, 132, 133, 141 | Admin view | From 2026-10-26 | 27 (done) |
 | 108 to 111 | Setup wizard | 2026-10-25 | 10d (done) |
 | 148 to 152 | Host login and resource view | 2026-10-30 | 29 (done) |
-| 84 to 88, 153 to 159 | Identity and guidelines | 2026-10-18; 153 to 159 on 2026-10-30 | 13a |
-| 187 to 192 | Optimize image: the head and neck, framed, enlarged and on a plain backdrop | 2026-10-31 | 13f |
+| 84 to 88, 153 to 159, 197, 198 | Identity and guidelines, with the administrator's requirements over the host's | 2026-10-18; 153 to 159 on 2026-10-30; 197 and 198 on 2026-10-31 | 13a |
+| 187 to 196 | Optimize image: the head and neck, framed, enlarged and on a plain backdrop; whether hosts can use a custom photo or voice | 2026-10-31 | 13f |
 | 30 to 33, 169 to 174 | Sign-on and accounts; email confirmation and the activity report | 2026-10-08; 169 to 174 on 2026-10-30 | 12 |
 | 61 to 66 | Many customers on me0.ai | 2026-10-17 | 20 |
 | 160 to 168 | Resource enforcement | 2026-10-30 | 30 |
@@ -500,6 +500,13 @@ Contexts (items 77 to 83) now come after these items, so guidelines are kept for
 158. **Guidelines for the level of detail.** What each step of the Level of detail bar asks of an answer, from High level to In depth (item 143), and, once it is built, the level Auto picks (item 145) *(default)*. The room a reply has stays with the code, so an answer is never cut off by an edit *(default)*.
 159. **Guidelines for Say it simpler.** How a reply is said more simply, by Say it simpler (item 131) or a lesson's "say it more simply" (item 54), such as "Explain it as you would to a 12-year-old."
 
+### The administrator's requirements
+
+Added by Larry on 2026-10-31. The administrator sets guidelines of their own, which the LLM takes as system requirements over the host's identity and guidelines.
+
+197. **Admin guidelines.** The admin view (item 121) has an **Admin guidelines** page, reached only from the admin view, that mirrors the host's Customization page (item 87): the identity, the goals and the guidelines for each feature (items 153 to 159), each edited and saved in the same way. All are empty to begin with, so nothing changes until the administrator writes some *(default)*. A change takes effect from the next prompt, for every host.
+198. **Requirements over the host's.** The administrator's identity, goals and guidelines are given to the LLM as system requirements, with each feature's prompts as the host's are, and the LLM is told to follow them first and the host's only where they don't conflict. A host can't see, change or turn them off; the host's Customization page says only that the administrator's requirements, if any, come first *(default)*. They are kept apart from the host's, so generating defaults (item 86) never drafts them and the host's versions (item 88) never hold them; the admin guidelines keep only their latest version *(default)*.
+
 ### How this changes later items
 
 Noted here and applied when the PRs for these items are built.
@@ -517,11 +524,26 @@ Added by Larry on 2026-10-31, to build right after the identity and guidelines (
 191. **The optimized photo is the one used.** The optimized picture is the one checked, scored, shown and animated (items 2, 5 and 6). The original is kept beside it and never changed, one click away on the Setup page, where **Use the original** picks it instead for a photo whose optimized picture looks wrong *(default)*.
 192. **Every way a photo comes in.** Setup, the setup wizard's camera photo (item 109), changing photos in Settings (item 8), each customer's site (item 66) and photos taken on a phone (item 96) all make the optimized picture. Photos stored before these items are optimized once. The default people are left as they are, since they are already framed this way *(default)*.
 
+### Whether hosts can use a custom photo or voice
+
+Added by Larry on 2026-10-31, later the same day, to the same milestone. The administrator decides whether hosts can use their own photo and their own voice, with a default for every host and an exception for any one host. Where a host can't, the default people (items 56 to 60) and their ready-made voices are what the host uses.
+
+193. **Two defaults in Admin settings.** Admin settings (item 125) has two checkboxes, **Disable custom image** and **Disable custom voice**, for every host. Both are checked to begin with, so custom photos and voices are off until the administrator unchecks them (Larry: "Presume Disabled"). A change applies at once, to every host whose own setting (item 196) doesn't say otherwise.
+194. **What off means.** When a host can't use a custom image, nothing a host sees offers one: not the Setup page or the setup wizard (items 1 to 7, 108 to 111), not changing photos in Settings (item 8), not replacing the default picture (item 59). The same goes for a custom voice: no recordings, accent choice for one's own voice or **Replace with your own** voice. The server refuses those uploads and changes too, so they can't be reached another way. The host chats with a default person, as Start now (item 56) does, and can still pick one. Photos and recordings stored before are kept, never deleted, but not used while it is off, and are used again if it is turned back on *(default)*. When on, everything is as it is today.
+195. **Host properties.** Admin settings has a **Host properties** section: a list of every host, by email *(default)*, with a search box above it that narrows the list as it is typed to the hosts whose email contains what was typed anywhere in it, at the start, the middle or the end (as `*text*` would), ignoring capitals *(default)*. An empty box lists every host.
+196. **One host's own setting.** Selecting a host shows four options: **Allow Custom Image**, **Deny Custom Image**, **Allow Custom Sound** and **Deny Custom Sound**. Allow and Deny of the same thing can't both be chosen, and choosing neither leaves that host on the default checkbox (item 193) *(default)*. A host's Allow or Deny overrides the default checkbox, whatever it says, and applies at once.
+
 ### How this changes later items
 
 Noted here and applied when the PRs for these items are built.
 
 - **Item 104 (head and shoulders only):** item 188's framing already crops the picture to the head, neck and top of the shoulders before the video engine sees it, so item 104 needs no crop of its own; the safe photo checks (items 102 and 103) run on the original photo as uploaded *(default)*.
+
+### How this changes earlier items
+
+Noted here and applied when the PRs for these items are built.
+
+- **Items 1 to 8, 59 and 108 to 111 (setup, Settings, Replace with your own, the setup wizard):** each is offered to a host only while that host may use a custom photo or voice (items 193 to 196). Items 187 to 192 apply only to a host who may use a custom photo.
 
 ## Handling disputes
 
