@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/pre
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
+import type { Customization } from "./api";
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
@@ -55,6 +56,11 @@ function server(
   function saved(url: string, body: Record<string, unknown>) {
     const now = customization ?? MAYA;
     if (url.endsWith("/identity")) return { ...now, identity: body };
+    if (url.endsWith("/draft")) {
+      const drafted = body as { identity: Customization["identity"]; goals: string[] };
+      const features = now.features.map((f) => ({ ...(f as object), text: "Drafted.", edited: true }));
+      return { ...now, identity: drafted.identity, goals: drafted.goals, features };
+    }
     if (url.endsWith("/goals")) {
       const goals = (body.goals as string[]).map((g) => g.trim()).filter(Boolean);
       return { ...now, goals };
@@ -80,6 +86,23 @@ function server(
         await held?.promise;
         if (refuse) return Response.json({ detail: refuse }, { status: 400 });
         return Response.json(saved(url, body));
+      }
+      if (url === "/api/customization/draft" && init?.method === "POST") {
+        asked.push(url);
+        if (refuse) return Response.json({ detail: refuse }, { status: 502 });
+        const now = customization ?? MAYA;
+        const identity = { ...now.identity, name: "Ada", purpose: "to teach the stars" };
+        const features = (now.features as { key: string }[]).map((f) => ({
+          ...f,
+          text: "Drafted.",
+          edited: true,
+        }));
+        const draft = { ...now, identity, goals: ["Love the night sky."], features };
+        return Response.json({ draft, drafted: features.map((f) => f.key), based_on: "abc123" });
+      }
+      if (url === "/api/customization/draft/discard") {
+        asked.push(url);
+        return Response.json({ discarded: true });
       }
       if (url.startsWith("/api/customization")) {
         asked.push(url);
@@ -202,7 +225,14 @@ test("Assessment and Level of detail have their own sections", async () => {
   server(true, { ...MAYA, features: [QUESTIONS, assessment, lowest, general] });
   await opened();
   const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-  expect(headings).toEqual(["Identity", "Goals", "Guidelines", "Assessment", "Level of detail"]);
+  expect(headings).toEqual([
+    "Generate again",
+    "Identity",
+    "Goals",
+    "Guidelines",
+    "Assessment",
+    "Level of detail",
+  ]);
   const detail = within(screen.getByRole("region", { name: "Level of detail" }));
   const forms = detail.getAllByRole("form").map((f) => f.getAttribute("aria-label"));
   expect(forms).toEqual(["Lowest detail", "General guidelines"]);
@@ -283,3 +313,89 @@ test.each([
     expect(editor.readOnly).toBe(false);
   },
 );
+
+test("Generate again shows a draft beside the current text, and Discard keeps it as it was", async () => {
+  const { asked, puts } = server(true, { ...MAYA, features: [QUESTIONS] });
+  await opened();
+  const generate = within(screen.getByRole("region", { name: "Generate again" }));
+  fireEvent.click(generate.getByRole("button", { name: "Generate again" }));
+  const table = within(await generate.findByRole("table"));
+  const name = table.getByRole("rowheader", { name: "Name" }).closest("tr") as HTMLElement;
+  expect(within(name).getByText("Maya")).toBeTruthy();
+  expect(within(name).getByText("Ada")).toBeTruthy();
+  const questions = table.getByRole("rowheader", { name: "Answering questions" }).closest("tr");
+  expect(within(questions as HTMLElement).getByText("Drafted.")).toBeTruthy();
+  fireEvent.click(generate.getByRole("button", { name: "Discard" }));
+  expect(generate.queryByRole("table")).toBeNull();
+  await vi.waitFor(() => expect(asked).toContain("/api/customization/draft/discard"));
+  expect(puts).toEqual([]);
+  const identity = within(screen.getByRole("region", { name: "Identity" }));
+  expect((identity.getByRole("textbox", { name: /^Name/ }) as HTMLInputElement).value).toBe("Maya");
+});
+
+test("a saved draft fills the editors", async () => {
+  const { puts } = server(true, { ...MAYA, features: [QUESTIONS] });
+  await opened();
+  const generate = within(screen.getByRole("region", { name: "Generate again" }));
+  fireEvent.click(generate.getByRole("button", { name: "Generate again" }));
+  fireEvent.click(await generate.findByRole("button", { name: "Save the draft" }));
+  // The editors start again from what was saved.
+  await vi.waitFor(() => {
+    const identity = within(screen.getByRole("region", { name: "Identity" }));
+    expect((identity.getByRole("textbox", { name: /^Name/ }) as HTMLInputElement).value).toBe("Ada");
+  });
+  const form = within(screen.getByRole("form", { name: "Answering questions" }));
+  expect((form.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Drafted.");
+  expect(generate.queryByRole("table")).toBeNull();
+  expect(puts).toEqual([
+    {
+      url: "/api/customization/draft",
+      body: {
+        identity: { ...MAYA.identity, name: "Ada", purpose: "to teach the stars" },
+        goals: ["Love the night sky."],
+        guidelines: { questions: "Drafted." },
+        based_on: "abc123",
+      },
+    },
+  ]);
+});
+
+test("a draft that can't be made says so", async () => {
+  server(true, MAYA, "A draft could not be made: no reply within 120 s. Try again.");
+  await opened();
+  const generate = within(screen.getByRole("region", { name: "Generate again" }));
+  fireEvent.click(generate.getByRole("button", { name: "Generate again" }));
+  expect(
+    await generate.findByText("A draft could not be made: no reply within 120 s. Try again."),
+  ).toBeTruthy();
+  expect(generate.getByRole("button", { name: "Generate again" })).toHaveProperty("disabled", false);
+});
+
+test("guidelines the LLM drafted say so", async () => {
+  const drafted = { ...QUESTIONS, text: "Drafted.", edited: true, generated: true };
+  server(true, { ...MAYA, features: [drafted] });
+  await opened();
+  const form = within(screen.getByRole("form", { name: "Answering questions" }));
+  expect(form.getByText(/drafted by the LLM/)).toBeTruthy();
+  expect(form.queryByText(/as shipped/)).toBeNull();
+});
+
+test("a draft older than a save says so, and stays to be discarded", async () => {
+  const { puts } = server(true, { ...MAYA, features: [QUESTIONS] });
+  await opened();
+  const generate = within(screen.getByRole("region", { name: "Generate again" }));
+  fireEvent.click(generate.getByRole("button", { name: "Generate again" }));
+  await generate.findByRole("table");
+  const refused = "Something was saved since this draft was made. Generate again to redraft.";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      puts.push({ url, body: JSON.parse(String(init?.body ?? "null")) });
+      return Response.json({ detail: refused }, { status: 409 });
+    }),
+  );
+  fireEvent.click(generate.getByRole("button", { name: "Save the draft" }));
+  expect(await generate.findByText(refused)).toBeTruthy();
+  expect(generate.getByRole("table")).toBeTruthy();
+  expect(generate.getByRole("button", { name: "Discard" })).toBeTruthy();
+});

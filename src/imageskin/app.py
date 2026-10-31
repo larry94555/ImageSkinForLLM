@@ -75,11 +75,19 @@ from imageskin.customization import (
     CustomizationFile,
     CustomizationRefused,
     NoSuchFeature,
+    Read,
+    as_generated,
     features,
     guidelines_of,
     with_goals,
     with_guidelines,
     with_identity,
+)
+from imageskin.customization_draft import (
+    DRAFT_TOKENS,
+    GENERATION_TIMEOUT_S,
+    GenerationFailed,
+    Generator,
 )
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
@@ -360,6 +368,8 @@ class ReplyVideoRequest(BaseModel):
 
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
+# A draft from Generate again saved after something else was saved since it was drafted (R93).
+DRAFT_OUT_OF_DATE = "Something was saved since this draft was made. Generate again to redraft."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
 NOTHING_TO_REPEAT = "There is no reply to repeat yet."
 CANT_REPEAT = "The reply couldn't be repeated."
@@ -553,6 +563,12 @@ def create_app(
     # Whether each topic's first lesson part is written ahead (R98a); left out, it is with the
     # app's own LLM and not with a test's `ask_llm`, whose replies the tests count.
     lessons_ahead: bool | None = None,
+    # Whether the customization is drafted in the background the first time it is needed (R93):
+    # the server started from the command line does; a test's app, whose LLM replies the tests
+    # count, doesn't unless it asks.
+    generate_customization: bool = False,
+    # How long a draft may take (R93); left out, two minutes.
+    generation_timeout_s: float = GENERATION_TIMEOUT_S,
     # The administrator's password file (R149); left out, admin.toml in the home folder.
     admin_file: Path | None = None,
     # The allowed laptops file (R163); left out, admin-laptops.toml beside the password file.
@@ -1628,6 +1644,40 @@ def create_app(
     # The identity, goals and guidelines (R92), read for each prompt and shown to a host.
     customization = CustomizationFile(data_home)
 
+    def ask_draft(messages: list[Message], schema: dict[str, Any]) -> str:
+        """The LLM asked to draft the customization (R93), after the chat's replies (R99)."""
+        with pinned(client):
+            if client is not None:
+                return client.ask(messages, max_tokens=DRAFT_TOKENS, schema=schema)
+            assert ask_llm is not None
+            return ask_llm(messages)
+
+    def drafted_person() -> str | None:
+        """Who the person in the video is, as far as the app knows: the default person's role
+        (R24c); a person's own photo has no name or role given."""
+        chosen = start_now.chosen()
+        if chosen is None:
+            return None
+        gender = {"female": "woman", "male": "man"}.get(chosen.gender, "person")
+        return f"a {gender} whose role is {chosen.role}"
+
+    generator = Generator(
+        customization,
+        replies_first.wiki(ask_draft),
+        drafted_person,
+        content_topics,
+        generation_timeout_s,
+    )
+    app.state.customization_generator = generator
+
+    def identity_read() -> Read:
+        """The customization for a prompt; the first one needing it with none saved starts its
+        draft in the background (R93), answered meanwhile with the shipped defaults."""
+        read = customization.read()
+        if read.shipped and generate_customization:
+            generator.needed()
+        return read
+
     @app.get("/api/customization", dependencies=host_only)
     def get_customization(
         opened: Annotated[
@@ -1644,12 +1694,22 @@ def create_app(
         return {**c.as_dict(), "features": features(c), "shipped": shipped}
 
     def save_customization(
-        part: str, edit: Callable[[Customization], Customization], feature: str | None = None
+        part: str,
+        edit: Callable[[Customization], Customization],
+        feature: str | None = None,
+        based_on: str | None = None,
     ) -> dict[str, Any]:
-        """Save an edit made on the Customization page (R94), used from the next prompt."""
+        """Save an edit made on the Customization page (R94), used from the next prompt. With
+        `based_on`, only if the customization is still the one it was made from (R93)."""
         start = time.perf_counter()
         try:
-            saved = customization.change(edit)
+            if based_on is None:
+                saved = customization.change(edit)
+            elif (changed := customization.change_if_same(based_on, edit)) is not None:
+                saved = changed
+            else:
+                logger.warning("Customization draft out of date", extra={"part": part})
+                raise HTTPException(status_code=409, detail=DRAFT_OUT_OF_DATE)
         except CustomizationRefused as e:
             logger.warning("Customization refused", extra={"part": part, "error": str(e)})
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1674,6 +1734,42 @@ def create_app(
     @app.put("/api/customization/goals", dependencies=host_only)
     def put_goals(goals: Annotated[Any, Body(embed=True)]) -> dict[str, Any]:
         return save_customization("goals", lambda c: with_goals(c, goals))
+
+    @app.post("/api/customization/draft", dependencies=host_only)
+    def post_draft() -> dict[str, Any]:
+        """Generate again (R93): a new draft beside the current text, not saved until Save."""
+        try:
+            draft, drafted, based_on = generator.again()
+        except GenerationFailed as e:
+            raise HTTPException(
+                status_code=504 if "within" in str(e) else 502,
+                detail=f"A draft could not be made: {e}. Try again.",
+            ) from e
+        return {"draft": shown(draft), "drafted": drafted, "based_on": based_on}
+
+    @app.put("/api/customization/draft", dependencies=host_only)
+    def put_draft(
+        identity: Annotated[dict[str, Any], Body()],
+        goals: Annotated[Any, Body()],
+        guidelines: Annotated[dict[str, Any], Body(description="The drafted features' only.")],
+        based_on: Annotated[str, Body(description="The draft's `based_on`.")],
+    ) -> dict[str, Any]:
+        """Save a draft from Generate again: its identity, goals and drafted guidelines, only if
+        nothing was saved since it was drafted, so a newer edit isn't lost (Codex's review on
+        PR #255)."""
+
+        def edit(c: Customization) -> Customization:
+            c = with_goals(with_identity(c, identity), goals)
+            for key, text in guidelines.items():
+                c = with_guidelines(c, key, text)
+            return as_generated(c, list(guidelines))  # drafted anew by Generate again
+
+        return save_customization("draft", edit, based_on=based_on)
+
+    @app.post("/api/customization/draft/discard", dependencies=host_only)
+    def discard_draft() -> dict[str, bool]:
+        logger.info("Customization draft discarded")
+        return {"discarded": True}
 
     @app.put("/api/customization/guidelines/{feature}", dependencies=host_only)
     def put_guidelines(
@@ -1700,7 +1796,7 @@ def create_app(
             # A question typed so far, read for one token (R148).
             read_ahead=replies_first.ahead(functools.partial(client.ask, max_tokens=1), local),
             detail=saved_detail,
-            customization=customization.read,
+            customization=identity_read,
             subject_of=content_subject,
         )
     else:
@@ -1719,7 +1815,7 @@ def create_app(
             saved=data_home / CONVERSATION_FILE,
             read_ahead=replies_first.ahead(ask_llm, local),
             detail=saved_detail,
-            customization=customization.read,
+            customization=identity_read,
             subject_of=content_subject,
         )
 

@@ -608,6 +608,23 @@ function saveGoals(goals) {
 function saveGuidelines(feature, text) {
 	return putCustomization(`guidelines/${encodeURIComponent(feature)}`, { text });
 }
+async function generateDraft() {
+	const response = await fetch("/api/customization/draft", { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+function saveDraft({ draft, drafted, based_on }) {
+	const guidelines = Object.fromEntries(draft.features.filter((f) => drafted.includes(f.key)).map((f) => [f.key, f.text]));
+	return putCustomization("draft", {
+		identity: draft.identity,
+		goals: draft.goals,
+		guidelines,
+		based_on
+	});
+}
+async function discardDraft() {
+	await fetch("/api/customization/draft/discard", { method: "POST" });
+}
 async function getCustomization(opened = false) {
 	return json(await fetch(opened ? "/api/customization?opened=true" : "/api/customization"));
 }
@@ -8293,10 +8310,17 @@ function FeatureGuidelines({ feature }) {
 			save(text);
 		},
 		children: [
-			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [shown.label, !shown.edited && /* @__PURE__ */ u("span", {
-				className: "muted",
-				children: " · as shipped"
-			})] }), /* @__PURE__ */ u("textarea", {
+			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [
+				shown.label,
+				!shown.edited && /* @__PURE__ */ u("span", {
+					className: "muted",
+					children: " · as shipped"
+				}),
+				shown.generated && /* @__PURE__ */ u("span", {
+					className: "muted",
+					children: " · drafted by the LLM"
+				})
+			] }), /* @__PURE__ */ u("textarea", {
 				rows: 4,
 				value: text,
 				readOnly: busy,
@@ -8366,10 +8390,141 @@ function GuidelineSection({ name, features }) {
 		]
 	});
 }
+var DRAFTED_IDENTITY = [
+	["name", "Name"],
+	["purpose", "Purpose"],
+	["audience", "Who it is for"],
+	["helps_with", "What it can help with"]
+];
+function draftRows(now, { draft, drafted }) {
+	const textOf = (c, key) => c.features.find((f) => f.key === key)?.text ?? "";
+	return [
+		...DRAFTED_IDENTITY.map(([key, label]) => [
+			label,
+			now.identity[key],
+			draft.identity[key]
+		]),
+		[
+			"Goals",
+			now.goals.join("\n"),
+			draft.goals.join("\n")
+		],
+		...draft.features.filter((f) => drafted.includes(f.key)).map((f) => [
+			f.label,
+			textOf(now, f.key),
+			f.text
+		])
+	];
+}
+function GenerateSection({ now, onSaved }) {
+	const [draft, setDraft] = d(null);
+	const [writing, setWriting] = d(false);
+	const [error, setError] = d(null);
+	const { busy, run, status, changed } = useSave();
+	async function generate() {
+		setWriting(true);
+		setError(null);
+		changed();
+		const started = performance.now();
+		try {
+			setDraft(await generateDraft());
+			console.info(`Customization draft made (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error("Could not make a customization draft", e);
+			setError(e instanceof ServerRefusal ? e.message : "A draft could not be made. Try again.");
+		} finally {
+			setWriting(false);
+		}
+	}
+	function discard() {
+		setDraft(null);
+		discardDraft().catch((e) => console.error("Could not discard the draft", e));
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-generate",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-generate",
+				children: "Generate again"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The LLM drafts the identity, the goals and every feature's guidelines you haven't changed, from the person and the content. Guidelines you changed are left alone. Only Save keeps the draft."
+			}),
+			!draft && /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				disabled: writing,
+				onClick: () => void generate(),
+				children: "Generate again"
+			}) }),
+			writing && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Writing a draft. This can take up to two minutes…"
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			draft && /* @__PURE__ */ u("div", {
+				className: "customization-draft",
+				children: [
+					/* @__PURE__ */ u("table", { children: [/* @__PURE__ */ u("thead", { children: /* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("th", {
+							scope: "col",
+							children: "Part"
+						}),
+						/* @__PURE__ */ u("th", {
+							scope: "col",
+							children: "Now"
+						}),
+						/* @__PURE__ */ u("th", {
+							scope: "col",
+							children: "Draft"
+						})
+					] }) }), /* @__PURE__ */ u("tbody", { children: draftRows(now, draft).map(([label, current, drafted]) => /* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("th", {
+							scope: "row",
+							children: label
+						}),
+						/* @__PURE__ */ u("td", {
+							className: "muted",
+							children: current
+						}),
+						/* @__PURE__ */ u("td", { children: drafted })
+					] }, label)) })] }),
+					status,
+					/* @__PURE__ */ u("p", { children: [
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							disabled: busy,
+							onClick: () => void run("draft", () => saveDraft(draft)).then((saved) => {
+								if (saved) {
+									setDraft(null);
+									onSaved(saved);
+								}
+							}),
+							children: "Save the draft"
+						}),
+						" ",
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							disabled: busy,
+							onClick: discard,
+							children: "Discard"
+						})
+					] })
+				]
+			})
+		]
+	});
+}
 function CustomizationPage() {
 	const session = useHost().session;
 	const host = session?.signed_in === true;
 	const [read, setRead] = d(null);
+	const [saves, setSaves] = d(0);
 	const [failed, setFailed] = d(false);
 	h(() => {
 		if (!host) return;
@@ -8400,12 +8555,22 @@ function CustomizationPage() {
 				children: "Loading…"
 			}),
 			read && /* @__PURE__ */ u(S, { children: [
-				/* @__PURE__ */ u(IdentitySection, { identity: read.identity }),
-				/* @__PURE__ */ u(GoalsSection, { goals: read.goals }),
+				/* @__PURE__ */ u(GenerateSection, {
+					now: read,
+					onSaved: (saved) => {
+						setRead({
+							...saved,
+							shipped: false
+						});
+						setSaves((n) => n + 1);
+					}
+				}),
+				/* @__PURE__ */ u(IdentitySection, { identity: read.identity }, `identity-${saves}`),
+				/* @__PURE__ */ u(GoalsSection, { goals: read.goals }, `goals-${saves}`),
 				read.features.length ? sections(read.features).map(([name, features]) => /* @__PURE__ */ u(GuidelineSection, {
 					name,
 					features
-				}, name)) : /* @__PURE__ */ u(GuidelineSection, {
+				}, `${name}-${saves}`)) : /* @__PURE__ */ u(GuidelineSection, {
 					name: "Guidelines",
 					features: []
 				})

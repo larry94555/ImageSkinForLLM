@@ -813,6 +813,17 @@ form.customization-edit input, form.customization-edit textarea {
 }
 form.customization-edit p { margin: 0; }
 form.customization-edit.guideline { padding-top: 12px; border-top: 1px solid var(--line); }
+/* Generate again's draft beside the current text (R93). */
+.customization-draft table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+.customization-draft th, .customization-draft td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-line;
+}
+.customization-draft tbody th { width: 18%; font-weight: 600; }
+.customization-draft td { width: 41%; }
 .host-account form { max-width: 24em; }
 .host-account label { display: grid; gap: 4px; width: 100%; font-weight: 600; }
 .host-account input { width: 100%; }

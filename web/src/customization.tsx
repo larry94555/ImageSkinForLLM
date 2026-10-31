@@ -6,8 +6,12 @@ import { useEffect, useState } from "preact/hooks";
 
 import {
   type Customization,
+  type CustomizationDraft,
   type GuidelineFeature,
+  discardDraft,
+  generateDraft,
   getCustomization,
+  saveDraft,
   saveGoals,
   saveGuidelines,
   saveIdentity,
@@ -170,6 +174,7 @@ function FeatureGuidelines({ feature }: { feature: GuidelineFeature }) {
         <span>
           {shown.label}
           {!shown.edited && <span className="muted"> · as shipped</span>}
+          {shown.generated && <span className="muted"> · drafted by the LLM</span>}
         </span>
         <textarea
           rows={4}
@@ -231,10 +236,124 @@ function GuidelineSection({ name, features }: { name: string; features: Guidelin
   );
 }
 
+// What a draft shows beside the current text: each part of the identity it drafts, the goals,
+// and the guidelines of each feature it drafted (R93).
+const DRAFTED_IDENTITY: [keyof Identity, string][] = [
+  ["name", "Name"],
+  ["purpose", "Purpose"],
+  ["audience", "Who it is for"],
+  ["helps_with", "What it can help with"],
+];
+
+function draftRows(now: Customization, { draft, drafted }: CustomizationDraft): [string, string, string][] {
+  const textOf = (c: Customization, key: string) => c.features.find((f) => f.key === key)?.text ?? "";
+  return [
+    ...DRAFTED_IDENTITY.map(([key, label]): [string, string, string] => [label, now.identity[key], draft.identity[key]]),
+    ["Goals", now.goals.join("\n"), draft.goals.join("\n")],
+    ...draft.features
+      .filter((f) => drafted.includes(f.key))
+      .map((f): [string, string, string] => [f.label, textOf(now, f.key), f.text]),
+  ];
+}
+
+// Generate again (R93): the LLM drafts the identity, the goals and the guidelines the host
+// hasn't changed, shown beside the current text; only Save keeps the draft.
+function GenerateSection({ now, onSaved }: { now: Customization; onSaved: (saved: Customization) => void }) {
+  const [draft, setDraft] = useState<CustomizationDraft | null>(null);
+  const [writing, setWriting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { busy, run, status, changed } = useSave();
+
+  async function generate() {
+    setWriting(true);
+    setError(null);
+    changed();
+    const started = performance.now();
+    try {
+      setDraft(await generateDraft());
+      console.info(`Customization draft made (${Math.round(performance.now() - started)} ms)`);
+    } catch (e) {
+      console.error("Could not make a customization draft", e);
+      setError(e instanceof ServerRefusal ? e.message : "A draft could not be made. Try again.");
+    } finally {
+      setWriting(false);
+    }
+  }
+
+  function discard() {
+    setDraft(null);
+    void discardDraft().catch((e: unknown) => console.error("Could not discard the draft", e));
+  }
+
+  return (
+    <section className="panel" aria-labelledby="customization-generate">
+      <h2 id="customization-generate">Generate again</h2>
+      <p className="muted">
+        The LLM drafts the identity, the goals and every feature's guidelines you haven't
+        changed, from the person and the content. Guidelines you changed are left alone. Only
+        Save keeps the draft.
+      </p>
+      {!draft && (
+        <p>
+          <button type="button" disabled={writing} onClick={() => void generate()}>
+            Generate again
+          </button>
+        </p>
+      )}
+      {writing && <p className="muted busy">Writing a draft. This can take up to two minutes…</p>}
+      {error && <p className="error">{error}</p>}
+      {draft && (
+        <div className="customization-draft">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Part</th>
+                <th scope="col">Now</th>
+                <th scope="col">Draft</th>
+              </tr>
+            </thead>
+            <tbody>
+              {draftRows(now, draft).map(([label, current, drafted]) => (
+                <tr key={label}>
+                  <th scope="row">{label}</th>
+                  <td className="muted">{current}</td>
+                  <td>{drafted}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {status}
+          <p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run("draft", () => saveDraft(draft)).then((saved) => {
+                  if (saved) {
+                    setDraft(null);
+                    onSaved(saved);
+                  }
+                })
+              }
+            >
+              Save the draft
+            </button>{" "}
+            <button type="button" className="secondary" disabled={busy} onClick={discard}>
+              Discard
+            </button>
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function CustomizationPage() {
   const session = useHost().session;
   const host = session?.signed_in === true;
   const [read, setRead] = useState<Customization | null>(null);
+  // Counts drafts saved, so each editor starts again from what was saved.
+  const [saves, setSaves] = useState(0);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -266,11 +385,18 @@ export function CustomizationPage() {
       {!failed && read === null && <p className="muted busy">Loading…</p>}
       {read && (
         <>
-          <IdentitySection identity={read.identity} />
-          <GoalsSection goals={read.goals} />
+          <GenerateSection
+            now={read}
+            onSaved={(saved) => {
+              setRead({ ...saved, shipped: false });
+              setSaves((n) => n + 1);
+            }}
+          />
+          <IdentitySection key={`identity-${saves}`} identity={read.identity} />
+          <GoalsSection key={`goals-${saves}`} goals={read.goals} />
           {read.features.length ? (
             sections(read.features).map(([name, features]) => (
-              <GuidelineSection key={name} name={name} features={features} />
+              <GuidelineSection key={`${name}-${saves}`} name={name} features={features} />
             ))
           ) : (
             <GuidelineSection name="Guidelines" features={[]} />
