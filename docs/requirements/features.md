@@ -16,7 +16,7 @@ Items are numbered in the order Larry added them, not the order they are built. 
 | 121 to 125, 132, 133, 141 | Admin view | From 2026-10-26 | 27 (done) |
 | 108 to 111 | Setup wizard | 2026-10-25 | 10d (done) |
 | 148 to 152 | Host login and resource view | 2026-10-30 | 29 (done) |
-| 84 to 88, 153 to 159 | Identity and guidelines | 2026-10-18; 153 to 159 on 2026-10-30 | 13a |
+| 84 to 88, 153 to 159, 197, 198 | Identity and guidelines, with the administrator's requirements over the host's | 2026-10-18; 153 to 159 on 2026-10-30; 197 and 198 on 2026-10-31 | 13a |
 | 187 to 196 | Optimize image: the head and neck, framed, enlarged and on a plain backdrop; whether hosts can use a custom photo or voice | 2026-10-31 | 13f |
 | 30 to 33, 169 to 174 | Sign-on and accounts; email confirmation and the activity report | 2026-10-08; 169 to 174 on 2026-10-30 | 12 |
 | 61 to 66 | Many customers on me0.ai | 2026-10-17 | 20 |
@@ -499,6 +499,13 @@ Contexts (items 77 to 83) now come after these items, so guidelines are kept for
 157. **Guidelines for the assessment.** How the assessment's questions are written at each level and how answers are judged (item 55). The number of questions, the topics and levels asked, the scores and the evaluation stay as they are *(default)*.
 158. **Guidelines for the level of detail.** What each step of the Level of detail bar asks of an answer, from High level to In depth (item 143), and, once it is built, the level Auto picks (item 145) *(default)*. The room a reply has stays with the code, so an answer is never cut off by an edit *(default)*.
 159. **Guidelines for Say it simpler.** How a reply is said more simply, by Say it simpler (item 131) or a lesson's "say it more simply" (item 54), such as "Explain it as you would to a 12-year-old."
+
+### The administrator's requirements
+
+Added by Larry on 2026-10-31. The administrator sets guidelines of their own, which the LLM takes as system requirements over the host's identity and guidelines.
+
+197. **Admin guidelines.** The admin view (item 121) has an **Admin guidelines** page, reached only from the admin view, that mirrors the host's Customization page (item 87): the identity, the goals and the guidelines for each feature (items 153 to 159), each edited and saved in the same way. All are empty to begin with, so nothing changes until the administrator writes some *(default)*. A change takes effect from the next prompt, for every host.
+198. **Requirements over the host's.** The administrator's identity, goals and guidelines are given to the LLM as system requirements, with each feature's prompts as the host's are, and the LLM is told to follow them first and the host's only where they don't conflict. A host can't see, change or turn them off; the host's Customization page says only that the administrator's requirements, if any, come first *(default)*. They are kept apart from the host's, so generating defaults (item 86) never drafts them and the host's versions (item 88) never hold them; the admin guidelines keep only their latest version *(default)*.
 
 ### How this changes later items
 
