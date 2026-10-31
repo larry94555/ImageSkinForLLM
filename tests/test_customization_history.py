@@ -252,3 +252,45 @@ def test_saves_made_at_once_are_each_a_change(tmp_path: Path) -> None:
     for w in workers:
         w.join()
     assert [c.number for c in history.part("goals").changes] == list(range(1, 10))
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        {"parts": [1]},
+        {"parts": "goals"},
+        [1, 2],
+        {"parts": {"goals": [1]}},
+        {"parts": {"goals": {"current": 1, "changes": "x"}}},
+        {"parts": {"goals": {"current": 1, "changes": [1]}}},
+        {"parts": {"goals": {"current": 1, "changes": []}}},
+        {
+            "parts": {
+                "goals": {
+                    "current": 5,
+                    "changes": [{"number": 1, "made_at": "t", "made_by": "saved"}],
+                }
+            }
+        },
+    ],
+)
+def test_valid_json_of_the_wrong_shape_never_breaks_a_save(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, stored: object
+) -> None:
+    """Codex's review on PR #258: a history file of the wrong shape is logged and read as
+    empty, and the save it follows still stands, starting the part's history again."""
+    file, history = kept(tmp_path)
+    (tmp_path / HISTORY_FILE).write_text(json.dumps(stored), encoding="utf-8")
+    with caplog.at_level(logging.ERROR, logger="imageskin.customization_history"):
+        assert history.histories() == []
+        saved = file.change(lambda c: with_goals(c, [GOAL]))
+    assert saved.goals == (GOAL,) and file.read().customization.goals == (GOAL,)
+    assert "Customization history can't be read" in caplog.text
+    assert numbers(history, "goals") == [(1, "shipped"), (2, "saved")]
+
+
+def test_a_history_of_the_wrong_shape_is_no_500(tmp_path: Path) -> None:
+    client: Any = riemann_app(tmp_path, Llm())
+    (tmp_path / HISTORY_FILE).write_text(json.dumps({"parts": [1]}), encoding="utf-8")
+    assert client.get("/api/customization/history").json() == {"parts": []}
+    assert client.put("/api/customization/goals", json={"goals": [GOAL]}).status_code == 200

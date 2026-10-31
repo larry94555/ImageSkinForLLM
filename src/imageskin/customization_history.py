@@ -115,6 +115,23 @@ def ms_since(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
+def _part_history(part: str, kept: object) -> PartHistory:
+    """A part's history as stored, checked: its changes, each with a maker, and a current one."""
+    if part not in parts():
+        raise ValueError(f"{part} is not a part")
+    if not isinstance(kept, dict) or not isinstance(kept.get("changes"), list):
+        raise ValueError("it has no list of changes")
+    changes = []
+    for c in kept["changes"]:
+        if not isinstance(c, dict) or c.get("made_by") not in MADE_BY:
+            raise ValueError("a change is not an object with a maker")
+        changes.append(Change(int(c["number"]), str(c["made_at"]), c["made_by"], c.get("value")))
+    current = int(kept["current"])
+    if not changes or current not in {c.number for c in changes}:
+        raise ValueError("its current change is not one of its changes")
+    return PartHistory(part, tuple(changes), current)
+
+
 class History:
     """The history of each part, kept in `customization.history.json` in `home`."""
 
@@ -130,17 +147,18 @@ class History:
         except (OSError, ValueError) as e:
             logger.error("Customization history can't be read", extra={"error": str(e)})
             return {}
+        stored = data.get("parts") if isinstance(data, dict) else None
+        if not isinstance(stored, dict):
+            # Valid JSON of another shape (Codex's review on PR #258).
+            logger.error(
+                "Customization history can't be read", extra={"error": "parts is not an object"}
+            )
+            return {}
         found = {}
-        for part, kept in (data.get("parts") or {}).items() if isinstance(data, dict) else ():
+        for part, kept in stored.items():
             try:
-                changes = tuple(
-                    Change(int(c["number"]), str(c["made_at"]), c["made_by"], c.get("value"))
-                    for c in kept["changes"]
-                )
-                if part not in parts() or any(c.made_by not in MADE_BY for c in changes):
-                    raise ValueError(f"{part} is not a part, or a change has no maker")
-                found[part] = PartHistory(part, changes, int(kept["current"]))
-            except (KeyError, TypeError, ValueError) as e:
+                found[part] = _part_history(part, kept)
+            except (KeyError, TypeError, ValueError, AttributeError) as e:
                 logger.error(
                     "Customization history can't be read", extra={"part": part, "error": str(e)}
                 )
@@ -190,7 +208,7 @@ class History:
                         )
                         histories[part] = PartHistory(part, (*h.changes, new), new.number)
                 self._save(histories)
-        except (OSError, KeyError) as e:
+        except (OSError, KeyError, TypeError, ValueError) as e:
             logger.error("Customization change can't be kept", extra={"error": str(e)})
             return changed
         if gone_back is None:
