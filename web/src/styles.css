@@ -814,10 +814,15 @@ form.customization-edit input, form.customization-edit textarea {
 form.customization-edit p { margin: 0; }
 form.customization-edit.guideline { padding-top: 12px; border-top: 1px solid var(--line); }
 /* Generate again's draft beside the current text (R93). */
-ol.customization-history { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
-ol.customization-history li {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+.customization-history h3 { margin: 12px 0 4px; font-size: 1rem; }
+.customization-history ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.customization-history li {
+  display: flex; gap: 12px; align-items: center; justify-content: space-between;
   padding: 6px 0; border-top: 1px solid var(--line);
+}
+.customization-history .change-preview {
+  color: var(--muted); font-size: 0.9em; margin-top: 2px;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
 .customization-draft table { width: 100%; border-collapse: collapse; margin: 8px 0; }
 .customization-draft th, .customization-draft td {

@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/pre
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
-import type { Customization, CustomizationVersion } from "./api";
-import { madeBy } from "./customization";
+import type { Customization, CustomizationChange, PartHistory } from "./api";
+import { preview } from "./customization";
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
@@ -35,11 +35,27 @@ const QUESTIONS = {
 
 type Put = { url: string; body: unknown };
 
-// The versions the server's History gives (R95), newest first.
-let versions: CustomizationVersion[] = [];
-function version(number: number, made_by: CustomizationVersion["made_by"], more: Partial<CustomizationVersion> = {}) {
-  return { number, made_at: "2026-10-31T21:30:00+00:00", made_by, part: null, feature: null, back_to: null, ...more };
+// Each part's history, as the server's History gives it (R95), newest change first.
+let histories: PartHistory[] = [];
+function change(number: number, made_by: CustomizationChange["made_by"], value: CustomizationChange["value"]) {
+  return { number, made_at: "2026-10-31T21:30:00+00:00", made_by, value };
 }
+const TOPICS_HISTORY = {
+  part: "questions",
+  label: "Answering questions",
+  current: 2,
+  changes: [change(2, "saved", "Start with the main idea."), change(1, "shipped", null)],
+};
+const GOALS_HISTORY = {
+  part: "goals",
+  label: "Goals",
+  current: 3,
+  changes: [
+    change(3, "saved", ["Make every answer exam-ready."]),
+    change(2, "generated", ["Love the night sky."]),
+    change(1, "shipped", ["Understand it."]),
+  ],
+};
 
 // A save's answer held back until `resolve` is called.
 type Held = { promise: Promise<void>; resolve: () => void };
@@ -109,14 +125,16 @@ function server(
       }
       if (url.startsWith("/api/customization/history")) {
         asked.push(url);
-        const restore = /^\/api\/customization\/history\/(\d+)\/restore$/.exec(url);
+        const restore = /^\/api\/customization\/history\/([^/]+)\/(\d+)\/restore$/.exec(url);
         if (restore && init?.method === "POST") {
           if (refuse) return Response.json({ detail: refuse }, { status: 404 });
-          const back = Number(restore[1]);
-          versions = [version(versions.length + 1, "gone back to", { back_to: back, part: "history" }), ...versions];
-          return Response.json({ ...MAYA, identity: { ...MAYA.identity, name: `Version ${back}` } });
+          const part = decodeURIComponent(restore[1]);
+          const back = Number(restore[2]);
+          histories = histories.map((h) => (h.part === part ? { ...h, current: back } : h));
+          const goals = part === "goals" ? ["Love the night sky."] : MAYA.goals;
+          return Response.json({ ...MAYA, goals });
         }
-        return Response.json({ versions });
+        return Response.json({ parts: histories });
       }
       if (url === "/api/customization/draft/discard") {
         asked.push(url);
@@ -138,7 +156,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  versions = [];
+  histories = [];
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -420,81 +438,83 @@ test("a draft older than a save says so, and stays to be discarded", async () =>
   expect(generate.getByRole("button", { name: "Discard" })).toBeTruthy();
 });
 
-test("History lists every version, newest first, and says what made each", async () => {
-  versions = [
-    version(4, "gone back to", { back_to: 1, part: "history" }),
-    version(3, "saved", { part: "guidelines", feature: "questions" }),
-    version(2, "generated", { part: "draft" }),
-    version(1, "shipped"),
-  ];
+test("History lists each part's changes, newest first, with the one in use", async () => {
+  histories = [GOALS_HISTORY, TOPICS_HISTORY];
   const { asked } = server(true, { ...MAYA, features: [QUESTIONS] });
   await opened();
   const history = within(screen.getByRole("region", { name: "History" }));
-  expect(history.queryByRole("list")).toBeNull(); // shown only when asked for
+  expect(history.queryByRole("group")).toBeNull(); // shown only when asked for
   fireEvent.click(history.getByRole("button", { name: "History" }));
-  const items = (await history.findAllByRole("listitem")).map((li) => li.textContent);
-  expect(items[0]).toMatch(/^Version 4 \(latest\) · Gone back to version 1 · /);
-  expect(items.slice(1).map((t) => t?.split(" · ").slice(0, 2).join(" · "))).toEqual([
-    "Version 3 · Saved Answering questions",
-    "Version 2 · Drafted by the LLM",
-    "Version 1 · As shipped",
-  ]);
+  const goals = within(await history.findByRole("group", { name: "Goals" }));
+  const items = goals.getAllByRole("listitem").map((li) => li.textContent);
+  expect(items[0]).toMatch(/^Change 3 \(in use\) · Saved · .*Make every answer exam-ready\.Edit$/);
+  expect(items[1]).toMatch(/^Change 2 · Drafted by the LLM · .*Love the night sky\.Go back$/);
+  expect(items[2]).toMatch(/^Change 1 · As shipped · /);
+  const questions = within(history.getByRole("group", { name: "Answering questions" }));
+  expect(questions.getByText("As shipped.")).toBeTruthy();
   expect(asked).toContain("/api/customization/history?opened=true");
-  expect(history.getAllByRole("button", { name: "Go back" })).toHaveLength(3);
-  expect(history.getAllByRole("button", { name: "Edit" })).toHaveLength(1);
-  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Customization history shown: 4 versions/));
+  expect(history.getAllByRole("button", { name: /^Go back to/ })).toHaveLength(3);
+  expect(history.getAllByRole("button", { name: "Edit" })).toHaveLength(2);
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Customization history shown: 2 parts/));
   fireEvent.click(history.getByRole("button", { name: "Hide the history" }));
-  expect(history.queryByRole("list")).toBeNull();
+  expect(history.queryByRole("group")).toBeNull();
 });
 
-test("Go back makes a copy of the version the latest and fills the editors with it", async () => {
-  versions = [version(2, "saved", { part: "identity" }), version(1, "shipped")];
+test("Go back changes only that part, adds no change, and fills its editor", async () => {
+  histories = [GOALS_HISTORY, TOPICS_HISTORY];
   const { asked } = server(true);
   await opened();
   const history = within(screen.getByRole("region", { name: "History" }));
   fireEvent.click(history.getByRole("button", { name: "History" }));
-  fireEvent.click(await history.findByRole("button", { name: "Go back" }));
+  fireEvent.click(await history.findByRole("button", { name: "Go back to Goals change 2" }));
   await vi.waitFor(() => {
-    const identity = within(screen.getByRole("region", { name: "Identity" }));
-    expect((identity.getByRole("textbox", { name: /^Name/ }) as HTMLInputElement).value).toBe("Version 1");
+    const goals = within(screen.getByRole("region", { name: "Goals" }));
+    expect((goals.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Love the night sky.");
   });
-  expect(asked).toContain("/api/customization/history/1/restore");
-  const items = await history.findAllByRole("listitem");
-  expect(items).toHaveLength(3);
-  expect(items[0].textContent).toMatch(/^Version 3 \(latest\) · Gone back to version 1/);
+  expect(asked).toContain("/api/customization/history/goals/2/restore");
+  const goals = within(history.getByRole("group", { name: "Goals" }));
+  await vi.waitFor(() => expect(goals.getAllByRole("listitem")[1].textContent).toMatch(/^Change 2 \(in use\)/));
+  expect(goals.getAllByRole("listitem")).toHaveLength(3);
   expect(history.getByText("Saved. It is used from the next prompt.")).toBeTruthy();
-  expect(console.info).toHaveBeenCalledWith("Customization restored: version 1");
+  expect(console.info).toHaveBeenCalledWith("Customization restored: Goals, change 2");
 });
 
-test("Edit on the latest version goes to the editors", async () => {
-  versions = [version(1, "shipped")];
-  server(true);
+test("Edit on the change in use goes to that part's editor", async () => {
+  histories = [GOALS_HISTORY, TOPICS_HISTORY];
+  server(true, { ...MAYA, features: [QUESTIONS] });
   await opened();
   const scrolled = vi.fn();
-  document.getElementById("customization-identity")!.scrollIntoView = scrolled;
+  const form = screen.getByRole("form", { name: "Answering questions" });
+  form.scrollIntoView = scrolled;
+  document.getElementById("customization-goals")!.scrollIntoView = scrolled;
   const history = within(screen.getByRole("region", { name: "History" }));
   fireEvent.click(history.getByRole("button", { name: "History" }));
-  fireEvent.click(await history.findByRole("button", { name: "Edit" }));
-  expect(scrolled).toHaveBeenCalled();
-  expect(history.queryByRole("list")).toBeNull();
+  const questions = within(await history.findByRole("group", { name: "Answering questions" }));
+  fireEvent.click(questions.getByRole("button", { name: "Edit" }));
+  expect(scrolled).toHaveBeenCalledTimes(1);
+  expect(history.queryByRole("group")).toBeNull();
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  const goals = within(await history.findByRole("group", { name: "Goals" }));
+  fireEvent.click(goals.getByRole("button", { name: "Edit" }));
+  expect(scrolled).toHaveBeenCalledTimes(2);
 });
 
-test("with nothing saved yet, History says so", async () => {
+test("with nothing changed yet, History says so", async () => {
   server(true);
   await opened();
   const history = within(screen.getByRole("region", { name: "History" }));
   fireEvent.click(history.getByRole("button", { name: "History" }));
-  expect(await history.findByText(/Nothing has been saved yet/)).toBeTruthy();
+  expect(await history.findByText(/Nothing has been changed yet/)).toBeTruthy();
 });
 
-test("a history that can't be read, or a version that can't be gone back to, says so", async () => {
-  versions = [version(2, "saved", { part: "goals" }), version(1, "shipped")];
-  server(true, MAYA, "There is no such version.");
+test("a history that can't be read, or a change that can't be gone back to, says so", async () => {
+  histories = [GOALS_HISTORY];
+  server(true, MAYA, "There is no such change.");
   await opened();
   const history = within(screen.getByRole("region", { name: "History" }));
   fireEvent.click(history.getByRole("button", { name: "History" }));
-  fireEvent.click(await history.findByRole("button", { name: "Go back" }));
-  expect(await history.findByText("There is no such version.")).toBeTruthy();
+  fireEvent.click(await history.findByRole("button", { name: "Go back to Goals change 1" }));
+  expect(await history.findByText("There is no such change.")).toBeTruthy();
   vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
   fireEvent.click(history.getByRole("button", { name: "Hide the history" }));
   fireEvent.click(history.getByRole("button", { name: "History" }));
@@ -502,11 +522,11 @@ test("a history that can't be read, or a version that can't be gone back to, say
 });
 
 test.each([
-  [{ part: "identity" }, "Saved the identity"],
-  [{ part: "goals" }, "Saved the goals"],
-  [{ part: "guidelines set back", feature: "questions" }, "Set Answering questions back to as shipped"],
-  [{ part: "guidelines", feature: "gone" }, "Saved gone"],
-  [{}, "Saved"],
-])("a saved version says what was saved", (more, said) => {
-  expect(madeBy(version(2, "saved", more), [QUESTIONS])).toBe(said);
+  [null, "As shipped."],
+  ["Use short words.", "Use short words."],
+  [["One.", "Two."], "One. Two."],
+  [[], "No goals."],
+  [{ name: "Maya", speaks_as: "x", purpose: "to teach", audience: "", helps_with: "stars" }, "Maya · to teach · stars"],
+])("a change's value is shown in a line", (value, said) => {
+  expect(preview(change(1, "saved", value))).toBe(said);
 });

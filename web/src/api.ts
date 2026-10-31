@@ -1395,27 +1395,36 @@ export async function discardDraft(): Promise<void> {
   await fetch("/api/customization/draft/discard", { method: "POST" });
 }
 
-// A version of the customization (R95): each save kept whole, with when it was made and what
-// made it.
-export interface CustomizationVersion {
+// A change of one part of the customization (R95; Larry's review on PR #258): the identity,
+// the goals or one feature's guidelines, each with its own history.
+export interface CustomizationChange {
   number: number;
   made_at: string; // ISO 8601
-  made_by: "shipped" | "generated" | "saved" | "gone back to";
-  part: string | null; // identity, goals, guidelines, guidelines set back, draft or history
-  feature: string | null; // the feature whose guidelines were saved
-  back_to: number | null; // the version gone back to
+  made_by: "shipped" | "generated" | "saved";
+  // The part's whole value: the identity's parts, the goals, or the guidelines (null: as shipped).
+  value: Record<string, string> | string[] | string | null;
 }
 
-export async function getCustomizationHistory(opened = false): Promise<CustomizationVersion[]> {
-  const got = await json<{ versions: CustomizationVersion[] }>(
+export interface PartHistory {
+  part: string; // "identity", "goals" or a feature's key
+  label: string;
+  current: number; // the change in use
+  changes: CustomizationChange[]; // newest first
+}
+
+export async function getCustomizationHistory(opened = false): Promise<PartHistory[]> {
+  const got = await json<{ parts: PartHistory[] }>(
     await fetch(opened ? "/api/customization/history?opened=true" : "/api/customization/history"),
   );
-  return got.versions;
+  return got.parts;
 }
 
-// Go back to a version: a copy of it saved as the new latest version, so it can be undone.
-export async function restoreCustomizationVersion(number: number): Promise<Customization> {
-  const response = await fetch(`/api/customization/history/${number}/restore`, { method: "POST" });
+// Go back to a change of one part: it becomes that part's current one, and nothing else changes.
+export async function restoreCustomizationChange(part: string, number: number): Promise<Customization> {
+  const response = await fetch(
+    `/api/customization/history/${encodeURIComponent(part)}/${number}/restore`,
+    { method: "POST" },
+  );
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as Customization;
 }

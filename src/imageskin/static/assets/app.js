@@ -626,10 +626,10 @@ async function discardDraft() {
 	await fetch("/api/customization/draft/discard", { method: "POST" });
 }
 async function getCustomizationHistory(opened = false) {
-	return (await json(await fetch(opened ? "/api/customization/history?opened=true" : "/api/customization/history"))).versions;
+	return (await json(await fetch(opened ? "/api/customization/history?opened=true" : "/api/customization/history"))).parts;
 }
-async function restoreCustomizationVersion(number) {
-	const response = await fetch(`/api/customization/history/${number}/restore`, { method: "POST" });
+async function restoreCustomizationChange(part, number) {
+	const response = await fetch(`/api/customization/history/${encodeURIComponent(part)}/${number}/restore`, { method: "POST" });
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
@@ -8528,25 +8528,33 @@ function GenerateSection({ now, onSaved }) {
 		]
 	});
 }
-function madeBy(version, features) {
-	const label = features.find((f) => f.key === version.feature)?.label ?? version.feature;
-	switch (version.made_by) {
-		case "shipped": return "As shipped";
-		case "generated": return "Drafted by the LLM";
-		case "gone back to": return `Gone back to version ${version.back_to}`;
-	}
-	if (version.part === "identity") return "Saved the identity";
-	if (version.part === "goals") return "Saved the goals";
-	if (version.part === "guidelines set back") return `Set ${label} back to as shipped`;
-	if (version.feature) return `Saved ${label}`;
-	return "Saved";
+var MADE_BY = {
+	shipped: "As shipped",
+	generated: "Drafted by the LLM",
+	saved: "Saved"
+};
+function preview(change) {
+	const { value } = change;
+	if (value === null) return "As shipped.";
+	if (typeof value === "string") return value;
+	if (Array.isArray(value)) return value.join(" ") || "No goals.";
+	return [
+		"name",
+		"purpose",
+		"audience",
+		"helps_with"
+	].map((k) => value[k]).filter(Boolean).join(" · ");
 }
 function when$1(at) {
 	const date = new Date(at);
 	return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
 }
-function HistorySection({ features, onRestored }) {
-	const [versions, setVersions] = d(null);
+function editorOf(part, label) {
+	if (part === "identity" || part === "goals") return document.getElementById(`customization-${part}`) ?? void 0;
+	return Array.from(document.querySelectorAll("form")).find((f) => f.getAttribute("aria-label") === label);
+}
+function HistorySection({ onRestored }) {
+	const [histories, setHistories] = d(null);
 	const [open, setOpen] = d(false);
 	const [error, setError] = d(null);
 	const { busy, run, status, changed } = useSave();
@@ -8555,8 +8563,8 @@ function HistorySection({ features, onRestored }) {
 		const started = performance.now();
 		try {
 			const got = await getCustomizationHistory(opened);
-			setVersions(got);
-			console.info(`Customization history shown: ${got.length} versions (${Math.round(performance.now() - started)} ms)`);
+			setHistories(got);
+			console.info(`Customization history shown: ${got.length} parts (${Math.round(performance.now() - started)} ms)`);
 		} catch (e) {
 			console.error("Could not read the customization history", e);
 			setError("The history could not be read. Try again.");
@@ -8571,17 +8579,17 @@ function HistorySection({ features, onRestored }) {
 		setOpen(true);
 		load(true);
 	}
-	async function goBack(number) {
-		const saved = await run(`went back to version ${number}`, () => restoreCustomizationVersion(number));
+	async function goBack(h, number) {
+		const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
 		if (saved) {
-			console.info(`Customization restored: version ${number}`);
+			console.info(`Customization restored: ${h.label}, change ${number}`);
 			onRestored(saved);
 			await load(false);
 		}
 	}
-	function edit() {
+	function edit(h) {
 		setOpen(false);
-		document.getElementById("customization-identity")?.scrollIntoView({ behavior: "smooth" });
+		editorOf(h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
 	}
 	return /* @__PURE__ */ u("section", {
 		className: "panel",
@@ -8593,7 +8601,7 @@ function HistorySection({ features, onRestored }) {
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Every save is kept as a version. Go back to one to make a copy of it the latest; that can be undone by going back again."
+				children: "Each part keeps its own changes. Go back makes an earlier change the one in use for that part only, and adds no change; editing it after adds one."
 			}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
 				type: "button",
@@ -8606,38 +8614,47 @@ function HistorySection({ features, onRestored }) {
 				className: "error",
 				children: error
 			}),
-			open && !error && versions === null && /* @__PURE__ */ u("p", {
+			open && !error && histories === null && /* @__PURE__ */ u("p", {
 				className: "muted busy",
 				children: "Loading…"
 			}),
-			open && versions?.length === 0 && /* @__PURE__ */ u("p", {
+			open && histories?.length === 0 && /* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Nothing has been saved yet. Each save from now on is kept here."
+				children: "Nothing has been changed yet. Each change from now on is kept here."
 			}),
-			open && versions && versions.length > 0 && /* @__PURE__ */ u("ol", {
+			open && histories?.map((h) => /* @__PURE__ */ u("div", {
 				className: "customization-history",
-				reversed: true,
-				children: versions.map((v, i) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("span", { children: [
-					/* @__PURE__ */ u("strong", { children: ["Version ", v.number] }),
-					i === 0 && " (latest)",
-					" · ",
-					madeBy(v, features),
-					/* @__PURE__ */ u("span", {
-						className: "muted",
-						children: [" · ", when$1(v.made_at)]
-					})
-				] }), i === 0 ? /* @__PURE__ */ u("button", {
-					type: "button",
-					className: "secondary",
-					onClick: edit,
-					children: "Edit"
-				}) : /* @__PURE__ */ u("button", {
-					type: "button",
-					disabled: busy,
-					onClick: () => void goBack(v.number),
-					children: "Go back"
-				})] }, v.number))
-			}),
+				role: "group",
+				"aria-label": h.label,
+				children: [/* @__PURE__ */ u("h3", { children: h.label }), /* @__PURE__ */ u("ol", {
+					reversed: true,
+					children: h.changes.map((c) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("span", { children: [
+						/* @__PURE__ */ u("strong", { children: ["Change ", c.number] }),
+						c.number === h.current && " (in use)",
+						" · ",
+						MADE_BY[c.made_by],
+						/* @__PURE__ */ u("span", {
+							className: "muted",
+							children: [" · ", when$1(c.made_at)]
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "change-preview",
+							children: preview(c)
+						})
+					] }), c.number === h.current ? /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: () => edit(h),
+						children: "Edit"
+					}) : /* @__PURE__ */ u("button", {
+						type: "button",
+						disabled: busy,
+						"aria-label": `Go back to ${h.label} change ${c.number}`,
+						onClick: () => void goBack(h, c.number),
+						children: "Go back"
+					})] }, c.number))
+				})]
+			}, h.part)),
 			open && status
 		]
 	});
@@ -8687,16 +8704,13 @@ function CustomizationPage() {
 						setSaves((n) => n + 1);
 					}
 				}),
-				/* @__PURE__ */ u(HistorySection, {
-					features: read.features,
-					onRestored: (saved) => {
-						setRead({
-							...saved,
-							shipped: false
-						});
-						setSaves((n) => n + 1);
-					}
-				}),
+				/* @__PURE__ */ u(HistorySection, { onRestored: (saved) => {
+					setRead({
+						...saved,
+						shipped: false
+					});
+					setSaves((n) => n + 1);
+				} }),
 				/* @__PURE__ */ u(IdentitySection, { identity: read.identity }, `identity-${saves}`),
 				/* @__PURE__ */ u(GoalsSection, { goals: read.goals }, `goals-${saves}`),
 				read.features.length ? sections(read.features).map(([name, features]) => /* @__PURE__ */ u(GuidelineSection, {

@@ -1,19 +1,20 @@
 // The Customization page (roadmap R92 and R94, items 85 and 87): the AI's identity, its goals and
 // each feature's guidelines, which the LLM is given with every prompt, edited and saved by a
-// signed-in host. A save is used from the next prompt, and kept as a version in the History (R95).
+// signed-in host. A save is used from the next prompt, and kept as a change of each part it changes, in the History (R95).
 
 import { useEffect, useState } from "preact/hooks";
 
 import {
   type Customization,
   type CustomizationDraft,
-  type CustomizationVersion,
+  type CustomizationChange,
+  type PartHistory,
   type GuidelineFeature,
   discardDraft,
   generateDraft,
   getCustomization,
   getCustomizationHistory,
-  restoreCustomizationVersion,
+  restoreCustomizationChange,
   saveDraft,
   saveGoals,
   saveGuidelines,
@@ -351,22 +352,22 @@ function GenerateSection({ now, onSaved }: { now: Customization; onSaved: (saved
   );
 }
 
-// What made a version, as the History list says it (R95).
-export function madeBy(version: CustomizationVersion, features: GuidelineFeature[]): string {
-  const label = features.find((f) => f.key === version.feature)?.label ?? version.feature;
-  switch (version.made_by) {
-    case "shipped":
-      return "As shipped";
-    case "generated":
-      return "Drafted by the LLM";
-    case "gone back to":
-      return `Gone back to version ${version.back_to}`;
-  }
-  if (version.part === "identity") return "Saved the identity";
-  if (version.part === "goals") return "Saved the goals";
-  if (version.part === "guidelines set back") return `Set ${label} back to as shipped`;
-  if (version.feature) return `Saved ${label}`;
-  return "Saved";
+const MADE_BY: Record<CustomizationChange["made_by"], string> = {
+  shipped: "As shipped",
+  generated: "Drafted by the LLM",
+  saved: "Saved",
+};
+
+// A change's value in a line, to tell it apart in the History.
+export function preview(change: CustomizationChange): string {
+  const { value } = change;
+  if (value === null) return "As shipped.";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.join(" ") || "No goals.";
+  return ["name", "purpose", "audience", "helps_with"]
+    .map((k) => value[k])
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function when(at: string): string {
@@ -374,16 +375,19 @@ function when(at: string): string {
   return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
 }
 
-// The History (R95): every saved version, newest first. Go back saves a copy of a version as the
-// new latest one, so it can be undone; Edit goes to the editors, which edit the latest.
-function HistorySection({
-  features,
-  onRestored,
-}: {
-  features: GuidelineFeature[];
-  onRestored: (saved: Customization) => void;
-}) {
-  const [versions, setVersions] = useState<CustomizationVersion[] | null>(null);
+// Where a part is edited on the page.
+function editorOf(part: string, label: string): Element | undefined {
+  if (part === "identity" || part === "goals") {
+    return document.getElementById(`customization-${part}`) ?? undefined;
+  }
+  return Array.from(document.querySelectorAll("form")).find((f) => f.getAttribute("aria-label") === label);
+}
+
+// The History (R95; Larry's review on PR #258): each part's changes, newest first. Go back makes
+// an earlier change that part's current one, changing nothing else and adding no change; Edit
+// goes to the part's editor.
+function HistorySection({ onRestored }: { onRestored: (saved: Customization) => void }) {
+  const [histories, setHistories] = useState<PartHistory[] | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { busy, run, status, changed } = useSave();
@@ -393,8 +397,8 @@ function HistorySection({
     const started = performance.now();
     try {
       const got = await getCustomizationHistory(opened);
-      setVersions(got);
-      console.info(`Customization history shown: ${got.length} versions (${Math.round(performance.now() - started)} ms)`);
+      setHistories(got);
+      console.info(`Customization history shown: ${got.length} parts (${Math.round(performance.now() - started)} ms)`);
     } catch (e) {
       console.error("Could not read the customization history", e);
       setError("The history could not be read. Try again.");
@@ -411,26 +415,26 @@ function HistorySection({
     void load(true);
   }
 
-  async function goBack(number: number) {
-    const saved = await run(`went back to version ${number}`, () => restoreCustomizationVersion(number));
+  async function goBack(h: PartHistory, number: number) {
+    const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
     if (saved) {
-      console.info(`Customization restored: version ${number}`);
+      console.info(`Customization restored: ${h.label}, change ${number}`);
       onRestored(saved);
       await load(false);
     }
   }
 
-  function edit() {
+  function edit(h: PartHistory) {
     setOpen(false);
-    document.getElementById("customization-identity")?.scrollIntoView({ behavior: "smooth" });
+    editorOf(h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
   }
 
   return (
     <section className="panel" aria-labelledby="customization-history">
       <h2 id="customization-history">History</h2>
       <p className="muted">
-        Every save is kept as a version. Go back to one to make a copy of it the latest; that can
-        be undone by going back again.
+        Each part keeps its own changes. Go back makes an earlier change the one in use for that
+        part only, and adds no change; editing it after adds one.
       </p>
       <p>
         <button type="button" className="secondary" aria-expanded={open} onClick={toggle}>
@@ -438,32 +442,42 @@ function HistorySection({
         </button>
       </p>
       {open && error && <p className="error">{error}</p>}
-      {open && !error && versions === null && <p className="muted busy">Loading…</p>}
-      {open && versions?.length === 0 && (
-        <p className="muted">Nothing has been saved yet. Each save from now on is kept here.</p>
+      {open && !error && histories === null && <p className="muted busy">Loading…</p>}
+      {open && histories?.length === 0 && (
+        <p className="muted">Nothing has been changed yet. Each change from now on is kept here.</p>
       )}
-      {open && versions && versions.length > 0 && (
-        <ol className="customization-history" reversed>
-          {versions.map((v, i) => (
-            <li key={v.number}>
-              <span>
-                <strong>Version {v.number}</strong>
-                {i === 0 && " (latest)"} · {madeBy(v, features)}
-                <span className="muted"> · {when(v.made_at)}</span>
-              </span>
-              {i === 0 ? (
-                <button type="button" className="secondary" onClick={edit}>
-                  Edit
-                </button>
-              ) : (
-                <button type="button" disabled={busy} onClick={() => void goBack(v.number)}>
-                  Go back
-                </button>
-              )}
-            </li>
-          ))}
-        </ol>
-      )}
+      {open &&
+        histories?.map((h) => (
+          <div key={h.part} className="customization-history" role="group" aria-label={h.label}>
+            <h3>{h.label}</h3>
+            <ol reversed>
+              {h.changes.map((c) => (
+                <li key={c.number}>
+                  <span>
+                    <strong>Change {c.number}</strong>
+                    {c.number === h.current && " (in use)"} · {MADE_BY[c.made_by]}
+                    <span className="muted"> · {when(c.made_at)}</span>
+                    <span className="change-preview">{preview(c)}</span>
+                  </span>
+                  {c.number === h.current ? (
+                    <button type="button" className="secondary" onClick={() => edit(h)}>
+                      Edit
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-label={`Go back to ${h.label} change ${c.number}`}
+                      onClick={() => void goBack(h, c.number)}
+                    >
+                      Go back
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))}
       {open && status}
     </section>
   );
@@ -514,7 +528,6 @@ export function CustomizationPage() {
             }}
           />
           <HistorySection
-            features={read.features}
             onRestored={(saved) => {
               setRead({ ...saved, shipped: false });
               setSaves((n) => n + 1);

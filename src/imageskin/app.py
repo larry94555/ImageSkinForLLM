@@ -90,7 +90,7 @@ from imageskin.customization_draft import (
     GenerationFailed,
     Generator,
 )
-from imageskin.customization_history import History, NoSuchVersion, restored
+from imageskin.customization_history import History, NoSuchChange, with_value
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
@@ -1703,13 +1703,13 @@ def create_app(
         feature: str | None = None,
         based_on: str | None = None,
         made_by: str = "saved",
-        back_to: int | None = None,
+        gone_back: tuple[str, int] | None = None,
     ) -> dict[str, Any]:
         """Save an edit made on the Customization page (R94), used from the next prompt and kept
-        as a version (R95). With `based_on`, only if the customization is still the one it was
-        made from (R93)."""
+        as a change of each part it changes (R95). With `based_on`, only if the customization is
+        still the one it was made from (R93)."""
         start = time.perf_counter()
-        note = {"made_by": made_by, "part": part, "feature": feature, "back_to": back_to}
+        note = {"made_by": made_by, "gone_back": gone_back}
         try:
             if based_on is None:
                 saved = customization.change(edit, **note)
@@ -1731,7 +1731,7 @@ def create_app(
             extra={"part": part, "feature": feature, "duration_ms": ms_since(start)},
         )
         lessons = getattr(app.state, "lessons", None)
-        if (feature == "teach me" or back_to is not None) and lessons is not None:
+        if lessons is not None and "teach me" in (feature, gone_back and gone_back[0]):
             lessons.refresh()  # each topic's first part written ahead again with them (R98a)
         return shown(saved)
 
@@ -1783,35 +1783,37 @@ def create_app(
     def get_history(
         opened: Annotated[bool, Query(description="Asked as the History list opens.")] = False,
     ) -> dict[str, Any]:
-        """Every version of the customization, newest first (R95)."""
+        """The history of each part that has changed, newest change first (R95)."""
         start = time.perf_counter()
-        versions = [v.listed() for v in history.versions()]
+        shown_parts = [h.shown() for h in history.histories()]
         if opened:
             logger.info(
                 "Customization history opened",
-                extra={"versions": len(versions), "duration_ms": ms_since(start)},
+                extra={"parts": len(shown_parts), "duration_ms": ms_since(start)},
             )
-        return {"versions": versions}
+        return {"parts": shown_parts}
 
-    @app.post("/api/customization/history/{number}/restore", dependencies=host_only)
-    def restore_version(number: int) -> dict[str, Any]:
-        """Go back to a version (R95): a copy of it saved as the new latest version, so it can
-        be undone too; a feature added since keeps its current guidelines."""
+    @app.post("/api/customization/history/{part}/{number}/restore", dependencies=host_only)
+    def restore_change(part: str, number: int) -> dict[str, Any]:
+        """Go back to a change of one part (R95, Larry's review on PR #258): it becomes that
+        part's current change and no other part changes; no change is added."""
         start = time.perf_counter()
         try:
-            version = history.version(number)
-        except NoSuchVersion as e:
-            raise HTTPException(status_code=404, detail="There is no such version.") from e
-        added = [key for key in FEATURES if key not in version.features]
+            change = history.part(part).change(number)
+        except NoSuchChange as e:
+            raise HTTPException(status_code=404, detail="There is no such change.") from e
         shown_now = save_customization(
-            "history", lambda now: restored(version, now), made_by="gone back to", back_to=number
+            "history",
+            lambda now: with_value(now, part, change.value, change.made_by),
+            feature=part if part in FEATURES else None,
+            gone_back=(part, number),
         )
         logger.info(
             "Customization restored",
             extra={
-                "version": number,
-                "made_by": version.made_by,
-                "kept": added,
+                "part": part,
+                "number": number,
+                "made_by": change.made_by,
                 "duration_ms": ms_since(start),
             },
         )
