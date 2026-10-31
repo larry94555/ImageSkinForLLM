@@ -499,6 +499,8 @@ def serve(settings: Settings) -> None:
         general_prompts=settings.general_prompts,
         admin_file=admin_file,
         admin_laptops_file=Path(laptops).expanduser() if laptops else None,
+        # The customization drafted the first time it is needed (R93).
+        generate_customization=True,
     )
     # This month's network use for the admin dashboard, kept through restarts (R153).
     app.state.network_month.keep_sampling()

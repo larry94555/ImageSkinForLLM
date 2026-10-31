@@ -338,7 +338,13 @@ def test_a_features_guidelines_are_edited_and_set_back() -> None:
     edited = with_guidelines(SHIPPED, "questions", " End with a question. ")
     assert guidelines_of(edited, "questions") == "End with a question."
     assert features(edited)[0] == (
-        {"key": "questions", **asdict(QUESTIONS), "text": "End with a question.", "edited": True}
+        {
+            "key": "questions",
+            **asdict(QUESTIONS),
+            "text": "End with a question.",
+            "edited": True,
+            "generated": False,  # R93
+        }
     )
     back = with_guidelines(edited, "questions", None)
     assert back.guidelines == {} and features(back)[0]["edited"] is False
@@ -395,6 +401,7 @@ def test_a_host_edits_the_customization_and_the_next_prompt_uses_it(
         **asdict(QUESTIONS),
         "text": QUESTIONS.shipped,
         "edited": False,
+        "generated": False,
     }
     saved = [r for r in caplog.records if r.message == "Customization saved"]
     parts = [(r.part, r.feature) for r in saved]  # type: ignore[attr-defined]

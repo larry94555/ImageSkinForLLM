@@ -55,12 +55,16 @@ class Customization:
     goals: tuple[str, ...] = SHIPPED_GOALS
     # Each feature's guidelines, by feature, as R194 to R200 add them.
     guidelines: dict[str, Any] = field(default_factory=dict)
+    # The features whose guidelines the LLM drafted and the host hasn't changed since (R93), so
+    # Generate again drafts them anew while leaving the host's alone.
+    generated: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "identity": asdict(self.identity),
             "goals": list(self.goals),
             "guidelines": self.guidelines,
+            "generated": list(self.generated),
         }
 
 
@@ -356,7 +360,15 @@ def with_guidelines(customization: Customization, key: str, text: object) -> Cus
     else:
         label = f"{FEATURES[key].label}'s guidelines"
         guidelines[key] = _checked(text, label, MOST_GUIDELINES_CHARS)
-    return replace(customization, guidelines=guidelines)
+    # Changed by the host, they are theirs, no longer drafted anew (R93).
+    generated = tuple(k for k in customization.generated if k != key)
+    return replace(customization, guidelines=guidelines, generated=generated)
+
+
+def as_generated(customization: Customization, keys: list[str]) -> Customization:
+    """The customization with these features' guidelines noted as drafted by the LLM (R93)."""
+    kept = [k for k in customization.generated if k not in keys]
+    return replace(customization, generated=tuple([*kept, *keys]))
 
 
 def features(customization: Customization) -> list[dict[str, Any]]:
@@ -367,6 +379,7 @@ def features(customization: Customization) -> list[dict[str, Any]]:
             **asdict(feature),
             "text": guidelines_of(customization, key),
             "edited": is_edited(customization, key),
+            "generated": key in customization.generated,
         }
         for key, feature in FEATURES.items()
     ]
@@ -399,7 +412,10 @@ def from_dict(data: object) -> Customization:
     if not isinstance(guidelines, dict):
         raise CustomizationUnreadable("guidelines is not a JSON object")
     kept = tuple(g.strip() for g in goals if g.strip())
-    return Customization(Identity(**parts), kept, guidelines)
+    generated = data.get("generated", [])
+    if not isinstance(generated, list) or not all(isinstance(g, str) for g in generated):
+        raise CustomizationUnreadable("generated is not a list of text")
+    return Customization(Identity(**parts), kept, guidelines, tuple(generated))
 
 
 def save(home: Path, customization: Customization) -> None:
@@ -429,6 +445,8 @@ class CustomizationFile:
         self._lock = threading.Lock()
         self._seen: tuple[int, int] | None = None  # the file's mtime and size when last read
         self._last = Read(SHIPPED, True, 0.0)
+        # How many saves were made, so a draft made meanwhile can tell (R93).
+        self.changes = 0
 
     def read(self) -> Read:
         start = time.perf_counter()
@@ -439,12 +457,24 @@ class CustomizationFile:
         """Save `edit` of the customization as it is now, one change at a time, so two saves
         made at once both count. A broken file is replaced by the shipped default, edited."""
         with self._lock:
-            edited = edit(self._read(time.perf_counter()).customization)
-            save(self.path.parent, edited)
-            stat = self.path.stat()
-            self._seen = (stat.st_mtime_ns, stat.st_size)
-            self._last = Read(edited, False, 0.0)
-            return edited
+            return self._change(edit)
+
+    def change_if(
+        self, changes: int, edit: Callable[[Customization], Customization]
+    ) -> Customization | None:
+        """`change`, only if no save was made since `changes` were counted (R93); else None."""
+        with self._lock:
+            return self._change(edit) if self.changes == changes else None
+
+    def _change(self, edit: Callable[[Customization], Customization]) -> Customization:
+        """`change`, holding the lock."""
+        edited = edit(self._read(time.perf_counter()).customization)
+        save(self.path.parent, edited)
+        stat = self.path.stat()
+        self._seen = (stat.st_mtime_ns, stat.st_size)
+        self._last = Read(edited, False, 0.0)
+        self.changes += 1
+        return edited
 
     def _read(self, start: float) -> Read:
         """`read`, holding the lock."""

@@ -1337,6 +1337,7 @@ export interface GuidelineFeature {
   text: string;
   edited: boolean;
   section: string; // the section of the page it is shown in
+  generated?: boolean; // drafted by the LLM and not changed since (R93)
 }
 
 async function putCustomization(path: string, body: unknown): Promise<Customization> {
@@ -1360,6 +1361,31 @@ export function saveGoals(goals: string[]): Promise<Customization> {
 // With `text` null, the feature's guidelines are set back to how they shipped.
 export function saveGuidelines(feature: string, text: string | null): Promise<Customization> {
   return putCustomization(`guidelines/${encodeURIComponent(feature)}`, { text });
+}
+
+// Generate again (R93): a new draft by the LLM, not saved, with the features whose guidelines
+// it drafted (those still as shipped). It can take up to two minutes.
+export interface CustomizationDraft {
+  draft: Customization;
+  drafted: string[];
+}
+
+export async function generateDraft(): Promise<CustomizationDraft> {
+  const response = await fetch("/api/customization/draft", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as CustomizationDraft;
+}
+
+// Save a draft: its identity, goals and the guidelines it drafted.
+export function saveDraft({ draft, drafted }: CustomizationDraft): Promise<Customization> {
+  const guidelines = Object.fromEntries(
+    draft.features.filter((f) => drafted.includes(f.key)).map((f) => [f.key, f.text]),
+  );
+  return putCustomization("draft", { identity: draft.identity, goals: draft.goals, guidelines });
+}
+
+export async function discardDraft(): Promise<void> {
+  await fetch("/api/customization/draft/discard", { method: "POST" });
 }
 
 export async function getCustomization(opened = false): Promise<Customization> {
