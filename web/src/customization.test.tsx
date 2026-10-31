@@ -599,3 +599,52 @@ test("a comparison that can't be made says so under its part", async () => {
   fireEvent.click(goals.getByRole("button", { name: "Compare Goals change 2 with the change in use" }));
   expect(await goals.findByText("They could not be compared. Try again.")).toBeTruthy();
 });
+
+test("an answer to an earlier Compare, or one asked before Go back, is ignored when it comes late", async () => {
+  // Codex's review on PR #259.
+  histories = [GOALS_HISTORY];
+  server(true);
+  const real = globalThis.fetch;
+  const held = new Map<string, Held>();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/compare")) {
+        const h = hold();
+        held.set(url, h);
+        await h.promise;
+      }
+      return real(url, init);
+    }),
+  );
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  fireEvent.click(await history.findByRole("button", { name: "Compare Goals change 1 with the change in use" }));
+  fireEvent.click(history.getByRole("button", { name: "Compare Goals change 2 with the change in use" }));
+  await vi.waitFor(() => expect(held.size).toBe(2));
+  held.get("/api/customization/history/goals/2/compare")!.resolve();
+  expect(await history.findByText("Change 2 beside change 3 (in use)")).toBeTruthy();
+  held.get("/api/customization/history/goals/1/compare")!.resolve();
+  await vi.waitFor(() =>
+    expect(console.info).toHaveBeenCalledWith(
+      "Customization comparison dropped: Goals, change 1, as another was asked for",
+    ),
+  );
+  expect(history.getByText("Change 2 beside change 3 (in use)")).toBeTruthy();
+  expect(history.queryByText("Change 1 beside change 3 (in use)")).toBeNull();
+  // Asked, then Go back before it answers: it never shows.
+  held.clear();
+  fireEvent.click(history.getByRole("button", { name: "Compare Goals change 1 with the change in use" }));
+  await vi.waitFor(() => expect(held.size).toBe(1));
+  fireEvent.click(history.getByRole("button", { name: "Go back to Goals change 2" }));
+  await history.findByText("Saved. It is used from the next prompt.");
+  held.get("/api/customization/history/goals/1/compare")!.resolve();
+  await vi.waitFor(() =>
+    expect(console.info).toHaveBeenCalledWith(
+      "Customization comparison dropped: Goals, change 1, as another was asked for",
+    ),
+  );
+  await new Promise((r) => setTimeout(r, 20));
+  expect(history.queryByRole("region", { name: "Goals compared" })).toBeNull();
+});

@@ -8594,6 +8594,12 @@ function HistorySection({ onRestored }) {
 	const [open, setOpen] = d(false);
 	const [error, setError] = d(null);
 	const [comparison, setComparison] = d(null);
+	const asked = A(0);
+	function dropComparison() {
+		asked.current += 1;
+		setComparison(null);
+		setCompareError(null);
+	}
 	const [compareError, setCompareError] = d(null);
 	const { busy, run, status, changed } = useSave(false);
 	h(() => {
@@ -8620,24 +8626,29 @@ function HistorySection({ onRestored }) {
 	}
 	function toggle() {
 		changed();
+		dropComparison();
 		if (open) {
 			setOpen(false);
 			return;
 		}
 		setOpen(true);
-		setComparison(null);
-		setCompareError(null);
 		load(true);
 	}
 	async function compare(h, number) {
-		setCompareError(null);
+		dropComparison();
+		const mine = asked.current;
 		const started = performance.now();
 		try {
-			setComparison(await compareCustomizationChange(h.part, number));
+			const got = await compareCustomizationChange(h.part, number);
+			if (mine !== asked.current) {
+				console.info(`Customization comparison dropped: ${h.label}, change ${number}, as another was asked for`);
+				return;
+			}
+			setComparison(got);
 			console.info(`Customization compared: ${h.label}, change ${number} with ${h.current} (${Math.round(performance.now() - started)} ms)`);
 		} catch (e) {
+			if (mine !== asked.current) return;
 			console.error("Could not compare the changes", e);
-			setComparison(null);
 			setCompareError({
 				part: h.part,
 				text: e instanceof ServerRefusal ? e.message : "They could not be compared. Try again."
@@ -8645,7 +8656,7 @@ function HistorySection({ onRestored }) {
 		}
 	}
 	async function goBack(h, number) {
-		setComparison(null);
+		dropComparison();
 		const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
 		if (saved) {
 			console.info(`Customization restored: ${h.label}, change ${number}`);
@@ -8733,7 +8744,7 @@ function HistorySection({ onRestored }) {
 					comparison?.part === h.part && /* @__PURE__ */ u(Comparison, {
 						h,
 						shown: comparison,
-						onHide: () => setComparison(null)
+						onHide: dropComparison
 					}),
 					compareError?.part === h.part && /* @__PURE__ */ u("p", {
 						className: "error",

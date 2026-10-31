@@ -2,7 +2,7 @@
 // each feature's guidelines, which the LLM is given with every prompt, edited and saved by a
 // signed-in host. A save is used from the next prompt, and kept as a change of each part it changes, in the History (R95).
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
   type Customization,
@@ -431,6 +431,14 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comparison, setComparison] = useState<CustomizationComparison | null>(null);
+  // Counts comparisons asked for and dropped, so an answer that comes back after another Compare,
+  // a Go back or the History closing is ignored (Codex's review on PR #259).
+  const asked = useRef(0);
+  function dropComparison() {
+    asked.current += 1;
+    setComparison(null);
+    setCompareError(null);
+  }
   const [compareError, setCompareError] = useState<{ part: string; text: string } | null>(null);
   const { busy, run, status, changed } = useSave(false);
 
@@ -461,33 +469,38 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
 
   function toggle() {
     changed();
+    dropComparison();
     if (open) {
       setOpen(false);
       return;
     }
     setOpen(true);
-    setComparison(null);
-    setCompareError(null);
     void load(true);
   }
 
   async function compare(h: PartHistory, number: number) {
-    setCompareError(null);
+    dropComparison();
+    const mine = asked.current;
     const started = performance.now();
     try {
-      setComparison(await compareCustomizationChange(h.part, number));
+      const got = await compareCustomizationChange(h.part, number);
+      if (mine !== asked.current) {
+        console.info(`Customization comparison dropped: ${h.label}, change ${number}, as another was asked for`);
+        return;
+      }
+      setComparison(got);
       console.info(
         `Customization compared: ${h.label}, change ${number} with ${h.current} (${Math.round(performance.now() - started)} ms)`,
       );
     } catch (e) {
+      if (mine !== asked.current) return;
       console.error("Could not compare the changes", e);
-      setComparison(null);
       setCompareError({ part: h.part, text: e instanceof ServerRefusal ? e.message : "They could not be compared. Try again." });
     }
   }
 
   async function goBack(h: PartHistory, number: number) {
-    setComparison(null);
+    dropComparison();
     const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
     if (saved) {
       console.info(`Customization restored: ${h.label}, change ${number}`);
@@ -558,7 +571,7 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
               ))}
             </ol>
             {comparison?.part === h.part && (
-              <Comparison h={h} shown={comparison} onHide={() => setComparison(null)} />
+              <Comparison h={h} shown={comparison} onHide={dropComparison} />
             )}
             {compareError?.part === h.part && <p className="error">{compareError.text}</p>}
           </div>
