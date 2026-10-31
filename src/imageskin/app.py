@@ -368,6 +368,8 @@ class ReplyVideoRequest(BaseModel):
 
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
+# A draft from Generate again saved after something else was saved since it was drafted (R93).
+DRAFT_OUT_OF_DATE = "Something was saved since this draft was made. Generate again to redraft."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
 NOTHING_TO_REPEAT = "There is no reply to repeat yet."
 CANT_REPEAT = "The reply couldn't be repeated."
@@ -1692,12 +1694,22 @@ def create_app(
         return {**c.as_dict(), "features": features(c), "shipped": shipped}
 
     def save_customization(
-        part: str, edit: Callable[[Customization], Customization], feature: str | None = None
+        part: str,
+        edit: Callable[[Customization], Customization],
+        feature: str | None = None,
+        based_on: str | None = None,
     ) -> dict[str, Any]:
-        """Save an edit made on the Customization page (R94), used from the next prompt."""
+        """Save an edit made on the Customization page (R94), used from the next prompt. With
+        `based_on`, only if the customization is still the one it was made from (R93)."""
         start = time.perf_counter()
         try:
-            saved = customization.change(edit)
+            if based_on is None:
+                saved = customization.change(edit)
+            elif (changed := customization.change_if_same(based_on, edit)) is not None:
+                saved = changed
+            else:
+                logger.warning("Customization draft out of date", extra={"part": part})
+                raise HTTPException(status_code=409, detail=DRAFT_OUT_OF_DATE)
         except CustomizationRefused as e:
             logger.warning("Customization refused", extra={"part": part, "error": str(e)})
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1727,21 +1739,24 @@ def create_app(
     def post_draft() -> dict[str, Any]:
         """Generate again (R93): a new draft beside the current text, not saved until Save."""
         try:
-            draft, drafted = generator.again()
+            draft, drafted, based_on = generator.again()
         except GenerationFailed as e:
             raise HTTPException(
                 status_code=504 if "within" in str(e) else 502,
                 detail=f"A draft could not be made: {e}. Try again.",
             ) from e
-        return {"draft": shown(draft), "drafted": drafted}
+        return {"draft": shown(draft), "drafted": drafted, "based_on": based_on}
 
     @app.put("/api/customization/draft", dependencies=host_only)
     def put_draft(
         identity: Annotated[dict[str, Any], Body()],
         goals: Annotated[Any, Body()],
         guidelines: Annotated[dict[str, Any], Body(description="The drafted features' only.")],
+        based_on: Annotated[str, Body(description="The draft's `based_on`.")],
     ) -> dict[str, Any]:
-        """Save a draft from Generate again: its identity, goals and drafted guidelines."""
+        """Save a draft from Generate again: its identity, goals and drafted guidelines, only if
+        nothing was saved since it was drafted, so a newer edit isn't lost (Codex's review on
+        PR #255)."""
 
         def edit(c: Customization) -> Customization:
             c = with_goals(with_identity(c, identity), goals)
@@ -1749,7 +1764,7 @@ def create_app(
                 c = with_guidelines(c, key, text)
             return as_generated(c, list(guidelines))  # drafted anew by Generate again
 
-        return save_customization("draft", edit)
+        return save_customization("draft", edit, based_on=based_on)
 
     @app.post("/api/customization/draft/discard", dependencies=host_only)
     def discard_draft() -> dict[str, bool]:

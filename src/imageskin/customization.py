@@ -9,6 +9,7 @@ its own PR (R194 to R200), as an entry in FEATURES; until then there are none. A
 edits all of them on the Customization page (R94).
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -429,6 +430,12 @@ def save(home: Path, customization: Customization) -> None:
     os.replace(tmp, path)
 
 
+def fingerprint(customization: Customization) -> str:
+    """A short digest of the whole customization, telling whether it changed (R93)."""
+    text = json.dumps(customization.as_dict(), ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
 @dataclass(frozen=True)
 class Read:
     customization: Customization
@@ -465,6 +472,16 @@ class CustomizationFile:
         """`change`, only if no save was made since `changes` were counted (R93); else None."""
         with self._lock:
             return self._change(edit) if self.changes == changes else None
+
+    def change_if_same(
+        self, based_on: str, edit: Callable[[Customization], Customization]
+    ) -> Customization | None:
+        """`change`, only if the customization is still the one whose `fingerprint` is
+        `based_on`, so a draft made from an older one doesn't undo a save made since (R93, Codex's
+        review on PR #255); else None."""
+        with self._lock:
+            now = self._read(time.perf_counter()).customization
+            return self._change(edit) if fingerprint(now) == based_on else None
 
     def _change(self, edit: Callable[[Customization], Customization]) -> Customization:
         """`change`, holding the lock."""

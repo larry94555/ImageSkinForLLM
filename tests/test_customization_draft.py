@@ -18,6 +18,7 @@ from imageskin.customization import (
     SHIPPED,
     TEACHING,
     CustomizationFile,
+    CustomizationUnreadable,
     features,
     from_dict,
     guidelines_of,
@@ -223,7 +224,7 @@ def test_unreadable_inputs_draft_from_what_is_left(
     llm = DraftLlm()
     g = Generator(CustomizationFile(tmp_path), llm, broken, lambda: [])
     with caplog.at_level(logging.ERROR, logger="imageskin.customization_draft"):
-        draft, _ = g.again()
+        draft, _, _ = g.again()
     assert draft.identity.name == "Ada"
     assert "a person whose name and role weren't given" in llm.sent[0][-1]["content"]
     assert "Could not read what the customization is drafted from" in caplog.text
@@ -233,7 +234,7 @@ def test_generate_again_makes_a_draft_without_saving_it(tmp_path: Path) -> None:
     llm = DraftLlm(name="Grace")
     g, file = generator(tmp_path, llm)
     file.change(lambda c: with_guidelines(c, "teach me", EDITED))
-    draft, keys = g.again()
+    draft, keys, _ = g.again()
     assert draft.identity.name == "Grace" and "teach me" not in keys
     assert guidelines_of(draft, "teach me") == EDITED
     assert file.read().customization.identity.name == ""  # not saved
@@ -268,10 +269,7 @@ def test_the_host_generates_again_and_saves_or_discards_the_draft(
         assert client.post("/api/customization/draft/discard").json() == {"discarded": True}
         draft = body["draft"]
         guidelines = {k: draft["guidelines"][k] for k in body["drafted"]}
-        saved = client.put(
-            "/api/customization/draft",
-            json={"identity": draft["identity"], "goals": draft["goals"], "guidelines": guidelines},
-        )
+        saved = client.put("/api/customization/draft", json=to_save(body, guidelines))
     assert saved.status_code == 200
     now = client.get("/api/customization").json()
     assert now["identity"]["name"] == "Grace"
@@ -282,6 +280,43 @@ def test_the_host_generates_again_and_saves_or_discards_the_draft(
     saves = [r for r in caplog.records if r.message == "Customization saved"]
     assert saves[-1].part == "draft"  # type: ignore[attr-defined]
     assert TEACHING != EDITED
+
+
+def to_save(body: dict[str, Any], guidelines: dict[str, Any]) -> dict[str, Any]:
+    """What the page sends to save a draft from Generate again."""
+    draft = body["draft"]
+    return {
+        "identity": draft["identity"],
+        "goals": draft["goals"],
+        "guidelines": guidelines,
+        "based_on": body["based_on"],
+    }
+
+
+def test_a_draft_older_than_a_save_isnt_saved_over_it(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Codex's review on PR #255: a draft made, then a host edit saved (in another tab, or while
+    the draft was written), then the draft saved, would have undone the edit."""
+    client: Any = riemann_app(tmp_path, DraftLlm(name="Grace"))
+    body = client.post("/api/customization/draft").json()
+    edit = client.put("/api/customization/goals", json={"goals": ["Mine, saved since."]})
+    assert edit.status_code == 200
+    guidelines = {k: body["draft"]["guidelines"][k] for k in body["drafted"]}
+    with caplog.at_level(logging.WARNING, logger="imageskin.app"):
+        stale = client.put("/api/customization/draft", json=to_save(body, guidelines))
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == (
+        "Something was saved since this draft was made. Generate again to redraft."
+    )
+    now = client.get("/api/customization").json()
+    assert now["goals"] == ["Mine, saved since."] and now["identity"]["name"] == ""
+    assert "Customization draft out of date" in caplog.text
+    # Drafted again from it, it is saved.
+    body = client.post("/api/customization/draft").json()
+    guidelines = {k: body["draft"]["guidelines"][k] for k in body["drafted"]}
+    saved = client.put("/api/customization/draft", json=to_save(body, guidelines))
+    assert saved.status_code == 200 and saved.json()["identity"]["name"] == "Grace"
 
 
 def test_a_draft_that_fails_says_so(tmp_path: Path) -> None:
@@ -311,10 +346,16 @@ def test_drafted_guidelines_are_drafted_again_until_the_host_changes_them(tmp_pa
     assert features(first)[0]["generated"] is True
     file.change(lambda c: with_guidelines(c, "teach me", EDITED))
     assert "teach me" not in file.read().customization.generated
-    draft, keys = g.again()
+    draft, keys, _ = g.again()
     assert keys == [k for k in FEATURES if k != "teach me"]
     assert guidelines_of(draft, "teach me") == EDITED
     # Kept in the file, so a restart knows which were drafted.
     saved = json.loads(file.path.read_text())
     assert "teach me" not in saved["generated"] and "questions" in saved["generated"]
     assert from_dict(saved).generated == file.read().customization.generated
+
+
+def test_a_file_whose_drafted_list_is_broken_cant_be_read() -> None:
+    with pytest.raises(CustomizationUnreadable, match="generated is not a list of text"):
+        from_dict({"generated": "questions"})
+    assert from_dict({}).generated == ()

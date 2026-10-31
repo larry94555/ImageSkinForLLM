@@ -29,6 +29,7 @@ from imageskin.customization import (
     CustomizationFile,
     CustomizationRefused,
     as_generated,
+    fingerprint,
     is_edited,
     with_goals,
     with_guidelines,
@@ -273,9 +274,10 @@ class Generator:
         except OSError as e:
             logger.error("Customization generation not noted", extra={"error": str(e)})
 
-    def again(self) -> tuple[Customization, list[str]]:
+    def again(self) -> tuple[Customization, list[str], str]:
         """A new draft of the customization as it is now, not saved, with the features whose
-        guidelines it drafted; raises GenerationFailed."""
+        guidelines it drafted and the `fingerprint` of what it was drafted from, so saving it
+        can tell whether anything was saved since; raises GenerationFailed."""
         start = time.perf_counter()
         current = self._file.read().customization
         person, topics = self._inputs()
@@ -291,4 +293,4 @@ class Generator:
             "Customization generated",
             extra={"duration_ms": ms_since(start), "draft": True, "topics": len(topics)},
         )
-        return draft, drafted_features(current)
+        return draft, drafted_features(current), fingerprint(current)

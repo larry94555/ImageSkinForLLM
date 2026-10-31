@@ -613,12 +613,13 @@ async function generateDraft() {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
-function saveDraft({ draft, drafted }) {
+function saveDraft({ draft, drafted, based_on }) {
 	const guidelines = Object.fromEntries(draft.features.filter((f) => drafted.includes(f.key)).map((f) => [f.key, f.text]));
 	return putCustomization("draft", {
 		identity: draft.identity,
 		goals: draft.goals,
-		guidelines
+		guidelines,
+		based_on
 	});
 }
 async function discardDraft() {

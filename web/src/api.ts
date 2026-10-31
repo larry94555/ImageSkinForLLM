@@ -1368,6 +1368,8 @@ export function saveGuidelines(feature: string, text: string | null): Promise<Cu
 export interface CustomizationDraft {
   draft: Customization;
   drafted: string[];
+  // What it was drafted from, so a save made since isn't undone by saving it.
+  based_on: string;
 }
 
 export async function generateDraft(): Promise<CustomizationDraft> {
@@ -1377,11 +1379,16 @@ export async function generateDraft(): Promise<CustomizationDraft> {
 }
 
 // Save a draft: its identity, goals and the guidelines it drafted.
-export function saveDraft({ draft, drafted }: CustomizationDraft): Promise<Customization> {
+export function saveDraft({ draft, drafted, based_on }: CustomizationDraft): Promise<Customization> {
   const guidelines = Object.fromEntries(
     draft.features.filter((f) => drafted.includes(f.key)).map((f) => [f.key, f.text]),
   );
-  return putCustomization("draft", { identity: draft.identity, goals: draft.goals, guidelines });
+  return putCustomization("draft", {
+    identity: draft.identity,
+    goals: draft.goals,
+    guidelines,
+    based_on,
+  });
 }
 
 export async function discardDraft(): Promise<void> {

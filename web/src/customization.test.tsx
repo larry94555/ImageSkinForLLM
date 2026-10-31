@@ -98,7 +98,7 @@ function server(
           edited: true,
         }));
         const draft = { ...now, identity, goals: ["Love the night sky."], features };
-        return Response.json({ draft, drafted: features.map((f) => f.key) });
+        return Response.json({ draft, drafted: features.map((f) => f.key), based_on: "abc123" });
       }
       if (url === "/api/customization/draft/discard") {
         asked.push(url);
@@ -354,6 +354,7 @@ test("a saved draft fills the editors", async () => {
         identity: { ...MAYA.identity, name: "Ada", purpose: "to teach the stars" },
         goals: ["Love the night sky."],
         guidelines: { questions: "Drafted." },
+        based_on: "abc123",
       },
     },
   ]);
@@ -377,4 +378,24 @@ test("guidelines the LLM drafted say so", async () => {
   const form = within(screen.getByRole("form", { name: "Answering questions" }));
   expect(form.getByText(/drafted by the LLM/)).toBeTruthy();
   expect(form.queryByText(/as shipped/)).toBeNull();
+});
+
+test("a draft older than a save says so, and stays to be discarded", async () => {
+  const { puts } = server(true, { ...MAYA, features: [QUESTIONS] });
+  await opened();
+  const generate = within(screen.getByRole("region", { name: "Generate again" }));
+  fireEvent.click(generate.getByRole("button", { name: "Generate again" }));
+  await generate.findByRole("table");
+  const refused = "Something was saved since this draft was made. Generate again to redraft.";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      puts.push({ url, body: JSON.parse(String(init?.body ?? "null")) });
+      return Response.json({ detail: refused }, { status: 409 });
+    }),
+  );
+  fireEvent.click(generate.getByRole("button", { name: "Save the draft" }));
+  expect(await generate.findByText(refused)).toBeTruthy();
+  expect(generate.getByRole("table")).toBeTruthy();
+  expect(generate.getByRole("button", { name: "Discard" })).toBeTruthy();
 });
