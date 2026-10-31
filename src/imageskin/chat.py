@@ -36,6 +36,7 @@ from imageskin.customization import (
     asks_about_identity,
     guidelines_of,
     instructions,
+    is_edited,
 )
 from imageskin.examples import asks_for_example, earlier_question, example_asked, example_of
 from imageskin.json_grammar import compact_grammar
@@ -180,6 +181,20 @@ def content_rules(answering: str = ANSWERING) -> str:
 
 
 CONTENT_RULES = content_rules()
+# What the Topics guidelines (R195) are said after, under a question about a topic as a whole.
+TOPIC_GUIDELINES = "This asks about a topic as a whole. Guidelines for talking about a topic:"
+
+
+def topic_guided(question: str, about: str | None) -> str:
+    """The question with the Topics guidelines after it when it asks about a topic as a whole
+    (`about`) and the host edited them; as shipped they describe the reply it gets without them,
+    so it is as before (R195)."""
+    customization = reply_customization.get()
+    if about is None or customization is None or not is_edited(customization, "topics"):
+        return question
+    return f"{question}\n{TOPIC_GUIDELINES} {guidelines_of(customization, 'topics')}"
+
+
 # The longest reply asked for in the middle of the level of detail bar, and for a reply asked
 # outside the chat. A short reply needs far less; this is room in the context window.
 REPLY_TOKENS = DETAIL_LEVELS[DEFAULT_DETAIL][1]
@@ -978,7 +993,11 @@ class Conversation:
         detail: Callable[[], int] = lambda: DEFAULT_DETAIL,
         # The identity and goals, read once for each prompt (R92); None leaves them out.
         customization: Callable[[], Read] | None = None,
+        # The topic or topic's part a prompt asks about as a whole, if any, for the Topics
+        # guidelines (R195).
+        subject_of: Callable[[str], str | None] = lambda prompt: None,
     ) -> None:
+        self._subject_of = subject_of
         self._detail = detail
         self._customization = customization
         self._saved = saved
@@ -1125,7 +1144,14 @@ class Conversation:
             {
                 "role": "user",
                 "content": at_length(
-                    self._with_content(draft, found, fit.room, quiet=True), draft, fit.turns
+                    self._with_content(
+                        self._room_for(draft, self._guided(draft), fit.room, quiet=True),
+                        found,
+                        fit.room,
+                        quiet=True,
+                    ),
+                    draft,
+                    fit.turns,
                 ),
             },
         ]
@@ -1219,24 +1245,31 @@ class Conversation:
             logger.info("Prompt refers to a topic listed", extra={"topic": topic})
         looked_up = prompt if topic is None else topic
         question = prompt
+        about = None  # the topic or topic's part asked about as a whole (R195)
         if asks_for_example(prompt):
             # "Can you give me an example?" is about the question before it (Larry, PR #91).
-            about = example_of(prompt) if topic is None else topic
+            example = example_of(prompt) if topic is None else topic
             earlier = earlier_question([t.content for t in self._turns if t.role == "user"])
-            if about is None and earlier is not None:
+            if example is None and earlier is not None:
                 looked_up = earlier
                 question = example_asked(prompt, earlier)
             else:
-                looked_up = about or prompt
+                looked_up = example or prompt
                 question = example_asked(prompt, None)
             logger.info("Example asked for", extra={"about_earlier_question": looked_up is earlier})
+        else:
+            about = topic or self._subject(prompt)
         found = self._look_up(looked_up)
         if found == [] and self._content_only():
             return self._decline(prompt, on_sentence)
         customization = reply_customization.get()
         if customization is not None:
-            edited = isinstance(customization.guidelines.get("questions"), str)
-            logger.info("Guidelines used", extra={"feature": "questions", "edited": edited})
+            for feature in ("questions",) if about is None else ("questions", "topics"):
+                logger.info(
+                    "Guidelines used",
+                    extra={"feature": feature, "edited": is_edited(customization, feature)},
+                )
+        question = self._room_for(question, topic_guided(question, about), fit.room)
         asked = self._with_content(question, found, fit.room)
         return self._ask_llm(prompt, asked, fit, on_sentence)
 
@@ -1380,6 +1413,33 @@ class Conversation:
             return None
         note(looked_up_ms=ms_since(start))  # R96a
         return found
+
+    def _room_for(self, question: str, guided: str, room: int, quiet: bool = False) -> str:
+        """The question with the Topics guidelines (`guided`) when it fits the room `_fit` left
+        for the question as typed, or without them (Codex's review on PR #248): the host's
+        guidelines never make a question too long, nor a prompt overflow the context window."""
+        if guided == question or tokens({"role": "user", "content": guided}, self._count) <= room:
+            return guided
+        if not quiet:
+            logger.warning(
+                "Topics guidelines left out",
+                extra={"reason": "no room", "question_chars": len(question)},
+            )
+        return question
+
+    def _guided(self, draft: str) -> str:
+        """The question typed so far as `send` would ask it, with the Topics guidelines when it
+        asks about a topic as a whole, so the prompt read ahead matches (R148)."""
+        return topic_guided(draft, referred_topic(draft, *self._told) or self._subject(draft))
+
+    def _subject(self, prompt: str) -> str | None:
+        """The topic or topic's part the prompt asks about as a whole, or None, also when that
+        can't be told (then it is answered as any question)."""
+        try:
+            return self._subject_of(prompt)
+        except Exception:
+            logger.exception("Could not tell whether the prompt asks about a topic")
+            return None
 
     def _list_topics(self) -> list[str]:
         """The content's topics, or none when they can't be read (then nothing is named)."""
