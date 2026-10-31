@@ -2140,7 +2140,13 @@ def create_app(
         topics_complete,
         lambda key: guidelines_of(customization.read().customization, key),  # R197
     )
-    assessor = Assessor(wiki.contents, find_content, conversation.write, topics_complete)
+    assessor = Assessor(
+        wiki.contents,
+        find_content,
+        conversation.write,
+        topics_complete,
+        lambda key: guidelines_of(customization.read().customization, key),  # R198
+    )
 
     def lesson_parts(lesson: Lesson) -> int:
         """How many parts the lesson's topic has, its summary not counted."""

@@ -110,6 +110,14 @@ QUIZ_JUDGING = (
     " Don't mention the reference text, and don't ask anything."
 )
 
+# The assessment's guidelines as shipped (R198), in the same two parts as Quiz me's, each what
+# it was asked with before, so as shipped nothing changes.
+ASSESSMENT_QUESTIONS = (
+    "Ask something that can be answered in a sentence or two from the reference text, without"
+    " mentioning the reference text."
+)
+ASSESSMENT_JUDGING = "Judge the answer from the reference text."
+
 # Each feature's guidelines, by the key they are kept under in `guidelines`, in the order the page
 # shows them. Each guideline PR adds its feature here (R194 to R200).
 FEATURES: dict[str, Feature] = {
@@ -152,6 +160,22 @@ FEATURES: dict[str, Feature] = {
         'Each judgment still starts with "Right!", "Partly right." or "Not quite.", which the'
         " score is counted from, and an answer the participant doesn't know is given as before.",
         QUIZ_JUDGING,
+    ),
+    "assessment questions": Feature(
+        "Assessment: questions",
+        "They are given to the LLM with each assessment question it writes, at each level:"
+        " recalling facts, explaining ideas, and applying and connecting ideas.",
+        "The number of questions, which topics and levels are asked, the scores and the"
+        " evaluation stay as the code makes them, and each question is still one, ending with a"
+        " question mark.",
+        ASSESSMENT_QUESTIONS,
+    ),
+    "assessment judging": Feature(
+        "Assessment: judging",
+        "They are given to the LLM with each answer it judges.",
+        "Each judgment is still a verdict (Right, Partly right or Not quite) and the correct"
+        " answer, kept for the evaluation, which is worked out the same way.",
+        ASSESSMENT_JUDGING,
     ),
 }
 
