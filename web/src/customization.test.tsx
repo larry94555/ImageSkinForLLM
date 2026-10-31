@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/pre
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
-import type { Customization } from "./api";
+import type { Customization, CustomizationChange, PartHistory } from "./api";
+import { preview } from "./customization";
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
@@ -33,6 +34,28 @@ const QUESTIONS = {
 };
 
 type Put = { url: string; body: unknown };
+
+// Each part's history, as the server's History gives it (R95), newest change first.
+let histories: PartHistory[] = [];
+function change(number: number, made_by: CustomizationChange["made_by"], value: CustomizationChange["value"]) {
+  return { number, made_at: "2026-10-31T21:30:00+00:00", made_by, value };
+}
+const TOPICS_HISTORY = {
+  part: "questions",
+  label: "Answering questions",
+  current: 2,
+  changes: [change(2, "saved", "Start with the main idea."), change(1, "shipped", null)],
+};
+const GOALS_HISTORY = {
+  part: "goals",
+  label: "Goals",
+  current: 3,
+  changes: [
+    change(3, "saved", ["Make every answer exam-ready."]),
+    change(2, "generated", ["Love the night sky."]),
+    change(1, "shipped", ["Understand it."]),
+  ],
+};
 
 // A save's answer held back until `resolve` is called.
 type Held = { promise: Promise<void>; resolve: () => void };
@@ -100,6 +123,19 @@ function server(
         const draft = { ...now, identity, goals: ["Love the night sky."], features };
         return Response.json({ draft, drafted: features.map((f) => f.key), based_on: "abc123" });
       }
+      if (url.startsWith("/api/customization/history")) {
+        asked.push(url);
+        const restore = /^\/api\/customization\/history\/([^/]+)\/(\d+)\/restore$/.exec(url);
+        if (restore && init?.method === "POST") {
+          if (refuse) return Response.json({ detail: refuse }, { status: 404 });
+          const part = decodeURIComponent(restore[1]);
+          const back = Number(restore[2]);
+          histories = histories.map((h) => (h.part === part ? { ...h, current: back } : h));
+          const goals = part === "goals" ? ["Love the night sky."] : MAYA.goals;
+          return Response.json({ ...MAYA, goals });
+        }
+        return Response.json({ parts: histories });
+      }
       if (url === "/api/customization/draft/discard") {
         asked.push(url);
         return Response.json({ discarded: true });
@@ -120,6 +156,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  histories = [];
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -227,6 +264,7 @@ test("Assessment and Level of detail have their own sections", async () => {
   const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
   expect(headings).toEqual([
     "Generate again",
+    "History",
     "Identity",
     "Goals",
     "Guidelines",
@@ -398,4 +436,116 @@ test("a draft older than a save says so, and stays to be discarded", async () =>
   expect(await generate.findByText(refused)).toBeTruthy();
   expect(generate.getByRole("table")).toBeTruthy();
   expect(generate.getByRole("button", { name: "Discard" })).toBeTruthy();
+});
+
+test("History lists each part's changes, newest first, with the one in use", async () => {
+  histories = [GOALS_HISTORY, TOPICS_HISTORY];
+  const { asked } = server(true, { ...MAYA, features: [QUESTIONS] });
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  expect(history.queryByRole("group")).toBeNull(); // shown only when asked for
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  const goals = within(await history.findByRole("group", { name: "Goals" }));
+  const items = goals.getAllByRole("listitem").map((li) => li.textContent);
+  expect(items[0]).toMatch(/^Change 3 \(in use\) · Saved · .*Make every answer exam-ready\.Edit$/);
+  expect(items[1]).toMatch(/^Change 2 · Drafted by the LLM · .*Love the night sky\.Go back$/);
+  expect(items[2]).toMatch(/^Change 1 · As shipped · /);
+  const questions = within(history.getByRole("group", { name: "Answering questions" }));
+  expect(questions.getByText("As shipped.")).toBeTruthy();
+  expect(asked).toContain("/api/customization/history?opened=true");
+  expect(history.getAllByRole("button", { name: /^Go back to/ })).toHaveLength(3);
+  expect(history.getAllByRole("button", { name: "Edit" })).toHaveLength(2);
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Customization history shown: 2 parts/));
+  fireEvent.click(history.getByRole("button", { name: "Hide the history" }));
+  expect(history.queryByRole("group")).toBeNull();
+});
+
+test("Go back changes only that part, adds no change, and fills its editor", async () => {
+  histories = [GOALS_HISTORY, TOPICS_HISTORY];
+  const { asked } = server(true);
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  fireEvent.click(await history.findByRole("button", { name: "Go back to Goals change 2" }));
+  await vi.waitFor(() => {
+    const goals = within(screen.getByRole("region", { name: "Goals" }));
+    expect((goals.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Love the night sky.");
+  });
+  expect(asked).toContain("/api/customization/history/goals/2/restore");
+  const goals = within(history.getByRole("group", { name: "Goals" }));
+  await vi.waitFor(() => expect(goals.getAllByRole("listitem")[1].textContent).toMatch(/^Change 2 \(in use\)/));
+  expect(goals.getAllByRole("listitem")).toHaveLength(3);
+  expect(history.getByText("Saved. It is used from the next prompt.")).toBeTruthy();
+  expect(console.info).toHaveBeenCalledWith("Customization restored: Goals, change 2");
+});
+
+test("Edit on the change in use goes to that part's editor", async () => {
+  histories = [GOALS_HISTORY, TOPICS_HISTORY];
+  server(true, { ...MAYA, features: [QUESTIONS] });
+  await opened();
+  const scrolled = vi.fn();
+  const form = screen.getByRole("form", { name: "Answering questions" });
+  form.scrollIntoView = scrolled;
+  document.getElementById("customization-goals")!.scrollIntoView = scrolled;
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  const questions = within(await history.findByRole("group", { name: "Answering questions" }));
+  fireEvent.click(questions.getByRole("button", { name: "Edit" }));
+  expect(scrolled).toHaveBeenCalledTimes(1);
+  // Edit leaves the History open; only a save hides it.
+  const goals = within(history.getByRole("group", { name: "Goals" }));
+  fireEvent.click(goals.getByRole("button", { name: "Edit" }));
+  expect(scrolled).toHaveBeenCalledTimes(2);
+});
+
+test("with nothing changed yet, History says so", async () => {
+  server(true);
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  expect(await history.findByText(/Nothing has been changed yet/)).toBeTruthy();
+});
+
+test("a history that can't be read, or a change that can't be gone back to, says so", async () => {
+  histories = [GOALS_HISTORY];
+  server(true, MAYA, "There is no such change.");
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  fireEvent.click(await history.findByRole("button", { name: "Go back to Goals change 1" }));
+  expect(await history.findByText("There is no such change.")).toBeTruthy();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
+  fireEvent.click(history.getByRole("button", { name: "Hide the history" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  expect(await history.findByText("The history could not be read. Try again.")).toBeTruthy();
+});
+
+test.each([
+  [null, "As shipped."],
+  ["Use short words.", "Use short words."],
+  [["One.", "Two."], "One. Two."],
+  [[], "No goals."],
+  [{ name: "Maya", speaks_as: "x", purpose: "to teach", audience: "", helps_with: "stars" }, "Maya · to teach · stars"],
+])("a change's value is shown in a line", (value, said) => {
+  expect(preview(change(1, "saved", value))).toBe(said);
+});
+
+test("a save anywhere else on the page hides the History, so it opens again up to date", async () => {
+  histories = [GOALS_HISTORY];
+  const { asked } = server(true);
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  // Going back keeps it open, up to date.
+  fireEvent.click(await history.findByRole("button", { name: "Go back to Goals change 2" }));
+  await vi.waitFor(() => expect(asked).toContain("/api/customization/history/goals/2/restore"));
+  expect(await history.findByRole("group", { name: "Goals" })).toBeTruthy();
+  await history.findByText("Saved. It is used from the next prompt.");
+  const identity = within(screen.getByRole("region", { name: "Identity" }));
+  fireEvent.click(identity.getByRole("button", { name: "Save the identity" }));
+  await vi.waitFor(() => expect(history.queryByRole("group")).toBeNull());
+  expect(history.getByRole("button", { name: "History" })).toHaveProperty("ariaExpanded", "false");
+  expect(console.info).toHaveBeenCalledWith("Customization history hidden after a save");
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  expect(await history.findByRole("group", { name: "Goals" })).toBeTruthy();
 });

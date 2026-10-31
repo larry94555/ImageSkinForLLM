@@ -71,6 +71,7 @@ from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.customization import (
+    FEATURES,
     Customization,
     CustomizationFile,
     CustomizationRefused,
@@ -89,6 +90,7 @@ from imageskin.customization_draft import (
     GenerationFailed,
     Generator,
 )
+from imageskin.customization_history import History, NoSuchChange, with_value
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
@@ -1642,7 +1644,9 @@ def create_app(
         return load_ui_settings(data_home, ui_defaults).detail
 
     # The identity, goals and guidelines (R92), read for each prompt and shown to a host.
-    customization = CustomizationFile(data_home)
+    # Every save kept as a version (R95).
+    history = History(data_home)
+    customization = CustomizationFile(data_home, history.saved)
 
     def ask_draft(messages: list[Message], schema: dict[str, Any]) -> str:
         """The LLM asked to draft the customization (R93), after the chat's replies (R99)."""
@@ -1698,14 +1702,18 @@ def create_app(
         edit: Callable[[Customization], Customization],
         feature: str | None = None,
         based_on: str | None = None,
+        made_by: str = "saved",
+        gone_back: tuple[str, int] | None = None,
     ) -> dict[str, Any]:
-        """Save an edit made on the Customization page (R94), used from the next prompt. With
-        `based_on`, only if the customization is still the one it was made from (R93)."""
+        """Save an edit made on the Customization page (R94), used from the next prompt and kept
+        as a change of each part it changes (R95). With `based_on`, only if the customization is
+        still the one it was made from (R93)."""
         start = time.perf_counter()
+        note = {"made_by": made_by, "gone_back": gone_back}
         try:
             if based_on is None:
-                saved = customization.change(edit)
-            elif (changed := customization.change_if_same(based_on, edit)) is not None:
+                saved = customization.change(edit, **note)
+            elif (changed := customization.change_if_same(based_on, edit, **note)) is not None:
                 saved = changed
             else:
                 logger.warning("Customization draft out of date", extra={"part": part})
@@ -1723,7 +1731,7 @@ def create_app(
             extra={"part": part, "feature": feature, "duration_ms": ms_since(start)},
         )
         lessons = getattr(app.state, "lessons", None)
-        if feature == "teach me" and lessons is not None:
+        if lessons is not None and "teach me" in (feature, gone_back and gone_back[0]):
             lessons.refresh()  # each topic's first part written ahead again with them (R98a)
         return shown(saved)
 
@@ -1764,12 +1772,52 @@ def create_app(
                 c = with_guidelines(c, key, text)
             return as_generated(c, list(guidelines))  # drafted anew by Generate again
 
-        return save_customization("draft", edit, based_on=based_on)
+        return save_customization("draft", edit, based_on=based_on, made_by="generated")
 
     @app.post("/api/customization/draft/discard", dependencies=host_only)
     def discard_draft() -> dict[str, bool]:
         logger.info("Customization draft discarded")
         return {"discarded": True}
+
+    @app.get("/api/customization/history", dependencies=host_only)
+    def get_history(
+        opened: Annotated[bool, Query(description="Asked as the History list opens.")] = False,
+    ) -> dict[str, Any]:
+        """The history of each part that has changed, newest change first (R95)."""
+        start = time.perf_counter()
+        shown_parts = [h.shown() for h in history.histories()]
+        if opened:
+            logger.info(
+                "Customization history opened",
+                extra={"parts": len(shown_parts), "duration_ms": ms_since(start)},
+            )
+        return {"parts": shown_parts}
+
+    @app.post("/api/customization/history/{part}/{number}/restore", dependencies=host_only)
+    def restore_change(part: str, number: int) -> dict[str, Any]:
+        """Go back to a change of one part (R95, Larry's review on PR #258): it becomes that
+        part's current change and no other part changes; no change is added."""
+        start = time.perf_counter()
+        try:
+            change = history.part(part).change(number)
+        except NoSuchChange as e:
+            raise HTTPException(status_code=404, detail="There is no such change.") from e
+        shown_now = save_customization(
+            "history",
+            lambda now: with_value(now, part, change.value, change.made_by),
+            feature=part if part in FEATURES else None,
+            gone_back=(part, number),
+        )
+        logger.info(
+            "Customization restored",
+            extra={
+                "part": part,
+                "number": number,
+                "made_by": change.made_by,
+                "duration_ms": ms_since(start),
+            },
+        )
+        return shown_now
 
     @app.put("/api/customization/guidelines/{feature}", dependencies=host_only)
     def put_guidelines(

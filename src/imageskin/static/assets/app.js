@@ -625,6 +625,14 @@ function saveDraft({ draft, drafted, based_on }) {
 async function discardDraft() {
 	await fetch("/api/customization/draft/discard", { method: "POST" });
 }
+async function getCustomizationHistory(opened = false) {
+	return (await json(await fetch(opened ? "/api/customization/history?opened=true" : "/api/customization/history"))).parts;
+}
+async function restoreCustomizationChange(part, number) {
+	const response = await fetch(`/api/customization/history/${encodeURIComponent(part)}/${number}/restore`, { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 async function getCustomization(opened = false) {
 	return json(await fetch(opened ? "/api/customization?opened=true" : "/api/customization"));
 }
@@ -8156,7 +8164,8 @@ var IDENTITY = [
 	]
 ];
 var SAVED = "Saved. It is used from the next prompt.";
-function useSave() {
+var SAVED_EVENT = "customization-saved";
+function useSave(announce = true) {
 	const [busy, setBusy] = d(false);
 	const [said, setSaid] = d(null);
 	async function run(part, save) {
@@ -8170,6 +8179,7 @@ function useSave() {
 				ok: true,
 				text: SAVED
 			});
+			if (announce) window.dispatchEvent(new Event(SAVED_EVENT));
 			return saved;
 		} catch (e) {
 			console.error(`Could not save the customization: ${part}`, e);
@@ -8520,6 +8530,146 @@ function GenerateSection({ now, onSaved }) {
 		]
 	});
 }
+var MADE_BY = {
+	shipped: "As shipped",
+	generated: "Drafted by the LLM",
+	saved: "Saved"
+};
+function preview(change) {
+	const { value } = change;
+	if (value === null) return "As shipped.";
+	if (typeof value === "string") return value;
+	if (Array.isArray(value)) return value.join(" ") || "No goals.";
+	return [
+		"name",
+		"purpose",
+		"audience",
+		"helps_with"
+	].map((k) => value[k]).filter(Boolean).join(" · ");
+}
+function when$1(at) {
+	const date = new Date(at);
+	return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
+}
+function editorOf(part, label) {
+	if (part === "identity" || part === "goals") return document.getElementById(`customization-${part}`) ?? void 0;
+	return Array.from(document.querySelectorAll("form")).find((f) => f.getAttribute("aria-label") === label);
+}
+function HistorySection({ onRestored }) {
+	const [histories, setHistories] = d(null);
+	const [open, setOpen] = d(false);
+	const [error, setError] = d(null);
+	const { busy, run, status, changed } = useSave(false);
+	h(() => {
+		function hide() {
+			setOpen((was) => {
+				if (was) console.info("Customization history hidden after a save");
+				return false;
+			});
+		}
+		window.addEventListener(SAVED_EVENT, hide);
+		return () => window.removeEventListener(SAVED_EVENT, hide);
+	}, []);
+	async function load(opened) {
+		setError(null);
+		const started = performance.now();
+		try {
+			const got = await getCustomizationHistory(opened);
+			setHistories(got);
+			console.info(`Customization history shown: ${got.length} parts (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error("Could not read the customization history", e);
+			setError("The history could not be read. Try again.");
+		}
+	}
+	function toggle() {
+		changed();
+		if (open) {
+			setOpen(false);
+			return;
+		}
+		setOpen(true);
+		load(true);
+	}
+	async function goBack(h, number) {
+		const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
+		if (saved) {
+			console.info(`Customization restored: ${h.label}, change ${number}`);
+			onRestored(saved);
+			await load(false);
+		}
+	}
+	function edit(h) {
+		editorOf(h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-history",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-history",
+				children: "History"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Each part keeps its own changes. Go back makes an earlier change the one in use for that part only, and adds no change; editing it after adds one."
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				"aria-expanded": open,
+				onClick: toggle,
+				children: open ? "Hide the history" : "History"
+			}) }),
+			open && error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			open && !error && histories === null && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			}),
+			open && histories?.length === 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Nothing has been changed yet. Each change from now on is kept here."
+			}),
+			open && histories?.map((h) => /* @__PURE__ */ u("div", {
+				className: "customization-history",
+				role: "group",
+				"aria-label": h.label,
+				children: [/* @__PURE__ */ u("h3", { children: h.label }), /* @__PURE__ */ u("ol", {
+					reversed: true,
+					children: h.changes.map((c) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("span", { children: [
+						/* @__PURE__ */ u("strong", { children: ["Change ", c.number] }),
+						c.number === h.current && " (in use)",
+						" · ",
+						MADE_BY[c.made_by],
+						/* @__PURE__ */ u("span", {
+							className: "muted",
+							children: [" · ", when$1(c.made_at)]
+						}),
+						/* @__PURE__ */ u("span", {
+							className: "change-preview",
+							children: preview(c)
+						})
+					] }), c.number === h.current ? /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						onClick: () => edit(h),
+						children: "Edit"
+					}) : /* @__PURE__ */ u("button", {
+						type: "button",
+						disabled: busy,
+						"aria-label": `Go back to ${h.label} change ${c.number}`,
+						onClick: () => void goBack(h, c.number),
+						children: "Go back"
+					})] }, c.number))
+				})]
+			}, h.part)),
+			open && status
+		]
+	});
+}
 function CustomizationPage() {
 	const session = useHost().session;
 	const host = session?.signed_in === true;
@@ -8565,6 +8715,13 @@ function CustomizationPage() {
 						setSaves((n) => n + 1);
 					}
 				}),
+				/* @__PURE__ */ u(HistorySection, { onRestored: (saved) => {
+					setRead({
+						...saved,
+						shipped: false
+					});
+					setSaves((n) => n + 1);
+				} }),
 				/* @__PURE__ */ u(IdentitySection, { identity: read.identity }, `identity-${saves}`),
 				/* @__PURE__ */ u(GoalsSection, { goals: read.goals }, `goals-${saves}`),
 				read.features.length ? sections(read.features).map(([name, features]) => /* @__PURE__ */ u(GuidelineSection, {
