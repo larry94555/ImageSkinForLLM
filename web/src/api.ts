@@ -1419,6 +1419,21 @@ export async function getCustomizationHistory(opened = false): Promise<PartHisto
   return got.parts;
 }
 
+// A part's change in use beside an earlier one (R95a), word by word: text kept, taken out and
+// put in, in reading order.
+export interface CustomizationComparison {
+  part: string;
+  earlier: number;
+  current: number;
+  runs: { kind: "same" | "added" | "removed"; text: string }[];
+}
+
+export async function compareCustomizationChange(part: string, number: number): Promise<CustomizationComparison> {
+  const response = await fetch(`/api/customization/history/${encodeURIComponent(part)}/${number}/compare`);
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as CustomizationComparison;
+}
+
 // Go back to a change of one part: it becomes that part's current one, and nothing else changes.
 export async function restoreCustomizationChange(part: string, number: number): Promise<Customization> {
   const response = await fetch(

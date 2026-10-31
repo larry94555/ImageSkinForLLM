@@ -11,9 +11,11 @@ so the change gone back from stays in the list. All of them are kept, in
 `customization.history.json` in the app's home folder *(default)*.
 """
 
+import difflib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import asdict, dataclass
@@ -23,6 +25,7 @@ from typing import Any
 
 from imageskin.customization import (
     FEATURES,
+    IDENTITY_LABELS,
     Customization,
     as_generated,
     guidelines_of,
@@ -72,6 +75,44 @@ def with_value(customization: Customization, part: str, value: Any, made_by: str
     return (
         as_generated(changed, [part]) if made_by == "generated" and value is not None else changed
     )
+
+
+def as_text(part: str, value: Any) -> str:
+    """A part's value as text to compare (R95a): the identity a line a part, the goals a line
+    each, and guidelines as shipped as their shipped text."""
+    if part == "identity":
+        parts_ = value if isinstance(value, dict) else {}
+        return "\n".join(f"{IDENTITY_LABELS[k]}: {parts_.get(k, '')}" for k in IDENTITY_LABELS)
+    if part == "goals":
+        return "\n".join(value) if isinstance(value, list) else ""
+    return value if isinstance(value, str) else FEATURES[part].shipped
+
+
+_TOKENS = re.compile(r"\s+|\w+|[^\w\s]+")
+
+
+def compared(earlier: str, now: str) -> list[dict[str, str]]:
+    """`now` beside `earlier`, word by word: runs of text kept (`same`), taken out (`removed`)
+    and put in (`added`), in reading order."""
+    old, new = _TOKENS.findall(earlier), _TOKENS.findall(now)
+    runs: list[dict[str, str]] = []
+
+    def put(kind: str, words: list[str]) -> None:
+        text = "".join(words)
+        if not text:
+            return
+        if runs and runs[-1]["kind"] == kind:
+            runs[-1]["text"] += text
+        else:
+            runs.append({"kind": kind, "text": text})
+
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if op == "equal":
+            put("same", old[i1:i2])
+        else:
+            put("removed", old[i1:i2])
+            put("added", new[j1:j2])
+    return runs
 
 
 @dataclass(frozen=True)

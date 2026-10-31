@@ -125,6 +125,19 @@ function server(
       }
       if (url.startsWith("/api/customization/history")) {
         asked.push(url);
+        const compare = /^\/api\/customization\/history\/([^/]+)\/(\d+)\/compare$/.exec(url);
+        if (compare) {
+          if (refuse) return Response.json({ detail: refuse }, { status: 404 });
+          const part = decodeURIComponent(compare[1]);
+          const current = histories.find((h) => h.part === part)?.current ?? 0;
+          const runs = [
+            { kind: "same", text: "Make every answer " },
+            { kind: "removed", text: "clear" },
+            { kind: "added", text: "exam-ready" },
+            { kind: "same", text: "." },
+          ];
+          return Response.json({ part, earlier: Number(compare[2]), current, runs });
+        }
         const restore = /^\/api\/customization\/history\/([^/]+)\/(\d+)\/restore$/.exec(url);
         if (restore && init?.method === "POST") {
           if (refuse) return Response.json({ detail: refuse }, { status: 404 });
@@ -448,7 +461,7 @@ test("History lists each part's changes, newest first, with the one in use", asy
   const goals = within(await history.findByRole("group", { name: "Goals" }));
   const items = goals.getAllByRole("listitem").map((li) => li.textContent);
   expect(items[0]).toMatch(/^Change 3 \(in use\) · Saved · .*Make every answer exam-ready\.Edit$/);
-  expect(items[1]).toMatch(/^Change 2 · Drafted by the LLM · .*Love the night sky\.Go back$/);
+  expect(items[1]).toMatch(/^Change 2 · Drafted by the LLM · .*Love the night sky\.CompareGo back$/);
   expect(items[2]).toMatch(/^Change 1 · As shipped · /);
   const questions = within(history.getByRole("group", { name: "Answering questions" }));
   expect(questions.getByText("As shipped.")).toBeTruthy();
@@ -548,4 +561,41 @@ test("a save anywhere else on the page hides the History, so it opens again up t
   expect(console.info).toHaveBeenCalledWith("Customization history hidden after a save");
   fireEvent.click(history.getByRole("button", { name: "History" }));
   expect(await history.findByRole("group", { name: "Goals" })).toBeTruthy();
+});
+
+test("Compare shows the change in use beside an earlier one, with the changes marked", async () => {
+  histories = [GOALS_HISTORY, TOPICS_HISTORY];
+  const { asked } = server(true);
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  // Only the changes not in use can be compared with it.
+  expect(await history.findAllByRole("button", { name: /^Compare / })).toHaveLength(3);
+  fireEvent.click(history.getByRole("button", { name: "Compare Goals change 2 with the change in use" }));
+  const shown = within(await history.findByRole("region", { name: "Goals compared" }));
+  expect(asked).toContain("/api/customization/history/goals/2/compare");
+  expect(shown.getByText("Change 2 beside change 3 (in use)")).toBeTruthy();
+  expect(shown.getByText("exam-ready").tagName).toBe("INS");
+  expect(shown.getByText("clear").tagName).toBe("DEL");
+  expect(shown.getByText("Make every answer").tagName).toBe("SPAN");
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Customization compared: Goals, change 2 with 3/));
+  // Shown under its own part only.
+  const questions = within(history.getByRole("group", { name: "Answering questions" }));
+  expect(questions.queryByRole("region")).toBeNull();
+  fireEvent.click(shown.getByRole("button", { name: "Hide the comparison" }));
+  expect(history.queryByRole("region", { name: "Goals compared" })).toBeNull();
+});
+
+test("a comparison that can't be made says so under its part", async () => {
+  histories = [GOALS_HISTORY];
+  server(true, MAYA, "There is no such change.");
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  fireEvent.click(await history.findByRole("button", { name: "Compare Goals change 1 with the change in use" }));
+  const goals = within(history.getByRole("group", { name: "Goals" }));
+  expect(await goals.findByText("There is no such change.")).toBeTruthy();
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+  fireEvent.click(goals.getByRole("button", { name: "Compare Goals change 2 with the change in use" }));
+  expect(await goals.findByText("They could not be compared. Try again.")).toBeTruthy();
 });

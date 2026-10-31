@@ -628,6 +628,11 @@ async function discardDraft() {
 async function getCustomizationHistory(opened = false) {
 	return (await json(await fetch(opened ? "/api/customization/history?opened=true" : "/api/customization/history"))).parts;
 }
+async function compareCustomizationChange(part, number) {
+	const response = await fetch(`/api/customization/history/${encodeURIComponent(part)}/${number}/compare`);
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 async function restoreCustomizationChange(part, number) {
 	const response = await fetch(`/api/customization/history/${encodeURIComponent(part)}/${number}/restore`, { method: "POST" });
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
@@ -8555,10 +8560,41 @@ function editorOf(part, label) {
 	if (part === "identity" || part === "goals") return document.getElementById(`customization-${part}`) ?? void 0;
 	return Array.from(document.querySelectorAll("form")).find((f) => f.getAttribute("aria-label") === label);
 }
+function Comparison({ h, shown, onHide }) {
+	return /* @__PURE__ */ u("div", {
+		className: "customization-compare",
+		role: "region",
+		"aria-label": `${h.label} compared`,
+		children: [
+			/* @__PURE__ */ u("p", { children: [/* @__PURE__ */ u("strong", { children: [
+				"Change ",
+				shown.earlier,
+				" beside change ",
+				shown.current,
+				" (in use)"
+			] }), /* @__PURE__ */ u("span", {
+				className: "muted",
+				children: " · added text is marked, removed text is struck through"
+			})] }),
+			/* @__PURE__ */ u("p", {
+				className: "compare-text",
+				children: shown.runs.map((r, i) => r.kind === "added" ? /* @__PURE__ */ u("ins", { children: r.text }, i) : r.kind === "removed" ? /* @__PURE__ */ u("del", { children: r.text }, i) : /* @__PURE__ */ u("span", { children: r.text }, i))
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: onHide,
+				children: "Hide the comparison"
+			}) })
+		]
+	});
+}
 function HistorySection({ onRestored }) {
 	const [histories, setHistories] = d(null);
 	const [open, setOpen] = d(false);
 	const [error, setError] = d(null);
+	const [comparison, setComparison] = d(null);
+	const [compareError, setCompareError] = d(null);
 	const { busy, run, status, changed } = useSave(false);
 	h(() => {
 		function hide() {
@@ -8589,9 +8625,27 @@ function HistorySection({ onRestored }) {
 			return;
 		}
 		setOpen(true);
+		setComparison(null);
+		setCompareError(null);
 		load(true);
 	}
+	async function compare(h, number) {
+		setCompareError(null);
+		const started = performance.now();
+		try {
+			setComparison(await compareCustomizationChange(h.part, number));
+			console.info(`Customization compared: ${h.label}, change ${number} with ${h.current} (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error("Could not compare the changes", e);
+			setComparison(null);
+			setCompareError({
+				part: h.part,
+				text: e instanceof ServerRefusal ? e.message : "They could not be compared. Try again."
+			});
+		}
+	}
 	async function goBack(h, number) {
+		setComparison(null);
 		const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
 		if (saved) {
 			console.info(`Customization restored: ${h.label}, change ${number}`);
@@ -8637,34 +8691,55 @@ function HistorySection({ onRestored }) {
 				className: "customization-history",
 				role: "group",
 				"aria-label": h.label,
-				children: [/* @__PURE__ */ u("h3", { children: h.label }), /* @__PURE__ */ u("ol", {
-					reversed: true,
-					children: h.changes.map((c) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("span", { children: [
-						/* @__PURE__ */ u("strong", { children: ["Change ", c.number] }),
-						c.number === h.current && " (in use)",
-						" · ",
-						MADE_BY[c.made_by],
-						/* @__PURE__ */ u("span", {
-							className: "muted",
-							children: [" · ", when$1(c.made_at)]
-						}),
-						/* @__PURE__ */ u("span", {
-							className: "change-preview",
-							children: preview(c)
-						})
-					] }), c.number === h.current ? /* @__PURE__ */ u("button", {
-						type: "button",
-						className: "secondary",
-						onClick: () => edit(h),
-						children: "Edit"
-					}) : /* @__PURE__ */ u("button", {
-						type: "button",
-						disabled: busy,
-						"aria-label": `Go back to ${h.label} change ${c.number}`,
-						onClick: () => void goBack(h, c.number),
-						children: "Go back"
-					})] }, c.number))
-				})]
+				children: [
+					/* @__PURE__ */ u("h3", { children: h.label }),
+					/* @__PURE__ */ u("ol", {
+						reversed: true,
+						children: h.changes.map((c) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("span", { children: [
+							/* @__PURE__ */ u("strong", { children: ["Change ", c.number] }),
+							c.number === h.current && " (in use)",
+							" · ",
+							MADE_BY[c.made_by],
+							/* @__PURE__ */ u("span", {
+								className: "muted",
+								children: [" · ", when$1(c.made_at)]
+							}),
+							/* @__PURE__ */ u("span", {
+								className: "change-preview",
+								children: preview(c)
+							})
+						] }), c.number === h.current ? /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							onClick: () => edit(h),
+							children: "Edit"
+						}) : /* @__PURE__ */ u("span", {
+							className: "change-actions",
+							children: [/* @__PURE__ */ u("button", {
+								type: "button",
+								className: "secondary",
+								"aria-label": `Compare ${h.label} change ${c.number} with the change in use`,
+								onClick: () => void compare(h, c.number),
+								children: "Compare"
+							}), /* @__PURE__ */ u("button", {
+								type: "button",
+								disabled: busy,
+								"aria-label": `Go back to ${h.label} change ${c.number}`,
+								onClick: () => void goBack(h, c.number),
+								children: "Go back"
+							})]
+						})] }, c.number))
+					}),
+					comparison?.part === h.part && /* @__PURE__ */ u(Comparison, {
+						h,
+						shown: comparison,
+						onHide: () => setComparison(null)
+					}),
+					compareError?.part === h.part && /* @__PURE__ */ u("p", {
+						className: "error",
+						children: compareError.text
+					})
+				]
 			}, h.part)),
 			open && status
 		]
