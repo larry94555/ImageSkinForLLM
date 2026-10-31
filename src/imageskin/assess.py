@@ -23,10 +23,13 @@ from functools import cache
 from typing import Any
 
 from imageskin.chat import LlmError
+from imageskin.customization import ASSESSMENT_JUDGING, ASSESSMENT_QUESTIONS, FEATURES
 from imageskin.quiz import (
     AGAIN,
     EXPLAIN,
+    JUDGING_GUIDELINES,
     PARTLY,
+    QUESTION_GUIDELINES,
     REVEAL,
     RIGHT,
     WRONG,
@@ -312,6 +315,49 @@ def kept_short(text: str, most: int) -> str:
     return " ".join(said[:most])
 
 
+def question_asked(
+    topic: str,
+    parts: list[Part],
+    part: int,
+    level: int,
+    asked: tuple[str, ...],
+    guidelines: str = ASSESSMENT_QUESTIONS,
+) -> str:
+    """What the LLM is asked to write a question at the level, with the assessment's guidelines
+    for questions (R198): as shipped, word for word what it was asked before them; edited, they
+    take the place of what to ask, with the level named so they can say what each asks. The
+    level, the part and the one question with a question mark stay as the code makes them."""
+    if guidelines == ASSESSMENT_QUESTIONS:
+        instruction = (
+            f"Write one short quiz question that {_ASK[level]} {what(topic, parts, part)}, and"
+            " that can be answered in a sentence or two from the reference text. Say only the"
+            " question, ending with a question mark, and don't mention the reference text."
+        )
+    else:
+        instruction = (
+            f"Write one short quiz question that {_ASK[level]} {what(topic, parts, part)}. Say"
+            f" only the question, ending with a question mark. It is a question about"
+            f" {LEVELS[level]}. {QUESTION_GUIDELINES} {guidelines}"
+        )
+    if asked:
+        instruction += " Don't ask any of these again: " + " ".join(asked)
+    return instruction
+
+
+def judging_asked(question: str, answer: str, guidelines: str = ASSESSMENT_JUDGING) -> str:
+    """What the LLM is asked to judge an answer, with the assessment's guidelines for judging
+    (R198): as shipped, word for word what it was asked before them; edited, they take the
+    place of how to judge. The two lines it replies in stay, as the verdict and the correct
+    answer are read from them."""
+    if guidelines != ASSESSMENT_JUDGING:
+        guidelines = f"{JUDGING_GUIDELINES} {guidelines}"
+    return (
+        f'The participant was asked: "{question}" The participant answered: "{answer}".'
+        f' {guidelines} Reply in exactly two lines: "Verdict:" followed by Right, Partly right'
+        ' or Not quite; then "Answer:" followed by the correct answer in one short sentence.'
+    )
+
+
 class Assessor:
     """Decides what each prompt does to the assessment, from the wiki as it is now. `write` asks
     the LLM for a one-off answer from some material (`Conversation.write`)."""
@@ -320,9 +366,14 @@ class Assessor:
         self,
         contents: Callable[[], list[dict[str, Any]]],
         find: Callable[[str], list[str]],
-        write: Callable[[str, list[str]], str],
+        # (instruction, material), and with edited guidelines (R198) `unguided` and `feature`.
+        write: Callable[..., str],
         complete: Callable[[], bool] = lambda: True,
+        # A feature's guidelines as they are now, by its key (R198), read for each question
+        # written and each answer judged.
+        guidelines: Callable[[str], str] = lambda key: FEATURES[key].shipped,
     ) -> None:
+        self._guidelines = guidelines
         self._contents = contents
         self._tutor = Tutor(contents, find, complete)  # for each part's material
         self._write = write
@@ -503,6 +554,23 @@ class Assessor:
         done = evaluation(assessment.answers, topics)[0] if assessment.answers else []
         return Assessed([TALKING, *([said] if said else []), *done], None)
 
+    def _guidelines_of(self, key: str) -> str:
+        """A part of the assessment's guidelines now, or as shipped when they can't be read."""
+        try:
+            text = self._guidelines(key)
+        except Exception:
+            logger.exception("Could not read the assessment guidelines")
+            text = FEATURES[key].shipped
+        logger.info(
+            "Guidelines used",
+            extra={
+                "feature": "assessment",
+                "part": key.removeprefix("assessment "),
+                "edited": text != FEATURES[key].shipped,
+            },
+        )
+        return text
+
     def _start(self) -> Assessed:
         topics = lesson_topics(self._contents())
         waiting = not self._complete()  # it covers all the content, so it waits for all of it
@@ -560,18 +628,22 @@ class Assessor:
         asked already, when it can't. There is no plain apply question, since the material
         may not say how it applies (review on PR #90): the LLM is asked twice, and then the
         request fails, so it can be sent again."""
-        instruction = (
-            f"Write one short quiz question that {_ASK[level]} {what(topic, parts, part)}, and"
-            " that can be answered in a sentence or two from the reference text. Say only the"
-            " question, ending with a question mark, and don't mention the reference text."
-        )
-        if asked:
-            instruction += " Don't ask any of these again: " + " ".join(asked)
+        guidelines = self._guidelines_of("assessment questions")
+        instruction = question_asked(topic, parts, part, level, asked, guidelines)
         keys = {plain(a) for a in asked}
         question = ""
         for _ in range(2 if level == APPLY else 1):
             try:
-                written = first_question(self._write(instruction, material))
+                written = first_question(
+                    self._write(instruction, material)
+                    if guidelines == ASSESSMENT_QUESTIONS
+                    else self._write(  # asked as shipped when the edited ones don't fit
+                        instruction,
+                        material,
+                        unguided=question_asked(topic, parts, part, level, asked),
+                        feature="assessment questions",
+                    )
+                )
             except LlmError as e:
                 logger.error("Could not write an assessment question", extra={"error": str(e)})
                 written = ""
@@ -615,13 +687,15 @@ class Assessor:
     ) -> Assessed:
         """The answer judged, kept with the correct answer for the end, and the next question
         or the evaluation. Nothing is said about the answer now, so nothing is taught."""
-        instruction = (
-            f'The participant was asked: "{assessment.question}" The participant answered:'
-            f' "{answer}". Judge the answer from the reference text. Reply in exactly two lines:'
-            ' "Verdict:" followed by Right, Partly right or Not quite; then "Answer:" followed by'
-            " the correct answer in one short sentence."
-        )
-        said = self._write(instruction, material)
+        guidelines = self._guidelines_of("assessment judging")
+        instruction = judging_asked(assessment.question, answer, guidelines)
+        if guidelines == ASSESSMENT_JUDGING:
+            said = self._write(instruction, material)
+        else:  # asked as shipped when the edited ones don't fit
+            shipped = judging_asked(assessment.question, answer)
+            said = self._write(
+                instruction, material, unguided=shipped, feature="assessment judging"
+            )
         found = re.search(r"verdict\W*(.+)", said, re.IGNORECASE)
         judged = WRONG if gave_up else verdict(found[1] if found else said)
         found = re.search(r"answer\W*(.+)", said, re.IGNORECASE)
