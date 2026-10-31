@@ -28,7 +28,7 @@ SUBJECTS = ["Water Cycle", "Evaporation", "Moons of Mars"]
 
 def test_they_ship_describing_todays_replies_and_are_listed_after_answering_questions() -> None:
     assert FEATURES["topics"].shipped == TOPICS == guidelines_of(SHIPPED, "topics")
-    assert [f["key"] for f in features(SHIPPED)] == ["questions", "topics"]
+    assert [f["key"] for f in features(SHIPPED)][:2] == ["questions", "topics"]
     assert not is_edited(SHIPPED, "topics")
     assert is_edited(with_guidelines(SHIPPED, "topics", EDITED), "topics")
 

@@ -76,6 +76,7 @@ from imageskin.customization import (
     CustomizationRefused,
     NoSuchFeature,
     features,
+    guidelines_of,
     with_goals,
     with_guidelines,
     with_identity,
@@ -1661,6 +1662,9 @@ def create_app(
             "Customization saved",
             extra={"part": part, "feature": feature, "duration_ms": ms_since(start)},
         )
+        lessons = getattr(app.state, "lessons", None)
+        if feature == "teach me" and lessons is not None:
+            lessons.refresh()  # each topic's first part written ahead again with them (R98a)
         return shown(saved)
 
     @app.put("/api/customization/identity", dependencies=host_only)
@@ -2077,7 +2081,12 @@ def create_app(
             },
         )
 
-    tutor = Tutor(wiki.contents, find_content, topics_complete)
+    tutor = Tutor(
+        wiki.contents,
+        find_content,
+        topics_complete,
+        lambda: guidelines_of(customization.read().customization, "teach me"),  # R196
+    )
 
     # Each topic's first lesson part, written ahead once the wiki is built (R98a), after the
     # chat's requests to the LLM (R99).

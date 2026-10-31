@@ -92,6 +92,13 @@ TOPICS = (
     "Talk about the topic as you answer any question: from the reference text, in your own words."
 )
 
+# Teach me's guidelines as shipped (R196): how each part of a lesson is asked for today. As
+# shipped, the parts are asked for word for word as before; edited, they say how to teach.
+TEACHING = (
+    "Teach each part as a tutor talking to someone new to it, in two to four short sentences,"
+    " and sum up each topic in one sentence. Don't ask me anything."
+)
+
 # Each feature's guidelines, by the key they are kept under in `guidelines`, in the order the page
 # shows them. Each guideline PR adds its feature here (R194 to R200).
 FEATURES: dict[str, Feature] = {
@@ -111,6 +118,14 @@ FEATURES: dict[str, Feature] = {
         'The topic list, the reply to "What can you talk about?" and the hints under the prompt'
         " box stay as the code makes them.",
         TOPICS,
+    ),
+    "teach me": Feature(
+        "Teach me",
+        "They are given to the LLM with every part of a lesson it writes: a topic's main ideas,"
+        " each entry under it and the one-line summary.",
+        "The order of the topics and parts, what was covered, Next and Stop stay as the code"
+        " makes them, and Say it simpler has its own guidelines.",
+        TEACHING,
     ),
 }
 

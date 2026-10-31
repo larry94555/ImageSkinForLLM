@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from imageskin.chat import Teach
+from imageskin.customization import TEACHING
 from imageskin.lookup import named_topic
 
 logger = logging.getLogger(__name__)
@@ -176,18 +177,30 @@ def what(topic: str, parts: list[Part], part: int) -> str:
     return f'"{parts[part].title}", part of "{topic}"'
 
 
-def explain(topic: str, parts: list[Part], part: int, simpler: bool = False) -> str:
-    """What the LLM is asked to teach one part."""
+# What edited Teach me guidelines (R196) are said after, in what a lesson part asks.
+TEACH_GUIDELINES = "Guidelines for teaching:"
+
+
+def explain(
+    topic: str, parts: list[Part], part: int, simpler: bool = False, guidelines: str = TEACHING
+) -> str:
+    """What the LLM is asked to teach one part, with the Teach me guidelines (R196). As shipped,
+    they are what it was asked before them, word for word, so a part written ahead (R98a) is
+    still used; edited, they take the place of how to teach."""
+    shipped = guidelines == TEACHING
     if part >= len(parts):
-        return (
+        summary = (
             f'Sum up in one sentence what we have just learned about "{topic}". Say only that'
             " sentence."
         )
-    if simpler:
+        return summary if shipped else f"{summary} {TEACH_GUIDELINES} {guidelines}"
+    if simpler:  # Say it simpler's own guidelines come with R200
         return (
             f"Explain {what(topic, parts, part)} again, more simply: in two or three short"
             " sentences, with everyday words and an everyday example. Don't ask me anything."
         )
+    if not shipped:
+        return f"Teach me {what(topic, parts, part)}. {TEACH_GUIDELINES} {guidelines}"
     return (
         f"Teach me {what(topic, parts, part)}, as a tutor talking to someone new to it, in"
         " two to four short sentences. Don't ask me anything."
@@ -202,7 +215,10 @@ class Tutor:
         contents: Callable[[], list[dict[str, Any]]],
         find: Callable[[str], list[str]],
         complete: Callable[[], bool] = lambda: True,
+        # Teach me's guidelines as they are now (R196), read for each part asked for.
+        guidelines: Callable[[], str] = lambda: TEACHING,
     ) -> None:
+        self._guidelines = guidelines
         self._contents = contents
         self._find = find
         # Whether every PDF has been read and its wiki built, so the topics are all of them.
@@ -260,8 +276,11 @@ class Tutor:
     def first_parts(self) -> dict[str, Teach]:
         """Each topic's first part, its main ideas, as a lesson starting there asks the LLM
         for it, so it can be written ahead (R98a)."""
+        guidelines = self._teaching()
         return {
-            topic: Teach(explain(topic, parts, 0), self.material(topic, parts, 0))
+            topic: Teach(
+                explain(topic, parts, 0, guidelines=guidelines), self.material(topic, parts, 0)
+            )
             for topic, parts in self._topics().items()
         }
 
@@ -320,12 +339,29 @@ class Tutor:
             "Lesson part",
             extra={"topic": lesson.topic, "part": part, "parts": len(parts), "kind": kind},
         )
+        simpler = kind == "simpler"
+        guidelines = TEACHING if simpler else self._teaching()
+        if not simpler:
+            logger.info(
+                "Guidelines used",
+                extra={"feature": "teach me", "edited": guidelines != TEACHING},
+            )
         if part >= len(parts):
-            teach = Teach(explain(lesson.topic, parts, part), summed_up(parts))
+            teach = Teach(
+                explain(lesson.topic, parts, part, guidelines=guidelines), summed_up(parts)
+            )
             return Explain(teach, lesson, "summary")
         material = self.material(lesson.topic, parts, part)
-        teach = Teach(explain(lesson.topic, parts, part, kind == "simpler"), material)
+        teach = Teach(explain(lesson.topic, parts, part, simpler, guidelines), material)
         return Explain(teach, lesson, kind)
+
+    def _teaching(self) -> str:
+        """Teach me's guidelines now, or as shipped when they can't be read."""
+        try:
+            return self._guidelines()
+        except Exception:
+            logger.exception("Could not read the Teach me guidelines")
+            return TEACHING
 
     def material(self, topic: str, parts: list[Part], part: int) -> list[str]:
         """The part's own wiki entry, then what else the content has on it: the lookup finds
