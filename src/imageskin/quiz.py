@@ -21,6 +21,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from imageskin.chat import LlmError, Teach
+from imageskin.customization import FEATURES, QUIZ_JUDGING, QUIZ_QUESTIONS
 from imageskin.teach import Choice, Part, Tutor, lesson_topics, plain, what
 from imageskin.topics import spoken_list
 
@@ -214,6 +215,53 @@ def plain_question(title: str, asked: tuple[str, ...]) -> str:
     return next(q for q in (p.format(title) for p in _PLAIN) if plain(q) not in keys)
 
 
+# What edited Quiz me guidelines (R197) are said after, in what a question or judgment asks.
+QUESTION_GUIDELINES = "Guidelines for the question:"
+JUDGING_GUIDELINES = "Guidelines for judging:"
+
+
+def question_asked(
+    topic: str,
+    parts: list[Part],
+    part: int,
+    asked: tuple[str, ...],
+    guidelines: str = QUIZ_QUESTIONS,
+) -> str:
+    """What the LLM is asked to write a question from the part's material, with the Quiz me
+    guidelines for questions (R197): as shipped, word for word what it was asked before them;
+    edited, they take the place of what to ask. It is still one question with a question mark,
+    as the code finds it by that, and not one asked before."""
+    if guidelines == QUIZ_QUESTIONS:
+        instruction = (
+            f"Write one short quiz question about {what(topic, parts, part)} that can be"
+            " answered in a sentence from the reference text. Say only the question, ending with"
+            " a question mark, and don't mention the reference text."
+        )
+    else:
+        instruction = (
+            f"Write one short quiz question about {what(topic, parts, part)}. Say only the"
+            f" question, ending with a question mark. {QUESTION_GUIDELINES} {guidelines}"
+        )
+    if asked:
+        instruction += " Don't ask any of these again: " + " ".join(asked)
+    return instruction
+
+
+def judging_asked(question: str, answer: str, guidelines: str = QUIZ_JUDGING) -> str:
+    """What the LLM is asked to judge an answer, with the Quiz me guidelines for judging
+    (R197): as shipped, word for word what it was asked before them; edited, they take the
+    place of how to go on after the verdict, which it still starts with, as the score is
+    counted from it."""
+    judge = (
+        f'The participant was asked: "{question}" The participant answered: "{answer}". Judge'
+        ' the answer from the reference text, talking to the participant as "you". Start with'
+        ' exactly one of "Right!", "Partly right." or "Not quite."'
+    )
+    if guidelines == QUIZ_JUDGING:
+        return f"{judge} {guidelines}"
+    return f"{judge} {JUDGING_GUIDELINES} {guidelines}"
+
+
 class Quizzer:
     """Decides what each prompt does to the quiz, from the wiki as it is now. `write` asks the
     LLM for a one-off answer from some material (`Conversation.write`)."""
@@ -222,9 +270,14 @@ class Quizzer:
         self,
         contents: Callable[[], list[dict[str, Any]]],
         find: Callable[[str], list[str]],
-        write: Callable[[str, list[str]], str],
+        # (instruction, material), and with edited guidelines (R197) `unguided` and `feature`.
+        write: Callable[..., str],
         complete: Callable[[], bool] = lambda: True,
+        # A feature's guidelines as they are now, by its key (R197), read for each question
+        # written and each answer judged.
+        guidelines: Callable[[str], str] = lambda key: FEATURES[key].shipped,
     ) -> None:
+        self._guidelines = guidelines
         self._contents = contents
         self._tutor = Tutor(contents, find, complete)  # for each part's material
         self._write = write
@@ -326,6 +379,23 @@ class Quizzer:
         teach = Teach(instruction, [], lambda reply: [asked_line(quiz.number, quiz.question)])
         return Judge(teach, quiz)
 
+    def _guidelines_of(self, key: str) -> str:
+        """A part of Quiz me's guidelines now, or as shipped when they can't be read."""
+        try:
+            text = self._guidelines(key)
+        except Exception:
+            logger.exception("Could not read the Quiz me guidelines")
+            text = FEATURES[key].shipped
+        logger.info(
+            "Guidelines used",
+            extra={
+                "feature": "quiz me",
+                "part": key.removeprefix("quiz "),
+                "edited": text != FEATURES[key].shipped,
+            },
+        )
+        return text
+
     def _start(self, about: str | None, topics: dict[str, list[Part]]) -> Said:
         if not topics:
             waiting = not self._complete()
@@ -357,16 +427,17 @@ class Quizzer:
     ) -> tuple[str, str]:
         """A question written by the LLM from the part's material, or a plain one when it
         can't; and the material's fingerprint."""
-        instruction = (
-            f"Write one short quiz question about {what(topic, parts, part)} that can be"
-            " answered in a sentence from the reference text. Say only the question, ending with a"
-            " question mark, and don't mention the reference text."
-        )
-        if asked:
-            instruction += " Don't ask any of these again: " + " ".join(asked)
+        guidelines = self._guidelines_of("quiz questions")
+        instruction = question_asked(topic, parts, part, asked, guidelines)
         material = self._tutor.material(topic, parts, part)
         try:
-            written = self._write(instruction, material)
+            if guidelines == QUIZ_QUESTIONS:
+                written = self._write(instruction, material)
+            else:  # asked as shipped when the edited guidelines don't fit
+                shipped = question_asked(topic, parts, part, asked)
+                written = self._write(
+                    instruction, material, unguided=shipped, feature="quiz questions"
+                )
         except LlmError as e:
             logger.error("Could not write a quiz question", extra={"error": str(e)})
             written = ""
@@ -387,13 +458,7 @@ class Quizzer:
         """The answer judged from the material the question was written from, or, when the
         participant doesn't know, the answer given; then the next question, or the end."""
         part = quiz.part
-        instruction = (
-            f'The participant was asked: "{quiz.question}" The participant answered:'
-            f' "{answer}". Judge the answer from the reference text, talking to the participant'
-            ' as "you". Start with exactly one of "Right!", "Partly right." or "Not quite." Then'
-            " give the correct answer and a one-line reason, kindly, in at most two more"
-            " sentences. Don't mention the reference text, and don't ask anything."
-        )
+        unguided = None
         if gave_up:
             instruction = (
                 f'The participant was asked: "{quiz.question}" and doesn\'t know the answer.'
@@ -401,7 +466,13 @@ class Quizzer:
                 " one-line reason, in at most two sentences. Don't mention the reference text, and"
                 " don't ask anything."
             )
-        judged = Judge(Teach(instruction, material), quiz)
+        else:
+            guidelines = self._guidelines_of("quiz judging")
+            instruction = judging_asked(quiz.question, answer, guidelines)
+            if guidelines != QUIZ_JUDGING:  # asked as shipped when they don't fit
+                unguided = judging_asked(quiz.question, answer)
+        teach = Teach(instruction, material, unguided=unguided, feature="quiz judging")
+        judged = Judge(teach, quiz)
 
         def then(reply: str) -> list[str]:
             found = WRONG if gave_up else verdict(reply)

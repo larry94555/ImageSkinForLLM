@@ -250,9 +250,10 @@ class Teach:
     # Given the LLM's reply, more sentences said after it, made here: the next quiz question
     # once an answer is judged, say (R41i).
     then: Callable[[str], list[str]] | None = None
-    # The instruction without the host's edited guidelines (R196), asked instead when they
-    # don't fit the room left for it; None when it has none.
+    # The instruction without the host's edited guidelines (R196, R197), asked instead when
+    # they don't fit the room left for it; None when it has none. `feature` is whose they are.
     unguided: str | None = None
+    feature: str = "teach me"
 
 
 @dataclass(frozen=True)
@@ -1351,10 +1352,20 @@ class Conversation:
             reply = Turn("assistant", " ".join([reply.content, *more]))
         return reply, self._record(prompt, reply, turns, fit.budget)
 
-    def write(self, instruction: str, material: list[str]) -> str:
+    def write(
+        self,
+        instruction: str,
+        material: list[str],
+        unguided: str | None = None,
+        feature: str = "",
+    ) -> str:
         """A one-off answer from the LLM to `instruction`, with the material quoted before it
-        and none of the conversation, which it doesn't change: a quiz question, say (R41i)."""
-        asked = self._with_content(instruction, material, self._fit(instruction).room)
+        and none of the conversation, which it doesn't change: a quiz question, say (R41i).
+        With `unguided`, the instruction without a feature's edited guidelines, asked instead
+        when they don't fit (R197)."""
+        teach = Teach(instruction, material, unguided=unguided, feature=feature)
+        room = self._fit(instruction if unguided is None else unguided).room
+        asked = self._with_content(self._lesson_part(teach, room), material, room)
         start = time.perf_counter()
         # Without the system prompt, the rules for the material go with it, with the Answering
         # questions guidelines as they are now (R194; Codex's review on PR #245).
@@ -1447,12 +1458,12 @@ class Conversation:
         return question
 
     def _lesson_part(self, teach: Teach, room: int, quiet: bool = False) -> str:
-        """What a lesson part asks, with the Teach me guidelines when they fit the room (R196);
-        otherwise as it was asked before them."""
+        """What a lesson or quiz step asks, with its feature's guidelines when they fit the room
+        (R196, R197); otherwise as it was asked before them."""
         if teach.unguided is None:
             return teach.instruction
         return self._room_for(
-            teach.unguided, teach.instruction, room, quiet=quiet, feature="teach me"
+            teach.unguided, teach.instruction, room, quiet=quiet, feature=teach.feature
         )
 
     def _guided(self, draft: str) -> str:

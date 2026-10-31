@@ -99,6 +99,17 @@ TEACHING = (
     " and sum up each topic in one sentence. Don't ask me anything."
 )
 
+# Quiz me's guidelines as shipped (R197), in two parts: how a question is written and how an
+# answer is judged, each what it was asked with before, so as shipped nothing changes.
+QUIZ_QUESTIONS = (
+    "Ask something that can be answered in a sentence from the reference text, without"
+    " mentioning the reference text."
+)
+QUIZ_JUDGING = (
+    "Then give the correct answer and a one-line reason, kindly, in at most two more sentences."
+    " Don't mention the reference text, and don't ask anything."
+)
+
 # Each feature's guidelines, by the key they are kept under in `guidelines`, in the order the page
 # shows them. Each guideline PR adds its feature here (R194 to R200).
 FEATURES: dict[str, Feature] = {
@@ -126,6 +137,21 @@ FEATURES: dict[str, Feature] = {
         "The order of the topics and parts, what was covered, Next and Stop stay as the code"
         " makes them, and Say it simpler has its own guidelines.",
         TEACHING,
+    ),
+    "quiz questions": Feature(
+        "Quiz me: questions",
+        "They are given to the LLM with each quiz question it writes.",
+        'The number of questions, "How many are left?", the score and the summary at the end'
+        " stay as the code makes them, and each question is still one, ending with a question"
+        " mark.",
+        QUIZ_QUESTIONS,
+    ),
+    "quiz judging": Feature(
+        "Quiz me: judging",
+        "They are given to the LLM with each answer it judges.",
+        'Each judgment still starts with "Right!", "Partly right." or "Not quite.", which the'
+        " score is counted from, and an answer the participant doesn't know is given as before.",
+        QUIZ_JUDGING,
     ),
 }
 
