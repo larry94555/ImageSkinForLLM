@@ -492,9 +492,8 @@ test("Edit on the change in use goes to that part's editor", async () => {
   const questions = within(await history.findByRole("group", { name: "Answering questions" }));
   fireEvent.click(questions.getByRole("button", { name: "Edit" }));
   expect(scrolled).toHaveBeenCalledTimes(1);
-  expect(history.queryByRole("group")).toBeNull();
-  fireEvent.click(history.getByRole("button", { name: "History" }));
-  const goals = within(await history.findByRole("group", { name: "Goals" }));
+  // Edit leaves the History open; only a save hides it.
+  const goals = within(history.getByRole("group", { name: "Goals" }));
   fireEvent.click(goals.getByRole("button", { name: "Edit" }));
   expect(scrolled).toHaveBeenCalledTimes(2);
 });
@@ -529,4 +528,24 @@ test.each([
   [{ name: "Maya", speaks_as: "x", purpose: "to teach", audience: "", helps_with: "stars" }, "Maya · to teach · stars"],
 ])("a change's value is shown in a line", (value, said) => {
   expect(preview(change(1, "saved", value))).toBe(said);
+});
+
+test("a save anywhere else on the page hides the History, so it opens again up to date", async () => {
+  histories = [GOALS_HISTORY];
+  const { asked } = server(true);
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  // Going back keeps it open, up to date.
+  fireEvent.click(await history.findByRole("button", { name: "Go back to Goals change 2" }));
+  await vi.waitFor(() => expect(asked).toContain("/api/customization/history/goals/2/restore"));
+  expect(await history.findByRole("group", { name: "Goals" })).toBeTruthy();
+  await history.findByText("Saved. It is used from the next prompt.");
+  const identity = within(screen.getByRole("region", { name: "Identity" }));
+  fireEvent.click(identity.getByRole("button", { name: "Save the identity" }));
+  await vi.waitFor(() => expect(history.queryByRole("group")).toBeNull());
+  expect(history.getByRole("button", { name: "History" })).toHaveProperty("ariaExpanded", "false");
+  expect(console.info).toHaveBeenCalledWith("Customization history hidden after a save");
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  expect(await history.findByRole("group", { name: "Goals" })).toBeTruthy();
 });

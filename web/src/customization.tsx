@@ -38,7 +38,11 @@ const SAVED = "Saved. It is used from the next prompt.";
 // Saving one part of the page: whether it is being saved, and what to say after. While a save is
 // in flight its editors are read-only, as what it gives back replaces them: text typed then would
 // be lost (Codex's review on PR #243).
-function useSave() {
+// Said when a save is made anywhere on the page but the History, so an open History, now out of
+// date, hides (Larry's review on PR #258).
+const SAVED_EVENT = "customization-saved";
+
+function useSave(announce = true) {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -50,6 +54,7 @@ function useSave() {
       const saved = await save();
       console.info(`Customization saved: ${part} (${Math.round(performance.now() - started)} ms)`);
       setSaid({ ok: true, text: SAVED });
+      if (announce) window.dispatchEvent(new Event(SAVED_EVENT));
       return saved;
     } catch (e) {
       console.error(`Could not save the customization: ${part}`, e);
@@ -390,7 +395,19 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
   const [histories, setHistories] = useState<PartHistory[] | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { busy, run, status, changed } = useSave();
+  const { busy, run, status, changed } = useSave(false);
+
+  // A save made elsewhere on the page hides it, so it is opened again up to date.
+  useEffect(() => {
+    function hide() {
+      setOpen((was) => {
+        if (was) console.info("Customization history hidden after a save");
+        return false;
+      });
+    }
+    window.addEventListener(SAVED_EVENT, hide);
+    return () => window.removeEventListener(SAVED_EVENT, hide);
+  }, []);
 
   async function load(opened: boolean) {
     setError(null);
@@ -425,7 +442,6 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
   }
 
   function edit(h: PartHistory) {
-    setOpen(false);
     editorOf(h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
   }
 

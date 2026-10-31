@@ -8164,7 +8164,8 @@ var IDENTITY = [
 	]
 ];
 var SAVED = "Saved. It is used from the next prompt.";
-function useSave() {
+var SAVED_EVENT = "customization-saved";
+function useSave(announce = true) {
 	const [busy, setBusy] = d(false);
 	const [said, setSaid] = d(null);
 	async function run(part, save) {
@@ -8178,6 +8179,7 @@ function useSave() {
 				ok: true,
 				text: SAVED
 			});
+			if (announce) window.dispatchEvent(new Event(SAVED_EVENT));
 			return saved;
 		} catch (e) {
 			console.error(`Could not save the customization: ${part}`, e);
@@ -8557,7 +8559,17 @@ function HistorySection({ onRestored }) {
 	const [histories, setHistories] = d(null);
 	const [open, setOpen] = d(false);
 	const [error, setError] = d(null);
-	const { busy, run, status, changed } = useSave();
+	const { busy, run, status, changed } = useSave(false);
+	h(() => {
+		function hide() {
+			setOpen((was) => {
+				if (was) console.info("Customization history hidden after a save");
+				return false;
+			});
+		}
+		window.addEventListener(SAVED_EVENT, hide);
+		return () => window.removeEventListener(SAVED_EVENT, hide);
+	}, []);
 	async function load(opened) {
 		setError(null);
 		const started = performance.now();
@@ -8588,7 +8600,6 @@ function HistorySection({ onRestored }) {
 		}
 	}
 	function edit(h) {
-		setOpen(false);
 		editorOf(h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
 	}
 	return /* @__PURE__ */ u("section", {
