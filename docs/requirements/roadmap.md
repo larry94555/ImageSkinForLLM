@@ -30,7 +30,7 @@ This is the plan as of today. R4 picked the first video engine, a CPU mouth anim
 | 29 | **[Host login and resource view](#milestone-29-host-login-and-resource-view).** Sign up, sign in and sign out as a host and see the disk space your photos and recordings, your PDFs and all of them take; until a host signs in, anyone gets the participant view with no sign-up, and Settings is shown only to a signed-in host or on a laptop in the admin laptops list. | R188 to R193 | 6 | 100% | 6 of 6 | 2.0% |
 | 13a | **[Identity and guidelines](#milestone-13a-identity-and-guidelines).** Ask "Who are you?" or "What is your purpose?" and hear the answer from a generated identity; under Customization, a signed-in host edits the identity, the goals and the guidelines for answering questions, the topics, Teach me, Quiz me, the assessment, the level of detail and Say it simpler, which inform what the agent says in each; compare the latest version with an earlier one, go back to one, or edit the latest and save it. | R92, R94, R194 to R200, R93, R95, R95a | 12 | 75.0% | 9 of 12 | 4.1% |
 | 13f | **[Optimize image](#milestone-13f-optimize-image).** Upload a photo that shows the body and the room around it, and get a new picture of just the head and neck, enlarged and framed like the default people on a plain backdrop, which is the one checked and animated, with the original kept. | R233 to R238 | 6 | 0% | 0 | 2.0% |
-| 13g | **[Optimize LLM latencies](#milestone-13g-optimize-llm-latencies).** Every task that uses the local LLM is found and timed, with a target for how long users will wait for each and recommendations to meet it; then the tasks with a clear way to answer sooner are made faster, measured before and after. | R239 to R246 | 8 | 0% | 0 | 2.7% |
+| 13g | **[Optimize LLM latencies](#milestone-13g-optimize-llm-latencies).** Every task that uses the local LLM is found and timed, with a target for how long users will wait for each and recommendations to meet it; then the tasks with a clear way to answer sooner are made faster, measured before and after. | R247 to R254 | 8 | 0% | 0 | 2.7% |
 | 12 | **[Sign-on and accounts](#milestone-12-sign-on-and-accounts).** On each customer's site: question and answer only without signing in, participant sign-up and login, a setting to require sign-up, a setting to require participants to confirm their email address, and an activity report by email address with each participant's conversations, questions asked and active time. | R45 to R47, R215 to R220 | 9 | 0% | 0 | 3.1% |
 | 20 | **[Many customers on me0.ai](#milestone-20-many-customers-on-me0ai).** A customer signs up for a membership (and can reset a forgotten password), starts a free one-week trial at a path of random characters, picks their own subdomain of me0.ai when they first pay $1 (and can change it), signs in to manage settings that change only their site, pays $1, $10 or $50 a month, upgrades or cancels, and gets a site whose person, content, settings, visitors and history are separate from every other site. | R214, R61, R62, R62a, R44, R65 to R67, R63, R64, R68 to R71 | 14 | 0% | 0 | 4.8% |
 | 30 | **[Resource enforcement](#milestone-30-resource-enforcement).** A free trial at a temporary address gets 100 MB and is closed after 30 days without activity, with a warning on the home page and the days since the last activity on the Resources page; an upload over the limit is refused with the reason; Upgrade to 5 GB for $1.99 a month, with 5 GB more for $1 a month each and no activity rule; Billing and Billing history pages for subscribers; and each host's storage and payment on the admin dashboard, with the totals and the estimated Oracle charges, the prices set in Admin settings. | R201 to R213 | 13 | 0% | 0 | 4.4% |
@@ -1460,55 +1460,55 @@ The work runs on the server's CPU with the face landmarker and segmenter R8 alre
 
 Added by Larry on 2026-10-31, to build right after optimize image (Milestone 13f) and before sign-on and accounts (Milestone 12). The local LLM (llama-server with Gemma 3 4B, R97's settings) is used for much more than the chat's replies, and Milestone 10b sped up only the reply, the wiki, setup and start-up. This milestone first finds every task that uses the local LLM, times each one, sets how long users will accept waiting for it and recommends how to get there; then it builds the speed-ups that are clearly worth it. As in R96, the measurements use the local LLM only *(default)*.
 
-Only R239 to R242 are planned in detail. R243 to R246 are placeholders for the clear opportunities seen so far, and are detailed, changed, dropped or added to when R242's recommendations are reviewed, once the milestones before this one are done (Larry, 2026-10-31). Milestone 28's shorter thinking (R184) comes later and builds on this milestone's measurements rather than measuring again *(default)*.
+Only R247 to R250 are planned in detail. R251 to R254 are placeholders for the clear opportunities seen so far, and are detailed, changed, dropped or added to when R250's recommendations are reviewed, once the milestones before this one are done (Larry, 2026-10-31). Milestone 28's shorter thinking (R184) comes later and builds on this milestone's measurements rather than measuring again *(default)*.
 
 | PR | Description | Status |
 |---|---|---|
-| [R239. Every local LLM task found](#r239-every-local-llm-task-found-simple--item-193) | A test that lists every task using the local LLM, who waits on it and how often it runs. | Not started |
-| [R240. How long each local LLM task takes](#r240-how-long-each-local-llm-task-takes-medium--item-194) | Experiments timing every task from R239 on the hosted machine and a laptop. | Not started |
-| [R241. How long users will wait](#r241-how-long-users-will-wait-simple--item-195) | A recommended target for how long each task may take, with the gap from today. | Not started |
-| [R242. Ways to make the LLM answer sooner](#r242-ways-to-make-the-llm-answer-sooner-medium--item-196) | Recommendations on how to bring each slow task under its target, tried where quick. | Not started |
-| [R243. A shared prompt start, reused](#r243-a-shared-prompt-start-reused-medium--item-197) | Placeholder: every request starts with the same text, so llama-server reuses what it has read. | Not started |
-| [R244. Replies first, background work after](#r244-replies-first-background-work-after-medium--item-197) | Placeholder: a reply never waits behind the summary, the wiki or lessons made ahead. | Not started |
-| [R245. A smaller model where it is enough](#r245-a-smaller-model-where-it-is-enough-medium--item-197) | Placeholder: tasks that don't need Gemma 3 4B use a smaller, faster model. | Not started |
-| [R246. Speculative decoding](#r246-speculative-decoding-medium--item-197) | Placeholder: a small draft model lets the 4B model write its answers faster. | Not started |
+| [R247. Every local LLM task found](#r239-every-local-llm-task-found-simple--item-199) | A test that lists every task using the local LLM, who waits on it and how often it runs. | Not started |
+| [R248. How long each local LLM task takes](#r240-how-long-each-local-llm-task-takes-medium--item-200) | Experiments timing every task from R247 on the hosted machine and a laptop. | Not started |
+| [R249. How long users will wait](#r241-how-long-users-will-wait-simple--item-201) | A recommended target for how long each task may take, with the gap from today. | Not started |
+| [R250. Ways to make the LLM answer sooner](#r242-ways-to-make-the-llm-answer-sooner-medium--item-202) | Recommendations on how to bring each slow task under its target, tried where quick. | Not started |
+| [R251. A shared prompt start, reused](#r243-a-shared-prompt-start-reused-medium--item-203) | Placeholder: every request starts with the same text, so llama-server reuses what it has read. | Not started |
+| [R252. Replies first, background work after](#r244-replies-first-background-work-after-medium--item-203) | Placeholder: a reply never waits behind the summary, the wiki or lessons made ahead. | Not started |
+| [R253. A smaller model where it is enough](#r245-a-smaller-model-where-it-is-enough-medium--item-203) | Placeholder: tasks that don't need Gemma 3 4B use a smaller, faster model. | Not started |
+| [R254. Speculative decoding](#r246-speculative-decoding-medium--item-203) | Placeholder: a small draft model lets the 4B model write its answers faster. | Not started |
 
-### R239. Every local LLM task found (Simple) · item 193
+### R247. Every local LLM task found (Simple) · item 199
 - A test that finds every place the app asks the local LLM for something, from the code and from a run that uses every feature with the log on: for example a reply, the conversation's summary, the check of a spoken question, the wiki's parts and outline, answering from the content, the topics and their hints, Teach me and the lessons made ahead, Quiz me, the assessment, Say it simpler, the identity and guidelines' generation, and the warm-up.
 - Each task is listed with what starts it, who waits on it (the user in the chat, the host in setup or on Manage Content, or nobody, in the background), how often it runs, and whether it can run while a reply is being written.
-- Every request to llama-server goes through one place that logs `LLM task` with the task's name, and a unit test fails when a request has no name, so the list stays complete for R240 *(default)*.
+- Every request to llama-server goes through one place that logs `LLM task` with the task's name, and a unit test fails when a request has no name, so the list stays complete for R248 *(default)*.
 - **Can show:** the table of tasks in `experiments/speed/`, and the log of the run with one named `LLM task` line per request.
 
-### R240. How long each local LLM task takes (Medium) · item 194
-- Experiments on Larry's hosted machine (4 Ampere cores) and on his laptop timing each task from R239 several times, with short and long inputs (a new chat and a long one, a small PDF and the sample PDF): the wait before llama-server takes the request (behind a reply, the wiki or another task), the prompt's tokens and how many were reused from the cache, the time to the first token and to the whole answer, the tokens written and their speed, and, for a reply, the time to the first word heard.
+### R248. How long each local LLM task takes (Medium) · item 200
+- Experiments on Larry's hosted machine (4 Ampere cores) and on his laptop timing each task from R247 several times, with short and long inputs (a new chat and a long one, a small PDF and the sample PDF): the wait before llama-server takes the request (behind a reply, the wiki or another task), the prompt's tokens and how many were reused from the cache, the time to the first token and to the whole answer, the tokens written and their speed, and, for a reply, the time to the first word heard.
 - It builds on `imageskin time-reply` (R96) and `imageskin time-llm` (R97), adding the tasks they don't cover yet. The results go in `experiments/speed/`.
 - **Can show:** a table for each machine with every task's typical and slowest times, the tasks a user waits on marked, and the largest costs named.
 
-### R241. How long users will wait (Simple) · item 195
+### R249. How long users will wait (Simple) · item 201
 - Recommendations, from published research on response times (such as the 0.1, 1 and 10 second limits of attention) and on turn-taking in conversation, of how long each kind of wait can be before users find it slow: the first word of a spoken reply, a spoken question checked, a lesson, a quiz question or the assessment, Say it simpler, the wiki built from a PDF, and work in the background.
-- For each task in R240's table: its target, the time past which a progress message is needed (Milestone 28 shows it), and how far today's time is from the target. Reviewed by Larry before R242.
+- For each task in R248's table: its target, the time past which a progress message is needed (Milestone 28 shows it), and how far today's time is from the target. Reviewed by Larry before R250.
 - **Can show:** a table of every task with its time today, its target, the gap, and the sources for each target.
 
-### R242. Ways to make the LLM answer sooner (Medium) · item 196
+### R250. Ways to make the LLM answer sooner (Medium) · item 202
 - For each task over its target, the ways to bring it under, each tried quickly where it can be and judged on the time saved, memory, the quality of the answers and the work it takes. Among them: shorter prompts, and a start shared by every request so llama-server reuses what it has read; shorter answers where a task writes more than it uses; a smaller model for tasks that don't need 4B; speculative decoding with a small draft model of the same family; more than one slot in llama-server, or an order of priority, so a reply never waits behind background work; work done ahead or taken out of the wait, as R98a and R99 did; and a faster build of llama.cpp or another quantization for the ARM cores.
-- The ways are ordered by time saved for the work they take. R243 to R246 are confirmed, changed or dropped, and a PR is added for each other clear opportunity, each Simple or Medium. Reviewed by Larry before any of them is built.
+- The ways are ordered by time saved for the work they take. R251 to R254 are confirmed, changed or dropped, and a PR is added for each other clear opportunity, each Simple or Medium. Reviewed by Larry before any of them is built.
 - **Can show:** a table of each way with the tasks it helps, its measured or estimated saving and its cost, and the recommended set.
 
-### R243. A shared prompt start, reused (Medium) · item 197
-- Placeholder, detailed after R242. Every request to the local LLM starts with the same fixed text in the same order, with the parts that change (the summary, the content found, the question) last, so llama-server reuses what it has already read and a task's first token comes sooner.
-- **Can show:** R240's tasks timed again, with more prompt tokens reused and an earlier first token, and the same answers.
+### R251. A shared prompt start, reused (Medium) · item 203
+- Placeholder, detailed after R250. Every request to the local LLM starts with the same fixed text in the same order, with the parts that change (the summary, the content found, the question) last, so llama-server reuses what it has already read and a task's first token comes sooner.
+- **Can show:** R248's tasks timed again, with more prompt tokens reused and an earlier first token, and the same answers.
 
-### R244. Replies first, background work after (Medium) · item 197
-- Placeholder, detailed after R242. A reply never waits for the LLM to finish background work: the conversation's summary is made after a reply is spoken rather than before the next one, and the wiki and the lessons made ahead pause, or use a second llama-server slot, while a reply is written.
+### R252. Replies first, background work after (Medium) · item 203
+- Placeholder, detailed after R250. A reply never waits for the LLM to finish background work: the conversation's summary is made after a reply is spoken rather than before the next one, and the wiki and the lessons made ahead pause, or use a second llama-server slot, while a reply is written.
 - **Can show:** a question asked while the wiki is being built, answered as quickly as with nothing in the background, with the log showing the background work paused or in its own slot.
 
-### R245. A smaller model where it is enough (Medium) · item 197
-- Placeholder, detailed after R242. Tasks that R242 finds don't need Gemma 3 4B, such as short checks and classifications, use a smaller model, kept loaded within the llama container's memory limit. R97 found Gemma 3 1B wrote the wiki in 24 minutes instead of 64 but with poorer topics, so each task is judged on its own answers.
+### R253. A smaller model where it is enough (Medium) · item 203
+- Placeholder, detailed after R250. Tasks that R250 finds don't need Gemma 3 4B, such as short checks and classifications, use a smaller model, kept loaded within the llama container's memory limit. R97 found Gemma 3 1B wrote the wiki in 24 minutes instead of 64 but with poorer topics, so each task is judged on its own answers.
 - **Can show:** each task moved to the smaller model, timed before and after, with its answers judged as good as before.
 
-### R246. Speculative decoding (Medium) · item 197
-- Placeholder, detailed after R242. llama-server is given a small draft model of the same family, which guesses the next words for the 4B model to check, so long answers such as replies, lessons and the wiki are written faster, if R242 measures a gain on the hosted machine's ARM cores.
-- **Can show:** a reply and a wiki part written faster than in R240, with the same answers, and the memory used within the container's limit.
+### R254. Speculative decoding (Medium) · item 203
+- Placeholder, detailed after R250. llama-server is given a small draft model of the same family, which guesses the next words for the 4B model to check, so long answers such as replies, lessons and the wiki are written faster, if R250 measures a gain on the hosted machine's ARM cores.
+- **Can show:** a reply and a wiki part written faster than in R248, with the same answers, and the memory used within the container's limit.
 
 ## Milestone 12: Sign-on and accounts
 
@@ -2314,5 +2314,5 @@ After R122, every item in features.md is covered by a PR, R61 to R78, R84 to R95
 
 - **The order.** A talking photoreal sample video comes first, then setup in the browser, then proof that the person's own voice can be cloned, before any chat work, because the project fails if the voice doesn't work (Larry, 2026-10-07). The chat, real-time replies, PDF content and answers from it, a professional look, the default people, settings, choice of LLM and hosting follow, then speed-ups, bug fixing, an admin view, a setup wizard, host login and the resource view, the identity and guidelines, optimizing the photo to the head and neck, optimizing the local LLM's latencies, many customers on me0.ai, resource enforcement, accounts, support, thinking and the quality of responses, contexts, safe photos, participant features (several named chats, saved to and loaded from the device), a simpler UI, participant insights, disputes, and phones last. Larry has moved several milestones since they were added; each milestone's section says when it was added and why it sits where it does.
 - **Build order.** PRs are built in the order they appear in this file, not in number order.
-- **Numbering.** PRs are numbered R1 to R246 so they don't get mixed up with GitHub PR numbers. A PR added later beside an existing one gets a letter, such as R4a, R22b or R24c2, so the other numbers stay the same.
+- **Numbering.** PRs are numbered R1 to R254 so they don't get mixed up with GitHub PR numbers. A PR added later beside an existing one gets a letter, such as R4a, R22b or R24c2, so the other numbers stay the same.
 - **Items.** "item 6" and the like refer to [features.md](features.md).
