@@ -55,8 +55,8 @@ def asked_at(level: int, customization: Any) -> str:
 
 def test_three_inputs_and_general_ones_in_their_own_section() -> None:
     listed = features(SHIPPED)
-    assert [f["key"] for f in listed][7:] == DETAIL
-    assert [f["label"] for f in listed][7:] == [
+    assert [f["key"] for f in listed][8:] == DETAIL
+    assert [f["label"] for f in listed][8:] == [
         "Lowest detail",
         "Moderate detail",
         "Highest detail",

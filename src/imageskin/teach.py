@@ -18,7 +18,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from imageskin.chat import Teach
-from imageskin.customization import TEACHING
+from imageskin.customization import SIMPLER, TEACHING
 from imageskin.lookup import named_topic
 
 logger = logging.getLogger(__name__)
@@ -179,14 +179,22 @@ def what(topic: str, parts: list[Part], part: int) -> str:
 
 # What edited Teach me guidelines (R196) are said after, in what a lesson part asks.
 TEACH_GUIDELINES = "Guidelines for teaching:"
+# What edited Say it simpler guidelines (R200) are said after.
+SIMPLER_GUIDELINES = "Guidelines for saying it more simply:"
 
 
 def explain(
-    topic: str, parts: list[Part], part: int, simpler: bool = False, guidelines: str = TEACHING
+    topic: str,
+    parts: list[Part],
+    part: int,
+    simpler: bool = False,
+    guidelines: str = TEACHING,
+    simpler_guidelines: str = SIMPLER,
 ) -> str:
-    """What the LLM is asked to teach one part, with the Teach me guidelines (R196). As shipped,
-    they are what it was asked before them, word for word, so a part written ahead (R98a) is
-    still used; edited, they take the place of how to teach."""
+    """What the LLM is asked to teach one part, with the Teach me guidelines (R196), or, said
+    more simply, the Say it simpler guidelines (R200). As shipped, they are what it was asked
+    before them, word for word, so a part written ahead (R98a) is still used; edited, they take
+    the place of how to teach, or how to say it more simply."""
     shipped = guidelines == TEACHING
     if part >= len(parts):
         summary = (
@@ -194,7 +202,10 @@ def explain(
             " sentence."
         )
         return summary if shipped else f"{summary} {TEACH_GUIDELINES} {guidelines}"
-    if simpler:  # Say it simpler's own guidelines come with R200
+    if simpler and simpler_guidelines != SIMPLER:
+        again = f"Explain {what(topic, parts, part)} again, more simply."
+        return f"{again} {SIMPLER_GUIDELINES} {simpler_guidelines}"
+    if simpler:
         return (
             f"Explain {what(topic, parts, part)} again, more simply: in two or three short"
             " sentences, with everyday words and an everyday example. Don't ask me anything."
@@ -205,6 +216,18 @@ def explain(
         f"Teach me {what(topic, parts, part)}, as a tutor talking to someone new to it, in"
         " two to four short sentences. Don't ask me anything."
     )
+
+
+def simpler_guidelines(guidelines: Callable[[], str]) -> str:
+    """Say it simpler's guidelines now, or as shipped when they can't be read, logged as
+    used (R200)."""
+    try:
+        now = guidelines()
+    except Exception:
+        logger.exception("Could not read the Say it simpler guidelines")
+        now = SIMPLER
+    logger.info("Guidelines used", extra={"feature": "say it simpler", "edited": now != SIMPLER})
+    return now
 
 
 def unguided(shipped: str, guidelines: str) -> str | None:
@@ -223,8 +246,11 @@ class Tutor:
         complete: Callable[[], bool] = lambda: True,
         # Teach me's guidelines as they are now (R196), read for each part asked for.
         guidelines: Callable[[], str] = lambda: TEACHING,
+        # Say it simpler's (R200), read for each part asked for more simply.
+        simpler: Callable[[], str] = lambda: SIMPLER,
     ) -> None:
         self._guidelines = guidelines
+        self._simpler = simpler
         self._contents = contents
         self._find = find
         # Whether every PDF has been read and its wiki built, so the topics are all of them.
@@ -360,8 +386,19 @@ class Tutor:
             teach = Teach(asked, summed_up(parts), unguided=shipped)
             return Explain(teach, lesson, "summary")
         material = self.material(lesson.topic, parts, part)
+        if simpler:
+            how = simpler_guidelines(self._simpler)
+            asked = explain(lesson.topic, parts, part, True, simpler_guidelines=how)
+            plain = explain(lesson.topic, parts, part, True)
+            teach = Teach(
+                asked,
+                material,
+                unguided=None if asked == plain else plain,
+                feature="say it simpler",
+            )
+            return Explain(teach, lesson, kind)
         asked = explain(lesson.topic, parts, part, simpler, guidelines)
-        return Explain(Teach(asked, material, unguided=None if simpler else shipped), lesson, kind)
+        return Explain(Teach(asked, material, unguided=shipped), lesson, kind)
 
     def _teaching(self) -> str:
         """Teach me's guidelines now, or as shipped when they can't be read."""
