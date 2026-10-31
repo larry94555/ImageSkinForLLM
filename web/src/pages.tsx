@@ -1942,6 +1942,7 @@ function Chat(props: {
           from={latestExchange(turns)}
           unspoken={unspoken}
           notice={notClear ? CHECK_HEARD : undefined}
+          hideReplies
         />
         {turns[turns.length - 1]?.role === "assistant" && !notClear && (
           <ReplyActions
@@ -2290,15 +2291,17 @@ export function latestExchange(turns: Turn[]): number {
 // The turns from `from` on, numbered by their place in the whole conversation so a note on a
 // reply that couldn't be spoken stays with it. With `search`, the matches of its query are
 // marked, numbered in order, and the current one stands out. A `notice` shows last as a reply
-// that isn't part of the conversation (R179).
+// that isn't part of the conversation (R179). With `hideReplies`, each spoken reply's text is
+// behind a Review text link, so the person in the video is the focus.
 function TurnList(props: {
   turns: Turn[];
   from?: number;
   unspoken: { turn: number } | null;
   search?: { query: string; current: number };
   notice?: string;
+  hideReplies?: boolean;
 }) {
-  const { turns, from = 0, unspoken, search, notice } = props;
+  const { turns, from = 0, unspoken, search, notice, hideReplies } = props;
   let counted = 0; // matches marked in the turns before this one
   return (
     <ol className="turns">
@@ -2323,6 +2326,8 @@ function TurnList(props: {
                   );
                 })}
               </span>
+            ) : hideReplies && turn.role === "assistant" && unspoken?.turn !== i ? (
+              <HiddenText text={turn.content} />
             ) : (
               turn.content
             )}
@@ -2341,6 +2346,27 @@ function TurnList(props: {
         </li>
       )}
     </ol>
+  );
+}
+
+// A reply's text, closed until the person asks to see it. Closed, it is still on the page but
+// hidden, so screen readers and the browser's find skip it. A reply that couldn't be spoken isn't
+// hidden, since the text is the only way to get it.
+export function HiddenText(props: { text: string }) {
+  const [open, setOpen] = useState(false);
+  function toggle() {
+    console.info(open ? "Reply text hidden" : "Reply text shown");
+    setOpen(!open);
+  }
+  return (
+    <span className="hidden-text">
+      <button type="button" className="link" aria-expanded={open} onClick={toggle}>
+        {open ? "Hide text" : "Review text"}
+      </button>
+      <span className="reply-text" hidden={!open}>
+        {props.text}
+      </span>
+    </span>
   );
 }
 

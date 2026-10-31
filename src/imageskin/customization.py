@@ -79,9 +79,25 @@ class Feature:
     shipped: str
 
 
+# Answering questions' guidelines as shipped (R194): how every answer was asked to be written
+# before they could be edited, word for word, so nothing changes until the host edits them.
+ANSWERING = (
+    "Answer from the reference text when it covers the question, in your own words, without"
+    " mentioning documents or pages."
+)
+
 # Each feature's guidelines, by the key they are kept under in `guidelines`, in the order the page
 # shows them. Each guideline PR adds its feature here (R194 to R200).
-FEATURES: dict[str, Feature] = {}
+FEATURES: dict[str, Feature] = {
+    "questions": Feature(
+        "Answering questions",
+        "They are given to the LLM with every question it answers, from the PDFs or not, typed"
+        " or said with Hold to talk.",
+        "Which questions are declined with general prompts off stays as the code decides, and"
+        " what is quoted from the PDFs stays as it is found.",
+        ANSWERING,
+    ),
+}
 
 
 def guidelines_of(customization: Customization, key: str) -> str:

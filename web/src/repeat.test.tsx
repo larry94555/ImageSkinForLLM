@@ -95,6 +95,9 @@ test("a repeat that fails says the reply couldn't be said aloud", async () => {
   });
   expect(await screen.findByText(/couldn't say this one aloud/)).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not repeat the reply", expect.anything());
+  // Not said aloud, the text is the only way to get the reply, so it isn't hidden.
+  expect(screen.queryByRole("button", { name: "Review text" })).toBeNull();
+  expect(screen.getByText("It falls from clouds.").hidden).toBe(false);
 });
 
 test("Stop before the server begins a repeat ends it quietly", async () => {

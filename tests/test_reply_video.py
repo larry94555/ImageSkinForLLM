@@ -1192,11 +1192,13 @@ def test_the_api_streams_a_clip_while_it_is_still_being_written(tmp_path: Path) 
         client.post("/api/chat", json={"prompt": "Hi", "reply_id": REPLY_ID})
         assert half_written.wait(5)
         assert len(client.get(clips_api).json()["clips"]) == 1
-        threading.Timer(0.3, go.set).start()
-        start = time.perf_counter()
         with client.stream("GET", f"{clips_api}/1") as r:
             assert r.status_code == 200 and r.headers["content-type"] == "video/mp4"
             assert "content-length" not in r.headers  # as much as there is, then the rest
+            # The rest is written only once the clip is being served, so a slow runner can't
+            # finish it first and have it served whole.
+            threading.Timer(0.3, go.set).start()
+            start = time.perf_counter()
             body = b"".join(r.iter_bytes())  # (the test client gathers the chunks)
         assert body == b"first half second half"  # the rest followed once it was written
         assert 0.3 <= time.perf_counter() - start < 2
