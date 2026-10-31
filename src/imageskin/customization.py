@@ -77,6 +77,8 @@ class Feature:
     changes: str
     stays: str
     shipped: str
+    # The section of the page it is shown in (Larry, PR #253).
+    section: str = "Guidelines"
 
 
 # Answering questions' guidelines as shipped (R194): how every answer was asked to be written
@@ -117,6 +119,51 @@ ASSESSMENT_QUESTIONS = (
     " mentioning the reference text."
 )
 ASSESSMENT_JUDGING = "Judge the answer from the reference text."
+
+# The level of detail's guidelines as shipped (R199): what each step of the bar on the chat
+# screen (R180) asks of a reply, from High level (1) to In depth (5), each the text it was asked
+# with before, word for word, so as shipped nothing changes. The room each step gives a reply in
+# tokens stays with the code (`chat.DETAIL_LEVELS`).
+DETAIL_STEPS: dict[int, str] = {
+    1: (
+        "Keep each reply brief and conversational: a single short sentence in plain words, of"
+        " at most 25 words, with only the main point."
+    ),
+    2: (
+        "Keep each reply short and conversational: one or two short sentences in plain words,"
+        " of at most 45 words, with only the main points."
+    ),
+    3: "Keep each reply short and conversational: one to three sentences in plain words.",
+    4: (
+        "Give a fuller reply, still conversational: a paragraph of four to six sentences in"
+        " plain words that explains the answer, with an example when it helps."
+    ),
+    5: (
+        "Give an in-depth, complete reply, still conversational: a few paragraphs in plain words"
+        " with the explanation, examples and the points a careful answer covers."
+    ),
+}
+# The level of detail's guidelines are three, not one for each step, with general ones for every
+# step (Larry, PR #253): the lowest detail is used at the bar's two High level steps, the moderate
+# at its middle and the highest at its two In depth steps. As shipped, each step keeps its own text
+# (steps 2 and 4 included); edited, one text serves both steps of a side.
+DETAIL_INPUTS = {1: "lowest", 2: "lowest", 3: "moderate", 4: "highest", 5: "highest"}
+# The general guidelines as shipped describe today's replies at every step; only edited ones are
+# sent, so until then the instructions are as before, as the Topics guidelines are (R195).
+DETAIL_GENERAL = "Keep each reply conversational and in plain words, as it is spoken aloud."
+
+
+def detail_key(step: int) -> str:
+    """The key the level of detail's guidelines for a step of the bar are kept under (R199)."""
+    return f"detail {DETAIL_INPUTS[step]}"
+
+
+DETAIL_STAYS = (
+    "The room a reply has at each step stays as the code makes it, so a reply isn't cut off, as"
+    " does the length named after a question asked again or off the middle, and replies are"
+    " still spoken, without lists, headings or code unless asked for."
+)
+
 
 # Each feature's guidelines, by the key they are kept under in `guidelines`, in the order the page
 # shows them. Each guideline PR adds its feature here (R194 to R200).
@@ -169,6 +216,7 @@ FEATURES: dict[str, Feature] = {
         " evaluation stay as the code makes them, and each question is still one, ending with a"
         " question mark.",
         ASSESSMENT_QUESTIONS,
+        "Assessment",
     ),
     "assessment judging": Feature(
         "Assessment: judging",
@@ -176,6 +224,42 @@ FEATURES: dict[str, Feature] = {
         "Each judgment is still a verdict (Right, Partly right or Not quite) and the correct"
         " answer, kept for the evaluation, which is worked out the same way.",
         ASSESSMENT_JUDGING,
+        "Assessment",
+    ),
+    "detail lowest": Feature(
+        "Lowest detail",
+        "They are given to the LLM with every reply asked for at the two High level steps of the"
+        " Level of detail bar, the first and second.",
+        f"{DETAIL_STAYS} As shipped, the second step keeps its own text: one or two short"
+        " sentences, of at most 45 words.",
+        DETAIL_STEPS[1],
+        "Level of detail",
+    ),
+    "detail moderate": Feature(
+        "Moderate detail",
+        "They are given to the LLM with every reply asked for at the middle of the Level of"
+        " detail bar, where it starts.",
+        DETAIL_STAYS,
+        DETAIL_STEPS[3],
+        "Level of detail",
+    ),
+    "detail highest": Feature(
+        "Highest detail",
+        "They are given to the LLM with every reply asked for at the two In depth steps of the"
+        " Level of detail bar, the fourth and fifth.",
+        f"{DETAIL_STAYS} As shipped, the fourth step keeps its own text: a paragraph of four to"
+        " six sentences.",
+        DETAIL_STEPS[5],
+        "Level of detail",
+    ),
+    "detail general": Feature(
+        "General guidelines",
+        "They are given to the LLM with every reply, at every step of the Level of detail bar,"
+        " after that step's guidelines.",
+        f"{DETAIL_STAYS} As shipped they describe today's replies, so nothing is added until they"
+        " are edited.",
+        DETAIL_GENERAL,
+        "Level of detail",
     ),
 }
 

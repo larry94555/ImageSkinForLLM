@@ -197,6 +197,40 @@ function FeatureGuidelines({ feature }: { feature: GuidelineFeature }) {
   );
 }
 
+// What each section of guidelines is about. Assessment and Level of detail have their own
+// (Larry, PR #253).
+const SECTION_ABOUT: Record<string, string> = {
+  Guidelines: "How each feature writes what it says.",
+  Assessment: "How the assessment writes its questions and judges the answers.",
+  "Level of detail":
+    "What the Level of detail bar on the chat screen asks of each reply, from High level to In depth.",
+};
+
+// The features in the sections they are shown in, in the order each section first comes.
+export function sections(features: GuidelineFeature[]): [string, GuidelineFeature[]][] {
+  const grouped = new Map<string, GuidelineFeature[]>();
+  for (const feature of features) {
+    const section = feature.section || "Guidelines";
+    grouped.set(section, [...(grouped.get(section) ?? []), feature]);
+  }
+  return [...grouped.entries()];
+}
+
+function GuidelineSection({ name, features }: { name: string; features: GuidelineFeature[] }) {
+  const id = `customization-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`;
+  return (
+    <section className="panel" aria-labelledby={id}>
+      <h2 id={id}>{name}</h2>
+      {SECTION_ABOUT[name] && <p className="muted">{SECTION_ABOUT[name]}</p>}
+      {features.length ? (
+        features.map((feature) => <FeatureGuidelines key={feature.key} feature={feature} />)
+      ) : (
+        <p className="muted">No feature has guidelines to edit yet.</p>
+      )}
+    </section>
+  );
+}
+
 export function CustomizationPage() {
   const session = useHost().session;
   const host = session?.signed_in === true;
@@ -234,15 +268,13 @@ export function CustomizationPage() {
         <>
           <IdentitySection identity={read.identity} />
           <GoalsSection goals={read.goals} />
-          <section className="panel" aria-labelledby="customization-guidelines">
-            <h2 id="customization-guidelines">Guidelines</h2>
-            <p className="muted">How each feature writes what it says.</p>
-            {read.features.length ? (
-              read.features.map((feature) => <FeatureGuidelines key={feature.key} feature={feature} />)
-            ) : (
-              <p className="muted">No feature has guidelines to edit yet.</p>
-            )}
-          </section>
+          {read.features.length ? (
+            sections(read.features).map(([name, features]) => (
+              <GuidelineSection key={name} name={name} features={features} />
+            ))
+          ) : (
+            <GuidelineSection name="Guidelines" features={[]} />
+          )}
         </>
       )}
     </div>

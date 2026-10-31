@@ -28,6 +28,7 @@ const QUESTIONS = {
   shipped: "Answer from the content.",
   text: "Answer from the content.",
   edited: false,
+  section: "Guidelines",
 };
 
 type Put = { url: string; body: unknown };
@@ -192,6 +193,22 @@ test("with no feature's guidelines yet, the Guidelines section says so", async (
   await opened();
   const guidelines = within(screen.getByRole("region", { name: "Guidelines" }));
   expect(guidelines.getByText("No feature has guidelines to edit yet.")).toBeTruthy();
+});
+
+test("Assessment and Level of detail have their own sections", async () => {
+  const assessment = { ...QUESTIONS, key: "assessment judging", label: "Assessment: judging", section: "Assessment" };
+  const lowest = { ...QUESTIONS, key: "detail lowest", label: "Lowest detail", section: "Level of detail" };
+  const general = { ...QUESTIONS, key: "detail general", label: "General guidelines", section: "Level of detail" };
+  server(true, { ...MAYA, features: [QUESTIONS, assessment, lowest, general] });
+  await opened();
+  const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+  expect(headings).toEqual(["Identity", "Goals", "Guidelines", "Assessment", "Level of detail"]);
+  const detail = within(screen.getByRole("region", { name: "Level of detail" }));
+  const forms = detail.getAllByRole("form").map((f) => f.getAttribute("aria-label"));
+  expect(forms).toEqual(["Lowest detail", "General guidelines"]);
+  const guidelines = within(screen.getByRole("region", { name: "Guidelines" }));
+  expect(guidelines.getAllByRole("form")).toHaveLength(1);
+  expect(within(screen.getByRole("region", { name: "Assessment" })).getByRole("form")).toBeTruthy();
 });
 
 test("a feature's guidelines are edited, saved and set back to how they shipped", async () => {

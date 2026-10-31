@@ -1336,6 +1336,7 @@ export interface GuidelineFeature {
   shipped: string;
   text: string;
   edited: boolean;
+  section: string; // the section of the page it is shown in
 }
 
 async function putCustomization(path: string, body: unknown): Promise<Customization> {

@@ -8332,6 +8332,40 @@ function FeatureGuidelines({ feature }) {
 		]
 	});
 }
+var SECTION_ABOUT = {
+	Guidelines: "How each feature writes what it says.",
+	Assessment: "How the assessment writes its questions and judges the answers.",
+	"Level of detail": "What the Level of detail bar on the chat screen asks of each reply, from High level to In depth."
+};
+function sections(features) {
+	const grouped = /* @__PURE__ */ new Map();
+	for (const feature of features) {
+		const section = feature.section || "Guidelines";
+		grouped.set(section, [...grouped.get(section) ?? [], feature]);
+	}
+	return [...grouped.entries()];
+}
+function GuidelineSection({ name, features }) {
+	const id = `customization-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`;
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": id,
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id,
+				children: name
+			}),
+			SECTION_ABOUT[name] && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: SECTION_ABOUT[name]
+			}),
+			features.length ? features.map((feature) => /* @__PURE__ */ u(FeatureGuidelines, { feature }, feature.key)) : /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "No feature has guidelines to edit yet."
+			})
+		]
+	});
+}
 function CustomizationPage() {
 	const session = useHost().session;
 	const host = session?.signed_in === true;
@@ -8368,23 +8402,12 @@ function CustomizationPage() {
 			read && /* @__PURE__ */ u(S, { children: [
 				/* @__PURE__ */ u(IdentitySection, { identity: read.identity }),
 				/* @__PURE__ */ u(GoalsSection, { goals: read.goals }),
-				/* @__PURE__ */ u("section", {
-					className: "panel",
-					"aria-labelledby": "customization-guidelines",
-					children: [
-						/* @__PURE__ */ u("h2", {
-							id: "customization-guidelines",
-							children: "Guidelines"
-						}),
-						/* @__PURE__ */ u("p", {
-							className: "muted",
-							children: "How each feature writes what it says."
-						}),
-						read.features.length ? read.features.map((feature) => /* @__PURE__ */ u(FeatureGuidelines, { feature }, feature.key)) : /* @__PURE__ */ u("p", {
-							className: "muted",
-							children: "No feature has guidelines to edit yet."
-						})
-					]
+				read.features.length ? sections(read.features).map(([name, features]) => /* @__PURE__ */ u(GuidelineSection, {
+					name,
+					features
+				}, name)) : /* @__PURE__ */ u(GuidelineSection, {
+					name: "Guidelines",
+					features: []
 				})
 			] })
 		]
