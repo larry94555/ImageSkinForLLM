@@ -17,6 +17,7 @@ Items are numbered in the order Larry added them, not the order they are built. 
 | 108 to 111 | Setup wizard | 2026-10-25 | 10d (done) |
 | 148 to 152 | Host login and resource view | 2026-10-30 | 29 (done) |
 | 84 to 88, 153 to 159 | Identity and guidelines | 2026-10-18; 153 to 159 on 2026-10-30 | 13a |
+| 187 to 192 | Optimize image: the head and neck, framed, enlarged and on a plain backdrop | 2026-10-31 | 13f |
 | 30 to 33, 169 to 174 | Sign-on and accounts; email confirmation and the activity report | 2026-10-08; 169 to 174 on 2026-10-30 | 12 |
 | 61 to 66 | Many customers on me0.ai | 2026-10-17 | 20 |
 | 160 to 168 | Resource enforcement | 2026-10-30 | 30 |
@@ -504,6 +505,23 @@ Contexts (items 77 to 83) now come after these items, so guidelines are kept for
 Noted here and applied when the PRs for these items are built.
 
 - **Items 77 to 83 (contexts):** contexts build on the feature guidelines *(default)*. Teacher/Student's guidelines are those for answering questions, the topics, Teach me, Quiz me, the assessment and the level of detail; Meta's include Say it simpler. Each context keeps its name, kind, criteria, availability and priority on the Contexts page, which links to its guidelines under Customization, and an added context's guidelines join them there. From then on, generation drafts the contexts' guidelines too (item 86), and going back to a version (item 88) never changes which contexts are available, their priority or criteria; a context deleted since is left out, and one added since keeps its current guidelines.
+
+## Optimize image
+
+Added by Larry on 2026-10-31, to build right after the identity and guidelines (items 84 to 88 and 153 to 159) and before sign-on and accounts (items 30 to 33 and 169 to 174). A photo the person uploads often shows their body and the room around them, with the head a small part of the picture. These items make a new picture from it that is mainly the person's head and neck, enlarged and framed like the default people (item 57), instead of the body and background. The work runs on the server's own CPU, with no cloud service *(default)*.
+
+187. **The head and neck found.** The head, with all of the hair, and the neck are found in the photo from the face landmarks and the segmenter that item 2's checks already use *(default)*, so the top of the hair and the neck are never cut off.
+188. **Framed like the default people.** A new square picture is cropped from the photo around the head and neck: the head centred, a small margin above the hair, the face about half the picture's height *(default)*, and the bottom just below the neck, at the top of the shoulders, so the body below and most of the background are left out. Where the photo ends before the frame does, the edge is filled softly, never with a hard line *(default)*.
+189. **Enlarged.** The new picture is enlarged to the default people's size, 1024 by 1024, by a method chosen in a test that keeps the face sharp without changing the likeness *(default)*. A face too small to enlarge well is still refused by item 2's size check, which is judged on the original photo, with its limit set by that test *(default)*.
+190. **A plain background.** What is left of the background around the head and neck is replaced with a soft, plain backdrop like the default people's, with soft edges in the hair, so the room behind the person doesn't show. On by default, with a choice under the photo to keep the photo's own background *(default)*.
+191. **The optimized photo is the one used.** The optimized picture is the one checked, scored, shown and animated (items 2, 5 and 6). The original is kept beside it and never changed, one click away on the Setup page, where **Use the original** picks it instead for a photo whose optimized picture looks wrong *(default)*.
+192. **Every way a photo comes in.** Setup, the setup wizard's camera photo (item 109), changing photos in Settings (item 8), each customer's site (item 66) and photos taken on a phone (item 96) all make the optimized picture. Photos stored before these items are optimized once. The default people are left as they are, since they are already framed this way *(default)*.
+
+### How this changes later items
+
+Noted here and applied when the PRs for these items are built.
+
+- **Item 104 (head and shoulders only):** item 188's framing already crops the picture to the head, neck and top of the shoulders before the video engine sees it, so item 104 needs no crop of its own; the safe photo checks (items 102 and 103) run on the original photo as uploaded *(default)*.
 
 ## Handling disputes
 
