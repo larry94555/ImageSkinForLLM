@@ -328,6 +328,12 @@ class LlmError(Exception):
     """The LLM could not be reached or gave no reply; the message says so in plain words."""
 
 
+class NoRoomForGuidelines(Exception):
+    """A lesson part written ahead whose edited guidelines don't fit the room left for it: it
+    is not written ahead, so what is saved is always what its key says was asked, and it is
+    taught live, as shipped, instead (Codex's review on PR #250)."""
+
+
 class EmptyReply(LlmError):
     """The LLM answered, but with no words: its output, not the request, was at fault."""
 
@@ -1369,7 +1375,9 @@ class Conversation:
         the part's instruction with its material, as `send` asks it, but none of the
         conversation, so the answer can be saved and said whenever the part is taught."""
         room = self._fit(teach.instruction if teach.unguided is None else teach.unguided).room
-        asked = self._with_content(self._lesson_part(teach, room), teach.material, room)
+        if self._lesson_part(teach, room, quiet=True) != teach.instruction:
+            raise NoRoomForGuidelines("The Teach me guidelines don't fit with this part.")
+        asked = self._with_content(teach.instruction, teach.material, room)
         # With the identity, goals and guidelines as they are now (R92, R194).
         with self._at_detail():
             return [system_message(None), {"role": "user", "content": asked}]
@@ -1438,12 +1446,14 @@ class Conversation:
             )
         return question
 
-    def _lesson_part(self, teach: Teach, room: int) -> str:
+    def _lesson_part(self, teach: Teach, room: int, quiet: bool = False) -> str:
         """What a lesson part asks, with the Teach me guidelines when they fit the room (R196);
         otherwise as it was asked before them."""
         if teach.unguided is None:
             return teach.instruction
-        return self._room_for(teach.unguided, teach.instruction, room, feature="teach me")
+        return self._room_for(
+            teach.unguided, teach.instruction, room, quiet=quiet, feature="teach me"
+        )
 
     def _guided(self, draft: str) -> str:
         """The question typed so far as `send` would ask it, with the Topics guidelines when it

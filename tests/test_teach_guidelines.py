@@ -11,9 +11,9 @@ from test_question_scope import Llm
 from test_teach import CONTENTS, chat, explained
 from test_topics import riemann_app
 
-from imageskin.chat import Conversation
+from imageskin.chat import Conversation, NoRoomForGuidelines
 from imageskin.customization import FEATURES, SHIPPED, TEACHING, features, guidelines_of
-from imageskin.lessons_ahead import key
+from imageskin.lessons_ahead import LessonsAhead, key
 from imageskin.teach import TEACH_GUIDELINES, Lesson, Part, Tutor, explain
 
 EDITED = "Use one everyday analogy in each part."
@@ -121,16 +121,16 @@ def test_saving_them_writes_the_parts_ahead_again(tmp_path: Path) -> None:
     assert refresh.call_count == 1
 
 
-def test_guidelines_that_dont_fit_are_left_out_live_and_ahead(
-    caplog: pytest.LogCaptureFixture,
+def test_guidelines_that_dont_fit_are_left_out_live_and_not_written_ahead(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Codex's review on PR #250: "Next" fits, but the part it asks for, with guidelines near
-    their longest, must fit the room too; otherwise it is asked for as shipped."""
+    """Codex's reviews on PR #250: "Next" fits, but the part it asks for, with guidelines near
+    their longest, must fit the room too; live it is then asked for as shipped, and ahead it is
+    not written, so nothing is saved under the key of what wasn't asked. Once there is room, it
+    is written with them and said from that."""
     longest = "Use one everyday analogy in each part. " * 50  # about 1,950 characters
-    now = [longest]
-    teach = tutor_with(now).first_parts()["Rain"]
+    teach = replace(tutor_with([longest]).first_parts()["Rain"], material=[])
     assert teach.unguided is not None and longest.strip() in teach.instruction
-    teach = replace(teach, material=[])  # the instruction alone, as when nothing was found
 
     def chat_in(window: int, llm: Llm) -> Conversation:
         return Conversation(llm, lambda: window)
@@ -143,20 +143,38 @@ def test_guidelines_that_dont_fit_are_left_out_live_and_ahead(
         return True
 
     # The smallest window the part as shipped fits in, not with the guidelines.
-    window = next(w for w in range(256, 8192, 8) if fits(w))
+    window = [next(w for w in range(256, 8192, 8) if fits(w))]
     llm = Llm()
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="imageskin.chat"):
-        chat_in(window, llm).send("Next", teach=teach)
-        ahead = chat_in(window, Llm()).asked_alone(teach)
-    assert llm.sent[0][-1]["content"] == teach.unguided == ahead[-1]["content"]
+        chat_in(window[0], llm).send("Next", teach=teach)
+        with pytest.raises(NoRoomForGuidelines):
+            chat_in(window[0], Llm()).asked_alone(teach)
+    assert llm.sent[0][-1]["content"] == teach.unguided
     warned = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert [(r.message, r.feature) for r in warned] == [  # type: ignore[attr-defined]
         ("Guidelines left out", "teach me"),
-        ("Guidelines left out", "teach me"),
     ]
-    # With room for them, they are sent.
+
+    # Written ahead as the app does it, in the same window, then in a larger one.
+    writer = Llm()
+    lessons = LessonsAhead(
+        tmp_path,
+        lambda: {"Rain": teach},
+        lambda t: writer(chat_in(window[0], writer).asked_alone(t)),
+        lambda: True,
+        lambda: False,
+    )
+    with caplog.at_level(logging.WARNING, logger="imageskin.lessons_ahead"):
+        lessons.refresh()
+        lessons.wait()
+    assert writer.sent == [] and lessons.saved("Rain", teach) is None
+    assert "Lesson not written ahead" in caplog.text
+    window[0] *= 4
+    lessons.refresh()
+    lessons.wait()
+    assert writer.sent[-1][-1]["content"] == teach.instruction
+    assert lessons.saved("Rain", teach) == ["Two moons."]
     roomy = Llm()
-    chat_in(4 * window, roomy).send("Next", teach=teach)
+    chat_in(window[0], roomy).send("Next", teach=teach)
     assert roomy.sent[0][-1]["content"] == teach.instruction
-    assert chat_in(4 * window, Llm()).asked_alone(teach)[-1]["content"] == teach.instruction
