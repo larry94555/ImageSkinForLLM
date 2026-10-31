@@ -101,7 +101,7 @@ from imageskin.llm_choice import (
     save_choice,
 )
 from imageskin.llm_model_file import LlmModelFile
-from imageskin.lookup import ContentLookup, as_passages
+from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
 from imageskin.network import NetworkMonth
 from imageskin.prepare_job import (
     CLONES,
@@ -1600,6 +1600,11 @@ def create_app(
     def content_topics() -> list[str]:
         return main_entries(wiki.contents())
 
+    # The topic or topic's part a prompt asks about as a whole, for the Topics guidelines (R195):
+    # any the example questions under the prompt box can ask about, so picking one counts.
+    def content_subject(prompt: str) -> str | None:
+        return subject_named(prompt, example_subjects(wiki.contents()))
+
     # Whether every PDF has been read and its wiki built, or failed, so the topics are all of
     # them (review on PR #85).
     def topics_complete() -> bool:
@@ -1692,6 +1697,7 @@ def create_app(
             read_ahead=replies_first.ahead(functools.partial(client.ask, max_tokens=1), local),
             detail=saved_detail,
             customization=customization.read,
+            subject_of=content_subject,
         )
     else:
         assert ask_llm is not None
@@ -1710,6 +1716,7 @@ def create_app(
             read_ahead=replies_first.ahead(ask_llm, local),
             detail=saved_detail,
             customization=customization.read,
+            subject_of=content_subject,
         )
 
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.

@@ -361,6 +361,14 @@ def named_topic(question: str, contents: list[dict[str, Any]]) -> str | None:
     return max(found, key=lambda t: len(words(t)), default=None)
 
 
+def subject_named(question: str, subjects: list[str]) -> str | None:
+    """The subject (a topic, or a topic's part) the question asks about as a whole, as in "Tell
+    me about the Water Cycle." or "Can you explain photosynthesis?": nothing asked but its
+    title's words (R195). None when it asks something more about it, or about nothing listed."""
+    asked = words(asked_about(question))
+    return next((s for s in subjects if asked and words(s) == asked), None)
+
+
 def look_up_named(
     question: str,
     contents: list[dict[str, Any]],
