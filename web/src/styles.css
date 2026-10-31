@@ -814,6 +814,11 @@ form.customization-edit input, form.customization-edit textarea {
 form.customization-edit p { margin: 0; }
 form.customization-edit.guideline { padding-top: 12px; border-top: 1px solid var(--line); }
 /* Generate again's draft beside the current text (R93). */
+ol.customization-history { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+ol.customization-history li {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+  padding: 6px 0; border-top: 1px solid var(--line);
+}
 .customization-draft table { width: 100%; border-collapse: collapse; margin: 8px 0; }
 .customization-draft th, .customization-draft td {
   padding: 6px 8px;

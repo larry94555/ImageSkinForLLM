@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/pre
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { App } from "./App";
-import type { Customization } from "./api";
+import type { Customization, CustomizationVersion } from "./api";
+import { madeBy } from "./customization";
 
 // The real host session calls, not test-setup.ts's signed-in host.
 vi.unmock("./api");
@@ -33,6 +34,12 @@ const QUESTIONS = {
 };
 
 type Put = { url: string; body: unknown };
+
+// The versions the server's History gives (R95), newest first.
+let versions: CustomizationVersion[] = [];
+function version(number: number, made_by: CustomizationVersion["made_by"], more: Partial<CustomizationVersion> = {}) {
+  return { number, made_at: "2026-10-31T21:30:00+00:00", made_by, part: null, feature: null, back_to: null, ...more };
+}
 
 // A save's answer held back until `resolve` is called.
 type Held = { promise: Promise<void>; resolve: () => void };
@@ -100,6 +107,17 @@ function server(
         const draft = { ...now, identity, goals: ["Love the night sky."], features };
         return Response.json({ draft, drafted: features.map((f) => f.key), based_on: "abc123" });
       }
+      if (url.startsWith("/api/customization/history")) {
+        asked.push(url);
+        const restore = /^\/api\/customization\/history\/(\d+)\/restore$/.exec(url);
+        if (restore && init?.method === "POST") {
+          if (refuse) return Response.json({ detail: refuse }, { status: 404 });
+          const back = Number(restore[1]);
+          versions = [version(versions.length + 1, "gone back to", { back_to: back, part: "history" }), ...versions];
+          return Response.json({ ...MAYA, identity: { ...MAYA.identity, name: `Version ${back}` } });
+        }
+        return Response.json({ versions });
+      }
       if (url === "/api/customization/draft/discard") {
         asked.push(url);
         return Response.json({ discarded: true });
@@ -120,6 +138,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  versions = [];
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -227,6 +246,7 @@ test("Assessment and Level of detail have their own sections", async () => {
   const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
   expect(headings).toEqual([
     "Generate again",
+    "History",
     "Identity",
     "Goals",
     "Guidelines",
@@ -398,4 +418,95 @@ test("a draft older than a save says so, and stays to be discarded", async () =>
   expect(await generate.findByText(refused)).toBeTruthy();
   expect(generate.getByRole("table")).toBeTruthy();
   expect(generate.getByRole("button", { name: "Discard" })).toBeTruthy();
+});
+
+test("History lists every version, newest first, and says what made each", async () => {
+  versions = [
+    version(4, "gone back to", { back_to: 1, part: "history" }),
+    version(3, "saved", { part: "guidelines", feature: "questions" }),
+    version(2, "generated", { part: "draft" }),
+    version(1, "shipped"),
+  ];
+  const { asked } = server(true, { ...MAYA, features: [QUESTIONS] });
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  expect(history.queryByRole("list")).toBeNull(); // shown only when asked for
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  const items = (await history.findAllByRole("listitem")).map((li) => li.textContent);
+  expect(items[0]).toMatch(/^Version 4 \(latest\) · Gone back to version 1 · /);
+  expect(items.slice(1).map((t) => t?.split(" · ").slice(0, 2).join(" · "))).toEqual([
+    "Version 3 · Saved Answering questions",
+    "Version 2 · Drafted by the LLM",
+    "Version 1 · As shipped",
+  ]);
+  expect(asked).toContain("/api/customization/history?opened=true");
+  expect(history.getAllByRole("button", { name: "Go back" })).toHaveLength(3);
+  expect(history.getAllByRole("button", { name: "Edit" })).toHaveLength(1);
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Customization history shown: 4 versions/));
+  fireEvent.click(history.getByRole("button", { name: "Hide the history" }));
+  expect(history.queryByRole("list")).toBeNull();
+});
+
+test("Go back makes a copy of the version the latest and fills the editors with it", async () => {
+  versions = [version(2, "saved", { part: "identity" }), version(1, "shipped")];
+  const { asked } = server(true);
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  fireEvent.click(await history.findByRole("button", { name: "Go back" }));
+  await vi.waitFor(() => {
+    const identity = within(screen.getByRole("region", { name: "Identity" }));
+    expect((identity.getByRole("textbox", { name: /^Name/ }) as HTMLInputElement).value).toBe("Version 1");
+  });
+  expect(asked).toContain("/api/customization/history/1/restore");
+  const items = await history.findAllByRole("listitem");
+  expect(items).toHaveLength(3);
+  expect(items[0].textContent).toMatch(/^Version 3 \(latest\) · Gone back to version 1/);
+  expect(history.getByText("Saved. It is used from the next prompt.")).toBeTruthy();
+  expect(console.info).toHaveBeenCalledWith("Customization restored: version 1");
+});
+
+test("Edit on the latest version goes to the editors", async () => {
+  versions = [version(1, "shipped")];
+  server(true);
+  await opened();
+  const scrolled = vi.fn();
+  document.getElementById("customization-identity")!.scrollIntoView = scrolled;
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  fireEvent.click(await history.findByRole("button", { name: "Edit" }));
+  expect(scrolled).toHaveBeenCalled();
+  expect(history.queryByRole("list")).toBeNull();
+});
+
+test("with nothing saved yet, History says so", async () => {
+  server(true);
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  expect(await history.findByText(/Nothing has been saved yet/)).toBeTruthy();
+});
+
+test("a history that can't be read, or a version that can't be gone back to, says so", async () => {
+  versions = [version(2, "saved", { part: "goals" }), version(1, "shipped")];
+  server(true, MAYA, "There is no such version.");
+  await opened();
+  const history = within(screen.getByRole("region", { name: "History" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  fireEvent.click(await history.findByRole("button", { name: "Go back" }));
+  expect(await history.findByText("There is no such version.")).toBeTruthy();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
+  fireEvent.click(history.getByRole("button", { name: "Hide the history" }));
+  fireEvent.click(history.getByRole("button", { name: "History" }));
+  expect(await history.findByText("The history could not be read. Try again.")).toBeTruthy();
+});
+
+test.each([
+  [{ part: "identity" }, "Saved the identity"],
+  [{ part: "goals" }, "Saved the goals"],
+  [{ part: "guidelines set back", feature: "questions" }, "Set Answering questions back to as shipped"],
+  [{ part: "guidelines", feature: "gone" }, "Saved gone"],
+  [{}, "Saved"],
+])("a saved version says what was saved", (more, said) => {
+  expect(madeBy(version(2, "saved", more), [QUESTIONS])).toBe(said);
 });

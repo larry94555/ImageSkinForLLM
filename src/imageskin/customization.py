@@ -1,7 +1,8 @@
 """The AI's identity, its goals and each feature's guidelines (roadmap R92, items 84 and 85).
 
-They are kept together in `customization.json` in the app's home folder, the only copy, with a
-fixed default shipped for when the file is missing or can't be read. The identity and goals are
+They are kept together in `customization.json` in the app's home folder, with every saved version
+kept beside it in `customization.history/` (R95), and a fixed default shipped for when the file is
+missing or can't be read. The identity and goals are
 given to the LLM with every prompt, and "Who are you?", "What is your purpose?" and the like are
 recognized as "What can you talk about?" is (R41f) and answered from the identity here, so they
 cost no LLM call and are answered with general prompts off. Each feature's guidelines are added by
@@ -436,6 +437,11 @@ def fingerprint(customization: Customization) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
+# Told of a save: the customization before it, whether that was the shipped default, the one
+# saved, and what made it (R95's `History.saved`).
+SavedHook = Callable[..., object]
+
+
 @dataclass(frozen=True)
 class Read:
     customization: Customization
@@ -447,8 +453,10 @@ class CustomizationFile:
     """`customization.json` in `home`, read again only when it has changed since the last read,
     so a broken file is logged once, not with every prompt."""
 
-    def __init__(self, home: Path) -> None:
+    def __init__(self, home: Path, history: SavedHook | None = None) -> None:
         self.path = home / CUSTOMIZATION_FILE
+        # Told of each save, to keep it as a version (R95).
+        self._history = history
         self._lock = threading.Lock()
         self._seen: tuple[int, int] | None = None  # the file's mtime and size when last read
         self._last = Read(SHIPPED, True, 0.0)
@@ -460,37 +468,41 @@ class CustomizationFile:
         with self._lock:
             return self._read(start)
 
-    def change(self, edit: Callable[[Customization], Customization]) -> Customization:
+    def change(self, edit: Callable[[Customization], Customization], **note: Any) -> Customization:
         """Save `edit` of the customization as it is now, one change at a time, so two saves
-        made at once both count. A broken file is replaced by the shipped default, edited."""
+        made at once both count. A broken file is replaced by the shipped default, edited. The
+        `note` (made_by, part, feature, back_to) goes with its version in the history (R95)."""
         with self._lock:
-            return self._change(edit)
+            return self._change(edit, **note)
 
     def change_if(
-        self, changes: int, edit: Callable[[Customization], Customization]
+        self, changes: int, edit: Callable[[Customization], Customization], **note: Any
     ) -> Customization | None:
         """`change`, only if no save was made since `changes` were counted (R93); else None."""
         with self._lock:
-            return self._change(edit) if self.changes == changes else None
+            return self._change(edit, **note) if self.changes == changes else None
 
     def change_if_same(
-        self, based_on: str, edit: Callable[[Customization], Customization]
+        self, based_on: str, edit: Callable[[Customization], Customization], **note: Any
     ) -> Customization | None:
         """`change`, only if the customization is still the one whose `fingerprint` is
         `based_on`, so a draft made from an older one doesn't undo a save made since (R93, Codex's
         review on PR #255); else None."""
         with self._lock:
             now = self._read(time.perf_counter()).customization
-            return self._change(edit) if fingerprint(now) == based_on else None
+            return self._change(edit, **note) if fingerprint(now) == based_on else None
 
-    def _change(self, edit: Callable[[Customization], Customization]) -> Customization:
+    def _change(self, edit: Callable[[Customization], Customization], **note: Any) -> Customization:
         """`change`, holding the lock."""
-        edited = edit(self._read(time.perf_counter()).customization)
+        before = self._read(time.perf_counter())
+        edited = edit(before.customization)
         save(self.path.parent, edited)
         stat = self.path.stat()
         self._seen = (stat.st_mtime_ns, stat.st_size)
         self._last = Read(edited, False, 0.0)
         self.changes += 1
+        if self._history is not None:
+            self._history(before.customization, before.shipped, edited, **note)
         return edited
 
     def _read(self, start: float) -> Read:

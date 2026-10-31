@@ -245,7 +245,9 @@ class Generator:
             self._ran()
             return
         try:
-            saved = self._file.change_if(changes, lambda now: draft)
+            saved = self._file.change_if(
+                changes, lambda now: draft, made_by="generated", part="draft"
+            )
         except OSError as e:
             logger.error(
                 "Customization generation failed",

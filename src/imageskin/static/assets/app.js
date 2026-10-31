@@ -625,6 +625,14 @@ function saveDraft({ draft, drafted, based_on }) {
 async function discardDraft() {
 	await fetch("/api/customization/draft/discard", { method: "POST" });
 }
+async function getCustomizationHistory(opened = false) {
+	return (await json(await fetch(opened ? "/api/customization/history?opened=true" : "/api/customization/history"))).versions;
+}
+async function restoreCustomizationVersion(number) {
+	const response = await fetch(`/api/customization/history/${number}/restore`, { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 async function getCustomization(opened = false) {
 	return json(await fetch(opened ? "/api/customization?opened=true" : "/api/customization"));
 }
@@ -8520,6 +8528,120 @@ function GenerateSection({ now, onSaved }) {
 		]
 	});
 }
+function madeBy(version, features) {
+	const label = features.find((f) => f.key === version.feature)?.label ?? version.feature;
+	switch (version.made_by) {
+		case "shipped": return "As shipped";
+		case "generated": return "Drafted by the LLM";
+		case "gone back to": return `Gone back to version ${version.back_to}`;
+	}
+	if (version.part === "identity") return "Saved the identity";
+	if (version.part === "goals") return "Saved the goals";
+	if (version.part === "guidelines set back") return `Set ${label} back to as shipped`;
+	if (version.feature) return `Saved ${label}`;
+	return "Saved";
+}
+function when$1(at) {
+	const date = new Date(at);
+	return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
+}
+function HistorySection({ features, onRestored }) {
+	const [versions, setVersions] = d(null);
+	const [open, setOpen] = d(false);
+	const [error, setError] = d(null);
+	const { busy, run, status, changed } = useSave();
+	async function load(opened) {
+		setError(null);
+		const started = performance.now();
+		try {
+			const got = await getCustomizationHistory(opened);
+			setVersions(got);
+			console.info(`Customization history shown: ${got.length} versions (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error("Could not read the customization history", e);
+			setError("The history could not be read. Try again.");
+		}
+	}
+	function toggle() {
+		changed();
+		if (open) {
+			setOpen(false);
+			return;
+		}
+		setOpen(true);
+		load(true);
+	}
+	async function goBack(number) {
+		const saved = await run(`went back to version ${number}`, () => restoreCustomizationVersion(number));
+		if (saved) {
+			console.info(`Customization restored: version ${number}`);
+			onRestored(saved);
+			await load(false);
+		}
+	}
+	function edit() {
+		setOpen(false);
+		document.getElementById("customization-identity")?.scrollIntoView({ behavior: "smooth" });
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-history",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-history",
+				children: "History"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Every save is kept as a version. Go back to one to make a copy of it the latest; that can be undone by going back again."
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				"aria-expanded": open,
+				onClick: toggle,
+				children: open ? "Hide the history" : "History"
+			}) }),
+			open && error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			open && !error && versions === null && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			}),
+			open && versions?.length === 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Nothing has been saved yet. Each save from now on is kept here."
+			}),
+			open && versions && versions.length > 0 && /* @__PURE__ */ u("ol", {
+				className: "customization-history",
+				reversed: true,
+				children: versions.map((v, i) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("span", { children: [
+					/* @__PURE__ */ u("strong", { children: ["Version ", v.number] }),
+					i === 0 && " (latest)",
+					" · ",
+					madeBy(v, features),
+					/* @__PURE__ */ u("span", {
+						className: "muted",
+						children: [" · ", when$1(v.made_at)]
+					})
+				] }), i === 0 ? /* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					onClick: edit,
+					children: "Edit"
+				}) : /* @__PURE__ */ u("button", {
+					type: "button",
+					disabled: busy,
+					onClick: () => void goBack(v.number),
+					children: "Go back"
+				})] }, v.number))
+			}),
+			open && status
+		]
+	});
+}
 function CustomizationPage() {
 	const session = useHost().session;
 	const host = session?.signed_in === true;
@@ -8558,6 +8680,16 @@ function CustomizationPage() {
 				/* @__PURE__ */ u(GenerateSection, {
 					now: read,
 					onSaved: (saved) => {
+						setRead({
+							...saved,
+							shipped: false
+						});
+						setSaves((n) => n + 1);
+					}
+				}),
+				/* @__PURE__ */ u(HistorySection, {
+					features: read.features,
+					onRestored: (saved) => {
 						setRead({
 							...saved,
 							shipped: false

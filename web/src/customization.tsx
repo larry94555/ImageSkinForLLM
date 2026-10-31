@@ -1,16 +1,19 @@
 // The Customization page (roadmap R92 and R94, items 85 and 87): the AI's identity, its goals and
 // each feature's guidelines, which the LLM is given with every prompt, edited and saved by a
-// signed-in host. A save is used from the next prompt.
+// signed-in host. A save is used from the next prompt, and kept as a version in the History (R95).
 
 import { useEffect, useState } from "preact/hooks";
 
 import {
   type Customization,
   type CustomizationDraft,
+  type CustomizationVersion,
   type GuidelineFeature,
   discardDraft,
   generateDraft,
   getCustomization,
+  getCustomizationHistory,
+  restoreCustomizationVersion,
   saveDraft,
   saveGoals,
   saveGuidelines,
@@ -348,6 +351,124 @@ function GenerateSection({ now, onSaved }: { now: Customization; onSaved: (saved
   );
 }
 
+// What made a version, as the History list says it (R95).
+export function madeBy(version: CustomizationVersion, features: GuidelineFeature[]): string {
+  const label = features.find((f) => f.key === version.feature)?.label ?? version.feature;
+  switch (version.made_by) {
+    case "shipped":
+      return "As shipped";
+    case "generated":
+      return "Drafted by the LLM";
+    case "gone back to":
+      return `Gone back to version ${version.back_to}`;
+  }
+  if (version.part === "identity") return "Saved the identity";
+  if (version.part === "goals") return "Saved the goals";
+  if (version.part === "guidelines set back") return `Set ${label} back to as shipped`;
+  if (version.feature) return `Saved ${label}`;
+  return "Saved";
+}
+
+function when(at: string): string {
+  const date = new Date(at);
+  return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
+}
+
+// The History (R95): every saved version, newest first. Go back saves a copy of a version as the
+// new latest one, so it can be undone; Edit goes to the editors, which edit the latest.
+function HistorySection({
+  features,
+  onRestored,
+}: {
+  features: GuidelineFeature[];
+  onRestored: (saved: Customization) => void;
+}) {
+  const [versions, setVersions] = useState<CustomizationVersion[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { busy, run, status, changed } = useSave();
+
+  async function load(opened: boolean) {
+    setError(null);
+    const started = performance.now();
+    try {
+      const got = await getCustomizationHistory(opened);
+      setVersions(got);
+      console.info(`Customization history shown: ${got.length} versions (${Math.round(performance.now() - started)} ms)`);
+    } catch (e) {
+      console.error("Could not read the customization history", e);
+      setError("The history could not be read. Try again.");
+    }
+  }
+
+  function toggle() {
+    changed();
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    void load(true);
+  }
+
+  async function goBack(number: number) {
+    const saved = await run(`went back to version ${number}`, () => restoreCustomizationVersion(number));
+    if (saved) {
+      console.info(`Customization restored: version ${number}`);
+      onRestored(saved);
+      await load(false);
+    }
+  }
+
+  function edit() {
+    setOpen(false);
+    document.getElementById("customization-identity")?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  return (
+    <section className="panel" aria-labelledby="customization-history">
+      <h2 id="customization-history">History</h2>
+      <p className="muted">
+        Every save is kept as a version. Go back to one to make a copy of it the latest; that can
+        be undone by going back again.
+      </p>
+      <p>
+        <button type="button" className="secondary" aria-expanded={open} onClick={toggle}>
+          {open ? "Hide the history" : "History"}
+        </button>
+      </p>
+      {open && error && <p className="error">{error}</p>}
+      {open && !error && versions === null && <p className="muted busy">Loading…</p>}
+      {open && versions?.length === 0 && (
+        <p className="muted">Nothing has been saved yet. Each save from now on is kept here.</p>
+      )}
+      {open && versions && versions.length > 0 && (
+        <ol className="customization-history" reversed>
+          {versions.map((v, i) => (
+            <li key={v.number}>
+              <span>
+                <strong>Version {v.number}</strong>
+                {i === 0 && " (latest)"} · {madeBy(v, features)}
+                <span className="muted"> · {when(v.made_at)}</span>
+              </span>
+              {i === 0 ? (
+                <button type="button" className="secondary" onClick={edit}>
+                  Edit
+                </button>
+              ) : (
+                <button type="button" disabled={busy} onClick={() => void goBack(v.number)}>
+                  Go back
+                </button>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+      {open && status}
+    </section>
+  );
+}
+
 export function CustomizationPage() {
   const session = useHost().session;
   const host = session?.signed_in === true;
@@ -388,6 +509,13 @@ export function CustomizationPage() {
           <GenerateSection
             now={read}
             onSaved={(saved) => {
+              setRead({ ...saved, shipped: false });
+              setSaves((n) => n + 1);
+            }}
+          />
+          <HistorySection
+            features={read.features}
+            onRestored={(saved) => {
               setRead({ ...saved, shipped: false });
               setSaves((n) => n + 1);
             }}

@@ -1395,6 +1395,31 @@ export async function discardDraft(): Promise<void> {
   await fetch("/api/customization/draft/discard", { method: "POST" });
 }
 
+// A version of the customization (R95): each save kept whole, with when it was made and what
+// made it.
+export interface CustomizationVersion {
+  number: number;
+  made_at: string; // ISO 8601
+  made_by: "shipped" | "generated" | "saved" | "gone back to";
+  part: string | null; // identity, goals, guidelines, guidelines set back, draft or history
+  feature: string | null; // the feature whose guidelines were saved
+  back_to: number | null; // the version gone back to
+}
+
+export async function getCustomizationHistory(opened = false): Promise<CustomizationVersion[]> {
+  const got = await json<{ versions: CustomizationVersion[] }>(
+    await fetch(opened ? "/api/customization/history?opened=true" : "/api/customization/history"),
+  );
+  return got.versions;
+}
+
+// Go back to a version: a copy of it saved as the new latest version, so it can be undone.
+export async function restoreCustomizationVersion(number: number): Promise<Customization> {
+  const response = await fetch(`/api/customization/history/${number}/restore`, { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as Customization;
+}
+
 export async function getCustomization(opened = false): Promise<Customization> {
   return json<Customization>(
     await fetch(opened ? "/api/customization?opened=true" : "/api/customization"),

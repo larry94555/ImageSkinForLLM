@@ -71,6 +71,7 @@ from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
 from imageskin.customization import (
+    FEATURES,
     Customization,
     CustomizationFile,
     CustomizationRefused,
@@ -89,6 +90,7 @@ from imageskin.customization_draft import (
     GenerationFailed,
     Generator,
 )
+from imageskin.customization_history import History, NoSuchVersion, restored
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
@@ -1642,7 +1644,9 @@ def create_app(
         return load_ui_settings(data_home, ui_defaults).detail
 
     # The identity, goals and guidelines (R92), read for each prompt and shown to a host.
-    customization = CustomizationFile(data_home)
+    # Every save kept as a version (R95).
+    history = History(data_home)
+    customization = CustomizationFile(data_home, history.saved)
 
     def ask_draft(messages: list[Message], schema: dict[str, Any]) -> str:
         """The LLM asked to draft the customization (R93), after the chat's replies (R99)."""
@@ -1698,14 +1702,18 @@ def create_app(
         edit: Callable[[Customization], Customization],
         feature: str | None = None,
         based_on: str | None = None,
+        made_by: str = "saved",
+        back_to: int | None = None,
     ) -> dict[str, Any]:
-        """Save an edit made on the Customization page (R94), used from the next prompt. With
-        `based_on`, only if the customization is still the one it was made from (R93)."""
+        """Save an edit made on the Customization page (R94), used from the next prompt and kept
+        as a version (R95). With `based_on`, only if the customization is still the one it was
+        made from (R93)."""
         start = time.perf_counter()
+        note = {"made_by": made_by, "part": part, "feature": feature, "back_to": back_to}
         try:
             if based_on is None:
-                saved = customization.change(edit)
-            elif (changed := customization.change_if_same(based_on, edit)) is not None:
+                saved = customization.change(edit, **note)
+            elif (changed := customization.change_if_same(based_on, edit, **note)) is not None:
                 saved = changed
             else:
                 logger.warning("Customization draft out of date", extra={"part": part})
@@ -1723,7 +1731,7 @@ def create_app(
             extra={"part": part, "feature": feature, "duration_ms": ms_since(start)},
         )
         lessons = getattr(app.state, "lessons", None)
-        if feature == "teach me" and lessons is not None:
+        if (feature == "teach me" or back_to is not None) and lessons is not None:
             lessons.refresh()  # each topic's first part written ahead again with them (R98a)
         return shown(saved)
 
@@ -1764,12 +1772,50 @@ def create_app(
                 c = with_guidelines(c, key, text)
             return as_generated(c, list(guidelines))  # drafted anew by Generate again
 
-        return save_customization("draft", edit, based_on=based_on)
+        return save_customization("draft", edit, based_on=based_on, made_by="generated")
 
     @app.post("/api/customization/draft/discard", dependencies=host_only)
     def discard_draft() -> dict[str, bool]:
         logger.info("Customization draft discarded")
         return {"discarded": True}
+
+    @app.get("/api/customization/history", dependencies=host_only)
+    def get_history(
+        opened: Annotated[bool, Query(description="Asked as the History list opens.")] = False,
+    ) -> dict[str, Any]:
+        """Every version of the customization, newest first (R95)."""
+        start = time.perf_counter()
+        versions = [v.listed() for v in history.versions()]
+        if opened:
+            logger.info(
+                "Customization history opened",
+                extra={"versions": len(versions), "duration_ms": ms_since(start)},
+            )
+        return {"versions": versions}
+
+    @app.post("/api/customization/history/{number}/restore", dependencies=host_only)
+    def restore_version(number: int) -> dict[str, Any]:
+        """Go back to a version (R95): a copy of it saved as the new latest version, so it can
+        be undone too; a feature added since keeps its current guidelines."""
+        start = time.perf_counter()
+        try:
+            version = history.version(number)
+        except NoSuchVersion as e:
+            raise HTTPException(status_code=404, detail="There is no such version.") from e
+        added = [key for key in FEATURES if key not in version.features]
+        shown_now = save_customization(
+            "history", lambda now: restored(version, now), made_by="gone back to", back_to=number
+        )
+        logger.info(
+            "Customization restored",
+            extra={
+                "version": number,
+                "made_by": version.made_by,
+                "kept": added,
+                "duration_ms": ms_since(start),
+            },
+        )
+        return shown_now
 
     @app.put("/api/customization/guidelines/{feature}", dependencies=host_only)
     def put_guidelines(
