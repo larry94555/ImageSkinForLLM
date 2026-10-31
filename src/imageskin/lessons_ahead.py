@@ -24,7 +24,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from imageskin.chat import LlmError, Teach, ms_since
+from imageskin.chat import LlmError, NoRoomForGuidelines, Teach, ms_since
 from imageskin.sentences import SentenceSplitter
 
 logger = logging.getLogger(__name__)
@@ -164,6 +164,14 @@ class LessonsAhead:
             began = time.perf_counter()
             try:
                 text = self._write(teach).strip()
+            except NoRoomForGuidelines:
+                # Taught live, as shipped, until there is room (R196); never saved under the
+                # key of what wasn't asked.
+                logger.warning(
+                    "Lesson not written ahead",
+                    extra={"topic": topic, "reason": "no room for the Teach me guidelines"},
+                )
+                continue
             except LlmError as e:
                 logger.error(
                     "Lesson not saved",

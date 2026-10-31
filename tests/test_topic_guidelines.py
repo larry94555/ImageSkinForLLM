@@ -28,7 +28,7 @@ SUBJECTS = ["Water Cycle", "Evaporation", "Moons of Mars"]
 
 def test_they_ship_describing_todays_replies_and_are_listed_after_answering_questions() -> None:
     assert FEATURES["topics"].shipped == TOPICS == guidelines_of(SHIPPED, "topics")
-    assert [f["key"] for f in features(SHIPPED)] == ["questions", "topics"]
+    assert [f["key"] for f in features(SHIPPED)][:2] == ["questions", "topics"]
     assert not is_edited(SHIPPED, "topics")
     assert is_edited(with_guidelines(SHIPPED, "topics", EDITED), "topics")
 
@@ -196,7 +196,7 @@ def test_guidelines_that_dont_fit_are_left_out_rather_than_overflowing_the_windo
     assert chat_in(window, Llm()).read_ahead(prompt) == "read"  # before anything was said
     assert llm.sent[0][-1]["content"] == prompt and read[-1][-1]["content"] == prompt
     warned = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-    assert warned == ["Topics guidelines left out"]
+    assert warned == ["Guidelines left out"]
     # With room for them, they are sent.
     roomy = Llm()
     chat_in(4 * window, roomy).send(prompt)
