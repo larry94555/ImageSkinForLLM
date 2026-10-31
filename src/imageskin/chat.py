@@ -1144,7 +1144,12 @@ class Conversation:
             {
                 "role": "user",
                 "content": at_length(
-                    self._with_content(self._guided(draft), found, fit.room, quiet=True),
+                    self._with_content(
+                        self._room_for(draft, self._guided(draft), fit.room, quiet=True),
+                        found,
+                        fit.room,
+                        quiet=True,
+                    ),
                     draft,
                     fit.turns,
                 ),
@@ -1264,7 +1269,7 @@ class Conversation:
                     "Guidelines used",
                     extra={"feature": feature, "edited": is_edited(customization, feature)},
                 )
-        question = topic_guided(question, about)
+        question = self._room_for(question, topic_guided(question, about), fit.room)
         asked = self._with_content(question, found, fit.room)
         return self._ask_llm(prompt, asked, fit, on_sentence)
 
@@ -1408,6 +1413,19 @@ class Conversation:
             return None
         note(looked_up_ms=ms_since(start))  # R96a
         return found
+
+    def _room_for(self, question: str, guided: str, room: int, quiet: bool = False) -> str:
+        """The question with the Topics guidelines (`guided`) when it fits the room `_fit` left
+        for the question as typed, or without them (Codex's review on PR #248): the host's
+        guidelines never make a question too long, nor a prompt overflow the context window."""
+        if guided == question or tokens({"role": "user", "content": guided}, self._count) <= room:
+            return guided
+        if not quiet:
+            logger.warning(
+                "Topics guidelines left out",
+                extra={"reason": "no room", "question_chars": len(question)},
+            )
+        return question
 
     def _guided(self, draft: str) -> str:
         """The question typed so far as `send` would ask it, with the Topics guidelines when it

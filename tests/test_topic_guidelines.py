@@ -161,3 +161,50 @@ def test_the_host_edits_them_and_a_picked_example_question_is_asked_with_them(
     assert GUIDED in picked and GUIDED in told
     assert GUIDED not in question and GUIDED not in back
     assert "Moons of Mars" in topics["content"]  # still the code's reply, without the LLM
+
+
+def test_guidelines_that_dont_fit_are_left_out_rather_than_overflowing_the_window(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Codex's review on PR #248: the room is checked for the question as typed, so the
+    guidelines added after it must fit that room too, near their longest."""
+    longest = "Start with why it matters. " * 70  # about 1,900 characters
+    now = [Read(with_guidelines(SHIPPED, "topics", longest), False, 0.1)]
+    prompt = "Tell me about the Water Cycle" + ", and then some more of it" * 20 + "."
+    read: list[list[Message]] = []
+
+    def ahead(messages: list[Message]) -> str:
+        read.append(messages)
+        return "x"
+
+    def chat_in(window: int, llm: Llm) -> Conversation:
+        return Conversation(
+            llm,
+            lambda: window,
+            customization=lambda: now[0],
+            subject_of=lambda p: "Water Cycle",
+            read_ahead=ahead,
+        )
+
+    # The smallest window the question as typed fits in, without the guidelines.
+    window = next(w for w in range(1024, 8192, 8) if fits(chat_in(w, Llm()), prompt))
+    llm = Llm()
+    chat = chat_in(window, llm)
+    caplog.clear()  # of the windows tried
+    with caplog.at_level(logging.WARNING, logger="imageskin.chat"):
+        chat.send(prompt)
+    assert chat_in(window, Llm()).read_ahead(prompt) == "read"  # before anything was said
+    assert llm.sent[0][-1]["content"] == prompt and read[-1][-1]["content"] == prompt
+    assert [r.message for r in caplog.records] == ["Topics guidelines left out"]
+    # With room for them, they are sent.
+    roomy = Llm()
+    chat_in(4 * window, roomy).send(prompt)
+    assert roomy.sent[0][-1]["content"].endswith(longest.strip())
+
+
+def fits(chat: Conversation, prompt: str) -> bool:
+    try:
+        chat.send(prompt)
+    except ValueError:
+        return False
+    return True
