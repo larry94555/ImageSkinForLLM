@@ -283,7 +283,7 @@ def test_a_host_gets_the_customization(tmp_path: Path, caplog: pytest.LogCapture
         save(tmp_path, MAYA)
         opened = client.get("/api/customization?opened=true")
     assert got.status_code == 200
-    assert got.json() == {**SHIPPED.as_dict(), "features": [], "shipped": True}
+    assert got.json() == {**SHIPPED.as_dict(), "features": features(SHIPPED), "shipped": True}
     assert opened.json()["identity"]["name"] == "Maya"
     logged = [r for r in caplog.records if r.message == "Customization page opened"]
     assert [r.shipped for r in logged] == [False]  # type: ignore[attr-defined]
