@@ -30,10 +30,12 @@ from typing import Any, Literal, NamedTuple, Protocol
 from imageskin import reply_times
 from imageskin.customization import (
     ANSWERING,
+    DETAIL_STEPS,
     Customization,
     Read,
     about_me,
     asks_about_identity,
+    detail_key,
     guidelines_of,
     instructions,
     is_edited,
@@ -56,28 +58,11 @@ logger = logging.getLogger(__name__)
 # High level (1) to In depth (5), and the most tokens it may take. The middle is the length every
 # reply was asked for before the bar. A few paragraphs need far more than 300 tokens, so the room
 # grows with the level and a long answer isn't cut off.
+# The text of each step is the host's to edit, as the level of detail's guidelines (R199), which
+# ship as `DETAIL_STEPS`; the room stays here.
+DETAIL_ROOM = {1: 300, 2: 300, 3: 300, 4: 600, 5: 1200}
 DETAIL_LEVELS: dict[int, tuple[str, int]] = {
-    1: (
-        "Keep each reply brief and conversational: a single short sentence in plain words, of"
-        " at most 25 words, with only the main point",
-        300,
-    ),
-    2: (
-        "Keep each reply short and conversational: one or two short sentences in plain words,"
-        " of at most 45 words, with only the main points",
-        300,
-    ),
-    3: ("Keep each reply short and conversational: one to three sentences in plain words", 300),
-    4: (
-        "Give a fuller reply, still conversational: a paragraph of four to six sentences in"
-        " plain words that explains the answer, with an example when it helps",
-        600,
-    ),
-    5: (
-        "Give an in-depth, complete reply, still conversational: a few paragraphs in plain words"
-        " with the explanation, examples and the points a careful answer covers",
-        1200,
-    ),
+    step: (text.removesuffix("."), DETAIL_ROOM[step]) for step, text in DETAIL_STEPS.items()
 }
 DEFAULT_DETAIL = 3
 # The level the reply being made is asked at (R180), set by `detail_level` around each request.
@@ -104,13 +89,27 @@ def detail_level(level: int, customization: Customization | None = None) -> Iter
         reply_detail.reset(token)
 
 
-def system_prompt(level: int = DEFAULT_DETAIL) -> str:
-    """The chat's instructions, with the reply's length for the level of detail (R180)."""
-    return (
-        "You are talking with someone face to face, and your replies are spoken aloud."
-        f" {DETAIL_LEVELS[level][0]}, without lists, headings or code unless you are asked for"
-        f" them.{KEEP_TRACK}"
-    )
+# What edited level of detail guidelines (R199) are said after, in the instructions.
+DETAIL_GUIDELINES = "Guidelines for the length and detail of each reply:"
+SPOKEN = "without lists, headings or code unless you are asked for them."
+
+
+def system_prompt(level: int = DEFAULT_DETAIL, guidelines: str | None = None) -> str:
+    """The chat's instructions, with the reply's length for the level of detail (R180). As
+    shipped, `guidelines` are its text there word for word; edited, they take its place (R199)."""
+    spoken = "You are talking with someone face to face, and your replies are spoken aloud."
+    if guidelines is None or guidelines == DETAIL_STEPS[level]:
+        return f"{spoken} {DETAIL_LEVELS[level][0]}, {SPOKEN}{KEEP_TRACK}"
+    return f"{spoken} {DETAIL_GUIDELINES} {guidelines} Reply {SPOKEN}{KEEP_TRACK}"
+
+
+def asked_system_prompt() -> str:
+    """The instructions at the level of detail being asked at, with its guidelines as the host
+    left them (R199); as shipped outside a prompt."""
+    level, customization = reply_detail.get(), reply_customization.get()
+    if customization is None:
+        return system_prompt(level)
+    return system_prompt(level, guidelines_of(customization, detail_key(level)))
 
 
 # The same lengths in a few words, said again after the question (R180): with only the
@@ -427,7 +426,7 @@ def system_message(summary: str | None) -> Message:
     # the content rules, so all are kept in llama-server's cache with the instructions and read
     # again only when they change (R92).
     customization = reply_customization.get()
-    prompt = f"{system_prompt(reply_detail.get())} {asked_content_rules()}"
+    prompt = f"{asked_system_prompt()} {asked_content_rules()}"
     who = "" if customization is None else instructions(customization)
     if who:
         prompt = f"{who} {prompt}"
@@ -1668,7 +1667,18 @@ class Conversation:
                     "Identity used",
                     extra={"shipped": read.shipped, "duration_ms": read.duration_ms},
                 )
-        return detail_level(self._detail(), None if read is None else read.customization)
+        level = self._detail()
+        if sent and read is not None:
+            step = level if level in DETAIL_LEVELS else DEFAULT_DETAIL
+            logger.info(
+                "Guidelines used",
+                extra={
+                    "feature": "level of detail",
+                    "step": step,
+                    "edited": is_edited(read.customization, detail_key(step)),
+                },
+            )
+        return detail_level(level, None if read is None else read.customization)
 
     def _summarize(self, budget: int) -> None:
         """Fold the older turns into the summary, keeping the latest ones word for word.

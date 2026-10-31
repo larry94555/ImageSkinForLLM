@@ -118,6 +118,37 @@ ASSESSMENT_QUESTIONS = (
 )
 ASSESSMENT_JUDGING = "Judge the answer from the reference text."
 
+# The level of detail's guidelines as shipped (R199): what each step of the bar on the chat
+# screen (R180) asks of a reply, from High level (1) to In depth (5), each the text it was asked
+# with before, word for word, so as shipped nothing changes. The room each step gives a reply in
+# tokens stays with the code (`chat.DETAIL_LEVELS`).
+DETAIL_STEPS: dict[int, str] = {
+    1: (
+        "Keep each reply brief and conversational: a single short sentence in plain words, of"
+        " at most 25 words, with only the main point."
+    ),
+    2: (
+        "Keep each reply short and conversational: one or two short sentences in plain words,"
+        " of at most 45 words, with only the main points."
+    ),
+    3: "Keep each reply short and conversational: one to three sentences in plain words.",
+    4: (
+        "Give a fuller reply, still conversational: a paragraph of four to six sentences in"
+        " plain words that explains the answer, with an example when it helps."
+    ),
+    5: (
+        "Give an in-depth, complete reply, still conversational: a few paragraphs in plain words"
+        " with the explanation, examples and the points a careful answer covers."
+    ),
+}
+DETAIL_NAMES = {1: "1, High level", 2: "2", 3: "3, the middle", 4: "4", 5: "5, In depth"}
+
+
+def detail_key(step: int) -> str:
+    """The key a step of the level of detail's guidelines is kept under (R199)."""
+    return f"detail {step}"
+
+
 # Each feature's guidelines, by the key they are kept under in `guidelines`, in the order the page
 # shows them. Each guideline PR adds its feature here (R194 to R200).
 FEATURES: dict[str, Feature] = {
@@ -177,6 +208,19 @@ FEATURES: dict[str, Feature] = {
         " answer, kept for the evaluation, which is worked out the same way.",
         ASSESSMENT_JUDGING,
     ),
+    **{
+        detail_key(step): Feature(
+            f"Level of detail: {DETAIL_NAMES[step]}",
+            "They are given to the LLM with every reply asked for at this step of the Level of"
+            " detail bar, in the instructions sent with each prompt.",
+            "The room a reply has at this step stays as the code makes it, so a reply isn't cut"
+            " off, as do the length named after a question asked again or at a step other than"
+            " the middle, and replies are still spoken, without lists, headings or code unless"
+            " asked for.",
+            text,
+        )
+        for step, text in DETAIL_STEPS.items()
+    },
 }
 
 

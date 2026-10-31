@@ -69,7 +69,9 @@ def test_every_question_is_sent_with_the_guidelines_as_they_are_then(
     assert EDITED in second and ANSWERING not in second
     used = [r for r in caplog.records if r.message == "Guidelines used"]
     assert [(r.feature, r.edited) for r in used] == [  # type: ignore[attr-defined]
+        ("level of detail", False),  # each prompt's step (R199)
         ("questions", False),
+        ("level of detail", False),
         ("questions", True),
     ]
 

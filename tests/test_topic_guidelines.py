@@ -97,7 +97,7 @@ def test_replies_about_a_topic_are_asked_with_them_and_other_answers_are_not(
     used = [
         (r.feature, r.edited)  # type: ignore[attr-defined]
         for r in caplog.records
-        if r.message == "Guidelines used"
+        if r.message == "Guidelines used" and r.feature != "level of detail"  # type: ignore[attr-defined]
     ]
     assert used == [
         ("questions", False),
