@@ -389,13 +389,20 @@ def as_message(turn: Turn) -> Message:
     return {"role": turn.role, "content": turn.content}
 
 
+def asked_content_rules() -> str:
+    """The content rules with the Answering questions guidelines (R194) of what is being asked;
+    as shipped outside a prompt."""
+    customization = reply_customization.get()
+    answering = ANSWERING if customization is None else guidelines_of(customization, "questions")
+    return content_rules(answering)
+
+
 def system_message(summary: str | None) -> Message:
     # The identity and goals come first, and the Answering questions guidelines (R194) go with
     # the content rules, so all are kept in llama-server's cache with the instructions and read
     # again only when they change (R92).
     customization = reply_customization.get()
-    answering = ANSWERING if customization is None else guidelines_of(customization, "questions")
-    prompt = f"{system_prompt(reply_detail.get())} {content_rules(answering)}"
+    prompt = f"{system_prompt(reply_detail.get())} {asked_content_rules()}"
     who = "" if customization is None else instructions(customization)
     if who:
         prompt = f"{who} {prompt}"
@@ -1306,8 +1313,12 @@ class Conversation:
         and none of the conversation, which it doesn't change: a quiz question, say (R41i)."""
         asked = self._with_content(instruction, material, self._fit(instruction).room)
         start = time.perf_counter()
-        # Without the system prompt, the rules for the material go with it.
-        rules: list[Message] = [{"role": "system", "content": CONTENT_RULES}] if material else []
+        # Without the system prompt, the rules for the material go with it, with the Answering
+        # questions guidelines as they are now (R194; Codex's review on PR #245).
+        with self._at_detail():
+            rules: list[Message] = (
+                [{"role": "system", "content": asked_content_rules()}] if material else []
+            )
         with self._llm_busy():
             content = self._ask([*rules, {"role": "user", "content": asked}])
         logger.info(
@@ -1322,7 +1333,9 @@ class Conversation:
         conversation, so the answer can be saved and said whenever the part is taught."""
         room = self._fit(teach.instruction).room
         asked = self._with_content(teach.instruction, teach.material, room)
-        return [system_message(None), {"role": "user", "content": asked}]
+        # With the identity, goals and guidelines as they are now (R92, R194).
+        with self._at_detail():
+            return [system_message(None), {"role": "user", "content": asked}]
 
     def _record(self, prompt: str, reply: Turn, turns: list[Turn] | None, budget: int) -> int:
         """Keep the prompt and its reply, and return the reply's place. With `turns` (the ones

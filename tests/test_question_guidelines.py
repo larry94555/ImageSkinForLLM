@@ -12,6 +12,7 @@ from imageskin.chat import (
     FORMULAS,
     REFERENCE_ONLY,
     Conversation,
+    Teach,
     content_rules,
     detail_level,
     system_message,
@@ -98,3 +99,21 @@ def test_they_cant_widen_the_question_scope(tmp_path: Path) -> None:
         reply = client.post("/api/chat", json={"prompt": "What is the capital of Peru?"}).json()
     assert reply["content"].startswith("Sorry, I can only answer questions about the material")
     assert llm.sent == []  # declined by the code, without asking the LLM
+
+
+def test_one_off_answers_and_lessons_written_ahead_use_them_too() -> None:
+    """Codex's review on PR #245: a quiz or assessment question written with `write`, and a
+    lesson part written ahead, are asked with the guidelines as they are then."""
+    llm = Llm()
+    now = [Read(SHIPPED, True, 0.1)]
+    conversation = Conversation(llm, lambda: 4096, customization=lambda: now[0])
+    conversation.write("Write a quiz question.", ["Mars has two moons."])
+    now[0] = Read(with_guidelines(SHIPPED, "questions", EDITED), False, 0.1)
+    conversation.write("Write a quiz question.", ["Mars has two moons."])
+    conversation.write("Say hello.", [])  # no material: no system message, as before
+    shipped, edited, alone = llm.sent
+    assert shipped[0] == {"role": "system", "content": CONTENT_RULES}
+    assert edited[0] == {"role": "system", "content": content_rules(EDITED)}
+    assert [m["role"] for m in alone] == ["user"]
+    ahead = conversation.asked_alone(Teach("Teach Moons.", ["Mars has two moons."]))
+    assert EDITED in ahead[0]["content"] and ANSWERING not in ahead[0]["content"]
