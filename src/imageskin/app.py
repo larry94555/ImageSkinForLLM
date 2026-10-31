@@ -2133,7 +2133,13 @@ def create_app(
             return {"wanted": False, "writing": False, "ready": False, "saved": []}
         return lessons.status()
 
-    quizzer = Quizzer(wiki.contents, find_content, conversation.write, topics_complete)
+    quizzer = Quizzer(
+        wiki.contents,
+        find_content,
+        conversation.write,
+        topics_complete,
+        lambda key: guidelines_of(customization.read().customization, key),  # R197
+    )
     assessor = Assessor(wiki.contents, find_content, conversation.write, topics_complete)
 
     def lesson_parts(lesson: Lesson) -> int:
