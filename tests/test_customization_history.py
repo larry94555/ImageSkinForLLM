@@ -31,6 +31,8 @@ from imageskin.customization_history import (
     HISTORY_FILE,
     History,
     NoSuchChange,
+    as_text,
+    compared,
     parts,
     value_of,
     with_value,
@@ -294,3 +296,68 @@ def test_a_history_of_the_wrong_shape_is_no_500(tmp_path: Path) -> None:
     (tmp_path / HISTORY_FILE).write_text(json.dumps({"parts": [1]}), encoding="utf-8")
     assert client.get("/api/customization/history").json() == {"parts": []}
     assert client.put("/api/customization/goals", json={"goals": [GOAL]}).status_code == 200
+
+
+# --- Comparing changes (R95a) ---
+
+
+def joined(runs: list[dict[str, str]], kind: str) -> list[str]:
+    return [r["text"] for r in runs if r["kind"] == kind]
+
+
+def test_only_what_changed_is_marked() -> None:
+    runs = compared("Name the main idea first.", "Name the main idea of the topic first.")
+    assert joined(runs, "added") == ["of the topic "]
+    assert joined(runs, "removed") == []
+    assert "".join(r["text"] for r in runs if r["kind"] != "added") == "Name the main idea first."
+    assert "".join(r["text"] for r in runs if r["kind"] != "removed") == (
+        "Name the main idea of the topic first."
+    )
+    swapped = compared("Use short words.", "Use plain words.")
+    assert joined(swapped, "removed") == ["short"] and joined(swapped, "added") == ["plain"]
+    assert compared("Same.", "Same.") == [{"kind": "same", "text": "Same."}]
+    assert compared("", "New.") == [{"kind": "added", "text": "New."}]
+
+
+def test_each_part_is_compared_as_text() -> None:
+    assert as_text("identity", {"name": "Maya", "purpose": "to teach"}).splitlines()[:3] == [
+        "The name: Maya",
+        "Speaks as: ",
+        "The purpose: to teach",
+    ]
+    assert as_text("goals", ["One.", "Two."]) == "One.\nTwo."
+    assert as_text("topics", None) == FEATURES["topics"].shipped  # as shipped
+    assert as_text("topics", TOPICS) == TOPICS
+
+
+def test_the_host_compares_the_change_in_use_with_an_earlier_one(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    client: Any = riemann_app(tmp_path, Llm())
+    client.put("/api/customization/guidelines/topics", json={"text": "Name the main idea first."})
+    client.put(
+        "/api/customization/guidelines/topics",
+        json={"text": "Name the main idea of the topic first."},
+    )
+    with caplog.at_level(logging.INFO):
+        before = client.get("/api/customization/history/topics/2/compare")
+        first = client.get("/api/customization/history/topics/1/compare")
+    assert before.status_code == 200
+    body = before.json()
+    assert (body["part"], body["earlier"], body["current"]) == ("topics", 2, 3)
+    assert joined(body["runs"], "added") == ["of the topic "] and not joined(
+        body["runs"], "removed"
+    )
+    # With the first, every change since: the shipped text taken out.
+    assert FEATURES["topics"].shipped.split()[0] in "".join(joined(first.json()["runs"], "removed"))
+    logged = [r for r in caplog.records if r.message == "Customization compared"]
+    assert [(r.part, r.earlier, r.current, r.added) for r in logged][0] == ("topics", 2, 3, 13)  # type: ignore[attr-defined]
+    assert all(r.duration_ms >= 0 for r in logged)  # type: ignore[attr-defined]
+    assert client.get("/api/customization/history/topics/9/compare").status_code == 404
+    assert client.get("/api/customization/history/goals/1/compare").status_code == 404
+
+
+@pytest.mark.real_hosts
+def test_only_a_signed_in_host_compares(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    assert client.get("/api/customization/history/goals/1/compare").status_code == 401

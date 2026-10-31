@@ -90,7 +90,13 @@ from imageskin.customization_draft import (
     GenerationFailed,
     Generator,
 )
-from imageskin.customization_history import History, NoSuchChange, with_value
+from imageskin.customization_history import (
+    History,
+    NoSuchChange,
+    as_text,
+    compared,
+    with_value,
+)
 from imageskin.default_people import page_order
 from imageskin.default_people import people as default_people
 from imageskin.delete_data import Deleted, delete_my_data
@@ -1792,6 +1798,30 @@ def create_app(
                 extra={"parts": len(shown_parts), "duration_ms": ms_since(start)},
             )
         return {"parts": shown_parts}
+
+    @app.get("/api/customization/history/{part}/{number}/compare", dependencies=host_only)
+    def compare_change(part: str, number: int) -> dict[str, Any]:
+        """A part's change in use beside an earlier one, with what was added and removed marked
+        (R95a)."""
+        start = time.perf_counter()
+        try:
+            kept = history.part(part)
+            earlier, now = kept.change(number), kept.change(kept.current)
+        except NoSuchChange as e:
+            raise HTTPException(status_code=404, detail="There is no such change.") from e
+        runs = compared(as_text(part, earlier.value), as_text(part, now.value))
+        logger.info(
+            "Customization compared",
+            extra={
+                "part": part,
+                "earlier": number,
+                "current": kept.current,
+                "added": sum(len(r["text"]) for r in runs if r["kind"] == "added"),
+                "removed": sum(len(r["text"]) for r in runs if r["kind"] == "removed"),
+                "duration_ms": ms_since(start),
+            },
+        )
+        return {"part": part, "earlier": number, "current": kept.current, "runs": runs}
 
     @app.post("/api/customization/history/{part}/{number}/restore", dependencies=host_only)
     def restore_change(part: str, number: int) -> dict[str, Any]:

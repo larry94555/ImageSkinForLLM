@@ -2,14 +2,16 @@
 // each feature's guidelines, which the LLM is given with every prompt, edited and saved by a
 // signed-in host. A save is used from the next prompt, and kept as a change of each part it changes, in the History (R95).
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
   type Customization,
   type CustomizationDraft,
   type CustomizationChange,
+  type CustomizationComparison,
   type PartHistory,
   type GuidelineFeature,
+  compareCustomizationChange,
   discardDraft,
   generateDraft,
   getCustomization,
@@ -388,6 +390,39 @@ function editorOf(part: string, label: string): Element | undefined {
   return Array.from(document.querySelectorAll("form")).find((f) => f.getAttribute("aria-label") === label);
 }
 
+// A comparison (R95a): the change in use, with what was put in since the earlier change marked
+// and what was taken out struck through.
+function Comparison({
+  h,
+  shown,
+  onHide,
+}: {
+  h: PartHistory;
+  shown: CustomizationComparison;
+  onHide: () => void;
+}) {
+  return (
+    <div className="customization-compare" role="region" aria-label={`${h.label} compared`}>
+      <p>
+        <strong>
+          Change {shown.earlier} beside change {shown.current} (in use)
+        </strong>
+        <span className="muted"> · added text is marked, removed text is struck through</span>
+      </p>
+      <p className="compare-text">
+        {shown.runs.map((r, i) =>
+          r.kind === "added" ? <ins key={i}>{r.text}</ins> : r.kind === "removed" ? <del key={i}>{r.text}</del> : <span key={i}>{r.text}</span>,
+        )}
+      </p>
+      <p>
+        <button type="button" className="secondary" onClick={onHide}>
+          Hide the comparison
+        </button>
+      </p>
+    </div>
+  );
+}
+
 // The History (R95; Larry's review on PR #258): each part's changes, newest first. Go back makes
 // an earlier change that part's current one, changing nothing else and adding no change; Edit
 // goes to the part's editor.
@@ -395,6 +430,16 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
   const [histories, setHistories] = useState<PartHistory[] | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<CustomizationComparison | null>(null);
+  // Counts comparisons asked for and dropped, so an answer that comes back after another Compare,
+  // a Go back or the History closing is ignored (Codex's review on PR #259).
+  const asked = useRef(0);
+  function dropComparison() {
+    asked.current += 1;
+    setComparison(null);
+    setCompareError(null);
+  }
+  const [compareError, setCompareError] = useState<{ part: string; text: string } | null>(null);
   const { busy, run, status, changed } = useSave(false);
 
   // A save made elsewhere on the page hides it, so it is opened again up to date.
@@ -424,6 +469,7 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
 
   function toggle() {
     changed();
+    dropComparison();
     if (open) {
       setOpen(false);
       return;
@@ -432,7 +478,29 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
     void load(true);
   }
 
+  async function compare(h: PartHistory, number: number) {
+    dropComparison();
+    const mine = asked.current;
+    const started = performance.now();
+    try {
+      const got = await compareCustomizationChange(h.part, number);
+      if (mine !== asked.current) {
+        console.info(`Customization comparison dropped: ${h.label}, change ${number}, as another was asked for`);
+        return;
+      }
+      setComparison(got);
+      console.info(
+        `Customization compared: ${h.label}, change ${number} with ${h.current} (${Math.round(performance.now() - started)} ms)`,
+      );
+    } catch (e) {
+      if (mine !== asked.current) return;
+      console.error("Could not compare the changes", e);
+      setCompareError({ part: h.part, text: e instanceof ServerRefusal ? e.message : "They could not be compared. Try again." });
+    }
+  }
+
   async function goBack(h: PartHistory, number: number) {
+    dropComparison();
     const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
     if (saved) {
       console.info(`Customization restored: ${h.label}, change ${number}`);
@@ -480,18 +548,32 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
                       Edit
                     </button>
                   ) : (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      aria-label={`Go back to ${h.label} change ${c.number}`}
-                      onClick={() => void goBack(h, c.number)}
-                    >
-                      Go back
-                    </button>
+                    <span className="change-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        aria-label={`Compare ${h.label} change ${c.number} with the change in use`}
+                        onClick={() => void compare(h, c.number)}
+                      >
+                        Compare
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={`Go back to ${h.label} change ${c.number}`}
+                        onClick={() => void goBack(h, c.number)}
+                      >
+                        Go back
+                      </button>
+                    </span>
                   )}
                 </li>
               ))}
             </ol>
+            {comparison?.part === h.part && (
+              <Comparison h={h} shown={comparison} onHide={dropComparison} />
+            )}
+            {compareError?.part === h.part && <p className="error">{compareError.text}</p>}
           </div>
         ))}
       {open && status}
