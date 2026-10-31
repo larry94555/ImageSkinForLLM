@@ -91,25 +91,41 @@ def detail_level(level: int, customization: Customization | None = None) -> Iter
 
 # What edited level of detail guidelines (R199) are said after, in the instructions.
 DETAIL_GUIDELINES = "Guidelines for the length and detail of each reply:"
+GENERAL_GUIDELINES = "General guidelines for every reply:"
 SPOKEN = "without lists, headings or code unless you are asked for them."
 
 
-def system_prompt(level: int = DEFAULT_DETAIL, guidelines: str | None = None) -> str:
-    """The chat's instructions, with the reply's length for the level of detail (R180). As
-    shipped, `guidelines` are its text there word for word; edited, they take its place (R199)."""
+def system_prompt(
+    level: int = DEFAULT_DETAIL, guidelines: str | None = None, general: str | None = None
+) -> str:
+    """The chat's instructions, with the reply's length for the level of detail (R180). The
+    level of detail's guidelines (R199) are given only when edited: `guidelines`, for the side of
+    the bar `level` is on, take the place of its text, and `general` are added after it."""
     spoken = "You are talking with someone face to face, and your replies are spoken aloud."
-    if guidelines is None or guidelines == DETAIL_STEPS[level]:
-        return f"{spoken} {DETAIL_LEVELS[level][0]}, {SPOKEN}{KEEP_TRACK}"
-    return f"{spoken} {DETAIL_GUIDELINES} {guidelines} Reply {SPOKEN}{KEEP_TRACK}"
+    if guidelines is None:
+        step = f"{DETAIL_LEVELS[level][0]}, {SPOKEN}"
+    else:
+        step = f"{DETAIL_GUIDELINES} {guidelines} Reply {SPOKEN}"
+    more = "" if general is None else f" {GENERAL_GUIDELINES} {general}"
+    return f"{spoken} {step}{more}{KEEP_TRACK}"
+
+
+def _edited(customization: Customization, key: str) -> str | None:
+    text = guidelines_of(customization, key)
+    return text if is_edited(customization, key) and text else None
 
 
 def asked_system_prompt() -> str:
-    """The instructions at the level of detail being asked at, with its guidelines as the host
-    left them (R199); as shipped outside a prompt."""
+    """The instructions at the level of detail being asked at, with the level of detail's
+    guidelines as the host edited them (R199); as shipped outside a prompt."""
     level, customization = reply_detail.get(), reply_customization.get()
     if customization is None:
         return system_prompt(level)
-    return system_prompt(level, guidelines_of(customization, detail_key(level)))
+    return system_prompt(
+        level,
+        _edited(customization, detail_key(level)),
+        _edited(customization, "detail general"),
+    )
 
 
 # The same lengths in a few words, said again after the question (R180): with only the
@@ -1675,7 +1691,9 @@ class Conversation:
                 extra={
                     "feature": "level of detail",
                     "step": step,
+                    "guidelines": detail_key(step).removeprefix("detail "),
                     "edited": is_edited(read.customization, detail_key(step)),
+                    "general_edited": is_edited(read.customization, "detail general"),
                 },
             )
         return detail_level(level, None if read is None else read.customization)
