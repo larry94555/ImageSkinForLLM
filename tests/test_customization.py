@@ -337,9 +337,9 @@ def test_a_features_guidelines_are_edited_and_set_back() -> None:
     assert guidelines_of(SHIPPED, "questions") == QUESTIONS.shipped
     edited = with_guidelines(SHIPPED, "questions", " End with a question. ")
     assert guidelines_of(edited, "questions") == "End with a question."
-    assert features(edited) == [
+    assert features(edited)[0] == (
         {"key": "questions", **asdict(QUESTIONS), "text": "End with a question.", "edited": True}
-    ]
+    )
     back = with_guidelines(edited, "questions", None)
     assert back.guidelines == {} and features(back)[0]["edited"] is False
     with pytest.raises(NoSuchFeature):

@@ -86,6 +86,12 @@ ANSWERING = (
     " mentioning documents or pages."
 )
 
+# Topics' guidelines as shipped (R195): what a reply about a topic as a whole is today, one
+# answered as any question is. Only edited ones are sent, so until then the prompt is as before.
+TOPICS = (
+    "Talk about the topic as you answer any question: from the reference text, in your own words."
+)
+
 # Each feature's guidelines, by the key they are kept under in `guidelines`, in the order the page
 # shows them. Each guideline PR adds its feature here (R194 to R200).
 FEATURES: dict[str, Feature] = {
@@ -97,6 +103,15 @@ FEATURES: dict[str, Feature] = {
         " what is quoted from the PDFs stays as it is found.",
         ANSWERING,
     ),
+    "topics": Feature(
+        "Topics",
+        "They are given to the LLM with every reply about a topic as a whole: a topic or example"
+        ' question picked under the prompt box, "Tell me about" a topic, or "Tell me about the'
+        ' first one" after the topics were named.',
+        'The topic list, the reply to "What can you talk about?" and the hints under the prompt'
+        " box stay as the code makes them.",
+        TOPICS,
+    ),
 }
 
 
@@ -104,6 +119,11 @@ def guidelines_of(customization: Customization, key: str) -> str:
     """A feature's guidelines: as the host edited them, or as shipped."""
     edited = customization.guidelines.get(key)
     return edited if isinstance(edited, str) else FEATURES[key].shipped
+
+
+def is_edited(customization: Customization, key: str) -> bool:
+    """Whether the host edited a feature's guidelines."""
+    return isinstance(customization.guidelines.get(key), str)
 
 
 # The most an edit may hold, so the instructions sent with every prompt stay short *(default)*.
@@ -179,7 +199,7 @@ def features(customization: Customization) -> list[dict[str, Any]]:
             "key": key,
             **asdict(feature),
             "text": guidelines_of(customization, key),
-            "edited": isinstance(customization.guidelines.get(key), str),
+            "edited": is_edited(customization, key),
         }
         for key, feature in FEATURES.items()
     ]
