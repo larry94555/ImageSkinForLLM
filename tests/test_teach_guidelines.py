@@ -1,6 +1,7 @@
 """Guidelines for Teach me (roadmap R196)."""
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from test_question_scope import Llm
 from test_teach import CONTENTS, chat, explained
 from test_topics import riemann_app
 
+from imageskin.chat import Conversation
 from imageskin.customization import FEATURES, SHIPPED, TEACHING, features, guidelines_of
 from imageskin.lessons_ahead import key
 from imageskin.teach import TEACH_GUIDELINES, Lesson, Part, Tutor, explain
@@ -117,3 +119,44 @@ def test_saving_them_writes_the_parts_ahead_again(tmp_path: Path) -> None:
         assert refresh.call_count == 0  # only Teach me's are in the parts written ahead
         client.put("/api/customization/guidelines/teach%20me", json={"text": EDITED})
     assert refresh.call_count == 1
+
+
+def test_guidelines_that_dont_fit_are_left_out_live_and_ahead(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Codex's review on PR #250: "Next" fits, but the part it asks for, with guidelines near
+    their longest, must fit the room too; otherwise it is asked for as shipped."""
+    longest = "Use one everyday analogy in each part. " * 50  # about 1,950 characters
+    now = [longest]
+    teach = tutor_with(now).first_parts()["Rain"]
+    assert teach.unguided is not None and longest.strip() in teach.instruction
+    teach = replace(teach, material=[])  # the instruction alone, as when nothing was found
+
+    def chat_in(window: int, llm: Llm) -> Conversation:
+        return Conversation(llm, lambda: window)
+
+    def fits(window: int) -> bool:
+        try:
+            chat_in(window, Llm())._fit(str(teach.unguided))
+        except ValueError:
+            return False
+        return True
+
+    # The smallest window the part as shipped fits in, not with the guidelines.
+    window = next(w for w in range(256, 8192, 8) if fits(w))
+    llm = Llm()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="imageskin.chat"):
+        chat_in(window, llm).send("Next", teach=teach)
+        ahead = chat_in(window, Llm()).asked_alone(teach)
+    assert llm.sent[0][-1]["content"] == teach.unguided == ahead[-1]["content"]
+    warned = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert [(r.message, r.feature) for r in warned] == [  # type: ignore[attr-defined]
+        ("Guidelines left out", "teach me"),
+        ("Guidelines left out", "teach me"),
+    ]
+    # With room for them, they are sent.
+    roomy = Llm()
+    chat_in(4 * window, roomy).send("Next", teach=teach)
+    assert roomy.sent[0][-1]["content"] == teach.instruction
+    assert chat_in(4 * window, Llm()).asked_alone(teach)[-1]["content"] == teach.instruction

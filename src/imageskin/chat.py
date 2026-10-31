@@ -250,6 +250,9 @@ class Teach:
     # Given the LLM's reply, more sentences said after it, made here: the next quiz question
     # once an answer is judged, say (R41i).
     then: Callable[[str], list[str]] | None = None
+    # The instruction without the host's edited guidelines (R196), asked instead when they
+    # don't fit the room left for it; None when it has none.
+    unguided: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1231,7 +1234,8 @@ class Conversation:
     ) -> tuple[Turn, int]:
         fit = self._fit(prompt)
         if teach is not None:
-            asked = self._with_content(teach.instruction, teach.material, fit.room)
+            instruction = self._lesson_part(teach, fit.room)
+            asked = self._with_content(instruction, teach.material, fit.room)
             return self._ask_llm(prompt, asked, fit, on_sentence, teach.then)
         if asks_for_topics(prompt):
             return self._tell_topics(prompt, fit.turns, on_sentence, fit.budget)
@@ -1364,8 +1368,8 @@ class Conversation:
         """What the LLM is asked for a lesson part written ahead (R98a): the system prompt and
         the part's instruction with its material, as `send` asks it, but none of the
         conversation, so the answer can be saved and said whenever the part is taught."""
-        room = self._fit(teach.instruction).room
-        asked = self._with_content(teach.instruction, teach.material, room)
+        room = self._fit(teach.instruction if teach.unguided is None else teach.unguided).room
+        asked = self._with_content(self._lesson_part(teach, room), teach.material, room)
         # With the identity, goals and guidelines as they are now (R92, R194).
         with self._at_detail():
             return [system_message(None), {"role": "user", "content": asked}]
@@ -1414,18 +1418,32 @@ class Conversation:
         note(looked_up_ms=ms_since(start))  # R96a
         return found
 
-    def _room_for(self, question: str, guided: str, room: int, quiet: bool = False) -> str:
-        """The question with the Topics guidelines (`guided`) when it fits the room `_fit` left
-        for the question as typed, or without them (Codex's review on PR #248): the host's
+    def _room_for(
+        self,
+        question: str,
+        guided: str,
+        room: int,
+        quiet: bool = False,
+        feature: str = "topics",
+    ) -> str:
+        """The question with a feature's guidelines (`guided`) when it fits the room `_fit` left
+        for the question, or without them (Codex's reviews on PRs #248 and #250): the host's
         guidelines never make a question too long, nor a prompt overflow the context window."""
         if guided == question or tokens({"role": "user", "content": guided}, self._count) <= room:
             return guided
         if not quiet:
             logger.warning(
-                "Topics guidelines left out",
-                extra={"reason": "no room", "question_chars": len(question)},
+                "Guidelines left out",
+                extra={"feature": feature, "reason": "no room", "question_chars": len(question)},
             )
         return question
+
+    def _lesson_part(self, teach: Teach, room: int) -> str:
+        """What a lesson part asks, with the Teach me guidelines when they fit the room (R196);
+        otherwise as it was asked before them."""
+        if teach.unguided is None:
+            return teach.instruction
+        return self._room_for(teach.unguided, teach.instruction, room, feature="teach me")
 
     def _guided(self, draft: str) -> str:
         """The question typed so far as `send` would ask it, with the Topics guidelines when it

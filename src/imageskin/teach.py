@@ -207,6 +207,12 @@ def explain(
     )
 
 
+def unguided(shipped: str, guidelines: str) -> str | None:
+    """A part's instruction as shipped, asked instead of the edited one when that doesn't fit
+    (Codex's review on PR #250); None when the guidelines are as shipped."""
+    return None if guidelines == TEACHING else shipped
+
+
 class Tutor:
     """Decides what each prompt does to the lesson, from the wiki as it is now."""
 
@@ -279,7 +285,9 @@ class Tutor:
         guidelines = self._teaching()
         return {
             topic: Teach(
-                explain(topic, parts, 0, guidelines=guidelines), self.material(topic, parts, 0)
+                explain(topic, parts, 0, guidelines=guidelines),
+                self.material(topic, parts, 0),
+                unguided=unguided(explain(topic, parts, 0), guidelines),
             )
             for topic, parts in self._topics().items()
         }
@@ -346,14 +354,14 @@ class Tutor:
                 "Guidelines used",
                 extra={"feature": "teach me", "edited": guidelines != TEACHING},
             )
+        shipped = unguided(explain(lesson.topic, parts, part), guidelines)
         if part >= len(parts):
-            teach = Teach(
-                explain(lesson.topic, parts, part, guidelines=guidelines), summed_up(parts)
-            )
+            asked = explain(lesson.topic, parts, part, guidelines=guidelines)
+            teach = Teach(asked, summed_up(parts), unguided=shipped)
             return Explain(teach, lesson, "summary")
         material = self.material(lesson.topic, parts, part)
-        teach = Teach(explain(lesson.topic, parts, part, simpler, guidelines), material)
-        return Explain(teach, lesson, kind)
+        asked = explain(lesson.topic, parts, part, simpler, guidelines)
+        return Explain(Teach(asked, material, unguided=None if simpler else shipped), lesson, kind)
 
     def _teaching(self) -> str:
         """Teach me's guidelines now, or as shipped when they can't be read."""
