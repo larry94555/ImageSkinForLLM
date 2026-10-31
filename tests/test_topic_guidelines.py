@@ -195,7 +195,8 @@ def test_guidelines_that_dont_fit_are_left_out_rather_than_overflowing_the_windo
         chat.send(prompt)
     assert chat_in(window, Llm()).read_ahead(prompt) == "read"  # before anything was said
     assert llm.sent[0][-1]["content"] == prompt and read[-1][-1]["content"] == prompt
-    assert [r.message for r in caplog.records] == ["Topics guidelines left out"]
+    warned = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warned == ["Topics guidelines left out"]
     # With room for them, they are sent.
     roomy = Llm()
     chat_in(4 * window, roomy).send(prompt)
