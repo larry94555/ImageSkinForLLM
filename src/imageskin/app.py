@@ -42,6 +42,7 @@ from imageskin.admin import FILENAME as ADMIN_FILENAME
 from imageskin.admin import AdminSignIns
 from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_api import admin_router
+from imageskin.admin_guidelines import AdminGuidelinesFile, applied, checked
 from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import DEFAULTS as ADMIN_DEFAULTS
@@ -1680,13 +1681,54 @@ def create_app(
     )
     app.state.customization_generator = generator
 
+    # The administrator's identity, goals and guidelines, as system requirements (R243).
+    admin_guidelines = AdminGuidelinesFile(data_home)
+
+    def with_admin(host: Customization) -> Customization:
+        """The customization a prompt is asked with: the administrator's parts first (R243)."""
+        start = time.perf_counter()
+        admin = admin_guidelines.read()
+        used = admin.parts()
+        if used:
+            logger.info(
+                "Admin guidelines used", extra={"parts": used, "duration_ms": ms_since(start)}
+            )
+        return applied(host, admin)
+
+    def for_prompt() -> Customization:
+        return with_admin(customization.read().customization)
+
     def identity_read() -> Read:
         """The customization for a prompt; the first one needing it with none saved starts its
-        draft in the background (R93), answered meanwhile with the shipped defaults."""
+        draft in the background (R93), answered meanwhile with the shipped defaults. The
+        administrator's parts go with it (R243)."""
         read = customization.read()
         if read.shipped and generate_customization:
             generator.needed()
-        return read
+        return Read(with_admin(read.customization), read.shipped, read.duration_ms)
+
+    @app.get("/api/admin/guidelines", dependencies=[Depends(app.state.require_admin)])
+    def get_admin_guidelines() -> dict[str, Any]:
+        return admin_guidelines.read().as_dict()
+
+    @app.put("/api/admin/guidelines", dependencies=[Depends(app.state.require_admin)])
+    def put_admin_guidelines(body: Annotated[dict[str, Any], Body()]) -> dict[str, Any]:
+        try:
+            admin = checked(body)
+        except CustomizationRefused as e:
+            logger.warning("Admin guidelines refused", extra={"error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        try:
+            changed = admin_guidelines.save(admin)
+        except OSError as e:
+            logger.error("Admin guidelines can't be saved", extra={"error": str(e)})
+            raise HTTPException(
+                status_code=500, detail="They could not be saved. Try again."
+            ) from e
+        lessons = getattr(app.state, "lessons", None)
+        if "teach me" in changed and lessons is not None:
+            lessons.refresh()  # each topic's first part written ahead again with them (R98a)
+        return admin.as_dict()
 
     @app.get("/api/customization", dependencies=host_only)
     def get_customization(
@@ -2259,8 +2301,8 @@ def create_app(
         wiki.contents,
         find_content,
         topics_complete,
-        lambda: guidelines_of(customization.read().customization, "teach me"),  # R196
-        lambda: guidelines_of(customization.read().customization, "say it simpler"),  # R200
+        lambda: guidelines_of(for_prompt(), "teach me"),  # R196
+        lambda: guidelines_of(for_prompt(), "say it simpler"),  # R200
     )
 
     # Each topic's first lesson part, written ahead once the wiki is built (R98a), after the
@@ -2313,14 +2355,14 @@ def create_app(
         find_content,
         conversation.write,
         topics_complete,
-        lambda key: guidelines_of(customization.read().customization, key),  # R197
+        lambda key: guidelines_of(for_prompt(), key),  # R197
     )
     assessor = Assessor(
         wiki.contents,
         find_content,
         conversation.write,
         topics_complete,
-        lambda key: guidelines_of(customization.read().customization, key),  # R198
+        lambda key: guidelines_of(for_prompt(), key),  # R198
     )
 
     def lesson_parts(lesson: Lesson) -> int:
@@ -2465,7 +2507,7 @@ def create_app(
                 simpler := say_simpler(
                     body.prompt,
                     conversation.turns(),
-                    lambda: guidelines_of(customization.read().customization, "say it simpler"),
+                    lambda: guidelines_of(for_prompt(), "say it simpler"),
                 )
             ) is not None:
                 reply, turn = conversation.send(body.prompt, clips, simpler)  # R157

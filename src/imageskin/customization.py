@@ -60,6 +60,9 @@ class Customization:
     # The features whose guidelines the LLM drafted and the host hasn't changed since (R93), so
     # Generate again drafts them anew while leaving the host's alone.
     generated: tuple[str, ...] = ()
+    # The administrator's identity and goals as system requirements before the host's (R243),
+    # only ever set for a prompt, never saved.
+    requirements: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -565,6 +568,8 @@ def instructions(customization: Customization) -> str:
         parts.append(_sentence(f"You speak as {identity.speaks_as}"))
     if customization.goals:
         parts.append("Your goals: " + " ".join(map(_sentence, customization.goals)))
+    if customization.requirements:
+        parts.insert(0, customization.requirements)
     return " ".join(parts)
 
 
