@@ -2086,6 +2086,7 @@ def create_app(
         find_content,
         topics_complete,
         lambda: guidelines_of(customization.read().customization, "teach me"),  # R196
+        lambda: guidelines_of(customization.read().customization, "say it simpler"),  # R200
     )
 
     # Each topic's first lesson part, written ahead once the wiki is built (R98a), after the
@@ -2286,7 +2287,13 @@ def create_app(
                 if step.kind == "summary" and settings.quiz_me:  # a quick quiz on the topic
                     topic = step.lesson.topic
                     choices = [Choice(f"Quiz me on {topic}", f"Quiz me on {topic}")]
-            elif (simpler := say_simpler(body.prompt, conversation.turns())) is not None:
+            elif (
+                simpler := say_simpler(
+                    body.prompt,
+                    conversation.turns(),
+                    lambda: guidelines_of(customization.read().customization, "say it simpler"),
+                )
+            ) is not None:
                 reply, turn = conversation.send(body.prompt, clips, simpler)  # R157
             elif clips is not None and (example := example_context(body.prompt)) is not None:
                 reply, turn = answer_example(body.prompt, example, clips)

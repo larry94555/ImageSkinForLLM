@@ -120,6 +120,14 @@ ASSESSMENT_QUESTIONS = (
 )
 ASSESSMENT_JUDGING = "Judge the answer from the reference text."
 
+# Say it simpler's guidelines as shipped (R200): how a reply, or a lesson's part, is said again
+# more simply today. As shipped, each is asked for word for word as before; edited, they say how.
+SIMPLER = (
+    "Say it again for someone new to the subject, in short sentences with everyday words, saying"
+    " the same thing and adding nothing new; in a lesson, in two or three short sentences with"
+    " an everyday example. Don't ask me anything."
+)
+
 # The level of detail's guidelines as shipped (R199): what each step of the bar on the chat
 # screen (R180) asks of a reply, from High level (1) to In depth (5), each the text it was asked
 # with before, word for word, so as shipped nothing changes. The room each step gives a reply in
@@ -225,6 +233,16 @@ FEATURES: dict[str, Feature] = {
         " answer, kept for the evaluation, which is worked out the same way.",
         ASSESSMENT_JUDGING,
         "Assessment",
+    ),
+    # Shown in the Guidelines section after Quiz me's, as the page groups by section.
+    "say it simpler": Feature(
+        "Say it simpler",
+        "They are given to the LLM with every reply said again more simply: by the Say it"
+        ' simpler button, "say that more simply" and the like after a reply, or "say it more'
+        ' simply" after a part of a lesson.',
+        "Which reply or part is said again stays as the code finds it (the latest reply, or the"
+        " lesson's current part with its material), and so does the lesson's place in it.",
+        SIMPLER,
     ),
     "detail lowest": Feature(
         "Lowest detail",

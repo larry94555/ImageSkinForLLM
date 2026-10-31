@@ -66,7 +66,8 @@ def test_each_part_is_asked_with_the_guidelines_as_they_are_then(
         for r in caplog.records
         if r.message == "Guidelines used"
     ]
-    assert used == [("teach me", False), ("teach me", True)]
+    # Saying it more simply is logged with its own guidelines (R200).
+    assert used == [("teach me", False), ("teach me", True), ("say it simpler", False)]
 
 
 def test_parts_written_ahead_are_written_again_once_they_change() -> None:
