@@ -1199,6 +1199,14 @@ export async function getAdminSettings(): Promise<AdminSettings> {
   return (await response.json()) as AdminSettings;
 }
 
+// Admin settings' Host properties (R241): every host's email, sorted, or those containing `q`
+// anywhere in them, ignoring capitals. The server does the matching, so a long list isn't all sent.
+export async function getAdminHosts(q = ""): Promise<string[]> {
+  const response = await fetch(q ? `/api/admin/hosts?q=${encodeURIComponent(q)}` : "/api/admin/hosts");
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { hosts: string[] }).hosts;
+}
+
 // Throws a ServerRefusal saying why when a setting is refused (400) or signed out (401).
 export async function saveAdminSettings(
   changes: Partial<

@@ -207,6 +207,14 @@ class HostAccounts:
             except HostsUnreadable:
                 return False
 
+    def emails(self, contains: str = "") -> list[str]:
+        """Every host's email, sorted, or only those with `contains` anywhere in them, ignoring
+        capitals, as `*text*` would match (R241); HostsUnreadable when the file can't be read."""
+        wanted = contains.strip().lower()
+        with self._lock:
+            hosts = list(self._load()["hosts"])
+        return sorted(e for e in hosts if wanted in e.lower())
+
     def host(self, token: str | None) -> Host | None:
         """The host the token is signed in as, or None."""
         if not token:
