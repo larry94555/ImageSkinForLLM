@@ -65,6 +65,23 @@ class AdminGuidelines:
             "guidelines": {k: self.guidelines.get(k, "") for k in FEATURES},
         }
 
+    def shown(self) -> dict[str, Any]:
+        """As the Admin guidelines page shows them (R244): the parts, and each feature's name,
+        section and what its guidelines change, as on the Customization page."""
+        return {
+            **self.as_dict(),
+            "features": [
+                {
+                    "key": key,
+                    "label": feature.label,
+                    "section": feature.section,
+                    "changes": feature.changes,
+                    "text": self.guidelines.get(key, ""),
+                }
+                for key, feature in FEATURES.items()
+            ],
+        }
+
     def parts(self) -> list[str]:
         """The parts that have text: identity, goals and each feature's key."""
         used = []

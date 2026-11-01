@@ -1,8 +1,15 @@
 import { describe, expect, test } from "vitest";
 
-import { pageFor, resolve, setupTarget, wikiTarget } from "./router";
+import { adminTarget, pageFor, resolve, setupTarget, wikiTarget } from "./router";
 
 describe("router", () => {
+  test("the admin view's pages (R155, R244)", () => {
+    expect(pageFor("#/admin/guidelines")).toBe("admin");
+    expect(adminTarget("#/admin")).toBe("resources");
+    expect(adminTarget("#/admin/settings")).toBe("settings");
+    expect(adminTarget("#/admin/guidelines/")).toBe("guidelines");
+  });
+
   test("hashes map to pages", () => {
     expect(pageFor("")).toBe("home");
     expect(pageFor("#/")).toBe("home");

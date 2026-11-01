@@ -20,8 +20,10 @@ import {
   signOutAsAdmin,
 } from "./api";
 import { AdminSettingsPage } from "./admin-settings";
+import { AdminGuidelinesPage } from "./admin-guidelines";
 import { ResourceDashboard } from "./dashboard";
 import { canProve, laptopEntry, laptopId, prove } from "./laptop-key";
+import type { AdminSection } from "./router";
 
 // Every step of setting the password, on a laptop and on the hosted site (R151).
 export const GUIDE =
@@ -361,9 +363,10 @@ export function AdminSection() {
   );
 }
 
-// The admin view: the resource dashboard (R154) at #/admin and the admin settings (R155) at
-// #/admin/settings. Opened without a sign-in, it shows the sign-in instead.
-export function AdminPage({ section = "resources" }: { section?: "resources" | "settings" }) {
+// The admin view: the resource dashboard (R154) at #/admin, the admin settings (R155) at
+// #/admin/settings and the admin guidelines (R244) at #/admin/guidelines. Opened without a
+// sign-in, it shows the sign-in instead.
+export function AdminPage({ section = "resources" }: { section?: AdminSection }) {
   const { session, listed, askListed } = useAdmin();
   useEffect(() => {
     if (session) askListed();
@@ -379,7 +382,7 @@ export function AdminPage({ section = "resources" }: { section?: "resources" | "
       </div>
     );
   }
-  const tab = (to: "resources" | "settings", href: string, label: string) => (
+  const tab = (to: AdminSection, href: string, label: string) => (
     <a href={href} className={section === to ? "current" : undefined} aria-current={section === to ? "page" : undefined}>
       {label}
     </a>
@@ -391,8 +394,15 @@ export function AdminPage({ section = "resources" }: { section?: "resources" | "
       <nav className="admin-tabs" aria-label="Admin pages">
         {tab("resources", "#/admin", "Resources")}
         {tab("settings", "#/admin/settings", "Admin settings")}
+        {tab("guidelines", "#/admin/guidelines", "Admin guidelines")}
       </nav>
-      {section === "settings" ? <AdminSettingsPage /> : <ResourceDashboard />}
+      {section === "settings" ? (
+        <AdminSettingsPage />
+      ) : section === "guidelines" ? (
+        <AdminGuidelinesPage />
+      ) : (
+        <ResourceDashboard />
+      )}
     </div>
   );
 }

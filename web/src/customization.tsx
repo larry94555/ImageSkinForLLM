@@ -612,6 +612,7 @@ export function CustomizationPage() {
         Who the person in the video is, what they aim for, and how each feature answers, given to
         the LLM with every prompt.
       </p>
+      <p className="muted">The administrator's requirements, if any, come before yours.</p>
       {failed && (
         <p className="error">The customization could not be read. Reload to try again.</p>
       )}
