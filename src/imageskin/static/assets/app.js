@@ -964,26 +964,33 @@ function ResourceDashboard() {
 function HostProperties() {
 	const { refresh } = useAdmin();
 	const [search, setSearch] = d("");
-	const [hosts, setHosts] = d(null);
-	const [error, setError] = d(null);
+	const [answer, setAnswer] = d(null);
+	const query = search.trim();
 	h(() => {
 		let active = true;
 		const started = performance.now();
-		getAdminHosts(search.trim()).then((found) => {
+		getAdminHosts(query).then((found) => {
 			if (!active) return;
 			console.info(`Host list: ${found.length} shown (${Math.round(performance.now() - started)} ms)`);
-			setHosts(found);
-			setError(null);
+			setAnswer({
+				query,
+				hosts: found
+			});
 		}, (e) => {
 			if (!active) return;
 			console.error("Could not read the hosts", e);
 			if (e instanceof ServerRefusal && e.status === 401) return void refresh();
-			setError(e instanceof ServerRefusal ? e.message : "The hosts could not be read. Try again.");
+			const error = e instanceof ServerRefusal ? e.message : "The hosts could not be read. Try again.";
+			setAnswer({
+				query,
+				error
+			});
 		});
 		return () => {
 			active = false;
 		};
-	}, [search]);
+	}, [query]);
+	const current = answer?.query === query ? answer : null;
 	return /* @__PURE__ */ u("section", {
 		className: "panel",
 		"aria-labelledby": "host-properties",
@@ -1001,22 +1008,22 @@ function HostProperties() {
 					onInput: (e) => setSearch(e.currentTarget.value)
 				})]
 			}),
-			error && /* @__PURE__ */ u("p", {
+			current === null && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: query ? "Searching…" : "Reading the hosts…"
+			}),
+			current && "error" in current && /* @__PURE__ */ u("p", {
 				className: "error",
-				children: error
+				children: current.error
 			}),
-			hosts === null && !error && /* @__PURE__ */ u("p", {
+			current && "hosts" in current && current.hosts.length === 0 && /* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Reading the hosts…"
+				children: query ? "No host's email contains that." : "No host has signed up yet."
 			}),
-			hosts !== null && hosts.length === 0 && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: search.trim() ? "No host's email contains that." : "No host has signed up yet."
-			}),
-			hosts !== null && hosts.length > 0 && /* @__PURE__ */ u("ul", {
+			current && "hosts" in current && current.hosts.length > 0 && /* @__PURE__ */ u("ul", {
 				className: "host-list",
 				"aria-label": "Hosts",
-				children: hosts.map((email) => /* @__PURE__ */ u("li", { children: email }, email))
+				children: current.hosts.map((email) => /* @__PURE__ */ u("li", { children: email }, email))
 			})
 		]
 	});

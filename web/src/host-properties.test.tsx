@@ -82,6 +82,60 @@ test("an answer that comes late doesn't replace the one for what is typed now", 
   expect(listed()).toEqual(["bob@ann.net"]);
 });
 
+// A server whose answers are held until the test lets each one go (Codex's review of PR #267).
+function heldServer() {
+  const waiting = new Map<string, (r: Response) => void>();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      (url: string) =>
+        new Promise<Response>((done) => {
+          waiting.set(new URL(url, "http://x").searchParams.get("q") ?? "", done);
+        }),
+    ),
+  );
+  return async (q: string, response: Response) => {
+    await act(async () => {
+      waiting.get(q)!(response);
+      await new Promise((settled) => setTimeout(settled, 0)); // its body read, then shown
+    });
+  };
+}
+
+test("while a new search is read, the last one's list or message isn't shown", async () => {
+  const answer = heldServer();
+  render(<HostProperties />);
+  expect(screen.getByText("Reading the hosts…")).toBeTruthy();
+  await answer("", Response.json({ hosts: HOSTS }));
+  expect(listed()).toEqual(HOSTS);
+
+  await type("zed");
+  expect(listed()).toEqual([]); // not the full list under "zed"
+  expect(screen.getByText("Searching…")).toBeTruthy();
+  await answer("zed", Response.json({ hosts: [] }));
+  expect(screen.getByText("No host's email contains that.")).toBeTruthy();
+
+  await type(""); // cleared while the full list is read again
+  expect(screen.queryByText("No host has signed up yet.")).toBeNull();
+  expect(screen.queryByText("No host's email contains that.")).toBeNull();
+  expect(screen.getByText("Reading the hosts…")).toBeTruthy();
+  await answer("", Response.json({ hosts: HOSTS }));
+  expect(listed()).toEqual(HOSTS);
+});
+
+test("a failed search's message isn't shown under the next search", async () => {
+  const answer = heldServer();
+  render(<HostProperties />);
+  await type("ann");
+  await answer("ann", Response.json({ detail: "The host accounts can't be read." }, { status: 503 }));
+  expect(screen.getByText("The host accounts can't be read.")).toBeTruthy();
+  await type("bob");
+  expect(screen.queryByText("The host accounts can't be read.")).toBeNull();
+  expect(screen.getByText("Searching…")).toBeTruthy();
+  await answer("bob", Response.json({ hosts: ["bob@ann.net"] }));
+  expect(listed()).toEqual(["bob@ann.net"]);
+});
+
 test("with no hosts yet, it says so", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ hosts: [] })));
   render(<HostProperties />);

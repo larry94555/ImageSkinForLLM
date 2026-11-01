@@ -7,36 +7,41 @@ import { useEffect, useState } from "preact/hooks";
 import { useAdmin } from "./admin";
 import { getAdminHosts, ServerRefusal } from "./api";
 
+// What the server answered, and the search it answered: only the answer for what is in the box
+// now is shown (Codex's review of PR #267), so while a new search is read, the last one's list or
+// message isn't shown under it.
+type Answer = { query: string; hosts: string[] } | { query: string; error: string };
+
 export function HostProperties() {
   const { refresh } = useAdmin();
   const [search, setSearch] = useState("");
-  // null until the server has answered.
-  const [hosts, setHosts] = useState<string[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [answer, setAnswer] = useState<Answer | null>(null);
+  const query = search.trim();
 
   useEffect(() => {
-    // Only the answer for what is in the box now is shown, so a slow one can't replace it.
+    // Only the answer for what is in the box now is kept, so a slow one can't replace it.
     let active = true;
     const started = performance.now();
-    getAdminHosts(search.trim()).then(
+    getAdminHosts(query).then(
       (found) => {
         if (!active) return;
         console.info(`Host list: ${found.length} shown (${Math.round(performance.now() - started)} ms)`);
-        setHosts(found);
-        setError(null);
+        setAnswer({ query, hosts: found });
       },
       (e: unknown) => {
         if (!active) return;
         console.error("Could not read the hosts", e);
         if (e instanceof ServerRefusal && e.status === 401) return void refresh();
-        setError(e instanceof ServerRefusal ? e.message : "The hosts could not be read. Try again.");
+        const error = e instanceof ServerRefusal ? e.message : "The hosts could not be read. Try again.";
+        setAnswer({ query, error });
       },
     );
     return () => {
       active = false;
     };
-  }, [search]);
+  }, [query]);
 
+  const current = answer?.query === query ? answer : null;
   return (
     <section className="panel" aria-labelledby="host-properties">
       <h2 id="host-properties">Host properties</h2>
@@ -49,14 +54,14 @@ export function HostProperties() {
           onInput={(e) => setSearch(e.currentTarget.value)}
         />
       </label>
-      {error && <p className="error">{error}</p>}
-      {hosts === null && !error && <p className="muted">Reading the hosts…</p>}
-      {hosts !== null && hosts.length === 0 && (
-        <p className="muted">{search.trim() ? "No host's email contains that." : "No host has signed up yet."}</p>
+      {current === null && <p className="muted">{query ? "Searching…" : "Reading the hosts…"}</p>}
+      {current && "error" in current && <p className="error">{current.error}</p>}
+      {current && "hosts" in current && current.hosts.length === 0 && (
+        <p className="muted">{query ? "No host's email contains that." : "No host has signed up yet."}</p>
       )}
-      {hosts !== null && hosts.length > 0 && (
+      {current && "hosts" in current && current.hosts.length > 0 && (
         <ul className="host-list" aria-label="Hosts">
-          {hosts.map((email) => (
+          {current.hosts.map((email) => (
             <li key={email}>{email}</li>
           ))}
         </ul>
