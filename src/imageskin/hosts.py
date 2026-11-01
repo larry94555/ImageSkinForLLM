@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from imageskin.admin import Secret, check_password, hash_password
+from imageskin.admin_settings import Choice
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ WRONG = "The email address or password is wrong."
 
 
 UNREADABLE = "Host accounts can't be read right now. Please try again later."
+# A host's own Allow or Deny of a custom image and a custom voice (R242), kept with the host.
+CUSTOM_IMAGE = "custom_image"
+CUSTOM_VOICE = "custom_voice"
 
 
 class HostsUnreadable(Exception):
@@ -263,3 +267,51 @@ class HostAccounts:
             self._save({**data, "hosts": hosts, "sessions": sessions})
         logger.info("Host password reset", extra={"email": email, "sign_ins_ended": ended})
         return True
+
+    def choices(self, email: str) -> tuple[Choice, Choice]:
+        """The host's own Allow or Deny of a custom image and a custom voice (R242), each None
+        when they follow Admin settings' checkbox; both None for no such host, or while the file
+        can't be read, so the checkboxes decide."""
+        with self._lock:
+            try:
+                account = self._load()["hosts"].get(normal_email(email), {})
+            except HostsUnreadable:
+                return None, None
+        return _choice(account.get(CUSTOM_IMAGE)), _choice(account.get(CUSTOM_VOICE))
+
+    def set_choices(self, email: str, changes: dict[str, Choice]) -> tuple[Choice, Choice] | None:
+        """Change the host's own choices (R242), kept with the host so they go with it; `changes`
+        has `custom_image` and/or `custom_voice`, each "allow", "deny" or None for the default.
+        None when there is no such host. Logged as `Host properties changed` with each choice's
+        old and new."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            if email not in data["hosts"]:
+                logger.warning(
+                    "Host properties not changed", extra={"email": email, "why": "no host"}
+                )
+                return None
+            account = {**data["hosts"][email]}
+            old = (_choice(account.get(CUSTOM_IMAGE)), _choice(account.get(CUSTOM_VOICE)))
+            for key, choice in changes.items():
+                if choice is None:
+                    account.pop(key, None)
+                else:
+                    account[key] = choice
+            self._save({**data, "hosts": {**data["hosts"], email: account}})
+        new = (_choice(account.get(CUSTOM_IMAGE)), _choice(account.get(CUSTOM_VOICE)))
+        logger.info(
+            "Host properties changed",
+            extra={
+                "email": email,
+                "custom_image_change": [old[0], new[0]],
+                "custom_voice_change": [old[1], new[1]],
+            },
+        )
+        return new
+
+
+def _choice(value: object) -> Choice:
+    """A stored choice, or None for anything else, so a hand-edited file can't allow by mistake."""
+    return value if value in ("allow", "deny") else None

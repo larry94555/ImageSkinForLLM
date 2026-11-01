@@ -182,3 +182,92 @@ test("Admin settings shows Host properties under its form", async () => {
   expect(await screen.findByRole("heading", { name: "Host properties" })).toBeTruthy();
   await waitFor(() => expect(listed()).toEqual(HOSTS));
 });
+
+// R242: the selected host's Allow and Deny, kept as the real server keeps them.
+function choicesServer(fail: number | null = null) {
+  const kept: Record<string, Record<string, string | null>> = {};
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    const at = new URL(url, "http://x");
+    if (at.pathname === "/api/admin/hosts") return Response.json({ hosts: HOSTS });
+    if (at.pathname !== "/api/admin/hosts/properties") return new Response("", { status: 404 });
+    if (fail) return Response.json({ detail: "Not now." }, { status: fail });
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, string | null>) : {};
+    const email = at.searchParams.get("email") ?? String(body.email);
+    const host = (kept[email] ??= { custom_image: null, custom_voice: null });
+    for (const kind of ["custom_image", "custom_voice"]) if (kind in body) host[kind] = body[kind];
+    return Response.json({ email, ...host, default: { custom_image: "disabled", custom_voice: "enabled" } });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function pressed(name: string): boolean {
+  return screen.getByRole("button", { name }).getAttribute("aria-pressed") === "true";
+}
+
+async function click(name: string) {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name }));
+  });
+}
+
+test("selecting a host shows their Allow and Deny, with the defaults", async () => {
+  choicesServer();
+  render(<HostProperties />);
+  await click(await screen.findByRole("button", { name: "ann@example.com" }).then((b) => b.textContent!));
+  expect(await screen.findByRole("group", { name: "Properties of ann@example.com" })).toBeTruthy();
+  for (const name of ["Allow Custom Image", "Deny Custom Image", "Allow Custom Sound", "Deny Custom Sound"]) {
+    expect(pressed(name)).toBe(false);
+  }
+  expect(screen.getByText("Default: disabled")).toBeTruthy();
+  expect(screen.getByText("Default: enabled")).toBeTruthy();
+  expect(pressed("ann@example.com")).toBe(true);
+  await click("ann@example.com"); // selected again: closed
+  expect(screen.queryByRole("group")).toBeNull();
+});
+
+test("Allow and Deny can't both be chosen, and choosing one again goes back to the default", async () => {
+  const fetchMock = choicesServer();
+  render(<HostProperties />);
+  await click(await screen.findByRole("button", { name: "bob@ann.net" }).then((b) => b.textContent!));
+  await screen.findByRole("group");
+  await click("Allow Custom Image");
+  await waitFor(() => expect(pressed("Allow Custom Image")).toBe(true));
+  expect(fetchMock).toHaveBeenLastCalledWith("/api/admin/hosts/properties", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "bob@ann.net", custom_image: "allow" }),
+  });
+  await click("Deny Custom Image"); // the other is cleared
+  await waitFor(() => expect(pressed("Deny Custom Image")).toBe(true));
+  expect(pressed("Allow Custom Image")).toBe(false);
+  await click("Deny Custom Image"); // again: back to the default
+  await waitFor(() => expect(pressed("Deny Custom Image")).toBe(false));
+  expect(String(fetchMock.mock.lastCall?.[1]?.body)).toBe('{"email":"bob@ann.net","custom_image":null}');
+  await click("Deny Custom Sound");
+  await waitFor(() => expect(pressed("Deny Custom Sound")).toBe(true));
+  expect(pressed("Deny Custom Image")).toBe(false); // the image is left as it was
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Host properties changed: custom_voice deny \(\d+ ms\)$/));
+});
+
+test("when a host's properties can't be read or saved, it says why", async () => {
+  choicesServer(503);
+  render(<HostProperties />);
+  await click(await screen.findByRole("button", { name: "ann@example.com" }).then((b) => b.textContent!));
+  expect(await screen.findByText("Not now.")).toBeTruthy();
+  expect(console.error).toHaveBeenCalledWith("Could not read the host's properties", expect.any(Error));
+});
+
+test("a choice that can't be saved says so and keeps what was shown", async () => {
+  const fetchMock = choicesServer();
+  render(<HostProperties />);
+  await click(await screen.findByRole("button", { name: "ann@example.com" }).then((b) => b.textContent!));
+  await screen.findByRole("group");
+  const ok = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+    init?.method === "PUT" ? Promise.reject(new TypeError("Failed to fetch")) : ok(url, init),
+  );
+  await click("Allow Custom Sound");
+  expect(await screen.findByText("That didn't work. Try again.")).toBeTruthy();
+  expect(pressed("Allow Custom Sound")).toBe(false);
+});
