@@ -1207,6 +1207,35 @@ export async function getAdminHosts(q = ""): Promise<string[]> {
   return ((await response.json()) as { hosts: string[] }).hosts;
 }
 
+// One host's own Allow or Deny of a custom image and a custom sound (R242), null when they follow
+// Admin settings' checkbox, which `default` says ("enabled" or "disabled").
+export type HostChoice = "allow" | "deny" | null;
+export type CustomKind = "custom_image" | "custom_voice";
+
+export interface HostChoices {
+  email: string;
+  custom_image: HostChoice;
+  custom_voice: HostChoice;
+  default: Record<CustomKind, "enabled" | "disabled">;
+}
+
+export async function getHostChoices(email: string): Promise<HostChoices> {
+  const response = await fetch(`/api/admin/hosts/properties?email=${encodeURIComponent(email)}`);
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as HostChoices;
+}
+
+// Changes one choice only; null goes back to the default.
+export async function saveHostChoice(email: string, kind: CustomKind, choice: HostChoice): Promise<HostChoices> {
+  const response = await fetch("/api/admin/hosts/properties", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, [kind]: choice }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as HostChoices;
+}
+
 // Throws a ServerRefusal saying why when a setting is refused (400) or signed out (401).
 export async function saveAdminSettings(
   changes: Partial<

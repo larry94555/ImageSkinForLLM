@@ -514,6 +514,23 @@ async function getAdminHosts(q = "") {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return (await response.json()).hosts;
 }
+async function getHostChoices(email) {
+	const response = await fetch(`/api/admin/hosts/properties?email=${encodeURIComponent(email)}`);
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+async function saveHostChoice(email, kind, choice) {
+	const response = await fetch("/api/admin/hosts/properties", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			email,
+			[kind]: choice
+		})
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 async function saveAdminSettings(changes) {
 	const response = await fetch("/api/admin/settings", {
 		method: "PUT",
@@ -965,6 +982,7 @@ function HostProperties() {
 	const { refresh } = useAdmin();
 	const [search, setSearch] = d("");
 	const [answer, setAnswer] = d(null);
+	const [selected, setSelected] = d(null);
 	const query = search.trim();
 	h(() => {
 		let active = true;
@@ -1023,9 +1041,91 @@ function HostProperties() {
 			current && "hosts" in current && current.hosts.length > 0 && /* @__PURE__ */ u("ul", {
 				className: "host-list",
 				"aria-label": "Hosts",
-				children: current.hosts.map((email) => /* @__PURE__ */ u("li", { children: email }, email))
+				children: current.hosts.map((email) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("button", {
+					type: "button",
+					className: email === selected ? "host-pick picked" : "host-pick",
+					"aria-pressed": email === selected,
+					onClick: () => {
+						console.info("Host selected in Host properties");
+						setSelected(email === selected ? null : email);
+					},
+					children: email
+				}), email === selected && /* @__PURE__ */ u(HostChoicesPanel, { email }, email)] }, email))
 			})
 		]
+	});
+}
+var KINDS = [{
+	kind: "custom_image",
+	label: "Custom Image"
+}, {
+	kind: "custom_voice",
+	label: "Custom Sound"
+}];
+function HostChoicesPanel({ email }) {
+	const { refresh } = useAdmin();
+	const [choices, setChoices] = d(null);
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d(null);
+	function failed(e, what) {
+		console.error(what, e);
+		if (e instanceof ServerRefusal && e.status === 401) return void refresh();
+		setError(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
+	}
+	h(() => {
+		getHostChoices(email).then(setChoices, (e) => failed(e, "Could not read the host's properties"));
+	}, [email]);
+	async function choose(kind, choice) {
+		if (!choices) return;
+		const next = choices[kind] === choice ? null : choice;
+		setBusy(true);
+		setError(null);
+		const started = performance.now();
+		try {
+			setChoices(await saveHostChoice(email, kind, next));
+			console.info(`Host properties changed: ${kind} ${next ?? "default"} (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			failed(e, "Could not change the host's properties");
+		} finally {
+			setBusy(false);
+		}
+	}
+	if (!choices) return error ? /* @__PURE__ */ u("p", {
+		className: "error",
+		children: error
+	}) : /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: [
+			"Reading ",
+			email,
+			"…"
+		]
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "host-choices",
+		"aria-label": `Properties of ${email}`,
+		role: "group",
+		children: [KINDS.map(({ kind, label }) => /* @__PURE__ */ u("div", {
+			className: "host-choice",
+			children: [["allow", "deny"].map((choice) => /* @__PURE__ */ u("button", {
+				type: "button",
+				className: choices[kind] === choice ? "choice chosen" : "choice",
+				"aria-pressed": choices[kind] === choice,
+				disabled: busy,
+				onClick: () => void choose(kind, choice),
+				children: [
+					choice === "allow" ? "Allow" : "Deny",
+					" ",
+					label
+				]
+			}, choice)), /* @__PURE__ */ u("span", {
+				className: "muted",
+				children: ["Default: ", choices.default[kind]]
+			})]
+		}, kind)), error && /* @__PURE__ */ u("p", {
+			className: "error",
+			children: error
+		})]
 	});
 }
 //#endregion

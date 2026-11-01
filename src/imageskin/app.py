@@ -51,6 +51,7 @@ from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import DEFAULTS as ADMIN_DEFAULTS
 from imageskin.admin_settings import AdminSettingsStore, CustomUse, custom_use
+from imageskin.admin_settings import Choice as HostChoice
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
@@ -216,6 +217,15 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 class ChatGptAccount(BaseModel):
     account: str  # a registration's client ID, from the ChatGPT status's accounts
+
+
+class HostChoices(BaseModel):
+    """One host's Allow or Deny of a custom image and a custom sound (R242); a field left out
+    isn't changed, and null goes back to the default."""
+
+    email: str = Field(max_length=320)
+    custom_image: Literal["allow", "deny"] | None = None
+    custom_voice: Literal["allow", "deny"] | None = None
 
 
 class ConsentRequest(BaseModel):
@@ -388,6 +398,7 @@ OWN_TURNED_OFF = "The chat needs a default person now. Choose one on Start now."
 DRAFT_OUT_OF_DATE = "Something was saved since this draft was made. Generate again to redraft."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
 NOTHING_TO_REPEAT = "There is no reply to repeat yet."
+NO_SUCH_HOST = "There is no host with that email."
 CANT_REPEAT = "The reply couldn't be repeated."
 # The longest the clips request waits for the next clip before answering with none new.
 CLIPS_WAIT_S = 10.0
@@ -662,11 +673,28 @@ def create_app(
     admin_routes, app.state.require_admin = admin_router(admin_sign_ins, [require_settings])
     app.include_router(admin_routes)
 
-    # Whether a host may use their own photo and voice (R239): the Admin settings' checkboxes,
-    # until a host has an Allow or Deny of their own (R242). None asks for the site's person,
-    # whom the chat shows to anyone.
+    # Whether a host may use their own photo and voice (R239): their own Allow or Deny if they
+    # have one (R242), otherwise the Admin settings' checkboxes. None asks for the site's person,
+    # whom the chat shows to anyone: the rule of the host who added them (`site_host`).
     def may_use(email: str | None) -> CustomUse:
-        return custom_use(admin_settings.current)
+        if email is None:
+            email = site_host()
+        choices = host_accounts.choices(email) if email else (None, None)
+        return custom_use(admin_settings.current, *choices)
+
+    def site_host() -> str | None:
+        """The host the site's own person is of (R242): whoever added the photo chosen for it,
+        or else the one host who added recordings. None when it isn't known (files from before
+        R192, several hosts' recordings, or owners.json unreadable): the checkboxes decide."""
+        try:
+            added = owners.read()
+        except OwnersUnreadable:
+            return None
+        photo = added.get("photos", {}).get(store.photo_choice().id or "")
+        if photo:
+            return photo
+        recorders = set(added.get("sounds", {}).values())
+        return recorders.pop() if len(recorders) == 1 else None
 
     app.state.may_use = may_use
     host_routes, app.state.require_host = host_router(
@@ -795,6 +823,42 @@ def create_app(
             },
         )
         return {"hosts": hosts}
+
+    def host_properties(email: str, choices: tuple[HostChoice, HostChoice]) -> dict[str, Any]:
+        """One host's own choices, and what they follow with none ("enabled" or "disabled")."""
+        settings = admin_settings.current
+        return {
+            "email": email,
+            "custom_image": choices[0],
+            "custom_voice": choices[1],
+            "default": {
+                "custom_image": "disabled" if settings.disable_custom_image else "enabled",
+                "custom_voice": "disabled" if settings.disable_custom_voice else "enabled",
+            },
+        }
+
+    @app.get("/api/admin/hosts/properties", dependencies=[Depends(app.state.require_admin)])
+    def get_host_properties(email: Annotated[str, Query(max_length=320)]) -> dict[str, Any]:
+        """The selected host's Allow and Deny (R242), with the defaults they follow otherwise."""
+        try:
+            if normal_email(email) not in host_accounts.emails():
+                raise HTTPException(status_code=404, detail=NO_SUCH_HOST)
+            return host_properties(normal_email(email), host_accounts.choices(email))
+        except HostsUnreadable as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+
+    @app.put("/api/admin/hosts/properties", dependencies=[Depends(app.state.require_admin)])
+    def put_host_properties(changes: HostChoices) -> dict[str, Any]:
+        """Allow or Deny a custom image or sound for one host, or back to the default (None),
+        used by the rule at once (R242)."""
+        wanted = changes.model_dump(exclude_unset=True, exclude={"email"})
+        try:
+            saved = host_accounts.set_choices(changes.email, wanted)
+        except HostsUnreadable as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        if saved is None:
+            raise HTTPException(status_code=404, detail=NO_SUCH_HOST)
+        return host_properties(normal_email(changes.email), saved)
 
     @app.get("/api/consent")
     def get_consent() -> dict[str, object]:
