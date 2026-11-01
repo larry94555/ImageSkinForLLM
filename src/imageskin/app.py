@@ -111,7 +111,7 @@ from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import count as count_disk
-from imageskin.hosts import Host, HostAccounts, normal_email
+from imageskin.hosts import Host, HostAccounts, HostsUnreadable, normal_email
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -775,6 +775,26 @@ def create_app(
             logger.warning("Admin settings refused", extra={"error": str(e)})
             raise HTTPException(status_code=400, detail=str(e)) from e
         return {**saved.as_dict(), "recommended": ADMIN_DEFAULTS.as_dict()}
+
+    @app.get("/api/admin/hosts", dependencies=[Depends(app.state.require_admin)])
+    def get_admin_hosts(q: Annotated[str, Query(max_length=320)] = "") -> dict[str, Any]:
+        """Admin settings' Host properties (R241): every host's email, or those containing `q`
+        anywhere in them, ignoring capitals. The text searched for isn't logged, as it may be
+        part of an email."""
+        start = time.perf_counter()
+        try:
+            hosts = host_accounts.emails(q)
+        except HostsUnreadable as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        logger.info(
+            "Host list shown",
+            extra={
+                "matched": len(hosts),
+                "searched": bool(q.strip()),
+                "duration_ms": ms_since(start),
+            },
+        )
+        return {"hosts": hosts}
 
     @app.get("/api/consent")
     def get_consent() -> dict[str, object]:

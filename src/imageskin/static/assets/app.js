@@ -509,6 +509,11 @@ async function getAdminSettings() {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function getAdminHosts(q = "") {
+	const response = await fetch(q ? `/api/admin/hosts?q=${encodeURIComponent(q)}` : "/api/admin/hosts");
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).hosts;
+}
 async function saveAdminSettings(changes) {
 	const response = await fetch("/api/admin/settings", {
 		method: "PUT",
@@ -955,6 +960,68 @@ function ResourceDashboard() {
 	] });
 }
 //#endregion
+//#region src/host-properties.tsx
+function HostProperties() {
+	const { refresh } = useAdmin();
+	const [search, setSearch] = d("");
+	const [hosts, setHosts] = d(null);
+	const [error, setError] = d(null);
+	h(() => {
+		let active = true;
+		const started = performance.now();
+		getAdminHosts(search.trim()).then((found) => {
+			if (!active) return;
+			console.info(`Host list: ${found.length} shown (${Math.round(performance.now() - started)} ms)`);
+			setHosts(found);
+			setError(null);
+		}, (e) => {
+			if (!active) return;
+			console.error("Could not read the hosts", e);
+			if (e instanceof ServerRefusal && e.status === 401) return void refresh();
+			setError(e instanceof ServerRefusal ? e.message : "The hosts could not be read. Try again.");
+		});
+		return () => {
+			active = false;
+		};
+	}, [search]);
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "host-properties",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "host-properties",
+				children: "Host properties"
+			}),
+			/* @__PURE__ */ u("label", {
+				className: "host-search",
+				children: [/* @__PURE__ */ u("span", { children: "Search hosts by email" }), /* @__PURE__ */ u("input", {
+					type: "search",
+					value: search,
+					placeholder: "Any part of the email",
+					onInput: (e) => setSearch(e.currentTarget.value)
+				})]
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			hosts === null && !error && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Reading the hosts…"
+			}),
+			hosts !== null && hosts.length === 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: search.trim() ? "No host's email contains that." : "No host has signed up yet."
+			}),
+			hosts !== null && hosts.length > 0 && /* @__PURE__ */ u("ul", {
+				className: "host-list",
+				"aria-label": "Hosts",
+				children: hosts.map((email) => /* @__PURE__ */ u("li", { children: email }, email))
+			})
+		]
+	});
+}
+//#endregion
 //#region src/admin-settings.tsx
 function fieldsOf(settings) {
 	const t = settings.thresholds;
@@ -1060,7 +1127,7 @@ function AdminSettingsPage() {
 			label
 		]
 	});
-	return /* @__PURE__ */ u("form", {
+	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("form", {
 		onSubmit: (e) => {
 			e.preventDefault();
 			save(fields);
@@ -1168,7 +1235,7 @@ function AdminSettingsPage() {
 				children: "Save"
 			}) })
 		]
-	});
+	}), /* @__PURE__ */ u(HostProperties, {})] });
 }
 //#endregion
 //#region src/custom-use.tsx

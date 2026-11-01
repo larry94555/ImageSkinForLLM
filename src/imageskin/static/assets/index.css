@@ -1262,3 +1262,9 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 85%, black); }
 .recorder.off button { margin-top: 8px; display: block; }
 /* A reply's text behind its Review text link: the link on its own line, the text below it. */
 ol.turns .hidden-text { display: grid; gap: 4px; justify-items: start; }
+
+/* Host properties in Admin settings (R241): the search box and the list of hosts. */
+.host-search { display: flex; flex-direction: column; gap: 4px; max-width: 420px; margin-bottom: 12px; }
+.host-list { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.host-list li { padding: 8px 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.host-list li:last-child { border-bottom: 0; }
