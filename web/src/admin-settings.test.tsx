@@ -13,12 +13,21 @@ function server() {
     signedIn: true,
     timeout_minutes: 30,
     thresholds: { ...RECOMMENDED },
+    disable_custom_image: true,
+    disable_custom_voice: true,
     refuse: null as number | null,
   };
   const settings = (): AdminSettings => ({
     timeout_minutes: state.timeout_minutes,
     thresholds: { ...state.thresholds },
-    recommended: { timeout_minutes: 30, thresholds: RECOMMENDED },
+    disable_custom_image: state.disable_custom_image,
+    disable_custom_voice: state.disable_custom_voice,
+    recommended: {
+      timeout_minutes: 30,
+      thresholds: RECOMMENDED,
+      disable_custom_image: true,
+      disable_custom_voice: true,
+    },
   });
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/consent") return Response.json({ agreed: true });
@@ -44,6 +53,8 @@ function server() {
         const changes = JSON.parse(String(init.body)) as Partial<AdminSettings>;
         state.timeout_minutes = changes.timeout_minutes ?? state.timeout_minutes;
         state.thresholds = changes.thresholds ?? state.thresholds;
+        state.disable_custom_image = changes.disable_custom_image ?? state.disable_custom_image;
+        state.disable_custom_voice = changes.disable_custom_voice ?? state.disable_custom_voice;
       }
       return Response.json(settings());
     }
@@ -113,7 +124,12 @@ test("saving changes them and the sign-out minutes shown elsewhere", async () =>
   await type(/Red/, "20");
   await save();
   expect(puts()).toEqual([
-    { timeout_minutes: 5, thresholds: { blue_above: 70, orange_below: 40, red_below: 20 } },
+    {
+      timeout_minutes: 5,
+      thresholds: { blue_above: 70, orange_below: 40, red_below: 20 },
+      disable_custom_image: true,
+      disable_custom_voice: true,
+    },
   ]);
   expect((await screen.findByRole("status")).textContent).toContain("Saved.");
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Admin settings saved \(\d+ ms\)$/));
@@ -145,7 +161,9 @@ test("the recommended thresholds are put back at once", async () => {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Use the recommended thresholds" }));
   });
-  expect(puts()).toEqual([{ timeout_minutes: 45, thresholds: RECOMMENDED }]);
+  expect(puts()).toEqual([
+    { timeout_minutes: 45, thresholds: RECOMMENDED, disable_custom_image: true, disable_custom_voice: true },
+  ]);
   await screen.findByRole("status");
   expect(field(/Blue/).value).toBe("60");
   expect(field(/Minutes without activity/).value).toBe("45"); // only the thresholds
@@ -159,7 +177,9 @@ test("the recommended thresholds keep the minutes as typed, not as last saved", 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Use the recommended thresholds" }));
   });
-  expect(puts()).toEqual([{ timeout_minutes: 5, thresholds: RECOMMENDED }]);
+  expect(puts()).toEqual([
+    { timeout_minutes: 5, thresholds: RECOMMENDED, disable_custom_image: true, disable_custom_voice: true },
+  ]);
   await screen.findByRole("status");
   expect(field(/Minutes without activity/).value).toBe("5");
   expect(field(/Red/).value).toBe("15");
@@ -196,4 +216,22 @@ test("the tabs move between the resources and the settings", async () => {
   });
   await screen.findByRole("heading", { name: "Automatic sign-out" });
   expect(screen.queryByRole("heading", { name: "Resources" })).toBeNull();
+});
+
+test("Hosts has the two checkboxes, checked by default, saved as ticked", async () => {
+  const { state, puts } = server();
+  await openSettings();
+  expect(screen.getByRole("heading", { name: "Hosts" })).toBeTruthy();
+  expect(field(/Disable custom image/).checked).toBe(true);
+  expect(field(/Disable custom voice/).checked).toBe(true);
+  await act(async () => {
+    fireEvent.click(field(/Disable custom voice/));
+  });
+  expect(field(/Disable custom voice/).checked).toBe(false);
+  await save();
+  expect(puts()[0]).toMatchObject({ disable_custom_image: true, disable_custom_voice: false });
+  expect(state.disable_custom_voice).toBe(false);
+  await screen.findByRole("status");
+  expect(field(/Disable custom voice/).checked).toBe(false);
+  expect(field(/Disable custom image/).checked).toBe(true);
 });

@@ -1,8 +1,9 @@
 """The settings only the administrator can see or change (roadmap R155, items 123 and 125).
 
 Kept in `admin-settings.json` in the app's home folder, apart from the Settings page's
-`ui-settings.json`: the minutes without activity before the administrator is signed out, and the
-thresholds for the resource dashboard's colours. Delete my data leaves them, as they are the
+`ui-settings.json`: the minutes without activity before the administrator is signed out, the
+thresholds for the resource dashboard's colours, and whether hosts may use a custom image and a
+custom voice (R239). Delete my data leaves them, as they are the
 site's, not a user's. A change applies at once, to the sign-in going now and to the colours.
 """
 
@@ -12,7 +13,7 @@ import os
 import threading
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from imageskin.admin import TIMEOUT_MINUTES
 from imageskin.resources import RECOMMENDED, Thresholds
@@ -27,10 +28,18 @@ ORDER = (
 )
 
 
+CHECKBOXES = ("disable_custom_image", "disable_custom_voice")
+
+
 @dataclass(frozen=True)
 class AdminSettings:
     timeout_minutes: int = TIMEOUT_MINUTES
     thresholds: Thresholds = RECOMMENDED
+    # Hosts (R239): both checked by default, so a host uses a default person and a ready-made
+    # voice unless the administrator allows their own. A file from before R239 has neither, so
+    # it gets both checked.
+    disable_custom_image: bool = True
+    disable_custom_voice: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -46,7 +55,7 @@ def number(value: object) -> bool:
 
 def checked(settings: AdminSettings, changes: dict[str, Any]) -> AdminSettings:
     """The settings with the changes made; ValueError with a plain message if one is wrong."""
-    unknown = sorted(set(changes) - {"timeout_minutes", "thresholds"})
+    unknown = sorted(set(changes) - {"timeout_minutes", "thresholds", *CHECKBOXES})
     if unknown:
         raise ValueError(f"There is no admin setting called {unknown[0]}.")
     if "timeout_minutes" in changes:
@@ -68,7 +77,39 @@ def checked(settings: AdminSettings, changes: dict[str, Any]) -> AdminSettings:
         if not 1 <= thresholds.red_below < thresholds.orange_below < thresholds.blue_above <= 99:
             raise ValueError(ORDER)
         settings = replace(settings, thresholds=thresholds)
+    for name in CHECKBOXES:
+        if name in changes:
+            if type(changes[name]) is not bool:
+                raise ValueError(f"{name} must be true or false.")
+            settings = replace(settings, **{name: changes[name]})
     return settings
+
+
+# A host's own choice for a custom image or voice (R242), over the checkbox; None follows it.
+Choice = Literal["allow", "deny"] | None
+
+
+@dataclass(frozen=True)
+class CustomUse:
+    """Whether one host may use their own photo and their own voice."""
+
+    image: bool
+    voice: bool
+
+
+def custom_use(
+    settings: AdminSettings, image_choice: Choice = None, voice_choice: Choice = None
+) -> CustomUse:
+    """The rule every later PR asks (R239): the host's own Allow or Deny if they have one,
+    otherwise the Admin settings' checkbox. Until R242 no host has one of their own."""
+
+    def allowed(choice: Choice, disabled: bool) -> bool:
+        return choice == "allow" if choice is not None else not disabled
+
+    return CustomUse(
+        image=allowed(image_choice, settings.disable_custom_image),
+        voice=allowed(voice_choice, settings.disable_custom_voice),
+    )
 
 
 class AdminSettingsStore:
@@ -103,7 +144,17 @@ class AdminSettingsStore:
             part.write_text(json.dumps(after.as_dict()), encoding="utf-8")
             os.replace(part, self.path)
             self.current = after
+        # Each checkbox's old and new value on its own too, so a change of who may use a custom
+        # image or voice is easy to find in the log (R239).
         logger.info(
-            "Admin settings changed", extra={"before": before.as_dict(), "after": after.as_dict()}
+            "Admin settings changed",
+            extra={
+                "before": before.as_dict(),
+                "after": after.as_dict(),
+                **{
+                    f"{name}_change": [getattr(before, name), getattr(after, name)]
+                    for name in CHECKBOXES
+                },
+            },
         )
         return after

@@ -955,7 +955,9 @@ function fieldsOf(settings) {
 		minutes: String(settings.timeout_minutes),
 		blue: String(t.blue_above),
 		orange: String(t.orange_below),
-		red: String(t.red_below)
+		red: String(t.red_below),
+		noImage: settings.disable_custom_image,
+		noVoice: settings.disable_custom_voice
 	};
 }
 function AdminSettingsPage() {
@@ -988,7 +990,9 @@ function AdminSettingsPage() {
 					blue_above: Number(changes.blue),
 					orange_below: Number(changes.orange),
 					red_below: Number(changes.red)
-				}
+				},
+				disable_custom_image: changes.noImage,
+				disable_custom_voice: changes.noVoice
 			});
 			console.info(`Admin settings saved (${Math.round(performance.now() - started)} ms)`);
 			setSettings(read);
@@ -1031,6 +1035,24 @@ function AdminSettingsPage() {
 		})]
 	});
 	const recommended = settings.recommended.thresholds;
+	const checkbox = (name, label) => /* @__PURE__ */ u("label", {
+		className: "check",
+		children: [
+			/* @__PURE__ */ u("input", {
+				type: "checkbox",
+				checked: fields[name],
+				onChange: (e) => {
+					setSaved(false);
+					setFields({
+						...fields,
+						[name]: e.currentTarget.checked
+					});
+				}
+			}),
+			" ",
+			label
+		]
+	});
 	return /* @__PURE__ */ u("form", {
 		onSubmit: (e) => {
 			e.preventDefault();
@@ -1044,7 +1066,7 @@ function AdminSettingsPage() {
 			saved && /* @__PURE__ */ u("p", {
 				className: "notice",
 				role: "status",
-				children: "Saved. The dashboard and the sign-out use them now."
+				children: "Saved. The dashboard, the sign-out and the hosts use them now."
 			}),
 			/* @__PURE__ */ u("section", {
 				className: "panel",
@@ -1115,6 +1137,22 @@ function AdminSettingsPage() {
 						}),
 						children: "Use the recommended thresholds"
 					}) })
+				]
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "admin-hosts",
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: "admin-hosts",
+						children: "Hosts"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Checked, hosts use a default person and a ready-made voice, and can't add their own photo or record their own voice. Both are checked to begin with."
+					}),
+					/* @__PURE__ */ u("p", { children: checkbox("noImage", "Disable custom image") }),
+					/* @__PURE__ */ u("p", { children: checkbox("noVoice", "Disable custom voice") })
 				]
 			}),
 			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
