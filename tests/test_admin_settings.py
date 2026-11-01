@@ -20,6 +20,9 @@ from imageskin.app import create_app
 from imageskin.delete_data import delete_my_data
 from imageskin.resources import Thresholds, colour
 
+# The real defaults, with hosts' own photo and voice turned off (R239).
+pytestmark = pytest.mark.custom_defaults
+
 
 def test_the_recommended_settings() -> None:
     assert DEFAULTS == AdminSettings(30, Thresholds(blue_above=60, orange_below=30, red_below=15))

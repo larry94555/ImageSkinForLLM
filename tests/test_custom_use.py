@@ -20,7 +20,8 @@ from imageskin.admin_settings import (
 )
 from imageskin.app import create_app
 
-pytestmark = pytest.mark.real_hosts  # these tests sign in as a host for themselves
+# These tests sign in as a host for themselves, and keep Admin settings' real defaults.
+pytestmark = [pytest.mark.real_hosts, pytest.mark.custom_defaults]
 
 HOST = {"email": "host@example.com", "password": "a long secret"}
 
