@@ -665,6 +665,11 @@ async function restoreAdminGuidelinesChange(part, number) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function compareAdminGuidelinesChange(part, number) {
+	const response = await fetch(`/api/admin/guidelines/history/${encodeURIComponent(part)}/${number}/compare`);
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -3824,6 +3829,7 @@ function AdminGuidelinesPage() {
 			saved: "Saved"
 		},
 		load: getAdminGuidelinesHistory,
+		compare: compareAdminGuidelinesChange,
 		restore: (part, number) => inTurn(async () => {
 			try {
 				const restored = await restoreAdminGuidelinesChange(part, number);

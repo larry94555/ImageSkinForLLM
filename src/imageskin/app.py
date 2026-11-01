@@ -1755,6 +1755,14 @@ def create_app(
             )
         return {"parts": shown_parts}
 
+    @app.get(
+        "/api/admin/guidelines/history/{part}/{number}/compare",
+        dependencies=[Depends(app.state.require_admin)],
+    )
+    def compare_admin_change(part: str, number: int) -> dict[str, Any]:
+        """A part of the admin guidelines in use beside an earlier change of it (R254)."""
+        return comparison(admin_history, part, number, "Admin guidelines")
+
     @app.post(
         "/api/admin/guidelines/history/{part}/{number}/restore",
         dependencies=[Depends(app.state.require_admin)],
@@ -1897,19 +1905,18 @@ def create_app(
             )
         return {"parts": shown_parts}
 
-    @app.get("/api/customization/history/{part}/{number}/compare", dependencies=host_only)
-    def compare_change(part: str, number: int) -> dict[str, Any]:
+    def comparison(kept_history: History, part: str, number: int, name: str) -> dict[str, Any]:
         """A part's change in use beside an earlier one, with what was added and removed marked
-        (R95a)."""
+        (R95a), for the host's history or the administrator's (R254)."""
         start = time.perf_counter()
         try:
-            kept = history.part(part)
+            kept = kept_history.part(part)
             earlier, now = kept.change(number), kept.change(kept.current)
         except NoSuchChange as e:
             raise HTTPException(status_code=404, detail="There is no such change.") from e
         runs = compared(as_text(part, earlier.value), as_text(part, now.value))
         logger.info(
-            "Customization compared",
+            f"{name} compared",
             extra={
                 "part": part,
                 "earlier": number,
@@ -1920,6 +1927,10 @@ def create_app(
             },
         )
         return {"part": part, "earlier": number, "current": kept.current, "runs": runs}
+
+    @app.get("/api/customization/history/{part}/{number}/compare", dependencies=host_only)
+    def compare_change(part: str, number: int) -> dict[str, Any]:
+        return comparison(history, part, number, "Customization")
 
     @app.post("/api/customization/history/{part}/{number}/restore", dependencies=host_only)
     def restore_change(part: str, number: int) -> dict[str, Any]:
