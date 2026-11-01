@@ -30,3 +30,21 @@ def signed_in_host(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(
         "imageskin.hosts.HostAccounts.host", lambda self, token: Host("host@example.com", 0.0)
     )
+
+
+@pytest.fixture(autouse=True)
+def custom_photo_and_voice_allowed(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hosts may use their own photo and voice in the tests, which set up with them throughout,
+    though Admin settings turns both off by default (R239, R240); tests marked
+    `custom_defaults` keep the real defaults."""
+    if request.node.get_closest_marker("custom_defaults"):
+        return
+    from imageskin import admin_settings
+
+    monkeypatch.setattr(
+        admin_settings,
+        "DEFAULTS",
+        admin_settings.AdminSettings(disable_custom_image=False, disable_custom_voice=False),
+    )

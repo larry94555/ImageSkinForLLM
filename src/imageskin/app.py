@@ -75,6 +75,7 @@ from imageskin.config import default_home
 from imageskin.consent import load_consent, save_consent
 from imageskin.content import ContentStore, Pdf
 from imageskin.cores import CoreShare, cores, use_performance_cores
+from imageskin.custom_access import own_person_blocked, refuse_unless_allowed
 from imageskin.customization import (
     FEATURES,
     Customization,
@@ -381,6 +382,8 @@ class ReplyVideoRequest(BaseModel):
 
 
 CHAT_LOCKED = "The chat is locked until you accept a sample video at the end of setup."
+# R240: the host's own photo or voice was turned off in Admin settings after it was accepted.
+OWN_TURNED_OFF = "The chat needs a default person now. Choose one on Start now."
 # A draft from Generate again saved after something else was saved since it was drafted (R93).
 DRAFT_OUT_OF_DATE = "Something was saved since this draft was made. Generate again to redraft."
 NO_SUCH_REPLY = "There is no such reply in the conversation."
@@ -641,6 +644,7 @@ def create_app(
     # The minutes before an inactive administrator is signed out, and the dashboard's colours,
     # are admin settings (R155), read at each check so a change applies at once.
     admin_settings = AdminSettingsStore(data_home)
+    app.state.admin_settings = admin_settings
     admin_file = admin_file or data_home / ADMIN_FILENAME
     admin_sign_ins = AdminSignIns(
         admin_file,
@@ -659,17 +663,36 @@ def create_app(
     app.include_router(admin_routes)
 
     # Whether a host may use their own photo and voice (R239): the Admin settings' checkboxes,
-    # until a host has an Allow or Deny of their own (R242).
-    def may_use(host: Host) -> CustomUse:
+    # until a host has an Allow or Deny of their own (R242). None asks for the site's person,
+    # whom the chat shows to anyone.
+    def may_use(email: str | None) -> CustomUse:
         return custom_use(admin_settings.current)
 
     app.state.may_use = may_use
-    host_routes, app.state.require_host = host_router(host_accounts, may_use)
+    host_routes, app.state.require_host = host_router(
+        host_accounts, lambda host: may_use(host.email)
+    )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
     # for the participant view.
     host_only = [Depends(app.state.require_host)]
     SignedInHost = Annotated[Host, Depends(app.state.require_host)]
+
+    # The host's own photo and voice where the administrator turned them off (R240): refused,
+    # so an old page or the API can't use them. The files already stored are kept.
+    def allowed(image: bool = False, voice: bool = False) -> Any:
+        def check(request: Request, host: SignedInHost) -> None:
+            refuse_unless_allowed(may_use(host.email), image, voice, host.email, request.url.path)
+
+        return Depends(check)
+
+    def allowed_kind(request: Request, kind: Kind, host: SignedInHost) -> None:
+        """A photo needs the custom image, a recording the custom voice."""
+        refuse_unless_allowed(
+            may_use(host.email), kind == "photos", kind == "sounds", host.email, request.url.path
+        )
+
+    custom_kind = [Depends(allowed_kind)]
     app.include_router(host_routes)
     # Who added each photo, recording and PDF, and the disk space each host has used (R192).
     owners = Owners(data_home)
@@ -925,7 +948,7 @@ def create_app(
 
     needs_person = [Depends(require_person)]
 
-    @app.post(uploads_api, dependencies=host_and_consent)
+    @app.post(uploads_api, dependencies=[*host_and_consent, *custom_kind])
     def upload(
         kind: Kind, file: UploadFile, seen: DeletesSeen, response: Response, host: SignedInHost
     ) -> Upload:
@@ -951,7 +974,7 @@ def create_app(
     def list_uploads(kind: Kind) -> list[Upload]:
         return store.list(kind)
 
-    @app.post(uploads_api + "/{upload_id}/check", dependencies=host_and_consent)
+    @app.post(uploads_api + "/{upload_id}/check", dependencies=[*host_and_consent, *custom_kind])
     def check_upload_now(kind: Kind, upload_id: str, seen: DeletesSeen) -> Upload:
         start = time.perf_counter()
         try:
@@ -1000,7 +1023,7 @@ def create_app(
     def get_photo_choice() -> PhotoChoice:
         return store.photo_choice()
 
-    @app.put("/api/uploads/photos/chosen", dependencies=host_and_consent)
+    @app.put("/api/uploads/photos/chosen", dependencies=[*host_and_consent, allowed(image=True)])
     def put_photo_choice(body: PhotoChoiceRequest, seen: DeletesSeen) -> PhotoChoice:
         try:
             with personal_write(seen):
@@ -1267,10 +1290,32 @@ def create_app(
             return None
         return ready_preset(load_ready_voice(data_home))
 
+    def own_person_needs() -> tuple[bool, bool]:
+        """Whether Prepare and its sample use the host's own photo and their own voice (R240):
+        a ready-made avatar uses neither, unless it is to speak in their voice (R24d); their own
+        photo speaks in their voice unless no recording passed (item 59)."""
+        if start_now.chosen() is not None:
+            return False, start_now.own_voice()
+        return True, no_sample() is None
+
+    def allowed_own_person(request: Request, host: SignedInHost) -> None:
+        image, voice = own_person_needs()
+        refuse_unless_allowed(may_use(host.email), image, voice, host.email, request.url.path)
+
+    def own_person_turned_off() -> bool:
+        """Whether the site's own person uses a photo or voice the administrator has turned off
+        since (R240): the chat then waits for a default person to be chosen, and the files are
+        kept for if it is turned on again. Asked only while no default person is chosen."""
+        return own_person_blocked(may_use(None), *own_person_needs())
+
     def avatar_in_own_voice() -> bool:
         """Whether the ready-made avatar speaks in the user's own voice now (R24d): it was asked
-        to, and its sample in that voice is accepted."""
-        return start_now.own_voice() and load_review(data_home, job.peek()).accepted
+        to, its sample in that voice is accepted, and custom voices are still allowed (R240)."""
+        return (
+            start_now.own_voice()
+            and load_review(data_home, job.peek()).accepted
+            and may_use(None).voice
+        )
 
     def reply_preset() -> tuple[str, str] | None:
         """The ready-made voice the replies speak in, or None for the user's own."""
@@ -1331,7 +1376,8 @@ def create_app(
             "voices": ready_voices(),  # every default person's voice (R24e)
         }
 
-    @app.put("/api/ready-voice", dependencies=host_and_consent)
+    # A ready-made voice for the host's own photo (item 59): the photo is theirs.
+    @app.put("/api/ready-voice", dependencies=[*host_and_consent, allowed(image=True)])
     def put_ready_voice(body: ReadyVoiceRequest, seen: DeletesSeen) -> dict[str, object]:
         if body.voice not in READY_VOICES:
             raise HTTPException(
@@ -1440,7 +1486,7 @@ def create_app(
     def get_prepare() -> PrepareStatus:
         return job.status()
 
-    @app.post("/api/prepare", dependencies=host_and_consent)
+    @app.post("/api/prepare", dependencies=[*host_and_consent, Depends(allowed_own_person)])
     def start_prepare() -> PrepareStatus:
         try:
             return job.start()
@@ -1464,7 +1510,7 @@ def create_app(
         available = voice_kind in CLONES
         return AccentChoice(accent=accent() if available else "own", available=available)
 
-    @app.put("/api/accent", dependencies=host_and_consent)
+    @app.put("/api/accent", dependencies=[*host_and_consent, allowed(voice=True)])
     def put_accent(body: AccentRequest, seen: DeletesSeen) -> AccentChoice:
         if body.accent != "own" and voice_kind not in CLONES:
             raise HTTPException(status_code=409, detail=NEEDS_CLONE)
@@ -1490,10 +1536,11 @@ def create_app(
         return FileResponse(path, media_type="video/mp4", headers=headers)
 
     def accepted() -> bool:
-        """Whether the chat is open: a default person is chosen (R24c), or a sample accepted."""
+        """Whether the chat is open: a default person is chosen (R24c), or a sample accepted
+        whose photo and voice are still allowed (R240)."""
         if start_now.chosen() is not None:
             return True
-        return load_review(data_home, job.status()).accepted
+        return load_review(data_home, job.status()).accepted and not own_person_turned_off()
 
     @app.get("/api/review", dependencies=needs_person)
     def get_review() -> dict[str, object]:
@@ -1510,13 +1557,23 @@ def create_app(
                 "own_voice": own_voice,
                 "voice_accepted": sample and own_voice,
             }
-        return asdict(load_review(data_home, job.status()))
+        review = asdict(load_review(data_home, job.status()))
+        if review["accepted"] and own_person_turned_off():
+            # The page asks for a default person instead (R240).
+            review["accepted"] = False
+            review["own_turned_off"] = True
+        return review
 
     @app.delete("/api/start-now", dependencies=host_and_consent)
-    def use_own_person(seen: DeletesSeen) -> dict[str, object]:
+    def use_own_person(
+        seen: DeletesSeen, request: Request, host: SignedInHost
+    ) -> dict[str, object]:
         """Use your own photo and voice again, from a ready-made avatar, when their sample is
         already accepted: the avatar is no longer chosen, and nothing needs preparing again."""
         start = time.perf_counter()
+        refuse_unless_allowed(
+            may_use(host.email), True, no_sample() is None, host.email, request.url.path
+        )
         with personal_write(seen):
             # While the avatar is to speak in the user's voice, the sample is the avatar's (R24d).
             if start_now.own_voice() or not load_review(data_home, job.status()).accepted:
@@ -1531,7 +1588,7 @@ def create_app(
         logger.info("Switched to your own photo and voice", extra={"duration_ms": ms_since(start)})
         return asdict(load_review(data_home, job.status()))
 
-    @app.put("/api/start-now/own-voice", dependencies=host_only)
+    @app.put("/api/start-now/own-voice", dependencies=[*host_only, allowed(voice=True)])
     def use_own_voice(body: ConsentRequest, seen: DeletesSeen) -> dict[str, object]:
         """The ready-made avatar is to speak in the user's own recorded voice (R24d): consent for
         the person in the recordings, then the recordings, Prepare and review as in setup. Until
@@ -1571,10 +1628,14 @@ def create_app(
         return get_review()
 
     @app.post("/api/review", dependencies=host_and_consent)
-    def post_review(body: ReviewRequest, seen: DeletesSeen) -> dict[str, object]:
+    def post_review(
+        body: ReviewRequest, seen: DeletesSeen, request: Request, host: SignedInHost
+    ) -> dict[str, object]:
         with personal_write(seen):
             if body.decision != "accept":
                 return asdict(withdraw(data_home, body.decision))
+            image, voice = own_person_needs()
+            refuse_unless_allowed(may_use(host.email), image, voice, host.email, request.url.path)
             try:
                 review = accept(data_home, job.status())
             except ValueError as e:
@@ -2207,6 +2268,9 @@ def create_app(
 
     def require_accepted() -> None:
         if not accepted():
+            if own_person_turned_off():
+                logger.warning("Chat refused: the own photo or voice is turned off")
+                raise HTTPException(status_code=403, detail=OWN_TURNED_OFF)
             raise HTTPException(status_code=403, detail=CHAT_LOCKED)
 
     # The reply clips use the two steps apart (R22b); an engine given as one `render_clip`
@@ -2918,7 +2982,10 @@ def create_app(
                     del whole_videos[key]
         return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
 
-    @app.post("/api/prepare/clips/sample/again", dependencies=host_and_consent)
+    @app.post(
+        "/api/prepare/clips/sample/again",
+        dependencies=[*host_and_consent, Depends(allowed_own_person)],
+    )
     def run_video_test_again() -> dict[str, object]:
         """Run the video test again from Settings (roadmap R27b): render the sample video afresh
         from the prepared face and voice. It waits for any prompt being answered and holds the
