@@ -131,16 +131,30 @@ const HOST_PAGES: Page[] = [
 // Setup is blocked until the user confirms consent (feature item 22). In the participant view a
 // host's page, opened by its address, shows the chat instead; to anyone not signed in as a host
 // (`visitor`, R190) it says it is for the host, with a link to sign in, except the home page.
+//
+// Where the host may not use their own photo (`use.image`, R240b), their own person can't be set
+// up, so setup, the wizard and choosing their own over an avatar go to Start now; without their
+// own voice, the wizard, which records it, goes to the Setup page, and the avatar's voice page to
+// Start now.
 export function resolve(
   hash: string,
   consented: boolean,
   participant = false,
   visitor = false,
+  use: { image: boolean; voice: boolean } = { image: true, voice: true },
 ): Route {
   const page = pageFor(hash);
   if (participant && HOST_PAGES.includes(page)) {
     if (visitor && page !== "home") return { page: "host-only" };
     return { page: "chat", redirect: "#/chat" };
+  }
+  const ownPerson = page === "setup" || page === "wizard" || hash === OWN_CONSENT;
+  if (!participant && ((!use.image && ownPerson) || (!use.voice && page === "avatar-voice"))) {
+    return { page: "start-now", redirect: "#/start-now" };
+  }
+  if (!participant && !use.voice && page === "wizard") {
+    const setup = resolve("#/setup", consented, participant, visitor, use);
+    return { page: setup.page, redirect: setup.redirect ?? "#/setup" };
   }
   if (page === "setup" && !consented) {
     return { page: "consent", redirect: "#/consent" };

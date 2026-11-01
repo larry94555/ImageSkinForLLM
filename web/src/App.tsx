@@ -7,6 +7,7 @@ import { getConsent, getStartNow, type View } from "./api";
 import { AvatarVoicePage } from "./avatar-voice";
 import { ownAfterConsent } from "./change-setup";
 import { ContentPage } from "./content";
+import { ALLOWED, CustomUseProvider, useCustomUseOf } from "./custom-use";
 import { GuidePage } from "./guide";
 import { HomePage, setupLink } from "./home";
 import { HostAccountPage, HostLinks, HostOnlyPage, HostProvider, useHost } from "./host";
@@ -97,10 +98,12 @@ function Shell() {
   const hostSession = useHost().session;
   const visitor = hostSession?.signed_in !== true;
   const settingsShown = useSettingsShown();
+  // What the host may use of their own photo and voice (R240b), asked again on each page.
+  const { use: customUse, fresh } = useCustomUseOf(hash, hostSession?.signed_in);
   const route =
-    consented === null || !settingsLoaded || hostSession === null
+    consented === null || !settingsLoaded || hostSession === null || customUse === null
       ? null
-      : resolve(hash, consented, participant, visitor);
+      : resolve(hash, consented, participant, visitor, fresh ? customUse : ALLOWED);
   useEffect(() => {
     if (route?.redirect && route.redirect !== window.location.hash) {
       window.location.replace(route.redirect);
@@ -186,7 +189,7 @@ function Shell() {
           {NAV.filter((item) => settingsLoaded && item.views.includes(view)).map((item) => (
             <a
               key={item.page}
-              href={item.page === "setup" ? setupLink(consented === true, defaultPerson) : item.href}
+              href={item.page === "setup" ? setupLink(consented === true, defaultPerson, customUse?.image !== false) : item.href}
               className={current(route?.page, view) === item.page ? "current" : undefined}
             >
               {item.label}
@@ -203,7 +206,7 @@ function Shell() {
       </header>
       <main>
         <AdminEndedNotice />
-        {content}
+        <CustomUseProvider value={customUse ?? ALLOWED}>{content}</CustomUseProvider>
       </main>
       <footer>Photos and recordings stay on the computer that runs this app.</footer>
     </>

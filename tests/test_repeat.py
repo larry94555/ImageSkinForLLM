@@ -7,8 +7,9 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from test_reply_video import REPLY_ID, stop_patches, video_app  # noqa: F401 (a fixture)
+from test_reply_video import JPG, REPLY_ID, stop_patches, video_app  # noqa: F401 (a fixture)
 
+from imageskin.prepare_job import PrepareJob, PrepareStatus
 from imageskin.reply_video import ReplyVideos, SentenceClips, VoiceReady
 from imageskin.review import Review
 from imageskin.sentences import clips_of
@@ -97,6 +98,35 @@ def test_the_latest_reply_is_said_again_from_its_clips(
         # Repeated again, from the clips just played.
         assert client.post("/api/chat/repeat", json={"reply_id": "b" * 32}).status_code == 200
         assert follow(client, "b" * 32) == first and len(rendered) == 2
+
+
+def test_after_the_person_changes_the_reply_is_spoken_again_by_the_new_one(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Larry's test of PR #266: after another avatar was chosen, Repeat showed the person who
+    first said the reply, from its clips. Now it is spoken again by the one in the chat."""
+    photos: list[str] = []
+
+    def render(photo: Path, text: str, output: Path) -> None:
+        photos.append(photo.name)
+        output.write_text(text)
+
+    client = video_app(tmp_path, render, lambda m: iter(["It falls from clouds. ", "It is wet."]))
+    with patch("imageskin.app.load_review", return_value=Review(accepted=True)):
+        client.post("/api/chat", json={"prompt": "Why rain?", "reply_id": REPLY_ID})
+        follow(client, REPLY_ID)
+        first = set(photos)
+        # Another person in the chat: here another photo of one's own.
+        other = client.post("/api/uploads/photos", files={"file": ("you.jpg", JPG)}).json()
+        patch.object(PrepareJob, "status", return_value=PrepareStatus("done", other["id"])).start()
+        with caplog.at_level(logging.INFO, logger="imageskin.app"):
+            again = client.post("/api/chat/repeat", json={"reply_id": AGAIN_ID})
+        assert again.status_code == 200
+        assert follow(client, AGAIN_ID) == ["It falls from clouds.", "It is wet."]
+        assert len(photos) == 4 and set(photos[2:]).isdisjoint(first)  # made on the new photo
+        assert any(r.message == "Repeat spoken again: the person changed" for r in caplog.records)
+        logged = next(r for r in caplog.records if r.message == "Reply repeated")
+        assert logged.__dict__["from"] == "text"
 
 
 def test_a_reply_whose_clips_are_gone_is_spoken_again_from_its_text(

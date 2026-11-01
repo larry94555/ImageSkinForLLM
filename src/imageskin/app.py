@@ -1285,8 +1285,10 @@ def create_app(
 
     def no_sample() -> tuple[str, str] | None:
         """The ready-made voice the user's own photo speaks in while no recording has passed the
-        checks (item 59): none were added, or they were all rejected or removed."""
-        if store.voice_sample().problem != NO_VOICE:
+        checks (item 59): none were added, or they were all rejected or removed. Likewise while
+        the administrator has turned custom voices off (R240b, Codex's review of PR #266): the
+        recordings are kept, but Prepare, its sample and the replies use the ready-made voice."""
+        if store.voice_sample().problem != NO_VOICE and may_use(None).voice:
             return None
         return ready_preset(load_ready_voice(data_home))
 
@@ -2303,6 +2305,11 @@ def create_app(
             return start_now.picture()
         return store.path("photos", job.status().photo_id or "")
 
+    def person_of(photo: Path) -> tuple[object, ...]:
+        """Who speaks a reply's clips: the photo and the voice, so Repeat uses the clips only
+        while the same person is in the chat (Larry's test of PR #266)."""
+        return (photo, reply_preset() or job.voice_id())
+
     @app.get("/api/chat/hints", dependencies=needs_person)
     def get_chat_hints() -> dict[str, object]:
         """What to show under the prompt box (R41g): a line naming a few of the topics, and a few
@@ -2572,6 +2579,7 @@ def create_app(
         clips = None
         if photo is not None and body.reply_id is not None:
             clips = replies.sentence_clips(photo, body.reply_id)
+            clips.person = person_of(photo)
             with clips_lock:
                 if stop.is_set():  # stopped meanwhile: no clips
                     clips = None
@@ -2718,6 +2726,7 @@ def create_app(
             # Not `replies.sentence_clips`, which removes the other replies' clips first: the
             # ones played last are copied from, then removed with `cancel`.
             clips = SentenceClips(replies, photo, body.reply_id)
+            clips.person = person_of(photo)
             last: list[SentenceClips] = []
             with clips_lock:  # Stop sees either the marker taken or the clips listed
                 early = body.reply_id in stopped_early
@@ -2730,7 +2739,14 @@ def create_app(
             if early:
                 logger.info("Repeat stopped before it began", extra={"reply_id": body.reply_id})
                 raise HTTPException(status_code=409, detail=PROMPT_STOPPED)
-            made = next((m for c in last if (m := c.whole()) is not None), None)
+            # Only the same person's clips: after another avatar is chosen, or one's own photo
+            # again, the reply is spoken again by the one in the chat now.
+            same = [c for c in last if c.person == clips.person]
+            if len(same) < len(last):
+                logger.info(
+                    "Repeat spoken again: the person changed", extra={"reply_id": body.reply_id}
+                )
+            made = next((m for c in same if (m := c.whole()) is not None), None)
             try:
                 if made is not None:
                     clips.replay(made)

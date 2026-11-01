@@ -7,6 +7,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { getReview, useAvatarReadyVoice, useOwnPerson } from "./api";
+import { useCustomUse } from "./custom-use";
 import { OWN_CONSENT, type SetupPart } from "./router";
 
 const CHANGES: { part: SetupPart; label: string; about: string }[] = [
@@ -44,6 +45,10 @@ function InUseMark({ shown }: { shown: boolean }) {
 }
 
 export function ChangeSetup() {
+  // What the administrator turned off isn't offered (R240b): without their own photo, their own
+  // person; without their own voice, the recordings, the accent and the avatar in their voice.
+  const use = useCustomUse();
+  const changes = CHANGES.filter(({ part }) => use.voice || part === "photos");
   // null until the server has answered, or if it couldn't (before consent, say).
   const [accepted, setAccepted] = useState<boolean | null>(null);
   const [inUse, setInUse] = useState<InUse | null>(null);
@@ -94,57 +99,61 @@ export function ChangeSetup() {
     <section className="panel" aria-labelledby="settings-change">
       <h2 id="settings-change">Avatar Choice</h2>
       <p className="muted">
-        The person in the video: your own photo and voice, or a ready-made avatar.
+        {use.image
+          ? "The person in the video: your own photo and voice, or a ready-made avatar."
+          : "The person in the video: a ready-made avatar. Using your own photo is turned off for this site."}
       </p>
       <div className="avatar-options">
-        <div className={inUse === "own" ? "avatar-option chosen" : "avatar-option"}>
-          <h3>
-            Your own photo and voice <InUseMark shown={inUse === "own"} />
-          </h3>
-          {inUse === "ready-made" ? (
-            <div className="switch">
-              <a
-                className="button secondary"
-                href={OWN_CONSENT}
-                onClick={() => console.info("Switching to your own photo and voice from Settings")}
-              >
-                Use your own photo and voice
-              </a>
-              <p className="muted">
-                {ownAccepted
-                  ? "Your sample video is already accepted: the chat switches to it at once."
-                  : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."}
-              </p>
-            </div>
-          ) : (
-            <>
-              <p className="muted">
-                Changing any of them makes the sample video again, and the chat stays locked until
-                you accept the new one at the end of setup.
-              </p>
-              {accepted === true && (
-                <p className="muted">The chat is open with the sample you accepted.</p>
-              )}
-              {accepted === false && (
-                <p className="notice">
-                  The chat is locked until you accept a sample video in <a href="#/setup">Setup</a>.
+        {use.image && (
+          <div className={inUse === "own" ? "avatar-option chosen" : "avatar-option"}>
+            <h3>
+              Your own photo and voice <InUseMark shown={inUse === "own"} />
+            </h3>
+            {inUse === "ready-made" ? (
+              <div className="switch">
+                <a
+                  className="button secondary"
+                  href={OWN_CONSENT}
+                  onClick={() => console.info("Switching to your own photo and voice from Settings")}
+                >
+                  Use your own photo and voice
+                </a>
+                <p className="muted">
+                  {ownAccepted
+                    ? "Your sample video is already accepted: the chat switches to it at once."
+                    : "Your photos and recordings are kept. Accept their sample video at the end of setup to switch."}
                 </p>
-              )}
-              {CHANGES.map(({ part, label, about }) => (
-                <div key={part} className="switch">
-                  <a
-                    className="button secondary"
-                    href={`#/setup/${part}`}
-                    onClick={() => console.info(`Changing the ${part} from Settings`)}
-                  >
-                    {label}
-                  </a>
-                  <p className="muted">{about}</p>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
+              </div>
+            ) : (
+              <>
+                <p className="muted">
+                  Changing any of them makes the sample video again, and the chat stays locked until
+                  you accept the new one at the end of setup.
+                </p>
+                {accepted === true && (
+                  <p className="muted">The chat is open with the sample you accepted.</p>
+                )}
+                {accepted === false && (
+                  <p className="notice">
+                    The chat is locked until you accept a sample video in <a href="#/setup">Setup</a>.
+                  </p>
+                )}
+                {changes.map(({ part, label, about }) => (
+                  <div key={part} className="switch">
+                    <a
+                      className="button secondary"
+                      href={`#/setup/${part}`}
+                      onClick={() => console.info(`Changing the ${part} from Settings`)}
+                    >
+                      {label}
+                    </a>
+                    <p className="muted">{about}</p>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
         <div className={inUse === "ready-made" ? "avatar-option chosen" : "avatar-option"}>
           <h3>
             Ready-made avatar <InUseMark shown={inUse === "ready-made"} />
@@ -162,7 +171,7 @@ export function ChangeSetup() {
               {inUse === "ready-made" ? "Choose another avatar" : "Use a ready-made avatar"}
             </a>
           </div>
-          {inUse === "ready-made" && (
+          {inUse === "ready-made" && use.voice && (
             <div className="switch">
               <a
                 className="button secondary"

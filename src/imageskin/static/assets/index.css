@@ -500,6 +500,7 @@ fieldset.laptops .muted { font-size: 0.875rem; }
 ul.choices { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 ul.choices.three { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 ul.choices.two { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+ul.choices.one { grid-template-columns: minmax(0, 420px); }
 ul.choices li { display: block; padding: 0; border: 0; background: none; }
 ul.choices a {
   display: grid;

@@ -120,18 +120,40 @@ def test_prepare_with_own_photo_or_voice_is_refused(client: TestClient) -> None:
     refused = client.post("/api/prepare")
     assert refused.status_code == 403 and refused.json()["detail"] == IMAGE_REFUSED
 
-    turn_off(client, image=False, voice=True)
-    with patch.object(UploadStore, "voice_sample", return_value=RECORDINGS):
-        refused = client.post("/api/prepare")
-    assert refused.status_code == 403 and refused.json()["detail"] == VOICE_REFUSED
     # With no recordings the photo speaks in a ready-made voice (item 59): that is allowed.
+    turn_off(client, image=False, voice=True)
     with patch.object(UploadStore, "voice_sample", return_value=VoiceSample(0, 0, 0, NO_VOICE)):
         assert client.post("/api/prepare").status_code == 200
 
 
+def test_with_own_voices_off_recordings_give_way_to_the_ready_made_voice(
+    client: TestClient,
+) -> None:
+    """Codex's review of PR #266: with recordings that passed and custom voices turned off, the
+    two-step Setup's Prepare was refused. Now it prepares the photo in the ready-made voice
+    chosen there, and the recordings are kept for when custom voices are turned on again."""
+    job = client.app.state.prepare_job  # type: ignore[attr-defined]
+    client.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)})
+    turn_off(client, image=False, voice=True)
+    with patch.object(UploadStore, "voice_sample", return_value=RECORDINGS):
+        assert client.get("/api/ready-voice").json()["in_use"] is True
+        assert client.put("/api/ready-voice", json={"voice": "bf_emma"}).status_code == 200
+        assert client.post("/api/prepare").status_code == 200
+        job.wait(10)
+        assert job.voice_id() == "preset:bf_emma"  # the ready-made voice, not the recordings
+        assert client.post("/api/review", json={"decision": "accept"}).status_code == 200
+        assert client.get("/api/review").json()["accepted"] is True
+
+        # Turned on again, the recordings are used: the sample is prepared again in their voice.
+        turn_off(client, image=False, voice=False)
+        assert client.get("/api/ready-voice").json()["in_use"] is False
+        assert job.voice_id() != "preset:bf_emma"
+        assert client.get("/api/review").json()["accepted"] is False
+
+
 def test_the_avatars_own_voice_is_refused(client: TestClient) -> None:
     assert client.post("/api/start-now", json=vars(CHOICE)).status_code == 200
-    client.app.state.start_now.wait(10)  # type: ignore[attr-defined]
+    client.app.state.start_now.wait(60)  # type: ignore[attr-defined]
     turn_off(client, image=False, voice=True)
     refused = client.put("/api/start-now/own-voice", json={"agreed": True})
     assert refused.status_code == 403 and refused.json()["detail"] == VOICE_REFUSED
@@ -158,7 +180,7 @@ def test_an_accepted_own_person_waits_for_a_default_one(
 
         # Choosing a default person opens the chat again; the own files are kept.
         assert client.post("/api/start-now", json=vars(CHOICE)).status_code == 200
-        client.app.state.start_now.wait(10)  # type: ignore[attr-defined]
+        client.app.state.start_now.wait(60)  # type: ignore[attr-defined]
         assert client.get("/api/review").json()["accepted"] is True
         assert len(client.get("/api/uploads/photos").json()) == 1
         refused = client.delete("/api/start-now")
@@ -176,7 +198,7 @@ def test_the_avatar_speaks_in_a_ready_made_voice_when_own_voices_are_off(
     app = client.app
     job = app.state.prepare_job  # type: ignore[attr-defined]
     assert client.post("/api/start-now", json=vars(CHOICE)).status_code == 200
-    app.state.start_now.wait(10)  # type: ignore[attr-defined]
+    app.state.start_now.wait(60)  # type: ignore[attr-defined]
     with patch.object(UploadStore, "voice_sample", return_value=RECORDINGS):
         assert client.put("/api/start-now/own-voice", json={"agreed": True}).status_code == 200
         client.post("/api/prepare")
