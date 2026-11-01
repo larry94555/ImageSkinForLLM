@@ -456,7 +456,7 @@ export function HistorySection<T>({
   onRestored,
 }: {
   source: HistorySource<T>;
-  onRestored: (saved: T) => void;
+  onRestored: (saved: T, part: string) => void; // the part gone back on
 }) {
   const [histories, setHistories] = useState<PartHistory[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -536,7 +536,7 @@ export function HistorySection<T>({
     const saved = await run(`${h.label} back to change ${number}`, () => source.restore(h.part, number));
     if (saved) {
       console.info(`${source.name} restored: ${h.label}, change ${number}`);
-      onRestored(saved);
+      onRestored(saved, h.part);
       await load(false);
     }
   }

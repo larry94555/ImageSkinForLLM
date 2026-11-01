@@ -3403,7 +3403,7 @@ function HistorySection({ source, onRestored }) {
 		const saved = await run(`${h.label} back to change ${number}`, () => source.restore(h.part, number));
 		if (saved) {
 			console.info(`${source.name} restored: ${h.label}, change ${number}`);
-			onRestored(saved);
+			onRestored(saved, h.part);
 			await load(false);
 		}
 	}
@@ -3795,7 +3795,7 @@ function AdminGuidelinesPage() {
 	const [read, setRead] = d(null);
 	const [error, setError] = d(null);
 	const last = A(null);
-	const [restores, setRestores] = d(0);
+	const [restores, setRestores] = d({});
 	h(() => {
 		const started = performance.now();
 		getAdminGuidelines().then((got) => {
@@ -3884,19 +3884,22 @@ function AdminGuidelinesPage() {
 			}),
 			/* @__PURE__ */ u(HistorySection, {
 				source: history,
-				onRestored: (restored) => {
+				onRestored: (restored, part) => {
 					setRead(restored);
-					setRestores((n) => n + 1);
+					setRestores((n) => ({
+						...n,
+						[part]: (n[part] ?? 0) + 1
+					}));
 				}
 			}),
 			/* @__PURE__ */ u(IdentitySection, {
 				identity: read.identity,
 				save
-			}, `identity-${restores}`),
+			}, `identity-${restores.identity ?? 0}`),
 			/* @__PURE__ */ u(GoalsSection, {
 				goals: read.goals,
 				save
-			}, `goals-${restores}`),
+			}, `goals-${restores.goals ?? 0}`),
 			sections(read.features).map(([name, features]) => /* @__PURE__ */ u("section", {
 				className: "panel",
 				"aria-labelledby": `admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`,
@@ -3906,8 +3909,8 @@ function AdminGuidelinesPage() {
 				}), features.map((f) => /* @__PURE__ */ u(FeatureGuidelines, {
 					feature: f,
 					save
-				}, f.key))]
-			}, `${name}-${restores}`))
+				}, `${f.key}-${restores[f.key] ?? 0}`))]
+			}, name))
 		]
 	});
 }

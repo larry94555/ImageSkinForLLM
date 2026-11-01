@@ -273,9 +273,16 @@ test("the History goes back on one part only, adds no change, and hides after a 
   expect(within(topics).queryByRole("button", { name: /Compare/ })).toBeNull();
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Admin guidelines history shown: 2 parts/));
 
+  // Text typed in the goals and not saved survives going back on Topics (Codex's review on
+  // PR #262).
+  await type(goals(), "Be accurate.\nNot saved yet.");
   await click(within(topics).getByRole("button", { name: "Go back to Topics change 2" }));
   expect((within(feature("Topics")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Be brief.");
-  expect(goals().value).toBe("Be accurate."); // only Topics changed
+  expect(goals().value).toBe("Be accurate.\nNot saved yet."); // only Topics changed
+  expect(state.edit.goals).toEqual(["Be accurate."]);
+  expect((within(feature("Answering questions")).getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+    "Typed, not saved.",
+  );
   expect(state.history.topics.changes).toHaveLength(3); // no change added
   expect(within(screen.getByRole("group", { name: "Topics" })).getAllByRole("listitem")[1].textContent).toContain(
     "Change 2 (in use)",

@@ -233,8 +233,10 @@ export function AdminGuidelinesPage() {
   const [error, setError] = useState<string | null>(null);
   // What was last saved, so saves made one after another each start from the one before.
   const last = useRef<AdminGuidelines | null>(null);
-  // Counts go-backs, so each editor starts again from what was gone back to.
-  const [restores, setRestores] = useState(0);
+  // Counts go-backs of each part, so only the editor of the part gone back on starts again from
+  // what was gone back to; text typed in the others and not saved stays (Codex's review on
+  // PR #262).
+  const [restores, setRestores] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const started = performance.now();
@@ -326,18 +328,18 @@ export function AdminGuidelinesPage() {
       )}
       <HistorySection
         source={history}
-        onRestored={(restored) => {
+        onRestored={(restored, part) => {
           setRead(restored);
-          setRestores((n) => n + 1);
+          setRestores((n) => ({ ...n, [part]: (n[part] ?? 0) + 1 }));
         }}
       />
-      <IdentitySection key={`identity-${restores}`} identity={read.identity} save={save} />
-      <GoalsSection key={`goals-${restores}`} goals={read.goals} save={save} />
+      <IdentitySection key={`identity-${restores.identity ?? 0}`} identity={read.identity} save={save} />
+      <GoalsSection key={`goals-${restores.goals ?? 0}`} goals={read.goals} save={save} />
       {sections(read.features).map(([name, features]) => (
-        <section key={`${name}-${restores}`} className="panel" aria-labelledby={`admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
+        <section key={name} className="panel" aria-labelledby={`admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
           <h2 id={`admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>{name}</h2>
           {features.map((f) => (
-            <FeatureGuidelines key={f.key} feature={f} save={save} />
+            <FeatureGuidelines key={`${f.key}-${restores[f.key] ?? 0}`} feature={f} save={save} />
           ))}
         </section>
       ))}
