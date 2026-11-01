@@ -641,6 +641,20 @@ async function restoreCustomizationChange(part, number) {
 async function getCustomization(opened = false) {
 	return json(await fetch(opened ? "/api/customization?opened=true" : "/api/customization"));
 }
+async function getAdminGuidelines() {
+	const response = await fetch("/api/admin/guidelines");
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
+async function saveAdminGuidelines(edit) {
+	const response = await fetch("/api/admin/guidelines", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(edit)
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -1097,6 +1111,310 @@ function AdminSettingsPage() {
 	});
 }
 //#endregion
+//#region src/admin-guidelines.tsx
+var IDENTITY$1 = [
+	["name", "Name"],
+	["speaks_as", "Speaks as"],
+	["purpose", "Purpose"],
+	["audience", "Who it is for"],
+	["helps_with", "What it can help with"]
+];
+var SAVED$1 = "Saved. It is followed first from the next prompt, for every host.";
+var CLEARED = "Cleared. The host's are followed alone from the next prompt.";
+function editOf(read) {
+	return {
+		identity: read.identity,
+		goals: read.goals,
+		guidelines: read.guidelines
+	};
+}
+function usePart(save) {
+	const [busy, setBusy] = d(false);
+	const [said, setSaid] = d(null);
+	async function run(part, change, done = SAVED$1) {
+		setBusy(true);
+		setSaid(null);
+		const saved = await save(part, change);
+		setBusy(false);
+		setSaid(saved ? done : null);
+		return saved;
+	}
+	return {
+		busy,
+		run,
+		status: said && /* @__PURE__ */ u("p", {
+			className: "notice",
+			role: "status",
+			children: said
+		}),
+		changed: () => setSaid(null)
+	};
+}
+function Buttons({ busy, part, empty, onClear }) {
+	return /* @__PURE__ */ u("p", { children: [
+		/* @__PURE__ */ u("button", {
+			type: "submit",
+			disabled: busy,
+			children: part ? `Save ${part}` : "Save"
+		}),
+		" ",
+		/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: busy || empty,
+			onClick: onClear,
+			children: part ? `Clear ${part}` : "Clear"
+		})
+	] });
+}
+function IdentitySection$1({ identity, save }) {
+	const [fields, setFields] = d(identity);
+	const [kept, setKept] = d(identity);
+	const { busy, run, status, changed } = usePart(save);
+	const blank = Object.fromEntries(IDENTITY$1.map(([k]) => [k, ""]));
+	function put(value, done) {
+		run("identity", { identity: value }, done).then((saved) => {
+			if (saved) {
+				setFields(saved.identity);
+				setKept(saved.identity);
+			}
+		});
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "admin-guidelines-identity",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "admin-guidelines-identity",
+				children: "Identity"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Told to the LLM before the host's identity. \"Who are you?\" is still answered from the host's."
+			}),
+			/* @__PURE__ */ u("form", {
+				className: "customization-edit",
+				onSubmit: (e) => {
+					e.preventDefault();
+					put(fields);
+				},
+				children: [
+					IDENTITY$1.map(([key, label]) => /* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: label }), /* @__PURE__ */ u("input", {
+						value: fields[key],
+						readOnly: busy,
+						onInput: (e) => {
+							changed();
+							setFields({
+								...fields,
+								[key]: e.currentTarget.value
+							});
+						}
+					})] }, key)),
+					status,
+					/* @__PURE__ */ u(Buttons, {
+						busy,
+						part: "the identity",
+						empty: !Object.values(kept).some(Boolean),
+						onClear: () => put(blank, CLEARED)
+					})
+				]
+			})
+		]
+	});
+}
+function GoalsSection$1({ goals, save }) {
+	const [text, setText] = d(goals.join("\n"));
+	const [kept, setKept] = d(goals);
+	const { busy, run, status, changed } = usePart(save);
+	function put(value, done) {
+		run("goals", { goals: value }, done).then((saved) => {
+			if (saved) {
+				setText(saved.goals.join("\n"));
+				setKept(saved.goals);
+			}
+		});
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "admin-guidelines-goals",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "admin-guidelines-goals",
+				children: "Goals"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "What every reply aims for first, one goal on each line."
+			}),
+			/* @__PURE__ */ u("form", {
+				className: "customization-edit",
+				onSubmit: (e) => {
+					e.preventDefault();
+					put(text.split("\n"));
+				},
+				children: [
+					/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", {
+						className: "sr-only",
+						children: "Goals"
+					}), /* @__PURE__ */ u("textarea", {
+						rows: 4,
+						value: text,
+						readOnly: busy,
+						onInput: (e) => {
+							changed();
+							setText(e.currentTarget.value);
+						}
+					})] }),
+					status,
+					/* @__PURE__ */ u(Buttons, {
+						busy,
+						part: "the goals",
+						empty: kept.length === 0,
+						onClear: () => put([], CLEARED)
+					})
+				]
+			})
+		]
+	});
+}
+function FeatureGuidelines$1({ feature, save }) {
+	const [text, setText] = d(feature.text);
+	const [kept, setKept] = d(feature.text);
+	const { busy, run, status, changed } = usePart(save);
+	function put(value, done) {
+		run(`guidelines ${feature.key}`, { guidelines: { [feature.key]: value } }, done).then((saved) => {
+			if (saved) {
+				const now = saved.guidelines[feature.key] ?? "";
+				setText(now);
+				setKept(now);
+			}
+		});
+	}
+	return /* @__PURE__ */ u("form", {
+		className: "customization-edit guideline",
+		"aria-label": feature.label,
+		onSubmit: (e) => {
+			e.preventDefault();
+			put(text);
+		},
+		children: [
+			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [feature.label, !kept && /* @__PURE__ */ u("span", {
+				className: "muted",
+				children: " · none"
+			})] }), /* @__PURE__ */ u("textarea", {
+				rows: 3,
+				value: text,
+				readOnly: busy,
+				onInput: (e) => {
+					changed();
+					setText(e.currentTarget.value);
+				}
+			})] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: feature.changes
+			}),
+			status,
+			/* @__PURE__ */ u(Buttons, {
+				busy,
+				empty: !kept,
+				onClear: () => put("", CLEARED)
+			})
+		]
+	});
+}
+function sections$1(features) {
+	const grouped = /* @__PURE__ */ new Map();
+	for (const f of features) grouped.set(f.section, [...grouped.get(f.section) ?? [], f]);
+	return [...grouped.entries()];
+}
+function AdminGuidelinesPage() {
+	const { refresh } = useAdmin();
+	const [read, setRead] = d(null);
+	const [error, setError] = d(null);
+	const last = A(null);
+	h(() => {
+		const started = performance.now();
+		getAdminGuidelines().then((got) => {
+			console.info(`Admin guidelines shown (${Math.round(performance.now() - started)} ms)`);
+			last.current = got;
+			setRead(got);
+		}).catch(async (e) => {
+			console.error("Could not read the admin guidelines", e);
+			if (e instanceof ServerRefusal && e.status === 401) return refresh();
+			setError("The admin guidelines could not be read. Reload the page to try again.");
+		});
+	}, []);
+	const save = async (part, change) => {
+		if (!last.current) return null;
+		setError(null);
+		const started = performance.now();
+		const before = editOf(last.current);
+		try {
+			const saved = await saveAdminGuidelines({
+				...before,
+				...change,
+				guidelines: {
+					...before.guidelines,
+					...change.guidelines
+				}
+			});
+			last.current = saved;
+			console.info(`Admin guidelines saved: ${part} (${Math.round(performance.now() - started)} ms)`);
+			setRead(saved);
+			return saved;
+		} catch (e) {
+			console.error(`Could not save the admin guidelines: ${part}`, e);
+			if (e instanceof ServerRefusal && e.status === 401) {
+				await refresh();
+				return null;
+			}
+			setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
+			return null;
+		}
+	};
+	if (!read) return error ? /* @__PURE__ */ u("p", {
+		className: "error",
+		children: error
+	}) : /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Reading the admin guidelines…"
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "admin-guidelines",
+		children: [
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: "These come first, over every host's: the LLM follows them first, and a host's identity, goals and guidelines only where they don't conflict. Hosts can't see or change them. Empty parts add nothing."
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: error
+			}),
+			/* @__PURE__ */ u(IdentitySection$1, {
+				identity: read.identity,
+				save
+			}),
+			/* @__PURE__ */ u(GoalsSection$1, {
+				goals: read.goals,
+				save
+			}),
+			sections$1(read.features).map(([name, features]) => /* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": `admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+				children: [/* @__PURE__ */ u("h2", {
+					id: `admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+					children: name
+				}), features.map((f) => /* @__PURE__ */ u(FeatureGuidelines$1, {
+					feature: f,
+					save
+				}, f.key))]
+			}, name))
+		]
+	});
+}
+//#endregion
 //#region src/laptop-key.ts
 var DB = "imageskin-laptop";
 var STORE = "keys";
@@ -1545,9 +1863,13 @@ function AdminPage({ section = "resources" }) {
 			/* @__PURE__ */ u("nav", {
 				className: "admin-tabs",
 				"aria-label": "Admin pages",
-				children: [tab("resources", "#/admin", "Resources"), tab("settings", "#/admin/settings", "Admin settings")]
+				children: [
+					tab("resources", "#/admin", "Resources"),
+					tab("settings", "#/admin/settings", "Admin settings"),
+					tab("guidelines", "#/admin/guidelines", "Admin guidelines")
+				]
 			}),
-			section === "settings" ? /* @__PURE__ */ u(AdminSettingsPage, {}) : /* @__PURE__ */ u(ResourceDashboard, {})
+			section === "settings" ? /* @__PURE__ */ u(AdminSettingsPage, {}) : section === "guidelines" ? /* @__PURE__ */ u(AdminGuidelinesPage, {}) : /* @__PURE__ */ u(ResourceDashboard, {})
 		]
 	});
 }
@@ -1688,6 +2010,7 @@ var PAGES = {
 	"/settings": "settings",
 	"/admin": "admin",
 	"/admin/settings": "admin",
+	"/admin/guidelines": "admin",
 	"/host/sign-up": "host-sign-up",
 	"/host/sign-in": "host-sign-in",
 	"/resources": "resources",
@@ -1704,7 +2027,9 @@ function pathOf(hash) {
 	return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
 }
 function adminTarget(hash) {
-	return pathOf(hash) === "/admin/settings" ? "settings" : "resources";
+	const path = pathOf(hash);
+	if (path === "/admin/settings") return "settings";
+	return path === "/admin/guidelines" ? "guidelines" : "resources";
 }
 function wikiTarget(hash) {
 	const path = pathOf(hash);
@@ -8781,6 +9106,10 @@ function CustomizationPage() {
 			/* @__PURE__ */ u("p", {
 				className: "lead",
 				children: "Who the person in the video is, what they aim for, and how each feature answers, given to the LLM with every prompt."
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The administrator's requirements, if any, come before yours."
 			}),
 			failed && /* @__PURE__ */ u("p", {
 				className: "error",

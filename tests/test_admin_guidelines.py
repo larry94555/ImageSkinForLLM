@@ -141,6 +141,16 @@ def test_the_next_answer_follows_the_administrators_over_the_hosts(
     )
     assert saved.status_code == 200 and saved.json()["guidelines"]["questions"] == THREE
     assert client.get("/api/admin/guidelines").json() == saved.json()
+    # Each feature as the Admin guidelines page shows it, in the Customization page's order (R244).
+    shown = saved.json()["features"]
+    assert [f["key"] for f in shown] == list(FEATURES)
+    assert shown[0] == {
+        "key": "questions",
+        "label": FEATURES["questions"].label,
+        "section": FEATURES["questions"].section,
+        "changes": FEATURES["questions"].changes,
+        "text": THREE,
+    }
     with caplog.at_level(logging.INFO):
         chat(client, "What is the zeta function?")
     system = llm.sent[-1][0]["content"]

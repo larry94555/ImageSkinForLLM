@@ -1709,7 +1709,7 @@ def create_app(
 
     @app.get("/api/admin/guidelines", dependencies=[Depends(app.state.require_admin)])
     def get_admin_guidelines() -> dict[str, Any]:
-        return admin_guidelines.read().as_dict()
+        return admin_guidelines.read().shown()
 
     @app.put("/api/admin/guidelines", dependencies=[Depends(app.state.require_admin)])
     def put_admin_guidelines(body: Annotated[dict[str, Any], Body()]) -> dict[str, Any]:
@@ -1728,7 +1728,7 @@ def create_app(
         lessons = getattr(app.state, "lessons", None)
         if "teach me" in changed and lessons is not None:
             lessons.refresh()  # each topic's first part written ahead again with them (R98a)
-        return admin.as_dict()
+        return admin.shown()
 
     @app.get("/api/customization", dependencies=host_only)
     def get_customization(

@@ -38,6 +38,7 @@ const PAGES: Record<string, Page> = {
   "/settings": "settings", // in both views, so a participant view can be switched back (R27)
   "/admin": "admin", // the admin view (R150), apart from the host and participant views
   "/admin/settings": "admin", // its second page, the admin settings (R155)
+  "/admin/guidelines": "admin", // its third, the administrator's own guidelines (R244)
   // Host sign up and sign in (R189), in both views, as anyone not signed in may become a host.
   "/host/sign-up": "host-sign-up",
   "/host/sign-in": "host-sign-in",
@@ -70,9 +71,14 @@ function pathOf(hash: string): string {
   return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
 }
 
-// Which page of the admin view an address opens (R155): the resources, or the admin settings.
-export function adminTarget(hash: string): "resources" | "settings" {
-  return pathOf(hash) === "/admin/settings" ? "settings" : "resources";
+export type AdminSection = "resources" | "settings" | "guidelines";
+
+// Which page of the admin view an address opens (R155, R244): the resources, the admin settings
+// or the admin guidelines.
+export function adminTarget(hash: string): AdminSection {
+  const path = pathOf(hash);
+  if (path === "/admin/settings") return "settings";
+  return path === "/admin/guidelines" ? "guidelines" : "resources";
 }
 
 // Which PDF or detail page a wiki address names. A part that isn't valid percent-encoding (a

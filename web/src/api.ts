@@ -1449,3 +1449,40 @@ export async function getCustomization(opened = false): Promise<Customization> {
     await fetch(opened ? "/api/customization?opened=true" : "/api/customization"),
   );
 }
+
+// The administrator's own identity, goals and guidelines (R243 and R244), followed first, over
+// every host's. Only the administrator reads or changes them.
+export interface AdminGuidelineFeature {
+  key: string;
+  label: string;
+  section: string;
+  changes: string; // what the guidelines change in the feature
+  text: string;
+}
+
+export interface AdminGuidelines {
+  identity: Customization["identity"];
+  goals: string[];
+  guidelines: Record<string, string>;
+  features: AdminGuidelineFeature[];
+}
+
+export type AdminGuidelinesEdit = Pick<AdminGuidelines, "identity" | "goals" | "guidelines">;
+
+// Throws a ServerRefusal saying why when signed out (401).
+export async function getAdminGuidelines(): Promise<AdminGuidelines> {
+  const response = await fetch("/api/admin/guidelines");
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as AdminGuidelines;
+}
+
+// Saves them whole. Throws a ServerRefusal saying why when refused (400) or signed out (401).
+export async function saveAdminGuidelines(edit: AdminGuidelinesEdit): Promise<AdminGuidelines> {
+  const response = await fetch("/api/admin/guidelines", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(edit),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as AdminGuidelines;
+}

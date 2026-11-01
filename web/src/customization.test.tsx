@@ -206,6 +206,8 @@ test("a host edits and saves the identity", async () => {
   const identity = within(await opened());
   expect(asked).toEqual(["/api/customization?opened=true"]);
   expect(console.info).toHaveBeenCalledWith("Customization page opened: shipped=false");
+  // Only that the administrator's come first, never what they are (R244).
+  expect(screen.getByText("The administrator's requirements, if any, come before yours.")).toBeTruthy();
   const name = identity.getByRole("textbox", { name: /^Name/ }) as HTMLInputElement;
   expect(name.value).toBe("Maya");
   fireEvent.input(name, { target: { value: "Ada" } });
