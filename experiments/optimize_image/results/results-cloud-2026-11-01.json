@@ -1,0 +1,1104 @@
+{
+  "target": {
+    "margin_above_hair": 0.036639586170654895,
+    "face_share": 0.47149260342121124,
+    "chin_to_bottom": 0.597213216131119,
+    "centre_offset": 0.051517475692446184
+  },
+  "defaults": {
+    "animated_female_professor": {
+      "margin_above_hair": 0.07976260387958051,
+      "face_share": 0.4285176992416382,
+      "chin_to_bottom": 0.7605550110761303,
+      "centre_offset": 0.13217802928616199
+    },
+    "animated_female_professor_2": {
+      "margin_above_hair": 0.03797192831155594,
+      "face_share": 0.46292421221733093,
+      "chin_to_bottom": 0.6037435141171219,
+      "centre_offset": 0.07066997769095133
+    },
+    "animated_male_boss": {
+      "margin_above_hair": 0.0321184682172427,
+      "face_share": 0.4864802360534668,
+      "chin_to_bottom": 0.6587509544481942,
+      "centre_offset": 0.008029617054310675
+    },
+    "animated_male_boss_2": {
+      "margin_above_hair": 0.04015891938738349,
+      "face_share": 0.4620315432548523,
+      "chin_to_bottom": 0.5965091349492485,
+      "centre_offset": -0.009511323012801352
+    },
+    "animated_male_parent": {
+      "margin_above_hair": 0.043194050272665076,
+      "face_share": 0.42956581711769104,
+      "chin_to_bottom": 0.7087744921772045,
+      "centre_offset": -0.004546742133964745
+    },
+    "animated_male_parent_2": {
+      "margin_above_hair": 0.08171718423466681,
+      "face_share": 0.46607011556625366,
+      "chin_to_bottom": 0.5979172973129895,
+      "centre_offset": -0.012571874497641047
+    },
+    "photoreal_female_boss": {
+      "margin_above_hair": 0.0,
+      "face_share": 0.5010312795639038,
+      "chin_to_bottom": 0.5020843668323834,
+      "centre_offset": 0.18126675160690514
+    },
+    "photoreal_female_boss_2": {
+      "margin_above_hair": 0.07985894805317756,
+      "face_share": 0.4769150912761688,
+      "chin_to_bottom": 0.567150056412655,
+      "centre_offset": 0.12081225474711477
+    },
+    "photoreal_female_parent": {
+      "margin_above_hair": 0.0,
+      "face_share": 0.48819437623023987,
+      "chin_to_bottom": 0.5426060605875618,
+      "centre_offset": 0.12602242159173216
+    },
+    "photoreal_female_parent_2": {
+      "margin_above_hair": 0.0,
+      "face_share": 0.43863826990127563,
+      "chin_to_bottom": 0.6935440321809823,
+      "centre_offset": 0.13692055133155023
+    },
+    "photoreal_male_professor": {
+      "margin_above_hair": 0.035307244029753854,
+      "face_share": 0.49786171317100525,
+      "chin_to_bottom": 0.48960762365996713,
+      "centre_offset": 0.032364973693941035
+    },
+    "photoreal_male_professor_2": {
+      "margin_above_hair": 0.03277729718394241,
+      "face_share": 0.5064957737922668,
+      "chin_to_bottom": 0.5324031322296242,
+      "centre_offset": 0.018316724896908994
+    }
+  },
+  "photos": [
+    {
+      "photo": "full_length.png",
+      "size": [
+        832,
+        1216
+      ],
+      "face_px": 88.8,
+      "detect_ms": 529.5,
+      "boxes": {
+        "landmarks": [
+          322,
+          85,
+          188
+        ],
+        "segments": [
+          314,
+          82,
+          191
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.0045,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.0,
+          "face_share": 0.48,
+          "chin_to_bottom": 0.578,
+          "centre_offset": -0.023
+        },
+        "segments": {
+          "margin_above_hair": 0.021,
+          "face_share": 0.47,
+          "chin_to_bottom": 0.583,
+          "centre_offset": -0.001
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 3.7,
+          "problems": [
+            "The photo is blurry. Hold the camera still and let it focus on your face."
+          ],
+          "score": null,
+          "sharpness_px": 492.2
+        },
+        "segments_lanczos": {
+          "ms": 3.2,
+          "problems": [
+            "The photo is blurry. Hold the camera still and let it focus on your face."
+          ],
+          "score": null,
+          "sharpness_px": 481.6
+        },
+        "segments_fsrcnn": {
+          "ms": 151.7,
+          "problems": [
+            "The photo is blurry. Hold the camera still and let it focus on your face."
+          ],
+          "score": null,
+          "sharpness_px": 479.8
+        },
+        "segments_espcn": {
+          "ms": 99.9,
+          "problems": [
+            "The photo is blurry. Hold the camera still and let it focus on your face."
+          ],
+          "score": null,
+          "sharpness_px": 479.8
+        },
+        "segments_realesrgan": {
+          "ms": 5024.5,
+          "problems": [],
+          "score": 92,
+          "sharpness_px": 479.7
+        }
+      },
+      "error": ""
+    },
+    {
+      "photo": "high_collar.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "face_px": 464.5,
+      "detect_ms": 394.4,
+      "boxes": {
+        "landmarks": [
+          44,
+          -7,
+          985
+        ],
+        "segments": [
+          48,
+          -7,
+          985
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.012,
+        "segments": 0.016
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.125,
+          "face_share": 0.47,
+          "chin_to_bottom": 0.599,
+          "centre_offset": 0.006
+        },
+        "segments": {
+          "margin_above_hair": 0.119,
+          "face_share": 0.474,
+          "chin_to_bottom": 0.593,
+          "centre_offset": -0.002
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 7.0,
+          "problems": [],
+          "score": 96,
+          "sharpness_px": 481.1
+        },
+        "segments_lanczos": {
+          "ms": 7.0,
+          "problems": [],
+          "score": 96,
+          "sharpness_px": 485.4
+        },
+        "segments_fsrcnn": {
+          "ms": 1086.3,
+          "problems": [],
+          "score": 94,
+          "sharpness_px": 485.6
+        },
+        "segments_espcn": {
+          "ms": 584.2,
+          "problems": [],
+          "score": 94,
+          "sharpness_px": 486.1
+        },
+        "segments_realesrgan": {
+          "ms": 7740.7,
+          "problems": [],
+          "score": 92,
+          "sharpness_px": 484.9
+        }
+      },
+      "error": ""
+    },
+    {
+      "photo": "larry.jpg",
+      "size": [
+        1920,
+        1080
+      ],
+      "face_px": 312.5,
+      "detect_ms": 364.7,
+      "boxes": {
+        "landmarks": [
+          656,
+          501,
+          663
+        ],
+        "segments": [
+          661,
+          501,
+          663
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.127,
+        "segments": 0.127
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.169,
+          "face_share": 0.468,
+          "chin_to_bottom": 0.604,
+          "centre_offset": 0.004
+        },
+        "segments": {
+          "margin_above_hair": 0.17,
+          "face_share": 0.465,
+          "chin_to_bottom": 0.609,
+          "centre_offset": -0.012
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 6.3,
+          "problems": [],
+          "score": 88,
+          "sharpness_px": 479.5
+        },
+        "segments_lanczos": {
+          "ms": 4.7,
+          "problems": [],
+          "score": 89,
+          "sharpness_px": 475.9
+        },
+        "segments_fsrcnn": {
+          "ms": 526.4,
+          "problems": [],
+          "score": 87,
+          "sharpness_px": 475.1
+        },
+        "segments_espcn": {
+          "ms": 309.9,
+          "problems": [],
+          "score": 87,
+          "sharpness_px": 474.2
+        },
+        "segments_realesrgan": {
+          "ms": 3179.5,
+          "problems": [],
+          "score": 85,
+          "sharpness_px": 472.5
+        }
+      },
+      "error": ""
+    },
+    {
+      "photo": "long_hair.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "face_px": 297.2,
+      "detect_ms": 370.4,
+      "boxes": {
+        "landmarks": [
+          176,
+          70,
+          630
+        ],
+        "segments": [
+          162,
+          58,
+          642
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.001,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.0,
+          "face_share": 0.468,
+          "chin_to_bottom": 0.606,
+          "centre_offset": -0.014
+        },
+        "segments": {
+          "margin_above_hair": 0.032,
+          "face_share": 0.456,
+          "chin_to_bottom": 0.614,
+          "centre_offset": 0.0
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 4.4,
+          "problems": [],
+          "score": 84,
+          "sharpness_px": 484.3
+        },
+        "segments_lanczos": {
+          "ms": 4.7,
+          "problems": [],
+          "score": 84,
+          "sharpness_px": 472.0
+        },
+        "segments_fsrcnn": {
+          "ms": 413.1,
+          "problems": [],
+          "score": 83,
+          "sharpness_px": 470.8
+        },
+        "segments_espcn": {
+          "ms": 260.0,
+          "problems": [],
+          "score": 83,
+          "sharpness_px": 470.4
+        },
+        "segments_realesrgan": {
+          "ms": 2773.8,
+          "problems": [],
+          "score": 85,
+          "sharpness_px": 470.7
+        }
+      },
+      "error": ""
+    },
+    {
+      "photo": "near_edge.png",
+      "size": [
+        615,
+        902
+      ],
+      "face_px": 188.2,
+      "detect_ms": 345.0,
+      "boxes": {
+        "landmarks": [
+          -52,
+          15,
+          399
+        ],
+        "segments": [
+          -47,
+          13,
+          401
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.13,
+        "segments": 0.117
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.051,
+          "face_share": 0.483,
+          "chin_to_bottom": 0.577,
+          "centre_offset": 0.035
+        },
+        "segments": {
+          "margin_above_hair": 0.061,
+          "face_share": 0.481,
+          "chin_to_bottom": 0.574,
+          "centre_offset": 0.004
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 4.0,
+          "problems": [],
+          "score": 86,
+          "sharpness_px": 497.5
+        },
+        "segments_lanczos": {
+          "ms": 3.7,
+          "problems": [],
+          "score": 87,
+          "sharpness_px": 495.2
+        },
+        "segments_fsrcnn": {
+          "ms": 826.8,
+          "problems": [],
+          "score": 85,
+          "sharpness_px": 494.8
+        },
+        "segments_espcn": {
+          "ms": 481.3,
+          "problems": [],
+          "score": 84,
+          "sharpness_px": 495.0
+        },
+        "segments_realesrgan": {
+          "ms": 1108.0,
+          "problems": [],
+          "score": 88,
+          "sharpness_px": 495.3
+        }
+      },
+      "error": ""
+    },
+    {
+      "photo": "turned.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "face_px": 381.0,
+      "detect_ms": 354.8,
+      "boxes": {
+        "landmarks": [
+          95,
+          51,
+          808
+        ],
+        "segments": [
+          96,
+          51,
+          808
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.044,
+          "face_share": 0.47,
+          "chin_to_bottom": 0.597,
+          "centre_offset": 0.002
+        },
+        "segments": {
+          "margin_above_hair": 0.044,
+          "face_share": 0.471,
+          "chin_to_bottom": 0.596,
+          "centre_offset": -0.002
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 5.1,
+          "problems": [],
+          "score": 91,
+          "sharpness_px": 481.8
+        },
+        "segments_lanczos": {
+          "ms": 4.2,
+          "problems": [],
+          "score": 90,
+          "sharpness_px": 482.1
+        },
+        "segments_fsrcnn": {
+          "ms": 633.8,
+          "problems": [],
+          "score": 89,
+          "sharpness_px": 480.9
+        },
+        "segments_espcn": {
+          "ms": 393.2,
+          "problems": [],
+          "score": 89,
+          "sharpness_px": 481.4
+        },
+        "segments_realesrgan": {
+          "ms": 5220.5,
+          "problems": [],
+          "score": 91,
+          "sharpness_px": 481.3
+        }
+      },
+      "error": ""
+    },
+    {
+      "photo": "waist_up.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "face_px": 187.9,
+      "detect_ms": 363.8,
+      "boxes": {
+        "landmarks": [
+          357,
+          137,
+          399
+        ],
+        "segments": [
+          364,
+          135,
+          401
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.05,
+          "face_share": 0.484,
+          "chin_to_bottom": 0.574,
+          "centre_offset": 0.035
+        },
+        "segments": {
+          "margin_above_hair": 0.06,
+          "face_share": 0.475,
+          "chin_to_bottom": 0.587,
+          "centre_offset": -0.006
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 4.1,
+          "problems": [],
+          "score": 86,
+          "sharpness_px": 498.8
+        },
+        "segments_lanczos": {
+          "ms": 4.2,
+          "problems": [],
+          "score": 86,
+          "sharpness_px": 489.5
+        },
+        "segments_fsrcnn": {
+          "ms": 727.1,
+          "problems": [],
+          "score": 84,
+          "sharpness_px": 490.7
+        },
+        "segments_espcn": {
+          "ms": 547.5,
+          "problems": [],
+          "score": 84,
+          "sharpness_px": 491.6
+        },
+        "segments_realesrgan": {
+          "ms": 1875.7,
+          "problems": [],
+          "score": 89,
+          "sharpness_px": 492.8
+        }
+      },
+      "error": ""
+    },
+    {
+      "photo": "default_photoreal_male_professor.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "face_px": 509.8,
+      "detect_ms": 371.7,
+      "boxes": {
+        "landmarks": [
+          -41,
+          -2,
+          1081
+        ],
+        "segments": [
+          -12,
+          -2,
+          1081
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.103,
+        "segments": 0.103
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.039,
+          "face_share": 0.473,
+          "chin_to_bottom": 0.591,
+          "centre_offset": 0.056
+        },
+        "segments": {
+          "margin_above_hair": 0.04,
+          "face_share": 0.468,
+          "chin_to_bottom": 0.598,
+          "centre_offset": 0.0
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 3.2,
+          "problems": [],
+          "score": 82,
+          "sharpness_px": 488.7
+        },
+        "segments_lanczos": {
+          "ms": 4.6,
+          "problems": [],
+          "score": 82,
+          "sharpness_px": 483.5
+        },
+        "segments_fsrcnn": {
+          "ms": 2.6,
+          "problems": [],
+          "score": 82,
+          "sharpness_px": 483.5
+        },
+        "segments_espcn": {
+          "ms": 2.7,
+          "problems": [],
+          "score": 82,
+          "sharpness_px": 483.5
+        },
+        "segments_realesrgan": {
+          "ms": 2.6,
+          "problems": [],
+          "score": 82,
+          "sharpness_px": 483.5
+        }
+      },
+      "error": ""
+    },
+    {
+      "photo": "default_photoreal_female_parent_2.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "face_px": 449.2,
+      "detect_ms": 329.5,
+      "boxes": {
+        "landmarks": [
+          35,
+          28,
+          953
+        ],
+        "segments": [
+          75,
+          -16,
+          997
+        ]
+      },
+      "hair_cut": {
+        "landmarks": 0.0068,
+        "segments": 0.0
+      },
+      "neck_cut": {
+        "landmarks": 0.0,
+        "segments": 0.0
+      },
+      "filled": {
+        "landmarks": 0.0,
+        "segments": 0.063
+      },
+      "framing": {
+        "landmarks": {
+          "margin_above_hair": 0.0,
+          "face_share": 0.471,
+          "chin_to_bottom": 0.602,
+          "centre_offset": 0.142
+        },
+        "segments": {
+          "margin_above_hair": 0.042,
+          "face_share": 0.445,
+          "chin_to_bottom": 0.611,
+          "centre_offset": 0.001
+        }
+      },
+      "methods": {
+        "landmarks_lanczos": {
+          "ms": 7.1,
+          "problems": [],
+          "score": 84,
+          "sharpness_px": 487.6
+        },
+        "segments_lanczos": {
+          "ms": 6.0,
+          "problems": [],
+          "score": 85,
+          "sharpness_px": 461.2
+        },
+        "segments_fsrcnn": {
+          "ms": 1082.5,
+          "problems": [],
+          "score": 84,
+          "sharpness_px": 461.7
+        },
+        "segments_espcn": {
+          "ms": 1085.2,
+          "problems": [],
+          "score": 84,
+          "sharpness_px": 462.0
+        },
+        "segments_realesrgan": {
+          "ms": 8814.9,
+          "problems": [],
+          "score": 85,
+          "sharpness_px": 462.9
+        }
+      },
+      "error": ""
+    }
+  ],
+  "small_faces": [
+    {
+      "person": "photoreal_male_professor.png",
+      "face_px": 60,
+      "psnr": {
+        "lanczos": 33.18,
+        "fsrcnn": 33.4,
+        "espcn": 32.79,
+        "realesrgan": 27.5
+      },
+      "sharpness": {
+        "lanczos": 0.0169,
+        "fsrcnn": 0.0214,
+        "espcn": 0.0182,
+        "realesrgan": 0.076
+      },
+      "ms": {
+        "lanczos": 3.3,
+        "fsrcnn": 287.0,
+        "espcn": 243.3,
+        "realesrgan": 1622.2
+      }
+    },
+    {
+      "person": "photoreal_male_professor.png",
+      "face_px": 80,
+      "psnr": {
+        "lanczos": 35.08,
+        "fsrcnn": 35.17,
+        "espcn": 34.52,
+        "realesrgan": 28.59
+      },
+      "sharpness": {
+        "lanczos": 0.0225,
+        "fsrcnn": 0.0261,
+        "espcn": 0.0233,
+        "realesrgan": 0.0925
+      },
+      "ms": {
+        "lanczos": 3.1,
+        "fsrcnn": 392.2,
+        "espcn": 269.1,
+        "realesrgan": 2904.0
+      }
+    },
+    {
+      "person": "photoreal_male_professor.png",
+      "face_px": 100,
+      "psnr": {
+        "lanczos": 36.64,
+        "fsrcnn": 36.7,
+        "espcn": 35.84,
+        "realesrgan": 29.79
+      },
+      "sharpness": {
+        "lanczos": 0.0285,
+        "fsrcnn": 0.0307,
+        "espcn": 0.0283,
+        "realesrgan": 0.1041
+      },
+      "ms": {
+        "lanczos": 3.0,
+        "fsrcnn": 868.8,
+        "espcn": 512.4,
+        "realesrgan": 5107.0
+      }
+    },
+    {
+      "person": "photoreal_male_professor.png",
+      "face_px": 130,
+      "psnr": {
+        "lanczos": 38.55,
+        "fsrcnn": 38.46,
+        "espcn": 37.76,
+        "realesrgan": 34.0
+      },
+      "sharpness": {
+        "lanczos": 0.0379,
+        "fsrcnn": 0.0374,
+        "espcn": 0.0349,
+        "realesrgan": 0.0752
+      },
+      "ms": {
+        "lanczos": 3.6,
+        "fsrcnn": 311.5,
+        "espcn": 188.1,
+        "realesrgan": 404.0
+      }
+    },
+    {
+      "person": "photoreal_male_professor.png",
+      "face_px": 160,
+      "psnr": {
+        "lanczos": 40.24,
+        "fsrcnn": 39.91,
+        "espcn": 39.14,
+        "realesrgan": 35.13
+      },
+      "sharpness": {
+        "lanczos": 0.0463,
+        "fsrcnn": 0.0436,
+        "espcn": 0.0412,
+        "realesrgan": 0.0791
+      },
+      "ms": {
+        "lanczos": 4.5,
+        "fsrcnn": 404.0,
+        "espcn": 269.6,
+        "realesrgan": 640.6
+      }
+    },
+    {
+      "person": "photoreal_male_professor.png",
+      "face_px": 200,
+      "psnr": {
+        "lanczos": 42.38,
+        "fsrcnn": 41.68,
+        "espcn": 40.62,
+        "realesrgan": 36.6
+      },
+      "sharpness": {
+        "lanczos": 0.0555,
+        "fsrcnn": 0.0512,
+        "espcn": 0.0485,
+        "realesrgan": 0.0792
+      },
+      "ms": {
+        "lanczos": 3.9,
+        "fsrcnn": 854.3,
+        "espcn": 482.2,
+        "realesrgan": 961.3
+      }
+    },
+    {
+      "person": "photoreal_female_parent_2.png",
+      "face_px": 60,
+      "psnr": {
+        "lanczos": 32.6,
+        "fsrcnn": 33.08,
+        "espcn": 32.84,
+        "realesrgan": 26.75
+      },
+      "sharpness": {
+        "lanczos": 0.0198,
+        "fsrcnn": 0.0239,
+        "espcn": 0.0211,
+        "realesrgan": 0.0958
+      },
+      "ms": {
+        "lanczos": 2.9,
+        "fsrcnn": 322.8,
+        "espcn": 213.1,
+        "realesrgan": 2490.7
+      }
+    },
+    {
+      "person": "photoreal_female_parent_2.png",
+      "face_px": 80,
+      "psnr": {
+        "lanczos": 35.19,
+        "fsrcnn": 35.56,
+        "espcn": 35.19,
+        "realesrgan": 27.5
+      },
+      "sharpness": {
+        "lanczos": 0.027,
+        "fsrcnn": 0.0302,
+        "espcn": 0.0277,
+        "realesrgan": 0.129
+      },
+      "ms": {
+        "lanczos": 4.6,
+        "fsrcnn": 573.8,
+        "espcn": 402.4,
+        "realesrgan": 4669.4
+      }
+    },
+    {
+      "person": "photoreal_female_parent_2.png",
+      "face_px": 100,
+      "psnr": {
+        "lanczos": 37.46,
+        "fsrcnn": 37.54,
+        "espcn": 37.05,
+        "realesrgan": 28.98
+      },
+      "sharpness": {
+        "lanczos": 0.0347,
+        "fsrcnn": 0.0371,
+        "espcn": 0.0344,
+        "realesrgan": 0.1385
+      },
+      "ms": {
+        "lanczos": 3.5,
+        "fsrcnn": 1082.5,
+        "espcn": 655.1,
+        "realesrgan": 6460.9
+      }
+    },
+    {
+      "person": "photoreal_female_parent_2.png",
+      "face_px": 130,
+      "psnr": {
+        "lanczos": 40.21,
+        "fsrcnn": 39.87,
+        "espcn": 39.5,
+        "realesrgan": 33.51
+      },
+      "sharpness": {
+        "lanczos": 0.0434,
+        "fsrcnn": 0.043,
+        "espcn": 0.041,
+        "realesrgan": 0.1026
+      },
+      "ms": {
+        "lanczos": 3.4,
+        "fsrcnn": 375.8,
+        "espcn": 273.2,
+        "realesrgan": 541.1
+      }
+    },
+    {
+      "person": "photoreal_female_parent_2.png",
+      "face_px": 160,
+      "psnr": {
+        "lanczos": 42.33,
+        "fsrcnn": 41.67,
+        "espcn": 41.15,
+        "realesrgan": 35.07
+      },
+      "sharpness": {
+        "lanczos": 0.0504,
+        "fsrcnn": 0.0488,
+        "espcn": 0.0469,
+        "realesrgan": 0.1056
+      },
+      "ms": {
+        "lanczos": 4.4,
+        "fsrcnn": 566.8,
+        "espcn": 420.3,
+        "realesrgan": 809.5
+      }
+    },
+    {
+      "person": "photoreal_female_parent_2.png",
+      "face_px": 200,
+      "psnr": {
+        "lanczos": 44.69,
+        "fsrcnn": 43.48,
+        "espcn": 42.72,
+        "realesrgan": 36.79
+      },
+      "sharpness": {
+        "lanczos": 0.057,
+        "fsrcnn": 0.0542,
+        "espcn": 0.0525,
+        "realesrgan": 0.1015
+      },
+      "ms": {
+        "lanczos": 3.7,
+        "fsrcnn": 1025.2,
+        "espcn": 638.5,
+        "realesrgan": 1375.5
+      }
+    }
+  ],
+  "speed": {
+    "lanczos": {
+      "model_kb": 0.0,
+      "load_ms": 0.0,
+      "memory_mb": 2.0,
+      "ms": 4.3
+    },
+    "fsrcnn": {
+      "model_kb": 38.0595703125,
+      "load_ms": 2.1,
+      "memory_mb": 276.1,
+      "ms": 258.0
+    },
+    "espcn": {
+      "model_kb": 84.419921875,
+      "load_ms": 0.6,
+      "memory_mb": 111.3,
+      "ms": 176.5
+    },
+    "realesrgan": {
+      "model_kb": 4752.296875,
+      "load_ms": 39.7,
+      "memory_mb": 74.9,
+      "ms": 416.4
+    }
+  }
+}
