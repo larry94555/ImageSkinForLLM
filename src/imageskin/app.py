@@ -38,20 +38,13 @@ from pydantic import BaseModel, Field, model_validator
 
 from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
-from imageskin.admin import FILENAME as ADMIN_FILENAME
-from imageskin.admin import AdminSignIns
 from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_api import admin_router
-from imageskin.admin_guidelines import EMPTY as NO_ADMIN_GUIDELINES
-from imageskin.admin_guidelines import HISTORY_FILE as ADMIN_HISTORY_FILE
-from imageskin.admin_guidelines import AdminGuidelinesFile, applied, checked
-from imageskin.admin_guidelines import value_of as admin_value_of
+from imageskin.admin_guidelines import applied, checked
 from imageskin.admin_guidelines import with_value as admin_with_value
-from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
-from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import DEFAULTS as ADMIN_DEFAULTS
-from imageskin.admin_settings import AdminSettingsStore, CustomUse, custom_use
 from imageskin.admin_settings import Choice as HostChoice
+from imageskin.admin_settings import CustomUse, custom_use
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
@@ -112,7 +105,7 @@ from imageskin.host_api import COOKIE as HOST_COOKIE
 from imageskin.host_api import NOT_SIGNED_IN, host_router
 from imageskin.host_disk import NOT_RECORDED, Owners, OwnersUnreadable
 from imageskin.host_disk import count as count_disk
-from imageskin.hosts import Host, HostAccounts, HostsUnreadable, normal_email
+from imageskin.hosts import Host, HostsUnreadable, normal_email
 from imageskin.lessons_ahead import LessonsAhead
 from imageskin.llm_choice import (
     PROVIDERS,
@@ -126,7 +119,6 @@ from imageskin.llm_choice import (
 )
 from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
-from imageskin.network import NetworkMonth
 from imageskin.prepare_job import (
     CLONES,
     NOT_PREPARED,
@@ -156,8 +148,9 @@ from imageskin.resources import ResourceReader
 from imageskin.review import accept, load_review, withdraw
 from imageskin.sentences import clips_of
 from imageskin.settings_access import COOKIE as LAPTOP_COOKIE
-from imageskin.settings_access import SettingsAccess, settings_router
+from imageskin.settings_access import settings_router
 from imageskin.simpler import say_simpler
+from imageskin.sites import Service, make_service
 from imageskin.speaker_checks import SpeakerChecker
 from imageskin.speech_text import math_in_words
 from imageskin.spoken import corrected, vocabulary
@@ -600,6 +593,9 @@ def create_app(
     admin_file: Path | None = None,
     # The allowed laptops file (R163); left out, admin-laptops.toml beside the password file.
     admin_laptops_file: Path | None = None,
+    # What every site's app shares (R61b): the host accounts and the administrator's files.
+    # Left out, they are kept in `home`, as for the one site there is.
+    service: Service | None = None,
 ) -> FastAPI:
     startup = startup or StartupTimes()
     startup.begin("app made")
@@ -654,19 +650,17 @@ def create_app(
     # Signing in as the administrator (R149). Every admin route later depends on require_admin.
     # The minutes before an inactive administrator is signed out, and the dashboard's colours,
     # are admin settings (R155), read at each check so a change applies at once.
-    admin_settings = AdminSettingsStore(data_home)
+    # They, the host accounts (R188) and the listed laptops' passes are every site's (R61b).
+    service = service or make_service(data_home, admin_file, admin_laptops_file)
+    app.state.service = service
+    admin_settings = service.admin_settings
     app.state.admin_settings = admin_settings
-    admin_file = admin_file or data_home / ADMIN_FILENAME
-    admin_sign_ins = AdminSignIns(
-        admin_file,
-        timeout_minutes=lambda: admin_settings.current.timeout_minutes,
-        laptops=AdminLaptops(admin_laptops_file or admin_file.parent / LAPTOPS_FILENAME),
-    )
+    admin_sign_ins = service.admin_sign_ins
     # Host accounts (R188). The host-only pages and routes later depend on require_host (R190).
-    host_accounts = HostAccounts(data_home)
+    host_accounts = service.host_accounts
     # Settings only for a signed-in host or a listed admin laptop (R191): its calls, and the
     # admin sign-in on it, refuse anyone else as if not found.
-    settings_access = SettingsAccess(host_accounts, admin_sign_ins.laptops)
+    settings_access = service.settings_access
     settings_routes, require_settings = settings_router(settings_access)
     settings_only = [Depends(require_settings)]
     app.include_router(settings_routes)
@@ -785,7 +779,7 @@ def create_app(
 
     # The machine's resources for the admin dashboard (R152), for the administrator only.
     # The network's month is sampled each minute by `imageskin serve` (R153), and at each read.
-    app.state.network_month = NetworkMonth(data_home)
+    app.state.network_month = service.network_month
     # The local LLM's model file, shown as part of the disk's Used (R175).
     llm_model = LlmModelFile((llm or LlmSettings()).url)
     resource_reader = ResourceReader(
@@ -1846,10 +1840,8 @@ def create_app(
 
     # The administrator's identity, goals and guidelines, as system requirements (R243).
     # The administrator's guidelines keep a history of each part, as the host's do (R253).
-    admin_history = History(
-        data_home, ADMIN_HISTORY_FILE, admin_value_of, NO_ADMIN_GUIDELINES, "Admin guidelines"
-    )
-    admin_guidelines = AdminGuidelinesFile(data_home, admin_history.saved)
+    admin_history = service.admin_history
+    admin_guidelines = service.admin_guidelines
 
     def with_admin(host: Customization) -> Customization:
         """The customization a prompt is asked with: the administrator's parts first (R243)."""
