@@ -348,6 +348,7 @@ Added by Larry on 2026-10-30, to build right after the setup wizard (items 108 t
 152. **Disk space used.** A signed-in host has a **Resources** page showing the disk space they have used, broken down into:
    - **Images and voice recordings:** their photos and recordings, with the converted and prepared files made from them *(default)*.
    - **PDFs added:** their PDFs, with what was read from them *(default)*.
+   - **Guidelines, conversations and preferences** (Larry, 2026-11-01): once each customer has a site (item 66), the site's own guidelines (its identity, goals and guidelines, with their saved versions), its conversations and history, and its settings, each kept apart from every other site's and shown as its own line.
    - **Total:** all the disk space consumed by this host.
 
    Each file is counted for the host who added it; files stored before host accounts count for the first host to sign up *(default)*.
