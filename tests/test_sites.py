@@ -78,7 +78,8 @@ def two_sites(tmp_path: Path) -> tuple[SiteApps, dict[str, FastAPI], Llm]:
         return made[name]
 
     def by_host(scope: Scope) -> str:
-        return dict(scope["headers"])[b"host"].decode().split(".")[0]
+        host: bytes = dict(scope["headers"])[b"host"]
+        return host.decode().split(".")[0]
 
     return SiteApps(make, by_host), made, llm
 
