@@ -246,7 +246,17 @@ export function AdminGuidelinesPage() {
 
   // Only `change` differs from what was last saved, so another part's unsaved text isn't sent.
   // Merged with the guidelines last saved, as a feature's save changes only its own.
-  const save: Save = async (part, change) => {
+  // Saves made at once, from different parts, go one after another, each from what the one
+  // before it saved, so neither sends the other's part as it was before (Codex's review on
+  // PR #261).
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const save: Save = (part, change) => {
+    const next = queue.current.then(() => saveNow(part, change));
+    queue.current = next;
+    return next;
+  };
+
+  async function saveNow(part: string, change: Partial<AdminGuidelinesEdit>): Promise<AdminGuidelines | null> {
     if (!last.current) return null;
     setError(null);
     const started = performance.now();
@@ -270,7 +280,7 @@ export function AdminGuidelinesPage() {
       setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
       return null;
     }
-  };
+  }
 
   if (!read) {
     return error ? <p className="error">{error}</p> : <p className="muted busy">Reading the admin guidelines…</p>;

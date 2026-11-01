@@ -1345,7 +1345,13 @@ function AdminGuidelinesPage() {
 			setError("The admin guidelines could not be read. Reload the page to try again.");
 		});
 	}, []);
-	const save = async (part, change) => {
+	const queue = A(Promise.resolve());
+	const save = (part, change) => {
+		const next = queue.current.then(() => saveNow(part, change));
+		queue.current = next;
+		return next;
+	};
+	async function saveNow(part, change) {
 		if (!last.current) return null;
 		setError(null);
 		const started = performance.now();
@@ -1372,7 +1378,7 @@ function AdminGuidelinesPage() {
 			setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
 			return null;
 		}
-	};
+	}
 	if (!read) return error ? /* @__PURE__ */ u("p", {
 		className: "error",
 		children: error

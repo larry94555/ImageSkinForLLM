@@ -172,3 +172,39 @@ test("a page that can't be read says so", async () => {
   expect(await screen.findByText(/could not be read/)).toBeTruthy();
   expect(console.error).toHaveBeenCalledWith("Could not read the admin guidelines", expect.anything());
 });
+
+test("two saves at once go one after another, so neither undoes the other", async () => {
+  const { puts } = server();
+  await openPage();
+  // Hold the first save's answer until both have been asked for (Codex's review on PR #261).
+  const real = globalThis.fetch;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let first = true;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/admin/guidelines" && init?.method === "PUT" && first) {
+        first = false;
+        const answer = real(url, init);
+        await held;
+        return answer;
+      }
+      return real(url, init);
+    }),
+  );
+  await type(goals(), "Be accurate.");
+  await click(screen.getByRole("button", { name: "Save the goals" }));
+  await type(within(feature("Topics")).getByRole("textbox"), "Be brief.");
+  await click(within(feature("Topics")).getByRole("button", { name: "Save" }));
+  expect(puts()).toHaveLength(1); // the second waits for the first
+  await act(async () => {
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(puts()).toHaveLength(2);
+  expect(puts()[1].goals).toEqual(["Be accurate."]); // the first's goals kept
+  expect(puts()[1].guidelines.topics).toBe("Be brief.");
+  expect(goals().value).toBe("Be accurate.");
+  expect((within(feature("Topics")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Be brief.");
+});
