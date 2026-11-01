@@ -3,6 +3,7 @@
 import json
 import logging
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 from imageskin import admin
 from imageskin.app import create_app
 from imageskin.hosts import FILENAME, HostAccounts
-from imageskin.uploads import PhotoResult
+from imageskin.uploads import PhotoResult, Upload, UploadStore, VoiceSample
 
 # These tests sign up hosts for themselves, and keep Admin settings' real defaults (both off).
 pytestmark = [pytest.mark.real_hosts, pytest.mark.custom_defaults]
@@ -18,6 +19,7 @@ pytestmark = [pytest.mark.real_hosts, pytest.mark.custom_defaults]
 PASSWORD = "a long secret"
 ANN, BOB = "ann@example.com", "bob@example.com"
 JPG = b"\xff\xd8\xff\xe0" + b"\0" * 100
+RECORDINGS = VoiceSample(2, 40, 35, None)  # recordings that passed: the own voice is used
 
 
 @pytest.fixture(autouse=True)
@@ -142,16 +144,73 @@ def test_an_unreadable_hosts_file_is_503(tmp_path: Path) -> None:
     ).status_code == 503
 
 
-def test_the_site_person_follows_the_host_who_added_it(tmp_path: Path) -> None:
+def recordings(*ids: str, rejected: tuple[str, ...] = ()):  # type: ignore[no-untyped-def]
+    """The store's recordings, as if they had been added and checked."""
+    sounds = [Upload(i, "sounds", f"{i}.wav", "wav", 10, "2026-01-01", 5.0, [], 1) for i in ids] + [
+        Upload(i, "sounds", f"{i}.wav", "wav", 10, "2026-01-01", 5.0, ["too short"], 1)
+        for i in rejected
+    ]
+    real = UploadStore.list
+    return patch.object(
+        UploadStore, "list", lambda self, kind: sounds if kind == "sounds" else real(self, kind)
+    )
+
+
+def test_the_site_voice_follows_the_host_who_added_the_recordings(tmp_path: Path) -> None:
     administrator, _, _ = site(tmp_path)
     administrator.put("/api/admin/hosts/properties", json={"email": ANN, "custom_voice": "allow"})
     may_use = administrator.app.state.may_use  # type: ignore[attr-defined]
     owners = tmp_path / "owners.json"
-    # No photo: the one host who added recordings.
-    owners.write_text(json.dumps({"sounds": {"a" * 32: ANN, "b" * 32: ANN}}))
-    assert may_use(None).voice is True
+    a, b = "a" * 32, "b" * 32
+    # No photo: the one host who added the recordings.
+    owners.write_text(json.dumps({"sounds": {a: ANN, b: ANN}}))
+    with recordings(a, b):
+        assert may_use(None).voice is True
     # Two hosts' recordings: not known, so Admin settings' checkbox.
-    owners.write_text(json.dumps({"sounds": {"a" * 32: ANN, "b" * 32: BOB}}))
-    assert may_use(None).voice is False
-    owners.write_text("not json")
-    assert may_use(None).voice is False
+    owners.write_text(json.dumps({"sounds": {a: ANN, b: BOB}}))
+    with recordings(a, b):
+        assert may_use(None).voice is False
+        owners.write_text("not json")
+        assert may_use(None).voice is False
+    # Only the recordings that passed make the voice: Bob's rejected one doesn't count.
+    owners.write_text(json.dumps({"sounds": {a: ANN, b: BOB}}))
+    with recordings(a, rejected=(b,)):
+        assert may_use(None).voice is True
+    # A recording with no record of who added it (from before R192): not known.
+    owners.write_text(json.dumps({"sounds": {a: ANN}}))
+    with recordings(a, b):
+        assert may_use(None).voice is False
+
+
+def test_the_site_photo_and_voice_follow_their_own_hosts(tmp_path: Path) -> None:
+    """Codex's review of PR #268: the photo and the recordings can be different hosts'. The
+    photo follows the rule of whoever added it, and the voice whoever added the recordings."""
+    administrator, ann, _ = site(tmp_path)
+    administrator.put(
+        "/api/admin/hosts/properties",
+        json={"email": ANN, "custom_image": "allow", "custom_voice": "allow"},
+    )
+    administrator.put("/api/admin/hosts/properties", json={"email": BOB, "custom_voice": "deny"})
+    administrator.put("/api/admin/settings", json={"disable_custom_voice": False})
+    photo = ann.post("/api/uploads/photos", files={"file": ("me.jpg", JPG)}).json()["id"]
+    sound = "c" * 32
+    (tmp_path / "owners.json").write_text(
+        json.dumps({"photos": {photo: ANN}, "sounds": {sound: BOB}})
+    )
+    may_use = administrator.app.state.may_use  # type: ignore[attr-defined]
+    with recordings(sound), patch.object(UploadStore, "voice_sample", return_value=RECORDINGS):
+        assert may_use(None).image is True  # Ann's photo, Ann's Allow
+        assert may_use(None).voice is False  # Bob's recordings, Bob's Deny
+        # Prepare and the replies speak in the ready-made voice, not Bob's.
+        assert ann.get("/api/ready-voice").json()["in_use"] is True
+
+        # The other way round: Ann denies her voice, Bob is allowed his, the checkbox is off.
+        administrator.put("/api/admin/settings", json={"disable_custom_voice": True})
+        administrator.put(
+            "/api/admin/hosts/properties", json={"email": ANN, "custom_voice": "deny"}
+        )
+        administrator.put(
+            "/api/admin/hosts/properties", json={"email": BOB, "custom_voice": "allow"}
+        )
+        assert may_use(None).voice is True
+        assert ann.get("/api/ready-voice").json()["in_use"] is False  # Bob's recordings

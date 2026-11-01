@@ -675,26 +675,31 @@ def create_app(
 
     # Whether a host may use their own photo and voice (R239): their own Allow or Deny if they
     # have one (R242), otherwise the Admin settings' checkboxes. None asks for the site's person,
-    # whom the chat shows to anyone: the rule of the host who added them (`site_host`).
+    # whom the chat shows to anyone: its photo follows the rule of the host who added the photo,
+    # and its voice the rule of the host who added the recordings (`site_hosts`).
     def may_use(email: str | None) -> CustomUse:
-        if email is None:
-            email = site_host()
-        choices = host_accounts.choices(email) if email else (None, None)
-        return custom_use(admin_settings.current, *choices)
+        if email is not None:
+            return custom_use(admin_settings.current, *host_accounts.choices(email))
+        image_host, voice_host = site_hosts()
+        image = host_accounts.choices(image_host)[0] if image_host else None
+        voice = host_accounts.choices(voice_host)[1] if voice_host else None
+        return custom_use(admin_settings.current, image, voice)
 
-    def site_host() -> str | None:
-        """The host the site's own person is of (R242): whoever added the photo chosen for it,
-        or else the one host who added recordings. None when it isn't known (files from before
-        R192, several hosts' recordings, or owners.json unreadable): the checkboxes decide."""
+    def site_hosts() -> tuple[str | None, str | None]:
+        """The hosts the site's own person is of (R242): whoever added the photo chosen for it,
+        and whoever added the recordings that passed, which make its voice. Each is apart, as
+        the photo and recordings may be different hosts' (Codex's review of PR #268). None when
+        it isn't known (files from before R192, several hosts' recordings, or owners.json
+        unreadable): the Admin settings' checkbox decides."""
         try:
             added = owners.read()
         except OwnersUnreadable:
-            return None
+            return None, None
         photo = added.get("photos", {}).get(store.photo_choice().id or "")
-        if photo:
-            return photo
-        recorders = set(added.get("sounds", {}).values())
-        return recorders.pop() if len(recorders) == 1 else None
+        sounds = added.get("sounds", {})
+        recorders = {sounds.get(s.id) for s in store.list("sounds") if s.problems == []}
+        recorder = recorders.pop() if len(recorders) == 1 else None
+        return photo or None, recorder
 
     app.state.may_use = may_use
     host_routes, app.state.require_host = host_router(
