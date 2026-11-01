@@ -655,6 +655,16 @@ async function saveAdminGuidelines(edit) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function getAdminGuidelinesHistory(opened = false) {
+	const response = await fetch(opened ? "/api/admin/guidelines/history?opened=true" : "/api/admin/guidelines/history");
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).parts;
+}
+async function restoreAdminGuidelinesChange(part, number) {
+	const response = await fetch(`/api/admin/guidelines/history/${encodeURIComponent(part)}/${number}/restore`, { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 //#endregion
 //#region src/dashboard.tsx
 var REFRESH_MS = 1e4;
@@ -1111,895 +1121,6 @@ function AdminSettingsPage() {
 	});
 }
 //#endregion
-//#region src/admin-guidelines.tsx
-var IDENTITY$1 = [
-	["name", "Name"],
-	["speaks_as", "Speaks as"],
-	["purpose", "Purpose"],
-	["audience", "Who it is for"],
-	["helps_with", "What it can help with"]
-];
-var SAVED$1 = "Saved. It is followed first from the next prompt, for every host.";
-var CLEARED = "Cleared. The host's are followed alone from the next prompt.";
-function editOf(read) {
-	return {
-		identity: read.identity,
-		goals: read.goals,
-		guidelines: read.guidelines
-	};
-}
-function usePart(save) {
-	const [busy, setBusy] = d(false);
-	const [said, setSaid] = d(null);
-	async function run(part, change, done = SAVED$1) {
-		setBusy(true);
-		setSaid(null);
-		const saved = await save(part, change);
-		setBusy(false);
-		setSaid(saved ? done : null);
-		return saved;
-	}
-	return {
-		busy,
-		run,
-		status: said && /* @__PURE__ */ u("p", {
-			className: "notice",
-			role: "status",
-			children: said
-		}),
-		changed: () => setSaid(null)
-	};
-}
-function Buttons({ busy, part, empty, onClear }) {
-	return /* @__PURE__ */ u("p", { children: [
-		/* @__PURE__ */ u("button", {
-			type: "submit",
-			disabled: busy,
-			children: part ? `Save ${part}` : "Save"
-		}),
-		" ",
-		/* @__PURE__ */ u("button", {
-			type: "button",
-			className: "secondary",
-			disabled: busy || empty,
-			onClick: onClear,
-			children: part ? `Clear ${part}` : "Clear"
-		})
-	] });
-}
-function IdentitySection$1({ identity, save }) {
-	const [fields, setFields] = d(identity);
-	const [kept, setKept] = d(identity);
-	const { busy, run, status, changed } = usePart(save);
-	const blank = Object.fromEntries(IDENTITY$1.map(([k]) => [k, ""]));
-	function put(value, done) {
-		run("identity", { identity: value }, done).then((saved) => {
-			if (saved) {
-				setFields(saved.identity);
-				setKept(saved.identity);
-			}
-		});
-	}
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "admin-guidelines-identity",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "admin-guidelines-identity",
-				children: "Identity"
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "Told to the LLM before the host's identity. \"Who are you?\" is still answered from the host's."
-			}),
-			/* @__PURE__ */ u("form", {
-				className: "customization-edit",
-				onSubmit: (e) => {
-					e.preventDefault();
-					put(fields);
-				},
-				children: [
-					IDENTITY$1.map(([key, label]) => /* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: label }), /* @__PURE__ */ u("input", {
-						value: fields[key],
-						readOnly: busy,
-						onInput: (e) => {
-							changed();
-							setFields({
-								...fields,
-								[key]: e.currentTarget.value
-							});
-						}
-					})] }, key)),
-					status,
-					/* @__PURE__ */ u(Buttons, {
-						busy,
-						part: "the identity",
-						empty: !Object.values(kept).some(Boolean),
-						onClear: () => put(blank, CLEARED)
-					})
-				]
-			})
-		]
-	});
-}
-function GoalsSection$1({ goals, save }) {
-	const [text, setText] = d(goals.join("\n"));
-	const [kept, setKept] = d(goals);
-	const { busy, run, status, changed } = usePart(save);
-	function put(value, done) {
-		run("goals", { goals: value }, done).then((saved) => {
-			if (saved) {
-				setText(saved.goals.join("\n"));
-				setKept(saved.goals);
-			}
-		});
-	}
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "admin-guidelines-goals",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "admin-guidelines-goals",
-				children: "Goals"
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "What every reply aims for first, one goal on each line."
-			}),
-			/* @__PURE__ */ u("form", {
-				className: "customization-edit",
-				onSubmit: (e) => {
-					e.preventDefault();
-					put(text.split("\n"));
-				},
-				children: [
-					/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", {
-						className: "sr-only",
-						children: "Goals"
-					}), /* @__PURE__ */ u("textarea", {
-						rows: 4,
-						value: text,
-						readOnly: busy,
-						onInput: (e) => {
-							changed();
-							setText(e.currentTarget.value);
-						}
-					})] }),
-					status,
-					/* @__PURE__ */ u(Buttons, {
-						busy,
-						part: "the goals",
-						empty: kept.length === 0,
-						onClear: () => put([], CLEARED)
-					})
-				]
-			})
-		]
-	});
-}
-function FeatureGuidelines$1({ feature, save }) {
-	const [text, setText] = d(feature.text);
-	const [kept, setKept] = d(feature.text);
-	const { busy, run, status, changed } = usePart(save);
-	function put(value, done) {
-		run(`guidelines ${feature.key}`, { guidelines: { [feature.key]: value } }, done).then((saved) => {
-			if (saved) {
-				const now = saved.guidelines[feature.key] ?? "";
-				setText(now);
-				setKept(now);
-			}
-		});
-	}
-	return /* @__PURE__ */ u("form", {
-		className: "customization-edit guideline",
-		"aria-label": feature.label,
-		onSubmit: (e) => {
-			e.preventDefault();
-			put(text);
-		},
-		children: [
-			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [feature.label, !kept && /* @__PURE__ */ u("span", {
-				className: "muted",
-				children: " · none"
-			})] }), /* @__PURE__ */ u("textarea", {
-				rows: 3,
-				value: text,
-				readOnly: busy,
-				onInput: (e) => {
-					changed();
-					setText(e.currentTarget.value);
-				}
-			})] }),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: feature.changes
-			}),
-			status,
-			/* @__PURE__ */ u(Buttons, {
-				busy,
-				empty: !kept,
-				onClear: () => put("", CLEARED)
-			})
-		]
-	});
-}
-function sections$1(features) {
-	const grouped = /* @__PURE__ */ new Map();
-	for (const f of features) grouped.set(f.section, [...grouped.get(f.section) ?? [], f]);
-	return [...grouped.entries()];
-}
-function AdminGuidelinesPage() {
-	const { refresh } = useAdmin();
-	const [read, setRead] = d(null);
-	const [error, setError] = d(null);
-	const last = A(null);
-	h(() => {
-		const started = performance.now();
-		getAdminGuidelines().then((got) => {
-			console.info(`Admin guidelines shown (${Math.round(performance.now() - started)} ms)`);
-			last.current = got;
-			setRead(got);
-		}).catch(async (e) => {
-			console.error("Could not read the admin guidelines", e);
-			if (e instanceof ServerRefusal && e.status === 401) return refresh();
-			setError("The admin guidelines could not be read. Reload the page to try again.");
-		});
-	}, []);
-	const queue = A(Promise.resolve());
-	const save = (part, change) => {
-		const next = queue.current.then(() => saveNow(part, change));
-		queue.current = next;
-		return next;
-	};
-	async function saveNow(part, change) {
-		if (!last.current) return null;
-		setError(null);
-		const started = performance.now();
-		const before = editOf(last.current);
-		try {
-			const saved = await saveAdminGuidelines({
-				...before,
-				...change,
-				guidelines: {
-					...before.guidelines,
-					...change.guidelines
-				}
-			});
-			last.current = saved;
-			console.info(`Admin guidelines saved: ${part} (${Math.round(performance.now() - started)} ms)`);
-			setRead(saved);
-			return saved;
-		} catch (e) {
-			console.error(`Could not save the admin guidelines: ${part}`, e);
-			if (e instanceof ServerRefusal && e.status === 401) {
-				await refresh();
-				return null;
-			}
-			setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
-			return null;
-		}
-	}
-	if (!read) return error ? /* @__PURE__ */ u("p", {
-		className: "error",
-		children: error
-	}) : /* @__PURE__ */ u("p", {
-		className: "muted busy",
-		children: "Reading the admin guidelines…"
-	});
-	return /* @__PURE__ */ u("div", {
-		className: "admin-guidelines",
-		children: [
-			/* @__PURE__ */ u("p", {
-				className: "notice",
-				children: "These come first, over every host's: the LLM follows them first, and a host's identity, goals and guidelines only where they don't conflict. Hosts can't see or change them. Empty parts add nothing."
-			}),
-			error && /* @__PURE__ */ u("p", {
-				className: "error",
-				role: "alert",
-				children: error
-			}),
-			/* @__PURE__ */ u(IdentitySection$1, {
-				identity: read.identity,
-				save
-			}),
-			/* @__PURE__ */ u(GoalsSection$1, {
-				goals: read.goals,
-				save
-			}),
-			sections$1(read.features).map(([name, features]) => /* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": `admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`,
-				children: [/* @__PURE__ */ u("h2", {
-					id: `admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`,
-					children: name
-				}), features.map((f) => /* @__PURE__ */ u(FeatureGuidelines$1, {
-					feature: f,
-					save
-				}, f.key))]
-			}, name))
-		]
-	});
-}
-//#endregion
-//#region src/laptop-key.ts
-var DB = "imageskin-laptop";
-var STORE = "keys";
-var KEY = "laptop";
-function request(r) {
-	return new Promise((resolve, reject) => {
-		r.onsuccess = () => resolve(r.result);
-		r.onerror = () => reject(r.error ?? /* @__PURE__ */ new Error("IndexedDB request failed"));
-	});
-}
-function openDb() {
-	const open = indexedDB.open(DB, 1);
-	open.onupgradeneeded = () => open.result.createObjectStore(STORE);
-	return request(open);
-}
-var store = {
-	async load() {
-		const db = await openDb();
-		try {
-			return await request(db.transaction(STORE).objectStore(STORE).get(KEY));
-		} finally {
-			db.close();
-		}
-	},
-	async save(pair) {
-		const db = await openDb();
-		try {
-			await request(db.transaction(STORE, "readwrite").objectStore(STORE).put(pair, KEY));
-		} finally {
-			db.close();
-		}
-	}
-};
-var pair = null;
-function canProve() {
-	return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle && globalThis.indexedDB);
-}
-function keyPair() {
-	pair ??= (async () => {
-		const kept = await store.load();
-		if (kept) return kept;
-		const made = await crypto.subtle.generateKey({
-			name: "ECDSA",
-			namedCurve: "P-256"
-		}, false, ["sign", "verify"]);
-		await store.save(made);
-		console.info("Laptop key made");
-		return made;
-	})();
-	pair.catch(() => pair = null);
-	return pair;
-}
-var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-function base32(bytes) {
-	let bits = 0;
-	let value = 0;
-	let out = "";
-	for (const byte of bytes) {
-		value = value << 8 | byte;
-		bits += 8;
-		while (bits >= 5) {
-			out += BASE32[value >>> bits - 5 & 31];
-			bits -= 5;
-		}
-	}
-	if (bits > 0) out += BASE32[value << 5 - bits & 31];
-	return out;
-}
-function base64(bytes) {
-	return btoa(String.fromCharCode(...new Uint8Array(bytes)));
-}
-async function idFromSpki(spki) {
-	return "LT-" + (base32(new Uint8Array(await crypto.subtle.digest("SHA-256", spki))).slice(0, 20).match(/.{4}/g) ?? []).join("-");
-}
-async function publicSpki() {
-	return crypto.subtle.exportKey("spki", (await keyPair()).publicKey);
-}
-async function laptopId() {
-	const id = await idFromSpki(await publicSpki());
-	console.info("Laptop ID shown");
-	return id;
-}
-async function prove(challenge) {
-	const start = performance.now();
-	const { privateKey } = await keyPair();
-	const signature = await crypto.subtle.sign({
-		name: "ECDSA",
-		hash: "SHA-256"
-	}, privateKey, new TextEncoder().encode(challenge));
-	const proof = {
-		public_key: base64(await publicSpki()),
-		challenge,
-		signature: base64(signature)
-	};
-	console.info(`Laptop proof sent (${Math.round(performance.now() - start)} ms)`);
-	return proof;
-}
-function laptopEntry(id) {
-	return `[[laptop]]\nname = "My laptop"\nid = "${id}"\n`;
-}
-//#endregion
-//#region src/admin.tsx
-var GUIDE = "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides/Admin-Password-Guide.pdf";
-var CHECK_MS = 6e4;
-var AdminContext = X({
-	session: null,
-	listed: null,
-	askListed: () => {},
-	ended: null,
-	refresh: async () => {},
-	signIn: async () => {},
-	signOut: async () => {},
-	dismiss: () => {}
-});
-function useAdmin() {
-	return x(AdminContext);
-}
-function minutes$1(n) {
-	return `${n} minute${n === 1 ? "" : "s"}`;
-}
-function endedMessage(session) {
-	if (session.ended === "password changed") return "Signed out as administrator because the administrator password was changed.";
-	if (session.ended === "laptop removed") return "Signed out as administrator.";
-	return `Signed out as administrator after ${minutes$1(session.timeout_minutes)} without activity.`;
-}
-function AdminProvider({ children }) {
-	const [session, setSession] = d(null);
-	const [ended, setEnded] = d(null);
-	const [listed, setListed] = d(null);
-	async function refresh() {
-		try {
-			const read = await getAdminSession();
-			setSession(read);
-			if (read.ended) {
-				console.info(`Admin signed out: ${read.ended}`);
-				setEnded(endedMessage(read));
-			}
-		} catch (e) {
-			console.error("Could not read the administrator sign-in", e);
-		}
-	}
-	h(() => {
-		refresh();
-	}, []);
-	const asked = A(false);
-	function askListed() {
-		if (asked.current) return;
-		asked.current = true;
-		(async () => {
-			const answer = await isLaptopListed(canProve() ? await prove(await getAdminChallenge()) : void 0);
-			setListed(answer);
-			if (!answer && canProve()) console.info(`This laptop's ID: ${await laptopId()}`);
-		})().catch((err) => {
-			console.error("Could not ask whether this laptop is listed", err);
-			setListed(true);
-		});
-	}
-	const signedIn = session?.signed_in === true;
-	h(() => {
-		if (!signedIn) return;
-		const timer = setInterval(() => void refresh(), CHECK_MS);
-		return () => clearInterval(timer);
-	}, [signedIn]);
-	async function signIn(password) {
-		const started = performance.now();
-		await signInAsAdmin(password, canProve() ? await prove(await getAdminChallenge()) : void 0);
-		console.info(`Admin signed in (${Math.round(performance.now() - started)} ms)`);
-		setEnded(null);
-		await refresh();
-	}
-	async function signOut() {
-		await signOutAsAdmin();
-		console.info("Admin signed out: signed out");
-		await refresh();
-	}
-	const shared = {
-		session,
-		listed,
-		askListed,
-		ended,
-		refresh,
-		signIn,
-		signOut,
-		dismiss: () => setEnded(null)
-	};
-	return /* @__PURE__ */ u(AdminContext.Provider, {
-		value: shared,
-		children
-	});
-}
-function useAdminActivity(active) {
-	const { session, refresh } = useAdmin();
-	const last = A(0);
-	const on = active && session?.signed_in === true;
-	h(() => {
-		if (!on) return;
-		function activity() {
-			const now = Date.now();
-			if (now - last.current < 6e4) return;
-			last.current = now;
-			adminActivity().then(async (still) => {
-				if (!still) await refresh();
-			}).catch((e) => console.error("Could not tell the server of admin activity", e));
-		}
-		document.addEventListener("click", activity);
-		document.addEventListener("keydown", activity);
-		return () => {
-			document.removeEventListener("click", activity);
-			document.removeEventListener("keydown", activity);
-		};
-	}, [on]);
-}
-function AdminLink({ current }) {
-	const { session } = useAdmin();
-	if (!session?.signed_in) return null;
-	return /* @__PURE__ */ u("a", {
-		href: "#/admin",
-		className: current ? "settings-link current" : "settings-link",
-		children: "Admin"
-	});
-}
-function AdminEndedNotice() {
-	const { ended, dismiss } = useAdmin();
-	if (!ended) return null;
-	return /* @__PURE__ */ u("p", {
-		className: "notice",
-		role: "status",
-		children: [
-			ended,
-			" ",
-			/* @__PURE__ */ u("button", {
-				type: "button",
-				className: "secondary",
-				onClick: dismiss,
-				children: "OK"
-			})
-		]
-	});
-}
-function LaptopId() {
-	const [id, setId] = d(null);
-	const [failed, setFailed] = d(false);
-	const [copied, setCopied] = d(false);
-	const usable = canProve();
-	h(() => {
-		if (!usable) return;
-		laptopId().then(setId, (err) => {
-			console.error("Could not make this laptop's key", err);
-			setFailed(true);
-		});
-	}, [usable]);
-	async function copy() {
-		if (!id) return;
-		try {
-			await navigator.clipboard.writeText(laptopEntry(id));
-			setCopied(true);
-		} catch (err) {
-			console.error("Could not copy the laptop ID", err);
-		}
-	}
-	let shown;
-	if (!usable) shown = /* @__PURE__ */ u("p", {
-		className: "muted",
-		children: "This laptop's ID can't be shown at this address."
-	});
-	else if (failed) shown = /* @__PURE__ */ u("p", {
-		className: "muted",
-		children: "This laptop's ID couldn't be made in this browser."
-	});
-	else shown = /* @__PURE__ */ u(S, { children: /* @__PURE__ */ u("p", { children: [
-		"This laptop's ID: ",
-		/* @__PURE__ */ u("code", { children: id ?? "…" }),
-		" ",
-		/* @__PURE__ */ u("button", {
-			type: "button",
-			className: "secondary",
-			disabled: !id,
-			onClick: () => void copy(),
-			children: copied ? "Copied" : "Copy"
-		})
-	] }) });
-	return /* @__PURE__ */ u("div", {
-		className: "laptop-id",
-		children: [/* @__PURE__ */ u("h3", { children: "This laptop" }), shown]
-	});
-}
-function AdminSection() {
-	const { session, listed, askListed, signIn, signOut } = useAdmin();
-	const [password, setPassword] = d("");
-	const [busy, setBusy] = d(false);
-	const [error, setError] = d(null);
-	const shown = Boolean(session?.signed_in || listed);
-	h(() => {
-		if (session) askListed();
-	}, [session !== null]);
-	h(() => {
-		if (shown) console.info("Admin sign-in shown");
-	}, [shown]);
-	async function submit(e) {
-		e.preventDefault();
-		setBusy(true);
-		setError(null);
-		try {
-			await signIn(password);
-			setPassword("");
-		} catch (err) {
-			console.error("Could not sign in as administrator", err);
-			setError(err instanceof ServerRefusal ? err.message : "Could not sign in. Try again in a moment.");
-		} finally {
-			setBusy(false);
-		}
-	}
-	async function leave() {
-		setBusy(true);
-		try {
-			await signOut();
-		} catch (err) {
-			console.error("Could not sign out as administrator", err);
-			setError("Could not sign out. Try again.");
-		} finally {
-			setBusy(false);
-		}
-	}
-	let body = /* @__PURE__ */ u("p", {
-		className: "muted",
-		children: "Checking…"
-	});
-	if (session?.signed_in) body = /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: [
-		"Signed in as administrator. You are signed out after ",
-		minutes$1(session.timeout_minutes),
-		" ",
-		"without activity."
-	] }), /* @__PURE__ */ u("p", { children: [
-		/* @__PURE__ */ u("a", {
-			className: "button",
-			href: "#/admin",
-			children: "Open the admin view"
-		}),
-		" ",
-		/* @__PURE__ */ u("button", {
-			type: "button",
-			className: "secondary",
-			disabled: busy,
-			onClick: () => void leave(),
-			children: "Sign out as administrator"
-		})
-	] })] });
-	else if (session && !session.password_set) body = /* @__PURE__ */ u("p", {
-		className: "muted",
-		children: [
-			"Signing in as the administrator is off, as no administrator password is set on this computer. Whoever runs the computer sets it in the file admin.toml, as the",
-			" ",
-			/* @__PURE__ */ u("a", {
-				href: GUIDE,
-				target: "_blank",
-				rel: "noreferrer",
-				children: "admin password guide"
-			}),
-			" ",
-			"says."
-		]
-	});
-	else if (session) body = /* @__PURE__ */ u("form", {
-		onSubmit: (e) => void submit(e),
-		children: [
-			/* @__PURE__ */ u("label", { children: [
-				"Administrator password",
-				" ",
-				/* @__PURE__ */ u("input", {
-					type: "password",
-					autoComplete: "current-password",
-					value: password,
-					onInput: (e) => setPassword(e.currentTarget.value)
-				})
-			] }),
-			" ",
-			/* @__PURE__ */ u("button", {
-				type: "submit",
-				disabled: busy || password === "",
-				children: "Sign in as administrator"
-			})
-		]
-	});
-	if (!shown) {
-		if (listed !== false) return null;
-		return /* @__PURE__ */ u("section", {
-			className: "panel",
-			"aria-label": "This laptop",
-			children: /* @__PURE__ */ u(LaptopId, {})
-		});
-	}
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "settings-admin",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "settings-admin",
-				children: "Administrator"
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "Running the site as a whole, apart from the host and participant views."
-			}),
-			error && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: error
-			}),
-			body,
-			/* @__PURE__ */ u(LaptopId, {})
-		]
-	});
-}
-function AdminPage({ section = "resources" }) {
-	const { session, listed, askListed } = useAdmin();
-	h(() => {
-		if (session) askListed();
-	}, [session !== null]);
-	if (!session?.signed_in) {
-		if (!listed) return null;
-		return /* @__PURE__ */ u("div", {
-			className: "host-page admin-page",
-			children: [
-				/* @__PURE__ */ u("h1", { children: "Admin" }),
-				/* @__PURE__ */ u("p", {
-					className: "lead",
-					children: "Site-wide administration, separate from the host and participant views."
-				}),
-				/* @__PURE__ */ u(AdminSection, {})
-			]
-		});
-	}
-	const tab = (to, href, label) => /* @__PURE__ */ u("a", {
-		href,
-		className: section === to ? "current" : void 0,
-		"aria-current": section === to ? "page" : void 0,
-		children: label
-	});
-	return /* @__PURE__ */ u("div", {
-		className: "host-page admin-page",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "Admin" }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: "Site-wide administration, separate from the host and participant views."
-			}),
-			/* @__PURE__ */ u("nav", {
-				className: "admin-tabs",
-				"aria-label": "Admin pages",
-				children: [
-					tab("resources", "#/admin", "Resources"),
-					tab("settings", "#/admin/settings", "Admin settings"),
-					tab("guidelines", "#/admin/guidelines", "Admin guidelines")
-				]
-			}),
-			section === "settings" ? /* @__PURE__ */ u(AdminSettingsPage, {}) : section === "guidelines" ? /* @__PURE__ */ u(AdminGuidelinesPage, {}) : /* @__PURE__ */ u(ResourceDashboard, {})
-		]
-	});
-}
-//#endregion
-//#region src/confirm-dialog.tsx
-var FOCUSABLE = "button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
-function ConfirmDialog(props) {
-	const { onCancel } = props;
-	const keep = A(null);
-	const box = A(null);
-	const id = g();
-	const cancel = A(onCancel);
-	cancel.current = onCancel;
-	h(() => {
-		const opener = document.activeElement;
-		keep.current?.focus();
-		const inside = (el) => el instanceof Node && !!box.current?.contains(el);
-		const onKey = (e) => {
-			if (e.key === "Escape") {
-				cancel.current();
-				return;
-			}
-			if (e.key !== "Tab" || !box.current) return;
-			const items = Array.from(box.current.querySelectorAll(FOCUSABLE));
-			const first = items[0];
-			const last = items[items.length - 1];
-			const at = document.activeElement;
-			if (!inside(at) || at === (e.shiftKey ? first : last)) {
-				e.preventDefault();
-				(e.shiftKey ? last : first).focus();
-			}
-		};
-		const onFocus = (e) => {
-			if (!inside(e.target)) keep.current?.focus();
-		};
-		document.addEventListener("keydown", onKey);
-		document.addEventListener("focusin", onFocus);
-		return () => {
-			document.removeEventListener("keydown", onKey);
-			document.removeEventListener("focusin", onFocus);
-			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-		};
-	}, []);
-	return /* @__PURE__ */ u("div", {
-		className: "confirm-backdrop",
-		onClick: (e) => e.target === e.currentTarget && onCancel(),
-		children: /* @__PURE__ */ u("div", {
-			className: "confirm-dialog",
-			role: "alertdialog",
-			"aria-modal": "true",
-			ref: box,
-			"aria-labelledby": `${id}-title`,
-			"aria-describedby": props.children ? `${id}-about` : void 0,
-			children: [
-				/* @__PURE__ */ u("h2", {
-					id: `${id}-title`,
-					children: props.title
-				}),
-				props.children && /* @__PURE__ */ u("div", {
-					id: `${id}-about`,
-					children: props.children
-				}),
-				/* @__PURE__ */ u("div", {
-					className: "confirm-buttons",
-					children: [
-						/* @__PURE__ */ u("button", {
-							type: "button",
-							className: "secondary",
-							ref: keep,
-							onClick: onCancel,
-							children: props.keepLabel
-						}),
-						props.otherLabel && /* @__PURE__ */ u("button", {
-							type: "button",
-							className: "secondary",
-							onClick: props.onOther,
-							children: props.otherLabel
-						}),
-						/* @__PURE__ */ u("button", {
-							type: "button",
-							className: "danger",
-							onClick: props.onConfirm,
-							children: props.confirmLabel
-						})
-					]
-				})
-			]
-		})
-	});
-}
-function useConfirm() {
-	const [asking, setAsking] = d(null);
-	function choose(question) {
-		return new Promise((resolve) => {
-			setAsking({
-				question,
-				answer: (answer) => {
-					const said = {
-						cancel: "cancelled",
-						other: question.otherLabel,
-						confirm: "confirmed"
-					};
-					console.info(`${question.title} ${said[answer]}`);
-					setAsking(null);
-					resolve(answer);
-				}
-			});
-		});
-	}
-	async function ask(question) {
-		return await choose(question) === "confirm";
-	}
-	return {
-		ask,
-		choose,
-		dialog: asking && /* @__PURE__ */ u(ConfirmDialog, {
-			...asking.question,
-			onCancel: () => asking.answer("cancel"),
-			onConfirm: () => asking.answer("confirm"),
-			onOther: () => asking.answer("other")
-		})
-	};
-}
-//#endregion
 //#region src/router.ts
 var PAGES = {
 	"/": "home",
@@ -2100,82 +1221,6 @@ function useHash() {
 		return () => window.removeEventListener("hashchange", update);
 	}, []);
 	return hash;
-}
-//#endregion
-//#region src/leave-guard.tsx
-var LEAVE_TITLE = "Your change isn't accepted yet";
-var LEAVE_PROCEED = "Proceed without the change";
-var LEAVE_CANCEL = "Cancel";
-var decided = null;
-function goWithoutAsking(href) {
-	decided = href;
-	window.addEventListener("hashchange", () => decided = null, { once: true });
-	window.location.hash = href;
-}
-function useLeaveGuard(pending, unchanged) {
-	const { ask, dialog } = useConfirm();
-	const now = A({
-		pending,
-		unchanged
-	});
-	now.current = {
-		pending,
-		unchanged
-	};
-	const allowed = A(null);
-	h(() => {
-		const confirmLeave = (href) => {
-			console.info(`Leaving setup for ${href} with the sample neither accepted nor rejected`);
-			ask({
-				title: LEAVE_TITLE,
-				keepLabel: LEAVE_CANCEL,
-				confirmLabel: LEAVE_PROCEED,
-				children: /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: ["Your change takes effect only once you accept its sample video. If you proceed, nothing changes. ", now.current.unchanged] }), /* @__PURE__ */ u("p", {
-					className: "muted",
-					children: "Choose Cancel to stay and accept or reject the sample video."
-				})] })
-			}).then((proceed) => {
-				if (!proceed) return;
-				allowed.current = href;
-				window.location.hash = href;
-			});
-		};
-		const leaving = (from, to) => {
-			if (decided === to) {
-				decided = null;
-				return false;
-			}
-			return now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
-		};
-		const onClick = (e) => {
-			if (!(e.target instanceof Element)) return;
-			const href = e.target.closest("a[href^='#/']")?.getAttribute("href");
-			if (!href || !leaving(window.location.hash, href)) return;
-			e.preventDefault();
-			e.stopPropagation();
-			confirmLeave(href);
-		};
-		blockLeaving((from, to) => {
-			if (!leaving(from, to)) {
-				if (allowed.current === to) allowed.current = null;
-				return false;
-			}
-			history.pushState(history.state, "", from);
-			confirmLeave(to);
-			return true;
-		});
-		const onUnload = (e) => {
-			if (now.current.pending) e.preventDefault();
-		};
-		document.addEventListener("click", onClick, true);
-		window.addEventListener("beforeunload", onUnload);
-		return () => {
-			document.removeEventListener("click", onClick, true);
-			blockLeaving(null);
-			window.removeEventListener("beforeunload", onUnload);
-		};
-	}, []);
-	return dialog;
 }
 //#endregion
 //#region src/change-setup.tsx
@@ -2403,322 +1448,6 @@ function ChangeSetup() {
 	});
 }
 //#endregion
-//#region src/checks.tsx
-function Checks({ item, queue }) {
-	const { problems, score, speech } = item;
-	const what = item.kind === "photos" ? "photo" : "recording";
-	if (queue === 0) return /* @__PURE__ */ u("span", {
-		className: "muted check busy",
-		children: [
-			"Checking ",
-			what,
-			"…"
-		]
-	});
-	if (queue > 0) return /* @__PURE__ */ u("span", {
-		className: "muted check",
-		children: "Waiting to check"
-	});
-	if (problems == null) return /* @__PURE__ */ u("span", {
-		className: "muted check",
-		children: "Not checked"
-	});
-	if (problems.length === 0) return /* @__PURE__ */ u("span", {
-		className: "done check",
-		children: [
-			"Looks good",
-			score !== null && ` · score ${score} of 100`,
-			speech !== null && ` · ${minutes(speech)} of speech`
-		]
-	});
-	return /* @__PURE__ */ u("ul", {
-		className: "problems",
-		children: problems.map((p) => /* @__PURE__ */ u("li", {
-			className: "error",
-			children: p
-		}, p))
-	});
-}
-function minutes(seconds) {
-	const whole = Math.round(seconds);
-	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
-}
-//#endregion
-//#region src/setting-guard.tsx
-var SettingGuard = X({
-	needed: () => false,
-	confirm: async () => true
-});
-function useSettingGuard() {
-	return x(SettingGuard);
-}
-function usePrepareStopGuard(onDiscarded) {
-	const stopped = A(false);
-	const { ask, dialog } = useConfirm();
-	const [failed, setFailed] = d(null);
-	async function confirm(title = "Change this setting?") {
-		if (!stopped.current) return true;
-		setFailed(null);
-		if (!await ask({
-			title,
-			children: /* @__PURE__ */ u("p", { children: "Changing a setting will require restarting the preparation over again." }),
-			keepLabel: "Cancel change",
-			confirmLabel: "Confirm change"
-		})) return false;
-		const started = performance.now();
-		try {
-			await discardPrepare();
-			console.info(`Stopped prepare dropped for a setting change (${Math.round(performance.now() - started)} ms)`);
-		} catch (e) {
-			console.error("Could not drop the stopped prepare; the setting is left as it was", e);
-			setFailed(`The setting was not changed: the stopped preparation could not be cleared (${e.message}). Try again.`);
-			return false;
-		}
-		stopped.current = false;
-		onDiscarded();
-		return true;
-	}
-	return {
-		guard: {
-			needed: () => stopped.current,
-			confirm
-		},
-		onStopped: (now) => stopped.current = now,
-		dialog: /* @__PURE__ */ u(S, { children: [failed && /* @__PURE__ */ u("p", {
-			className: "error",
-			role: "alert",
-			children: failed
-		}), dialog] })
-	};
-}
-var HostContext = X({
-	session: null,
-	signUp: async () => {},
-	signIn: async () => {},
-	signOut: async () => {}
-});
-function useHost() {
-	return x(HostContext);
-}
-var SIGNED_OUT = {
-	signed_in: false,
-	email: null
-};
-function HostProvider({ children }) {
-	const [session, setSession] = d(null);
-	const reload = useSettingsReload();
-	h(() => {
-		getHostSession().then(setSession, (e) => {
-			console.error("Could not read the host sign-in", e);
-			setSession(SIGNED_OUT);
-		});
-	}, []);
-	async function account(kind, email, password) {
-		const started = performance.now();
-		const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
-		console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
-		setSession(signedIn);
-		await reload();
-	}
-	async function signOut() {
-		await signOutAsHost();
-		console.info("Host signed out");
-		setSession(SIGNED_OUT);
-		await reload();
-	}
-	const shared = {
-		session,
-		signUp: (email, password) => account("up", email, password),
-		signIn: (email, password) => account("in", email, password),
-		signOut
-	};
-	return /* @__PURE__ */ u(HostContext.Provider, {
-		value: shared,
-		children
-	});
-}
-function HostLinks({ page }) {
-	const { session, signOut } = useHost();
-	const [busy, setBusy] = d(false);
-	if (!session) return null;
-	if (session.signed_in) {
-		async function leave() {
-			setBusy(true);
-			try {
-				await signOut();
-				window.location.hash = "#/chat";
-			} catch (e) {
-				console.error("Could not sign out as host", e);
-			} finally {
-				setBusy(false);
-			}
-		}
-		return /* @__PURE__ */ u("span", {
-			className: "host-links",
-			children: [
-				/* @__PURE__ */ u("a", {
-					href: "#/resources",
-					className: page === "resources" ? "settings-link current" : "settings-link",
-					children: "Resources"
-				}),
-				/* @__PURE__ */ u("span", {
-					className: "host-email",
-					title: "Signed in as host",
-					children: session.email
-				}),
-				/* @__PURE__ */ u("button", {
-					type: "button",
-					className: "secondary",
-					disabled: busy,
-					onClick: () => void leave(),
-					children: "Sign out"
-				})
-			]
-		});
-	}
-	const link = (to, href, label) => /* @__PURE__ */ u("a", {
-		href,
-		className: page === to ? "settings-link current" : "settings-link",
-		children: label
-	});
-	return /* @__PURE__ */ u("span", {
-		className: "host-links",
-		children: [link("host-sign-up", "#/host/sign-up", "Host sign up"), link("host-sign-in", "#/host/sign-in", "Host sign in")]
-	});
-}
-function HostAccountPage({ kind }) {
-	const { session, signUp, signIn } = useHost();
-	const [email, setEmail] = d("");
-	const [password, setPassword] = d("");
-	const [again, setAgain] = d("");
-	const [busy, setBusy] = d(false);
-	const [error, setError] = d(null);
-	const up = kind === "up";
-	h(() => {
-		setError(null);
-		hostPageOpened(up ? "sign-up" : "sign-in").catch((e) => console.error("Could not log the host page opened", e));
-	}, [up]);
-	function problem() {
-		if (!up) return null;
-		if (password.length < 10) return `The password must be at least 10 characters.`;
-		if (password !== again) return "The two passwords are different.";
-		return null;
-	}
-	async function submit(e) {
-		e.preventDefault();
-		const found = problem();
-		setError(found);
-		if (found) return;
-		setBusy(true);
-		try {
-			await (up ? signUp : signIn)(email, password);
-			window.location.hash = "#/";
-		} catch (err) {
-			console.error(`Could not sign ${kind} as host`, err);
-			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
-		} finally {
-			setBusy(false);
-		}
-	}
-	const title = up ? "Host sign up" : "Host sign in";
-	if (session?.signed_in) return /* @__PURE__ */ u("div", {
-		className: "host-page host-account",
-		children: [/* @__PURE__ */ u("h1", { children: title }), /* @__PURE__ */ u("p", { children: [
-			"You are signed in as host with ",
-			session.email,
-			". ",
-			/* @__PURE__ */ u("a", {
-				href: "#/",
-				children: "Go to the home page"
-			})
-		] })]
-	});
-	return /* @__PURE__ */ u("div", {
-		className: "host-page host-account",
-		children: [
-			/* @__PURE__ */ u("h1", { children: title }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: up ? "Make a host account to set up the person and their content." : "Sign in with the email and password of your host account."
-			}),
-			/* @__PURE__ */ u("form", {
-				onSubmit: (e) => void submit(e),
-				noValidate: true,
-				children: [
-					/* @__PURE__ */ u("label", { children: ["Email", /* @__PURE__ */ u("input", {
-						type: "email",
-						autoComplete: "email",
-						value: email,
-						onInput: (e) => setEmail(e.currentTarget.value)
-					})] }),
-					/* @__PURE__ */ u("label", { children: [
-						"Password",
-						up && ` (at least 10 characters)`,
-						/* @__PURE__ */ u("input", {
-							type: "password",
-							autoComplete: up ? "new-password" : "current-password",
-							value: password,
-							onInput: (e) => setPassword(e.currentTarget.value)
-						})
-					] }),
-					up && /* @__PURE__ */ u("label", { children: ["Password again", /* @__PURE__ */ u("input", {
-						type: "password",
-						autoComplete: "new-password",
-						value: again,
-						onInput: (e) => setAgain(e.currentTarget.value)
-					})] }),
-					error && /* @__PURE__ */ u("p", {
-						className: "error",
-						role: "alert",
-						children: error
-					}),
-					/* @__PURE__ */ u("button", {
-						type: "submit",
-						disabled: busy || email.trim() === "" || password === "",
-						children: up ? "Sign up" : "Sign in"
-					})
-				]
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: up ? /* @__PURE__ */ u(S, { children: ["Already a host? ", /* @__PURE__ */ u("a", {
-					href: "#/host/sign-in",
-					children: "Host sign in"
-				})] }) : /* @__PURE__ */ u(S, { children: ["New here? ", /* @__PURE__ */ u("a", {
-					href: "#/host/sign-up",
-					children: "Host sign up"
-				})] })
-			})
-		]
-	});
-}
-function HostOnlyPage() {
-	h(() => console.info(`Host page refused: ${window.location.hash}`), []);
-	return /* @__PURE__ */ u("div", {
-		className: "host-page host-account",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "For the host only" }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: "This page is for the host, who sets up the person and their content."
-			}),
-			/* @__PURE__ */ u("p", { children: [
-				/* @__PURE__ */ u("a", {
-					className: "button",
-					href: "#/host/sign-in",
-					children: "Host sign in"
-				}),
-				" ",
-				"or ",
-				/* @__PURE__ */ u("a", {
-					href: "#/chat",
-					children: "go to the chat"
-				})
-			] })
-		]
-	});
-}
-//#endregion
 //#region src/chatgpt-plan.tsx
 function ChatGptPlanSection() {
 	const [status, setStatus] = d(null);
@@ -2850,6 +1579,126 @@ function ChatGptPlanSection() {
 			})
 		]
 	});
+}
+//#endregion
+//#region src/confirm-dialog.tsx
+var FOCUSABLE = "button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
+function ConfirmDialog(props) {
+	const { onCancel } = props;
+	const keep = A(null);
+	const box = A(null);
+	const id = g();
+	const cancel = A(onCancel);
+	cancel.current = onCancel;
+	h(() => {
+		const opener = document.activeElement;
+		keep.current?.focus();
+		const inside = (el) => el instanceof Node && !!box.current?.contains(el);
+		const onKey = (e) => {
+			if (e.key === "Escape") {
+				cancel.current();
+				return;
+			}
+			if (e.key !== "Tab" || !box.current) return;
+			const items = Array.from(box.current.querySelectorAll(FOCUSABLE));
+			const first = items[0];
+			const last = items[items.length - 1];
+			const at = document.activeElement;
+			if (!inside(at) || at === (e.shiftKey ? first : last)) {
+				e.preventDefault();
+				(e.shiftKey ? last : first).focus();
+			}
+		};
+		const onFocus = (e) => {
+			if (!inside(e.target)) keep.current?.focus();
+		};
+		document.addEventListener("keydown", onKey);
+		document.addEventListener("focusin", onFocus);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			document.removeEventListener("focusin", onFocus);
+			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+		};
+	}, []);
+	return /* @__PURE__ */ u("div", {
+		className: "confirm-backdrop",
+		onClick: (e) => e.target === e.currentTarget && onCancel(),
+		children: /* @__PURE__ */ u("div", {
+			className: "confirm-dialog",
+			role: "alertdialog",
+			"aria-modal": "true",
+			ref: box,
+			"aria-labelledby": `${id}-title`,
+			"aria-describedby": props.children ? `${id}-about` : void 0,
+			children: [
+				/* @__PURE__ */ u("h2", {
+					id: `${id}-title`,
+					children: props.title
+				}),
+				props.children && /* @__PURE__ */ u("div", {
+					id: `${id}-about`,
+					children: props.children
+				}),
+				/* @__PURE__ */ u("div", {
+					className: "confirm-buttons",
+					children: [
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							ref: keep,
+							onClick: onCancel,
+							children: props.keepLabel
+						}),
+						props.otherLabel && /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							onClick: props.onOther,
+							children: props.otherLabel
+						}),
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "danger",
+							onClick: props.onConfirm,
+							children: props.confirmLabel
+						})
+					]
+				})
+			]
+		})
+	});
+}
+function useConfirm() {
+	const [asking, setAsking] = d(null);
+	function choose(question) {
+		return new Promise((resolve) => {
+			setAsking({
+				question,
+				answer: (answer) => {
+					const said = {
+						cancel: "cancelled",
+						other: question.otherLabel,
+						confirm: "confirmed"
+					};
+					console.info(`${question.title} ${said[answer]}`);
+					setAsking(null);
+					resolve(answer);
+				}
+			});
+		});
+	}
+	async function ask(question) {
+		return await choose(question) === "confirm";
+	}
+	return {
+		ask,
+		choose,
+		dialog: asking && /* @__PURE__ */ u(ConfirmDialog, {
+			...asking.question,
+			onCancel: () => asking.answer("cancel"),
+			onConfirm: () => asking.answer("confirm"),
+			onOther: () => asking.answer("other")
+		})
+	};
 }
 //#endregion
 //#region src/progress.ts
@@ -3312,6 +2161,47 @@ function VideoAndChat() {
 	});
 }
 //#endregion
+//#region src/checks.tsx
+function Checks({ item, queue }) {
+	const { problems, score, speech } = item;
+	const what = item.kind === "photos" ? "photo" : "recording";
+	if (queue === 0) return /* @__PURE__ */ u("span", {
+		className: "muted check busy",
+		children: [
+			"Checking ",
+			what,
+			"…"
+		]
+	});
+	if (queue > 0) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Waiting to check"
+	});
+	if (problems == null) return /* @__PURE__ */ u("span", {
+		className: "muted check",
+		children: "Not checked"
+	});
+	if (problems.length === 0) return /* @__PURE__ */ u("span", {
+		className: "done check",
+		children: [
+			"Looks good",
+			score !== null && ` · score ${score} of 100`,
+			speech !== null && ` · ${minutes$1(speech)} of speech`
+		]
+	});
+	return /* @__PURE__ */ u("ul", {
+		className: "problems",
+		children: problems.map((p) => /* @__PURE__ */ u("li", {
+			className: "error",
+			children: p
+		}, p))
+	});
+}
+function minutes$1(seconds) {
+	const whole = Math.round(seconds);
+	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+//#endregion
 //#region src/your-files.tsx
 async function readInUse() {
 	if (!(await getConsent()).agreed) return {
@@ -3469,7 +2359,7 @@ function YourFiles() {
 						}),
 						/* @__PURE__ */ u("span", {
 							className: "name",
-							children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
+							children: [item.name, item.seconds !== null && ` (${minutes$1(item.seconds)})`]
 						}),
 						isDropped(item) && /* @__PURE__ */ u("span", {
 							className: "muted check",
@@ -3755,6 +2645,1854 @@ function SettingsPage({ back, onDataDeleted }) {
 			}) })
 		]
 	});
+}
+var HostContext = X({
+	session: null,
+	signUp: async () => {},
+	signIn: async () => {},
+	signOut: async () => {}
+});
+function useHost() {
+	return x(HostContext);
+}
+var SIGNED_OUT = {
+	signed_in: false,
+	email: null
+};
+function HostProvider({ children }) {
+	const [session, setSession] = d(null);
+	const reload = useSettingsReload();
+	h(() => {
+		getHostSession().then(setSession, (e) => {
+			console.error("Could not read the host sign-in", e);
+			setSession(SIGNED_OUT);
+		});
+	}, []);
+	async function account(kind, email, password) {
+		const started = performance.now();
+		const signedIn = await (kind === "up" ? signUpAsHost : signInAsHost)(email, password);
+		console.info(`Host signed ${kind} (${Math.round(performance.now() - started)} ms)`);
+		setSession(signedIn);
+		await reload();
+	}
+	async function signOut() {
+		await signOutAsHost();
+		console.info("Host signed out");
+		setSession(SIGNED_OUT);
+		await reload();
+	}
+	const shared = {
+		session,
+		signUp: (email, password) => account("up", email, password),
+		signIn: (email, password) => account("in", email, password),
+		signOut
+	};
+	return /* @__PURE__ */ u(HostContext.Provider, {
+		value: shared,
+		children
+	});
+}
+function HostLinks({ page }) {
+	const { session, signOut } = useHost();
+	const [busy, setBusy] = d(false);
+	if (!session) return null;
+	if (session.signed_in) {
+		async function leave() {
+			setBusy(true);
+			try {
+				await signOut();
+				window.location.hash = "#/chat";
+			} catch (e) {
+				console.error("Could not sign out as host", e);
+			} finally {
+				setBusy(false);
+			}
+		}
+		return /* @__PURE__ */ u("span", {
+			className: "host-links",
+			children: [
+				/* @__PURE__ */ u("a", {
+					href: "#/resources",
+					className: page === "resources" ? "settings-link current" : "settings-link",
+					children: "Resources"
+				}),
+				/* @__PURE__ */ u("span", {
+					className: "host-email",
+					title: "Signed in as host",
+					children: session.email
+				}),
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					disabled: busy,
+					onClick: () => void leave(),
+					children: "Sign out"
+				})
+			]
+		});
+	}
+	const link = (to, href, label) => /* @__PURE__ */ u("a", {
+		href,
+		className: page === to ? "settings-link current" : "settings-link",
+		children: label
+	});
+	return /* @__PURE__ */ u("span", {
+		className: "host-links",
+		children: [link("host-sign-up", "#/host/sign-up", "Host sign up"), link("host-sign-in", "#/host/sign-in", "Host sign in")]
+	});
+}
+function HostAccountPage({ kind }) {
+	const { session, signUp, signIn } = useHost();
+	const [email, setEmail] = d("");
+	const [password, setPassword] = d("");
+	const [again, setAgain] = d("");
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d(null);
+	const up = kind === "up";
+	h(() => {
+		setError(null);
+		hostPageOpened(up ? "sign-up" : "sign-in").catch((e) => console.error("Could not log the host page opened", e));
+	}, [up]);
+	function problem() {
+		if (!up) return null;
+		if (password.length < 10) return `The password must be at least 10 characters.`;
+		if (password !== again) return "The two passwords are different.";
+		return null;
+	}
+	async function submit(e) {
+		e.preventDefault();
+		const found = problem();
+		setError(found);
+		if (found) return;
+		setBusy(true);
+		try {
+			await (up ? signUp : signIn)(email, password);
+			window.location.hash = "#/";
+		} catch (err) {
+			console.error(`Could not sign ${kind} as host`, err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	const title = up ? "Host sign up" : "Host sign in";
+	if (session?.signed_in) return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [/* @__PURE__ */ u("h1", { children: title }), /* @__PURE__ */ u("p", { children: [
+			"You are signed in as host with ",
+			session.email,
+			". ",
+			/* @__PURE__ */ u("a", {
+				href: "#/",
+				children: "Go to the home page"
+			})
+		] })]
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: title }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: up ? "Make a host account to set up the person and their content." : "Sign in with the email and password of your host account."
+			}),
+			/* @__PURE__ */ u("form", {
+				onSubmit: (e) => void submit(e),
+				noValidate: true,
+				children: [
+					/* @__PURE__ */ u("label", { children: ["Email", /* @__PURE__ */ u("input", {
+						type: "email",
+						autoComplete: "email",
+						value: email,
+						onInput: (e) => setEmail(e.currentTarget.value)
+					})] }),
+					/* @__PURE__ */ u("label", { children: [
+						"Password",
+						up && ` (at least 10 characters)`,
+						/* @__PURE__ */ u("input", {
+							type: "password",
+							autoComplete: up ? "new-password" : "current-password",
+							value: password,
+							onInput: (e) => setPassword(e.currentTarget.value)
+						})
+					] }),
+					up && /* @__PURE__ */ u("label", { children: ["Password again", /* @__PURE__ */ u("input", {
+						type: "password",
+						autoComplete: "new-password",
+						value: again,
+						onInput: (e) => setAgain(e.currentTarget.value)
+					})] }),
+					error && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: error
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy || email.trim() === "" || password === "",
+						children: up ? "Sign up" : "Sign in"
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: up ? /* @__PURE__ */ u(S, { children: ["Already a host? ", /* @__PURE__ */ u("a", {
+					href: "#/host/sign-in",
+					children: "Host sign in"
+				})] }) : /* @__PURE__ */ u(S, { children: ["New here? ", /* @__PURE__ */ u("a", {
+					href: "#/host/sign-up",
+					children: "Host sign up"
+				})] })
+			})
+		]
+	});
+}
+function HostOnlyPage() {
+	h(() => console.info(`Host page refused: ${window.location.hash}`), []);
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "For the host only" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "This page is for the host, who sets up the person and their content."
+			}),
+			/* @__PURE__ */ u("p", { children: [
+				/* @__PURE__ */ u("a", {
+					className: "button",
+					href: "#/host/sign-in",
+					children: "Host sign in"
+				}),
+				" ",
+				"or ",
+				/* @__PURE__ */ u("a", {
+					href: "#/chat",
+					children: "go to the chat"
+				})
+			] })
+		]
+	});
+}
+//#endregion
+//#region src/customization.tsx
+var IDENTITY$1 = [
+	[
+		"name",
+		"Name",
+		"Said first to \"Who are you?\": I'm …"
+	],
+	[
+		"speaks_as",
+		"Speaks as",
+		"Told to the LLM only."
+	],
+	[
+		"purpose",
+		"Purpose",
+		"My purpose is …"
+	],
+	[
+		"audience",
+		"Who it is for",
+		"I'm here for …"
+	],
+	[
+		"helps_with",
+		"What it can help with",
+		"I can help with …"
+	]
+];
+var SAVED$1 = "Saved. It is used from the next prompt.";
+var SAVED_EVENT = "customization-saved";
+function useSave(announce = true, name = "Customization") {
+	const [busy, setBusy] = d(false);
+	const [said, setSaid] = d(null);
+	async function run(part, save) {
+		setBusy(true);
+		setSaid(null);
+		const started = performance.now();
+		try {
+			const saved = await save();
+			console.info(`${name} saved: ${part} (${Math.round(performance.now() - started)} ms)`);
+			setSaid({
+				ok: true,
+				text: SAVED$1
+			});
+			if (announce) window.dispatchEvent(new Event(SAVED_EVENT));
+			return saved;
+		} catch (e) {
+			console.error(`Could not save the ${name.toLowerCase()}: ${part}`, e);
+			setSaid({
+				ok: false,
+				text: e instanceof ServerRefusal ? e.message : "Could not save. Try again."
+			});
+			return null;
+		} finally {
+			setBusy(false);
+		}
+	}
+	return {
+		busy,
+		run,
+		status: said && /* @__PURE__ */ u("p", {
+			className: said.ok ? "notice" : "error",
+			role: "status",
+			children: said.text
+		}),
+		changed: () => setSaid(null)
+	};
+}
+function IdentitySection$1({ identity }) {
+	const [fields, setFields] = d(identity);
+	const { busy, run, status, changed } = useSave();
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-identity",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-identity",
+				children: "Identity"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Who the person in the video is. \"Who are you?\" is answered from it."
+			}),
+			/* @__PURE__ */ u("form", {
+				className: "customization-edit",
+				onSubmit: (e) => {
+					e.preventDefault();
+					run("identity", () => saveIdentity(fields)).then((saved) => {
+						if (saved) setFields(saved.identity);
+					});
+				},
+				children: [
+					IDENTITY$1.map(([key, label, about]) => /* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
+						className: "muted",
+						children: [" · ", about]
+					})] }), /* @__PURE__ */ u("input", {
+						value: fields[key],
+						readOnly: busy,
+						onInput: (e) => {
+							changed();
+							setFields({
+								...fields,
+								[key]: e.currentTarget.value
+							});
+						}
+					})] }, key)),
+					status,
+					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy,
+						children: "Save the identity"
+					}) })
+				]
+			})
+		]
+	});
+}
+function GoalsSection$1({ goals }) {
+	const [text, setText] = d(goals.join("\n"));
+	const { busy, run, status, changed } = useSave();
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-goals",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-goals",
+				children: "Goals"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "What every reply aims for, one goal on each line."
+			}),
+			/* @__PURE__ */ u("form", {
+				className: "customization-edit",
+				onSubmit: (e) => {
+					e.preventDefault();
+					run("goals", () => saveGoals(text.split("\n"))).then((saved) => {
+						if (saved) setText(saved.goals.join("\n"));
+					});
+				},
+				children: [
+					/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", {
+						className: "sr-only",
+						children: "Goals"
+					}), /* @__PURE__ */ u("textarea", {
+						rows: 4,
+						value: text,
+						readOnly: busy,
+						onInput: (e) => {
+							changed();
+							setText(e.currentTarget.value);
+						}
+					})] }),
+					status,
+					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy,
+						children: "Save the goals"
+					}) })
+				]
+			})
+		]
+	});
+}
+function FeatureGuidelines$1({ feature }) {
+	const [shown, setShown] = d(feature);
+	const [text, setText] = d(feature.text);
+	const { busy, run, status, changed } = useSave();
+	function save(value) {
+		run(`guidelines ${shown.key}`, () => saveGuidelines(shown.key, value)).then((saved) => {
+			const now = saved?.features.find((f) => f.key === shown.key);
+			if (now) {
+				setShown(now);
+				setText(now.text);
+			}
+		});
+	}
+	return /* @__PURE__ */ u("form", {
+		className: "customization-edit guideline",
+		"aria-label": shown.label,
+		onSubmit: (e) => {
+			e.preventDefault();
+			save(text);
+		},
+		children: [
+			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [
+				shown.label,
+				!shown.edited && /* @__PURE__ */ u("span", {
+					className: "muted",
+					children: " · as shipped"
+				}),
+				shown.generated && /* @__PURE__ */ u("span", {
+					className: "muted",
+					children: " · drafted by the LLM"
+				})
+			] }), /* @__PURE__ */ u("textarea", {
+				rows: 4,
+				value: text,
+				readOnly: busy,
+				onInput: (e) => {
+					changed();
+					setText(e.currentTarget.value);
+				}
+			})] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: [
+					shown.changes,
+					" ",
+					shown.stays
+				]
+			}),
+			status,
+			/* @__PURE__ */ u("p", { children: [
+				/* @__PURE__ */ u("button", {
+					type: "submit",
+					disabled: busy,
+					children: "Save"
+				}),
+				" ",
+				/* @__PURE__ */ u("button", {
+					type: "button",
+					className: "secondary",
+					disabled: busy || !shown.edited,
+					onClick: () => save(null),
+					children: "Set back to how it shipped"
+				})
+			] })
+		]
+	});
+}
+var SECTION_ABOUT = {
+	Guidelines: "How each feature writes what it says.",
+	Assessment: "How the assessment writes its questions and judges the answers.",
+	"Level of detail": "What the Level of detail bar on the chat screen asks of each reply, from High level to In depth."
+};
+function sections$1(features) {
+	const grouped = /* @__PURE__ */ new Map();
+	for (const feature of features) {
+		const section = feature.section || "Guidelines";
+		grouped.set(section, [...grouped.get(section) ?? [], feature]);
+	}
+	return [...grouped.entries()];
+}
+function GuidelineSection({ name, features }) {
+	const id = `customization-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`;
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": id,
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id,
+				children: name
+			}),
+			SECTION_ABOUT[name] && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: SECTION_ABOUT[name]
+			}),
+			features.length ? features.map((feature) => /* @__PURE__ */ u(FeatureGuidelines$1, { feature }, feature.key)) : /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "No feature has guidelines to edit yet."
+			})
+		]
+	});
+}
+var DRAFTED_IDENTITY = [
+	["name", "Name"],
+	["purpose", "Purpose"],
+	["audience", "Who it is for"],
+	["helps_with", "What it can help with"]
+];
+function draftRows(now, { draft, drafted }) {
+	const textOf = (c, key) => c.features.find((f) => f.key === key)?.text ?? "";
+	return [
+		...DRAFTED_IDENTITY.map(([key, label]) => [
+			label,
+			now.identity[key],
+			draft.identity[key]
+		]),
+		[
+			"Goals",
+			now.goals.join("\n"),
+			draft.goals.join("\n")
+		],
+		...draft.features.filter((f) => drafted.includes(f.key)).map((f) => [
+			f.label,
+			textOf(now, f.key),
+			f.text
+		])
+	];
+}
+function GenerateSection({ now, onSaved }) {
+	const [draft, setDraft] = d(null);
+	const [writing, setWriting] = d(false);
+	const [error, setError] = d(null);
+	const { busy, run, status, changed } = useSave();
+	async function generate() {
+		setWriting(true);
+		setError(null);
+		changed();
+		const started = performance.now();
+		try {
+			setDraft(await generateDraft());
+			console.info(`Customization draft made (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error("Could not make a customization draft", e);
+			setError(e instanceof ServerRefusal ? e.message : "A draft could not be made. Try again.");
+		} finally {
+			setWriting(false);
+		}
+	}
+	function discard() {
+		setDraft(null);
+		discardDraft().catch((e) => console.error("Could not discard the draft", e));
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-generate",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-generate",
+				children: "Generate again"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The LLM drafts the identity, the goals and every feature's guidelines you haven't changed, from the person and the content. Guidelines you changed are left alone. Only Save keeps the draft."
+			}),
+			!draft && /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				disabled: writing,
+				onClick: () => void generate(),
+				children: "Generate again"
+			}) }),
+			writing && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Writing a draft. This can take up to two minutes…"
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			draft && /* @__PURE__ */ u("div", {
+				className: "customization-draft",
+				children: [
+					/* @__PURE__ */ u("table", { children: [/* @__PURE__ */ u("thead", { children: /* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("th", {
+							scope: "col",
+							children: "Part"
+						}),
+						/* @__PURE__ */ u("th", {
+							scope: "col",
+							children: "Now"
+						}),
+						/* @__PURE__ */ u("th", {
+							scope: "col",
+							children: "Draft"
+						})
+					] }) }), /* @__PURE__ */ u("tbody", { children: draftRows(now, draft).map(([label, current, drafted]) => /* @__PURE__ */ u("tr", { children: [
+						/* @__PURE__ */ u("th", {
+							scope: "row",
+							children: label
+						}),
+						/* @__PURE__ */ u("td", {
+							className: "muted",
+							children: current
+						}),
+						/* @__PURE__ */ u("td", { children: drafted })
+					] }, label)) })] }),
+					status,
+					/* @__PURE__ */ u("p", { children: [
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							disabled: busy,
+							onClick: () => void run("draft", () => saveDraft(draft)).then((saved) => {
+								if (saved) {
+									setDraft(null);
+									onSaved(saved);
+								}
+							}),
+							children: "Save the draft"
+						}),
+						" ",
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							disabled: busy,
+							onClick: discard,
+							children: "Discard"
+						})
+					] })
+				]
+			})
+		]
+	});
+}
+var MADE_BY = {
+	shipped: "As shipped",
+	generated: "Drafted by the LLM",
+	saved: "Saved"
+};
+function preview(change) {
+	const { value } = change;
+	if (value === null) return "As shipped.";
+	if (typeof value === "string") return value || "Empty.";
+	if (Array.isArray(value)) return value.join(" ") || "No goals.";
+	return [
+		"name",
+		"purpose",
+		"audience",
+		"helps_with"
+	].map((k) => value[k]).filter(Boolean).join(" · ") || "Empty.";
+}
+function when$1(at) {
+	const date = new Date(at);
+	return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
+}
+function editorOf(prefix, part, label) {
+	if (part === "identity" || part === "goals") return document.getElementById(`${prefix}-${part}`) ?? void 0;
+	return Array.from(document.querySelectorAll("form")).find((f) => f.getAttribute("aria-label") === label);
+}
+function Comparison({ h, shown, onHide }) {
+	return /* @__PURE__ */ u("div", {
+		className: "customization-compare",
+		role: "region",
+		"aria-label": `${h.label} compared`,
+		children: [
+			/* @__PURE__ */ u("p", { children: [/* @__PURE__ */ u("strong", { children: [
+				"Change ",
+				shown.earlier,
+				" beside change ",
+				shown.current,
+				" (in use)"
+			] }), /* @__PURE__ */ u("span", {
+				className: "muted",
+				children: " · added text is marked, removed text is struck through"
+			})] }),
+			/* @__PURE__ */ u("p", {
+				className: "compare-text",
+				children: shown.runs.map((r, i) => r.kind === "added" ? /* @__PURE__ */ u("ins", { children: r.text }, i) : r.kind === "removed" ? /* @__PURE__ */ u("del", { children: r.text }, i) : /* @__PURE__ */ u("span", { children: r.text }, i))
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: onHide,
+				children: "Hide the comparison"
+			}) })
+		]
+	});
+}
+var CUSTOMIZATION_HISTORY = {
+	name: "Customization",
+	idPrefix: "customization",
+	madeBy: MADE_BY,
+	load: getCustomizationHistory,
+	restore: restoreCustomizationChange,
+	compare: compareCustomizationChange
+};
+function HistorySection({ source, onRestored }) {
+	const [histories, setHistories] = d(null);
+	const [open, setOpen] = d(false);
+	const [error, setError] = d(null);
+	const [comparison, setComparison] = d(null);
+	const asked = A(0);
+	function dropComparison() {
+		asked.current += 1;
+		setComparison(null);
+		setCompareError(null);
+	}
+	const [compareError, setCompareError] = d(null);
+	const { busy, run, status, changed } = useSave(false, source.name);
+	h(() => {
+		function hide() {
+			setOpen((was) => {
+				if (was) console.info(`${source.name} history hidden after a save`);
+				return false;
+			});
+		}
+		window.addEventListener(SAVED_EVENT, hide);
+		return () => window.removeEventListener(SAVED_EVENT, hide);
+	}, []);
+	async function load(opened) {
+		setError(null);
+		const started = performance.now();
+		try {
+			const got = await source.load(opened);
+			setHistories(got);
+			console.info(`${source.name} history shown: ${got.length} parts (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error(`Could not read the ${source.name.toLowerCase()} history`, e);
+			setError("The history could not be read. Try again.");
+		}
+	}
+	function toggle() {
+		changed();
+		dropComparison();
+		if (open) {
+			setOpen(false);
+			return;
+		}
+		setOpen(true);
+		load(true);
+	}
+	async function compare(h, number) {
+		if (!source.compare) return;
+		dropComparison();
+		const mine = asked.current;
+		const started = performance.now();
+		try {
+			const got = await source.compare(h.part, number);
+			if (mine !== asked.current) {
+				console.info(`${source.name} comparison dropped: ${h.label}, change ${number}, as another was asked for`);
+				return;
+			}
+			setComparison(got);
+			console.info(`${source.name} compared: ${h.label}, change ${number} with ${h.current} (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			if (mine !== asked.current) return;
+			console.error("Could not compare the changes", e);
+			setCompareError({
+				part: h.part,
+				text: e instanceof ServerRefusal ? e.message : "They could not be compared. Try again."
+			});
+		}
+	}
+	async function goBack(h, number) {
+		dropComparison();
+		const saved = await run(`${h.label} back to change ${number}`, () => source.restore(h.part, number));
+		if (saved) {
+			console.info(`${source.name} restored: ${h.label}, change ${number}`);
+			onRestored(saved);
+			await load(false);
+		}
+	}
+	function edit(h) {
+		editorOf(source.idPrefix, h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "customization-history",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "customization-history",
+				children: "History"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Each part keeps its own changes. Go back makes an earlier change the one in use for that part only, and adds no change; editing it after adds one."
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				"aria-expanded": open,
+				onClick: toggle,
+				children: open ? "Hide the history" : "History"
+			}) }),
+			open && error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			open && !error && histories === null && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			}),
+			open && histories?.length === 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Nothing has been changed yet. Each change from now on is kept here."
+			}),
+			open && histories?.map((h) => /* @__PURE__ */ u("div", {
+				className: "customization-history",
+				role: "group",
+				"aria-label": h.label,
+				children: [
+					/* @__PURE__ */ u("h3", { children: h.label }),
+					/* @__PURE__ */ u("ol", {
+						reversed: true,
+						children: h.changes.map((c) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("span", { children: [
+							/* @__PURE__ */ u("strong", { children: ["Change ", c.number] }),
+							c.number === h.current && " (in use)",
+							" · ",
+							source.madeBy[c.made_by],
+							/* @__PURE__ */ u("span", {
+								className: "muted",
+								children: [" · ", when$1(c.made_at)]
+							}),
+							/* @__PURE__ */ u("span", {
+								className: "change-preview",
+								children: preview(c)
+							})
+						] }), c.number === h.current ? /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							onClick: () => edit(h),
+							children: "Edit"
+						}) : /* @__PURE__ */ u("span", {
+							className: "change-actions",
+							children: [source.compare && /* @__PURE__ */ u("button", {
+								type: "button",
+								className: "secondary",
+								"aria-label": `Compare ${h.label} change ${c.number} with the change in use`,
+								onClick: () => void compare(h, c.number),
+								children: "Compare"
+							}), /* @__PURE__ */ u("button", {
+								type: "button",
+								disabled: busy,
+								"aria-label": `Go back to ${h.label} change ${c.number}`,
+								onClick: () => void goBack(h, c.number),
+								children: "Go back"
+							})]
+						})] }, c.number))
+					}),
+					comparison?.part === h.part && /* @__PURE__ */ u(Comparison, {
+						h,
+						shown: comparison,
+						onHide: dropComparison
+					}),
+					compareError?.part === h.part && /* @__PURE__ */ u("p", {
+						className: "error",
+						children: compareError.text
+					})
+				]
+			}, h.part)),
+			open && status
+		]
+	});
+}
+function CustomizationPage() {
+	const session = useHost().session;
+	const host = session?.signed_in === true;
+	const [read, setRead] = d(null);
+	const [saves, setSaves] = d(0);
+	const [failed, setFailed] = d(false);
+	h(() => {
+		if (!host) return;
+		getCustomization(true).then((got) => {
+			setRead(got);
+			console.info(`Customization page opened: shipped=${got.shipped}`);
+		}, (e) => {
+			console.error("Could not read the customization", e);
+			setFailed(true);
+		});
+	}, [host]);
+	if (session === null) return /* @__PURE__ */ u("p", { children: "Loading…" });
+	if (!host) return /* @__PURE__ */ u(HostOnlyPage, {});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page customization-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Customization" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Who the person in the video is, what they aim for, and how each feature answers, given to the LLM with every prompt."
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "The administrator's requirements, if any, come before yours."
+			}),
+			failed && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: "The customization could not be read. Reload to try again."
+			}),
+			!failed && read === null && /* @__PURE__ */ u("p", {
+				className: "muted busy",
+				children: "Loading…"
+			}),
+			read && /* @__PURE__ */ u(S, { children: [
+				/* @__PURE__ */ u(GenerateSection, {
+					now: read,
+					onSaved: (saved) => {
+						setRead({
+							...saved,
+							shipped: false
+						});
+						setSaves((n) => n + 1);
+					}
+				}),
+				/* @__PURE__ */ u(HistorySection, {
+					source: CUSTOMIZATION_HISTORY,
+					onRestored: (saved) => {
+						setRead({
+							...saved,
+							shipped: false
+						});
+						setSaves((n) => n + 1);
+					}
+				}),
+				/* @__PURE__ */ u(IdentitySection$1, { identity: read.identity }, `identity-${saves}`),
+				/* @__PURE__ */ u(GoalsSection$1, { goals: read.goals }, `goals-${saves}`),
+				read.features.length ? sections$1(read.features).map(([name, features]) => /* @__PURE__ */ u(GuidelineSection, {
+					name,
+					features
+				}, `${name}-${saves}`)) : /* @__PURE__ */ u(GuidelineSection, {
+					name: "Guidelines",
+					features: []
+				})
+			] })
+		]
+	});
+}
+//#endregion
+//#region src/admin-guidelines.tsx
+var IDENTITY = [
+	["name", "Name"],
+	["speaks_as", "Speaks as"],
+	["purpose", "Purpose"],
+	["audience", "Who it is for"],
+	["helps_with", "What it can help with"]
+];
+var SAVED = "Saved. It is followed first from the next prompt, for every host.";
+var CLEARED = "Cleared. The host's are followed alone from the next prompt.";
+function editOf(read) {
+	return {
+		identity: read.identity,
+		goals: read.goals,
+		guidelines: read.guidelines
+	};
+}
+function usePart(save) {
+	const [busy, setBusy] = d(false);
+	const [said, setSaid] = d(null);
+	async function run(part, change, done = SAVED) {
+		setBusy(true);
+		setSaid(null);
+		const saved = await save(part, change);
+		setBusy(false);
+		setSaid(saved ? done : null);
+		if (saved) window.dispatchEvent(new Event(SAVED_EVENT));
+		return saved;
+	}
+	return {
+		busy,
+		run,
+		status: said && /* @__PURE__ */ u("p", {
+			className: "notice",
+			role: "status",
+			children: said
+		}),
+		changed: () => setSaid(null)
+	};
+}
+function Buttons({ busy, part, empty, onClear }) {
+	return /* @__PURE__ */ u("p", { children: [
+		/* @__PURE__ */ u("button", {
+			type: "submit",
+			disabled: busy,
+			children: part ? `Save ${part}` : "Save"
+		}),
+		" ",
+		/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: busy || empty,
+			onClick: onClear,
+			children: part ? `Clear ${part}` : "Clear"
+		})
+	] });
+}
+function IdentitySection({ identity, save }) {
+	const [fields, setFields] = d(identity);
+	const [kept, setKept] = d(identity);
+	const { busy, run, status, changed } = usePart(save);
+	const blank = Object.fromEntries(IDENTITY.map(([k]) => [k, ""]));
+	function put(value, done) {
+		run("identity", { identity: value }, done).then((saved) => {
+			if (saved) {
+				setFields(saved.identity);
+				setKept(saved.identity);
+			}
+		});
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "admin-guidelines-identity",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "admin-guidelines-identity",
+				children: "Identity"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Told to the LLM before the host's identity. \"Who are you?\" is still answered from the host's."
+			}),
+			/* @__PURE__ */ u("form", {
+				className: "customization-edit",
+				onSubmit: (e) => {
+					e.preventDefault();
+					put(fields);
+				},
+				children: [
+					IDENTITY.map(([key, label]) => /* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: label }), /* @__PURE__ */ u("input", {
+						value: fields[key],
+						readOnly: busy,
+						onInput: (e) => {
+							changed();
+							setFields({
+								...fields,
+								[key]: e.currentTarget.value
+							});
+						}
+					})] }, key)),
+					status,
+					/* @__PURE__ */ u(Buttons, {
+						busy,
+						part: "the identity",
+						empty: !Object.values(kept).some(Boolean),
+						onClear: () => put(blank, CLEARED)
+					})
+				]
+			})
+		]
+	});
+}
+function GoalsSection({ goals, save }) {
+	const [text, setText] = d(goals.join("\n"));
+	const [kept, setKept] = d(goals);
+	const { busy, run, status, changed } = usePart(save);
+	function put(value, done) {
+		run("goals", { goals: value }, done).then((saved) => {
+			if (saved) {
+				setText(saved.goals.join("\n"));
+				setKept(saved.goals);
+			}
+		});
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "admin-guidelines-goals",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "admin-guidelines-goals",
+				children: "Goals"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "What every reply aims for first, one goal on each line."
+			}),
+			/* @__PURE__ */ u("form", {
+				className: "customization-edit",
+				onSubmit: (e) => {
+					e.preventDefault();
+					put(text.split("\n"));
+				},
+				children: [
+					/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", {
+						className: "sr-only",
+						children: "Goals"
+					}), /* @__PURE__ */ u("textarea", {
+						rows: 4,
+						value: text,
+						readOnly: busy,
+						onInput: (e) => {
+							changed();
+							setText(e.currentTarget.value);
+						}
+					})] }),
+					status,
+					/* @__PURE__ */ u(Buttons, {
+						busy,
+						part: "the goals",
+						empty: kept.length === 0,
+						onClear: () => put([], CLEARED)
+					})
+				]
+			})
+		]
+	});
+}
+function FeatureGuidelines({ feature, save }) {
+	const [text, setText] = d(feature.text);
+	const [kept, setKept] = d(feature.text);
+	const { busy, run, status, changed } = usePart(save);
+	function put(value, done) {
+		run(`guidelines ${feature.key}`, { guidelines: { [feature.key]: value } }, done).then((saved) => {
+			if (saved) {
+				const now = saved.guidelines[feature.key] ?? "";
+				setText(now);
+				setKept(now);
+			}
+		});
+	}
+	return /* @__PURE__ */ u("form", {
+		className: "customization-edit guideline",
+		"aria-label": feature.label,
+		onSubmit: (e) => {
+			e.preventDefault();
+			put(text);
+		},
+		children: [
+			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [feature.label, !kept && /* @__PURE__ */ u("span", {
+				className: "muted",
+				children: " · none"
+			})] }), /* @__PURE__ */ u("textarea", {
+				rows: 3,
+				value: text,
+				readOnly: busy,
+				onInput: (e) => {
+					changed();
+					setText(e.currentTarget.value);
+				}
+			})] }),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: feature.changes
+			}),
+			status,
+			/* @__PURE__ */ u(Buttons, {
+				busy,
+				empty: !kept,
+				onClear: () => put("", CLEARED)
+			})
+		]
+	});
+}
+function sections(features) {
+	const grouped = /* @__PURE__ */ new Map();
+	for (const f of features) grouped.set(f.section, [...grouped.get(f.section) ?? [], f]);
+	return [...grouped.entries()];
+}
+function AdminGuidelinesPage() {
+	const { refresh } = useAdmin();
+	const [read, setRead] = d(null);
+	const [error, setError] = d(null);
+	const last = A(null);
+	const [restores, setRestores] = d(0);
+	h(() => {
+		const started = performance.now();
+		getAdminGuidelines().then((got) => {
+			console.info(`Admin guidelines shown (${Math.round(performance.now() - started)} ms)`);
+			last.current = got;
+			setRead(got);
+		}).catch(async (e) => {
+			console.error("Could not read the admin guidelines", e);
+			if (e instanceof ServerRefusal && e.status === 401) return refresh();
+			setError("The admin guidelines could not be read. Reload the page to try again.");
+		});
+	}, []);
+	const queue = A(Promise.resolve());
+	function inTurn(run) {
+		const next = queue.current.then(run);
+		queue.current = next.catch(() => void 0);
+		return next;
+	}
+	const save = (part, change) => inTurn(() => saveNow(part, change));
+	const history = {
+		name: "Admin guidelines",
+		idPrefix: "admin-guidelines",
+		madeBy: {
+			shipped: "Empty at first",
+			generated: "Drafted by the LLM",
+			saved: "Saved"
+		},
+		load: getAdminGuidelinesHistory,
+		restore: (part, number) => inTurn(async () => {
+			try {
+				const restored = await restoreAdminGuidelinesChange(part, number);
+				last.current = restored;
+				return restored;
+			} catch (e) {
+				if (e instanceof ServerRefusal && e.status === 401) await refresh();
+				throw e;
+			}
+		})
+	};
+	async function saveNow(part, change) {
+		if (!last.current) return null;
+		setError(null);
+		const started = performance.now();
+		const before = editOf(last.current);
+		try {
+			const saved = await saveAdminGuidelines({
+				...before,
+				...change,
+				guidelines: {
+					...before.guidelines,
+					...change.guidelines
+				}
+			});
+			last.current = saved;
+			console.info(`Admin guidelines saved: ${part} (${Math.round(performance.now() - started)} ms)`);
+			setRead(saved);
+			return saved;
+		} catch (e) {
+			console.error(`Could not save the admin guidelines: ${part}`, e);
+			if (e instanceof ServerRefusal && e.status === 401) {
+				await refresh();
+				return null;
+			}
+			setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
+			return null;
+		}
+	}
+	if (!read) return error ? /* @__PURE__ */ u("p", {
+		className: "error",
+		children: error
+	}) : /* @__PURE__ */ u("p", {
+		className: "muted busy",
+		children: "Reading the admin guidelines…"
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "admin-guidelines",
+		children: [
+			/* @__PURE__ */ u("p", {
+				className: "notice",
+				children: "These come first, over every host's: the LLM follows them first, and a host's identity, goals and guidelines only where they don't conflict. Hosts can't see or change them. Empty parts add nothing."
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				role: "alert",
+				children: error
+			}),
+			/* @__PURE__ */ u(HistorySection, {
+				source: history,
+				onRestored: (restored) => {
+					setRead(restored);
+					setRestores((n) => n + 1);
+				}
+			}),
+			/* @__PURE__ */ u(IdentitySection, {
+				identity: read.identity,
+				save
+			}, `identity-${restores}`),
+			/* @__PURE__ */ u(GoalsSection, {
+				goals: read.goals,
+				save
+			}, `goals-${restores}`),
+			sections(read.features).map(([name, features]) => /* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": `admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+				children: [/* @__PURE__ */ u("h2", {
+					id: `admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+					children: name
+				}), features.map((f) => /* @__PURE__ */ u(FeatureGuidelines, {
+					feature: f,
+					save
+				}, f.key))]
+			}, `${name}-${restores}`))
+		]
+	});
+}
+//#endregion
+//#region src/laptop-key.ts
+var DB = "imageskin-laptop";
+var STORE = "keys";
+var KEY = "laptop";
+function request(r) {
+	return new Promise((resolve, reject) => {
+		r.onsuccess = () => resolve(r.result);
+		r.onerror = () => reject(r.error ?? /* @__PURE__ */ new Error("IndexedDB request failed"));
+	});
+}
+function openDb() {
+	const open = indexedDB.open(DB, 1);
+	open.onupgradeneeded = () => open.result.createObjectStore(STORE);
+	return request(open);
+}
+var store = {
+	async load() {
+		const db = await openDb();
+		try {
+			return await request(db.transaction(STORE).objectStore(STORE).get(KEY));
+		} finally {
+			db.close();
+		}
+	},
+	async save(pair) {
+		const db = await openDb();
+		try {
+			await request(db.transaction(STORE, "readwrite").objectStore(STORE).put(pair, KEY));
+		} finally {
+			db.close();
+		}
+	}
+};
+var pair = null;
+function canProve() {
+	return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle && globalThis.indexedDB);
+}
+function keyPair() {
+	pair ??= (async () => {
+		const kept = await store.load();
+		if (kept) return kept;
+		const made = await crypto.subtle.generateKey({
+			name: "ECDSA",
+			namedCurve: "P-256"
+		}, false, ["sign", "verify"]);
+		await store.save(made);
+		console.info("Laptop key made");
+		return made;
+	})();
+	pair.catch(() => pair = null);
+	return pair;
+}
+var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function base32(bytes) {
+	let bits = 0;
+	let value = 0;
+	let out = "";
+	for (const byte of bytes) {
+		value = value << 8 | byte;
+		bits += 8;
+		while (bits >= 5) {
+			out += BASE32[value >>> bits - 5 & 31];
+			bits -= 5;
+		}
+	}
+	if (bits > 0) out += BASE32[value << 5 - bits & 31];
+	return out;
+}
+function base64(bytes) {
+	return btoa(String.fromCharCode(...new Uint8Array(bytes)));
+}
+async function idFromSpki(spki) {
+	return "LT-" + (base32(new Uint8Array(await crypto.subtle.digest("SHA-256", spki))).slice(0, 20).match(/.{4}/g) ?? []).join("-");
+}
+async function publicSpki() {
+	return crypto.subtle.exportKey("spki", (await keyPair()).publicKey);
+}
+async function laptopId() {
+	const id = await idFromSpki(await publicSpki());
+	console.info("Laptop ID shown");
+	return id;
+}
+async function prove(challenge) {
+	const start = performance.now();
+	const { privateKey } = await keyPair();
+	const signature = await crypto.subtle.sign({
+		name: "ECDSA",
+		hash: "SHA-256"
+	}, privateKey, new TextEncoder().encode(challenge));
+	const proof = {
+		public_key: base64(await publicSpki()),
+		challenge,
+		signature: base64(signature)
+	};
+	console.info(`Laptop proof sent (${Math.round(performance.now() - start)} ms)`);
+	return proof;
+}
+function laptopEntry(id) {
+	return `[[laptop]]\nname = "My laptop"\nid = "${id}"\n`;
+}
+//#endregion
+//#region src/admin.tsx
+var GUIDE = "https://github.com/larry94555/ImageSkinForLLM/blob/main/docs/guides/Admin-Password-Guide.pdf";
+var CHECK_MS = 6e4;
+var AdminContext = X({
+	session: null,
+	listed: null,
+	askListed: () => {},
+	ended: null,
+	refresh: async () => {},
+	signIn: async () => {},
+	signOut: async () => {},
+	dismiss: () => {}
+});
+function useAdmin() {
+	return x(AdminContext);
+}
+function minutes(n) {
+	return `${n} minute${n === 1 ? "" : "s"}`;
+}
+function endedMessage(session) {
+	if (session.ended === "password changed") return "Signed out as administrator because the administrator password was changed.";
+	if (session.ended === "laptop removed") return "Signed out as administrator.";
+	return `Signed out as administrator after ${minutes(session.timeout_minutes)} without activity.`;
+}
+function AdminProvider({ children }) {
+	const [session, setSession] = d(null);
+	const [ended, setEnded] = d(null);
+	const [listed, setListed] = d(null);
+	async function refresh() {
+		try {
+			const read = await getAdminSession();
+			setSession(read);
+			if (read.ended) {
+				console.info(`Admin signed out: ${read.ended}`);
+				setEnded(endedMessage(read));
+			}
+		} catch (e) {
+			console.error("Could not read the administrator sign-in", e);
+		}
+	}
+	h(() => {
+		refresh();
+	}, []);
+	const asked = A(false);
+	function askListed() {
+		if (asked.current) return;
+		asked.current = true;
+		(async () => {
+			const answer = await isLaptopListed(canProve() ? await prove(await getAdminChallenge()) : void 0);
+			setListed(answer);
+			if (!answer && canProve()) console.info(`This laptop's ID: ${await laptopId()}`);
+		})().catch((err) => {
+			console.error("Could not ask whether this laptop is listed", err);
+			setListed(true);
+		});
+	}
+	const signedIn = session?.signed_in === true;
+	h(() => {
+		if (!signedIn) return;
+		const timer = setInterval(() => void refresh(), CHECK_MS);
+		return () => clearInterval(timer);
+	}, [signedIn]);
+	async function signIn(password) {
+		const started = performance.now();
+		await signInAsAdmin(password, canProve() ? await prove(await getAdminChallenge()) : void 0);
+		console.info(`Admin signed in (${Math.round(performance.now() - started)} ms)`);
+		setEnded(null);
+		await refresh();
+	}
+	async function signOut() {
+		await signOutAsAdmin();
+		console.info("Admin signed out: signed out");
+		await refresh();
+	}
+	const shared = {
+		session,
+		listed,
+		askListed,
+		ended,
+		refresh,
+		signIn,
+		signOut,
+		dismiss: () => setEnded(null)
+	};
+	return /* @__PURE__ */ u(AdminContext.Provider, {
+		value: shared,
+		children
+	});
+}
+function useAdminActivity(active) {
+	const { session, refresh } = useAdmin();
+	const last = A(0);
+	const on = active && session?.signed_in === true;
+	h(() => {
+		if (!on) return;
+		function activity() {
+			const now = Date.now();
+			if (now - last.current < 6e4) return;
+			last.current = now;
+			adminActivity().then(async (still) => {
+				if (!still) await refresh();
+			}).catch((e) => console.error("Could not tell the server of admin activity", e));
+		}
+		document.addEventListener("click", activity);
+		document.addEventListener("keydown", activity);
+		return () => {
+			document.removeEventListener("click", activity);
+			document.removeEventListener("keydown", activity);
+		};
+	}, [on]);
+}
+function AdminLink({ current }) {
+	const { session } = useAdmin();
+	if (!session?.signed_in) return null;
+	return /* @__PURE__ */ u("a", {
+		href: "#/admin",
+		className: current ? "settings-link current" : "settings-link",
+		children: "Admin"
+	});
+}
+function AdminEndedNotice() {
+	const { ended, dismiss } = useAdmin();
+	if (!ended) return null;
+	return /* @__PURE__ */ u("p", {
+		className: "notice",
+		role: "status",
+		children: [
+			ended,
+			" ",
+			/* @__PURE__ */ u("button", {
+				type: "button",
+				className: "secondary",
+				onClick: dismiss,
+				children: "OK"
+			})
+		]
+	});
+}
+function LaptopId() {
+	const [id, setId] = d(null);
+	const [failed, setFailed] = d(false);
+	const [copied, setCopied] = d(false);
+	const usable = canProve();
+	h(() => {
+		if (!usable) return;
+		laptopId().then(setId, (err) => {
+			console.error("Could not make this laptop's key", err);
+			setFailed(true);
+		});
+	}, [usable]);
+	async function copy() {
+		if (!id) return;
+		try {
+			await navigator.clipboard.writeText(laptopEntry(id));
+			setCopied(true);
+		} catch (err) {
+			console.error("Could not copy the laptop ID", err);
+		}
+	}
+	let shown;
+	if (!usable) shown = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "This laptop's ID can't be shown at this address."
+	});
+	else if (failed) shown = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "This laptop's ID couldn't be made in this browser."
+	});
+	else shown = /* @__PURE__ */ u(S, { children: /* @__PURE__ */ u("p", { children: [
+		"This laptop's ID: ",
+		/* @__PURE__ */ u("code", { children: id ?? "…" }),
+		" ",
+		/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: !id,
+			onClick: () => void copy(),
+			children: copied ? "Copied" : "Copy"
+		})
+	] }) });
+	return /* @__PURE__ */ u("div", {
+		className: "laptop-id",
+		children: [/* @__PURE__ */ u("h3", { children: "This laptop" }), shown]
+	});
+}
+function AdminSection() {
+	const { session, listed, askListed, signIn, signOut } = useAdmin();
+	const [password, setPassword] = d("");
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d(null);
+	const shown = Boolean(session?.signed_in || listed);
+	h(() => {
+		if (session) askListed();
+	}, [session !== null]);
+	h(() => {
+		if (shown) console.info("Admin sign-in shown");
+	}, [shown]);
+	async function submit(e) {
+		e.preventDefault();
+		setBusy(true);
+		setError(null);
+		try {
+			await signIn(password);
+			setPassword("");
+		} catch (err) {
+			console.error("Could not sign in as administrator", err);
+			setError(err instanceof ServerRefusal ? err.message : "Could not sign in. Try again in a moment.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	async function leave() {
+		setBusy(true);
+		try {
+			await signOut();
+		} catch (err) {
+			console.error("Could not sign out as administrator", err);
+			setError("Could not sign out. Try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	let body = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Checking…"
+	});
+	if (session?.signed_in) body = /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: [
+		"Signed in as administrator. You are signed out after ",
+		minutes(session.timeout_minutes),
+		" ",
+		"without activity."
+	] }), /* @__PURE__ */ u("p", { children: [
+		/* @__PURE__ */ u("a", {
+			className: "button",
+			href: "#/admin",
+			children: "Open the admin view"
+		}),
+		" ",
+		/* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: busy,
+			onClick: () => void leave(),
+			children: "Sign out as administrator"
+		})
+	] })] });
+	else if (session && !session.password_set) body = /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: [
+			"Signing in as the administrator is off, as no administrator password is set on this computer. Whoever runs the computer sets it in the file admin.toml, as the",
+			" ",
+			/* @__PURE__ */ u("a", {
+				href: GUIDE,
+				target: "_blank",
+				rel: "noreferrer",
+				children: "admin password guide"
+			}),
+			" ",
+			"says."
+		]
+	});
+	else if (session) body = /* @__PURE__ */ u("form", {
+		onSubmit: (e) => void submit(e),
+		children: [
+			/* @__PURE__ */ u("label", { children: [
+				"Administrator password",
+				" ",
+				/* @__PURE__ */ u("input", {
+					type: "password",
+					autoComplete: "current-password",
+					value: password,
+					onInput: (e) => setPassword(e.currentTarget.value)
+				})
+			] }),
+			" ",
+			/* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: busy || password === "",
+				children: "Sign in as administrator"
+			})
+		]
+	});
+	if (!shown) {
+		if (listed !== false) return null;
+		return /* @__PURE__ */ u("section", {
+			className: "panel",
+			"aria-label": "This laptop",
+			children: /* @__PURE__ */ u(LaptopId, {})
+		});
+	}
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "settings-admin",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "settings-admin",
+				children: "Administrator"
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: "Running the site as a whole, apart from the host and participant views."
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			body,
+			/* @__PURE__ */ u(LaptopId, {})
+		]
+	});
+}
+function AdminPage({ section = "resources" }) {
+	const { session, listed, askListed } = useAdmin();
+	h(() => {
+		if (session) askListed();
+	}, [session !== null]);
+	if (!session?.signed_in) {
+		if (!listed) return null;
+		return /* @__PURE__ */ u("div", {
+			className: "host-page admin-page",
+			children: [
+				/* @__PURE__ */ u("h1", { children: "Admin" }),
+				/* @__PURE__ */ u("p", {
+					className: "lead",
+					children: "Site-wide administration, separate from the host and participant views."
+				}),
+				/* @__PURE__ */ u(AdminSection, {})
+			]
+		});
+	}
+	const tab = (to, href, label) => /* @__PURE__ */ u("a", {
+		href,
+		className: section === to ? "current" : void 0,
+		"aria-current": section === to ? "page" : void 0,
+		children: label
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page admin-page",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Admin" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Site-wide administration, separate from the host and participant views."
+			}),
+			/* @__PURE__ */ u("nav", {
+				className: "admin-tabs",
+				"aria-label": "Admin pages",
+				children: [
+					tab("resources", "#/admin", "Resources"),
+					tab("settings", "#/admin/settings", "Admin settings"),
+					tab("guidelines", "#/admin/guidelines", "Admin guidelines")
+				]
+			}),
+			section === "settings" ? /* @__PURE__ */ u(AdminSettingsPage, {}) : section === "guidelines" ? /* @__PURE__ */ u(AdminGuidelinesPage, {}) : /* @__PURE__ */ u(ResourceDashboard, {})
+		]
+	});
+}
+//#endregion
+//#region src/leave-guard.tsx
+var LEAVE_TITLE = "Your change isn't accepted yet";
+var LEAVE_PROCEED = "Proceed without the change";
+var LEAVE_CANCEL = "Cancel";
+var decided = null;
+function goWithoutAsking(href) {
+	decided = href;
+	window.addEventListener("hashchange", () => decided = null, { once: true });
+	window.location.hash = href;
+}
+function useLeaveGuard(pending, unchanged) {
+	const { ask, dialog } = useConfirm();
+	const now = A({
+		pending,
+		unchanged
+	});
+	now.current = {
+		pending,
+		unchanged
+	};
+	const allowed = A(null);
+	h(() => {
+		const confirmLeave = (href) => {
+			console.info(`Leaving setup for ${href} with the sample neither accepted nor rejected`);
+			ask({
+				title: LEAVE_TITLE,
+				keepLabel: LEAVE_CANCEL,
+				confirmLabel: LEAVE_PROCEED,
+				children: /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: ["Your change takes effect only once you accept its sample video. If you proceed, nothing changes. ", now.current.unchanged] }), /* @__PURE__ */ u("p", {
+					className: "muted",
+					children: "Choose Cancel to stay and accept or reject the sample video."
+				})] })
+			}).then((proceed) => {
+				if (!proceed) return;
+				allowed.current = href;
+				window.location.hash = href;
+			});
+		};
+		const leaving = (from, to) => {
+			if (decided === to) {
+				decided = null;
+				return false;
+			}
+			return now.current.pending && pageFor(to) !== pageFor(from) && allowed.current !== to;
+		};
+		const onClick = (e) => {
+			if (!(e.target instanceof Element)) return;
+			const href = e.target.closest("a[href^='#/']")?.getAttribute("href");
+			if (!href || !leaving(window.location.hash, href)) return;
+			e.preventDefault();
+			e.stopPropagation();
+			confirmLeave(href);
+		};
+		blockLeaving((from, to) => {
+			if (!leaving(from, to)) {
+				if (allowed.current === to) allowed.current = null;
+				return false;
+			}
+			history.pushState(history.state, "", from);
+			confirmLeave(to);
+			return true;
+		});
+		const onUnload = (e) => {
+			if (now.current.pending) e.preventDefault();
+		};
+		document.addEventListener("click", onClick, true);
+		window.addEventListener("beforeunload", onUnload);
+		return () => {
+			document.removeEventListener("click", onClick, true);
+			blockLeaving(null);
+			window.removeEventListener("beforeunload", onUnload);
+		};
+	}, []);
+	return dialog;
+}
+//#endregion
+//#region src/setting-guard.tsx
+var SettingGuard = X({
+	needed: () => false,
+	confirm: async () => true
+});
+function useSettingGuard() {
+	return x(SettingGuard);
+}
+function usePrepareStopGuard(onDiscarded) {
+	const stopped = A(false);
+	const { ask, dialog } = useConfirm();
+	const [failed, setFailed] = d(null);
+	async function confirm(title = "Change this setting?") {
+		if (!stopped.current) return true;
+		setFailed(null);
+		if (!await ask({
+			title,
+			children: /* @__PURE__ */ u("p", { children: "Changing a setting will require restarting the preparation over again." }),
+			keepLabel: "Cancel change",
+			confirmLabel: "Confirm change"
+		})) return false;
+		const started = performance.now();
+		try {
+			await discardPrepare();
+			console.info(`Stopped prepare dropped for a setting change (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			console.error("Could not drop the stopped prepare; the setting is left as it was", e);
+			setFailed(`The setting was not changed: the stopped preparation could not be cleared (${e.message}). Try again.`);
+			return false;
+		}
+		stopped.current = false;
+		onDiscarded();
+		return true;
+	}
+	return {
+		guard: {
+			needed: () => stopped.current,
+			confirm
+		},
+		onStopped: (now) => stopped.current = now,
+		dialog: /* @__PURE__ */ u(S, { children: [failed && /* @__PURE__ */ u("p", {
+			className: "error",
+			role: "alert",
+			children: failed
+		}), dialog] })
+	};
 }
 //#endregion
 //#region src/detail-bar.tsx
@@ -4559,7 +5297,7 @@ function UploadSection(props) {
 						}),
 						/* @__PURE__ */ u("span", {
 							className: "name",
-							children: [item.name, item.seconds !== null && ` (${minutes(item.seconds)})`]
+							children: [item.name, item.seconds !== null && ` (${minutes$1(item.seconds)})`]
 						}),
 						/* @__PURE__ */ u(Checks, {
 							item,
@@ -4614,7 +5352,7 @@ function VoiceSampleView({ changes }) {
 				children: [
 					sample.recordings === 1 ? "Made from the recording that passed the checks" : `Made from the ${sample.recordings} recordings that passed the checks, in order`,
 					": ",
-					minutes(sample.speech),
+					minutes$1(sample.speech),
 					" of speech."
 				]
 			})] }),
@@ -8467,692 +9205,6 @@ function StartNowPage() {
 					"."
 				]
 			})
-		]
-	});
-}
-//#endregion
-//#region src/customization.tsx
-var IDENTITY = [
-	[
-		"name",
-		"Name",
-		"Said first to \"Who are you?\": I'm …"
-	],
-	[
-		"speaks_as",
-		"Speaks as",
-		"Told to the LLM only."
-	],
-	[
-		"purpose",
-		"Purpose",
-		"My purpose is …"
-	],
-	[
-		"audience",
-		"Who it is for",
-		"I'm here for …"
-	],
-	[
-		"helps_with",
-		"What it can help with",
-		"I can help with …"
-	]
-];
-var SAVED = "Saved. It is used from the next prompt.";
-var SAVED_EVENT = "customization-saved";
-function useSave(announce = true) {
-	const [busy, setBusy] = d(false);
-	const [said, setSaid] = d(null);
-	async function run(part, save) {
-		setBusy(true);
-		setSaid(null);
-		const started = performance.now();
-		try {
-			const saved = await save();
-			console.info(`Customization saved: ${part} (${Math.round(performance.now() - started)} ms)`);
-			setSaid({
-				ok: true,
-				text: SAVED
-			});
-			if (announce) window.dispatchEvent(new Event(SAVED_EVENT));
-			return saved;
-		} catch (e) {
-			console.error(`Could not save the customization: ${part}`, e);
-			setSaid({
-				ok: false,
-				text: e instanceof ServerRefusal ? e.message : "Could not save. Try again."
-			});
-			return null;
-		} finally {
-			setBusy(false);
-		}
-	}
-	return {
-		busy,
-		run,
-		status: said && /* @__PURE__ */ u("p", {
-			className: said.ok ? "notice" : "error",
-			role: "status",
-			children: said.text
-		}),
-		changed: () => setSaid(null)
-	};
-}
-function IdentitySection({ identity }) {
-	const [fields, setFields] = d(identity);
-	const { busy, run, status, changed } = useSave();
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "customization-identity",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "customization-identity",
-				children: "Identity"
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "Who the person in the video is. \"Who are you?\" is answered from it."
-			}),
-			/* @__PURE__ */ u("form", {
-				className: "customization-edit",
-				onSubmit: (e) => {
-					e.preventDefault();
-					run("identity", () => saveIdentity(fields)).then((saved) => {
-						if (saved) setFields(saved.identity);
-					});
-				},
-				children: [
-					IDENTITY.map(([key, label, about]) => /* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [label, /* @__PURE__ */ u("span", {
-						className: "muted",
-						children: [" · ", about]
-					})] }), /* @__PURE__ */ u("input", {
-						value: fields[key],
-						readOnly: busy,
-						onInput: (e) => {
-							changed();
-							setFields({
-								...fields,
-								[key]: e.currentTarget.value
-							});
-						}
-					})] }, key)),
-					status,
-					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-						type: "submit",
-						disabled: busy,
-						children: "Save the identity"
-					}) })
-				]
-			})
-		]
-	});
-}
-function GoalsSection({ goals }) {
-	const [text, setText] = d(goals.join("\n"));
-	const { busy, run, status, changed } = useSave();
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "customization-goals",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "customization-goals",
-				children: "Goals"
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "What every reply aims for, one goal on each line."
-			}),
-			/* @__PURE__ */ u("form", {
-				className: "customization-edit",
-				onSubmit: (e) => {
-					e.preventDefault();
-					run("goals", () => saveGoals(text.split("\n"))).then((saved) => {
-						if (saved) setText(saved.goals.join("\n"));
-					});
-				},
-				children: [
-					/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", {
-						className: "sr-only",
-						children: "Goals"
-					}), /* @__PURE__ */ u("textarea", {
-						rows: 4,
-						value: text,
-						readOnly: busy,
-						onInput: (e) => {
-							changed();
-							setText(e.currentTarget.value);
-						}
-					})] }),
-					status,
-					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-						type: "submit",
-						disabled: busy,
-						children: "Save the goals"
-					}) })
-				]
-			})
-		]
-	});
-}
-function FeatureGuidelines({ feature }) {
-	const [shown, setShown] = d(feature);
-	const [text, setText] = d(feature.text);
-	const { busy, run, status, changed } = useSave();
-	function save(value) {
-		run(`guidelines ${shown.key}`, () => saveGuidelines(shown.key, value)).then((saved) => {
-			const now = saved?.features.find((f) => f.key === shown.key);
-			if (now) {
-				setShown(now);
-				setText(now.text);
-			}
-		});
-	}
-	return /* @__PURE__ */ u("form", {
-		className: "customization-edit guideline",
-		"aria-label": shown.label,
-		onSubmit: (e) => {
-			e.preventDefault();
-			save(text);
-		},
-		children: [
-			/* @__PURE__ */ u("label", { children: [/* @__PURE__ */ u("span", { children: [
-				shown.label,
-				!shown.edited && /* @__PURE__ */ u("span", {
-					className: "muted",
-					children: " · as shipped"
-				}),
-				shown.generated && /* @__PURE__ */ u("span", {
-					className: "muted",
-					children: " · drafted by the LLM"
-				})
-			] }), /* @__PURE__ */ u("textarea", {
-				rows: 4,
-				value: text,
-				readOnly: busy,
-				onInput: (e) => {
-					changed();
-					setText(e.currentTarget.value);
-				}
-			})] }),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: [
-					shown.changes,
-					" ",
-					shown.stays
-				]
-			}),
-			status,
-			/* @__PURE__ */ u("p", { children: [
-				/* @__PURE__ */ u("button", {
-					type: "submit",
-					disabled: busy,
-					children: "Save"
-				}),
-				" ",
-				/* @__PURE__ */ u("button", {
-					type: "button",
-					className: "secondary",
-					disabled: busy || !shown.edited,
-					onClick: () => save(null),
-					children: "Set back to how it shipped"
-				})
-			] })
-		]
-	});
-}
-var SECTION_ABOUT = {
-	Guidelines: "How each feature writes what it says.",
-	Assessment: "How the assessment writes its questions and judges the answers.",
-	"Level of detail": "What the Level of detail bar on the chat screen asks of each reply, from High level to In depth."
-};
-function sections(features) {
-	const grouped = /* @__PURE__ */ new Map();
-	for (const feature of features) {
-		const section = feature.section || "Guidelines";
-		grouped.set(section, [...grouped.get(section) ?? [], feature]);
-	}
-	return [...grouped.entries()];
-}
-function GuidelineSection({ name, features }) {
-	const id = `customization-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`;
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": id,
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id,
-				children: name
-			}),
-			SECTION_ABOUT[name] && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: SECTION_ABOUT[name]
-			}),
-			features.length ? features.map((feature) => /* @__PURE__ */ u(FeatureGuidelines, { feature }, feature.key)) : /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "No feature has guidelines to edit yet."
-			})
-		]
-	});
-}
-var DRAFTED_IDENTITY = [
-	["name", "Name"],
-	["purpose", "Purpose"],
-	["audience", "Who it is for"],
-	["helps_with", "What it can help with"]
-];
-function draftRows(now, { draft, drafted }) {
-	const textOf = (c, key) => c.features.find((f) => f.key === key)?.text ?? "";
-	return [
-		...DRAFTED_IDENTITY.map(([key, label]) => [
-			label,
-			now.identity[key],
-			draft.identity[key]
-		]),
-		[
-			"Goals",
-			now.goals.join("\n"),
-			draft.goals.join("\n")
-		],
-		...draft.features.filter((f) => drafted.includes(f.key)).map((f) => [
-			f.label,
-			textOf(now, f.key),
-			f.text
-		])
-	];
-}
-function GenerateSection({ now, onSaved }) {
-	const [draft, setDraft] = d(null);
-	const [writing, setWriting] = d(false);
-	const [error, setError] = d(null);
-	const { busy, run, status, changed } = useSave();
-	async function generate() {
-		setWriting(true);
-		setError(null);
-		changed();
-		const started = performance.now();
-		try {
-			setDraft(await generateDraft());
-			console.info(`Customization draft made (${Math.round(performance.now() - started)} ms)`);
-		} catch (e) {
-			console.error("Could not make a customization draft", e);
-			setError(e instanceof ServerRefusal ? e.message : "A draft could not be made. Try again.");
-		} finally {
-			setWriting(false);
-		}
-	}
-	function discard() {
-		setDraft(null);
-		discardDraft().catch((e) => console.error("Could not discard the draft", e));
-	}
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "customization-generate",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "customization-generate",
-				children: "Generate again"
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "The LLM drafts the identity, the goals and every feature's guidelines you haven't changed, from the person and the content. Guidelines you changed are left alone. Only Save keeps the draft."
-			}),
-			!draft && /* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-				type: "button",
-				disabled: writing,
-				onClick: () => void generate(),
-				children: "Generate again"
-			}) }),
-			writing && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Writing a draft. This can take up to two minutes…"
-			}),
-			error && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: error
-			}),
-			draft && /* @__PURE__ */ u("div", {
-				className: "customization-draft",
-				children: [
-					/* @__PURE__ */ u("table", { children: [/* @__PURE__ */ u("thead", { children: /* @__PURE__ */ u("tr", { children: [
-						/* @__PURE__ */ u("th", {
-							scope: "col",
-							children: "Part"
-						}),
-						/* @__PURE__ */ u("th", {
-							scope: "col",
-							children: "Now"
-						}),
-						/* @__PURE__ */ u("th", {
-							scope: "col",
-							children: "Draft"
-						})
-					] }) }), /* @__PURE__ */ u("tbody", { children: draftRows(now, draft).map(([label, current, drafted]) => /* @__PURE__ */ u("tr", { children: [
-						/* @__PURE__ */ u("th", {
-							scope: "row",
-							children: label
-						}),
-						/* @__PURE__ */ u("td", {
-							className: "muted",
-							children: current
-						}),
-						/* @__PURE__ */ u("td", { children: drafted })
-					] }, label)) })] }),
-					status,
-					/* @__PURE__ */ u("p", { children: [
-						/* @__PURE__ */ u("button", {
-							type: "button",
-							disabled: busy,
-							onClick: () => void run("draft", () => saveDraft(draft)).then((saved) => {
-								if (saved) {
-									setDraft(null);
-									onSaved(saved);
-								}
-							}),
-							children: "Save the draft"
-						}),
-						" ",
-						/* @__PURE__ */ u("button", {
-							type: "button",
-							className: "secondary",
-							disabled: busy,
-							onClick: discard,
-							children: "Discard"
-						})
-					] })
-				]
-			})
-		]
-	});
-}
-var MADE_BY = {
-	shipped: "As shipped",
-	generated: "Drafted by the LLM",
-	saved: "Saved"
-};
-function preview(change) {
-	const { value } = change;
-	if (value === null) return "As shipped.";
-	if (typeof value === "string") return value;
-	if (Array.isArray(value)) return value.join(" ") || "No goals.";
-	return [
-		"name",
-		"purpose",
-		"audience",
-		"helps_with"
-	].map((k) => value[k]).filter(Boolean).join(" · ");
-}
-function when$1(at) {
-	const date = new Date(at);
-	return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
-}
-function editorOf(part, label) {
-	if (part === "identity" || part === "goals") return document.getElementById(`customization-${part}`) ?? void 0;
-	return Array.from(document.querySelectorAll("form")).find((f) => f.getAttribute("aria-label") === label);
-}
-function Comparison({ h, shown, onHide }) {
-	return /* @__PURE__ */ u("div", {
-		className: "customization-compare",
-		role: "region",
-		"aria-label": `${h.label} compared`,
-		children: [
-			/* @__PURE__ */ u("p", { children: [/* @__PURE__ */ u("strong", { children: [
-				"Change ",
-				shown.earlier,
-				" beside change ",
-				shown.current,
-				" (in use)"
-			] }), /* @__PURE__ */ u("span", {
-				className: "muted",
-				children: " · added text is marked, removed text is struck through"
-			})] }),
-			/* @__PURE__ */ u("p", {
-				className: "compare-text",
-				children: shown.runs.map((r, i) => r.kind === "added" ? /* @__PURE__ */ u("ins", { children: r.text }, i) : r.kind === "removed" ? /* @__PURE__ */ u("del", { children: r.text }, i) : /* @__PURE__ */ u("span", { children: r.text }, i))
-			}),
-			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-				type: "button",
-				className: "secondary",
-				onClick: onHide,
-				children: "Hide the comparison"
-			}) })
-		]
-	});
-}
-function HistorySection({ onRestored }) {
-	const [histories, setHistories] = d(null);
-	const [open, setOpen] = d(false);
-	const [error, setError] = d(null);
-	const [comparison, setComparison] = d(null);
-	const asked = A(0);
-	function dropComparison() {
-		asked.current += 1;
-		setComparison(null);
-		setCompareError(null);
-	}
-	const [compareError, setCompareError] = d(null);
-	const { busy, run, status, changed } = useSave(false);
-	h(() => {
-		function hide() {
-			setOpen((was) => {
-				if (was) console.info("Customization history hidden after a save");
-				return false;
-			});
-		}
-		window.addEventListener(SAVED_EVENT, hide);
-		return () => window.removeEventListener(SAVED_EVENT, hide);
-	}, []);
-	async function load(opened) {
-		setError(null);
-		const started = performance.now();
-		try {
-			const got = await getCustomizationHistory(opened);
-			setHistories(got);
-			console.info(`Customization history shown: ${got.length} parts (${Math.round(performance.now() - started)} ms)`);
-		} catch (e) {
-			console.error("Could not read the customization history", e);
-			setError("The history could not be read. Try again.");
-		}
-	}
-	function toggle() {
-		changed();
-		dropComparison();
-		if (open) {
-			setOpen(false);
-			return;
-		}
-		setOpen(true);
-		load(true);
-	}
-	async function compare(h, number) {
-		dropComparison();
-		const mine = asked.current;
-		const started = performance.now();
-		try {
-			const got = await compareCustomizationChange(h.part, number);
-			if (mine !== asked.current) {
-				console.info(`Customization comparison dropped: ${h.label}, change ${number}, as another was asked for`);
-				return;
-			}
-			setComparison(got);
-			console.info(`Customization compared: ${h.label}, change ${number} with ${h.current} (${Math.round(performance.now() - started)} ms)`);
-		} catch (e) {
-			if (mine !== asked.current) return;
-			console.error("Could not compare the changes", e);
-			setCompareError({
-				part: h.part,
-				text: e instanceof ServerRefusal ? e.message : "They could not be compared. Try again."
-			});
-		}
-	}
-	async function goBack(h, number) {
-		dropComparison();
-		const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
-		if (saved) {
-			console.info(`Customization restored: ${h.label}, change ${number}`);
-			onRestored(saved);
-			await load(false);
-		}
-	}
-	function edit(h) {
-		editorOf(h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
-	}
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "customization-history",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "customization-history",
-				children: "History"
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "Each part keeps its own changes. Go back makes an earlier change the one in use for that part only, and adds no change; editing it after adds one."
-			}),
-			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-				type: "button",
-				className: "secondary",
-				"aria-expanded": open,
-				onClick: toggle,
-				children: open ? "Hide the history" : "History"
-			}) }),
-			open && error && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: error
-			}),
-			open && !error && histories === null && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Loading…"
-			}),
-			open && histories?.length === 0 && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "Nothing has been changed yet. Each change from now on is kept here."
-			}),
-			open && histories?.map((h) => /* @__PURE__ */ u("div", {
-				className: "customization-history",
-				role: "group",
-				"aria-label": h.label,
-				children: [
-					/* @__PURE__ */ u("h3", { children: h.label }),
-					/* @__PURE__ */ u("ol", {
-						reversed: true,
-						children: h.changes.map((c) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("span", { children: [
-							/* @__PURE__ */ u("strong", { children: ["Change ", c.number] }),
-							c.number === h.current && " (in use)",
-							" · ",
-							MADE_BY[c.made_by],
-							/* @__PURE__ */ u("span", {
-								className: "muted",
-								children: [" · ", when$1(c.made_at)]
-							}),
-							/* @__PURE__ */ u("span", {
-								className: "change-preview",
-								children: preview(c)
-							})
-						] }), c.number === h.current ? /* @__PURE__ */ u("button", {
-							type: "button",
-							className: "secondary",
-							onClick: () => edit(h),
-							children: "Edit"
-						}) : /* @__PURE__ */ u("span", {
-							className: "change-actions",
-							children: [/* @__PURE__ */ u("button", {
-								type: "button",
-								className: "secondary",
-								"aria-label": `Compare ${h.label} change ${c.number} with the change in use`,
-								onClick: () => void compare(h, c.number),
-								children: "Compare"
-							}), /* @__PURE__ */ u("button", {
-								type: "button",
-								disabled: busy,
-								"aria-label": `Go back to ${h.label} change ${c.number}`,
-								onClick: () => void goBack(h, c.number),
-								children: "Go back"
-							})]
-						})] }, c.number))
-					}),
-					comparison?.part === h.part && /* @__PURE__ */ u(Comparison, {
-						h,
-						shown: comparison,
-						onHide: dropComparison
-					}),
-					compareError?.part === h.part && /* @__PURE__ */ u("p", {
-						className: "error",
-						children: compareError.text
-					})
-				]
-			}, h.part)),
-			open && status
-		]
-	});
-}
-function CustomizationPage() {
-	const session = useHost().session;
-	const host = session?.signed_in === true;
-	const [read, setRead] = d(null);
-	const [saves, setSaves] = d(0);
-	const [failed, setFailed] = d(false);
-	h(() => {
-		if (!host) return;
-		getCustomization(true).then((got) => {
-			setRead(got);
-			console.info(`Customization page opened: shipped=${got.shipped}`);
-		}, (e) => {
-			console.error("Could not read the customization", e);
-			setFailed(true);
-		});
-	}, [host]);
-	if (session === null) return /* @__PURE__ */ u("p", { children: "Loading…" });
-	if (!host) return /* @__PURE__ */ u(HostOnlyPage, {});
-	return /* @__PURE__ */ u("div", {
-		className: "host-page customization-page",
-		children: [
-			/* @__PURE__ */ u("h1", { children: "Customization" }),
-			/* @__PURE__ */ u("p", {
-				className: "lead",
-				children: "Who the person in the video is, what they aim for, and how each feature answers, given to the LLM with every prompt."
-			}),
-			/* @__PURE__ */ u("p", {
-				className: "muted",
-				children: "The administrator's requirements, if any, come before yours."
-			}),
-			failed && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: "The customization could not be read. Reload to try again."
-			}),
-			!failed && read === null && /* @__PURE__ */ u("p", {
-				className: "muted busy",
-				children: "Loading…"
-			}),
-			read && /* @__PURE__ */ u(S, { children: [
-				/* @__PURE__ */ u(GenerateSection, {
-					now: read,
-					onSaved: (saved) => {
-						setRead({
-							...saved,
-							shipped: false
-						});
-						setSaves((n) => n + 1);
-					}
-				}),
-				/* @__PURE__ */ u(HistorySection, { onRestored: (saved) => {
-					setRead({
-						...saved,
-						shipped: false
-					});
-					setSaves((n) => n + 1);
-				} }),
-				/* @__PURE__ */ u(IdentitySection, { identity: read.identity }, `identity-${saves}`),
-				/* @__PURE__ */ u(GoalsSection, { goals: read.goals }, `goals-${saves}`),
-				read.features.length ? sections(read.features).map(([name, features]) => /* @__PURE__ */ u(GuidelineSection, {
-					name,
-					features
-				}, `${name}-${saves}`)) : /* @__PURE__ */ u(GuidelineSection, {
-					name: "Guidelines",
-					features: []
-				})
-			] })
 		]
 	});
 }

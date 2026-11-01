@@ -42,7 +42,11 @@ from imageskin.admin import FILENAME as ADMIN_FILENAME
 from imageskin.admin import AdminSignIns
 from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_api import admin_router
+from imageskin.admin_guidelines import EMPTY as NO_ADMIN_GUIDELINES
+from imageskin.admin_guidelines import HISTORY_FILE as ADMIN_HISTORY_FILE
 from imageskin.admin_guidelines import AdminGuidelinesFile, applied, checked
+from imageskin.admin_guidelines import value_of as admin_value_of
+from imageskin.admin_guidelines import with_value as admin_with_value
 from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import DEFAULTS as ADMIN_DEFAULTS
@@ -1682,7 +1686,11 @@ def create_app(
     app.state.customization_generator = generator
 
     # The administrator's identity, goals and guidelines, as system requirements (R243).
-    admin_guidelines = AdminGuidelinesFile(data_home)
+    # The administrator's guidelines keep a history of each part, as the host's do (R253).
+    admin_history = History(
+        data_home, ADMIN_HISTORY_FILE, admin_value_of, NO_ADMIN_GUIDELINES, "Admin guidelines"
+    )
+    admin_guidelines = AdminGuidelinesFile(data_home, admin_history.saved)
 
     def with_admin(host: Customization) -> Customization:
         """The customization a prompt is asked with: the administrator's parts first (R243)."""
@@ -1725,9 +1733,57 @@ def create_app(
             raise HTTPException(
                 status_code=500, detail="They could not be saved. Try again."
             ) from e
+        written_ahead(changed)
+        return admin.shown()
+
+    def written_ahead(changed: list[str]) -> None:
         lessons = getattr(app.state, "lessons", None)
         if "teach me" in changed and lessons is not None:
             lessons.refresh()  # each topic's first part written ahead again with them (R98a)
+
+    @app.get("/api/admin/guidelines/history", dependencies=[Depends(app.state.require_admin)])
+    def get_admin_history(
+        opened: Annotated[bool, Query(description="Asked as the History list opens.")] = False,
+    ) -> dict[str, Any]:
+        """The history of each part of the admin guidelines that has changed (R253)."""
+        start = time.perf_counter()
+        shown_parts = [h.shown() for h in admin_history.histories()]
+        if opened:
+            logger.info(
+                "Admin guidelines history opened",
+                extra={"parts": len(shown_parts), "duration_ms": ms_since(start)},
+            )
+        return {"parts": shown_parts}
+
+    @app.post(
+        "/api/admin/guidelines/history/{part}/{number}/restore",
+        dependencies=[Depends(app.state.require_admin)],
+    )
+    def restore_admin_change(part: str, number: int) -> dict[str, Any]:
+        """Go back to a change of one part of the admin guidelines (R253): it becomes that
+        part's change in use, no other part changes and no change is added."""
+        start = time.perf_counter()
+        try:
+            change = admin_history.part(part).change(number)
+        except NoSuchChange as e:
+            raise HTTPException(status_code=404, detail="There is no such change.") from e
+        try:
+            admin, changed = admin_guidelines.change(
+                lambda now: admin_with_value(now, part, change.value), gone_back=(part, number)
+            )
+        except CustomizationRefused as e:  # a change kept by an older version, no longer valid
+            logger.warning("Admin guidelines refused", extra={"error": str(e)})
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except OSError as e:
+            logger.error("Admin guidelines can't be saved", extra={"error": str(e)})
+            raise HTTPException(
+                status_code=500, detail="They could not be saved. Try again."
+            ) from e
+        written_ahead(changed)
+        logger.info(
+            "Admin guidelines restored",
+            extra={"part": part, "number": number, "duration_ms": ms_since(start)},
+        )
         return admin.shown()
 
     @app.get("/api/customization", dependencies=host_only)

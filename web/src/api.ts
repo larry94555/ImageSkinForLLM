@@ -1486,3 +1486,20 @@ export async function saveAdminGuidelines(edit: AdminGuidelinesEdit): Promise<Ad
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as AdminGuidelines;
 }
+
+// The history of each part of the admin guidelines (R253), as the host's (R95).
+export async function getAdminGuidelinesHistory(opened = false): Promise<PartHistory[]> {
+  const response = await fetch(opened ? "/api/admin/guidelines/history?opened=true" : "/api/admin/guidelines/history");
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return ((await response.json()) as { parts: PartHistory[] }).parts;
+}
+
+// Go back to a change of one part of the admin guidelines: only that part changes.
+export async function restoreAdminGuidelinesChange(part: string, number: number): Promise<AdminGuidelines> {
+  const response = await fetch(
+    `/api/admin/guidelines/history/${encodeURIComponent(part)}/${number}/restore`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as AdminGuidelines;
+}

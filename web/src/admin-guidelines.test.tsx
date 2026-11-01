@@ -18,7 +18,14 @@ function server(kept: Partial<AdminGuidelinesEdit> = {}) {
     edit: { identity: { ...BLANK }, goals: [] as string[], guidelines: {} as Record<string, string>, ...kept },
     refuse: null as number | null,
     readFails: false,
+    // Each part's changes and the one in use, kept as the real history keeps them (R253).
+    history: {} as Record<string, { current: number; changes: { number: number; made_by: string; value: unknown }[] }>,
   };
+  const valueOf = (edit: AdminGuidelinesEdit, part: string): unknown =>
+    part === "identity" ? edit.identity : part === "goals" ? edit.goals : (edit.guidelines[part] ?? "");
+  const parts = () => ["identity", "goals", ...FEATURES.map((f) => f.key)];
+  const labelOf = (part: string) =>
+    part === "identity" ? "Identity" : part === "goals" ? "Goals" : FEATURES.find((f) => f.key === part)!.label;
   const shown = (): AdminGuidelines => ({
     ...state.edit,
     guidelines: Object.fromEntries(FEATURES.map((f) => [f.key, state.edit.guidelines[f.key] ?? ""])),
@@ -39,13 +46,47 @@ function server(kept: Partial<AdminGuidelinesEdit> = {}) {
           return Response.json({ detail: "There can be at most 10 goals." }, { status: state.refuse });
         }
         const body = JSON.parse(String(init.body)) as AdminGuidelinesEdit;
+        const before = state.edit;
         state.edit = {
           identity: body.identity,
           goals: body.goals.map((g) => g.trim()).filter(Boolean),
           guidelines: Object.fromEntries(Object.entries(body.guidelines).filter(([, v]) => v.trim())),
         };
+        for (const part of parts()) {
+          const [was, now] = [valueOf(before, part), valueOf(state.edit, part)];
+          if (JSON.stringify(was) === JSON.stringify(now)) continue;
+          const h = (state.history[part] ??= { current: 1, changes: [{ number: 1, made_by: "shipped", value: was }] });
+          const number = h.changes.length + 1;
+          h.changes.push({ number, made_by: "saved", value: now });
+          h.current = number;
+        }
       }
       return Response.json(shown());
+    }
+    if (url.startsWith("/api/admin/guidelines/history")) {
+      const restore = /history\/([^/]+)\/(\d+)\/restore$/.exec(url);
+      if (restore) {
+        const part = decodeURIComponent(restore[1]);
+        const h = state.history[part];
+        const change = h.changes.find((c) => c.number === Number(restore[2]))!;
+        h.current = change.number;
+        if (part === "identity") state.edit.identity = change.value as typeof BLANK;
+        else if (part === "goals") state.edit.goals = change.value as string[];
+        else state.edit.guidelines = { ...state.edit.guidelines, [part]: change.value as string };
+        return Response.json(shown());
+      }
+      return Response.json({
+        parts: parts()
+          .filter((p) => state.history[p])
+          .map((p) => ({
+            part: p,
+            label: labelOf(p),
+            current: state.history[p].current,
+            changes: [...state.history[p].changes]
+              .reverse()
+              .map((c) => ({ ...c, made_at: "2026-11-01T01:00:00+00:00" })),
+          })),
+      });
     }
     return new Response("", { status: 404 });
   });
@@ -207,4 +248,94 @@ test("two saves at once go one after another, so neither undoes the other", asyn
   expect(puts()[1].guidelines.topics).toBe("Be brief.");
   expect(goals().value).toBe("Be accurate.");
   expect((within(feature("Topics")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Be brief.");
+});
+
+test("the History goes back on one part only, adds no change, and hides after a save", async () => {
+  const { state } = server();
+  await openPage();
+  await type(within(feature("Topics")).getByRole("textbox"), "Be brief.");
+  await click(within(feature("Topics")).getByRole("button", { name: "Save" }));
+  await type(within(feature("Topics")).getByRole("textbox"), "Be briefer.");
+  await click(within(feature("Topics")).getByRole("button", { name: "Save" }));
+  await type(goals(), "Be accurate.");
+  await click(screen.getByRole("button", { name: "Save the goals" }));
+  await type(within(feature("Answering questions")).getByRole("textbox"), "Typed, not saved.");
+
+  await click(screen.getByRole("button", { name: "History" }));
+  const topics = await screen.findByRole("group", { name: "Topics" });
+  const items = within(topics).getAllByRole("listitem");
+  expect(items.map((li) => li.textContent)).toEqual([
+    expect.stringMatching(/^Change 3 \(in use\) · Saved.*Be briefer\./),
+    expect.stringMatching(/^Change 2 · Saved.*Be brief\./),
+    expect.stringMatching(/^Change 1 · Empty at first.*Empty\./),
+  ]);
+  // No Compare yet: that's R254.
+  expect(within(topics).queryByRole("button", { name: /Compare/ })).toBeNull();
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Admin guidelines history shown: 2 parts/));
+
+  await click(within(topics).getByRole("button", { name: "Go back to Topics change 2" }));
+  expect((within(feature("Topics")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Be brief.");
+  expect(goals().value).toBe("Be accurate."); // only Topics changed
+  expect(state.history.topics.changes).toHaveLength(3); // no change added
+  expect(within(screen.getByRole("group", { name: "Topics" })).getAllByRole("listitem")[1].textContent).toContain(
+    "Change 2 (in use)",
+  );
+  expect(console.info).toHaveBeenCalledWith("Admin guidelines restored: Topics, change 2");
+
+  // Edit goes to the part's editor, and the History stays open.
+  const scrolled = vi.fn();
+  Element.prototype.scrollIntoView = scrolled;
+  await click(within(screen.getByRole("group", { name: "Goals" })).getByRole("button", { name: "Edit" }));
+  expect(scrolled.mock.contexts[0]).toBe(document.getElementById("admin-guidelines-goals"));
+  expect(screen.getByRole("group", { name: "Goals" })).toBeTruthy();
+  Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+
+  // A save hides it, so it opens again up to date.
+  await type(goals(), "Be accurate.\nCite the page.");
+  await click(screen.getByRole("button", { name: "Save the goals" }));
+  expect(screen.queryByRole("group", { name: "Goals" })).toBeNull();
+  expect(screen.getByRole("button", { name: "History" }).getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a go-back after a save still waiting goes after it", async () => {
+  const { state, puts } = server({ goals: ["One."] });
+  state.history.goals = {
+    current: 2,
+    changes: [
+      { number: 1, made_by: "shipped", value: [] },
+      { number: 2, made_by: "saved", value: ["One."] },
+    ],
+  };
+  await openPage();
+  await click(screen.getByRole("button", { name: "History" }));
+  await screen.findByRole("group", { name: "Goals" });
+  const real = globalThis.fetch;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const asked: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      asked.push(`${init?.method ?? "GET"} ${url}`);
+      if (init?.method === "PUT") await held;
+      return real(url, init);
+    }),
+  );
+  await type(within(feature("Topics")).getByRole("textbox"), "Be brief.");
+  await act(async () => {
+    fireEvent.click(within(feature("Topics")).getByRole("button", { name: "Save" }));
+  });
+  await click(screen.getByRole("button", { name: "Go back to Goals change 1" }));
+  expect(asked.filter((a) => !a.startsWith("GET"))).toEqual(["PUT /api/admin/guidelines"]); // waiting
+  await act(async () => {
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(asked.filter((a) => !a.startsWith("GET"))).toEqual([
+    "PUT /api/admin/guidelines",
+    "POST /api/admin/guidelines/history/goals/1/restore",
+  ]);
+  expect(puts()).toHaveLength(1);
+  expect(state.edit.guidelines.topics).toBe("Be brief.");
+  expect(state.edit.goals).toEqual([]);
 });

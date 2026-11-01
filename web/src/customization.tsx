@@ -42,24 +42,24 @@ const SAVED = "Saved. It is used from the next prompt.";
 // be lost (Codex's review on PR #243).
 // Said when a save is made anywhere on the page but the History, so an open History, now out of
 // date, hides (Larry's review on PR #258).
-const SAVED_EVENT = "customization-saved";
+export const SAVED_EVENT = "customization-saved";
 
-function useSave(announce = true) {
+function useSave(announce = true, name = "Customization") {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
 
-  async function run(part: string, save: () => Promise<Customization>): Promise<Customization | null> {
+  async function run<R>(part: string, save: () => Promise<R>): Promise<R | null> {
     setBusy(true);
     setSaid(null);
     const started = performance.now();
     try {
       const saved = await save();
-      console.info(`Customization saved: ${part} (${Math.round(performance.now() - started)} ms)`);
+      console.info(`${name} saved: ${part} (${Math.round(performance.now() - started)} ms)`);
       setSaid({ ok: true, text: SAVED });
       if (announce) window.dispatchEvent(new Event(SAVED_EVENT));
       return saved;
     } catch (e) {
-      console.error(`Could not save the customization: ${part}`, e);
+      console.error(`Could not save the ${name.toLowerCase()}: ${part}`, e);
       setSaid({ ok: false, text: e instanceof ServerRefusal ? e.message : "Could not save. Try again." });
       return null;
     } finally {
@@ -359,7 +359,9 @@ function GenerateSection({ now, onSaved }: { now: Customization; onSaved: (saved
   );
 }
 
-const MADE_BY: Record<CustomizationChange["made_by"], string> = {
+export type MadeBy = Record<CustomizationChange["made_by"], string>;
+
+const MADE_BY: MadeBy = {
   shipped: "As shipped",
   generated: "Drafted by the LLM",
   saved: "Saved",
@@ -369,12 +371,14 @@ const MADE_BY: Record<CustomizationChange["made_by"], string> = {
 export function preview(change: CustomizationChange): string {
   const { value } = change;
   if (value === null) return "As shipped.";
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return value || "Empty.";
   if (Array.isArray(value)) return value.join(" ") || "No goals.";
-  return ["name", "purpose", "audience", "helps_with"]
-    .map((k) => value[k])
-    .filter(Boolean)
-    .join(" · ");
+  return (
+    ["name", "purpose", "audience", "helps_with"]
+      .map((k) => value[k])
+      .filter(Boolean)
+      .join(" · ") || "Empty."
+  );
 }
 
 function when(at: string): string {
@@ -382,10 +386,11 @@ function when(at: string): string {
   return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
 }
 
-// Where a part is edited on the page.
-function editorOf(part: string, label: string): Element | undefined {
+// Where a part is edited on the page: the identity's and the goals' sections have the ids
+// `<prefix>-identity` and `<prefix>-goals`, and each feature's form is named by its label.
+function editorOf(prefix: string, part: string, label: string): Element | undefined {
   if (part === "identity" || part === "goals") {
-    return document.getElementById(`customization-${part}`) ?? undefined;
+    return document.getElementById(`${prefix}-${part}`) ?? undefined;
   }
   return Array.from(document.querySelectorAll("form")).find((f) => f.getAttribute("aria-label") === label);
 }
@@ -423,10 +428,36 @@ function Comparison({
   );
 }
 
+// Where a History reads and restores its changes, and compares them when it can: the host's
+// customization (R95, R95a) or the administrator's guidelines (R253).
+export interface HistorySource<T> {
+  name: string; // in the console, such as "Customization"
+  idPrefix: string; // of the page's identity and goals sections
+  madeBy: MadeBy;
+  load: (opened: boolean) => Promise<PartHistory[]>;
+  restore: (part: string, number: number) => Promise<T>;
+  compare?: (part: string, number: number) => Promise<CustomizationComparison>;
+}
+
+const CUSTOMIZATION_HISTORY: HistorySource<Customization> = {
+  name: "Customization",
+  idPrefix: "customization",
+  madeBy: MADE_BY,
+  load: getCustomizationHistory,
+  restore: restoreCustomizationChange,
+  compare: compareCustomizationChange,
+};
+
 // The History (R95; Larry's review on PR #258): each part's changes, newest first. Go back makes
 // an earlier change that part's current one, changing nothing else and adding no change; Edit
-// goes to the part's editor.
-function HistorySection({ onRestored }: { onRestored: (saved: Customization) => void }) {
+// goes to the part's editor. The Admin guidelines page has one too (R253).
+export function HistorySection<T>({
+  source,
+  onRestored,
+}: {
+  source: HistorySource<T>;
+  onRestored: (saved: T) => void;
+}) {
   const [histories, setHistories] = useState<PartHistory[] | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -440,13 +471,13 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
     setCompareError(null);
   }
   const [compareError, setCompareError] = useState<{ part: string; text: string } | null>(null);
-  const { busy, run, status, changed } = useSave(false);
+  const { busy, run, status, changed } = useSave(false, source.name);
 
   // A save made elsewhere on the page hides it, so it is opened again up to date.
   useEffect(() => {
     function hide() {
       setOpen((was) => {
-        if (was) console.info("Customization history hidden after a save");
+        if (was) console.info(`${source.name} history hidden after a save`);
         return false;
       });
     }
@@ -458,11 +489,11 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
     setError(null);
     const started = performance.now();
     try {
-      const got = await getCustomizationHistory(opened);
+      const got = await source.load(opened);
       setHistories(got);
-      console.info(`Customization history shown: ${got.length} parts (${Math.round(performance.now() - started)} ms)`);
+      console.info(`${source.name} history shown: ${got.length} parts (${Math.round(performance.now() - started)} ms)`);
     } catch (e) {
-      console.error("Could not read the customization history", e);
+      console.error(`Could not read the ${source.name.toLowerCase()} history`, e);
       setError("The history could not be read. Try again.");
     }
   }
@@ -479,18 +510,19 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
   }
 
   async function compare(h: PartHistory, number: number) {
+    if (!source.compare) return;
     dropComparison();
     const mine = asked.current;
     const started = performance.now();
     try {
-      const got = await compareCustomizationChange(h.part, number);
+      const got = await source.compare(h.part, number);
       if (mine !== asked.current) {
-        console.info(`Customization comparison dropped: ${h.label}, change ${number}, as another was asked for`);
+        console.info(`${source.name} comparison dropped: ${h.label}, change ${number}, as another was asked for`);
         return;
       }
       setComparison(got);
       console.info(
-        `Customization compared: ${h.label}, change ${number} with ${h.current} (${Math.round(performance.now() - started)} ms)`,
+        `${source.name} compared: ${h.label}, change ${number} with ${h.current} (${Math.round(performance.now() - started)} ms)`,
       );
     } catch (e) {
       if (mine !== asked.current) return;
@@ -501,16 +533,16 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
 
   async function goBack(h: PartHistory, number: number) {
     dropComparison();
-    const saved = await run(`${h.label} back to change ${number}`, () => restoreCustomizationChange(h.part, number));
+    const saved = await run(`${h.label} back to change ${number}`, () => source.restore(h.part, number));
     if (saved) {
-      console.info(`Customization restored: ${h.label}, change ${number}`);
+      console.info(`${source.name} restored: ${h.label}, change ${number}`);
       onRestored(saved);
       await load(false);
     }
   }
 
   function edit(h: PartHistory) {
-    editorOf(h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
+    editorOf(source.idPrefix, h.part, h.label)?.scrollIntoView({ behavior: "smooth" });
   }
 
   return (
@@ -539,7 +571,7 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
                 <li key={c.number}>
                   <span>
                     <strong>Change {c.number}</strong>
-                    {c.number === h.current && " (in use)"} · {MADE_BY[c.made_by]}
+                    {c.number === h.current && " (in use)"} · {source.madeBy[c.made_by]}
                     <span className="muted"> · {when(c.made_at)}</span>
                     <span className="change-preview">{preview(c)}</span>
                   </span>
@@ -549,14 +581,16 @@ function HistorySection({ onRestored }: { onRestored: (saved: Customization) => 
                     </button>
                   ) : (
                     <span className="change-actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        aria-label={`Compare ${h.label} change ${c.number} with the change in use`}
-                        onClick={() => void compare(h, c.number)}
-                      >
-                        Compare
-                      </button>
+                      {source.compare && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          aria-label={`Compare ${h.label} change ${c.number} with the change in use`}
+                          onClick={() => void compare(h, c.number)}
+                        >
+                          Compare
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={busy}
@@ -627,6 +661,7 @@ export function CustomizationPage() {
             }}
           />
           <HistorySection
+            source={CUSTOMIZATION_HISTORY}
             onRestored={(saved) => {
               setRead({ ...saved, shipped: false });
               setSaves((n) => n + 1);

@@ -2,7 +2,8 @@
 // administrator's own identity, goals and guidelines for each feature, laid out as the host's
 // Customization page is (R94). The LLM follows them first, over every host's (R243). Each part has
 // its own Save and Clear; a save sends them whole, with only that part changed from what was last
-// saved, so text typed in another part and not saved stays as typed.
+// saved, so text typed in another part and not saved stays as typed. Its History (R253) keeps
+// each part's changes, to go back to one part's earlier change, as on the Customization page.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -12,9 +13,12 @@ import {
   type AdminGuidelines,
   type AdminGuidelinesEdit,
   getAdminGuidelines,
+  getAdminGuidelinesHistory,
+  restoreAdminGuidelinesChange,
   saveAdminGuidelines,
   ServerRefusal,
 } from "./api";
+import { HistorySection, type HistorySource, SAVED_EVENT } from "./customization";
 
 type Identity = AdminGuidelines["identity"];
 type Save = (part: string, change: Partial<AdminGuidelinesEdit>) => Promise<AdminGuidelines | null>;
@@ -46,6 +50,7 @@ function usePart(save: Save) {
     const saved = await save(part, change);
     setBusy(false);
     setSaid(saved ? done : null);
+    if (saved) window.dispatchEvent(new Event(SAVED_EVENT)); // an open History hides
     return saved;
   }
 
@@ -228,6 +233,8 @@ export function AdminGuidelinesPage() {
   const [error, setError] = useState<string | null>(null);
   // What was last saved, so saves made one after another each start from the one before.
   const last = useRef<AdminGuidelines | null>(null);
+  // Counts go-backs, so each editor starts again from what was gone back to.
+  const [restores, setRestores] = useState(0);
 
   useEffect(() => {
     const started = performance.now();
@@ -249,11 +256,31 @@ export function AdminGuidelinesPage() {
   // Saves made at once, from different parts, go one after another, each from what the one
   // before it saved, so neither sends the other's part as it was before (Codex's review on
   // PR #261).
+  // A go-back waits its turn too, so a save asked for before it isn't undone by it.
   const queue = useRef<Promise<unknown>>(Promise.resolve());
-  const save: Save = (part, change) => {
-    const next = queue.current.then(() => saveNow(part, change));
-    queue.current = next;
+  function inTurn<R>(run: () => Promise<R>): Promise<R> {
+    const next = queue.current.then(run);
+    queue.current = next.catch(() => undefined);
     return next;
+  }
+  const save: Save = (part, change) => inTurn(() => saveNow(part, change));
+
+  const history: HistorySource<AdminGuidelines> = {
+    name: "Admin guidelines",
+    idPrefix: "admin-guidelines",
+    madeBy: { shipped: "Empty at first", generated: "Drafted by the LLM", saved: "Saved" },
+    load: getAdminGuidelinesHistory,
+    restore: (part, number) =>
+      inTurn(async () => {
+        try {
+          const restored = await restoreAdminGuidelinesChange(part, number);
+          last.current = restored;
+          return restored;
+        } catch (e) {
+          if (e instanceof ServerRefusal && e.status === 401) await refresh();
+          throw e;
+        }
+      }),
   };
 
   async function saveNow(part: string, change: Partial<AdminGuidelinesEdit>): Promise<AdminGuidelines | null> {
@@ -297,10 +324,17 @@ export function AdminGuidelinesPage() {
           {error}
         </p>
       )}
-      <IdentitySection identity={read.identity} save={save} />
-      <GoalsSection goals={read.goals} save={save} />
+      <HistorySection
+        source={history}
+        onRestored={(restored) => {
+          setRead(restored);
+          setRestores((n) => n + 1);
+        }}
+      />
+      <IdentitySection key={`identity-${restores}`} identity={read.identity} save={save} />
+      <GoalsSection key={`goals-${restores}`} goals={read.goals} save={save} />
       {sections(read.features).map(([name, features]) => (
-        <section key={name} className="panel" aria-labelledby={`admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
+        <section key={`${name}-${restores}`} className="panel" aria-labelledby={`admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
           <h2 id={`admin-guidelines-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`}>{name}</h2>
           {features.map((f) => (
             <FeatureGuidelines key={f.key} feature={f} save={save} />
