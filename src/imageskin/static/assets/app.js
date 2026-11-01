@@ -1468,6 +1468,7 @@ function resolve(hash, consented, participant = false, visitor = false, use = {
 	voice: true
 }) {
 	const page = pageFor(hash);
+	if (visitor && (page === "wiki" || page === "wiki-page")) return { page: "host-only" };
 	if (participant && HOST_PAGES.includes(page)) {
 		if (visitor && page !== "home") return { page: "host-only" };
 		return {

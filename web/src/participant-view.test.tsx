@@ -119,3 +119,21 @@ test("a host who chose the participant view is sent to the chat, not refused", (
   expect(resolve("#/content", true, true, true)).toEqual({ page: "host-only" });
   expect(resolve("#/", true, true, true)).toEqual({ page: "chat", redirect: "#/chat" });
 });
+
+test("a visitor gets only the question and answer screen: the wiki is the host's (R45)", () => {
+  for (const hash of ["#/wiki", "#/wiki/a1", "#/wiki/page/a1-x"]) {
+    expect(resolve(hash, true, true, true)).toEqual({ page: "host-only" });
+  }
+  // A host who chose the participant view still reads the wiki.
+  expect(resolve("#/wiki", true, true, false)).toEqual({ page: "wiki" });
+  expect(resolve("#/wiki/page/a1-x", true, true, false)).toEqual({ page: "wiki-page" });
+  expect(resolve("#/chat", true, true, true)).toEqual({ page: "chat" });
+});
+
+test("a visitor opening the wiki by its address is told it is for the host (R45)", async () => {
+  server();
+  window.location.hash = "#/wiki";
+  render(<App />);
+  expect(await screen.findByRole("heading", { name: "For the host only" })).toBeTruthy();
+  await vi.waitFor(() => expect(console.info).toHaveBeenCalledWith("Host page refused: #/wiki"));
+});

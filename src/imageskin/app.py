@@ -181,6 +181,7 @@ from imageskin.uploads import (
     VoiceSample,
     shown_size,
 )
+from imageskin.visitor import for_visitor
 from imageskin.warm_up_time import (
     QUICK_WARM_UP_S,
     last_warm_up_s,
@@ -706,8 +707,9 @@ def create_app(
         host_accounts, lambda host: may_use(host.email)
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
-    # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
-    # for the participant view.
+    # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs does too: a
+    # visitor gets only the question and answer screen (R45), until R46 opens them to signed-in
+    # participants.
     host_only = [Depends(app.state.require_host)]
     SignedInHost = Annotated[Host, Depends(app.state.require_host)]
 
@@ -935,11 +937,19 @@ def create_app(
     # file until it is changed there.
     ui_defaults = UiSettings(general_prompts=general_prompts)
 
+    def is_visitor(host_token: str | None, laptop_token: str | None) -> bool:
+        """Neither a signed-in host nor a listed laptop: the question and answer screen (R45)."""
+        return settings_access.who(host_token, laptop_token) is None
+
     @app.get("/api/settings")
     def get_settings(
         host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
+        laptop_token: Annotated[str | None, Cookie(alias=LAPTOP_COOKIE)] = None,
     ) -> dict[str, object]:
-        settings = asdict(load_ui_settings(data_home, ui_defaults))
+        loaded = load_ui_settings(data_home, ui_defaults)
+        # A visitor has no Teach me, Quiz me or Assessment buttons (R45).
+        visitor = is_visitor(host_token, laptop_token)
+        settings = asdict(for_visitor(loaded) if visitor else loaded)
         # The view follows who is signed in (R190): anyone not signed in as a host gets the
         # participant view; a host gets the view chosen in the settings, so they can look at the
         # app as a participant does.
@@ -951,6 +961,7 @@ def create_app(
             extra={
                 "view": settings["view"],
                 "why": "host signed in" if host else "no host signed in",
+                "visitor": visitor,
             },
         )
         return settings
@@ -1166,7 +1177,7 @@ def create_app(
     app.state.readings = readings
     app.state.wiki = wiki
 
-    @app.get(content_api)
+    @app.get(content_api, dependencies=host_only)
     def list_pdfs() -> list[Pdf]:
         return content.list()
 
@@ -1201,21 +1212,21 @@ def create_app(
     def reading_statuses() -> dict[str, ReadingStatus]:
         return readings.statuses()
 
-    @app.get(content_api + "/{pdf_id}/reading")
+    @app.get(content_api + "/{pdf_id}/reading", dependencies=host_only)
     def get_reading(pdf_id: str) -> dict[str, Any]:
         reading = readings.reading(pdf_id)
         if reading is None:
             raise HTTPException(status_code=404, detail="Not read yet.")
         return reading
 
-    @app.get(content_api + "/{pdf_id}/wiki")
+    @app.get(content_api + "/{pdf_id}/wiki", dependencies=host_only)
     def get_pdf_wiki(pdf_id: str) -> dict[str, Any]:
         built = wiki.built(pdf_id)
         if built is None:
             raise HTTPException(status_code=404, detail="No wiki pages yet.")
         return built
 
-    @app.get(content_api + "/{pdf_id}")
+    @app.get(content_api + "/{pdf_id}", dependencies=host_only)
     def get_pdf(pdf_id: str) -> FileResponse:
         path = content.path(pdf_id)
         pdf = content.get(pdf_id)
@@ -1243,20 +1254,20 @@ def create_app(
             wiki.forget(pdf_id)
         return {"removed": True}
 
-    @app.get("/api/wiki")
+    @app.get("/api/wiki", dependencies=host_only)
     def list_wiki_pages(pdf: str | None = None) -> list[dict[str, Any]]:
         return wiki.pages(pdf)
 
     # Before /{page_id}, which would take these as ids.
-    @app.get("/api/wiki/contents")
+    @app.get("/api/wiki/contents", dependencies=host_only)
     def wiki_contents(pdf: str | None = None) -> list[dict[str, Any]]:
         return wiki.contents(pdf)
 
-    @app.get("/api/wiki/builds")
+    @app.get("/api/wiki/builds", dependencies=host_only)
     def wiki_statuses() -> dict[str, WikiStatus]:
         return wiki.statuses()
 
-    @app.get("/api/wiki/{page_id}")
+    @app.get("/api/wiki/{page_id}", dependencies=host_only)
     def get_wiki_page(page_id: str) -> dict[str, Any]:
         page = wiki.page(page_id)
         if page is None:
@@ -1329,7 +1340,7 @@ def create_app(
                 raise HTTPException(status_code=e.status, detail=str(e)) from e
         return {"restored": True}
 
-    @app.get(content_api + "/{pdf_id}/wiki/file")
+    @app.get(content_api + "/{pdf_id}/wiki/file", dependencies=host_only)
     def save_wiki_file(pdf_id: str) -> JSONResponse:
         saved = wiki.export(pdf_id)
         if saved is None:
@@ -2460,7 +2471,12 @@ def create_app(
             return {"ready": False, "left_s": seconds_left(warm_up["expected_s"], elapsed)}
 
     @app.post("/api/chat", dependencies=[*needs_person, Depends(require_accepted)])
-    def post_chat(body: ChatRequest, seen: DeletesSeen) -> dict[str, Any]:
+    def post_chat(
+        body: ChatRequest,
+        seen: DeletesSeen,
+        host_token: Annotated[str | None, Cookie(alias=HOST_COOKIE)] = None,
+        laptop_token: Annotated[str | None, Cookie(alias=LAPTOP_COOKIE)] = None,
+    ) -> dict[str, Any]:
         """The reply, with its place in the conversation to ask for its video by, and whether it
         was streamed: then its clips are made sentence by sentence (roadmap R22) and the
         browser follows those, even once a newer prompt has taken them, rather than asking for
@@ -2483,7 +2499,7 @@ def create_app(
                 not_deleted_since(seen)  # a prompt sent before Delete my data is never kept (R31)
                 token = ask_stop.set(stop)  # the LLM is cut off on Stop
                 try:
-                    answer = chat(body, stop)
+                    answer = chat(body, stop, is_visitor(host_token, laptop_token))
                 finally:
                     ask_stop.reset(token)
             times.answered_at = time.perf_counter()
@@ -2652,7 +2668,7 @@ def create_app(
         )
         return reply, turn
 
-    def chat(body: ChatRequest, stop: PromptStop) -> dict[str, Any]:
+    def chat(body: ChatRequest, stop: PromptStop, visitor: bool = False) -> dict[str, Any]:
         with clips_lock:
             unasked = list(sentence_clips.values())  # only the latest reply is played
             sentence_clips.clear()
@@ -2696,9 +2712,12 @@ def create_app(
                 answers = tuple(Answer(**a) for a in kept.pop("answers"))
                 assessment = Assessment(**kept, answers=answers)
             # With Teach me, Quiz me or Assessment off in the settings, "Teach me", "Quiz me" or
-            # "Assess me" is an ordinary prompt (R41h, R41i, R41j). An assessment going takes the
-            # answer before a quiz does, and a quiz before a lesson.
+            # "Assess me" is an ordinary prompt (R41h, R41i, R41j), as they are for a visitor
+            # (R45). An assessment going takes the answer before a quiz does, and a quiz before
+            # a lesson.
             settings = load_ui_settings(data_home)
+            if visitor:
+                settings = for_visitor(settings)
             if settings.quiz_me or settings.teach_me or settings.assessment:
                 conversation.check(body.prompt)  # before any of them asks the LLM
             assessed = None
