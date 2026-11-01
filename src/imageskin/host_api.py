@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from imageskin.admin_api import address
+from imageskin.admin_settings import CustomUse
 from imageskin.hosts import Host, HostAccounts, HostRefused, HostsUnreadable, normal_email
 
 logger = logging.getLogger(__name__)
@@ -25,8 +26,12 @@ Password = Annotated[str, Body(embed=True)]
 HostPage = Literal["sign-up", "sign-in"]
 
 
-def host_router(accounts: HostAccounts) -> tuple[APIRouter, Callable[[str | None], Host]]:
-    """The routes, and the dependency that refuses a request not signed in as a host."""
+def host_router(
+    accounts: HostAccounts, may_use: Callable[[Host], CustomUse]
+) -> tuple[APIRouter, Callable[[str | None], Host]]:
+    """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
+    says whether a host may use a custom image and voice (R239), read at each request so an
+    Admin settings change applies at once."""
     router = APIRouter(prefix="/api/host")
 
     def require_host(token: Token = None) -> Host:
@@ -94,7 +99,14 @@ def host_router(accounts: HostAccounts) -> tuple[APIRouter, Callable[[str | None
 
     @router.get("/me")
     def me(host: Annotated[Host, Depends(require_host)]) -> dict[str, object]:
-        """The signed-in host's account: the first host-only route."""
-        return {"email": host.email, "created_at": host.created_at}
+        """The signed-in host's account: the first host-only route. With whether they may use
+        their own photo and voice (R239), so the browser knows what to offer."""
+        use = may_use(host)
+        return {
+            "email": host.email,
+            "created_at": host.created_at,
+            "custom_image": use.image,
+            "custom_voice": use.voice,
+        }
 
     return router, require_host

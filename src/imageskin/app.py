@@ -50,7 +50,7 @@ from imageskin.admin_guidelines import with_value as admin_with_value
 from imageskin.admin_laptops import FILENAME as LAPTOPS_FILENAME
 from imageskin.admin_laptops import AdminLaptops
 from imageskin.admin_settings import DEFAULTS as ADMIN_DEFAULTS
-from imageskin.admin_settings import AdminSettingsStore
+from imageskin.admin_settings import AdminSettingsStore, CustomUse, custom_use
 from imageskin.assess import MOST_QUESTIONS, Answer, Assessment, Assessor
 from imageskin.chat import (
     AskLlm,
@@ -657,7 +657,14 @@ def create_app(
     app.include_router(settings_routes)
     admin_routes, app.state.require_admin = admin_router(admin_sign_ins, [require_settings])
     app.include_router(admin_routes)
-    host_routes, app.state.require_host = host_router(host_accounts)
+
+    # Whether a host may use their own photo and voice (R239): the Admin settings' checkboxes,
+    # until a host has an Allow or Deny of their own (R242).
+    def may_use(host: Host) -> CustomUse:
+        return custom_use(admin_settings.current)
+
+    app.state.may_use = may_use
+    host_routes, app.state.require_host = host_router(host_accounts, may_use)
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
     # for the participant view.

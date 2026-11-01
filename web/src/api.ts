@@ -1176,10 +1176,18 @@ export async function getResources(): Promise<Resources> {
 }
 
 // The settings only the administrator can change (roadmap R155), with the recommended ones.
+// With whether hosts may not use a custom image or voice (R239), both checked by default.
 export interface AdminSettings {
   timeout_minutes: number;
   thresholds: Thresholds;
-  recommended: { timeout_minutes: number; thresholds: Thresholds };
+  disable_custom_image: boolean;
+  disable_custom_voice: boolean;
+  recommended: {
+    timeout_minutes: number;
+    thresholds: Thresholds;
+    disable_custom_image: boolean;
+    disable_custom_voice: boolean;
+  };
 }
 
 export async function getAdminSettings(): Promise<AdminSettings> {
@@ -1190,7 +1198,9 @@ export async function getAdminSettings(): Promise<AdminSettings> {
 
 // Throws a ServerRefusal saying why when a setting is refused (400) or signed out (401).
 export async function saveAdminSettings(
-  changes: Partial<Pick<AdminSettings, "timeout_minutes" | "thresholds">>,
+  changes: Partial<
+    Pick<AdminSettings, "timeout_minutes" | "thresholds" | "disable_custom_image" | "disable_custom_voice">
+  >,
 ): Promise<AdminSettings> {
   const response = await fetch("/api/admin/settings", {
     method: "PUT",

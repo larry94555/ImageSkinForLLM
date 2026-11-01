@@ -1,7 +1,8 @@
 // Admin settings, the admin view's second page (roadmap R155, items 123 and 125): the minutes
 // without activity before the administrator is signed out, and the thresholds for the resource
-// dashboard's colours, as the percentage of a resource remaining. Only the administrator sees
-// them; they apply at once, to the sign-in going now and to the dashboard.
+// dashboard's colours, as the percentage of a resource remaining, and, under Hosts, whether hosts
+// may use a custom image and a custom voice (R239). Only the administrator sees them; they apply
+// at once, to the sign-in going now, to the dashboard and to each host's next request.
 
 import { useEffect, useState } from "preact/hooks";
 
@@ -9,15 +10,24 @@ import { useAdmin } from "./admin";
 import { type AdminSettings, getAdminSettings, saveAdminSettings, ServerRefusal } from "./api";
 import { MEANINGS } from "./dashboard";
 
-type Fields = { minutes: string; blue: string; orange: string; red: string };
+type Fields = {
+  minutes: string;
+  blue: string;
+  orange: string;
+  red: string;
+  noImage: boolean;
+  noVoice: boolean;
+};
 
-function fieldsOf(settings: Pick<AdminSettings, "timeout_minutes" | "thresholds">): Fields {
+function fieldsOf(settings: AdminSettings): Fields {
   const t = settings.thresholds;
   return {
     minutes: String(settings.timeout_minutes),
     blue: String(t.blue_above),
     orange: String(t.orange_below),
     red: String(t.red_below),
+    noImage: settings.disable_custom_image,
+    noVoice: settings.disable_custom_voice,
   };
 }
 
@@ -56,6 +66,8 @@ export function AdminSettingsPage() {
           orange_below: Number(changes.orange),
           red_below: Number(changes.red),
         },
+        disable_custom_image: changes.noImage,
+        disable_custom_voice: changes.noVoice,
       });
       console.info(`Admin settings saved (${Math.round(performance.now() - started)} ms)`);
       setSettings(read);
@@ -78,7 +90,7 @@ export function AdminSettingsPage() {
     return error ? <p className="error">{error}</p> : <p className="muted">Reading the admin settings…</p>;
   }
 
-  const input = (name: keyof Fields, label: string, min: number, max: number) => (
+  const input = (name: "minutes" | "blue" | "orange" | "red", label: string, min: number, max: number) => (
     <label className="admin-number">
       <span>{label}</span>
       <input
@@ -95,6 +107,19 @@ export function AdminSettingsPage() {
     </label>
   );
   const recommended = settings.recommended.thresholds;
+  const checkbox = (name: "noImage" | "noVoice", label: string) => (
+    <label className="check">
+      <input
+        type="checkbox"
+        checked={fields[name]}
+        onChange={(e) => {
+          setSaved(false);
+          setFields({ ...fields, [name]: e.currentTarget.checked });
+        }}
+      />{" "}
+      {label}
+    </label>
+  );
 
   return (
     <form
@@ -106,7 +131,7 @@ export function AdminSettingsPage() {
       {error && <p className="error">{error}</p>}
       {saved && (
         <p className="notice" role="status">
-          Saved. The dashboard and the sign-out use them now.
+          Saved. The dashboard, the sign-out and the hosts use them now.
         </p>
       )}
       <section className="panel" aria-labelledby="admin-sign-out">
@@ -151,6 +176,15 @@ export function AdminSettingsPage() {
             Use the recommended thresholds
           </button>
         </p>
+      </section>
+      <section className="panel" aria-labelledby="admin-hosts">
+        <h2 id="admin-hosts">Hosts</h2>
+        <p className="muted">
+          Checked, hosts use a default person and a ready-made voice, and can't add their own photo
+          or record their own voice. Both are checked to begin with.
+        </p>
+        <p>{checkbox("noImage", "Disable custom image")}</p>
+        <p>{checkbox("noVoice", "Disable custom voice")}</p>
       </section>
       <p>
         <button type="submit" disabled={busy}>
