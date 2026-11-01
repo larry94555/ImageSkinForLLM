@@ -180,6 +180,9 @@ class SentenceClips:
         # Given the clips once every one is rendered and none failed or was stopped, before they
         # can be removed (roadmap R130a). Set before close().
         self.on_complete: Callable[[list[Path]], None] | None = None
+        # Who said them: the photo and the voice (Larry's test of PR #266). Repeat says a reply
+        # again from its clips only for the same person, so another avatar never shows in them.
+        self.person: tuple[object, ...] | None = None
 
     def __call__(self, sentence: str | None) -> None:
         if sentence is None:  # the LLM has started writing
