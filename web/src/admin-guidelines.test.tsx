@@ -64,6 +64,22 @@ function server(kept: Partial<AdminGuidelinesEdit> = {}) {
       return Response.json(shown());
     }
     if (url.startsWith("/api/admin/guidelines/history")) {
+      const compare = /history\/([^/]+)\/(\d+)\/compare$/.exec(url);
+      if (compare) {
+        const part = decodeURIComponent(compare[1]);
+        const h = state.history[part];
+        const earlier = h.changes.find((c) => c.number === Number(compare[2]))!;
+        const now = h.changes.find((c) => c.number === h.current)!;
+        return Response.json({
+          part,
+          earlier: earlier.number,
+          current: h.current,
+          runs: [
+            { kind: "removed", text: String(earlier.value) },
+            { kind: "added", text: String(now.value) },
+          ],
+        });
+      }
       const restore = /history\/([^/]+)\/(\d+)\/restore$/.exec(url);
       if (restore) {
         const part = decodeURIComponent(restore[1]);
@@ -269,8 +285,15 @@ test("the History goes back on one part only, adds no change, and hides after a 
     expect.stringMatching(/^Change 2 · Saved.*Be brief\./),
     expect.stringMatching(/^Change 1 · Empty at first.*Empty\./),
   ]);
-  // No Compare yet: that's R254.
-  expect(within(topics).queryByRole("button", { name: /Compare/ })).toBeNull();
+  // Compare (R254): the change in use beside an earlier one, as on the Customization page.
+  await click(within(topics).getByRole("button", { name: "Compare Topics change 2 with the change in use" }));
+  const compared = await within(topics).findByRole("region", { name: "Topics compared" });
+  expect(compared.textContent).toContain("Change 2 beside change 3 (in use)");
+  expect(compared.querySelector("del")?.textContent).toBe("Be brief.");
+  expect(compared.querySelector("ins")?.textContent).toBe("Be briefer.");
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Admin guidelines compared: Topics, change 2 with 3/));
+  await click(within(compared).getByRole("button", { name: "Hide the comparison" }));
+  expect(within(topics).queryByRole("region", { name: "Topics compared" })).toBeNull();
   expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Admin guidelines history shown: 2 parts/));
 
   // Text typed in the goals and not saved survives going back on Topics (Codex's review on

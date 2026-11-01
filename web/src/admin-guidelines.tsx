@@ -3,7 +3,8 @@
 // Customization page is (R94). The LLM follows them first, over every host's (R243). Each part has
 // its own Save and Clear; a save sends them whole, with only that part changed from what was last
 // saved, so text typed in another part and not saved stays as typed. Its History (R253) keeps
-// each part's changes, to go back to one part's earlier change, as on the Customization page.
+// each part's changes, to go back to one part's earlier change or compare it with the one in use
+// (R254), as on the Customization page.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -12,6 +13,7 @@ import {
   type AdminGuidelineFeature,
   type AdminGuidelines,
   type AdminGuidelinesEdit,
+  compareAdminGuidelinesChange,
   getAdminGuidelines,
   getAdminGuidelinesHistory,
   restoreAdminGuidelinesChange,
@@ -272,6 +274,7 @@ export function AdminGuidelinesPage() {
     idPrefix: "admin-guidelines",
     madeBy: { shipped: "Empty at first", generated: "Drafted by the LLM", saved: "Saved" },
     load: getAdminGuidelinesHistory,
+    compare: compareAdminGuidelinesChange, // R254
     restore: (part, number) =>
       inTurn(async () => {
         try {

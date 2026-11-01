@@ -171,3 +171,56 @@ def test_only_the_administrator_reads_or_restores_it(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
     assert client.get("/api/admin/guidelines/history").status_code == 401
     assert client.post("/api/admin/guidelines/history/goals/1/restore").status_code == 401
+
+
+# --- Compare (R254) ---
+
+
+def test_compare_marks_only_what_changed_since_an_earlier_change(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    client: Any = as_admin(riemann_app(tmp_path, Llm()), tmp_path)
+    put(client, guidelines={"topics": BRIEF})
+    put(client, guidelines={"topics": BRIEFER})
+    with caplog.at_level(logging.INFO):
+        shown = client.get("/api/admin/guidelines/history/topics/2/compare")
+    assert shown.status_code == 200
+    assert shown.json() == {
+        "part": "topics",
+        "earlier": 2,
+        "current": 3,
+        "runs": [
+            {"kind": "same", "text": "Name the main idea first"},
+            {"kind": "added", "text": ", in one sentence"},
+            {"kind": "same", "text": "."},
+        ],
+    }
+    logged = next(r for r in caplog.records if r.message == "Admin guidelines compared")
+    assert logged.part == "topics" and logged.earlier == 2  # type: ignore[attr-defined]
+    # With its first change, empty: everything since is added, nothing shipped is shown.
+    first = client.get("/api/admin/guidelines/history/topics/1/compare").json()["runs"]
+    assert first == [{"kind": "added", "text": BRIEFER}]
+
+
+def test_compare_shows_the_identity_and_goals_a_line_each(tmp_path: Path) -> None:
+    client: Any = as_admin(riemann_app(tmp_path, Llm()), tmp_path)
+    put(client, identity={"name": "Tutor"}, goals=["Be accurate."])
+    put(client, identity={"name": "Guide"}, goals=["Be accurate.", "Cite the page."])
+    identity = client.get("/api/admin/guidelines/history/identity/2/compare").json()["runs"]
+    assert {"kind": "removed", "text": "Tutor"} in identity
+    assert {"kind": "added", "text": "Guide"} in identity
+    goals = client.get("/api/admin/guidelines/history/goals/2/compare").json()["runs"]
+    assert goals[-1] == {"kind": "added", "text": "\nCite the page."}
+
+
+def test_comparing_a_change_not_there_is_404(tmp_path: Path) -> None:
+    client: Any = as_admin(riemann_app(tmp_path, Llm()), tmp_path)
+    put(client, goals=["Be accurate."])
+    assert client.get("/api/admin/guidelines/history/goals/9/compare").status_code == 404
+    assert client.get("/api/admin/guidelines/history/topics/1/compare").status_code == 404
+
+
+@pytest.mark.real_hosts
+def test_only_the_administrator_compares(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+    assert client.get("/api/admin/guidelines/history/goals/1/compare").status_code == 401

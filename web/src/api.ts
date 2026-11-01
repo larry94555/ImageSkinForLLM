@@ -1503,3 +1503,10 @@ export async function restoreAdminGuidelinesChange(part: string, number: number)
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as AdminGuidelines;
 }
+
+// A part of the admin guidelines in use beside an earlier change of it (R254), as R95a's.
+export async function compareAdminGuidelinesChange(part: string, number: number): Promise<CustomizationComparison> {
+  const response = await fetch(`/api/admin/guidelines/history/${encodeURIComponent(part)}/${number}/compare`);
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as CustomizationComparison;
+}
