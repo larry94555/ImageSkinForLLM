@@ -20,6 +20,7 @@ from typing import Any
 
 from imageskin.customization import (
     FEATURES,
+    GUIDELINES_FIRST,
     IDENTITY_LABELS,
     MOST_GOAL_CHARS,
     MOST_GOALS,
@@ -41,7 +42,6 @@ REQUIREMENTS = (
     "System requirements, set by the administrator: follow these first, and everything after"
     " them only where it doesn't conflict with them."
 )
-GUIDELINES_FIRST = "System requirements, followed first:"
 HOST_AFTER = "Then these, only where they don't conflict with them:"
 ADMIN_IDENTITY = {
     "name": "Your name is {}",
@@ -137,7 +137,12 @@ def applied(host: Customization, admin: AdminGuidelines) -> Customization:
     guidelines = dict(host.guidelines)
     for key, text in admin.guidelines.items():
         guidelines[key] = combined(text, guidelines_of(host, key))
-    return replace(host, guidelines=guidelines, requirements=requirements(admin))
+    return replace(
+        host,
+        guidelines=guidelines,
+        requirements=requirements(admin),
+        required=dict(admin.guidelines),
+    )
 
 
 def ms_since(start: float) -> float:

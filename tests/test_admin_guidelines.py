@@ -14,7 +14,6 @@ from test_topics import riemann_app
 from imageskin.admin_guidelines import (
     ADMIN_FILE,
     EMPTY,
-    GUIDELINES_FIRST,
     HOST_AFTER,
     REQUIREMENTS,
     AdminGuidelines,
@@ -24,11 +23,13 @@ from imageskin.admin_guidelines import (
     requirements,
 )
 from imageskin.app import create_app
-from imageskin.chat import detail_level, system_message
+from imageskin.chat import Conversation, LlmError, detail_level, system_message
 from imageskin.customization import (
     FEATURES,
+    GUIDELINES_FIRST,
     SHIPPED,
     CustomizationRefused,
+    Read,
     guidelines_of,
     instructions,
     is_edited,
@@ -178,3 +179,77 @@ def test_only_the_administrator_reads_or_changes_them(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
     assert client.get("/api/admin/guidelines").status_code == 401
     assert client.put("/api/admin/guidelines", json={}).status_code == 401
+
+
+# --- Every call, and when room is short (Codex's review on PR #260) ---
+
+ADMIN = AdminGuidelines({"name": "Tutor"}, ("Be accurate.",), {"quiz questions": PRACTICAL})
+SHORT = "Ask a short yes-or-no question. " * 40  # the host's, conflicting and long
+UNGUIDED = "Write one short quiz question on primes."
+
+
+def talk(llm: Any, window: int, admin: AdminGuidelines = ADMIN) -> Conversation:
+    host = with_guidelines(SHIPPED, "quiz questions", SHORT.strip())
+    asked = applied(host, admin)
+    return Conversation(llm, lambda: window, customization=lambda: Read(asked, False, 0.1))
+
+
+def test_a_one_off_call_has_the_administrators_identity_and_goals_first() -> None:
+    llm = Llm()
+    talk(llm, 8192).write(UNGUIDED, [])
+    system = llm.sent[-1][0]
+    assert system["role"] == "system" and system["content"].startswith(REQUIREMENTS)
+    assert "Your goals: Be accurate." in system["content"]
+    talk(llm, 8192).write(UNGUIDED, ["Primes have two divisors."])
+    with_rules = llm.sent[-1][0]["content"]
+    assert with_rules.startswith(REQUIREMENTS) and "Primes" not in with_rules
+    assert len(with_rules) > len(system["content"])  # the content rules after them
+    # With none written, as before: no system message without material.
+    talk(llm, 8192, EMPTY).write(UNGUIDED, [])
+    assert [m["role"] for m in llm.sent[-1]] == ["user"]
+
+
+def guided_quiz(admin: AdminGuidelines = ADMIN) -> str:
+    host = with_guidelines(SHIPPED, "quiz questions", SHORT.strip())
+    return (
+        f"{UNGUIDED} {QUESTION_GUIDELINES} {guidelines_of(applied(host, admin), 'quiz questions')}"
+    )
+
+
+def fits(window: int, text: str) -> bool:
+    try:
+        return Conversation(Llm(), lambda: window)._fit(text) is not None
+    except ValueError:
+        return False
+
+
+def test_when_room_is_short_only_the_hosts_are_left_out(caplog: pytest.LogCaptureFixture) -> None:
+    alone = f"{UNGUIDED}\n{GUIDELINES_FIRST} {PRACTICAL}"
+
+    # The smallest window the admin's alone fit; the host's long ones don't fit with them.
+    window = next(w for w in range(256, 16384, 16) if fits(w, alone) and not fits(w, guided_quiz()))
+    llm = Llm()
+    with caplog.at_level(logging.WARNING, logger="imageskin.chat"):
+        talk(llm, window).write(guided_quiz(), [], unguided=UNGUIDED, feature="quiz questions")
+    asked = llm.sent[-1][-1]["content"]
+    assert PRACTICAL in asked and "yes-or-no" not in asked
+    left = next(r for r in caplog.records if r.message == "Guidelines left out")
+    assert left.kept_admin is True  # type: ignore[attr-defined]
+    # Without the administrator's, as before: the instruction as shipped.
+    talk(llm, window, EMPTY).write(
+        guided_quiz(EMPTY), [], unguided=UNGUIDED, feature="quiz questions"
+    )
+    assert llm.sent[-1][-1]["content"] == UNGUIDED
+
+
+def test_when_even_the_administrators_dont_fit_the_call_is_refused(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    long_admin = AdminGuidelines({}, (), {"quiz questions": "Ask about a practical use. " * 70})
+    window = next(w for w in range(256, 16384, 16) if fits(w, UNGUIDED))
+    with caplog.at_level(logging.ERROR, logger="imageskin.chat"):
+        with pytest.raises(LlmError, match="administrator's requirements are too long"):
+            talk(Llm(), window, long_admin).write(
+                guided_quiz(long_admin), [], unguided=UNGUIDED, feature="quiz questions"
+            )
+    assert "Admin guidelines don't fit" in caplog.text

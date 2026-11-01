@@ -63,6 +63,9 @@ class Customization:
     # The administrator's identity and goals as system requirements before the host's (R243),
     # only ever set for a prompt, never saved.
     requirements: str = ""
+    # The administrator's guidelines by feature (R243), kept apart so a prompt that leaves out
+    # the host's for room keeps them (Codex's review on PR #260); only ever set for a prompt.
+    required: dict[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -289,6 +292,10 @@ FEATURES: dict[str, Feature] = {
         "Level of detail",
     ),
 }
+
+
+# How the administrator's guidelines for a feature are put first (R243).
+GUIDELINES_FIRST = "System requirements, followed first:"
 
 
 def guidelines_of(customization: Customization, key: str) -> str:
