@@ -31,6 +31,7 @@ from imageskin import reply_times
 from imageskin.customization import (
     ANSWERING,
     DETAIL_STEPS,
+    GUIDELINES_FIRST,
     Customization,
     Read,
     about_me,
@@ -1383,11 +1384,15 @@ class Conversation:
         asked = self._with_content(self._lesson_part(teach, room), material, room)
         start = time.perf_counter()
         # Without the system prompt, the rules for the material go with it, with the Answering
-        # questions guidelines as they are now (R194; Codex's review on PR #245).
+        # questions guidelines as they are now (R194; Codex's review on PR #245), after the
+        # administrator's identity and goals, which go with every call (R243; Codex's review on
+        # PR #260).
         with self._at_detail():
-            rules: list[Message] = (
-                [{"role": "system", "content": asked_content_rules()}] if material else []
-            )
+            customization = reply_customization.get()
+            required = "" if customization is None else customization.requirements
+            parts = [required, asked_content_rules() if material else ""]
+            system = " ".join(p for p in parts if p)
+            rules: list[Message] = [{"role": "system", "content": system}] if system else []
         with self._llm_busy():
             content = self._ask([*rules, {"role": "user", "content": asked}])
         logger.info(
@@ -1462,15 +1467,41 @@ class Conversation:
     ) -> str:
         """The question with a feature's guidelines (`guided`) when it fits the room `_fit` left
         for the question, or without them (Codex's reviews on PRs #248 and #250): the host's
-        guidelines never make a question too long, nor a prompt overflow the context window."""
+        guidelines never make a question too long, nor a prompt overflow the context window. The
+        administrator's are never left out (R243; Codex's review on PR #260): without the host's,
+        they are asked alone, and when even they don't fit, the prompt is refused."""
         if guided == question or tokens({"role": "user", "content": guided}, self._count) <= room:
             return guided
+        admin = self._required(feature)
         if not quiet:
             logger.warning(
                 "Guidelines left out",
-                extra={"feature": feature, "reason": "no room", "question_chars": len(question)},
+                extra={
+                    "feature": feature,
+                    "reason": "no room",
+                    "question_chars": len(question),
+                    "kept_admin": bool(admin),
+                },
             )
-        return question
+        if not admin:
+            return question
+        alone = f"{question}\n{GUIDELINES_FIRST} {admin}"
+        if quiet or tokens({"role": "user", "content": alone}, self._count) <= room:
+            return alone
+        logger.error("Admin guidelines don't fit", extra={"feature": feature, "room": room})
+        raise LlmError(
+            "The administrator's requirements are too long for this LLM's context window."
+        )
+
+    def _required(self, feature: str) -> str:
+        """The administrator's guidelines for a feature now (R243), or none."""
+        if self._customization is None:
+            return ""
+        try:
+            return self._customization().customization.required.get(feature, "")
+        except Exception:
+            logger.exception("Could not read the identity")
+            return ""
 
     def _lesson_part(self, teach: Teach, room: int, quiet: bool = False) -> str:
         """What a lesson or quiz step asks, with its feature's guidelines when they fit the room
