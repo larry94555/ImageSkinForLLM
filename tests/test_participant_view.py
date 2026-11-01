@@ -31,8 +31,9 @@ HOST_CALLS: list[tuple[str, str, dict[str, Any]]] = [
     ("get", "/api/content/some-pdf/wiki/history", {}),
 ]
 
-# What the participant view reads: the chat's state, the wiki and the PDFs.
-OPEN_CALLS = ["/api/consent", "/api/settings", "/api/content", "/api/wiki"]
+# What a visitor reads: the chat's state. The wiki and the PDFs are the host's to a visitor too
+# (R45, test_visitor.py).
+OPEN_CALLS = ["/api/consent", "/api/settings"]
 
 
 @pytest.fixture(autouse=True)

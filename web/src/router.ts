@@ -130,7 +130,8 @@ const HOST_PAGES: Page[] = [
 
 // Setup is blocked until the user confirms consent (feature item 22). In the participant view a
 // host's page, opened by its address, shows the chat instead; to anyone not signed in as a host
-// (`visitor`, R190) it says it is for the host, with a link to sign in, except the home page.
+// (`visitor`, R190) it says it is for the host, with a link to sign in, except the home page; so
+// does the wiki (R45).
 //
 // Where the host may not use their own photo (`use.image`, R240b), their own person can't be set
 // up, so setup, the wizard and choosing their own over an avatar go to Start now; without their
@@ -144,6 +145,9 @@ export function resolve(
   use: { image: boolean; voice: boolean } = { image: true, voice: true },
 ): Route {
   const page = pageFor(hash);
+  // A visitor gets only the question and answer screen (R45): the wiki and its PDFs are the
+  // host's too, until R46 gives a signed-in participant the read-only wiki back.
+  if (visitor && (page === "wiki" || page === "wiki-page")) return { page: "host-only" };
   if (participant && HOST_PAGES.includes(page)) {
     if (visitor && page !== "home") return { page: "host-only" };
     return { page: "chat", redirect: "#/chat" };

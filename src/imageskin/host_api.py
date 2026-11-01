@@ -28,15 +28,19 @@ HostPage = Literal["sign-up", "sign-in"]
 
 def host_router(
     accounts: HostAccounts, may_use: Callable[[Host], CustomUse]
-) -> tuple[APIRouter, Callable[[str | None], Host]]:
+) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
     Admin settings change applies at once."""
     router = APIRouter(prefix="/api/host")
 
-    def require_host(token: Token = None) -> Host:
+    def require_host(request: Request, token: Token = None) -> Host:
         host = accounts.host(token)
         if host is None:
+            # A visitor opening the wiki by its address lands here too (R45).
+            logger.info(
+                "Host call refused", extra={"method": request.method, "path": request.url.path}
+            )
             raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
         return host
 
