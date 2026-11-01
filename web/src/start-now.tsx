@@ -14,6 +14,7 @@ import {
   startNow,
 } from "./api";
 import { countdown } from "./pages";
+import { useCustomUse } from "./custom-use";
 import { OWN_CONSENT } from "./router";
 
 const OPTIONS = {
@@ -91,6 +92,7 @@ function withFace(choice: PersonChoice, face: Face): PersonChoice {
 }
 
 export function StartNowPage() {
+  const use = useCustomUse(); // without their own photo, no way to their own (R240b)
   const [choice, setChoice] = useState<PersonChoice>(FIRST);
   // null until the faces are read; the choices wait for them, since changing the look picks its
   // first face (Codex's review of PR #124).
@@ -169,20 +171,24 @@ export function StartNowPage() {
     <section className="start-now panel">
       <h1>Avatar Choice: a ready-made avatar</h1>
       <p className="muted">
-        Chat at once with a made-up person who speaks in a ready-made voice. You can switch to
-        your own photo and voice at any time in Settings, under Avatar Choice.
+        Chat at once with a made-up person who speaks in a ready-made voice.
+        {use.image &&
+          " You can switch to your own photo and voice at any time in Settings, under Avatar Choice."}
       </p>
-      {/* Your own is an obvious choice from the start, not only at the bottom (Larry, 2026-10-21). */}
-      <p className="avatar-instead">
-        Rather use your own image and voice?{" "}
-        <a
-          className="button secondary"
-          href={OWN_CONSENT}
-          onClick={() => console.info("Choosing your own image and voice from Avatar Choice")}
-        >
-          Use your own image and voice
-        </a>
-      </p>
+      {/* Your own is an obvious choice from the start, not only at the bottom (Larry, 2026-10-21),
+          where the host may use their own photo (R240b). */}
+      {use.image && (
+        <p className="avatar-instead">
+          Rather use your own image and voice?{" "}
+          <a
+            className="button secondary"
+            href={OWN_CONSENT}
+            onClick={() => console.info("Choosing your own image and voice from Avatar Choice")}
+          >
+            Use your own image and voice
+          </a>
+        </p>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -265,9 +271,11 @@ export function StartNowPage() {
           {refused}
         </p>
       )}
-      <p className="muted">
-        Or <a href={OWN_CONSENT}>use your own photos and voice</a>.
-      </p>
+      {use.image && (
+        <p className="muted">
+          Or <a href={OWN_CONSENT}>use your own photos and voice</a>.
+        </p>
+      )}
     </section>
   );
 }

@@ -7,4 +7,6 @@ vi.mock("./api", async (original) => ({
   getHostSession: vi.fn(async () => ({ signed_in: true, email: "host@example.com" })),
   // And so it sees Settings (R191).
   getSettingsAccess: vi.fn(async () => ({ shown: true, as: "host" })),
+  // And may use their own photo and voice (R240b); custom-use.test.tsx turns them off.
+  getCustomUse: vi.fn(async () => ({ image: true, voice: true })),
 }));

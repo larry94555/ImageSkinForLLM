@@ -371,6 +371,9 @@ export interface Review {
   // whether its sample in that voice is accepted, so it does.
   own_voice?: boolean;
   voice_accepted?: boolean;
+  // The host's own person was accepted, but their own photo or voice is now turned off (R240):
+  // the chat needs a ready-made avatar.
+  own_turned_off?: boolean;
 }
 
 // The ready-made avatar is to speak in the user's own voice (R24d), with consent for the person
@@ -1271,6 +1274,18 @@ export interface HostSession {
 
 export async function getHostSession(): Promise<HostSession> {
   return json<HostSession>(await fetch("/api/host/session"));
+}
+
+// Whether the signed-in host may use their own photo (`image`) and their own voice (`voice`), as
+// the administrator set in Admin settings (R239); the browser hides what they may not (R240b).
+export interface CustomUse {
+  image: boolean;
+  voice: boolean;
+}
+
+export async function getCustomUse(): Promise<CustomUse> {
+  const me = await json<{ custom_image: boolean; custom_voice: boolean }>(await fetch("/api/host/me"));
+  return { image: me.custom_image, voice: me.custom_voice };
 }
 
 // Throws a ServerRefusal with the server's plain message when a field is wrong, the email is

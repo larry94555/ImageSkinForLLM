@@ -557,6 +557,13 @@ async function reportRecording(report) {
 async function getHostSession() {
 	return json(await fetch("/api/host/session"));
 }
+async function getCustomUse() {
+	const me = await json(await fetch("/api/host/me"));
+	return {
+		image: me.custom_image,
+		voice: me.custom_voice
+	};
+}
 async function hostAccount(route, email, password) {
 	const response = await fetch(`/api/host/${route}`, {
 		method: "POST",
@@ -1164,6 +1171,54 @@ function AdminSettingsPage() {
 	});
 }
 //#endregion
+//#region src/custom-use.tsx
+var ALLOWED = {
+	image: true,
+	voice: true
+};
+var CustomUseContext = X(ALLOWED);
+var CustomUseProvider = CustomUseContext.Provider;
+function useCustomUse() {
+	return x(CustomUseContext);
+}
+function useCustomUseOf(hash, signedIn) {
+	const [read, setRead] = d(null);
+	h(() => {
+		if (signedIn === void 0) return;
+		if (!signedIn) {
+			setRead({
+				use: ALLOWED,
+				hash
+			});
+			return;
+		}
+		let active = true;
+		getCustomUse().then((got) => {
+			if (!active) return;
+			setRead((was) => {
+				if (!was || was.use.image !== got.image || was.use.voice !== got.voice) console.info(`Own photo allowed: ${got.image}, own voice allowed: ${got.voice}`);
+				return {
+					use: got,
+					hash
+				};
+			});
+		}, (e) => {
+			console.error("Could not read whether your own photo and voice may be used", e);
+			if (active) setRead((was) => ({
+				use: was?.use ?? ALLOWED,
+				hash
+			}));
+		});
+		return () => {
+			active = false;
+		};
+	}, [hash, signedIn]);
+	return {
+		use: read?.use ?? null,
+		fresh: read?.hash === hash
+	};
+}
+//#endregion
 //#region src/router.ts
 var PAGES = {
 	"/": "home",
@@ -1234,13 +1289,28 @@ var HOST_PAGES = [
 	"guide",
 	"content"
 ];
-function resolve(hash, consented, participant = false, visitor = false) {
+function resolve(hash, consented, participant = false, visitor = false, use = {
+	image: true,
+	voice: true
+}) {
 	const page = pageFor(hash);
 	if (participant && HOST_PAGES.includes(page)) {
 		if (visitor && page !== "home") return { page: "host-only" };
 		return {
 			page: "chat",
 			redirect: "#/chat"
+		};
+	}
+	const ownPerson = page === "setup" || page === "wizard" || hash === "#/consent/own";
+	if (!participant && (!use.image && ownPerson || !use.voice && page === "avatar-voice")) return {
+		page: "start-now",
+		redirect: "#/start-now"
+	};
+	if (!participant && !use.voice && page === "wizard") {
+		const setup = resolve("#/setup", consented, participant, visitor, use);
+		return {
+			page: setup.page,
+			redirect: setup.redirect ?? "#/setup"
 		};
 	}
 	if (page === "setup" && !consented) return {
@@ -1305,6 +1375,8 @@ function InUseMark({ shown }) {
 	}) : null;
 }
 function ChangeSetup() {
+	const use = useCustomUse();
+	const changes = CHANGES.filter(({ part }) => use.voice || part === "photos");
 	const [accepted, setAccepted] = d(null);
 	const [inUse, setInUse] = d(null);
 	const [ownAccepted, setOwnAccepted] = d(false);
@@ -1359,18 +1431,18 @@ function ChangeSetup() {
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "The person in the video: your own photo and voice, or a ready-made avatar."
+				children: use.image ? "The person in the video: your own photo and voice, or a ready-made avatar." : "The person in the video: a ready-made avatar. Using your own photo is turned off for this site."
 			}),
 			/* @__PURE__ */ u("div", {
 				className: "avatar-options",
 				children: [
-					/* @__PURE__ */ u("div", {
+					use.image && /* @__PURE__ */ u("div", {
 						className: inUse === "own" ? "avatar-option chosen" : "avatar-option",
 						children: [/* @__PURE__ */ u("h3", { children: ["Your own photo and voice ", /* @__PURE__ */ u(InUseMark, { shown: inUse === "own" })] }), inUse === "ready-made" ? /* @__PURE__ */ u("div", {
 							className: "switch",
 							children: [/* @__PURE__ */ u("a", {
 								className: "button secondary",
-								href: OWN_CONSENT,
+								href: "#/consent/own",
 								onClick: () => console.info("Switching to your own photo and voice from Settings"),
 								children: "Use your own photo and voice"
 							}), /* @__PURE__ */ u("p", {
@@ -1397,7 +1469,7 @@ function ChangeSetup() {
 									"."
 								]
 							}),
-							CHANGES.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
+							changes.map(({ part, label, about }) => /* @__PURE__ */ u("div", {
 								className: "switch",
 								children: [/* @__PURE__ */ u("a", {
 									className: "button secondary",
@@ -1428,7 +1500,7 @@ function ChangeSetup() {
 									children: inUse === "ready-made" ? "Choose another avatar" : "Use a ready-made avatar"
 								})
 							}),
-							inUse === "ready-made" && /* @__PURE__ */ u("div", {
+							inUse === "ready-made" && use.voice && /* @__PURE__ */ u("div", {
 								className: "switch",
 								children: [/* @__PURE__ */ u("a", {
 									className: "button secondary",
@@ -4935,6 +5007,7 @@ var CHANGE_NOTICE = {
 	accent: "Choose another accent. The sample video is then made again." + AFTER_CHANGE
 };
 function SetupPage({ change }) {
+	const ownVoice = useCustomUse().voice;
 	const [changes, setChanges] = d(0);
 	const changed = () => setChanges((n) => n + 1);
 	const [preparing, setPreparing] = d(false);
@@ -5007,7 +5080,7 @@ function SetupPage({ change }) {
 				/* @__PURE__ */ u("h1", { children: "Setup" }),
 				/* @__PURE__ */ u("p", {
 					className: "lead",
-					children: "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it. Without recordings, the person speaks in a ready-made voice."
+					children: ownVoice ? "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it. Without recordings, the person speaks in a ready-made voice." : "Make the talking person in two steps: add photos, then prepare a sample video and check it. Using your own voice is turned off for this site, so the person speaks in a ready-made voice."
 				}),
 				/* @__PURE__ */ u("p", {
 					className: "avatar-instead",
@@ -5022,7 +5095,7 @@ function SetupPage({ change }) {
 						". Your photos and recordings are kept."
 					]
 				}),
-				/* @__PURE__ */ u("p", {
+				ownVoice && /* @__PURE__ */ u("p", {
 					className: "notice",
 					children: [/* @__PURE__ */ u("a", {
 						href: "#/setup/wizard",
@@ -5036,10 +5109,11 @@ function SetupPage({ change }) {
 					button: "Add photos",
 					hint: "Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best.",
 					accept: "image/jpeg,image/png,image/heic,.heic",
+					of: ownVoice ? 4 : 2,
 					notice: notice("photos"),
 					onChange: changed
 				}),
-				/* @__PURE__ */ u(UploadSection, {
+				ownVoice && /* @__PURE__ */ u(UploadSection, {
 					kind: "sounds",
 					step: 2,
 					title: "Voice recordings",
@@ -5051,14 +5125,19 @@ function SetupPage({ change }) {
 				}),
 				/* @__PURE__ */ u(ReadyVoiceChoice, {
 					changes,
-					onChange: changed
+					onChange: changed,
+					ownVoice
 				}),
-				/* @__PURE__ */ u(AccentSection, {
+				ownVoice && /* @__PURE__ */ u(AccentSection, {
 					onChange: changed,
 					preparing,
 					notice: notice("accent")
 				}),
 				/* @__PURE__ */ u(PrepareSection, {
+					step: ownVoice ? void 0 : {
+						n: 2,
+						of: 2
+					},
 					changes,
 					onRunning: setPreparing,
 					onBack: goBack,
@@ -5104,11 +5183,11 @@ function ReadyVoiceChoice(props) {
 		children: [
 			/* @__PURE__ */ u("h3", {
 				id: "ready-voice",
-				children: "No recordings?"
+				children: props.ownVoice ? "No recordings?" : "The voice"
 			}),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Recordings are optional. Until one passes the checks, or if they are all removed, the person speaks in a ready-made voice instead of their own."
+				children: props.ownVoice ? "Recordings are optional. Until one passes the checks, or if they are all removed, the person speaks in a ready-made voice instead of their own." : "The person speaks in the ready-made voice chosen here."
 			}),
 			/* @__PURE__ */ u("label", { children: [
 				"Ready-made voice",
@@ -5122,7 +5201,7 @@ function ReadyVoiceChoice(props) {
 					}, voice))
 				})
 			] }),
-			/* @__PURE__ */ u("p", {
+			props.ownVoice && /* @__PURE__ */ u("p", {
 				className: ready.in_use ? "notice" : "muted",
 				children: ready.in_use ? "In use now: no recording has passed the checks." : "Not in use: the voice is made from your recordings."
 			}),
@@ -5133,13 +5212,14 @@ function ReadyVoiceChoice(props) {
 		]
 	});
 }
-function StepOf({ n }) {
+function StepOf({ n, of = 4 }) {
 	return /* @__PURE__ */ u("p", {
 		className: "step-of",
 		children: [
 			"Step ",
 			n,
-			" of 4"
+			" of ",
+			of
 		]
 	});
 }
@@ -5279,7 +5359,10 @@ function UploadSection(props) {
 		id: kind,
 		className: "panel",
 		children: [
-			props.step !== null && /* @__PURE__ */ u(StepOf, { n: props.step }),
+			props.step !== null && /* @__PURE__ */ u(StepOf, {
+				n: props.step,
+				of: props.of
+			}),
 			/* @__PURE__ */ u("h2", { children: props.title }),
 			props.notice && /* @__PURE__ */ u("p", {
 				className: "notice",
@@ -5581,7 +5664,10 @@ function PrepareSection(props) {
 	return /* @__PURE__ */ u("section", {
 		className: "prepare panel",
 		children: [
-			!wizard && /* @__PURE__ */ u(StepOf, { n: 4 }),
+			!wizard && /* @__PURE__ */ u(StepOf, {
+				n: props.step?.n ?? 4,
+				of: props.step?.of
+			}),
 			/* @__PURE__ */ u("h2", { children: "Prepare the video" }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
@@ -5909,6 +5995,11 @@ function ChatPage() {
 	const [readyMade, setReadyMade] = d(false);
 	h(() => {
 		getReview().then((r) => {
+			if (r.own_turned_off && !participant) {
+				console.info("The chat needs a ready-made avatar: going to Start now");
+				window.location.replace("#/start-now");
+				return;
+			}
 			setAccepted(r.accepted);
 			setReadyMade(r.default_person === true);
 		}).catch((e) => {
@@ -5959,28 +6050,31 @@ function ChatPage() {
 	});
 }
 function AvatarLinks({ readyMade }) {
+	const ownPhoto = useCustomUse().image;
+	const links = readyMade ? [[
+		"#/start-now",
+		"Choose another avatar",
+		"another ready-made avatar"
+	], [
+		OWN_CONSENT,
+		"Use your own photo and voice",
+		"their own photo and voice"
+	]] : [[
+		"#/start-now",
+		"Use a ready-made avatar",
+		"a ready-made avatar"
+	], [
+		"#/setup/photos",
+		"Change your photo",
+		"their own photo"
+	]];
+	if (!ownPhoto) links.pop();
 	return /* @__PURE__ */ u("p", {
 		className: "avatar-links",
 		children: [/* @__PURE__ */ u("span", {
 			className: "muted",
 			children: "Avatar Choice:"
-		}), (readyMade ? [[
-			"#/start-now",
-			"Choose another avatar",
-			"another ready-made avatar"
-		], [
-			OWN_CONSENT,
-			"Use your own photo and voice",
-			"their own photo and voice"
-		]] : [[
-			"#/start-now",
-			"Use a ready-made avatar",
-			"a ready-made avatar"
-		], [
-			"#/setup/photos",
-			"Change your photo",
-			"their own photo"
-		]]).map(([href, label, what]) => /* @__PURE__ */ u("a", {
+		}), links.map(([href, label, what]) => /* @__PURE__ */ u("a", {
 			href,
 			onClick: () => console.info(`Choosing ${what} from the chat`),
 			children: label
@@ -8884,17 +8978,19 @@ async function loadHome(consented) {
 		};
 	}
 }
-function setupLink(consented, defaultPerson = false) {
-	if (defaultPerson) return "#/start-now";
+function setupLink(consented, defaultPerson = false, own = true) {
+	if (defaultPerson || !own) return "#/start-now";
 	return consented ? "#/setup" : "#/consent";
 }
-function choices(done, consented, defaultPerson = false) {
+function choices(done, consented, defaultPerson = false, own = true) {
 	const setupHref = setupLink(consented);
-	if (!done) return [{
+	const startNow = {
 		href: "#/start-now",
 		title: "Start now",
 		text: "Chat at once with a ready-made avatar: a made-up person in a ready-made voice."
-	}, {
+	};
+	if (!done && !own) return [startNow];
+	if (!done) return [startNow, {
 		href: setupHref,
 		title: "Start setup",
 		text: "Add photos and voice recordings, then review a sample video of the person speaking."
@@ -8910,7 +9006,11 @@ function choices(done, consented, defaultPerson = false) {
 			title: "Manage Content",
 			text: "Add, replace or remove the PDFs that answers come from."
 		},
-		defaultPerson ? {
+		!own ? {
+			href: "#/start-now",
+			title: "Setup",
+			text: "Choose another ready-made avatar."
+		} : defaultPerson ? {
 			href: setupLink(consented, true),
 			title: "Setup",
 			text: "Choose another ready-made avatar, or use your own photo and voice."
@@ -8922,6 +9022,7 @@ function choices(done, consented, defaultPerson = false) {
 	];
 }
 function HomePage({ consented, landing = false }) {
+	const use = useCustomUse();
 	const [state, setState] = d(null);
 	h(() => {
 		let active = true;
@@ -8942,6 +9043,7 @@ function HomePage({ consented, landing = false }) {
 		className: "muted busy",
 		children: "Loading…"
 	});
+	const shown = choices(state.done, consented, state.defaultPerson, use.image);
 	return /* @__PURE__ */ u("section", {
 		className: "home",
 		children: [
@@ -8957,8 +9059,12 @@ function HomePage({ consented, landing = false }) {
 				})] })]
 			}),
 			/* @__PURE__ */ u("ul", {
-				className: state.done ? "choices three" : "choices two",
-				children: choices(state.done, consented, state.defaultPerson).map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
+				className: `choices ${[
+					"one",
+					"two",
+					"three"
+				][shown.length - 1]}`,
+				children: shown.map((c) => /* @__PURE__ */ u("li", { children: /* @__PURE__ */ u("a", {
 					href: c.href,
 					children: [
 						/* @__PURE__ */ u(ChoiceIcon, { href: c.href }),
@@ -8973,7 +9079,7 @@ function HomePage({ consented, landing = false }) {
 					]
 				}) }, c.title))
 			}),
-			!state.done && /* @__PURE__ */ u("p", {
+			!state.done && use.image && use.voice && /* @__PURE__ */ u("p", {
 				className: "wizard-link",
 				children: [/* @__PURE__ */ u("a", {
 					href: "#/setup/wizard",
@@ -9073,6 +9179,7 @@ function withFace(choice, face) {
 	};
 }
 function StartNowPage() {
+	const use = useCustomUse();
 	const [choice, setChoice] = d(FIRST);
 	const [faces, setFaces] = d(null);
 	const [facesFailed, setFacesFailed] = d(false);
@@ -9146,16 +9253,16 @@ function StartNowPage() {
 			/* @__PURE__ */ u("h1", { children: "Avatar Choice: a ready-made avatar" }),
 			/* @__PURE__ */ u("p", {
 				className: "muted",
-				children: "Chat at once with a made-up person who speaks in a ready-made voice. You can switch to your own photo and voice at any time in Settings, under Avatar Choice."
+				children: ["Chat at once with a made-up person who speaks in a ready-made voice.", use.image && " You can switch to your own photo and voice at any time in Settings, under Avatar Choice."]
 			}),
-			/* @__PURE__ */ u("p", {
+			use.image && /* @__PURE__ */ u("p", {
 				className: "avatar-instead",
 				children: [
 					"Rather use your own image and voice?",
 					" ",
 					/* @__PURE__ */ u("a", {
 						className: "button secondary",
-						href: OWN_CONSENT,
+						href: "#/consent/own",
 						onClick: () => console.info("Choosing your own image and voice from Avatar Choice"),
 						children: "Use your own image and voice"
 					})
@@ -9241,12 +9348,12 @@ function StartNowPage() {
 				role: "alert",
 				children: refused
 			}),
-			/* @__PURE__ */ u("p", {
+			use.image && /* @__PURE__ */ u("p", {
 				className: "muted",
 				children: [
 					"Or ",
 					/* @__PURE__ */ u("a", {
-						href: OWN_CONSENT,
+						href: "#/consent/own",
 						children: "use your own photos and voice"
 					}),
 					"."
@@ -11551,7 +11658,8 @@ function Shell() {
 	const hostSession = useHost().session;
 	const visitor = hostSession?.signed_in !== true;
 	const settingsShown = useSettingsShown();
-	const route = consented === null || !settingsLoaded || hostSession === null ? null : resolve(hash, consented, participant, visitor);
+	const { use: customUse, fresh } = useCustomUseOf(hash, hostSession?.signed_in);
+	const route = consented === null || !settingsLoaded || hostSession === null || customUse === null ? null : resolve(hash, consented, participant, visitor, fresh ? customUse : ALLOWED);
 	h(() => {
 		if (route?.redirect && route.redirect !== window.location.hash) window.location.replace(route.redirect);
 	}, [route?.redirect]);
@@ -11612,7 +11720,7 @@ function Shell() {
 					children: [/* @__PURE__ */ u(Mark, {}), "ImageSkinForLLM"]
 				}),
 				/* @__PURE__ */ u("nav", { children: NAV.filter((item) => settingsLoaded && item.views.includes(view)).map((item) => /* @__PURE__ */ u("a", {
-					href: item.page === "setup" ? setupLink(consented === true, defaultPerson) : item.href,
+					href: item.page === "setup" ? setupLink(consented === true, defaultPerson, customUse?.image !== false) : item.href,
 					className: current(route?.page, view) === item.page ? "current" : void 0,
 					children: item.label
 				}, item.page)) }),
@@ -11626,7 +11734,10 @@ function Shell() {
 				})
 			]
 		}),
-		/* @__PURE__ */ u("main", { children: [/* @__PURE__ */ u(AdminEndedNotice, {}), content] }),
+		/* @__PURE__ */ u("main", { children: [/* @__PURE__ */ u(AdminEndedNotice, {}), /* @__PURE__ */ u(CustomUseProvider, {
+			value: customUse ?? ALLOWED,
+			children: content
+		})] }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
 	] });
 }

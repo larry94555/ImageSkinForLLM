@@ -61,6 +61,7 @@ import {
 import { switchToOwn } from "./change-setup";
 import { Checks, minutes } from "./checks";
 import { useConfirm } from "./confirm-dialog";
+import { useCustomUse } from "./custom-use";
 import { RESTART_WARNING, SettingGuard, usePrepareStopGuard, useSettingGuard } from "./setting-guard";
 import { DetailBar } from "./detail-bar";
 import { ExitScreen } from "./exit";
@@ -137,6 +138,9 @@ export const CHANGE_NOTICE: Record<Back, string> = {
 // accent (R26), prepare the voice and the face (R12), then review the sample video (R14).
 // `change` is the part Settings opened it at (R28).
 export function SetupPage({ change }: { change?: SetupPart }) {
+  // Without their own voice (R240b), the recordings and the accent aren't offered: the person
+  // speaks in a ready-made voice. Without their own photo, this page isn't shown (router.ts).
+  const ownVoice = useCustomUse().voice;
   // Counts changes to the photos, the chosen photo and the recordings, so Prepare asks again
   // whether what it prepared is still current.
   const [changes, setChanges] = useState(0);
@@ -204,9 +208,9 @@ export function SetupPage({ change }: { change?: SetupPart }) {
       <div className="host-page">
         <h1>Setup</h1>
         <p className="lead">
-          Make the talking person in four steps: add photos, add voice recordings, choose an
-          accent, then prepare a sample video and check it. Without recordings, the person speaks
-          in a ready-made voice.
+          {ownVoice
+            ? "Make the talking person in four steps: add photos, add voice recordings, choose an accent, then prepare a sample video and check it. Without recordings, the person speaks in a ready-made voice."
+            : "Make the talking person in two steps: add photos, then prepare a sample video and check it. Using your own voice is turned off for this site, so the person speaks in a ready-made voice."}
         </p>
         {/* Avatar Choice (Larry's test of R32a): the ready-made avatars are a click away. */}
         <p className="avatar-instead">
@@ -219,10 +223,12 @@ export function SetupPage({ change }: { change?: SetupPart }) {
           </a>
           . Your photos and recordings are kept.
         </p>
-        <p className="notice">
-          <a href="#/setup/wizard">Set up your own photo and voice one step at a time</a>, with
-          help on each step.
-        </p>
+        {ownVoice && (
+          <p className="notice">
+            <a href="#/setup/wizard">Set up your own photo and voice one step at a time</a>, with
+            help on each step.
+          </p>
+        )}
         <UploadSection
           kind="photos"
           step={1}
@@ -230,22 +236,28 @@ export function SetupPage({ change }: { change?: SetupPart }) {
           button="Add photos"
           hint="Add the five photos from the recording guide (JPG, PNG or HEIC). At least one is needed; the app will pick the best."
           accept="image/jpeg,image/png,image/heic,.heic"
+          of={ownVoice ? 4 : 2}
           notice={notice("photos")}
           onChange={changed}
         />
-        <UploadSection
-          kind="sounds"
-          step={2}
-          title="Voice recordings"
-          button="Add recordings"
-          hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
-          accept="audio/*,.m4a,.wav,.mp3"
-          notice={notice("sounds")}
-          onChange={changed}
-        />
-        <ReadyVoiceChoice changes={changes} onChange={changed} />
-        <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
+        {ownVoice && (
+          <UploadSection
+            kind="sounds"
+            step={2}
+            title="Voice recordings"
+            button="Add recordings"
+            hint="Add the voice recordings from the recording guide (WAV, M4A or MP3, up to 10 minutes each)."
+            accept="audio/*,.m4a,.wav,.mp3"
+            notice={notice("sounds")}
+            onChange={changed}
+          />
+        )}
+        <ReadyVoiceChoice changes={changes} onChange={changed} ownVoice={ownVoice} />
+        {ownVoice && (
+          <AccentSection onChange={changed} preparing={preparing} notice={notice("accent")} />
+        )}
         <PrepareSection
+          step={ownVoice ? undefined : { n: 2, of: 2 }}
           changes={changes}
           onRunning={setPreparing}
           onBack={goBack}
@@ -261,7 +273,8 @@ export function SetupPage({ change }: { change?: SetupPart }) {
 
 // Under the recordings (item 59): without any that pass the checks (none added, or all rejected
 // or removed), the person speaks in a ready-made voice, which can be chosen here.
-function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
+// Without the host's own voice (R240b), it is the only voice there is.
+function ReadyVoiceChoice(props: { changes: number; onChange: () => void; ownVoice: boolean }) {
   const [ready, setReady] = useState<ReadyVoice | null>(null);
   const guard = useSettingGuard();
   const [failed, setFailed] = useState<string | null>(null);
@@ -294,10 +307,11 @@ function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
 
   return (
     <section className="panel ready-voice" aria-labelledby="ready-voice">
-      <h3 id="ready-voice">No recordings?</h3>
+      <h3 id="ready-voice">{props.ownVoice ? "No recordings?" : "The voice"}</h3>
       <p className="muted">
-        Recordings are optional. Until one passes the checks, or if they are all removed, the person
-        speaks in a ready-made voice instead of their own.
+        {props.ownVoice
+          ? "Recordings are optional. Until one passes the checks, or if they are all removed, the person speaks in a ready-made voice instead of their own."
+          : "The person speaks in the ready-made voice chosen here."}
       </p>
       <label>
         Ready-made voice{" "}
@@ -309,11 +323,13 @@ function ReadyVoiceChoice(props: { changes: number; onChange: () => void }) {
           ))}
         </select>
       </label>
-      <p className={ready.in_use ? "notice" : "muted"}>
-        {ready.in_use
-          ? "In use now: no recording has passed the checks."
-          : "Not in use: the voice is made from your recordings."}
-      </p>
+      {props.ownVoice && (
+        <p className={ready.in_use ? "notice" : "muted"}>
+          {ready.in_use
+            ? "In use now: no recording has passed the checks."
+            : "Not in use: the voice is made from your recordings."}
+        </p>
+      )}
       {failed && <p className="error">{failed}</p>}
     </section>
   );
@@ -324,14 +340,15 @@ interface Refused {
   reason: string;
 }
 
-// "Step 2 of 4" over a Setup section's heading.
-export function StepOf({ n }: { n: number }) {
-  return <p className="step-of">Step {n} of 4</p>;
+// "Step 2 of 4" over a Setup section's heading; of 2 without the host's own voice (R240b).
+export function StepOf({ n, of = 4 }: { n: number; of?: number }) {
+  return <p className="step-of">Step {n} of {of}</p>;
 }
 
 export function UploadSection(props: {
   kind: Kind;
   step: number | null; // null in the setup wizard (R131), which numbers its own steps
+  of?: number; // the number of steps, 4 unless some are hidden (R240b)
   title: string;
   button: string; // the add button's words
   hint: string;
@@ -495,7 +512,7 @@ export function UploadSection(props: {
 
   return (
     <section id={kind} className="panel">
-      {props.step !== null && <StepOf n={props.step} />}
+      {props.step !== null && <StepOf n={props.step} of={props.of} />}
       <h2>{props.title}</h2>
       {props.notice && <p className="notice">{props.notice}</p>}
       <p className="muted">{props.hint}</p>
@@ -709,6 +726,7 @@ export function PrepareSection(props: {
   // The setup wizard (R131) numbers its own steps, and shows the sample video on a step of its
   // own, so it is told when Prepare is done.
   wizard?: { onDone: (done: boolean) => void };
+  step?: { n: number; of: number }; // step 4 of 4 unless some are hidden (R240b)
 }) {
   const { changes, onRunning, wizard } = props;
   // null until the server has answered.
@@ -811,7 +829,7 @@ export function PrepareSection(props: {
   };
   return (
     <section className="prepare panel">
-      {!wizard && <StepOf n={4} />}
+      {!wizard && <StepOf n={props.step?.n ?? 4} of={props.step?.of} />}
       <h2>Prepare the video</h2>
       <p className="muted">
         Gets the voice and the face ready for the video, then makes a short sample video of the
@@ -1132,6 +1150,12 @@ export function ChatPage() {
   useEffect(() => {
     getReview()
       .then((r) => {
+        if (r.own_turned_off && !participant) {
+          // Their own photo or voice was turned off (R240): the chat needs a ready-made avatar.
+          console.info("The chat needs a ready-made avatar: going to Start now");
+          window.location.replace("#/start-now");
+          return;
+        }
         setAccepted(r.accepted);
         setReadyMade(r.default_person === true);
       })
@@ -1196,7 +1220,9 @@ export function ChatPage() {
 
 // Avatar Choice from the chat (Larry's test of R32a): another ready-made avatar, or the host's own
 // photo and voice, without going through Settings. The participant view has neither (R41b).
+// Without their own photo (R240b), only the ready-made avatars are offered.
 function AvatarLinks({ readyMade }: { readyMade: boolean }) {
+  const ownPhoto = useCustomUse().image;
   const links: [string, string, string][] = readyMade
     ? [
         ["#/start-now", "Choose another avatar", "another ready-made avatar"],
@@ -1206,6 +1232,7 @@ function AvatarLinks({ readyMade }: { readyMade: boolean }) {
         ["#/start-now", "Use a ready-made avatar", "a ready-made avatar"],
         ["#/setup/photos", "Change your photo", "their own photo"],
       ];
+  if (!ownPhoto) links.pop();
   return (
     <p className="avatar-links">
       <span className="muted">Avatar Choice:</span>

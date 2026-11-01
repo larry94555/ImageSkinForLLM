@@ -5,6 +5,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { DEFAULT_PICTURE, getPhotoChoice, getReview, getStartNow, uploadUrl } from "./api";
+import { useCustomUse } from "./custom-use";
 
 // The setup wizard (R131).
 export const WIZARD = "#/setup/wizard";
@@ -56,22 +57,26 @@ export async function loadHome(consented: boolean): Promise<HomeState> {
 }
 
 // Where Setup goes, on the home page and in the top bar alike: with a ready-made avatar in use
-// (R24c), to Start now to choose another or use your own photo and voice; before consent, to the
-// consent page; otherwise to setup.
-export function setupLink(consented: boolean, defaultPerson = false): string {
-  if (defaultPerson) return "#/start-now";
+// (R24c), to Start now to choose another or use your own photo and voice; likewise where the host
+// may not use their own photo (`own`, R240b); before consent, to the consent page; otherwise to
+// setup.
+export function setupLink(consented: boolean, defaultPerson = false, own = true): string {
+  if (defaultPerson || !own) return "#/start-now";
   return consented ? "#/setup" : "#/consent";
 }
 
-export function choices(done: boolean, consented: boolean, defaultPerson = false): Choice[] {
+// Without their own photo (`own`, R240b), the host has only the ready-made avatars to choose from.
+export function choices(done: boolean, consented: boolean, defaultPerson = false, own = true): Choice[] {
   const setupHref = setupLink(consented);
+  const startNow = {
+    href: "#/start-now",
+    title: "Start now",
+    text: "Chat at once with a ready-made avatar: a made-up person in a ready-made voice.",
+  };
+  if (!done && !own) return [startNow];
   if (!done) {
     return [
-      {
-        href: "#/start-now",
-        title: "Start now",
-        text: "Chat at once with a ready-made avatar: a made-up person in a ready-made voice.",
-      },
+      startNow,
       {
         href: setupHref,
         title: "Start setup",
@@ -90,7 +95,9 @@ export function choices(done: boolean, consented: boolean, defaultPerson = false
       title: "Manage Content",
       text: "Add, replace or remove the PDFs that answers come from.",
     },
-    defaultPerson
+    !own
+      ? { href: "#/start-now", title: "Setup", text: "Choose another ready-made avatar." }
+      : defaultPerson
       ? {
           href: setupLink(consented, true),
           title: "Setup",
@@ -108,6 +115,7 @@ export function choices(done: boolean, consented: boolean, defaultPerson = false
 // is done and saved, the chat opens instead, with the conversation kept on the server. Home,
 // opened from the top bar, still shows the choices.
 export function HomePage({ consented, landing = false }: { consented: boolean; landing?: boolean }) {
+  const use = useCustomUse(); // without their own photo or voice, less is offered (R240b)
   // null until the server has answered.
   const [state, setState] = useState<HomeState | null>(null);
   useEffect(() => {
@@ -129,6 +137,7 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
   }, [consented]);
 
   if (state === null) return <p className="muted busy">Loading…</p>;
+  const shown = choices(state.done, consented, state.defaultPerson, use.image);
   return (
     <section className="home">
       <div className="hero">
@@ -142,8 +151,8 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
           </p>
         </div>
       </div>
-      <ul className={state.done ? "choices three" : "choices two"}>
-        {choices(state.done, consented, state.defaultPerson).map((c) => (
+      <ul className={`choices ${["one", "two", "three"][shown.length - 1]}`}>
+        {shown.map((c) => (
           <li key={c.title}>
             <a href={c.href}>
               <ChoiceIcon href={c.href} />
@@ -153,7 +162,8 @@ export function HomePage({ consented, landing = false }: { consented: boolean; l
           </li>
         ))}
       </ul>
-      {!state.done && (
+      {/* The wizard sets up both the photo and the voice, so it needs both (R240b). */}
+      {!state.done && use.image && use.voice && (
         <p className="wizard-link">
           <a href={WIZARD}>Set up with your own photo and voice</a>, one step at a time.
         </p>
