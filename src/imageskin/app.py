@@ -1285,8 +1285,10 @@ def create_app(
 
     def no_sample() -> tuple[str, str] | None:
         """The ready-made voice the user's own photo speaks in while no recording has passed the
-        checks (item 59): none were added, or they were all rejected or removed."""
-        if store.voice_sample().problem != NO_VOICE:
+        checks (item 59): none were added, or they were all rejected or removed. Likewise while
+        the administrator has turned custom voices off (R240b, Codex's review of PR #266): the
+        recordings are kept, but Prepare, its sample and the replies use the ready-made voice."""
+        if store.voice_sample().problem != NO_VOICE and may_use(None).voice:
             return None
         return ready_preset(load_ready_voice(data_home))
 
