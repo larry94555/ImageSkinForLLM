@@ -14,6 +14,7 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from imageskin.customization import (
 logger = logging.getLogger(__name__)
 
 ADMIN_FILE = "admin-guidelines.json"
+HISTORY_FILE = "admin-guidelines.history.json"  # each part's changes (R253)
 
 # How the administrator's parts are put before the host's, word for word.
 REQUIREMENTS = (
@@ -128,6 +130,26 @@ def checked(data: object) -> AdminGuidelines:
     )
 
 
+def value_of(admin: AdminGuidelines, part: str) -> Any:
+    """A part's whole value, as its history keeps it (R253): the identity's parts, the goals, or
+    a feature's guidelines ("" when none)."""
+    if part == "identity":
+        return admin.as_dict()["identity"]
+    if part == "goals":
+        return list(admin.goals)
+    return admin.guidelines.get(part, "")
+
+
+def with_value(admin: AdminGuidelines, part: str, value: Any) -> AdminGuidelines:
+    """`admin` with only `part` set to `value`, a value its history kept, checked again."""
+    data = admin.as_dict()
+    if part in ("identity", "goals"):
+        data[part] = value
+    else:
+        data["guidelines"][part] = value or ""
+    return checked(data)
+
+
 def requirements(admin: AdminGuidelines) -> str:
     """The administrator's identity and goals as they go before the host's (empty if none)."""
     said = [
@@ -166,31 +188,41 @@ def ms_since(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
+# Told of each save: the guidelines before it, False (they have no shipped default), the ones
+# saved and the note (`made_by`, `gone_back`), as R95's `History.saved` is.
+SavedHook = Callable[..., object]
+
+
 class AdminGuidelinesFile:
     """`admin-guidelines.json` in `home`, read again only when it has changed since the last
     read, so a broken file is logged once, not with every prompt."""
 
-    def __init__(self, home: Path) -> None:
+    def __init__(self, home: Path, history: SavedHook | None = None) -> None:
         self.path = home / ADMIN_FILE
+        self._history = history  # told of each save, to keep it as a change (R253)
         self._lock = threading.Lock()
         self._seen: tuple[int, int] | None = None
         self._last = EMPTY
 
     def read(self) -> AdminGuidelines:
         with self._lock:
-            try:
-                stat = self.path.stat()
-            except FileNotFoundError:
-                self._seen, self._last = None, EMPTY
-                return EMPTY
-            except OSError as e:
-                logger.error("Admin guidelines can't be read", extra={"error": str(e)})
-                return EMPTY
-            seen = (stat.st_mtime_ns, stat.st_size)
-            if seen != self._seen:
-                self._seen = seen
-                self._last = self._load()
-            return self._last
+            return self._read()
+
+    def _read(self) -> AdminGuidelines:
+        """`read`, holding the lock."""
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            self._seen, self._last = None, EMPTY
+            return EMPTY
+        except OSError as e:
+            logger.error("Admin guidelines can't be read", extra={"error": str(e)})
+            return EMPTY
+        seen = (stat.st_mtime_ns, stat.st_size)
+        if seen != self._seen:
+            self._seen = seen
+            self._last = self._load()
+        return self._last
 
     def _load(self) -> AdminGuidelines:
         try:
@@ -199,11 +231,20 @@ class AdminGuidelinesFile:
             logger.error("Admin guidelines can't be read", extra={"error": str(e)})
             return EMPTY
 
-    def save(self, admin: AdminGuidelines) -> list[str]:
+    def save(self, admin: AdminGuidelines, **note: Any) -> list[str]:
         """Write them whole, as R92's saves are; the parts that changed."""
+        return self.change(lambda _: admin, **note)[1]
+
+    def change(
+        self, edit: Callable[[AdminGuidelines], AdminGuidelines], **note: Any
+    ) -> tuple[AdminGuidelines, list[str]]:
+        """Save `edit` of the guidelines as they are now, one save at a time, so a go-back and a
+        save made at once both count; the `note` goes with it to the history (R253). What was
+        saved, and the parts that changed."""
         start = time.perf_counter()
-        before = self.read()
         with self._lock:
+            before = self._read()
+            admin = edit(before)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_name(f"{self.path.stem}.saving.json")
             text = json.dumps(admin.as_dict(), ensure_ascii=False, indent=1)
@@ -211,6 +252,8 @@ class AdminGuidelinesFile:
             os.replace(tmp, self.path)
             stat = self.path.stat()
             self._seen, self._last = (stat.st_mtime_ns, stat.st_size), admin
+            if self._history is not None:
+                self._history(before, False, admin, **note)
         old, new = before.as_dict(), admin.as_dict()
         changed = [p for p in ("identity", "goals") if old[p] != new[p]]
         changed += [k for k in FEATURES if old["guidelines"][k] != new["guidelines"][k]]
@@ -218,4 +261,4 @@ class AdminGuidelinesFile:
             "Admin guidelines changed",
             extra={"parts": changed, "duration_ms": ms_since(start)},
         )
-        return changed
+        return admin, changed

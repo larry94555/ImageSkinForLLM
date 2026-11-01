@@ -18,6 +18,7 @@ import os
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -174,10 +175,24 @@ def _part_history(part: str, kept: object) -> PartHistory:
 
 
 class History:
-    """The history of each part, kept in `customization.history.json` in `home`."""
+    """The history of each part, kept in `customization.history.json` in `home`.
 
-    def __init__(self, home: Path) -> None:
-        self.path = home / HISTORY_FILE
+    The administrator's guidelines keep theirs the same way, in a file of their own (R253):
+    `file`, how a part's value is read from what is saved (`value`), what there is before
+    anything is saved (`empty`) and the name the log gives it (`name`)."""
+
+    def __init__(
+        self,
+        home: Path,
+        file: str = HISTORY_FILE,
+        value: Callable[[Any, str], Any] = value_of,
+        empty: Any = None,
+        name: str = "Customization",
+    ) -> None:
+        self.path = home / file
+        self._value = value
+        self._empty = Customization() if empty is None else empty
+        self._name = name
         self._lock = threading.Lock()
 
     def _load(self) -> dict[str, PartHistory]:
@@ -186,13 +201,13 @@ class History:
         except FileNotFoundError:
             return {}
         except (OSError, ValueError) as e:
-            logger.error("Customization history can't be read", extra={"error": str(e)})
+            logger.error(f"{self._name} history can't be read", extra={"error": str(e)})
             return {}
         stored = data.get("parts") if isinstance(data, dict) else None
         if not isinstance(stored, dict):
             # Valid JSON of another shape (Codex's review on PR #258).
             logger.error(
-                "Customization history can't be read", extra={"error": "parts is not an object"}
+                f"{self._name} history can't be read", extra={"error": "parts is not an object"}
             )
             return {}
         found = {}
@@ -201,7 +216,7 @@ class History:
                 found[part] = _part_history(part, kept)
             except (KeyError, TypeError, ValueError, AttributeError) as e:
                 logger.error(
-                    "Customization history can't be read", extra={"part": part, "error": str(e)}
+                    f"{self._name} history can't be read", extra={"part": part, "error": str(e)}
                 )
         return found
 
@@ -219,9 +234,9 @@ class History:
 
     def saved(
         self,
-        before: Customization,
+        before: Any,
         shipped: bool,
-        after: Customization,
+        after: Any,
         made_by: str = "saved",
         gone_back: tuple[str, int] | None = None,
         **note: Any,
@@ -230,7 +245,7 @@ class History:
         kept first if the part had none; or, for a go-back, only which change is current. A
         history that can't be written is logged and the save stands. The parts changed."""
         start = time.perf_counter()
-        changed = [p for p in parts() if value_of(before, p) != value_of(after, p)]
+        changed = [p for p in parts() if self._value(before, p) != self._value(after, p)]
         if gone_back is None and not changed:
             return []
         try:
@@ -245,16 +260,16 @@ class History:
                         histories[part] = self._added(histories.get(part), part, before, shipped)
                         h = histories[part]
                         new = Change(
-                            h.changes[-1].number + 1, _now(), made_by, value_of(after, part)
+                            h.changes[-1].number + 1, _now(), made_by, self._value(after, part)
                         )
                         histories[part] = PartHistory(part, (*h.changes, new), new.number)
                 self._save(histories)
         except (OSError, KeyError, TypeError, ValueError) as e:
-            logger.error("Customization change can't be kept", extra={"error": str(e)})
+            logger.error(f"{self._name} change can't be kept", extra={"error": str(e)})
             return changed
         if gone_back is None:
             logger.info(
-                "Customization change kept",
+                f"{self._name} change kept",
                 extra={
                     "parts": changed,
                     "made_by": made_by,
@@ -264,15 +279,12 @@ class History:
             )
         return changed
 
-    @staticmethod
-    def _added(
-        h: PartHistory | None, part: str, before: Customization, shipped: bool
-    ) -> PartHistory:
+    def _added(self, h: PartHistory | None, part: str, before: Any, shipped: bool) -> PartHistory:
         """The part's history, starting with its value before the first change to it."""
         if h is not None:
             return h
-        first = value_of(before, part)
-        as_shipped = shipped or first == value_of(Customization(), part)
+        first = self._value(before, part)
+        as_shipped = shipped or first == self._value(self._empty, part)
         return PartHistory(
             part, (Change(1, _now(), "shipped" if as_shipped else "saved", first),), 1
         )
