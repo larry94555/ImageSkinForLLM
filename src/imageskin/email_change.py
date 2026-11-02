@@ -101,16 +101,21 @@ def email_router(
             if found is None:
                 return failed
             email, new_email = found
-            own = accounts.site_of(email) == site
+            # Only on the host's own site, whose records follow the account: anywhere else the
+            # link is refused and left unused (Codex's review of PR #283).
+            if accounts.site_of(email) != site:
+                logger.warning(
+                    "Host email not changed",
+                    extra={"email": email, "why": "another site's link", "site": site},
+                )
+                return failed
             # The site's records first, so each follows the account; put back if it can't move.
-            if own and site != DEFAULT_SITE:
+            if site != DEFAULT_SITE:
                 sites.set_host(site, email, new_email)
-            if own:
-                owners.rename(email, new_email)
+            owners.rename(email, new_email)
             if accounts.change_email(token) is None:
-                if own:
-                    owners.rename(new_email, email)
-                if own and site != DEFAULT_SITE:
+                owners.rename(new_email, email)
+                if site != DEFAULT_SITE:
                     sites.set_host(site, new_email, email)
                 return failed
         except (HostsUnreadable, OwnersUnreadable, OSError):

@@ -167,3 +167,24 @@ def test_a_new_email_confirmed_from_its_link_counts_as_confirmed(tmp_path: Path)
     assert accounts._load()["hosts"]["dan2@example.com"][CONFIRMED] is True
     assert accounts.password_is("dan2@example.com", PASSWORD)
     assert not accounts.password_is("dan@example.com", PASSWORD)
+
+
+def test_a_link_works_only_on_the_hosts_own_site(tmp_path: Path) -> None:
+    # Codex's review of PR #283: opened elsewhere, nothing changes and the link stays usable.
+    sites, _, service = served(tmp_path)
+    home = tmp_path / "home"
+    service.sites.add("b", BOB)
+    Owners(site_home("a", home)).record("photos", "p1", ANN)
+    browser = signed_in(sites)
+    ask(browser)
+    path = link_in(emails(home)[-1]["text"]).split("8000", 1)[1]
+    for address in ("http://localhost:8000", "http://b.localhost:8000"):
+        elsewhere = TestClient(sites, base_url=address)
+        refused = elsewhere.get(path, follow_redirects=False)
+        assert refused.headers["location"].endswith("#/host/email-failed")
+        assert service.host_accounts.site_of(ANN) == "a" and service.sites.host("a") == ANN
+        assert Owners(site_home("a", home)).read() == {"photos": {"p1": ANN}}
+    changed = browser.get(path, follow_redirects=False)
+    assert changed.headers["location"] == "/#/host/email-changed"
+    assert service.host_accounts.site_of(NEW) == "a" and service.sites.host("a") == NEW
+    assert Owners(site_home("a", home)).read() == {"photos": {"p1": NEW}}
