@@ -729,7 +729,11 @@ def create_app(
     settings_routes, require_settings = settings_router(settings_access, host_site)
     settings_only = [Depends(require_settings)]
     app.include_router(settings_routes)
-    admin_routes, app.state.require_admin = admin_router(admin_sign_ins, [require_settings])
+    # The administrator is the service's, at the main address only (R44).
+    at_main = host_site == DEFAULT_SITE
+    admin_routes, app.state.require_admin = admin_router(
+        admin_sign_ins, [require_settings], here=at_main
+    )
     app.include_router(admin_routes)
 
     # Whether a host may use their own photo and voice (R239): their own Allow or Deny if they
@@ -833,7 +837,7 @@ def create_app(
         admin_token: Annotated[str | None, Cookie(alias=ADMIN_COOKIE)] = None,
     ) -> dict[str, int]:
         host = host_accounts.host(host_token, host_site)
-        admin = admin_sign_ins.signed_in(admin_token)
+        admin = at_main and admin_sign_ins.signed_in(admin_token)
         wanted = normal_email(email) if email else (host.email if host else None)
 
         def refuse(status: int, detail: str, why: str) -> NoReturn:
@@ -1236,7 +1240,16 @@ def create_app(
     # The LLM picked on the Settings page (R42), with llama-server's address from the config.
     # Sign in with ChatGPT (R43), whose plan can answer (R43a).
     signin = chatgpt or ChatGptSignIn(data_home)
+    if not at_main and load_choice(data_home).provider == "chatgpt":
+        # Chosen on a customer's site before R44 kept the plan off them (Codex's review of
+        # PR #284): the site answers with the local LLM in its place, saved so every read agrees.
+        save_choice(data_home, "local")
+        logger.warning(
+            "ChatGPT plan turned off on a customer's site",
+            extra={"site": site_name, "now": "local"},
+        )
     switchable = SwitchableLlm(llm, load_choice(data_home), signin.plan_session)
+    app.state.llm = switchable
     client = switchable if ask_llm is None else None
     # A chat reply goes before the wiki's requests to the LLM (R99), once llama-server has
     # stopped the ones cut off for it (R147).
@@ -2261,7 +2274,17 @@ def create_app(
     # The LLM setting (R42): which LLM answers, with the user's API key for a provider.
     @app.get("/api/llm", dependencies=settings_only)
     def get_llm() -> dict[str, Any]:
-        return described(load_choice(data_home), plan_ready())
+        return described(load_choice(data_home), plan_ready(), plan=at_main)
+
+    # The ChatGPT plan (R43a) is for the app on the user's own computer, or the main address's
+    # own server (deploy/README.md, step 8), never a customer's site, as OpenAI must approve a
+    # hosted or paid app (decision R43, roadmap R44).
+    def plan_here() -> None:
+        if not at_main:
+            logger.info("ChatGPT plan refused on a customer's site", extra={"site": site_name})
+            raise HTTPException(status_code=404, detail="Not Found")
+
+    plan_only = [*settings_only, Depends(plan_here)]
 
     def plan_ready() -> bool:
         """Whether a ChatGPT account is signed in that allowed use of its plan (R43a)."""
@@ -2313,6 +2336,7 @@ def create_app(
         key = (body.api_key or "").strip()
         model = body.model
         if body.provider == "chatgpt":
+            plan_here()
             model = plan_model(model)  # needs the sign-in, not a key
         elif key and body.provider in PROVIDERS and body.provider != "local":
             # A new key is checked first by listing the provider's models (Larry, 2026-10-19),
@@ -2341,7 +2365,7 @@ def create_app(
             "LLM setting changed",
             extra={"provider": choice.provider, "duration_ms": ms_since(start)},
         )
-        return described(choice, plan_ready())
+        return described(choice, plan_ready(), plan=at_main)
 
     # The models a provider offers to the key just entered, or the saved one (R42); OpenRouter's
     # before any key. 400 when the key is missing or refused, 502 when the provider can't be
@@ -2351,7 +2375,9 @@ def create_app(
         if body.provider not in PROVIDERS:
             raise HTTPException(status_code=400, detail=f"There is no LLM called {body.provider}.")
         key = ""
-        if body.provider != "chatgpt":
+        if body.provider == "chatgpt":
+            plan_here()
+        else:
             key = (body.api_key or "").strip() or load_choice(data_home).keys.get(body.provider, "")
         try:
             if body.provider == "chatgpt":
@@ -2375,11 +2401,11 @@ def create_app(
     # Sign in with ChatGPT (R43): the browser is sent to OpenAI to sign in, and comes back to
     # this app's own address on 127.0.0.1, where the server swaps the code for the tokens.
 
-    @app.get("/api/chatgpt", dependencies=settings_only)
+    @app.get("/api/chatgpt", dependencies=plan_only)
     def get_chatgpt() -> dict[str, Any]:
         return signin.status()
 
-    @app.get("/api/chatgpt/sign-in", response_model=None, dependencies=settings_only)
+    @app.get("/api/chatgpt/sign-in", response_model=None, dependencies=plan_only)
     def chatgpt_sign_in(
         request: Request, consent: bool = False, another: bool = False, account: str = ""
     ) -> Response:
@@ -2407,7 +2433,7 @@ def create_app(
         follow_plan_account()
         return RedirectResponse(f"{page}#/settings", status_code=303)
 
-    @app.post("/api/chatgpt/use", dependencies=settings_only)
+    @app.post("/api/chatgpt/use", dependencies=plan_only)
     def chatgpt_use(body: ChatGptAccount) -> dict[str, Any]:
         try:
             status = signin.use(body.account)
@@ -2441,7 +2467,7 @@ def create_app(
             extra={"was": was, "model": models[0]},
         )
 
-    @app.post("/api/chatgpt/sign-out", dependencies=settings_only)
+    @app.post("/api/chatgpt/sign-out", dependencies=plan_only)
     def chatgpt_sign_out() -> dict[str, Any]:
         return signin.sign_out()
 

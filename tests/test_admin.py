@@ -305,6 +305,7 @@ def test_the_api_signs_in_and_out(tmp_path: Path) -> None:
     write(tmp_path / "admin.toml", 'password = "first secret"\n')
     browser = client(tmp_path)
     assert browser.get("/api/admin/session").json() == {
+        "here": True,
         "signed_in": False,
         "password_set": True,
         "timeout_minutes": 30,

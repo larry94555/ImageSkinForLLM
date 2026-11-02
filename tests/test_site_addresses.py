@@ -292,10 +292,14 @@ def test_a_host_set_back_to_the_main_address_signs_in_there(tmp_path: Path) -> N
     assert not accounts.set_site("nobody@example.com", "a")
 
 
-def settings_access(browser: TestClient, laptop: Laptop | None = None) -> dict[str, object]:
+def settings_access(
+    browser: TestClient, laptop: Laptop | None = None, challenger: TestClient | None = None
+) -> dict[str, object]:
+    """Asked with the laptop's proof of a challenge from `challenger`, the main address, as a
+    customer's site has no admin routes (R44)."""
     body = {}
     if laptop:
-        challenge = browser.get("/api/admin/challenge").json()["challenge"]
+        challenge = (challenger or browser).get("/api/admin/challenge").json()["challenge"]
         body = {"laptop": laptop.body(challenge)}
     return dict(browser.post("/api/settings/access", json=body).json())
 
@@ -311,7 +315,7 @@ def test_the_admin_laptop_opens_settings_at_the_main_address_only(tmp_path: Path
     assert main.get("/api/llm").status_code == 200
 
     a = TestClient(sites, base_url="http://a.localhost")
-    assert settings_access(a, listed) == {"shown": False, "as": None}  # its proof
+    assert settings_access(a, listed, main) == {"shown": False, "as": None}  # its proof
     assert a.cookies.get("imageskin_laptop") is None  # and no pass given
     passed = TestClient(
         sites,

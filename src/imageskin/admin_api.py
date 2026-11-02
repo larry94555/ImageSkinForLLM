@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 COOKIE = "imageskin_admin"
 # Says nothing of signing in, so a browser that is not signed in learns nothing of the admin routes.
 NOT_SIGNED_IN = "Not supported at this time."
+# On a customer's site, the administrator's routes are not there (R44).
+NOT_HERE = "Not Found"
 
 Token = Annotated[str | None, Cookie(alias=COOKIE)]
 
@@ -36,21 +38,44 @@ def address(request: Request) -> str:
 
 
 def admin_router(
-    sign_ins: AdminSignIns, sign_in_check: Sequence[Callable[..., Any]] = ()
-) -> tuple[APIRouter, Callable[[str | None], None]]:
+    sign_ins: AdminSignIns, sign_in_check: Sequence[Callable[..., Any]] = (), here: bool = True
+) -> tuple[APIRouter, Callable[..., None]]:
     """The routes, and the dependency that refuses a request not signed in as administrator.
-    `sign_in_check` runs before a sign-in: the Settings page's own check (R191)."""
+    `sign_in_check` runs before a sign-in: the Settings page's own check (R191). The
+    administrator is one for the whole service, at the main address (R44): on a customer's site,
+    not `here`, every admin route but the session is not found, an administrator's sign-in from
+    the main address counts as none, and the session says so, so the page shows nothing of
+    the administrator."""
     router = APIRouter(prefix="/api/admin")
 
-    def require_admin(token: Token = None) -> None:
+    def only_here(request: Request) -> None:
+        if not here:
+            logger.info(
+                "Admin route refused on a customer's site", extra={"path": request.url.path}
+            )
+            raise HTTPException(status_code=404, detail=NOT_HERE)
+
+    main_only = [Depends(only_here)]
+
+    def require_admin(request: Request, token: Token = None) -> None:
+        only_here(request)
         if not sign_ins.signed_in(token):
             raise HTTPException(status_code=401, detail=NOT_SIGNED_IN)
 
     @router.get("/session")
     def session(token: Token = None) -> dict[str, object]:
         """Whether this browser is signed in, without counting as activity."""
+        if not here:
+            return {
+                "signed_in": False,
+                "password_set": False,
+                "timeout_minutes": sign_ins.timeout_minutes(),
+                "ended": None,
+                "here": False,
+            }
         signed_in = sign_ins.signed_in(token)
         return {
+            "here": True,
             "signed_in": signed_in,
             "password_set": sign_ins.secret() is not None,
             "timeout_minutes": sign_ins.timeout_minutes(),
@@ -59,12 +84,12 @@ def admin_router(
             "ended": None if signed_in else sign_ins.ended(token),
         }
 
-    @router.get("/challenge")
+    @router.get("/challenge", dependencies=main_only)
     def challenge() -> dict[str, object]:
         """A one-time challenge for the laptop to sign, good for a minute (R163)."""
         return {"challenge": sign_ins.laptops.challenge()}
 
-    @router.post("/laptop")
+    @router.post("/laptop", dependencies=main_only)
     def laptop_listed(
         laptop: Annotated[Laptop | None, Body(embed=True)] = None,
     ) -> dict[str, object]:
@@ -73,7 +98,11 @@ def admin_router(
         proof = LaptopProof(**laptop.model_dump()) if laptop else None
         return {"listed": sign_ins.laptops.listed(proof)}
 
-    @router.post("/sign-in", response_model=None, dependencies=[Depends(c) for c in sign_in_check])
+    @router.post(
+        "/sign-in",
+        response_model=None,
+        dependencies=main_only + [Depends(c) for c in sign_in_check],
+    )
     def sign_in(
         request: Request,
         response: Response,
@@ -90,13 +119,13 @@ def admin_router(
         response.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=https, path="/")
         return {"signed_in": True}
 
-    @router.post("/sign-out")
+    @router.post("/sign-out", dependencies=main_only)
     def sign_out(response: Response, token: Token = None) -> dict[str, object]:
         sign_ins.sign_out(token)
         response.delete_cookie(COOKIE, path="/")
         return {"signed_in": False}
 
-    @router.post("/activity", status_code=204)
+    @router.post("/activity", status_code=204, dependencies=main_only)
     def activity(token: Token = None) -> None:
         """A click or key press in the admin view or on the Settings page (R150)."""
         if not sign_ins.activity(token):
