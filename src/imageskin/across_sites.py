@@ -2,8 +2,8 @@
 
 The clone (Chatterbox Turbo or Pocket TTS, about 3 GB) learns one site's voice and accent, so
 each site has its own. Only a set number of sites keep theirs loaded at once (`CloneBudget`,
-`clones_loaded` in config.toml, 2 by default): when another site's is used, the one used least
-recently is unloaded, and learns its site's voice and accent again when it is next asked to
+`clones_loaded` in config.toml, 2 by default): before another site's is loaded, the one used
+least recently is unloaded, and learns its site's voice and accent again when it is next asked to
 speak, from what R183 keeps.
 
 Prepare and reading PDFs take most of the machine while they run, so they run one at a time
@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from imageskin.accent import Accent, AccentEngine
-from imageskin.voice import Speech
+from imageskin.voice import Speech, VoiceError
 
 logger = logging.getLogger(__name__)
 
@@ -115,60 +115,74 @@ class Turns:
 
 
 class CloneBudget:
-    """Which sites' clones are loaded, the one used least recently first, and at most
-    `max_loaded` of them: using another unloads the least recently used, in the background."""
+    """The sites whose clone may be in memory, the one used least recently first, and never
+    more than `max_loaded` of them. A site whose clone isn't loaded is let in only once another
+    is unloaded: the least recently used is unloaded first, waiting for any speech it is in the
+    middle of (Codex's review of PR #273). One that fails to unload is still counted, as its
+    model may still be in memory, and is tried again the next time room is needed; with none
+    unloaded, the site's clone is not loaded and its speech fails with the reason."""
 
     def __init__(self, max_loaded: int = CLONES_LOADED) -> None:
         if max_loaded < 1:
             raise ValueError("At least one site must keep the clone loaded.")
         self.max_loaded = max_loaded
-        self._lock = threading.Lock()
-        self._loaded: OrderedDict[SiteClone, None] = OrderedDict()
-        self._unloading: list[threading.Thread] = []
+        self._changed = threading.Condition()
+        # Loaded, or not yet known to be unloaded, least recently used first.
+        self._resident: OrderedDict[SiteClone, None] = OrderedDict()
+        self._unloading: set[SiteClone] = set()
 
     def engine(self, clone: AccentEngine, site: str) -> "SiteClone":
         """The site's clone, counted in the budget."""
         return SiteClone(clone, site, self)
 
     def loaded(self) -> list[str]:
-        """The sites whose clone is loaded, the one used least recently first."""
-        with self._lock:
-            return [c.site for c in self._loaded]
+        """The sites whose clone may be in memory, the one used least recently first."""
+        with self._changed:
+            return [c.site for c in self._resident]
 
-    def is_loaded(self, clone: "SiteClone") -> bool:
-        with self._lock:
-            return clone in self._loaded
-
-    def used(self, clone: "SiteClone") -> None:
-        """The clone was just used: it is loaded, and the least recently used past the budget
-        are unloaded."""
-        with self._lock:
-            self._loaded[clone] = None
-            self._loaded.move_to_end(clone)
-            victims = []
-            while len(self._loaded) > self.max_loaded:
-                victim, _ = self._loaded.popitem(last=False)
-                victims.append(victim)
-            # In the background: the victim may be speaking, and waiting for it here could
-            # hold up this site's speech, or wait on a site waiting on this one.
-            threads = [
-                threading.Thread(target=v.unload, name="clone-unload", daemon=True) for v in victims
-            ]
-            self._unloading = [t for t in self._unloading if t.is_alive()] + threads
-        for t in threads:
-            t.start()
+    def admit(self, clone: "SiteClone") -> None:
+        """Before the clone is used: room is made for it, if it isn't counted already, by
+        unloading the least recently used clones, here and now, until it fits. Raises
+        VoiceError when none could be unloaded."""
+        tried: set[SiteClone] = set()
+        with self._changed:
+            while clone not in self._resident:
+                if len(self._resident) < self.max_loaded:
+                    self._resident[clone] = None
+                    break
+                victim = next(
+                    (c for c in self._resident if c not in self._unloading and c not in tried),
+                    None,
+                )
+                if victim is None:
+                    if not self._unloading:  # every other clone failed to unload just now
+                        logger.error(
+                            "Clone not loaded: no other site's clone could be unloaded",
+                            extra={"site": clone.site, "loaded": [c.site for c in self._resident]},
+                        )
+                        raise VoiceError(
+                            "The voice can't be loaded now: the server's voice memory is full."
+                        )
+                    self._changed.wait()  # another site is unloading one
+                    continue
+                tried.add(victim)
+                self._unloading.add(victim)
+                self._changed.release()
+                try:
+                    unloaded = victim.unload()
+                finally:
+                    self._changed.acquire()
+                    self._unloading.discard(victim)
+                    if unloaded:
+                        self._resident.pop(victim, None)
+                    self._changed.notify_all()
+            self._resident.move_to_end(clone)
 
     def dropped(self, clone: "SiteClone") -> None:
         """The clone was unloaded another way (Delete my data)."""
-        with self._lock:
-            self._loaded.pop(clone, None)
-
-    def wait(self, timeout: float = 30) -> None:
-        """For tests: until the clones being unloaded are."""
-        with self._lock:
-            threads = list(self._unloading)
-        for t in threads:
-            t.join(timeout)
+        with self._changed:
+            self._resident.pop(clone, None)
+            self._changed.notify_all()
 
 
 class SiteClone:
@@ -197,14 +211,14 @@ class SiteClone:
 
     def prepare(self, voice: str, accent: Accent) -> None:
         with self._lock:
-            self._budget.used(self)
+            self._budget.admit(self)
             self._clone.prepare(voice, accent)
             self._prepared, self._unloaded = (voice, accent), False
             self._used_at = time.perf_counter()
 
     def speak(self, voice: str, text: str) -> Speech:
         with self._lock:
-            self._budget.used(self)
+            self._budget.admit(self)
             if self._unloaded and self._prepared is not None:
                 start = time.perf_counter()
                 learned, accent = self._prepared
@@ -219,23 +233,23 @@ class SiteClone:
             finally:
                 self._used_at = time.perf_counter()
 
-    def unload(self) -> None:
-        """Free the clone's memory, unless it was used again since it was picked."""
+    def unload(self) -> bool:
+        """Free the clone's memory, once any speech it is in the middle of ends. False when it
+        could not be freed, so it is still counted."""
         with self._lock:
-            if self._budget.is_loaded(self) or self._unloaded:
-                return
             start = time.perf_counter()
             idle_s = round(start - self._used_at, 1)
             try:
                 self._clone.forget_voice()
             except Exception:
                 logger.exception("Clone not unloaded", extra={"site": self.site})
-                return
+                return False
             self._unloaded = True
             logger.info(
                 "Clone unloaded",
                 extra={"site": self.site, "idle_s": idle_s, "duration_ms": ms_since(start)},
             )
+            return True
 
     def forget_voice(self) -> None:
         """After Delete my data: nothing is learned again until it is prepared."""

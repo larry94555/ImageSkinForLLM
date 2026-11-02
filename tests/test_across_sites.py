@@ -22,7 +22,7 @@ from imageskin.prepare_job import PrepareJob, clip_voice
 from imageskin.prepare_job import Progress as PrepareProgress
 from imageskin.reading_job import ReadingJob, ReadingStatus
 from imageskin.uploads import PhotoResult, UploadStore
-from imageskin.voice import Speech
+from imageskin.voice import Speech, VoiceError
 
 PDF = b"%PDF-1.7\n" + b"x" * 100 + b"\n%%EOF\n"
 
@@ -71,7 +71,6 @@ def test_the_third_sites_speech_unloads_the_least_recently_used_clone(
     with caplog.at_level(logging.INFO, logger="imageskin.across_sites"):
         for name, (engine, _) in sites.items():
             engine.prepare(f"{name}.wav", accents[name])
-            budget.wait()
         assert budget.loaded() == ["b", "c"]
         assert sites["a"][1].unloaded == 1 and sites["b"][1].unloaded == 0
         unloaded = [r for r in caplog.records if r.message == "Clone unloaded"]
@@ -80,7 +79,6 @@ def test_the_third_sites_speech_unloads_the_least_recently_used_clone(
 
         # Site a speaks again in its own voice and accent, and b, now the least recent, goes.
         assert sites["a"][0].speak("a.wav", "Hi").pcm == b"a.wav/british:Hi"
-        budget.wait()
     assert sites["a"][1].prepared == [("a.wav", "british")] * 2
     assert budget.loaded() == ["c", "a"] and sites["b"][1].unloaded == 1
     assert "Clone loaded again" in caplog.text
@@ -88,20 +86,86 @@ def test_the_third_sites_speech_unloads_the_least_recently_used_clone(
     assert sites["c"][1].prepared == [("c.wav", "american")]  # never unloaded
 
 
-def test_a_clone_used_again_before_it_is_unloaded_is_kept() -> None:
+class Resident:
+    """Counts the clones in memory at once, as the real models would use it."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.now = 0
+        self.most = 0
+
+    def counted(self, clone: Clone) -> Clone:
+        prepare, forget = clone.prepare, clone.forget_voice
+
+        def load(voice: str, accent: Accent) -> None:
+            with self.lock:
+                if clone.voice is None:
+                    self.now += 1
+                    self.most = max(self.most, self.now)
+            prepare(voice, accent)
+
+        def unload() -> None:
+            forget()
+            with self.lock:
+                self.now -= 1
+
+        clone.prepare, clone.forget_voice = load, unload  # type: ignore[method-assign]
+        return clone
+
+
+def test_the_next_site_loads_only_once_the_clone_it_replaces_is_unloaded() -> None:
+    # Codex's review of PR #273: the budget counts the clones really in memory.
     budget = CloneBudget(1)
     sites = site_clones(budget, "ab")
+    memory = Resident()
+    for _, clone in sites.values():
+        memory.counted(clone)
     a, b = sites["a"][0], sites["b"][0]
     a.prepare("a.wav", OWN)
-    with patch("threading.Thread.start"):  # the unload of a is late...
-        b.prepare("b.wav", OWN)
-    a.speak("a.wav", "Hi")  # ...so a is loaded again first, and b goes
-    budget.wait()
-    a.unload()  # what the late unload does then
-    assert sites["a"][1].unloaded == 0 and sites["b"][1].unloaded == 1
+    unloading, finish = threading.Event(), threading.Event()
+    forget = sites["a"][1].forget_voice
+
+    def slow_unload() -> None:
+        unloading.set()
+        assert finish.wait(5)
+        forget()
+
+    sites["a"][1].forget_voice = slow_unload  # type: ignore[method-assign]
+    prepared = threading.Thread(target=b.prepare, args=("b.wav", OWN))
+    prepared.start()
+    assert unloading.wait(5)
+    time.sleep(0.05)
+    assert sites["b"][1].prepared == []  # b waits for a's memory to be freed
     assert budget.loaded() == ["a"]
-    b.unload()  # unloaded once only
-    assert sites["b"][1].unloaded == 1
+    finish.set()
+    prepared.join(5)
+    assert sites["b"][1].prepared == [("b.wav", OWN)]
+    assert budget.loaded() == ["b"] and memory.most == 1 and memory.now == 1
+
+
+def test_a_clone_speaking_is_unloaded_once_it_has_finished() -> None:
+    budget = CloneBudget(1)
+    sites = site_clones(budget, "ab")
+    speaking, done = threading.Event(), threading.Event()
+    speak = sites["a"][1].speak
+
+    def slow(voice: str, text: str) -> Speech:
+        speaking.set()
+        assert done.wait(5)
+        return speak(voice, text)
+
+    sites["a"][1].speak = slow  # type: ignore[method-assign]
+    a = threading.Thread(target=sites["a"][0].speak, args=("a.wav", "Hi"))
+    a.start()
+    assert speaking.wait(5)
+    b = threading.Thread(target=sites["b"][0].prepare, args=("b.wav", OWN))
+    b.start()
+    time.sleep(0.05)
+    assert sites["a"][1].unloaded == 0 and sites["b"][1].prepared == []
+    done.set()
+    a.join(5)
+    b.join(5)
+    assert sites["a"][1].unloaded == 1 and budget.loaded() == ["b"]
 
 
 def test_delete_my_data_forgets_the_voice_and_leaves_the_budget() -> None:
@@ -116,17 +180,35 @@ def test_delete_my_data_forgets_the_voice_and_leaves_the_budget() -> None:
     assert clone.prepared == [("a.wav", "british")]
 
 
-def test_a_clone_that_fails_to_unload_is_logged_and_kept(caplog: pytest.LogCaptureFixture) -> None:
+def test_a_clone_that_fails_to_unload_stays_counted_and_is_tried_again(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Codex's review of PR #273: a clone not freed is never left out of the count.
     budget = CloneBudget(1)
     sites = site_clones(budget, "ab")
+    forget = sites["a"][1].forget_voice
     sites["a"][1].forget_voice = MagicMock(side_effect=RuntimeError("busy"))  # type: ignore[method-assign]
-    sites["a"][0].prepare("a.wav", OWN)
-    with caplog.at_level(logging.ERROR):
+    sites["a"][0].prepare("a.wav", "british")
+    with caplog.at_level(logging.ERROR), pytest.raises(VoiceError, match="voice memory is full"):
         sites["b"][0].prepare("b.wav", OWN)
-        budget.wait()
-    assert "Clone not unloaded" in caplog.text
-    assert sites["a"][0].speak("a.wav", "Hi").pcm == b"a.wav/own:Hi"
-    assert sites["a"][1].prepared == [("a.wav", OWN)]  # not unloaded, so not learned again
+    assert "Clone not unloaded" in caplog.text and "Clone not loaded" in caplog.text
+    assert budget.loaded() == ["a"] and sites["b"][1].prepared == []
+    # Site a still speaks, not unloaded, so not learned again.
+    assert sites["a"][0].speak("a.wav", "Hi").pcm == b"a.wav/british:Hi"
+    assert sites["a"][1].prepared == [("a.wav", "british")]
+    # Once it can be freed, the next site's clone loads in its place.
+    sites["a"][1].forget_voice = forget  # type: ignore[method-assign]
+    sites["b"][0].prepare("b.wav", OWN)
+    assert budget.loaded() == ["b"] and sites["a"][1].unloaded == 1
+
+
+def test_a_clone_that_fails_to_unload_makes_way_for_the_next_least_recently_used() -> None:
+    budget = CloneBudget(2)
+    sites = site_clones(budget, "abc")
+    sites["a"][1].forget_voice = MagicMock(side_effect=RuntimeError("busy"))  # type: ignore[method-assign]
+    for name in "abc":
+        sites[name][0].prepare(f"{name}.wav", OWN)
+    assert budget.loaded() == ["a", "c"] and sites["b"][1].unloaded == 1
 
 
 def test_the_budget_keeps_at_least_one_clone() -> None:
@@ -353,3 +435,32 @@ def test_two_sites_apps_share_the_turns_and_the_clone_budget(tmp_path: Path) -> 
         assert app.state.prepare_job._turns is engines.turns
         assert app.state.prepare_job._site == name
         assert app.state.readings._turns is engines.turns
+
+
+def test_two_sites_waiting_for_room_never_load_more_than_the_budget() -> None:
+    budget = CloneBudget(1)
+    sites = site_clones(budget, "abc")
+    memory = Resident()
+    for _, clone in sites.values():
+        memory.counted(clone)
+    sites["a"][0].prepare("a.wav", OWN)
+    unloading, finish = threading.Event(), threading.Event()
+    forget = sites["a"][1].forget_voice
+
+    def slow_unload() -> None:
+        unloading.set()
+        assert finish.wait(5)
+        forget()
+
+    sites["a"][1].forget_voice = slow_unload  # type: ignore[method-assign]
+    b = threading.Thread(target=sites["b"][0].prepare, args=("b.wav", OWN))
+    b.start()
+    assert unloading.wait(5)
+    c = threading.Thread(target=sites["c"][0].prepare, args=("c.wav", OWN))
+    c.start()  # waits while a is being unloaded for b
+    time.sleep(0.05)
+    finish.set()
+    b.join(5)
+    c.join(5)
+    assert sites["b"][1].prepared and sites["c"][1].prepared
+    assert memory.most == 1 and len(budget.loaded()) == 1
