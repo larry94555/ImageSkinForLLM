@@ -67,7 +67,7 @@ def test_browser_app_is_served(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path))
     page = client.get("/")
     assert page.status_code == 200
-    assert 'src="/assets/app.js"' in page.text
+    assert 'src="./assets/app.js"' in page.text  # relative, for a trial site's path (R61a)
     for asset in ("/assets/app.js", "/assets/preact.js", "/assets/index.css"):
         assert client.get(asset).status_code == 200, asset
 

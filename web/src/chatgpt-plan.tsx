@@ -16,6 +16,7 @@ import {
   signOutChatGpt,
   useChatGptAccount,
 } from "./api";
+import { under } from "./site-path";
 
 export function ChatGptPlanSection() {
   const [status, setStatus] = useState<ChatGptStatus | null>(null);
@@ -82,14 +83,14 @@ export function ChatGptPlanSection() {
       {status && !status.connected && (
         <>
           <p>
-            <a className="button" href="/api/chatgpt/sign-in">
+            <a className="button" href={under("/api/chatgpt/sign-in")}>
               Continue with ChatGPT
             </a>
           </p>
           {status.registered_email && (
             <p className="muted">
               Signs in again as {status.label || status.registered_email}.{" "}
-              <a href="/api/chatgpt/sign-in?another=true">Use another ChatGPT account</a>
+              <a href={under("/api/chatgpt/sign-in?another=true")}>Use another ChatGPT account</a>
             </p>
           )}
         </>
@@ -103,7 +104,7 @@ export function ChatGptPlanSection() {
           {!status.plan_usage && (
             <p>
               <span className="error">Using your plan wasn't allowed when you signed in.</span>{" "}
-              <a href="/api/chatgpt/sign-in?consent=true">Allow use of my plan</a>
+              <a href={under("/api/chatgpt/sign-in?consent=true")}>Allow use of my plan</a>
             </p>
           )}
           <button type="button" disabled={busy} onClick={() => void disconnect()}>
@@ -127,7 +128,7 @@ export function ChatGptPlanSection() {
                   Switch to {a.label || a.email || "an earlier account"}
                 </button>
               ) : (
-                <a href={`/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`}>
+                <a href={under(`/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`)}>
                   {a.label || a.email || "an earlier account"}
                 </a>
               )}

@@ -1,6 +1,7 @@
 // Calls to the server's JSON API.
 
 import type { LaptopProof } from "./laptop-key";
+import { under } from "./site-path";
 
 export interface Consent {
   agreed: boolean;
@@ -62,7 +63,7 @@ export interface VoiceSample {
   problem: string | null;
 }
 
-export const voiceSampleAudioUrl = "/api/voice-sample/audio";
+export const voiceSampleAudioUrl = under("/api/voice-sample/audio");
 
 // The server's explanation for a refused request, meant for the person using the app.
 // A request the server refused, with its status: 400 when what was sent can't be used, as
@@ -88,7 +89,7 @@ async function refusal(response: Response): Promise<string> {
 }
 
 export function uploadUrl(kind: Kind, id: string): string {
-  return `/api/uploads/${kind}/${id}`;
+  return under(`/api/uploads/${kind}/${id}`);
 }
 
 export async function listUploads(kind: Kind): Promise<Upload[]> {
@@ -231,7 +232,7 @@ export interface PrepareStatus {
 // A video the prepare job rendered (roadmap R13). The finish time is added so that the browser
 // fetches it afresh after preparing again, which replaces it under the same address.
 export function clipUrl(name: "sample" | "goodbye" | "welcome-back", status: PrepareStatus) {
-  return `/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`;
+  return under(`/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`);
 }
 
 export async function getPrepare(): Promise<PrepareStatus> {
@@ -246,7 +247,7 @@ export async function lineUrl(name: "goodbye" | "welcome-back"): Promise<string 
   if (start.chosen) {
     const { gender, accent, realism, role } = start.chosen;
     const who = encodeURIComponent([gender, accent, realism, role].join("-"));
-    return `/api/start-now/lines/${name}?v=${who}`;
+    return under(`/api/start-now/lines/${name}?v=${who}`);
   }
   const status = await getPrepare();
   return status.state === "done" ? clipUrl(name, status) : null;
@@ -278,7 +279,7 @@ export async function getFaces(): Promise<Face[]> {
 
 // The face's thumbnail, which ships with the app (R24b2 made them).
 export function faceUrl(name: string): string {
-  return `/faces/${name}.jpg`;
+  return under(`/faces/${name}.jpg`);
 }
 
 // Getting the chosen person ready: their download, then their Goodbye and Welcome back.
@@ -308,7 +309,7 @@ export async function startNow(choice: PersonChoice): Promise<StartNowStatus> {
   return (await response.json()) as StartNowStatus;
 }
 
-export const DEFAULT_PICTURE = "/api/start-now/picture";
+export const DEFAULT_PICTURE = under("/api/start-now/picture");
 
 // The ready-made voice the person speaks in while no recording has passed the checks (item 59):
 // the last ready-made avatar's, or the one chosen in setup.
@@ -666,7 +667,7 @@ export async function getChatHints(): Promise<ChatHints> {
 
 // The person at rest, blinking and moving slightly, played on a loop between replies (roadmap
 // R23). The server answers once its warm-up has made it, and 404 when there is none.
-export const IDLE_VIDEO_URL = "/api/chat/idle";
+export const IDLE_VIDEO_URL = under("/api/chat/idle");
 
 // A PDF on the Manage Content page (roadmap R34, R35). name is the name it was uploaded with,
 // for display only; replacing it keeps the id.
@@ -679,7 +680,7 @@ export interface Pdf {
 }
 
 export function pdfUrl(id: string): string {
-  return `/api/content/${id}`;
+  return under(`/api/content/${id}`);
 }
 
 export async function listPdfs(): Promise<Pdf[]> {
@@ -876,7 +877,7 @@ export async function restoreWikiVersion(pdf: string, id: string, force = false)
 
 // Downloads the wiki as it is now, with its whole history.
 export function wikiFileUrl(pdf: string): string {
-  return `/api/content/${pdf}/wiki/file`;
+  return under(`/api/content/${pdf}/wiki/file`);
 }
 
 // Loads a file saved from wikiFileUrl: it becomes the wiki, and its history joins this one's.

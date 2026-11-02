@@ -1,5 +1,23 @@
 // Generated from web/src/*.tsx by `npm run build` in web/. Do not edit; edit web/src.
 import { a as g, c as R, i as d, l as S, n as A, o as h, r as _, s as x, t as u, u as X } from "./preact.js";
+//#region src/site-path.ts
+var TRIAL_PATH = /^\/t\/[a-z0-9]{12}(?=\/|$)/;
+function sitePath(pathname = window.location.pathname) {
+	return TRIAL_PATH.exec(pathname)?.[0] ?? "";
+}
+function under(url, path = sitePath()) {
+	if (!path || !url.startsWith("/") || url.startsWith("//")) return url;
+	if (url === path || url.startsWith(`${path}/`)) return url;
+	return `${path}${url}`;
+}
+function sendFetchesUnderSitePath(target = window) {
+	const path = sitePath();
+	if (!path) return;
+	const original = target.fetch.bind(target);
+	target.fetch = (input, init) => original(typeof input === "string" ? under(input, path) : input, init);
+	console.info(`Trial site: calls are made under ${path}`);
+}
+//#endregion
 //#region src/api.ts
 async function json(response) {
 	if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -15,6 +33,7 @@ async function confirmConsent() {
 		body: JSON.stringify({ agreed: true })
 	}));
 }
+var voiceSampleAudioUrl = under("/api/voice-sample/audio");
 var ServerRefusal = class extends Error {
 	status;
 	constructor(message, status) {
@@ -31,7 +50,7 @@ async function refusal(response) {
 	return "That didn't work. Please try again.";
 }
 function uploadUrl(kind, id) {
-	return `/api/uploads/${kind}/${id}`;
+	return under(`/api/uploads/${kind}/${id}`);
 }
 async function listUploads(kind) {
 	return json(await fetch(`/api/uploads/${kind}`));
@@ -98,7 +117,7 @@ async function chooseAccent(accent) {
 	return await response.json();
 }
 function clipUrl(name, status) {
-	return `/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`;
+	return under(`/api/prepare/clips/${name}?v=${encodeURIComponent(status.finished_at ?? "")}`);
 }
 async function getPrepare() {
 	return json(await fetch("/api/prepare"));
@@ -107,12 +126,12 @@ async function lineUrl(name) {
 	const start = await getStartNow();
 	if (start.chosen) {
 		const { gender, accent, realism, role } = start.chosen;
-		return `/api/start-now/lines/${name}?v=${encodeURIComponent([
+		return under(`/api/start-now/lines/${name}?v=${encodeURIComponent([
 			gender,
 			accent,
 			realism,
 			role
-		].join("-"))}`;
+		].join("-"))}`);
 	}
 	const status = await getPrepare();
 	return status.state === "done" ? clipUrl(name, status) : null;
@@ -121,7 +140,7 @@ async function getFaces() {
 	return json(await fetch("/api/start-now/faces"));
 }
 function faceUrl(name) {
-	return `/faces/${name}.jpg`;
+	return under(`/faces/${name}.jpg`);
 }
 async function getStartNow() {
 	return json(await fetch("/api/start-now"));
@@ -135,7 +154,7 @@ async function startNow(choice) {
 	if (!response.ok) throw new Error(await refusal(response));
 	return await response.json();
 }
-var DEFAULT_PICTURE = "/api/start-now/picture";
+var DEFAULT_PICTURE = under("/api/start-now/picture");
 async function getReadyVoice() {
 	return json(await fetch("/api/ready-voice"));
 }
@@ -279,9 +298,9 @@ async function getChatHints() {
 		examples: Array.isArray(hints?.examples) ? hints.examples : []
 	};
 }
-var IDLE_VIDEO_URL = "/api/chat/idle";
+var IDLE_VIDEO_URL = under("/api/chat/idle");
 function pdfUrl(id) {
-	return `/api/content/${id}`;
+	return under(`/api/content/${id}`);
 }
 async function listPdfs() {
 	return json(await fetch("/api/content"));
@@ -357,7 +376,7 @@ async function restoreWikiVersion(pdf, id, force = false) {
 	if (!response.ok) await refused(response);
 }
 function wikiFileUrl(pdf) {
-	return `/api/content/${pdf}/wiki/file`;
+	return under(`/api/content/${pdf}/wiki/file`);
 }
 async function loadWikiFile(pdf, file, force = false) {
 	const body = new FormData();
@@ -1800,7 +1819,7 @@ function ChatGptPlanSection() {
 			}),
 			status && !status.connected && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
 				className: "button",
-				href: "/api/chatgpt/sign-in",
+				href: under("/api/chatgpt/sign-in"),
 				children: "Continue with ChatGPT"
 			}) }), status.registered_email && /* @__PURE__ */ u("p", {
 				className: "muted",
@@ -1810,7 +1829,7 @@ function ChatGptPlanSection() {
 					".",
 					" ",
 					/* @__PURE__ */ u("a", {
-						href: "/api/chatgpt/sign-in?another=true",
+						href: under("/api/chatgpt/sign-in?another=true"),
 						children: "Use another ChatGPT account"
 					})
 				]
@@ -1828,7 +1847,7 @@ function ChatGptPlanSection() {
 					}),
 					" ",
 					/* @__PURE__ */ u("a", {
-						href: "/api/chatgpt/sign-in?consent=true",
+						href: under("/api/chatgpt/sign-in?consent=true"),
 						children: "Allow use of my plan"
 					})
 				] }),
@@ -1851,7 +1870,7 @@ function ChatGptPlanSection() {
 						onClick: () => void switchTo(a.id),
 						children: ["Switch to ", a.label || a.email || "an earlier account"]
 					}) : /* @__PURE__ */ u("a", {
-						href: `/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`,
+						href: under(`/api/chatgpt/sign-in?account=${encodeURIComponent(a.id)}`),
 						children: a.label || a.email || "an earlier account"
 					})] }, a.id))
 				]
@@ -5650,7 +5669,7 @@ function VoiceSampleView({ changes }) {
 			sample.recordings > 0 && /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("audio", {
 				controls: true,
 				preload: "none",
-				src: `/api/voice-sample/audio?v=${changes}`
+				src: `${voiceSampleAudioUrl}?v=${changes}`
 			}), /* @__PURE__ */ u("p", {
 				className: "name",
 				children: [
@@ -11998,5 +12017,6 @@ function Mark() {
 }
 //#endregion
 //#region src/main.tsx
+sendFetchesUnderSitePath();
 R(/* @__PURE__ */ u(App, {}), document.getElementById("root"));
 //#endregion

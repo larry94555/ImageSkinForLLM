@@ -11,7 +11,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 from fastapi import (
     Body,
@@ -512,6 +512,11 @@ def make_engines(
 MAX_WIKI_FILE_BYTES = 50 * 1024 * 1024
 
 
+def under(request: Request, path: str) -> str:
+    """An address of this app as the browser asks for it: under a trial site's path (R61a)."""
+    return f"{request.scope.get('root_path', '')}{path}"
+
+
 def wiki_file_name(saved: dict[str, Any]) -> str:
     """The name a saved wiki file downloads as: the PDF's, with -wiki.json for .pdf."""
     stem = Path(saved["pdf_name"]).stem or "wiki"
@@ -752,7 +757,7 @@ def create_app(
 
     app.state.may_use = may_use
     host_routes, app.state.require_host = host_router(
-        host_accounts, lambda host: may_use(host.email), host_site
+        host_accounts, lambda host: may_use(host.email), host_site, service.sites.is_trial
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
@@ -2359,18 +2364,23 @@ def create_app(
         redirect_uri = f"http://127.0.0.1:{request.url.port or 80}{CALLBACK_PATH}"
         try:
             location = signin.start(redirect_uri, consent, another, account)
+            # The callback comes to the main address: it is sent to this site, and back to
+            # this page, by the sign-in's state (Codex's review of PR #277).
+            state = parse_qs(urlsplit(location).query).get("state", [""])[0]
+            service.sign_in_returns.started(state, host_site, str(request.base_url))
             return RedirectResponse(location, status_code=303)
         except SignInError as e:
             return signed_in_page(str(e), 502)
 
     @app.get(CALLBACK_PATH, response_model=None)
     def chatgpt_callback(request: Request) -> Response:
+        page = service.sign_in_returns.page_of(request.query_params.get("state", "")) or "/"
         try:
             signin.finish(dict(request.query_params))
         except SignInError as e:
             return signed_in_page(str(e), 400)
         follow_plan_account()
-        return RedirectResponse("/#/settings", status_code=303)
+        return RedirectResponse(f"{page}#/settings", status_code=303)
 
     @app.post("/api/chatgpt/use", dependencies=settings_only)
     def chatgpt_use(body: ChatGptAccount) -> dict[str, Any]:
@@ -2483,24 +2493,26 @@ def create_app(
         return {"line": line, "examples": examples}
 
     @app.get("/api/chat/photo", dependencies=needs_person)
-    def get_chat_photo() -> dict[str, str | int | None]:
+    def get_chat_photo(request: Request) -> dict[str, str | int | None]:
         """The photo the videos are made from, with its size as shown, so the chat can give the
         person's frame its shape before anything is drawn (roadmap R41d)."""
         photo_id = job.status().photo_id
         photo = chosen_photo()
         size = None if photo is None else shown_size(photo)
-        url = f"/api/uploads/photos/{photo_id}"
+        url = under(request, f"/api/uploads/photos/{photo_id}")
         chosen = start_now.chosen()
         if chosen is not None:
             # Each person gets an address of their own: a browser keeps an image it has shown
             # for the page's life, so one address for all would show the person before.
-            url = f"/api/start-now/picture?person={chosen.name}"
+            url = under(request, f"/api/start-now/picture?person={chosen.name}")
         return {
             "url": None if photo is None else url,
             "width": size[0] if size else None,
             "height": size[1] if size else None,
             # The same for the idle video, named after the photo it is made from.
-            "idle": None if photo is None else f"/api/chat/idle?photo={quote(photo.stem)}",
+            "idle": None
+            if photo is None
+            else under(request, f"/api/chat/idle?photo={quote(photo.stem)}"),
         }
 
     @app.get("/api/chat/ready", dependencies=needs_person)
@@ -2971,6 +2983,7 @@ def create_app(
 
     @app.get("/api/chat/clips/{reply_id}", dependencies=needs_person)
     def get_clips(
+        request: Request,
         reply_id: str,
         # With `known`, the browser's count so far: the answer waits (up to `wait` seconds)
         # until there is more to tell, so each clip is known the moment it is ready (R22a).
@@ -2991,7 +3004,7 @@ def create_app(
                     raise HTTPException(status_code=404, detail="No clips for that reply.")
         made = [
             {
-                "url": f"/api/chat/clips/{reply_id}/{n}",
+                "url": under(request, f"/api/chat/clips/{reply_id}/{n}"),
                 "sentence_at": t.sentence_at,
                 "ready_at": t.ready_at,
                 # When its voice step began and when its video was whole (R96).
@@ -3112,7 +3125,7 @@ def create_app(
         logger.warning("Default person's lines not rendered again", extra={"error": str(e)})
 
     @app.post("/api/chat/video", dependencies=[*needs_person, Depends(require_accepted)])
-    def post_reply_video(body: ReplyVideoRequest) -> dict[str, str | None]:
+    def post_reply_video(request: Request, body: ReplyVideoRequest) -> dict[str, str | None]:
         """Speak a reply in the person's voice and render it on their photo, for an LLM that
         doesn't stream. The video's address, or null when the reply has nothing to say aloud."""
         # Listed before the reply is looked up, so Clear conversation (R27b) stops it whether it
@@ -3148,7 +3161,7 @@ def create_app(
             with clips_lock:
                 if whole_videos.get(key) is stop:
                     del whole_videos[key]
-        return {"video": None if path is None else f"/api/chat/videos/{body.turn}"}
+        return {"video": None if path is None else under(request, f"/api/chat/videos/{body.turn}")}
 
     @app.post(
         "/api/prepare/clips/sample/again",

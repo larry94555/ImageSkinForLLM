@@ -724,7 +724,7 @@ def test_the_browser_signs_in_and_comes_back_to_settings(
     )
 
     assert back.status_code == 303
-    assert back.headers["location"] == "/#/settings"
+    assert back.headers["location"] == "http://127.0.0.1:8000/#/settings"
     assert app.get("/api/chatgpt").json()["email"] == "larry@example.com"
     assert app.post("/api/chatgpt/sign-out").json()["connected"] is False
 

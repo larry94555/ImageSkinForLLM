@@ -11,6 +11,9 @@ const LIBRARY_BANNER =
   "// Not our code; do not edit.";
 export default defineConfig({
   plugins: [preact()],
+  // Files are asked for relative to the page, so a trial site's page at /t/<code>/ (R61a) loads
+  // them under its own path.
+  base: "./",
   build: {
     outDir: "../src/imageskin/static",
     emptyOutDir: true,

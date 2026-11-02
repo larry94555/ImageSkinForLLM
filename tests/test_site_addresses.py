@@ -251,7 +251,7 @@ def test_sites_are_added_and_listed_from_the_command_line(
     assert cli.main(["site", "add", "b", "--host", "ann@example.com"]) == 1
     assert "already the host of a. Nothing changed." in capsys.readouterr().err
     assert cli.main(["site", "list"]) == 0
-    assert capsys.readouterr().out == "a: ann@example.com\n"
+    assert capsys.readouterr().out == "a: ann@example.com at a.localhost\n"
 
 
 def test_a_site_cant_be_added_while_the_host_accounts_cant_be_read(

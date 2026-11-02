@@ -37,17 +37,29 @@ Password = Annotated[str, Body(embed=True)]
 HostPage = Literal["sign-up", "sign-in"]
 
 
-def elsewhere(request: Request, here: str, site: str) -> str:
-    """Where a host of another site signs in: the main address, or their site's name in front of
-    it, from the address this request came to, which is the site `here`'s."""
+def elsewhere(
+    request: Request, here: str, site: str, is_trial: Callable[[str], bool] = lambda _: False
+) -> str:
+    """Where a host of another site signs in: the main address, their site's name in front of
+    it, or their trial site's path after it (R61a), from the address this request came to, which
+    is the site `here`'s."""
     host = request.headers.get("host", "localhost")
-    main = host.split(".", 1)[-1] if here != DEFAULT_SITE else re.sub(r"^(www|app)\.", "", host)
-    where = main if site == DEFAULT_SITE else f"{site}.{main}"
+    at_main = here == DEFAULT_SITE or is_trial(here)
+    main = re.sub(r"^(www|app)\.", "", host) if at_main else host.split(".", 1)[-1]
+    if site == DEFAULT_SITE:
+        where = main
+    elif is_trial(site):
+        where = f"{main}/t/{site}"
+    else:
+        where = f"{site}.{main}"
     return f"Your site is at {where}. Sign in there."
 
 
 def host_router(
-    accounts: HostAccounts, may_use: Callable[[Host], CustomUse], site: str = DEFAULT_SITE
+    accounts: HostAccounts,
+    may_use: Callable[[Host], CustomUse],
+    site: str = DEFAULT_SITE,
+    is_trial: Callable[[str], bool] = lambda _: False,
 ) -> tuple[APIRouter, Callable[[str | None], Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -108,7 +120,8 @@ def host_router(
         except HostElsewhere as e:
             # The password was right: say where their site is (R61e).
             return JSONResponse(
-                {"detail": elsewhere(request, site, e.site), "site": e.site}, status_code=401
+                {"detail": elsewhere(request, site, e.site, is_trial), "site": e.site},
+                status_code=401,
             )
         except HostRefused as e:
             return JSONResponse({"detail": str(e)}, status_code=401)
