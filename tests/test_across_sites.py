@@ -19,6 +19,7 @@ from imageskin.config import ConfigError, load_settings
 from imageskin.content import ContentStore
 from imageskin.pdf_reading import Piece, Progress, Reading
 from imageskin.prepare_job import PrepareJob, clip_voice
+from imageskin.prepare_job import Progress as PrepareProgress
 from imageskin.reading_job import ReadingJob, ReadingStatus
 from imageskin.uploads import PhotoResult, UploadStore
 from imageskin.voice import Speech
@@ -66,7 +67,7 @@ def test_the_third_sites_speech_unloads_the_least_recently_used_clone(
 ) -> None:
     budget = CloneBudget(2)
     sites = site_clones(budget, "abc")
-    accents: dict[str, Accent] = {"a": "british", "b": OWN, "c": "australian"}
+    accents: dict[str, Accent] = {"a": "british", "b": OWN, "c": "american"}
     with caplog.at_level(logging.INFO, logger="imageskin.across_sites"):
         for name, (engine, _) in sites.items():
             engine.prepare(f"{name}.wav", accents[name])
@@ -83,8 +84,8 @@ def test_the_third_sites_speech_unloads_the_least_recently_used_clone(
     assert sites["a"][1].prepared == [("a.wav", "british")] * 2
     assert budget.loaded() == ["c", "a"] and sites["b"][1].unloaded == 1
     assert "Clone loaded again" in caplog.text
-    assert sites["c"][0].speak("c.wav", "Yes").pcm == b"c.wav/australian:Yes"
-    assert sites["c"][1].prepared == [("c.wav", "australian")]  # never unloaded
+    assert sites["c"][0].speak("c.wav", "Yes").pcm == b"c.wav/american:Yes"
+    assert sites["c"][1].prepared == [("c.wav", "american")]  # never unloaded
 
 
 def test_a_clone_used_again_before_it_is_unloaded_is_kept() -> None:
@@ -256,7 +257,7 @@ def test_prepare_and_pdf_reading_on_two_sites_run_one_after_the_other(tmp_path: 
             running.remove(name)
 
     def face(site: str) -> Any:
-        def prepare_face(photo: Path, progress: Progress) -> None:
+        def prepare_face(photo: Path, progress: PrepareProgress) -> None:
             busy(site + "-prepare")
             face_in_steps(photo, progress)
 
