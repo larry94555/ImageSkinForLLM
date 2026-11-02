@@ -631,6 +631,26 @@ async function sendConfirmationAgain() {
 	const response = await fetch("/api/host/confirm/send", { method: "POST" });
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
+async function forgotPassword(email) {
+	const response = await fetch("/api/host/forgot", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ email })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).detail;
+}
+async function setNewPassword(token, password) {
+	const response = await fetch("/api/host/reset", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			token,
+			password
+		})
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+}
 async function hostPageOpened(page) {
 	const response = await fetch("/api/host/page", {
 		method: "POST",
@@ -1436,6 +1456,7 @@ var PAGES = {
 	"/host/sign-up": "host-sign-up",
 	"/host/sign-in": "host-sign-in",
 	"/host/confirm-failed": "confirm-failed",
+	"/host/forgot": "host-forgot",
 	"/resources": "resources",
 	"/customization": "customization"
 };
@@ -1448,6 +1469,10 @@ function setupTarget(hash) {
 }
 function pathOf(hash) {
 	return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
+}
+var RESET = /^\/host\/reset\/([A-Za-z0-9_-]+)$/;
+function resetToken(hash) {
+	return RESET.exec(pathOf(hash))?.[1];
 }
 function adminTarget(hash) {
 	const path = pathOf(hash);
@@ -1475,6 +1500,7 @@ function pageFor(hash) {
 	if (wiki.entry) return "wiki-page";
 	if (wiki.pdf) return "wiki";
 	if (setupTarget(hash)) return "setup";
+	if (resetToken(hash)) return "host-reset";
 	return PAGES[path] ?? "not-found";
 }
 var HOST_PAGES = [
@@ -3161,10 +3187,19 @@ function HostAccountPage({ kind }) {
 				children: up ? /* @__PURE__ */ u(S, { children: ["Already a host? ", /* @__PURE__ */ u("a", {
 					href: "#/host/sign-in",
 					children: "Host sign in"
-				})] }) : /* @__PURE__ */ u(S, { children: ["New here? ", /* @__PURE__ */ u("a", {
-					href: "#/host/sign-up",
-					children: "Host sign up"
-				})] })
+				})] }) : /* @__PURE__ */ u(S, { children: [
+					"New here? ",
+					/* @__PURE__ */ u("a", {
+						href: "#/host/sign-up",
+						children: "Host sign up"
+					}),
+					" ·",
+					" ",
+					/* @__PURE__ */ u("a", {
+						href: "#/host/forgot",
+						children: "Forgot your password?"
+					})
+				] })
 			})
 		]
 	});
@@ -3271,6 +3306,163 @@ function ConfirmFailedPage() {
 				" ",
 				"to send a new one."
 			] })
+		]
+	});
+}
+function ForgotPasswordPage() {
+	const [email, setEmail] = d("");
+	const [busy, setBusy] = d(false);
+	const [note, setNote] = d(null);
+	const [error, setError] = d(null);
+	h(() => console.info("Forgot password page shown"), []);
+	async function submit(e) {
+		e.preventDefault();
+		setBusy(true);
+		setNote(null);
+		setError(null);
+		try {
+			setNote(await forgotPassword(email));
+			console.info("Password reset link asked for");
+		} catch (err) {
+			console.error("Could not ask for a password reset link", err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Forgot your password?" }),
+			/* @__PURE__ */ u("p", {
+				className: "lead",
+				children: "Enter your account's email, and we'll send a link to set a new password."
+			}),
+			/* @__PURE__ */ u("form", {
+				onSubmit: (e) => void submit(e),
+				noValidate: true,
+				children: [
+					/* @__PURE__ */ u("label", { children: ["Email", /* @__PURE__ */ u("input", {
+						type: "email",
+						autoComplete: "email",
+						value: email,
+						onInput: (e) => setEmail(e.currentTarget.value)
+					})] }),
+					note && /* @__PURE__ */ u("p", {
+						role: "status",
+						children: note
+					}),
+					error && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: error
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy || email.trim() === "",
+						children: "Send the link"
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: ["Remembered it? ", /* @__PURE__ */ u("a", {
+					href: "#/host/sign-in",
+					children: "Host sign in"
+				})]
+			})
+		]
+	});
+}
+function ResetPasswordPage({ token }) {
+	const [password, setPassword] = d("");
+	const [again, setAgain] = d("");
+	const [busy, setBusy] = d(false);
+	const [done, setDone] = d(false);
+	const [error, setError] = d(null);
+	h(() => console.info("Set a new password page shown"), []);
+	async function submit(e) {
+		e.preventDefault();
+		if (password.length < 10) {
+			setError(`The password must be at least 10 characters.`);
+			return;
+		}
+		if (password !== again) {
+			setError("The two passwords are different.");
+			return;
+		}
+		setBusy(true);
+		setError(null);
+		try {
+			await setNewPassword(token, password);
+			console.info("New password set");
+			setDone(true);
+		} catch (err) {
+			console.error("Could not set the new password", err);
+			setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	if (done) return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Set a new password" }),
+			/* @__PURE__ */ u("p", {
+				role: "status",
+				children: "Your new password is set. Sign in with it."
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("a", {
+				className: "button",
+				href: "#/host/sign-in",
+				children: "Host sign in"
+			}) })
+		]
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [
+			/* @__PURE__ */ u("h1", { children: "Set a new password" }),
+			/* @__PURE__ */ u("form", {
+				onSubmit: (e) => void submit(e),
+				noValidate: true,
+				children: [
+					/* @__PURE__ */ u("label", { children: [
+						"New password (at least ",
+						10,
+						" characters)",
+						/* @__PURE__ */ u("input", {
+							type: "password",
+							autoComplete: "new-password",
+							value: password,
+							onInput: (e) => setPassword(e.currentTarget.value)
+						})
+					] }),
+					/* @__PURE__ */ u("label", { children: ["New password again", /* @__PURE__ */ u("input", {
+						type: "password",
+						autoComplete: "new-password",
+						value: again,
+						onInput: (e) => setAgain(e.currentTarget.value)
+					})] }),
+					error && /* @__PURE__ */ u("p", {
+						className: "error",
+						role: "alert",
+						children: error
+					}),
+					/* @__PURE__ */ u("button", {
+						type: "submit",
+						disabled: busy || password === "",
+						children: "Set the password"
+					})
+				]
+			}),
+			/* @__PURE__ */ u("p", {
+				className: "muted",
+				children: ["Link not working? ", /* @__PURE__ */ u("a", {
+					href: "#/host/forgot",
+					children: "Ask for a new one"
+				})]
+			})
 		]
 	});
 }
@@ -11924,6 +12116,7 @@ function current(page, view) {
 	if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : void 0;
 	return page;
 }
+var ACCOUNT_PAGES = ["host-forgot", "host-reset"];
 function App() {
 	return /* @__PURE__ */ u(SettingsProvider, { children: /* @__PURE__ */ u(AdminProvider, { children: /* @__PURE__ */ u(HostProvider, { children: /* @__PURE__ */ u(SettingsAccessProvider, { children: /* @__PURE__ */ u(Shell, {}) }) }) }) });
 }
@@ -11957,7 +12150,7 @@ function Shell() {
 	const back = A(null);
 	if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 	let content = /* @__PURE__ */ u("p", { children: "Loading…" });
-	if (unconfirmed) content = /* @__PURE__ */ u(ConfirmEmailPage, {
+	if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) content = /* @__PURE__ */ u(ConfirmEmailPage, {
 		email: hostSession.email ?? "",
 		failed: route?.page === "confirm-failed"
 	});
@@ -11998,6 +12191,8 @@ function Shell() {
 		"host-sign-in": /* @__PURE__ */ u(HostAccountPage, { kind: "in" }),
 		"host-only": /* @__PURE__ */ u(HostOnlyPage, {}),
 		"confirm-failed": /* @__PURE__ */ u(ConfirmFailedPage, {}),
+		"host-forgot": /* @__PURE__ */ u(ForgotPasswordPage, {}),
+		"host-reset": /* @__PURE__ */ u(ResetPasswordPage, { token: resetToken(hash) ?? "" }),
 		resources: /* @__PURE__ */ u(ResourcesPage, {}),
 		customization: /* @__PURE__ */ u(CustomizationPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})

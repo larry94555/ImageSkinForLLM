@@ -13,10 +13,12 @@ import { HomePage, setupLink } from "./home";
 import {
   ConfirmEmailPage,
   ConfirmFailedPage,
+  ForgotPasswordPage,
   HostAccountPage,
   HostLinks,
   HostOnlyPage,
   HostProvider,
+  ResetPasswordPage,
   useHost,
 } from "./host";
 import { ChatPage, ConsentPage, NotFoundPage, SetupPage } from "./pages";
@@ -26,6 +28,7 @@ import {
   OWN_CONSENT,
   type Page,
   pageFor,
+  resetToken,
   resolve,
   setupTarget,
   useHash,
@@ -63,6 +66,9 @@ function current(page: Page | undefined, view: View): Page | undefined {
   if (page === "wiki" || page === "wiki-page") return view === "host" ? "content" : undefined;
   return page;
 }
+
+// The pages a customer who hasn't confirmed their email can still open (R62a).
+const ACCOUNT_PAGES: Page[] = ["host-forgot", "host-reset"];
 
 export function App() {
   return (
@@ -140,7 +146,9 @@ function Shell() {
   if (route && route.page !== "settings" && !route.redirect) back.current = hash || "#/";
 
   let content = <p>Loading…</p>;
-  if (unconfirmed) {
+  // Forgot password's pages stay open, so a reset link works in a browser still signed in
+  // (Codex's review of PR #281).
+  if (unconfirmed && !ACCOUNT_PAGES.includes(pageFor(hash))) {
     content = (
       <ConfirmEmailPage
         email={hostSession.email ?? ""}
@@ -194,6 +202,8 @@ function Shell() {
       "host-sign-in": <HostAccountPage kind="in" />,
       "host-only": <HostOnlyPage />,
       "confirm-failed": <ConfirmFailedPage />,
+      "host-forgot": <ForgotPasswordPage />,
+      "host-reset": <ResetPasswordPage token={resetToken(hash) ?? ""} />,
       resources: <ResourcesPage />,
       customization: <CustomizationPage />,
       "not-found": <NotFoundPage />,

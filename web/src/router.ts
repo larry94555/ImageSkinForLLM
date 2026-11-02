@@ -20,6 +20,8 @@ export type Page =
   | "host-sign-in"
   | "host-only"
   | "confirm-failed"
+  | "host-forgot"
+  | "host-reset"
   | "resources"
   | "customization"
   | "not-found";
@@ -45,6 +47,8 @@ const PAGES: Record<string, Page> = {
   "/host/sign-in": "host-sign-in",
   // Where a confirmation link that didn't work goes (R62b).
   "/host/confirm-failed": "confirm-failed",
+  // Forgot password (R62a): asking for a link, and #/host/reset/<token> from its email.
+  "/host/forgot": "host-forgot",
   // The signed-in host's disk space used (R193), in either view; it checks the sign-in itself.
   "/resources": "resources",
   // The identity and goals (R92), in either view; it checks the sign-in itself.
@@ -72,6 +76,12 @@ export function setupTarget(hash: string): SetupPart | undefined {
 
 function pathOf(hash: string): string {
   return hash.replace(/^#/, "").replace(/\/+$/, "") || "/";
+}
+
+// The token of a Forgot password link, #/host/reset/<token> (R62a).
+const RESET = /^\/host\/reset\/([A-Za-z0-9_-]+)$/;
+export function resetToken(hash: string): string | undefined {
+  return RESET.exec(pathOf(hash))?.[1];
 }
 
 export type AdminSection = "resources" | "settings" | "guidelines";
@@ -115,6 +125,7 @@ export function pageFor(hash: string): Page {
   if (wiki.entry) return "wiki-page";
   if (wiki.pdf) return "wiki";
   if (setupTarget(hash)) return "setup";
+  if (resetToken(hash)) return "host-reset";
   return PAGES[path] ?? "not-found";
 }
 

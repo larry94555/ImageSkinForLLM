@@ -9,11 +9,13 @@ import { useContext, useEffect, useState } from "preact/hooks";
 import { useSettingsReload } from "./settings";
 
 import {
+  forgotPassword,
   getHostSession,
   hostPageOpened,
   type HostSession,
   sendConfirmationAgain,
   ServerRefusal,
+  setNewPassword,
   signInAsHost,
   signOutAsHost,
   signUpAsHost,
@@ -253,7 +255,8 @@ export function HostAccountPage({ kind }: { kind: "up" | "in" }) {
           </>
         ) : (
           <>
-            New here? <a href="#/host/sign-up">Host sign up</a>
+            New here? <a href="#/host/sign-up">Host sign up</a> ·{" "}
+            <a href="#/host/forgot">Forgot your password?</a>
           </>
         )}
       </p>
@@ -346,6 +349,146 @@ export function ConfirmFailedPage() {
           Host sign in
         </a>{" "}
         to send a new one.
+      </p>
+    </div>
+  );
+}
+
+// Forgot password (R62a): asks for a link to set a new password, by email. The server answers
+// the same whether or not the email has an account, and that answer is shown.
+export function ForgotPasswordPage() {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => console.info("Forgot password page shown"), []);
+
+  async function submit(e: Event) {
+    e.preventDefault();
+    setBusy(true);
+    setNote(null);
+    setError(null);
+    try {
+      setNote(await forgotPassword(email));
+      console.info("Password reset link asked for");
+    } catch (err) {
+      console.error("Could not ask for a password reset link", err);
+      setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="host-page host-account">
+      <h1>Forgot your password?</h1>
+      <p className="lead">Enter your account's email, and we'll send a link to set a new password.</p>
+      <form onSubmit={(e) => void submit(e)} noValidate>
+        <label>
+          Email
+          <input
+            type="email"
+            autoComplete="email"
+            value={email}
+            onInput={(e) => setEmail(e.currentTarget.value)}
+          />
+        </label>
+        {note && <p role="status">{note}</p>}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" disabled={busy || email.trim() === ""}>
+          Send the link
+        </button>
+      </form>
+      <p className="muted">
+        Remembered it? <a href="#/host/sign-in">Host sign in</a>
+      </p>
+    </div>
+  );
+}
+
+// The page a Forgot password link opens, #/host/reset/<token> (R62a): the new password, twice.
+export function ResetPasswordPage({ token }: { token: string }) {
+  const [password, setPassword] = useState("");
+  const [again, setAgain] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => console.info("Set a new password page shown"), []);
+
+  async function submit(e: Event) {
+    e.preventDefault();
+    if (password.length < MIN_PASSWORD) {
+      setError(`The password must be at least ${MIN_PASSWORD} characters.`);
+      return;
+    }
+    if (password !== again) {
+      setError("The two passwords are different.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await setNewPassword(token, password);
+      console.info("New password set");
+      setDone(true);
+    } catch (err) {
+      console.error("Could not set the new password", err);
+      setError(err instanceof ServerRefusal ? err.message : "That didn't work. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <div className="host-page host-account">
+        <h1>Set a new password</h1>
+        <p role="status">Your new password is set. Sign in with it.</p>
+        <p>
+          <a className="button" href="#/host/sign-in">
+            Host sign in
+          </a>
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="host-page host-account">
+      <h1>Set a new password</h1>
+      <form onSubmit={(e) => void submit(e)} noValidate>
+        <label>
+          New password (at least {MIN_PASSWORD} characters)
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onInput={(e) => setPassword(e.currentTarget.value)}
+          />
+        </label>
+        <label>
+          New password again
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={again}
+            onInput={(e) => setAgain(e.currentTarget.value)}
+          />
+        </label>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" disabled={busy || password === ""}>
+          Set the password
+        </button>
+      </form>
+      <p className="muted">
+        Link not working? <a href="#/host/forgot">Ask for a new one</a>
       </p>
     </div>
   );

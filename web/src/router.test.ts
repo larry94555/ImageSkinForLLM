@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { adminTarget, pageFor, resolve, setupTarget, wikiTarget } from "./router";
+import { adminTarget, pageFor, resetToken, resolve, setupTarget, wikiTarget } from "./router";
 
 describe("router", () => {
   test("the admin view's pages (R155, R244)", () => {
@@ -81,4 +81,13 @@ test("setup opens at what to change from Settings (R28)", () => {
   expect(pageFor("#/setup/other")).toBe("not-found");
   expect(resolve("#/setup/accent", false)).toEqual({ page: "consent", redirect: "#/consent" });
   expect(resolve("#/setup/accent", true, true)).toEqual({ page: "chat", redirect: "#/chat" });
+});
+
+test("Forgot password's pages, open to anyone (R62a)", () => {
+  expect(pageFor("#/host/forgot")).toBe("host-forgot");
+  expect(pageFor("#/host/reset/Ab_9-x")).toBe("host-reset");
+  expect(resetToken("#/host/reset/Ab_9-x")).toBe("Ab_9-x");
+  expect(resetToken("#/host/reset/a/b")).toBeUndefined();
+  expect(pageFor("#/host/reset/")).toBe("not-found");
+  expect(resolve("#/host/reset/t", true, true, true)).toEqual({ page: "host-reset" });
 });

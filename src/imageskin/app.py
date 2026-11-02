@@ -120,6 +120,7 @@ from imageskin.llm_choice import (
 )
 from imageskin.llm_model_file import LlmModelFile
 from imageskin.lookup import ContentLookup, as_passages, example_subjects, subject_named
+from imageskin.password_reset import reset_router
 from imageskin.prepare_job import (
     CLONES,
     NOT_PREPARED,
@@ -791,6 +792,8 @@ def create_app(
 
     custom_kind = [Depends(allowed_kind)]
     app.include_router(host_routes)
+    # Forgot password (R62a).
+    app.include_router(reset_router(host_accounts, service.mailer.send))
     # Who added each photo, recording and PDF, and the disk space each host has used (R192).
     owners = Owners(data_home)
 

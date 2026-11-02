@@ -30,6 +30,15 @@ function server(signedIn: string | null = null) {
         confirmed: state.confirmed,
       });
     }
+    if (url === "/api/host/forgot") {
+      return Response.json({ detail: "If an account has that email address, a link is on its way." });
+    }
+    if (url === "/api/host/reset") {
+      if (body.token !== "good-token") {
+        return Response.json({ detail: "That link didn't work." }, { status: 400 });
+      }
+      return Response.json({ reset: true, email: "host@example.com" });
+    }
     if (url === "/api/host/confirm/send") {
       state.sent += 1;
       if (state.sent === 1) {
@@ -301,4 +310,83 @@ test("a failed confirmation link opened while signed out says to sign in (R62b)"
     "hash",
     "#/host/sign-in",
   );
+});
+
+test("Forgot password asks for a link and shows the server's answer (R62a)", async () => {
+  const { fetchMock } = server();
+  window.location.hash = "#/host/sign-in";
+  render(<App />);
+  const link = await screen.findByRole("link", { name: "Forgot your password?" });
+  expect(link).toHaveProperty("hash", "#/host/forgot");
+  window.location.hash = "#/host/forgot";
+  await screen.findByRole("heading", { name: "Forgot your password?" });
+  fill(/^Email/, "host@example.com");
+  fireEvent.click(screen.getByRole("button", { name: "Send the link" }));
+  expect((await screen.findByRole("status")).textContent).toBe(
+    "If an account has that email address, a link is on its way.",
+  );
+  const asked = fetchMock.mock.calls.find(([url]) => url === "/api/host/forgot");
+  expect(JSON.parse(String(asked?.[1]?.body))).toEqual({ email: "host@example.com" });
+});
+
+test("a Forgot password link sets a new password, or says it didn't work (R62a)", async () => {
+  server();
+  window.location.hash = "#/host/reset/bad-token";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Set a new password" });
+  fill(/^New password \(/, "short");
+  fill(/^New password again/, "short");
+  fireEvent.click(screen.getByRole("button", { name: "Set the password" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "The password must be at least 10 characters.",
+  );
+  fill(/^New password \(/, "a new long secret");
+  fill(/^New password again/, "another one");
+  fireEvent.click(screen.getByRole("button", { name: "Set the password" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("The two passwords are different.");
+  fill(/^New password again/, "a new long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Set the password" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("That link didn't work.");
+  expect(screen.getByRole("link", { name: "Ask for a new one" })).toHaveProperty(
+    "hash",
+    "#/host/forgot",
+  );
+
+  cleanup();
+  window.location.hash = "#/host/reset/good-token";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Set a new password" });
+  fill(/^New password \(/, "a new long secret");
+  fill(/^New password again/, "a new long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Set the password" }));
+  expect((await screen.findByRole("status")).textContent).toBe(
+    "Your new password is set. Sign in with it.",
+  );
+});
+
+test("a reset link opens while a customer who hasn't confirmed is signed in (R62a)", async () => {
+  // Codex's review of PR #281: Confirm your email doesn't hide Forgot password's pages.
+  const { state } = server("new@example.com");
+  state.confirmed = false;
+  window.location.hash = "#/host/reset/good-token";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Set a new password" });
+  expect(screen.queryByRole("heading", { name: "Confirm your email" })).toBeNull();
+  fill(/^New password \(/, "a new long secret");
+  fill(/^New password again/, "a new long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Set the password" }));
+  expect((await screen.findByRole("status")).textContent).toBe(
+    "Your new password is set. Sign in with it.",
+  );
+
+  cleanup();
+  window.location.hash = "#/host/forgot";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Forgot your password?" });
+
+  // Every other page still says to confirm.
+  cleanup();
+  window.location.hash = "#/setup";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Confirm your email" });
 });
