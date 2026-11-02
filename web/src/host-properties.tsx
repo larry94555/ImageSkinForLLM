@@ -7,6 +7,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import { useAdmin } from "./admin";
 import {
+  actAsHost,
   type CustomKind,
   getAdminHosts,
   getHostChoices,
@@ -15,6 +16,8 @@ import {
   saveHostChoice,
   ServerRefusal,
 } from "./api";
+import { ConfirmDialog } from "./confirm-dialog";
+import { navigation } from "./host";
 
 // What the server answered, and the search it answered: only the answer for what is in the box
 // now is shown (Codex's review of PR #267), so while a new search is read, the last one's list or
@@ -134,6 +137,23 @@ function HostChoicesPanel({ email }: { email: string }) {
     }
   }
 
+  // Act as this host (R44b): after a confirmation naming the host, the browser goes to their
+  // site through a one-time link, signed in as them (R44a).
+  const [asking, setAsking] = useState(false);
+  async function actAs() {
+    setAsking(false);
+    setBusy(true);
+    setError(null);
+    try {
+      const link = await actAsHost(email);
+      console.info("Acting as host: going to the host's site");
+      navigation.goTo(link);
+    } catch (e) {
+      failed(e, "Could not act as the host");
+      setBusy(false);
+    }
+  }
+
   if (!choices) {
     return error ? <p className="error">{error}</p> : <p className="muted">Reading {email}…</p>;
   }
@@ -158,7 +178,28 @@ function HostChoicesPanel({ email }: { email: string }) {
           </span>
         </div>
       ))}
+      <div className="host-choice">
+        <button type="button" disabled={busy} onClick={() => setAsking(true)}>
+          Act as this host
+        </button>
+        <span className="muted">Open their site as them, with all of their abilities.</span>
+      </div>
       {error && <p className="error">{error}</p>}
+      {asking && (
+        <ConfirmDialog
+          title={`Act as ${email}?`}
+          keepLabel="No, stay here"
+          confirmLabel="Yes, act as this host"
+          onCancel={() => setAsking(false)}
+          onConfirm={() => void actAs()}
+        >
+          <p>
+            Their site opens with everything they can do, and every change you make there is
+            theirs. You stay signed in as the administrator; Stop acting on their site brings you
+            back here.
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

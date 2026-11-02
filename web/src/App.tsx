@@ -16,6 +16,8 @@ import {
   EmailChangedPage,
   ForgotPasswordPage,
   AccountPage,
+  ActAsFailedPage,
+  ActingBar,
   HostAccountPage,
   HostLinks,
   HostOnlyPage,
@@ -209,6 +211,7 @@ function Shell() {
       "host-account": <AccountPage />,
       "email-changed": <EmailChangedPage changed />,
       "email-failed": <EmailChangedPage changed={false} />,
+      "act-as-failed": <ActAsFailedPage />,
       resources: <ResourcesPage />,
       customization: <CustomizationPage />,
       "not-found": <NotFoundPage />,
@@ -242,6 +245,7 @@ function Shell() {
         </span>
       </header>
       <main>
+        <ActingBar />
         <AdminEndedNotice />
         <CustomUseProvider value={customUse ?? ALLOWED}>{content}</CustomUseProvider>
       </main>

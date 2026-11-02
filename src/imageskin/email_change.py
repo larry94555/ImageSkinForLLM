@@ -38,6 +38,7 @@ def email_router(
     site: str,
     owners: Owners,
     send_email: Callable[[Email], object],
+    admin_password: Callable[[str], bool] = lambda _: False,
 ) -> APIRouter:
     """The two calls of Change email on the site's Account page. `owners` is the site's record of
     who added each file, which follows the host to their new email."""
@@ -52,7 +53,11 @@ def email_router(
     ) -> JSONResponse:
         """Send a link to the new email, to confirm it; nothing changes until it is used."""
         start = time.perf_counter()
-        if not accounts.password_is(host.email, password):
+        # The administrator acting as the host gives their own password (R44b).
+        right = (
+            admin_password(password) if host.acting else accounts.password_is(host.email, password)
+        )
+        if not right:
             logger.warning(
                 "Email change refused", extra={"email": host.email, "why": "wrong password"}
             )

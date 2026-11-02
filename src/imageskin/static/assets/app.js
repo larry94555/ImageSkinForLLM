@@ -597,6 +597,23 @@ async function reportRecording(report) {
 	});
 	if (!response.ok) throw new Error(await refusal(response));
 }
+async function actAsHost(email) {
+	const response = await fetch("/api/admin/act-as", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ email })
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).link;
+}
+async function stopActing() {
+	const response = await fetch("/api/host/act-as/stop", { method: "POST" });
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return (await response.json()).go_to;
+}
+async function actingActivity() {
+	return (await fetch("/api/host/act-as/activity", { method: "POST" })).ok;
+}
 async function getHostSession() {
 	return json(await fetch("/api/host/session"));
 }
@@ -1034,372 +1051,124 @@ function ResourceDashboard() {
 	] });
 }
 //#endregion
-//#region src/host-properties.tsx
-function HostProperties() {
-	const { refresh } = useAdmin();
-	const [search, setSearch] = d("");
-	const [answer, setAnswer] = d(null);
-	const [selected, setSelected] = d(null);
-	const query = search.trim();
+//#region src/confirm-dialog.tsx
+var FOCUSABLE = "button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
+function ConfirmDialog(props) {
+	const { onCancel } = props;
+	const keep = A(null);
+	const box = A(null);
+	const id = g();
+	const cancel = A(onCancel);
+	cancel.current = onCancel;
 	h(() => {
-		let active = true;
-		const started = performance.now();
-		getAdminHosts(query).then((found) => {
-			if (!active) return;
-			console.info(`Host list: ${found.length} shown (${Math.round(performance.now() - started)} ms)`);
-			setAnswer({
-				query,
-				hosts: found
-			});
-		}, (e) => {
-			if (!active) return;
-			console.error("Could not read the hosts", e);
-			if (e instanceof ServerRefusal && e.status === 401) return void refresh();
-			const error = e instanceof ServerRefusal ? e.message : "The hosts could not be read. Try again.";
-			setAnswer({
-				query,
-				error
-			});
-		});
-		return () => {
-			active = false;
-		};
-	}, [query]);
-	const current = answer?.query === query ? answer : null;
-	return /* @__PURE__ */ u("section", {
-		className: "panel",
-		"aria-labelledby": "host-properties",
-		children: [
-			/* @__PURE__ */ u("h2", {
-				id: "host-properties",
-				children: "Host properties"
-			}),
-			/* @__PURE__ */ u("label", {
-				className: "host-search",
-				children: [/* @__PURE__ */ u("span", { children: "Search hosts by email" }), /* @__PURE__ */ u("input", {
-					type: "search",
-					value: search,
-					placeholder: "Any part of the email",
-					onInput: (e) => setSearch(e.currentTarget.value)
-				})]
-			}),
-			current === null && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: query ? "Searching…" : "Reading the hosts…"
-			}),
-			current && "error" in current && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: current.error
-			}),
-			current && "hosts" in current && current.hosts.length === 0 && /* @__PURE__ */ u("p", {
-				className: "muted",
-				children: query ? "No host's email contains that." : "No host has signed up yet."
-			}),
-			current && "hosts" in current && current.hosts.length > 0 && /* @__PURE__ */ u("ul", {
-				className: "host-list",
-				"aria-label": "Hosts",
-				children: current.hosts.map((email) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("button", {
-					type: "button",
-					className: email === selected ? "host-pick picked" : "host-pick",
-					"aria-pressed": email === selected,
-					onClick: () => {
-						console.info("Host selected in Host properties");
-						setSelected(email === selected ? null : email);
-					},
-					children: email
-				}), email === selected && /* @__PURE__ */ u(HostChoicesPanel, { email }, email)] }, email))
-			})
-		]
-	});
-}
-var KINDS = [{
-	kind: "custom_image",
-	label: "Custom Image"
-}, {
-	kind: "custom_voice",
-	label: "Custom Sound"
-}];
-function HostChoicesPanel({ email }) {
-	const { refresh } = useAdmin();
-	const [choices, setChoices] = d(null);
-	const [busy, setBusy] = d(false);
-	const [error, setError] = d(null);
-	function failed(e, what) {
-		console.error(what, e);
-		if (e instanceof ServerRefusal && e.status === 401) return void refresh();
-		setError(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
-	}
-	h(() => {
-		getHostChoices(email).then(setChoices, (e) => failed(e, "Could not read the host's properties"));
-	}, [email]);
-	async function choose(kind, choice) {
-		if (!choices) return;
-		const next = choices[kind] === choice ? null : choice;
-		setBusy(true);
-		setError(null);
-		const started = performance.now();
-		try {
-			setChoices(await saveHostChoice(email, kind, next));
-			console.info(`Host properties changed: ${kind} ${next ?? "default"} (${Math.round(performance.now() - started)} ms)`);
-		} catch (e) {
-			failed(e, "Could not change the host's properties");
-		} finally {
-			setBusy(false);
-		}
-	}
-	if (!choices) return error ? /* @__PURE__ */ u("p", {
-		className: "error",
-		children: error
-	}) : /* @__PURE__ */ u("p", {
-		className: "muted",
-		children: [
-			"Reading ",
-			email,
-			"…"
-		]
-	});
-	return /* @__PURE__ */ u("div", {
-		className: "host-choices",
-		"aria-label": `Properties of ${email}`,
-		role: "group",
-		children: [KINDS.map(({ kind, label }) => /* @__PURE__ */ u("div", {
-			className: "host-choice",
-			children: [["allow", "deny"].map((choice) => /* @__PURE__ */ u("button", {
-				type: "button",
-				className: choices[kind] === choice ? "choice chosen" : "choice",
-				"aria-pressed": choices[kind] === choice,
-				disabled: busy,
-				onClick: () => void choose(kind, choice),
-				children: [
-					choice === "allow" ? "Allow" : "Deny",
-					" ",
-					label
-				]
-			}, choice)), /* @__PURE__ */ u("span", {
-				className: "muted",
-				children: ["Default: ", choices.default[kind]]
-			})]
-		}, kind)), error && /* @__PURE__ */ u("p", {
-			className: "error",
-			children: error
-		})]
-	});
-}
-//#endregion
-//#region src/admin-settings.tsx
-function fieldsOf(settings) {
-	const t = settings.thresholds;
-	return {
-		minutes: String(settings.timeout_minutes),
-		blue: String(t.blue_above),
-		orange: String(t.orange_below),
-		red: String(t.red_below),
-		noImage: settings.disable_custom_image,
-		noVoice: settings.disable_custom_voice
-	};
-}
-function AdminSettingsPage() {
-	const { refresh } = useAdmin();
-	const [settings, setSettings] = d(null);
-	const [fields, setFields] = d(null);
-	const [error, setError] = d(null);
-	const [saved, setSaved] = d(false);
-	const [busy, setBusy] = d(false);
-	h(() => {
-		getAdminSettings().then((read) => {
-			console.info("Admin settings shown");
-			setSettings(read);
-			setFields(fieldsOf(read));
-		}).catch(async (e) => {
-			console.error("Could not read the admin settings", e);
-			if (e instanceof ServerRefusal && e.status === 401) return refresh();
-			setError("The admin settings could not be read. Reload the page to try again.");
-		});
-	}, []);
-	async function save(changes) {
-		setBusy(true);
-		setError(null);
-		setSaved(false);
-		const started = performance.now();
-		try {
-			const read = await saveAdminSettings({
-				timeout_minutes: Number(changes.minutes),
-				thresholds: {
-					blue_above: Number(changes.blue),
-					orange_below: Number(changes.orange),
-					red_below: Number(changes.red)
-				},
-				disable_custom_image: changes.noImage,
-				disable_custom_voice: changes.noVoice
-			});
-			console.info(`Admin settings saved (${Math.round(performance.now() - started)} ms)`);
-			setSettings(read);
-			setFields(fieldsOf(read));
-			setSaved(true);
-			await refresh();
-		} catch (e) {
-			console.error("Could not save the admin settings", e);
-			if (e instanceof ServerRefusal && e.status === 401) {
-				await refresh();
+		const opener = document.activeElement;
+		keep.current?.focus();
+		const inside = (el) => el instanceof Node && !!box.current?.contains(el);
+		const onKey = (e) => {
+			if (e.key === "Escape") {
+				cancel.current();
 				return;
 			}
-			setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
-		} finally {
-			setBusy(false);
-		}
-	}
-	if (!settings || !fields) return error ? /* @__PURE__ */ u("p", {
-		className: "error",
-		children: error
-	}) : /* @__PURE__ */ u("p", {
-		className: "muted",
-		children: "Reading the admin settings…"
-	});
-	const input = (name, label, min, max) => /* @__PURE__ */ u("label", {
-		className: "admin-number",
-		children: [/* @__PURE__ */ u("span", { children: label }), /* @__PURE__ */ u("input", {
-			type: "number",
-			min,
-			max,
-			step: name === "minutes" ? 1 : "any",
-			value: fields[name],
-			onInput: (e) => {
-				setSaved(false);
-				setFields({
-					...fields,
-					[name]: e.currentTarget.value
-				});
+			if (e.key !== "Tab" || !box.current) return;
+			const items = Array.from(box.current.querySelectorAll(FOCUSABLE));
+			const first = items[0];
+			const last = items[items.length - 1];
+			const at = document.activeElement;
+			if (!inside(at) || at === (e.shiftKey ? first : last)) {
+				e.preventDefault();
+				(e.shiftKey ? last : first).focus();
 			}
-		})]
-	});
-	const recommended = settings.recommended.thresholds;
-	const checkbox = (name, label) => /* @__PURE__ */ u("label", {
-		className: "check",
-		children: [
-			/* @__PURE__ */ u("input", {
-				type: "checkbox",
-				checked: fields[name],
-				onChange: (e) => {
-					setSaved(false);
-					setFields({
-						...fields,
-						[name]: e.currentTarget.checked
-					});
-				}
-			}),
-			" ",
-			label
-		]
-	});
-	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("form", {
-		onSubmit: (e) => {
-			e.preventDefault();
-			save(fields);
-		},
-		children: [
-			error && /* @__PURE__ */ u("p", {
-				className: "error",
-				children: error
-			}),
-			saved && /* @__PURE__ */ u("p", {
-				className: "notice",
-				role: "status",
-				children: "Saved. The dashboard, the sign-out and the hosts use them now."
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-sign-out",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-sign-out",
-						children: "Automatic sign-out"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							"The administrator is signed out after this many minutes without a click or key press in the admin view or on the Settings page. Recommended: ",
-							settings.recommended.timeout_minutes,
-							"."
-						]
-					}),
-					input("minutes", "Minutes without activity (5 to 240)", 5, 240)
-				]
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-thresholds",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-thresholds",
-						children: "Colours on the dashboard"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: [
-							"As the percentage of a resource remaining, for every resource. Green is between orange and blue. Recommended: blue above ",
-							recommended.blue_above,
-							"%, orange below",
-							" ",
-							recommended.orange_below,
-							"%, red below ",
-							recommended.red_below,
-							"%."
-						]
-					}),
-					input("blue", "Blue: more than this % remaining", 1, 99),
-					input("orange", "Orange: less than this % remaining", 1, 99),
-					input("red", "Red: less than this % remaining", 1, 99),
-					MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
-						className: "colour-key",
-						children: [
-							/* @__PURE__ */ u("span", {
-								className: `colour-name ${colour}`,
-								children: colour[0].toUpperCase() + colour.slice(1)
-							}),
-							":",
-							" ",
-							meaning,
-							". ",
-							todo
-						]
-					}, colour)),
-					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-						type: "button",
-						className: "secondary",
-						disabled: busy,
-						onClick: () => void save({
-							...fields,
-							blue: String(recommended.blue_above),
-							orange: String(recommended.orange_below),
-							red: String(recommended.red_below)
+		};
+		const onFocus = (e) => {
+			if (!inside(e.target)) keep.current?.focus();
+		};
+		document.addEventListener("keydown", onKey);
+		document.addEventListener("focusin", onFocus);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			document.removeEventListener("focusin", onFocus);
+			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+		};
+	}, []);
+	return /* @__PURE__ */ u("div", {
+		className: "confirm-backdrop",
+		onClick: (e) => e.target === e.currentTarget && onCancel(),
+		children: /* @__PURE__ */ u("div", {
+			className: "confirm-dialog",
+			role: "alertdialog",
+			"aria-modal": "true",
+			ref: box,
+			"aria-labelledby": `${id}-title`,
+			"aria-describedby": props.children ? `${id}-about` : void 0,
+			children: [
+				/* @__PURE__ */ u("h2", {
+					id: `${id}-title`,
+					children: props.title
+				}),
+				props.children && /* @__PURE__ */ u("div", {
+					id: `${id}-about`,
+					children: props.children
+				}),
+				/* @__PURE__ */ u("div", {
+					className: "confirm-buttons",
+					children: [
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							ref: keep,
+							onClick: onCancel,
+							children: props.keepLabel
 						}),
-						children: "Use the recommended thresholds"
-					}) })
-				]
-			}),
-			/* @__PURE__ */ u("section", {
-				className: "panel",
-				"aria-labelledby": "admin-hosts",
-				children: [
-					/* @__PURE__ */ u("h2", {
-						id: "admin-hosts",
-						children: "Hosts"
-					}),
-					/* @__PURE__ */ u("p", {
-						className: "muted",
-						children: "Checked, hosts use a default person and a ready-made voice, and can't add their own photo or record their own voice. Both are checked to begin with."
-					}),
-					/* @__PURE__ */ u("p", { children: checkbox("noImage", "Disable custom image") }),
-					/* @__PURE__ */ u("p", { children: checkbox("noVoice", "Disable custom voice") })
-				]
-			}),
-			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
-				type: "submit",
-				disabled: busy,
-				children: "Save"
-			}) })
-		]
-	}), /* @__PURE__ */ u(HostProperties, {})] });
+						props.otherLabel && /* @__PURE__ */ u("button", {
+							type: "button",
+							className: "secondary",
+							onClick: props.onOther,
+							children: props.otherLabel
+						}),
+						/* @__PURE__ */ u("button", {
+							type: "button",
+							className: "danger",
+							onClick: props.onConfirm,
+							children: props.confirmLabel
+						})
+					]
+				})
+			]
+		})
+	});
+}
+function useConfirm() {
+	const [asking, setAsking] = d(null);
+	function choose(question) {
+		return new Promise((resolve) => {
+			setAsking({
+				question,
+				answer: (answer) => {
+					const said = {
+						cancel: "cancelled",
+						other: question.otherLabel,
+						confirm: "confirmed"
+					};
+					console.info(`${question.title} ${said[answer]}`);
+					setAsking(null);
+					resolve(answer);
+				}
+			});
+		});
+	}
+	async function ask(question) {
+		return await choose(question) === "confirm";
+	}
+	return {
+		ask,
+		choose,
+		dialog: asking && /* @__PURE__ */ u(ConfirmDialog, {
+			...asking.question,
+			onCancel: () => asking.answer("cancel"),
+			onConfirm: () => asking.answer("confirm"),
+			onOther: () => asking.answer("other")
+		})
+	};
 }
 //#endregion
 //#region src/custom-use.tsx
@@ -1474,6 +1243,7 @@ var PAGES = {
 	"/host/account": "host-account",
 	"/host/email-changed": "email-changed",
 	"/host/email-failed": "email-failed",
+	"/host/act-as-failed": "act-as-failed",
 	"/resources": "resources",
 	"/customization": "customization"
 };
@@ -1942,126 +1712,6 @@ function ChatGptPlanSection() {
 			})
 		]
 	});
-}
-//#endregion
-//#region src/confirm-dialog.tsx
-var FOCUSABLE = "button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
-function ConfirmDialog(props) {
-	const { onCancel } = props;
-	const keep = A(null);
-	const box = A(null);
-	const id = g();
-	const cancel = A(onCancel);
-	cancel.current = onCancel;
-	h(() => {
-		const opener = document.activeElement;
-		keep.current?.focus();
-		const inside = (el) => el instanceof Node && !!box.current?.contains(el);
-		const onKey = (e) => {
-			if (e.key === "Escape") {
-				cancel.current();
-				return;
-			}
-			if (e.key !== "Tab" || !box.current) return;
-			const items = Array.from(box.current.querySelectorAll(FOCUSABLE));
-			const first = items[0];
-			const last = items[items.length - 1];
-			const at = document.activeElement;
-			if (!inside(at) || at === (e.shiftKey ? first : last)) {
-				e.preventDefault();
-				(e.shiftKey ? last : first).focus();
-			}
-		};
-		const onFocus = (e) => {
-			if (!inside(e.target)) keep.current?.focus();
-		};
-		document.addEventListener("keydown", onKey);
-		document.addEventListener("focusin", onFocus);
-		return () => {
-			document.removeEventListener("keydown", onKey);
-			document.removeEventListener("focusin", onFocus);
-			if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-		};
-	}, []);
-	return /* @__PURE__ */ u("div", {
-		className: "confirm-backdrop",
-		onClick: (e) => e.target === e.currentTarget && onCancel(),
-		children: /* @__PURE__ */ u("div", {
-			className: "confirm-dialog",
-			role: "alertdialog",
-			"aria-modal": "true",
-			ref: box,
-			"aria-labelledby": `${id}-title`,
-			"aria-describedby": props.children ? `${id}-about` : void 0,
-			children: [
-				/* @__PURE__ */ u("h2", {
-					id: `${id}-title`,
-					children: props.title
-				}),
-				props.children && /* @__PURE__ */ u("div", {
-					id: `${id}-about`,
-					children: props.children
-				}),
-				/* @__PURE__ */ u("div", {
-					className: "confirm-buttons",
-					children: [
-						/* @__PURE__ */ u("button", {
-							type: "button",
-							className: "secondary",
-							ref: keep,
-							onClick: onCancel,
-							children: props.keepLabel
-						}),
-						props.otherLabel && /* @__PURE__ */ u("button", {
-							type: "button",
-							className: "secondary",
-							onClick: props.onOther,
-							children: props.otherLabel
-						}),
-						/* @__PURE__ */ u("button", {
-							type: "button",
-							className: "danger",
-							onClick: props.onConfirm,
-							children: props.confirmLabel
-						})
-					]
-				})
-			]
-		})
-	});
-}
-function useConfirm() {
-	const [asking, setAsking] = d(null);
-	function choose(question) {
-		return new Promise((resolve) => {
-			setAsking({
-				question,
-				answer: (answer) => {
-					const said = {
-						cancel: "cancelled",
-						other: question.otherLabel,
-						confirm: "confirmed"
-					};
-					console.info(`${question.title} ${said[answer]}`);
-					setAsking(null);
-					resolve(answer);
-				}
-			});
-		});
-	}
-	async function ask(question) {
-		return await choose(question) === "confirm";
-	}
-	return {
-		ask,
-		choose,
-		dialog: asking && /* @__PURE__ */ u(ConfirmDialog, {
-			...asking.question,
-			onCancel: () => asking.answer("cancel"),
-			onConfirm: () => asking.answer("confirm"),
-			onOther: () => asking.answer("other")
-		})
-	};
 }
 //#endregion
 //#region src/progress.ts
@@ -3011,6 +2661,7 @@ function SettingsPage({ back, onDataDeleted }) {
 }
 var HostContext = X({
 	session: null,
+	actingEnded: () => {},
 	signUp: async () => false,
 	signIn: async () => false,
 	signOut: async () => {}
@@ -3056,6 +2707,10 @@ function HostProvider({ children }) {
 	}
 	const shared = {
 		session,
+		actingEnded: () => {
+			setSession(SIGNED_OUT);
+			reload();
+		},
 		signUp: (email, password) => account("up", email, password),
 		signIn: (email, password) => account("in", email, password),
 		signOut
@@ -3113,6 +2768,89 @@ function HostLinks({ page }) {
 	return /* @__PURE__ */ u("span", {
 		className: "host-links",
 		children: [link("host-sign-up", "#/host/sign-up", "Host sign up"), link("host-sign-in", "#/host/sign-in", "Host sign in")]
+	});
+}
+function ActingBar() {
+	const { session, actingEnded } = useHost();
+	const [busy, setBusy] = d(false);
+	const [ended, setEnded] = d(null);
+	const stopping = A(false);
+	const acting = session?.signed_in === true && session.acting_as_admin === true;
+	const email = session?.email ?? "";
+	h(() => {
+		if (acting) console.info("Acting as host started");
+	}, [acting]);
+	h(() => {
+		if (!acting) return;
+		let last = 0;
+		const onClick = () => {
+			if (stopping.current) return;
+			const now = Date.now();
+			if (now - last < 6e4) return;
+			last = now;
+			actingActivity().then((still) => {
+				if (still) return;
+				console.info("Acting as host stopped: no longer signed in as the administrator");
+				setEnded(email);
+				actingEnded();
+			}, (e) => console.error("Could not note the administrator's activity", e));
+		};
+		document.addEventListener("click", onClick);
+		return () => document.removeEventListener("click", onClick);
+	}, [acting, email]);
+	async function stop() {
+		stopping.current = true;
+		setBusy(true);
+		try {
+			const back = await stopActing();
+			console.info("Acting as host stopped");
+			if (back) goTo(back);
+			else {
+				setEnded(email);
+				actingEnded();
+			}
+		} catch (e) {
+			console.error("Could not stop acting as the host", e);
+			stopping.current = false;
+		} finally {
+			setBusy(false);
+		}
+	}
+	if (ended) return /* @__PURE__ */ u("div", {
+		className: "acting-bar ended",
+		role: "status",
+		children: [
+			"Stopped acting as ",
+			ended,
+			"."
+		]
+	});
+	if (!acting) return null;
+	return /* @__PURE__ */ u("div", {
+		className: "acting-bar",
+		role: "status",
+		children: [/* @__PURE__ */ u("span", { children: [
+			"Acting as ",
+			/* @__PURE__ */ u("strong", { children: email }),
+			", as the administrator"
+		] }), /* @__PURE__ */ u("button", {
+			type: "button",
+			className: "secondary",
+			disabled: busy,
+			onClick: () => void stop(),
+			children: "Stop acting"
+		})]
+	});
+}
+function ActAsFailedPage() {
+	h(() => console.info("Act as host link failed page shown"), []);
+	return /* @__PURE__ */ u("div", {
+		className: "host-page host-account",
+		children: [/* @__PURE__ */ u("h1", { children: "Couldn't act as this host" }), /* @__PURE__ */ u("p", {
+			className: "error",
+			role: "alert",
+			children: "That link didn't work: it was already used, is more than a minute old, was opened on another host's site, or the administrator has signed out. Make a new one with Act as this host in Admin settings."
+		})]
 	});
 }
 function HostAccountPage({ kind }) {
@@ -3539,7 +3277,7 @@ function AccountPage() {
 						value: email,
 						onInput: (e) => setEmail(e.currentTarget.value)
 					})] }),
-					/* @__PURE__ */ u("label", { children: ["Your password", /* @__PURE__ */ u("input", {
+					/* @__PURE__ */ u("label", { children: [session.acting_as_admin ? "Administrator password" : "Your password", /* @__PURE__ */ u("input", {
 						type: "password",
 						autoComplete: "current-password",
 						value: password,
@@ -3592,6 +3330,411 @@ function EmailChangedPage({ changed }) {
 			}) })
 		]
 	});
+}
+//#endregion
+//#region src/host-properties.tsx
+function HostProperties() {
+	const { refresh } = useAdmin();
+	const [search, setSearch] = d("");
+	const [answer, setAnswer] = d(null);
+	const [selected, setSelected] = d(null);
+	const query = search.trim();
+	h(() => {
+		let active = true;
+		const started = performance.now();
+		getAdminHosts(query).then((found) => {
+			if (!active) return;
+			console.info(`Host list: ${found.length} shown (${Math.round(performance.now() - started)} ms)`);
+			setAnswer({
+				query,
+				hosts: found
+			});
+		}, (e) => {
+			if (!active) return;
+			console.error("Could not read the hosts", e);
+			if (e instanceof ServerRefusal && e.status === 401) return void refresh();
+			const error = e instanceof ServerRefusal ? e.message : "The hosts could not be read. Try again.";
+			setAnswer({
+				query,
+				error
+			});
+		});
+		return () => {
+			active = false;
+		};
+	}, [query]);
+	const current = answer?.query === query ? answer : null;
+	return /* @__PURE__ */ u("section", {
+		className: "panel",
+		"aria-labelledby": "host-properties",
+		children: [
+			/* @__PURE__ */ u("h2", {
+				id: "host-properties",
+				children: "Host properties"
+			}),
+			/* @__PURE__ */ u("label", {
+				className: "host-search",
+				children: [/* @__PURE__ */ u("span", { children: "Search hosts by email" }), /* @__PURE__ */ u("input", {
+					type: "search",
+					value: search,
+					placeholder: "Any part of the email",
+					onInput: (e) => setSearch(e.currentTarget.value)
+				})]
+			}),
+			current === null && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: query ? "Searching…" : "Reading the hosts…"
+			}),
+			current && "error" in current && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: current.error
+			}),
+			current && "hosts" in current && current.hosts.length === 0 && /* @__PURE__ */ u("p", {
+				className: "muted",
+				children: query ? "No host's email contains that." : "No host has signed up yet."
+			}),
+			current && "hosts" in current && current.hosts.length > 0 && /* @__PURE__ */ u("ul", {
+				className: "host-list",
+				"aria-label": "Hosts",
+				children: current.hosts.map((email) => /* @__PURE__ */ u("li", { children: [/* @__PURE__ */ u("button", {
+					type: "button",
+					className: email === selected ? "host-pick picked" : "host-pick",
+					"aria-pressed": email === selected,
+					onClick: () => {
+						console.info("Host selected in Host properties");
+						setSelected(email === selected ? null : email);
+					},
+					children: email
+				}), email === selected && /* @__PURE__ */ u(HostChoicesPanel, { email }, email)] }, email))
+			})
+		]
+	});
+}
+var KINDS = [{
+	kind: "custom_image",
+	label: "Custom Image"
+}, {
+	kind: "custom_voice",
+	label: "Custom Sound"
+}];
+function HostChoicesPanel({ email }) {
+	const { refresh } = useAdmin();
+	const [choices, setChoices] = d(null);
+	const [busy, setBusy] = d(false);
+	const [error, setError] = d(null);
+	function failed(e, what) {
+		console.error(what, e);
+		if (e instanceof ServerRefusal && e.status === 401) return void refresh();
+		setError(e instanceof ServerRefusal ? e.message : "That didn't work. Try again.");
+	}
+	h(() => {
+		getHostChoices(email).then(setChoices, (e) => failed(e, "Could not read the host's properties"));
+	}, [email]);
+	async function choose(kind, choice) {
+		if (!choices) return;
+		const next = choices[kind] === choice ? null : choice;
+		setBusy(true);
+		setError(null);
+		const started = performance.now();
+		try {
+			setChoices(await saveHostChoice(email, kind, next));
+			console.info(`Host properties changed: ${kind} ${next ?? "default"} (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			failed(e, "Could not change the host's properties");
+		} finally {
+			setBusy(false);
+		}
+	}
+	const [asking, setAsking] = d(false);
+	async function actAs() {
+		setAsking(false);
+		setBusy(true);
+		setError(null);
+		try {
+			const link = await actAsHost(email);
+			console.info("Acting as host: going to the host's site");
+			navigation.goTo(link);
+		} catch (e) {
+			failed(e, "Could not act as the host");
+			setBusy(false);
+		}
+	}
+	if (!choices) return error ? /* @__PURE__ */ u("p", {
+		className: "error",
+		children: error
+	}) : /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: [
+			"Reading ",
+			email,
+			"…"
+		]
+	});
+	return /* @__PURE__ */ u("div", {
+		className: "host-choices",
+		"aria-label": `Properties of ${email}`,
+		role: "group",
+		children: [
+			KINDS.map(({ kind, label }) => /* @__PURE__ */ u("div", {
+				className: "host-choice",
+				children: [["allow", "deny"].map((choice) => /* @__PURE__ */ u("button", {
+					type: "button",
+					className: choices[kind] === choice ? "choice chosen" : "choice",
+					"aria-pressed": choices[kind] === choice,
+					disabled: busy,
+					onClick: () => void choose(kind, choice),
+					children: [
+						choice === "allow" ? "Allow" : "Deny",
+						" ",
+						label
+					]
+				}, choice)), /* @__PURE__ */ u("span", {
+					className: "muted",
+					children: ["Default: ", choices.default[kind]]
+				})]
+			}, kind)),
+			/* @__PURE__ */ u("div", {
+				className: "host-choice",
+				children: [/* @__PURE__ */ u("button", {
+					type: "button",
+					disabled: busy,
+					onClick: () => setAsking(true),
+					children: "Act as this host"
+				}), /* @__PURE__ */ u("span", {
+					className: "muted",
+					children: "Open their site as them, with all of their abilities."
+				})]
+			}),
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			asking && /* @__PURE__ */ u(ConfirmDialog, {
+				title: `Act as ${email}?`,
+				keepLabel: "No, stay here",
+				confirmLabel: "Yes, act as this host",
+				onCancel: () => setAsking(false),
+				onConfirm: () => void actAs(),
+				children: /* @__PURE__ */ u("p", { children: "Their site opens with everything they can do, and every change you make there is theirs. You stay signed in as the administrator; Stop acting on their site brings you back here." })
+			})
+		]
+	});
+}
+//#endregion
+//#region src/admin-settings.tsx
+function fieldsOf(settings) {
+	const t = settings.thresholds;
+	return {
+		minutes: String(settings.timeout_minutes),
+		blue: String(t.blue_above),
+		orange: String(t.orange_below),
+		red: String(t.red_below),
+		noImage: settings.disable_custom_image,
+		noVoice: settings.disable_custom_voice
+	};
+}
+function AdminSettingsPage() {
+	const { refresh } = useAdmin();
+	const [settings, setSettings] = d(null);
+	const [fields, setFields] = d(null);
+	const [error, setError] = d(null);
+	const [saved, setSaved] = d(false);
+	const [busy, setBusy] = d(false);
+	h(() => {
+		getAdminSettings().then((read) => {
+			console.info("Admin settings shown");
+			setSettings(read);
+			setFields(fieldsOf(read));
+		}).catch(async (e) => {
+			console.error("Could not read the admin settings", e);
+			if (e instanceof ServerRefusal && e.status === 401) return refresh();
+			setError("The admin settings could not be read. Reload the page to try again.");
+		});
+	}, []);
+	async function save(changes) {
+		setBusy(true);
+		setError(null);
+		setSaved(false);
+		const started = performance.now();
+		try {
+			const read = await saveAdminSettings({
+				timeout_minutes: Number(changes.minutes),
+				thresholds: {
+					blue_above: Number(changes.blue),
+					orange_below: Number(changes.orange),
+					red_below: Number(changes.red)
+				},
+				disable_custom_image: changes.noImage,
+				disable_custom_voice: changes.noVoice
+			});
+			console.info(`Admin settings saved (${Math.round(performance.now() - started)} ms)`);
+			setSettings(read);
+			setFields(fieldsOf(read));
+			setSaved(true);
+			await refresh();
+		} catch (e) {
+			console.error("Could not save the admin settings", e);
+			if (e instanceof ServerRefusal && e.status === 401) {
+				await refresh();
+				return;
+			}
+			setError(e instanceof ServerRefusal ? e.message : "Could not save. Try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+	if (!settings || !fields) return error ? /* @__PURE__ */ u("p", {
+		className: "error",
+		children: error
+	}) : /* @__PURE__ */ u("p", {
+		className: "muted",
+		children: "Reading the admin settings…"
+	});
+	const input = (name, label, min, max) => /* @__PURE__ */ u("label", {
+		className: "admin-number",
+		children: [/* @__PURE__ */ u("span", { children: label }), /* @__PURE__ */ u("input", {
+			type: "number",
+			min,
+			max,
+			step: name === "minutes" ? 1 : "any",
+			value: fields[name],
+			onInput: (e) => {
+				setSaved(false);
+				setFields({
+					...fields,
+					[name]: e.currentTarget.value
+				});
+			}
+		})]
+	});
+	const recommended = settings.recommended.thresholds;
+	const checkbox = (name, label) => /* @__PURE__ */ u("label", {
+		className: "check",
+		children: [
+			/* @__PURE__ */ u("input", {
+				type: "checkbox",
+				checked: fields[name],
+				onChange: (e) => {
+					setSaved(false);
+					setFields({
+						...fields,
+						[name]: e.currentTarget.checked
+					});
+				}
+			}),
+			" ",
+			label
+		]
+	});
+	return /* @__PURE__ */ u(S, { children: [/* @__PURE__ */ u("form", {
+		onSubmit: (e) => {
+			e.preventDefault();
+			save(fields);
+		},
+		children: [
+			error && /* @__PURE__ */ u("p", {
+				className: "error",
+				children: error
+			}),
+			saved && /* @__PURE__ */ u("p", {
+				className: "notice",
+				role: "status",
+				children: "Saved. The dashboard, the sign-out and the hosts use them now."
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "admin-sign-out",
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: "admin-sign-out",
+						children: "Automatic sign-out"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							"The administrator is signed out after this many minutes without a click or key press in the admin view or on the Settings page. Recommended: ",
+							settings.recommended.timeout_minutes,
+							"."
+						]
+					}),
+					input("minutes", "Minutes without activity (5 to 240)", 5, 240)
+				]
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "admin-thresholds",
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: "admin-thresholds",
+						children: "Colours on the dashboard"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: [
+							"As the percentage of a resource remaining, for every resource. Green is between orange and blue. Recommended: blue above ",
+							recommended.blue_above,
+							"%, orange below",
+							" ",
+							recommended.orange_below,
+							"%, red below ",
+							recommended.red_below,
+							"%."
+						]
+					}),
+					input("blue", "Blue: more than this % remaining", 1, 99),
+					input("orange", "Orange: less than this % remaining", 1, 99),
+					input("red", "Red: less than this % remaining", 1, 99),
+					MEANINGS.map(([colour, meaning, todo]) => /* @__PURE__ */ u("p", {
+						className: "colour-key",
+						children: [
+							/* @__PURE__ */ u("span", {
+								className: `colour-name ${colour}`,
+								children: colour[0].toUpperCase() + colour.slice(1)
+							}),
+							":",
+							" ",
+							meaning,
+							". ",
+							todo
+						]
+					}, colour)),
+					/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+						type: "button",
+						className: "secondary",
+						disabled: busy,
+						onClick: () => void save({
+							...fields,
+							blue: String(recommended.blue_above),
+							orange: String(recommended.orange_below),
+							red: String(recommended.red_below)
+						}),
+						children: "Use the recommended thresholds"
+					}) })
+				]
+			}),
+			/* @__PURE__ */ u("section", {
+				className: "panel",
+				"aria-labelledby": "admin-hosts",
+				children: [
+					/* @__PURE__ */ u("h2", {
+						id: "admin-hosts",
+						children: "Hosts"
+					}),
+					/* @__PURE__ */ u("p", {
+						className: "muted",
+						children: "Checked, hosts use a default person and a ready-made voice, and can't add their own photo or record their own voice. Both are checked to begin with."
+					}),
+					/* @__PURE__ */ u("p", { children: checkbox("noImage", "Disable custom image") }),
+					/* @__PURE__ */ u("p", { children: checkbox("noVoice", "Disable custom voice") })
+				]
+			}),
+			/* @__PURE__ */ u("p", { children: /* @__PURE__ */ u("button", {
+				type: "submit",
+				disabled: busy,
+				children: "Save"
+			}) })
+		]
+	}), /* @__PURE__ */ u(HostProperties, {})] });
 }
 //#endregion
 //#region src/customization.tsx
@@ -12326,6 +12469,7 @@ function Shell() {
 		"host-account": /* @__PURE__ */ u(AccountPage, {}),
 		"email-changed": /* @__PURE__ */ u(EmailChangedPage, { changed: true }),
 		"email-failed": /* @__PURE__ */ u(EmailChangedPage, { changed: false }),
+		"act-as-failed": /* @__PURE__ */ u(ActAsFailedPage, {}),
 		resources: /* @__PURE__ */ u(ResourcesPage, {}),
 		customization: /* @__PURE__ */ u(CustomizationPage, {}),
 		"not-found": /* @__PURE__ */ u(NotFoundPage, {})
@@ -12354,10 +12498,14 @@ function Shell() {
 				})
 			]
 		}),
-		/* @__PURE__ */ u("main", { children: [/* @__PURE__ */ u(AdminEndedNotice, {}), /* @__PURE__ */ u(CustomUseProvider, {
-			value: customUse ?? ALLOWED,
-			children: content
-		})] }),
+		/* @__PURE__ */ u("main", { children: [
+			/* @__PURE__ */ u(ActingBar, {}),
+			/* @__PURE__ */ u(AdminEndedNotice, {}),
+			/* @__PURE__ */ u(CustomUseProvider, {
+				value: customUse ?? ALLOWED,
+				children: content
+			})
+		] }),
 		/* @__PURE__ */ u("footer", { children: "Photos and recordings stay on the computer that runs this app." })
 	] });
 }

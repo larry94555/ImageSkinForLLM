@@ -40,6 +40,7 @@ from imageskin import __version__, pdf_reading, reply_times, server_timing
 from imageskin.accent import Accent, load_accent, save_accent
 from imageskin.across_sites import CLONES_LOADED, CloneBudget, Turns
 from imageskin.acting import acting_routes
+from imageskin.admin import check_password
 from imageskin.admin_api import COOKIE as ADMIN_COOKIE
 from imageskin.admin_api import admin_router
 from imageskin.admin_guidelines import applied, checked
@@ -825,6 +826,7 @@ def create_app(
             host_site,
             owners,
             service.mailer.send,
+            lambda password: check_password(password, admin_sign_ins.secret()),
         )
     )
 
