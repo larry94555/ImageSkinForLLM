@@ -115,6 +115,17 @@ def host_router(
         host = own_host(token)
         return {"signed_in": host is not None, "email": host and host.email}
 
+    def unfinished(request: Request, email: str, password: str) -> bool:
+        """Whether the host signed up with this password and has no site yet, or only a trial
+        site, so signing up again finishes making it (Codex's review of PR #279)."""
+        try:
+            accounts.sign_in(email, password, address(request), DEFAULT_SITE)
+        except HostElsewhere as e:
+            return is_trial(e.site)
+        except (HostRefused, HostsUnreadable):
+            return False
+        return True
+
     @router.post("/sign-up")
     def sign_up(request: Request, email: Email, password: Password) -> JSONResponse:
         if site != DEFAULT_SITE:
@@ -125,12 +136,17 @@ def host_router(
         try:
             token = accounts.sign_up(email, password, address(request))
         except HostRefused as e:
-            status = 409 if e.reason == "email already signed up" else 400
-            return JSONResponse({"detail": str(e)}, status_code=status)
+            if e.reason != "email already signed up":
+                return JSONResponse({"detail": str(e)}, status_code=400)
+            if make_site is None or not unfinished(request, email, password):
+                return JSONResponse({"detail": str(e)}, status_code=409)
+            # Signed up before, and making their site stopped partway: it is finished now.
+            logger.info("Sign-up finished from before", extra={"email": normal_email(email)})
         except HostsUnreadable as e:
             return JSONResponse({"detail": str(e)}, status_code=503)
-        if make_site is None:
-            return signed_in(request, token, email)
+        else:
+            if make_site is None:
+                return signed_in(request, token, email)
         start = time.perf_counter()
         try:
             code = make_site(email)

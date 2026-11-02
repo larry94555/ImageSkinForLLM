@@ -182,10 +182,26 @@ class SiteDirectory:
 
     def add_trial(self, email: str) -> tuple[str, Path]:
         """Add a trial site, at `/t/<code>` with a new random code, with the host as its one
-        host: its code and folder. SiteError as for `add`."""
-        letters = string.ascii_lowercase + string.digits
+        host: its code and folder. SiteError as for `add`.
+
+        Again for a host who has a trial site, it is that site, finished where making it stopped
+        partway (Codex's review of PR #279): the host's account says it's theirs, and its folder
+        is there."""
+        host = email.strip().lower()
         with self._lock:
-            taken = set(self._load())
+            sites = self._load()
+            taken = set(sites)
+            own = next(
+                (n for n, s in sites.items() if s.get("trial") and s.get("host") == host), None
+            )
+            if own is not None and self._hosts.site_of(email) != own:
+                self._hosts.set_site(email, own)
+        if own is not None:
+            folder = site_home(own, self.home)
+            folder.mkdir(parents=True, exist_ok=True)
+            logger.info("Trial site finished", extra={"site": own, "host": host})
+            return own, folder
+        letters = string.ascii_lowercase + string.digits
         code = ""
         while not code or code in taken:
             code = "".join(secrets.choice(letters) for _ in range(TRIAL_CODE_LENGTH))

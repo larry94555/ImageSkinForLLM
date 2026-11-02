@@ -2,7 +2,9 @@
 it, signed in there only (roadmap R62)."""
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -123,3 +125,68 @@ def test_a_trial_site_sees_its_own_cookie_as_the_host_cookie_and_no_other() -> N
     ]
     only_main = [(b"cookie", f"{HOST_COOKIE}=main".encode())]
     assert trial_cookies_in(only_main, code) == [(b"cookie", b"")]
+
+
+def fail_once(real: Callable[..., Any], where: str) -> Callable[..., Any]:
+    """`real`, raising the first time it's called, as a failure at `where` would."""
+    calls = []
+
+    def flaky(*args: Any, **kwargs: Any) -> Any:
+        calls.append(where)
+        if len(calls) == 1:
+            raise OSError(f"failed at {where}")
+        return real(*args, **kwargs)
+
+    return flaky
+
+
+@pytest.mark.parametrize("where", ["before sites.json", "host's site", "folder"])
+def test_signing_up_again_finishes_a_site_that_stopped_partway(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    where: str,
+) -> None:
+    # Codex's review of PR #279: each place making the site can stop, then a retry.
+    sites, _, service = served(tmp_path, sign_up_makes_site=True)
+    if where == "before sites.json":
+        monkeypatch.setattr(service.sites, "_add", fail_once(service.sites._add, where))
+    elif where == "host's site":
+        accounts = service.sites._hosts
+        monkeypatch.setattr(accounts, "set_site", fail_once(accounts.set_site, where))
+    else:
+        real_mkdir = Path.mkdir
+
+        def mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+            if self.parent.name == "sites" and not getattr(mkdir, "failed", False):
+                mkdir.failed = True  # type: ignore[attr-defined]
+                raise OSError("failed at folder")
+            real_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", mkdir)
+    browser = TestClient(sites, base_url="http://localhost:8000")
+    failed = browser.post("/api/host/sign-up", json={"email": DAN, "password": PASSWORD})
+    assert failed.status_code == 503 and failed.json()["detail"] == NO_SITE_MADE
+
+    wrong = browser.post("/api/host/sign-up", json={"email": DAN, "password": "not " + PASSWORD})
+    assert wrong.status_code == 409
+    with caplog.at_level(logging.INFO):
+        body = sign_up(browser, DAN)
+    code = str(body["site"])
+    assert body["go_to"] == f"/t/{code}/"
+    assert "Sign-up finished from before" in caplog.messages
+    assert service.sites.is_trial(code) and service.host_accounts.site_of(DAN) == code
+    assert (tmp_path / "home" / "sites" / code).is_dir()
+    trials = [n for n, s in service.sites._load().items() if s.get("trial")]
+    assert trials == [code]
+    assert browser.get(f"/t/{code}/api/host/session").json() == {"signed_in": True, "email": DAN}
+
+
+def test_signing_up_again_with_a_site_that_isnt_a_trial_is_refused(tmp_path: Path) -> None:
+    sites, _, service = served(tmp_path, sign_up_makes_site=True)
+    browser = TestClient(sites, base_url="http://localhost:8000")
+    ann = "ann@example.com"  # the host of site a, which isn't a trial
+    again = browser.post("/api/host/sign-up", json={"email": ann, "password": PASSWORD})
+    assert again.status_code == 409
+    assert service.host_accounts.site_of(ann) == "a"
+    assert not [n for n, s in service.sites._load().items() if s.get("trial")]
