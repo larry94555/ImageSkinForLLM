@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
+from fastapi import HTTPException
+
 from imageskin.admin import Secret, check_password, hash_password
 from imageskin.admin_settings import Choice
 
@@ -67,6 +69,24 @@ SAME_EMAIL = "That is already your email address."
 # A host's own Allow or Deny of a custom image and a custom voice (R242), kept with the host.
 CUSTOM_IMAGE = "custom_image"
 CUSTOM_VOICE = "custom_voice"
+# A host the administrator disabled (R44c): their site is read-only for them, and only the
+# administrator acting as them (R44a) changes it. Kept with the host; hosts from before have none.
+DISABLED = "disabled"
+DISABLED_WORDS = "Changes to this site are turned off by the administrator."
+CHANGES = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# The changing calls a disabled host still makes: signing in and out, a forgotten password,
+# confirming their email, the administrator's own calls at the main address, acting as a host,
+# and asking whether Settings is shown, which changes nothing.
+STILL_OPEN = (
+    "/api/host/sign-in",
+    "/api/host/sign-out",
+    "/api/host/forgot",
+    "/api/host/reset",
+    "/api/host/confirm",
+    "/api/host/act-as/",
+    "/api/admin/",
+    "/api/settings/access",
+)
 
 
 class HostsUnreadable(Exception):
@@ -117,6 +137,7 @@ class Host:
     site: str = DEFAULT_SITE  # the site the host signs in to and manages (R61)
     confirmed: bool = True  # whether they confirmed their email (R62b)
     acting: bool = False  # the administrator acting as the host (R44a)
+    disabled: bool = False  # turned off by the administrator: read-only for the host (R44c)
 
 
 class HostAccounts:
@@ -370,6 +391,7 @@ class HostAccounts:
             account.get(SITE, DEFAULT_SITE),
             acting or bool(account.get(CONFIRMED, True)),
             acting,
+            account.get(DISABLED) is True,
         )
         if site is not None and host.site != site:
             logger.warning(
@@ -598,6 +620,34 @@ class HostAccounts:
         logger.info("Host site set", extra={"email": email, "site": site, "old_site": old})
         return True
 
+    def is_disabled(self, email: str) -> bool:
+        """Whether the administrator disabled the host (R44c); False for no such host."""
+        with self._lock:
+            account = self._load()["hosts"].get(normal_email(email), {})
+        return account.get(DISABLED) is True
+
+    def set_disabled(self, email: str, disabled: bool) -> bool:
+        """Disable the host or enable them again (R44c). False when there is no such host.
+        Their sign-ins are kept: a disabled host still reads their site."""
+        email = normal_email(email)
+        with self._lock:
+            data = self._load()
+            if email not in data["hosts"]:
+                logger.warning("Host not disabled", extra={"email": email, "why": "no host"})
+                return False
+            account = {**data["hosts"][email]}
+            was = account.get(DISABLED) is True
+            if disabled:
+                account[DISABLED] = True
+            else:
+                account.pop(DISABLED, None)
+            self._save({**data, "hosts": {**data["hosts"], email: account}})
+        logger.info(
+            "Host disabled" if disabled else "Host enabled",
+            extra={"email": email, "changed": was != disabled},
+        )
+        return True
+
     def choices(self, email: str) -> tuple[Choice, Choice]:
         """The host's own Allow or Deny of a custom image and a custom voice (R242), each None
         when they follow Admin settings' checkbox; both None for no such host, or while the file
@@ -640,6 +690,22 @@ class HostAccounts:
             },
         )
         return new
+
+
+def refuse_if_disabled(method: str, path: str, host: Host) -> None:
+    """Refuse a change by a host the administrator disabled (R44c), with 403; the administrator
+    acting as them (R44a) changes the site as before. Reading, and the calls in STILL_OPEN, stay
+    open. Every host and Settings check calls this, so every changing route is covered."""
+    if not host.disabled or host.acting or method not in CHANGES:
+        return
+    root_free = re.sub(r"^/t/[^/]+", "", path)  # a trial site's path (R61a)
+    if any(root_free.startswith(p) for p in STILL_OPEN):
+        return
+    logger.warning(
+        "Host change refused",
+        extra={"email": host.email, "why": "disabled", "method": method, "path": path},
+    )
+    raise HTTPException(status_code=403, detail=DISABLED_WORDS)
 
 
 def _choice(value: object) -> Choice:

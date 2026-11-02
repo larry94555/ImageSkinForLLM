@@ -82,6 +82,7 @@ def test_allow_custom_image_for_one_host(tmp_path: Path) -> None:
         "email": ANN,
         "custom_image": None,
         "custom_voice": None,
+        "disabled": False,
         "default": {"custom_image": "disabled", "custom_voice": "disabled"},
     }
     allowed = administrator.put(

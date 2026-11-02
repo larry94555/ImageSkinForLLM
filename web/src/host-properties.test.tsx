@@ -185,16 +185,16 @@ test("Admin settings shows Host properties under its form", async () => {
 
 // R242: the selected host's Allow and Deny, kept as the real server keeps them.
 function choicesServer(fail: number | null = null) {
-  const kept: Record<string, Record<string, string | null>> = {};
+  const kept: Record<string, Record<string, string | boolean | null>> = {};
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const at = new URL(url, "http://x");
     if (at.pathname === "/api/admin/hosts") return Response.json({ hosts: HOSTS });
     if (at.pathname !== "/api/admin/hosts/properties") return new Response("", { status: 404 });
     if (fail) return Response.json({ detail: "Not now." }, { status: fail });
-    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, string | null>) : {};
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, string | boolean | null>) : {};
     const email = at.searchParams.get("email") ?? String(body.email);
-    const host = (kept[email] ??= { custom_image: null, custom_voice: null });
-    for (const kind of ["custom_image", "custom_voice"]) if (kind in body) host[kind] = body[kind];
+    const host = (kept[email] ??= { custom_image: null, custom_voice: null, disabled: false });
+    for (const kind of ["custom_image", "custom_voice", "disabled"]) if (kind in body) host[kind] = body[kind];
     return Response.json({ email, ...host, default: { custom_image: "disabled", custom_voice: "enabled" } });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -270,4 +270,35 @@ test("a choice that can't be saved says so and keeps what was shown", async () =
   await click("Allow Custom Sound");
   expect(await screen.findByText("That didn't work. Try again.")).toBeTruthy();
   expect(pressed("Allow Custom Sound")).toBe(false);
+});
+
+test("Disable makes the host's site read-only for them, and Enable undoes it (R44c)", async () => {
+  const fetchMock = choicesServer();
+  render(<HostProperties />);
+  await click(await screen.findByRole("button", { name: "ann@example.com" }).then((b) => b.textContent!));
+  await screen.findByRole("group");
+  expect(screen.getByText("Disable to make their site read-only for them.")).toBeTruthy();
+  await click("Disable");
+  await screen.findByRole("button", { name: "Enable" });
+  expect(screen.getByText(/^Disabled: their site is read-only for them/)).toBeTruthy();
+  expect(String(fetchMock.mock.lastCall?.[1]?.body)).toBe('{"email":"ann@example.com","disabled":true}');
+  expect(console.info).toHaveBeenCalledWith(expect.stringMatching(/^Host disabled \(\d+ ms\)$/));
+  await click("Enable");
+  await screen.findByRole("button", { name: "Disable" });
+  expect(String(fetchMock.mock.lastCall?.[1]?.body)).toBe('{"email":"ann@example.com","disabled":false}');
+});
+
+test("a Disable that can't be saved says so", async () => {
+  const fetchMock = choicesServer();
+  render(<HostProperties />);
+  await click(await screen.findByRole("button", { name: "ann@example.com" }).then((b) => b.textContent!));
+  await screen.findByRole("group");
+  const ok = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+    init?.method === "PUT" ? Response.json({ detail: "Not now." }, { status: 503 }) : ok(url, init),
+  );
+  await click("Disable");
+  expect(await screen.findByText("Not now.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Disable" })).toBeTruthy();
+  expect(console.error).toHaveBeenCalledWith("Could not disable or enable the host", expect.any(Error));
 });

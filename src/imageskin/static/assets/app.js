@@ -552,6 +552,18 @@ async function saveHostChoice(email, kind, choice) {
 	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 	return await response.json();
 }
+async function setHostDisabled(email, disabled) {
+	const response = await fetch("/api/admin/hosts/properties", {
+		method: "PUT",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			email,
+			disabled
+		})
+	});
+	if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+	return await response.json();
+}
 async function saveAdminSettings(changes) {
 	const response = await fetch("/api/admin/settings", {
 		method: "PUT",
@@ -3445,6 +3457,21 @@ function HostChoicesPanel({ email }) {
 			setBusy(false);
 		}
 	}
+	async function toggleDisabled() {
+		if (!choices) return;
+		const next = !choices.disabled;
+		setBusy(true);
+		setError(null);
+		const started = performance.now();
+		try {
+			setChoices(await setHostDisabled(email, next));
+			console.info(`Host ${next ? "disabled" : "enabled"} (${Math.round(performance.now() - started)} ms)`);
+		} catch (e) {
+			failed(e, "Could not disable or enable the host");
+		} finally {
+			setBusy(false);
+		}
+	}
 	const [asking, setAsking] = d(false);
 	async function actAs() {
 		setAsking(false);
@@ -3493,6 +3520,18 @@ function HostChoicesPanel({ email }) {
 					children: ["Default: ", choices.default[kind]]
 				})]
 			}, kind)),
+			/* @__PURE__ */ u("div", {
+				className: "host-choice",
+				children: [/* @__PURE__ */ u("button", {
+					type: "button",
+					disabled: busy,
+					onClick: () => void toggleDisabled(),
+					children: choices.disabled ? "Enable" : "Disable"
+				}), /* @__PURE__ */ u("span", {
+					className: "muted",
+					children: choices.disabled ? "Disabled: their site is read-only for them; only you, acting as them, change it." : "Disable to make their site read-only for them."
+				})]
+			}),
 			/* @__PURE__ */ u("div", {
 				className: "host-choice",
 				children: [/* @__PURE__ */ u("button", {

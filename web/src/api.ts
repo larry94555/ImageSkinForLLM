@@ -1223,6 +1223,7 @@ export interface HostChoices {
   email: string;
   custom_image: HostChoice;
   custom_voice: HostChoice;
+  disabled?: boolean; // the host's site read-only for them (R44c)
   default: Record<CustomKind, "enabled" | "disabled">;
 }
 
@@ -1238,6 +1239,17 @@ export async function saveHostChoice(email: string, kind: CustomKind, choice: Ho
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, [kind]: choice }),
+  });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
+  return (await response.json()) as HostChoices;
+}
+
+// Disable the host, so their site is read-only for them, or enable them again (R44c).
+export async function setHostDisabled(email: string, disabled: boolean): Promise<HostChoices> {
+  const response = await fetch("/api/admin/hosts/properties", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, disabled }),
   });
   if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
   return (await response.json()) as HostChoices;
