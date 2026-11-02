@@ -1336,6 +1336,16 @@ export interface HostSession {
   acting_as_admin?: boolean;
   // True while the administrator has disabled the host: the site is read-only for them (R44c).
   disabled?: boolean;
+  // True on a free trial site, which its host can cancel (R66).
+  trial?: boolean;
+  // True while the site is paused, as its trial was cancelled: visitors see a notice (R66).
+  paused?: boolean;
+}
+
+// Cancels the free trial (R66), which pauses the site. Throws a ServerRefusal saying why not.
+export async function cancelTrial(): Promise<void> {
+  const response = await fetch("/api/site/cancel", { method: "POST" });
+  if (!response.ok) throw new ServerRefusal(await refusal(response), response.status);
 }
 
 // The administrator acting as a host (roadmap R44a, R44b): a one-time link to the host's site.

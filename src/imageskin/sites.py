@@ -23,6 +23,7 @@ call it makes under it (`/t/<code>/api/...`), so each reaches the site: the path
 before the address, and is the site's `root_path`, so its app sees the paths it always has.
 """
 
+import hashlib
 import ipaddress
 import json
 import logging
@@ -56,7 +57,7 @@ from imageskin.customization_history import History
 from imageskin.email_sending import Mailer
 from imageskin.hosts import DEFAULT_SITE as DEFAULT_SITE
 from imageskin.hosts import HOST_COOKIE as HOST_COOKIE
-from imageskin.hosts import HostAccounts, normal_email, trial_cookie
+from imageskin.hosts import TRIAL_USED, HostAccounts, normal_email, trial_cookie
 from imageskin.network import NetworkMonth
 from imageskin.settings_access import SettingsAccess
 
@@ -122,6 +123,15 @@ class SiteError(Exception):
     """A site can't be added, said in plain words."""
 
 
+class TrialUsed(SiteError):
+    """The email address has had its free trial (R66)."""
+
+
+def email_key(email: str) -> str:
+    """What is kept of an email address that had a trial: a hash, not the address (R66)."""
+    return hashlib.sha256(normal_email(email).encode()).hexdigest()
+
+
 class SiteDirectory:
     """The sites besides the main address's, each with its host, kept in sites.json."""
 
@@ -132,6 +142,9 @@ class SiteDirectory:
         self._lock = threading.Lock()
         self._seen: tuple[int, int] | None = None
         self._sites: dict[str, dict[str, Any]] = {}
+        # A hash of each email address that has had a free trial, kept when its site or account
+        # goes, so each has one (R66).
+        self._trials_used: list[str] = []
 
     def _load(self) -> dict[str, dict[str, Any]]:
         """The sites, read again only when the file has changed. One that can't be read is
@@ -146,19 +159,86 @@ class SiteDirectory:
             return {}
         if seen != self._seen:
             sites: dict[str, dict[str, Any]] = {}
+            used: list[str] = []
             if seen is not None:
                 try:
-                    sites = json.loads(self.path.read_text(encoding="utf-8"))["sites"]
+                    data = json.loads(self.path.read_text(encoding="utf-8"))
+                    sites, used = data["sites"], data.get("trials_used", [])
                     if not isinstance(sites, dict):
                         raise ValueError("sites must be an object")
+                    if not isinstance(used, list):
+                        raise ValueError("trials_used must be a list")
                 except (OSError, ValueError, KeyError, TypeError) as e:
                     logger.error(
                         "Could not read the sites file",
                         extra={"path": str(self.path), "error": str(e)},
                     )
                     return {}
-            self._sites, self._seen = sites, seen
+            self._sites, self._trials_used, self._seen = sites, used, seen
+            self._record_old_trials()
         return self._sites
+
+    def _record_old_trials(self) -> None:
+        """With the lock held, as sites.json is read: the host of each trial site made before
+        trials were recorded is recorded now, in the file, so a later email change or the
+        site's removal can't free the address for another trial (Codex's review of PR #292)."""
+        missing = {
+            email_key(str(s["host"]))
+            for s in self._sites.values()
+            if s.get("trial") and email_key(str(s["host"])) not in self._trials_used
+        }
+        if not missing:
+            return
+        used = [*self._trials_used, *sorted(missing)]
+        try:
+            self._write(self._sites, used)
+        except OSError as e:
+            logger.error("Could not record the trials made before", extra={"error": str(e)})
+        self._trials_used = used  # kept in memory either way, and written at the next change
+        try:
+            stat = self.path.stat()
+            self._seen = (stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            pass
+        logger.info("Trials made before recorded", extra={"trials": len(missing)})
+
+    def _write(self, sites: dict[str, dict[str, Any]], used: list[str] | None = None) -> None:
+        """Write sites.json, with the lock held, keeping the emails that had a trial."""
+        used = self._trials_used if used is None else used
+        writing = self.path.with_name(f"{SITES_FILE}.writing")
+        writing.write_text(
+            json.dumps({"sites": sites, "trials_used": used}, indent=2), encoding="utf-8"
+        )
+        os.replace(writing, self.path)
+
+    def trial_used(self, email: str) -> bool:
+        """Whether the email address has had a free trial (R66), even one since gone."""
+        with self._lock:
+            return self._used(email, self._load())
+
+    def _used(self, email: str, sites: dict[str, dict[str, Any]]) -> bool:
+        """With the lock held, the sites just read: whether the address had a trial. Every trial
+        site's host is recorded as it is read (`_record_old_trials`)."""
+        return email_key(email) in self._trials_used
+
+    def paused(self, name: str) -> str | None:
+        """Why the site is paused, such as "cancelled" (R66, R69), or None while it runs."""
+        with self._lock:
+            site = self._load().get(name)
+        return None if site is None else site.get("paused")
+
+    def cancel_trial(self, name: str) -> bool:
+        """Pause the trial site as its host cancelled it (R66): whether it was a trial that was
+        running. Paused, visitors see a notice and its host can still sign in (R69)."""
+        with self._lock:
+            sites = dict(self._load())
+            site = sites.get(name)
+            if site is None or not site.get("trial") or site.get("paused"):
+                return False
+            sites[name] = {**site, "paused": "cancelled", "paused_at": time.time()}
+            self._write(sites)
+        logger.info("Trial cancelled", extra={"site": name, "host": site.get("host")})
+        return True
 
     def names(self) -> list[str]:
         with self._lock:
@@ -190,9 +270,10 @@ class SiteDirectory:
             if site is None or site.get("host") != normal_email(email):
                 return False
             sites[name] = {**site, "host": normal_email(new_email)}
-            writing = self.path.with_name(f"{SITES_FILE}.writing")
-            writing.write_text(json.dumps({"sites": sites}, indent=2), encoding="utf-8")
-            os.replace(writing, self.path)
+            used = self._trials_used
+            if site.get("trial") and email_key(new_email) not in used:
+                used = [*used, email_key(new_email)]  # the new address has had it too (R66)
+            self._write(sites, used)
         logger.info("Site host changed", extra={"site": name, "host": new_email})
         return True
 
@@ -247,12 +328,16 @@ class SiteDirectory:
                 raise SiteError(f"No host has signed up as {email}.")
             if host_site != DEFAULT_SITE:
                 raise SiteError(f"{email} is already the host of {host_site}.")
+            used = self._trials_used
+            if trial:
+                if self._used(email, sites):  # one free trial per email address (R66)
+                    logger.warning("Trial refused: email already used", extra={"email": email})
+                    raise TrialUsed(TRIAL_USED)
+                used = [*used, email_key(email)]
             sites[name] = {"host": email.strip().lower(), "created_at": time.time()}
             if trial:
                 sites[name]["trial"] = True
-            writing = self.path.with_name(f"{SITES_FILE}.writing")
-            writing.write_text(json.dumps({"sites": sites}, indent=2), encoding="utf-8")
-            os.replace(writing, self.path)
+            self._write(sites, used)
             self._hosts.set_site(email, name)
         folder = site_home(name, self.home)
         folder.mkdir(parents=True, exist_ok=True)

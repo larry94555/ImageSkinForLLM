@@ -18,6 +18,7 @@ from imageskin.hosts import (
     DEFAULT_SITE,
     HOST_COOKIE,
     TOO_SOON,
+    TRIAL_USED,
     Host,
     HostAccounts,
     HostElsewhere,
@@ -79,6 +80,8 @@ def host_router(
     is_trial: Callable[[str], bool] = lambda _: False,
     make_site: Callable[[str], str] | None = None,
     send_email: Callable[[Message], object] | None = None,
+    trial_used: Callable[[str], bool] = lambda _: False,
+    paused: Callable[[str], str | None] = lambda _: None,
 ) -> tuple[APIRouter, Callable[..., Host]]:
     """The routes, and the dependency that refuses a request not signed in as a host. `may_use`
     says whether a host may use a custom image and voice (R239), read at each request so an
@@ -86,7 +89,8 @@ def host_router(
     site's sign-in, sent here by hand, counts as none. With `make_site`, each sign-up at the main
     address makes the new host a trial site of their own (R62): it is given their email and
     returns the site's trial code. The customer then confirms their email from a link sent with
-    `send_email` before managing it (R62b)."""
+    `send_email` before managing it (R62b). `trial_used` says whether an email address has had
+    its one free trial, and `paused` why a site is paused (R66)."""
 
     def own_host(token: str | None) -> Host | None:
         return accounts.host(token, site)
@@ -143,6 +147,10 @@ def host_router(
             answer["acting_as_admin"] = True
         if host and host.disabled:
             answer["disabled"] = True  # read-only for the host (R44c)
+        if is_trial(site):
+            answer["trial"] = True  # its host can cancel it (R66)
+        if paused(site):
+            answer["paused"] = True  # visitors see a notice (R66, R69)
         return answer
 
     def send_confirmation(request: Request, email: str, token: str, site_path: str) -> bool:
@@ -218,6 +226,13 @@ def host_router(
                 "Host sign-up refused", extra={"site": site, "why": "the site has its host"}
             )
             return JSONResponse({"detail": SITE_HAS_HOST}, status_code=403)
+        # One free trial per email address (R66), checked before the account is made. One
+        # signed up already is still told so, or has their site finished, below.
+        if make_site is not None and not accounts.exists(email) and trial_used(email):
+            logger.warning(
+                "Trial refused: email already used", extra={"email": normal_email(email)}
+            )
+            return JSONResponse({"detail": TRIAL_USED}, status_code=409)
         try:
             token = accounts.sign_up(
                 email, password, address(request), confirm=make_site is not None

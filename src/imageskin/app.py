@@ -319,6 +319,11 @@ REPLY_ID_PATTERN = r"^[0-9a-f]{8,64}$"
 CONVERSATION_FILE = "conversation.json"
 # The visitor cookie's token of the request being answered, or None for the site's host (R65a).
 this_visitor: ContextVar[str | None] = ContextVar("this_visitor", default=None)
+# A paused site's notice (R66, R69), and the calls its visitors still make: its host's sign-in and
+# account pages, the administrator's, and what the page reads to say it is paused.
+PAUSED_WORDS = "This site is paused."
+PAUSED_OPEN = ("/api/host/", "/api/admin/")
+PAUSED_READS = {"/api/consent", "/api/settings", "/api/settings/access", "/api/startup"}
 VISITOR_VIDEOS_FROM = 1_000_000  # visitors' reply videos are numbered from here
 # A prompt stopped while it was answered: it is dropped, with the reply it would have had.
 PROMPT_STOPPED = "Stopped."
@@ -701,6 +706,25 @@ def create_app(
     # it. Read here, as the request arrives, before any dependency can wait on a lock.
     deletes = [0]
 
+    def paused_refusal(request: Request) -> JSONResponse | None:
+        """For a visitor of a paused site (R66), any call but those its pages need to say so and
+        for its host to sign in: refused with the notice, and logged."""
+        why = app.state.service.sites.paused(host_site)
+        if why is None:
+            return None
+        path = re.sub(r"^/t/[^/]+", "", request.url.path)
+        if not path.startswith("/api/") or path.startswith(PAUSED_OPEN):
+            return None
+        if request.method == "GET" and path in PAUSED_READS:
+            return None
+        if host_accounts.host(request.cookies.get(HOST_COOKIE), host_site) is not None:
+            return None
+        logger.info(
+            "Paused site refused a visitor",
+            extra={"site": host_site, "why": why, "method": request.method, "path": path},
+        )
+        return JSONResponse({"detail": PAUSED_WORDS}, status_code=403)
+
     @app.middleware("http")
     async def log_requests(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -712,6 +736,10 @@ def create_app(
         # gets one.
         new_visitor = None
         visitor = None
+        # A paused site (R66, R69) answers its visitors with a notice; its host still uses it.
+        refused = paused_refusal(request)
+        if refused is not None:
+            return refused
         if re.sub(r"^/t/[^/]+", "", request.url.path).startswith("/api/chat") and (
             host_accounts.host(request.cookies.get(HOST_COOKIE), host_site) is None
         ):
@@ -827,12 +855,24 @@ def create_app(
         if sign_up_makes_site
         else None,
         service.mailer.send,
+        trial_used=service.sites.trial_used,
+        paused=service.sites.paused,
     )
     # The host pages' calls (R190): setup, the setup wizard, Start now, Manage Content and editing
     # the wiki refuse anyone not signed in as a host. Reading the wiki and the PDFs stays open,
     # for the participant view.
     host_only = [Depends(app.state.require_host)]
     SignedInHost = Annotated[Host, Depends(app.state.require_host)]
+
+    @app.post("/api/site/cancel")
+    def cancel_trial(host: SignedInHost) -> dict[str, bool]:
+        """Cancel the free trial from Settings (R66): the site is paused, as in R69."""
+        if not service.sites.is_trial(host_site):
+            logger.warning("Trial not cancelled", extra={"site": host_site, "why": "not a trial"})
+            raise HTTPException(status_code=409, detail="Only a free trial is cancelled here.")
+        if not service.sites.cancel_trial(host_site):
+            raise HTTPException(status_code=409, detail="This trial was cancelled already.")
+        return {"paused": True}
 
     # The host's own photo and voice where the administrator turned them off (R240): refused,
     # so an old page or the API can't use them. The files already stored are kept.

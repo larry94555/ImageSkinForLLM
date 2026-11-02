@@ -7,6 +7,7 @@ import { createContext } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 
 import { AdminSection } from "./admin";
+import { CancelTrial } from "./cancel-trial";
 import { ReadOnly, useHost } from "./host";
 import { changeSettings, DEFAULT_SETTINGS, getSettings, type UiSettings, type View } from "./api";
 import { ChangeSetup } from "./change-setup";
@@ -261,6 +262,8 @@ export function SettingsPage({
       <VideoAndChat />
       {/* The photos and recordings are the host's (R41b), so only they can delete them. */}
       {settings.view === "host" && <DeleteData onDeleted={onDataDeleted} />}
+      {/* A free trial's host cancels it here (R66). */}
+      <CancelTrial />
       </ReadOnly>
       {/* In either view: the admin view is apart from both (R150). */}
       <AdminSection />
