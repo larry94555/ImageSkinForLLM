@@ -392,6 +392,12 @@ Added by Larry on 2026-10-17, to build after every item above; on 2026-10-18 Lar
    - **The log** has `Admin acting as host started` and `Admin acting as host stopped`, with the host's email and why it stopped, and every request made while acting is logged with `acting_as`, so what the administrator changed can be told from what the host did.
    - It works only for the administrator signed in at the main address (roadmap R44); a host or a visitor can't act as anyone, and a host's site still has no admin sign-in.
 
+206. **The administrator disables a host.** Each host in **Host properties** (item 195) also has **Disable** and, once disabled, **Enable** (Larry, 2026-11-02). A disabled host's site is read-only for its host: they can still sign in and see every page, setting and file of their site as before, but every change is refused, on the page and by the server, with "Changes to this site are turned off by the administrator." Only the administrator, acting as that host (item 205), can change the site's settings, setup or content while it is disabled.
+   - **On the host's pages,** a bar says the site is read-only, and every control that would change something is turned off.
+   - **What stays open to the host:** signing in and out, Forgot password, and reading everything *(default)*. Change email and Delete my data are changes, so they are refused.
+   - **Visitors and participants** use the site as before: the chat, Teach me and the rest are not changes to the host's settings *(default)*.
+   - **Enable** puts everything back at once. Disabling or enabling applies at once, with no restart, and is logged as `Host disabled` or `Host enabled` with the host's email; each change refused is logged as `Host change refused` with `why: "disabled"`.
+
 ### How this changes earlier items
 
 Noted here and applied when the PRs for these items are built.
