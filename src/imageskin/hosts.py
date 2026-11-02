@@ -56,6 +56,12 @@ TOO_SOON = "The email was sent less than a minute ago. Please wait a moment and 
 RESET_KEY = "reset"
 RESET_AT = "reset_at"
 RESET_HOURS = 1  # how long a link to set a new password works
+# Changing the email (R62c): the new address, confirmed from a link sent to it, kept as its hash.
+NEW_EMAIL = "new_email"
+CHANGE_KEY = "change"
+CHANGE_AT = "change_at"
+CHANGE_HOURS = 24  # how long a link to confirm a new email works
+SAME_EMAIL = "That is already your email address."
 # A host's own Allow or Deny of a custom image and a custom voice (R242), kept with the host.
 CUSTOM_IMAGE = "custom_image"
 CUSTOM_VOICE = "custom_voice"
@@ -432,6 +438,98 @@ class HostAccounts:
             "Host password reset", extra={"email": email, "sign_ins_ended": ended, "by": "link"}
         )
         return email
+
+    def password_is(self, email: str, password: str) -> bool:
+        """Whether this is the host's password, taking as long either way (R62c)."""
+        with self._lock:
+            account = self._load()["hosts"].get(normal_email(email))
+        secret = Secret("hash", account["password_hash"]) if account else None
+        return check_password(password, secret) and account is not None
+
+    def email_change(self, email: str, new_email: str) -> str:
+        """A link's token to confirm `new_email` as the host's (R62c), replacing any asked for
+        before; HostRefused when it isn't an email, is theirs already or another host's, or the
+        last link was made less than a minute ago."""
+        email, new_email = normal_email(email), normal_email(new_email)
+        if not EMAIL.fullmatch(new_email):
+            raise HostRefused(BAD_EMAIL, "not an email address")
+        if new_email == email:
+            raise HostRefused(SAME_EMAIL, "same email")
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            data = self._load()
+            account = data["hosts"].get(email)
+            if account is None:
+                raise HostRefused(WRONG, "no such host")
+            if new_email in data["hosts"]:
+                raise HostRefused(EMAIL_TAKEN, "email already signed up")
+            if self.clock() - float(account.get(CHANGE_AT, 0)) < CONFIRM_AGAIN_S:
+                raise HostRefused(TOO_SOON, "too soon")
+            account = {
+                **account,
+                NEW_EMAIL: new_email,
+                CHANGE_KEY: token_key(token),
+                CHANGE_AT: self.clock(),
+            }
+            self._save({**data, "hosts": {**data["hosts"], email: account}})
+        logger.info("Email change asked for", extra={"email": email, "new_email": new_email})
+        return token
+
+    def email_change_of(self, token: str) -> tuple[str, str] | None:
+        """The host's email and the new one a change link is for (R62c), without using it;
+        None, logged, when it is unknown, used, more than CHANGE_HOURS old, or the new email
+        has become another host's."""
+        key = token_key(token)
+        with self._lock:
+            hosts = self._load()["hosts"]
+        email = next((str(e) for e, a in hosts.items() if a.get(CHANGE_KEY) == key), None)
+        if email is None:
+            logger.warning("Host email not changed", extra={"why": "unknown link"})
+            return None
+        account = hosts[email]
+        new_email = str(account[NEW_EMAIL])
+        hours = (self.clock() - float(account.get(CHANGE_AT, 0))) / 3600
+        why = (
+            "link too old" if hours > CHANGE_HOURS else "email taken" if new_email in hosts else ""
+        )
+        if why:
+            logger.warning("Host email not changed", extra={"email": email, "why": why})
+            return None
+        return email, new_email
+
+    def change_email(self, token: str) -> tuple[str, str] | None:
+        """Use the change link (R62c): the account, with its sign-ins, moves to the new email,
+        which counts as confirmed, as the link came to it. The emails, or None as for
+        email_change_of."""
+        found = self.email_change_of(token)
+        if found is None:
+            return None
+        email, new_email = found
+        with self._lock:
+            data = self._load()
+            account = data["hosts"].get(email)
+            if (
+                account is None
+                or account.get(CHANGE_KEY) != token_key(token)
+                or new_email in data["hosts"]
+            ):
+                logger.warning("Host email not changed", extra={"email": email, "why": "changed"})
+                return None
+            moved = {
+                k: v for k, v in account.items() if k not in (NEW_EMAIL, CHANGE_KEY, CHANGE_AT)
+            }
+            if CONFIRMED in moved:
+                moved[CONFIRMED] = True
+                moved.pop(CONFIRM_KEY, None)
+                moved.pop(CONFIRM_AT, None)
+            hosts = {e: a for e, a in data["hosts"].items() if e != email} | {new_email: moved}
+            sessions = {
+                k: {**v, "email": new_email} if v["email"] == email else v
+                for k, v in data["sessions"].items()
+            }
+            self._save({**data, "hosts": hosts, "sessions": sessions})
+        logger.info("Host email changed", extra={"email": email, "new_email": new_email})
+        return email, new_email
 
     def reset_password(self, email: str, password: str) -> bool:
         """Set a host's password from the server, as a last resort beside Forgot password (R62a),

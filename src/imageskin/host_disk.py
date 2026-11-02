@@ -71,6 +71,23 @@ class Owners:
             writing.replace(self.path)
         logger.info("File owner recorded", extra={"kind": kind, "id": item, "email": email})
 
+    def rename(self, email: str, new_email: str) -> int:
+        """Give the host's files their new email (R62c): how many."""
+        with self._lock:
+            data = self.read()
+            moved = sum(v == email for items in data.values() for v in items.values())
+            if not moved:
+                return 0
+            data = {
+                kind: {k: new_email if v == email else v for k, v in items.items()}
+                for kind, items in data.items()
+            }
+            writing = self.path.with_suffix(".writing")
+            writing.write_text(json.dumps(data, indent=1), encoding="utf-8")
+            writing.replace(self.path)
+        logger.info("File owners renamed", extra={"email": new_email, "files": moved})
+        return moved
+
 
 def count(home: Path, owners: Owners, email: str) -> dict[str, int]:
     """The host's photos and recordings, PDFs and total, in bytes."""

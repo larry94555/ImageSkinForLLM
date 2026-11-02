@@ -30,6 +30,12 @@ function server(signedIn: string | null = null) {
         confirmed: state.confirmed,
       });
     }
+    if (url === "/api/host/email") {
+      if (body.password !== "a long secret") {
+        return Response.json({ detail: "The password is wrong." }, { status: 401 });
+      }
+      return Response.json({ sent_to: body.new_email });
+    }
     if (url === "/api/host/forgot") {
       return Response.json({ detail: "If an account has that email address, a link is on its way." });
     }
@@ -389,4 +395,47 @@ test("a reset link opens while a customer who hasn't confirmed is signed in (R62
   window.location.hash = "#/setup";
   render(<App />);
   await screen.findByRole("heading", { name: "Confirm your email" });
+});
+
+test("the account page sends a link to change the email (R62c)", async () => {
+  const { fetchMock } = server("host@example.com");
+  window.location.hash = "#/chat";
+  render(<App />);
+  const link = await within(topBar()).findByRole("link", { name: "host@example.com" });
+  expect(link).toHaveProperty("hash", "#/host/account");
+  window.location.hash = "#/host/account";
+  await screen.findByRole("heading", { name: "Your account" });
+  fill(/^New email/, "new@example.com");
+  fill(/^Your password/, "wrong one");
+  fireEvent.click(screen.getByRole("button", { name: "Send the link" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("The password is wrong.");
+  fill(/^Your password/, "a long secret");
+  fireEvent.click(screen.getByRole("button", { name: "Send the link" }));
+  expect((await screen.findByRole("status")).textContent).toContain(
+    "We sent a link to new@example.com.",
+  );
+  const asked = fetchMock.mock.calls.filter(([url]) => url === "/api/host/email").at(-1);
+  expect(JSON.parse(String(asked?.[1]?.body))).toEqual({
+    new_email: "new@example.com",
+    password: "a long secret",
+  });
+});
+
+test("the account page is for a signed-in host only (R62c)", async () => {
+  server();
+  window.location.hash = "#/host/account";
+  render(<App />);
+  await screen.findByRole("heading", { name: "For the host only" });
+});
+
+test("the change email link's pages say whether it changed (R62c)", async () => {
+  server("new@example.com");
+  window.location.hash = "#/host/email-changed";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Your email is changed" });
+  cleanup();
+  window.location.hash = "#/host/email-failed";
+  render(<App />);
+  await screen.findByRole("heading", { name: "Your email isn't changed" });
+  expect(screen.getByRole("alert").textContent).toContain("more than a day old");
 });
