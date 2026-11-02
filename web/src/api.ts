@@ -1459,9 +1459,14 @@ export async function hostPageOpened(page: "sign-up" | "sign-in"): Promise<void>
 
 // The disk space the signed-in host has used (roadmap R192), in bytes; `opened` when the
 // Resources page asks as it opens (R193), so the server logs it.
+// Every file of the host's site, in six lines and their total (R65b).
 export interface HostDisk {
   images_and_recordings: number;
   pdfs: number;
+  guidelines: number;
+  conversations: number;
+  preferences: number;
+  other: number;
   total: number;
 }
 

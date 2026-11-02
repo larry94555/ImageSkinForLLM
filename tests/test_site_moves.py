@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from test_site_addresses import PASSWORD, served, sign_in
 
 from imageskin import admin
-from imageskin.host_disk import Owners, count
+from imageskin.host_disk import Owners
 from imageskin.hosts import HostAccounts
 from imageskin.photoreal_library import library_key
 from imageskin.site_moves import SHARED_FILES, move_hosts_to_sites, site_name
@@ -74,6 +74,22 @@ def existing(home: Path, ann_recorded: bool = True) -> dict[str, Any]:
     return {"hosts": hosts, "sites": SiteDirectory(home, hosts), "ids": ids}
 
 
+FOLDERS = {"photos": "uploads/photos", "sounds": "uploads/sounds", "pdfs": "content/pdfs"}
+
+
+def added_by(site: Path, email: str, *kinds: str) -> int:
+    """The bytes in the photos, recordings and PDFs the site's record says the host added."""
+    recorded = Owners(site).read()
+    return sum(
+        p.stat().st_size
+        for kind in kinds or tuple(FOLDERS)
+        for item, who in recorded.get(kind, {}).items()
+        if who == email
+        for p in (site / FOLDERS[kind]).glob(f"{item}.*")
+        if p.suffix != ".json"
+    )
+
+
 def test_every_host_gets_a_site_with_what_they_added(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -115,11 +131,10 @@ def test_every_host_gets_a_site_with_what_they_added(
     assert not (tmp_path / "conversation.json").exists()
     assert not (tmp_path / "uploads" / "voice-sample.wav").exists()  # joined again in each site
     assert not (tmp_path / "uploads" / "voice-sample.wav.accent.npz").exists()
-    # Each site's record of who added what, and so each host's Resources total; the old photo
-    # counts for no host, as R192 counts it.
-    assert count(ann, Owners(ann), ANN)["total"] == len(b"ann's faceann speaking")
-    assert count(bob, Owners(bob), BOB)["total"] == len(b"bob's facebob speaking")
-    assert count(tmp_path, Owners(tmp_path), ANN)["total"] == 0
+    # Each site's record of who added what; the old photo was added by no host.
+    assert added_by(ann, ANN) == len(b"ann's faceann speaking")
+    assert added_by(bob, BOB) == len(b"bob's facebob speaking")
+    assert added_by(tmp_path, ANN) == 0
     # The settings every host shared are copied to each new site.
     for site in ("ann", "bob", "cy"):
         for name in SHARED_FILES[:2]:
@@ -291,9 +306,9 @@ def test_each_hosts_pdfs_move_to_their_site_with_all_made_from_them(
         assert (site / "content" / "wiki" / f"{pdf_id}.edits.json").is_file()
         assert (site / "content" / "wiki" / f"{pdf_id}.history" / "v1.json").is_file()
     assert not list((tmp_path / "content").rglob("*.json"))  # nothing left, lessons too
-    # Each host's Resources total counts their own files, PDFs too.
-    assert count(bob, Owners(bob), BOB)["total"] == len(b"bob's facebob speaking%PDF-bob's")
-    assert count(ann, Owners(ann), ANN)["pdfs"] == len(b"%PDF-ann")
+    # Each site's record of who added what has their own files, PDFs too.
+    assert added_by(bob, BOB) == len(b"bob's facebob speaking%PDF-bob's")
+    assert added_by(ann, ANN, "pdfs") == len(b"%PDF-ann")
     assert Owners(tmp_path).read().get("pdfs") == {}
     logged = {
         r.__dict__["host"]: r.__dict__ for r in caplog.records if r.message == "Site PDFs moved"
