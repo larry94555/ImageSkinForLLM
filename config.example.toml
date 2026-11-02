@@ -45,3 +45,13 @@ clones_loaded = 2
 # other name gets Site not found, so set it to the domain the app is reached at. Sites are
 # added with: imageskin site add name --host their-host@example.com
 main_domain = "me0.ai"
+
+# The mail service email is sent through (roadmap R215): a transactional email service's SMTP
+# settings. Its password is never kept here: set it in the IMAGESKIN_SMTP_PASSWORD environment
+# variable. Port 465 is TLS from the start; any other port must offer STARTTLS. With no
+# smtp_host, as on a laptop, each email is written to the outbox folder in the app's home folder
+# instead. Check the settings with: imageskin email-test you@example.com
+# smtp_host = "smtp.example.com"
+# smtp_port = 587
+# smtp_user = "apikey"
+# mail_from = "me0.ai <noreply@me0.ai>"

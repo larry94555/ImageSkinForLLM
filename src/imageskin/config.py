@@ -51,6 +51,13 @@ class Settings:
     # The hosted service's domain (R61): each site is at name.<main_domain>, as name.localhost is
     # locally; the domain itself, www and app are the main address's site.
     main_domain: str = "me0.ai"
+    # The mail service email is sent through (roadmap R215), with its password in the
+    # IMAGESKIN_SMTP_PASSWORD environment variable. With no smtp_host, each email is written to
+    # the outbox folder in the app's home folder instead.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    mail_from: str = ""
 
 
 def load_settings(path: Path | None) -> Settings:
@@ -102,6 +109,16 @@ def load_settings(path: Path | None) -> Settings:
         raise ConfigError(f"clones_loaded in {path} must be a number of at least 1")
     if not isinstance(settings.main_domain, str) or "." not in settings.main_domain.strip("."):
         raise ConfigError(f"main_domain in {path} must be a domain, such as me0.ai")
+    for key in ("smtp_host", "smtp_user", "mail_from"):
+        if not isinstance(getattr(settings, key), str):
+            raise ConfigError(f"{key} in {path} must be a string")
+    if type(settings.smtp_port) is not int or not 1 <= settings.smtp_port <= 65535:
+        raise ConfigError(f"smtp_port in {path} must be a number from 1 to 65535")
+    if settings.smtp_host and "@" not in settings.mail_from:
+        raise ConfigError(
+            f"mail_from in {path} must be the address email is sent from, such as"
+            ' "me0.ai <noreply@me0.ai>", when smtp_host is set'
+        )
     if settings.log_level not in LOG_LEVELS:
         raise ConfigError(f"log_level in {path} must be one of {', '.join(LOG_LEVELS)}")
     logger.info("Loaded config", extra={"path": str(path)})
